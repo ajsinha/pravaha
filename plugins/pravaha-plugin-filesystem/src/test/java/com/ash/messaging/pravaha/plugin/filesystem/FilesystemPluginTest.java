@@ -1,0 +1,404 @@
+/*
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL.
+ *
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
+ *
+ * See the LICENSE file in the root of this repository for the full terms.
+ */
+package com.ash.messaging.pravaha.plugin.filesystem;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import com.ash.messaging.pravaha.api.ConfigurationException;
+import com.ash.messaging.pravaha.api.data.EmitMode;
+import com.ash.messaging.pravaha.api.data.RowView;
+import com.ash.messaging.pravaha.api.data.RowWriter;
+import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee;
+import com.ash.messaging.pravaha.api.plugin.PartitionReader;
+import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.api.plugin.SourceOffset;
+import com.ash.messaging.pravaha.common.arena.ArenaHandle;
+import com.ash.messaging.pravaha.common.arena.RowArena;
+import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.common.row.BinaryRowView;
+import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
+import com.ash.messaging.pravaha.common.row.RowLayout;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class FilesystemPluginTest {
+
+    private static final String SCHEMA = "id:INT64,user:STRING,amount:FLOAT64,active:BOOLEAN,note:STRING?";
+
+    private record Ctx(String instanceName, Map<String, String> config) implements PluginContext {}
+
+    private static PluginContext ctx(Map<String, String> config) {
+        return new Ctx("txn", config);
+    }
+
+    // ------------------------------------------------------------------ schema parsing
+
+    @Test
+    void parsesADeclaredSchema() {
+        // Declared rather than sniffed: inferring types from sample lines guesses wrong on exactly
+        // the columns that matter, and an all-digit identifier becomes an integer until the first
+        // row containing a letter arrives.
+        StreamSchema s = FilesystemSourcePlugin.parseSchema("txn", SCHEMA);
+        assertThat(s.fieldCount()).isEqualTo(5);
+        assertThat(s.field(0).type().sqlName()).isEqualTo("INT64 NOT NULL");
+        assertThat(s.field(4).type().nullable())
+                .as("the ? suffix marks a column nullable")
+                .isTrue();
+    }
+
+    @Test
+    void rejectsAMalformedSchemaWithAnExample() {
+        assertThatThrownBy(() -> FilesystemSourcePlugin.parseSchema("s", "id"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name:TYPE")
+                .hasMessageContaining("Example");
+        assertThatThrownBy(() -> FilesystemSourcePlugin.parseSchema("s", "id:WIDGET"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("Supported:");
+    }
+
+    // ------------------------------------------------------------------ splitting
+
+    @Test
+    void splittingPreservesEmptyTrailingFields() {
+        // String.split drops them, which silently turns a row with a null last column into a short
+        // row and produces a field-count error pointing at the wrong problem.
+        assertThat(DelimitedCodec.split("a,b,", ',')).containsExactly("a", "b", "");
+        assertThat(DelimitedCodec.split("a,,c", ',')).containsExactly("a", "", "c");
+        assertThat(DelimitedCodec.split(",", ',')).containsExactly("", "");
+        assertThat(DelimitedCodec.split("solo", ',')).containsExactly("solo");
+    }
+
+    // ------------------------------------------------------------------ end to end
+
+    @Test
+    void readsWritesAndReadsBackIdentically(@TempDir Path dir) throws IOException {
+        // The property that matters for the reference plugin: it must be able to read back exactly
+        // what it wrote. Two implementations that disagree by one edge case produce a plugin that
+        // cannot, and each half looks correct alone.
+        Path input = dir.resolve("in.csv");
+        Files.writeString(input, """
+                1,alice,10.5,true,hello
+                2,bob,20.25,false,
+                3,carol,0.0,true,note with spaces
+                """);
+
+        List<String> roundTripped = new ArrayList<>();
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            source.open();
+
+            Path output = dir.resolve("out.csv");
+            try (FilesystemSinkPlugin sink = new FilesystemSinkPlugin()) {
+                sink.configure(ctx(Map.of("path", output.toString(), "schema", SCHEMA)));
+                sink.open();
+
+                withRows(source, rows -> {
+                    assertThat(rows).hasSize(3);
+                    assertThat(sink.write(rows)).isEqualTo(3);
+                    sink.flush();
+                });
+                roundTripped.addAll(Files.readAllLines(output));
+            }
+        }
+        assertThat(roundTripped)
+                .containsExactly("1,alice,10.5,true,hello", "2,bob,20.25,false,", "3,carol,0.0,true,note with spaces");
+    }
+
+    @Test
+    void nullsSurviveTheRoundTrip(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("nulls.csv");
+        Files.writeString(input, "1,a,1.0,true,\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            source.open();
+            withRows(source, rows -> {
+                assertThat(rows).hasSize(1);
+                assertThat(rows.get(0).isNull(4)).isTrue();
+            });
+        }
+    }
+
+    @Test
+    void everyRowFromAFileIsAnInsertAtWeightOne(@TempDir Path dir) throws IOException {
+        // A file is an append-only log of insertions. If this ever changed silently, downstream
+        // aggregates would be wrong in a way that looks like a data problem.
+        Path input = dir.resolve("in.csv");
+        Files.writeString(input, "1,a,1.0,true,x\n2,b,2.0,false,y\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            source.open();
+            withRows(source, rows -> {
+                for (RowView row : rows) {
+                    assertThat(row.weight()).isEqualTo(1L);
+                    assertThat(row.rowKind()).isEqualTo(com.ash.messaging.pravaha.api.data.RowKind.INSERT);
+                }
+            });
+        }
+    }
+
+    @Test
+    void resumesFromARecordedOffset(@TempDir Path dir) throws IOException {
+        // The claim behind declaring EXACTLY_ONCE. The TCK checks the round trip rather than
+        // trusting the declaration, and so does this.
+        Path input = dir.resolve("in.csv");
+        Files.writeString(input, "1,a,1.0,true,x\n2,b,2.0,true,y\n3,c,3.0,true,z\n");
+
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            source.open();
+
+            SourceOffset afterTwo;
+            try (PartitionReader reader =
+                    source.createReader(source.partitions("txn").get(0), null)) {
+                Collector first = new Collector(source.schema());
+                assertThat(reader.poll(first, 2)).isEqualTo(2);
+                afterTwo = reader.position();
+                first.close();
+            }
+            assertThat(afterTwo.token()).isEqualTo("2");
+
+            try (PartitionReader resumed =
+                    source.createReader(source.partitions("txn").get(0), afterTwo)) {
+                Collector rest = new Collector(source.schema());
+                assertThat(resumed.poll(rest, 10))
+                        .as("only the third row remains")
+                        .isEqualTo(1);
+                assertThat(rest.rows.get(0).getLong(0)).isEqualTo(3L);
+                rest.close();
+            }
+        }
+    }
+
+    @Test
+    void pauseStopsProducingAndResumeContinues(@TempDir Path dir) throws IOException {
+        // A reader that ignores pause turns flow control into an out-of-memory error further along.
+        Path input = dir.resolve("in.csv");
+        Files.writeString(input, "1,a,1.0,true,x\n2,b,2.0,true,y\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            source.open();
+            try (PartitionReader reader =
+                            source.createReader(source.partitions("txn").get(0), null);
+                    Collector c = new Collector(source.schema())) {
+                reader.pause();
+                assertThat(reader.poll(c, 10)).isZero();
+                reader.resume();
+                assertThat(reader.poll(c, 10)).isEqualTo(2);
+            }
+        }
+    }
+
+    @Test
+    void skipsAHeaderWhenAsked(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("in.csv");
+        Files.writeString(input, "id,user,amount,active,note\n1,a,1.0,true,x\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA, "skip.header", "true")));
+            source.open();
+            assertThat(countRows(source)).isEqualTo(1);
+        }
+    }
+
+    // ------------------------------------------------------------------ failure modes
+
+    @Test
+    void aWrongFieldCountNamesTheLineAndTheCounts(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("bad.csv");
+        Files.writeString(input, "1,a,1.0,true,x\n2,b\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            source.open();
+            assertThatThrownBy(() -> countRows(source))
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("line 2")
+                    .hasMessageContaining("2 fields")
+                    .hasMessageContaining("5");
+        }
+    }
+
+    @Test
+    void aNonNumericValueNamesTheColumnAndTheType(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("bad.csv");
+        Files.writeString(input, "notanumber,a,1.0,true,x\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            source.open();
+            assertThatThrownBy(() -> countRows(source))
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("'id'")
+                    .hasMessageContaining("INT64")
+                    .hasMessageContaining("notanumber");
+        }
+    }
+
+    @Test
+    void aNullInANotNullColumnIsRefused(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("bad.csv");
+        Files.writeString(input, "1,,1.0,true,x\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA, "null.literal", "")));
+            source.open();
+            assertThatThrownBy(() -> countRows(source))
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("NOT NULL")
+                    .hasMessageContaining("user");
+        }
+    }
+
+    @Test
+    void anUnreadableFileFailsAtOpenNotAtFirstPoll(@TempDir Path dir) {
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", dir.resolve("absent.csv").toString(), "schema", SCHEMA)));
+            assertThatThrownBy(source::open)
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("cannot read");
+        }
+    }
+
+    @Test
+    void aMultiCharacterDelimiterIsRejected(@TempDir Path dir) {
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            assertThatThrownBy(() -> source.configure(
+                            ctx(Map.of("path", dir.resolve("x").toString(), "schema", SCHEMA, "delimiter", "||"))))
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("single character");
+        }
+    }
+
+    @Test
+    void aMissingRequiredSettingListsWhatWasProvided(@TempDir Path dir) {
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            assertThatThrownBy(() -> source.configure(ctx(Map.of("schema", SCHEMA))))
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("PRV-5001")
+                    .hasMessageContaining("'path'")
+                    .hasMessageContaining("schema");
+        }
+    }
+
+    // ------------------------------------------------------------------ capabilities
+
+    @Test
+    void capabilitiesAreDeclaredHonestly(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("in.csv");
+        Files.writeString(input, "1,a,1.0,true,x\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            var caps = source.capabilities();
+            // A byte position genuinely resumes, so exactly-once is honest.
+            assertThat(caps.replayableOffsets()).isTrue();
+            assertThat(caps.guarantee()).isEqualTo(DeliveryGuarantee.EXACTLY_ONCE);
+            // A file cannot express a delete or a before-image, and saying so lets the planner
+            // refuse a query that needs one instead of producing a view holding dead rows.
+            assertThat(caps.emitsDeletes()).isFalse();
+            assertThat(caps.emitsBeforeImage()).isFalse();
+            assertThat(caps.pushdown()).isEmpty();
+        }
+
+        try (FilesystemSinkPlugin sink = new FilesystemSinkPlugin()) {
+            sink.configure(ctx(Map.of("path", dir.resolve("o.csv").toString(), "schema", SCHEMA)));
+            var caps = sink.capabilities();
+            assertThat(caps.accepts(EmitMode.APPEND)).isTrue();
+            assertThat(caps.accepts(EmitMode.UPSERT)).as("a file cannot upsert").isFalse();
+            assertThat(caps.idempotentUpsert())
+                    .as("a replay appends the rows again")
+                    .isFalse();
+            assertThat(caps.guarantee()).isEqualTo(DeliveryGuarantee.AT_LEAST_ONCE);
+        }
+    }
+
+    @Test
+    void appendModeAddsToAnExistingFile(@TempDir Path dir) throws IOException {
+        Path out = dir.resolve("out.csv");
+        Files.writeString(out, "existing,line,here,now,ok\n");
+        try (FilesystemSinkPlugin sink = new FilesystemSinkPlugin()) {
+            sink.configure(ctx(Map.of("path", out.toString(), "schema", SCHEMA, "append", "true")));
+            sink.open();
+            sink.flush();
+        }
+        assertThat(Files.readAllLines(out)).hasSize(1).first().asString().startsWith("existing");
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    /** Reads every row into arena-backed views, mirroring how the engine will drive a reader. */
+
+    /**
+     * Reads every row and hands them to {@code body} <em>while the arena is still open</em>.
+     *
+     * <p>Rows are flyweights into arena memory, so they are valid only for as long as the arena
+     * lives (design section 8.5). An earlier version of this helper returned the list and closed the
+     * arena first; the arena's use-after-close guard caught it, which is exactly what that guard is
+     * for. Anything needing to outlive the arena must copy.
+     */
+    private static void withRows(FilesystemSourcePlugin source, java.util.function.Consumer<List<RowView>> body) {
+        try (PartitionReader reader =
+                        source.createReader(source.partitions("txn").get(0), null);
+                Collector collector = new Collector(source.schema())) {
+            while (reader.poll(collector, 64) > 0) {
+                // keep polling until the file is exhausted
+            }
+            body.accept(List.copyOf(collector.rows));
+        }
+    }
+
+    /** Counts rows without holding on to them past the arena's lifetime. */
+    private static int countRows(FilesystemSourcePlugin source) {
+        int[] count = {0};
+        withRows(source, rows -> count[0] = rows.size());
+        return count[0];
+    }
+
+    /** Collects decoded rows into an arena, as a lane would. */
+    private static final class Collector implements PartitionReader.RecordSink, AutoCloseable {
+        private final RowLayout layout;
+        private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 16, 32);
+        private final BinaryRowWriter writer;
+        final List<RowView> rows = new ArrayList<>();
+        private long pending = ArenaHandle.NULL;
+
+        Collector(StreamSchema schema) {
+            this.layout = RowLayout.of(schema);
+            this.writer = new BinaryRowWriter(layout);
+        }
+
+        @Override
+        public RowWriter beginRow() {
+            pending = arena.allocate(layout.rowSize(512));
+            writer.begin(arena.regionOf(pending), arena.offsetOf(pending));
+            long handle = pending;
+            return new com.ash.messaging.pravaha.plugin.filesystem.CollectingWriter(
+                    writer,
+                    () -> rows.add(new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle))));
+        }
+
+        @Override
+        public void close() {
+            arena.close();
+        }
+    }
+}

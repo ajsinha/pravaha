@@ -32,6 +32,9 @@
     <module>pravaha-testkit</module>
     <module>pravaha-benchmarks</module>
     <module>pravaha-it</module>
+    <module>plugins/pravaha-plugin-filesystem</module>
+    <module>pravaha-embedded</module>
+    <module>pravaha-cli</module>
     <module>sdk/pravaha-sdk-java</module>
     <!-- Added by the story that needs them (implementation plan 10.1):
          pravaha-embedded (Sprint 5), pravaha-server + pravaha-spring-boot-starter (E6),
@@ -52,6 +55,7 @@
     <agrona.version>2.6.0</agrona.version>
     <jctools.version>4.0.7</jctools.version>
     <slf4j.version>2.0.19</slf4j.version>
+    <calcite.version>1.40.0</calcite.version>
 
     <!-- ==== test dependencies ==== -->
     <junit.version>5.14.4</junit.version>
