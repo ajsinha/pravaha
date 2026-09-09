@@ -1,5 +1,7 @@
 /*
- * Copyright the Pravaha authors.
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright 2026 Ashutosh Sinha <ajsinha@gmail.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,8 +31,8 @@ package com.ash.messaging.pravaha.api.data;
  */
 public interface RowView {
 
-    /** Base address of this row in the arena. */
-    long address();
+    /** Byte offset of this row within its owning region. */
+    int offset();
 
     /** Total encoded length of this row in bytes. */
     int length();
@@ -38,8 +40,15 @@ public interface RowView {
     /** The schema this row was encoded against. */
     StreamSchema schema();
 
-    /** Presentation of {@link #weight()} for sinks and clients. */
-    RowKind rowKind();
+    /**
+     * Presentation of {@link #weight()} for sinks and clients.
+     *
+     * <p>Derived from the sign of the weight rather than stored: internally there is only
+     * arithmetic, and inserts, updates and deletes stop being three cases (design section 9.2).
+     */
+    default RowKind rowKind() {
+        return RowKind.ofWeight(weight());
+    }
 
     /**
      * Z-set weight (design section 9.2). Positive adds, negative retracts. Never zero on a live row: a

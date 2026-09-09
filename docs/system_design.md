@@ -3290,3 +3290,11 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 **Then:**
 
 8. Scaffold Phase 0 — the Maven reactor, `pravaha-api`, the binary row layout with the Z-set header, and `pravaha-testkit` with its virtual clock. The testkit is not infrastructure overhead; it is what makes every subsequent phase's exit criteria checkable, and it is why it ships first.
+
+
+---
+
+<sub>**Project Pravaha (प्रवाह)** — *Ask once. Answer always.*<br>
+Copyright © 2026 Ashutosh Sinha &lt;ajsinha@gmail.com&gt;. Licensed under the Apache License, Version 2.0.
+This document is part of the Pravaha project and is distributed under the same terms; see `LICENSE` and `NOTICE`.
+Provided "as is", without warranties or conditions of any kind.</sub>

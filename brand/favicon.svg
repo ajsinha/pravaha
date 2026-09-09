@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
+     role="img" aria-label="Pravaha">
+  <title>Pravaha</title>
+  <!--
+    Favicon build. Two streamlines rather than three and a heavier stroke: at 16 px the
+    three-line mark closes up into a solid block, so the tab icon trades a little fidelity
+    for staying legible at the size it is actually seen.
+  -->
+  <rect width="64" height="64" rx="14" fill="#0E7C7B"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="7"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8,25 Q20,13 32,25 T56,25" opacity="0.6"/>
+    <path d="M8,41 Q20,29 32,41 T56,41"/>
+  </g>
+</svg>

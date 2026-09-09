@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Document | Pravaha Implementation Plan |
-| Version | 1.2 |
+| Version | 1.3 |
 | Status | Proposed — for review |
 | Companion to | [`system_design.md`](./system_design.md) v3.1 |
 | Platform | **Java 21 LTS** (baseline), Maven 3.9+ via wrapper, Java 25 also CI-tested |
@@ -172,6 +172,37 @@ IntelliJ IDEA is the reference IDE. Committed config: `.editorconfig`, a shared 
 ---
 
 ## 4. Repository, Branching & Release Model
+
+### 4.0 Waves
+
+Work ships in **waves**. A wave is one epic's worth of work with a demonstrable outcome and a
+machine-checkable gate; `develop` moves continuously within a wave, and `main` moves exactly once
+at the end of one.
+
+| | |
+|---|---|
+| **Within a wave** | Commit and push to `develop` freely — several times a day is normal. `develop` stays green; a red `develop` is fixed before anything else proceeds. |
+| **End of a wave** | The gate's acceptance criteria are met and evidenced, then `develop` merges to `main` with `--no-ff` and the milestone is tagged. |
+| **Never** | A merge to `main` mid-wave. `main` is the record of demonstrable milestones, not a mirror of `develop`. |
+
+| Wave | Epic | Sprints | Gate |
+|---|---|---|---|
+| **1** | E0 Foundations | 1–2 | Clean clone builds green on the JDK 21 baseline; deterministic harness demonstrated; JMH baselines recorded |
+| **2** | E1 Minimal vertical slice | 3–5 | Query runs end to end; property oracle green; **M2 go/no-go on the DBSP bet** |
+| **3** | E2 Performance core | 6–11 | Profile A ≥ 1.2 M rec/s/lane; ≥ 90 % scaling to 8 lanes |
+| **4** | E3 Stateful & incremental | 12–18 | Profile B ≥ 350 k rec/s/lane; invariants 1–8 green |
+| **5** | E4 Aerospike, joins, durability | 19–25 | Exactly-once state proven by chaos test; W4 ≥ 5× |
+| **6** | E5 Backfill & serving | 26–32 | **First defensible demo** — W3 point lookup ≤ 200 µs |
+| **7** | E6 Gateways, clients, DX | 33–38 | W2 deploy ≤ 2 s; starter green on Spring Boot 3.2–3.5 |
+| **8** | E7 Cluster & HA | 39–45 | Rolling node kills, zero loss; W7 restore ≤ 30 s |
+| **9** | E8 Control plane & self-tuning | 46–53 | W10 debugger finds a seeded bug and exports the fixture |
+| **10** | E9 Breadth, benchmarks, GA | 54–62 | All SLOs; W5 Nexmark published; **GA** |
+
+Epic **EU** (the console) runs across waves 3–10 rather than owning one, because it ships a surface
+alongside each engine capability (§6.2).
+
+Each wave ends with an evidence pack under `docs/gates/` — benchmark output, test reports, and a
+one-page retrospective on what the wave got wrong. The retrospective feeds the next wave's estimate.
 
 ### 4.1 Branching
 
@@ -947,3 +978,11 @@ Copy into the tracker. Owner column filled at planning.
 - [ ] **P0-12** 18 ADR files under `docs/adr/`, one per design §33 row
 
 **Sprint 1 exit:** a clean clone of `develop` runs `./mvnw clean verify` green on JDK 21 and 25, with no system Maven installed.
+
+
+---
+
+<sub>**Project Pravaha (प्रवाह)** — *Ask once. Answer always.*<br>
+Copyright © 2026 Ashutosh Sinha &lt;ajsinha@gmail.com&gt;. Licensed under the Apache License, Version 2.0.
+This document is part of the Pravaha project and is distributed under the same terms; see `LICENSE` and `NOTICE`.
+Provided "as is", without warranties or conditions of any kind.</sub>

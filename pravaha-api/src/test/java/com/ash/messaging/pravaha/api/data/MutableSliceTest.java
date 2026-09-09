@@ -1,5 +1,7 @@
 /*
- * Copyright the Pravaha authors.
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright 2026 Ashutosh Sinha <ajsinha@gmail.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,15 +28,15 @@ class MutableSliceTest {
     void startsEmpty() {
         MutableSlice s = new MutableSlice();
         assertThat(s.isEmpty()).isTrue();
-        assertThat(s.address()).isZero();
+        assertThat(s.offset()).isZero();
         assertThat(s.length()).isZero();
     }
 
     @Test
     void wrapRepointsAndReturnsItself() {
         MutableSlice s = new MutableSlice();
-        assertThat(s.wrap(0x1000L, 12)).isSameAs(s);
-        assertThat(s.address()).isEqualTo(0x1000L);
+        assertThat(s.wrap(4096, 12)).isSameAs(s);
+        assertThat(s.offset()).isEqualTo(4096);
         assertThat(s.length()).isEqualTo(12);
         assertThat(s.isEmpty()).isFalse();
     }
@@ -42,25 +44,26 @@ class MutableSliceTest {
     @Test
     void wrapIsReusableSoReadingCostsNoAllocation() {
         MutableSlice s = new MutableSlice();
-        s.wrap(1L, 1).wrap(2L, 2).wrap(3L, 3);
-        assertThat(s.address()).isEqualTo(3L);
+        s.wrap(1, 1).wrap(2, 2).wrap(3, 3);
+        assertThat(s.offset()).isEqualTo(3);
         assertThat(s.length()).isEqualTo(3);
     }
 
     @Test
     void clearResetsToEmpty() {
-        MutableSlice s = new MutableSlice().wrap(0x20L, 8);
+        MutableSlice s = new MutableSlice().wrap(32, 8);
         assertThat(s.clear().isEmpty()).isTrue();
-        assertThat(s.address()).isZero();
+        assertThat(s.offset()).isZero();
     }
 
     @Test
-    void rejectsNegativeLength() {
-        assertThatThrownBy(() -> new MutableSlice().wrap(1L, -1)).isInstanceOf(IllegalArgumentException.class);
+    void rejectsNegativeOffsetOrLength() {
+        assertThatThrownBy(() -> new MutableSlice().wrap(1, -1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new MutableSlice().wrap(-1, 1)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void toStringIsDiagnosable() {
-        assertThat(new MutableSlice().wrap(0xABL, 4).toString()).contains("ab").contains("4B");
+        assertThat(new MutableSlice().wrap(171, 4).toString()).contains("171").contains("4B");
     }
 }

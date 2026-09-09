@@ -1,5 +1,7 @@
 /*
- * Copyright the Pravaha authors.
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright 2026 Ashutosh Sinha <ajsinha@gmail.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,15 +51,15 @@ public interface RowWriter {
     /** Writes a 128-bit unscaled decimal. */
     RowWriter setDecimal(int ordinal, long high, long low);
 
-    /** Copies {@code length} bytes from {@code address} into this row's variable-length region. */
-    RowWriter setBytes(int ordinal, long address, int length);
-
     RowWriter setBytes(int ordinal, byte[] value);
 
     /** Encodes as UTF-8. Allocates when {@code value} is not ASCII -- off the hot path only. */
     RowWriter setString(int ordinal, String value);
 
-    RowWriter rowKind(RowKind kind);
+    /** Convenience for {@code weight(kind.weight())}; the weight is what is actually stored. */
+    default RowWriter rowKind(RowKind kind) {
+        return weight(kind.weight());
+    }
 
     RowWriter weight(long weight);
 
@@ -66,11 +68,11 @@ public interface RowWriter {
     RowWriter sequence(long sequence);
 
     /**
-     * Finalises the row and returns its base address in the arena.
+     * Finalises the row and returns its byte offset within the owning region.
      *
      * @throws IllegalStateException if a NOT NULL field was never written
      */
-    long commit();
+    int commit();
 
     /** Discards the partially written row and releases its arena space. */
     void abort();

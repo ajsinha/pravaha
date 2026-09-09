@@ -1,24 +1,32 @@
 <div align="center">
 
+<img src="brand/mark.svg" alt="" width="88" height="88">
+
 # प्रवाह · Pravaha
+
+### Ask once. Answer always.
 
 **An embeddable, store-native, incrementally-maintained continuous query engine.**
 
-*Pravaha* (Sanskrit: *continuous, uninterrupted flow*)
+*Pravaha* (Sanskrit: *continuous, uninterrupted flow*) · pronounced *pruh-VAA-huh*
 
 [![Status](https://img.shields.io/badge/status-design%20phase-blue)](docs/system_design.md)
 [![Java](https://img.shields.io/badge/Java-21%20LTS-orange)](docs/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/implementation_plan.md)
-[![License](https://img.shields.io/badge/license-Apache%202.0-green)](#license)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
 </div>
 
 ---
 
-> **Project status: design phase.** There is no code yet. The architecture and the delivery plan
-> are complete and under review — see [`docs/`](docs/). The first code lands with Phase 0
-> (Sprint 1) once the open decisions in
-> [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) are settled.
+> **Project status: Wave 1 — foundations, in progress.**
+> The architecture and delivery plan are complete ([`docs/`](docs/)). Implementation has started:
+> the Maven reactor builds, `pravaha-api` and the binary row layout are in, and the build enforces
+> its own rules. Nothing is runnable end to end yet — that arrives with Wave 2.
+>
+> The open decisions in [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) do not
+> gate Wave 1, but the Aerospike edition question has procurement lead time and is worth settling
+> early.
 
 ---
 
@@ -156,7 +164,8 @@ wrapper.
 ./mvnw -Pall verify                                  # everything, as CI runs it
 ```
 
-*(Available from Phase 0 — see [implementation plan §2](docs/implementation_plan.md).)*
+All three work today. See [implementation plan §2](docs/implementation_plan.md) for the toolchain
+and profiles; no system Maven is needed, the wrapper is vendored.
 
 ## Roadmap
 
@@ -173,12 +182,35 @@ wrapper.
 
 ## Contributing
 
-Not yet open for contributions — the design is still under review. Once Phase 0 lands, see
-[implementation plan §3–§4](docs/implementation_plan.md) for engineering standards, the branching
-model and the definition of done.
+Not yet open for outside contributions while the foundations settle. The standards that will apply
+are already in force and enforced by the build — see
+[implementation plan §3–§4](docs/implementation_plan.md) for the definition of done, the branching
+model, and the rules the build checks mechanically:
 
-## License
+- source files stay under 1500 lines (`SourceFileSizeTest`)
+- every production type carries JUnit coverage, with JaCoCo gates per module
+- no Spring in the engine core, no `Serializable`, no unbounded collections (`ArchitectureRulesTest`)
+- every file carries the copyright and licence notice (`LicenseHeaderTest`)
 
-Apache License 2.0 — the entire engine, the console and all first-party plugins. The moat is
-architecture and execution quality, not a crippled open edition.
+## Legal
+
+Copyright © 2026 **Ashutosh Sinha** <ajsinha@gmail.com>. All rights reserved.
+
+Licensed under the **Apache License, Version 2.0**. You may not use this software except in
+compliance with the License. A copy is distributed in [`LICENSE`](LICENSE), and is also available at
+<https://www.apache.org/licenses/LICENSE-2.0>.
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is
+distributed on an **"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND**, either express or
+implied. See the License for the specific language governing permissions and limitations under it.
+
+Third-party components and their licences are listed in [`NOTICE`](NOTICE). Storage-engine client
+libraries are confined to their own plugin modules and are neither bundled with nor required by the
+engine core.
+
+The scope is deliberate: Apache 2.0 covers the entire engine, the console and all first-party
+plugins. The moat is architecture and execution quality, not a crippled open edition.
 [Rationale →](docs/system_design.md#304-licensing-and-commercial-posture)
+
+"Pravaha" and the Pravaha flow mark are used as the identity of this project; see
+[`brand/README.md`](brand/README.md) for usage.
