@@ -1,7 +1,8 @@
 # Pravaha brand assets
 
-Copyright 2026 Ashutosh Sinha <ajsinha@gmail.com>. Released with the project under
-Apache License 2.0.
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+**Proprietary and confidential** -- the Pravaha name, flow mark and slogan are not licensed
+for third-party use. See `LICENSE`.
 
 ## The name
 

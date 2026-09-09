@@ -1,19 +1,17 @@
 /*
  * Project Pravaha -- Ask once. Answer always.
  *
- * Copyright 2026 Ashutosh Sinha <ajsinha@gmail.com>
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * PROPRIETARY AND CONFIDENTIAL.
  *
- *     https://www.apache.org/licenses/LICENSE-2.0
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * See the LICENSE file in the root of this repository for the full terms.
  */
 package com.ash.messaging.pravaha.common.queue;
 
@@ -150,7 +148,10 @@ class MpscLongRingTest {
         int perProducer = 20_000;
         int total = producers * perProducer;
 
-        MpscLongRing ring = new MpscLongRing(1024);
+        // Deliberately small relative to the traffic, and the consumer is held back until the ring
+        // is provably full. Sizing it generously and hoping contention happens is what made an
+        // earlier version of this test flaky: on an idle 24-core box the consumer simply kept up.
+        MpscLongRing ring = new MpscLongRing(64);
         BitSet seen = new BitSet(total);
         CountDownLatch ready = new CountDownLatch(producers);
         CountDownLatch go = new CountDownLatch(1);
@@ -185,6 +186,17 @@ class MpscLongRingTest {
 
         ready.await();
         go.countDown();
+
+        // Wait for the ring to actually fill before consuming, so the full path is exercised by
+        // construction rather than by luck. With 160 000 values pushed into 64 slots and nothing
+        // draining, this cannot fail to happen.
+        long fillDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (ring.size() < ring.capacity() && System.nanoTime() < fillDeadline) {
+            Thread.onSpinWait();
+        }
+        assertThat(ring.size())
+                .as("the ring should have filled while no consumer was running")
+                .isEqualTo(ring.capacity());
 
         long[] batch = new long[256];
         int received = 0;

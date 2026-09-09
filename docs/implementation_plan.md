@@ -107,6 +107,7 @@ git add mvnw mvnw.cmd .mvn/ && git commit -m "Add Maven wrapper"
 | `-Pit` | explicit | Testcontainers integration tests (Aerospike, Kafka, …) |
 | `-Pbench` | explicit | JMH benchmark modules |
 | `-Pui` | explicit | pnpm build of the React SPA |
+| `-Ppython` | explicit | Builds and tests the Python SDK, and produces its wheel. A failing Python test fails the Maven build. |
 | `-Pffm` | explicit, JDK 22+ | Compiles and tests the FFM `MemoryAccess` implementation (§4.6 of the design) |
 | `-Pall` | explicit | Everything; what CI runs on `main` |
 
@@ -983,6 +984,6 @@ Copy into the tracker. Owner column filled at planning.
 ---
 
 <sub>**Project Pravaha (प्रवाह)** — *Ask once. Answer always.*<br>
-Copyright © 2026 Ashutosh Sinha &lt;ajsinha@gmail.com&gt;. Licensed under the Apache License, Version 2.0.
-This document is part of the Pravaha project and is distributed under the same terms; see `LICENSE` and `NOTICE`.
-Provided "as is", without warranties or conditions of any kind.</sub>
+Copyright © 2026 Ashutosh Sinha &lt;ajsinha@gmail.com&gt;. All rights reserved. **Proprietary and confidential.**<br>
+This document is the confidential property of Ashutosh Sinha. Unauthorised copying, disclosure or distribution is prohibited; see `LICENSE`.
+Provided "as is", without warranty of any kind.</sub>

@@ -32,6 +32,7 @@
     <module>pravaha-testkit</module>
     <module>pravaha-benchmarks</module>
     <module>pravaha-it</module>
+    <module>sdk/pravaha-sdk-java</module>
     <!-- Added by the story that needs them (implementation plan 10.1):
          pravaha-embedded (Sprint 5), pravaha-server + pravaha-spring-boot-starter (E6),
          pravaha-serving / backfill / adaptive (E3-E5), plugins/* (E1, E4, E9),
@@ -82,7 +83,10 @@
     <!-- Coverage gate. Core modules raise this in their own POMs (see pravaha-api). -->
     <jacoco.line.coverage>0.00</jacoco.line.coverage>
 
-    <!-- Toggles. -->
+    <!-- Toggles. jacoco.skip follows skipTests so a test-free build is not failed by a
+         coverage gate that had nothing to measure. -->
+    <jacoco.skip>${skipTests}</jacoco.skip>
+    <skipTests>false</skipTests>
     <benchmarks.skip>true</benchmarks.skip>
     <errorprone.skip>true</errorprone.skip>
   </properties>
@@ -325,6 +329,9 @@
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
         <version>${jacoco.plugin.version}</version>
+        <configuration>
+          <skip>${jacoco.skip}</skip>
+        </configuration>
         <executions>
           <execution>
             <id>jacoco-prepare</id>
@@ -388,6 +395,15 @@
           </plugin>
         </plugins>
       </build>
+    </profile>
+
+    <!-- The Python SDK. Behind a profile so a Python toolchain is not required to build the
+         engine; the Java SDK is always built, because its jar is a deliverable. -->
+    <profile>
+      <id>python</id>
+      <modules>
+        <module>sdk/pravaha-sdk-python</module>
+      </modules>
     </profile>
 
     <!-- JMH benchmarks. -->

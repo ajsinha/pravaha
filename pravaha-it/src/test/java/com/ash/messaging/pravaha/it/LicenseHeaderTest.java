@@ -1,19 +1,17 @@
 /*
  * Project Pravaha -- Ask once. Answer always.
  *
- * Copyright 2026 Ashutosh Sinha <ajsinha@gmail.com>
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * PROPRIETARY AND CONFIDENTIAL.
  *
- *     https://www.apache.org/licenses/LICENSE-2.0
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * See the LICENSE file in the root of this repository for the full terms.
  */
 package com.ash.messaging.pravaha.it;
 
@@ -30,20 +28,21 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Every source file carries the copyright and licence notice.
+ * Every source file carries the copyright and proprietary-notice header.
  *
  * <p>Spotless applies the header on {@code validate}, but it skips {@code package-info.java}, and a
- * file added outside the build's reach would slip through silently. Copyright notices are the kind
- * of thing that is complete or worthless, so it is checked rather than assumed.
+ * file added outside the build's reach would slip through silently. For proprietary software the
+ * notice is not decoration: a file that escapes without it is materially harder to defend as
+ * confidential, so completeness is checked rather than assumed.
  */
 class LicenseHeaderTest {
 
-    private static final String COPYRIGHT = "Copyright 2026 Ashutosh Sinha <ajsinha@gmail.com>";
-    private static final String LICENCE = "Licensed under the Apache License, Version 2.0";
+    private static final String COPYRIGHT = "Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>";
+    private static final String LICENCE = "PROPRIETARY AND CONFIDENTIAL";
     private static final List<String> EXEMPT = List.of("/target/", "/node_modules/", "/src/main/frontend/");
 
     @Test
-    void everyJavaSourceCarriesTheCopyrightAndLicence() throws IOException {
+    void everyJavaSourceCarriesTheCopyrightAndProprietaryNotice() throws IOException {
         List<String> missing = new ArrayList<>();
         for (Path file : sources()) {
             String text = Files.readString(file, StandardCharsets.UTF_8);
@@ -52,21 +51,48 @@ class LicenseHeaderTest {
             }
         }
         assertThat(missing)
-                .as("every .java file must carry the copyright and Apache 2.0 notice; run ./mvnw spotless:apply")
+                .as("every .java file must carry the copyright and proprietary notice; run ./mvnw spotless:apply")
                 .isEmpty();
     }
 
     @Test
-    void theRepositoryCarriesItsLicenceAndNotice() {
+    void theRepositoryCarriesItsLicenceAndThirdPartyNotices() {
         Path root = repoRoot();
         assertThat(root.resolve("LICENSE")).exists();
-        assertThat(root.resolve("NOTICE")).exists();
-        assertThat(contentOf(root.resolve("NOTICE"))).contains("Ashutosh Sinha").contains("Apache License");
+        assertThat(root.resolve("THIRD-PARTY-NOTICES.md")).exists();
+
         assertThat(contentOf(root.resolve("LICENSE")))
-                .contains("Apache License")
-                .contains("Version 2.0")
-                // The appendix boilerplate must name the actual owner, as the licence instructs.
-                .contains("Copyright 2026 Ashutosh Sinha");
+                .contains("Ashutosh Sinha")
+                .contains("All rights reserved")
+                .contains("Proprietary and Confidential")
+                .doesNotContain("Apache License, Version 2.0");
+
+        // Third-party attribution survives the move to proprietary terms: those licences are not
+        // ours to waive, and several of them require their notices be reproduced.
+        assertThat(contentOf(root.resolve("THIRD-PARTY-NOTICES.md")))
+                .contains("Agrona")
+                .contains("JCTools")
+                .contains("Apache License 2.0");
+    }
+
+    @Test
+    void noSourceFileClaimsAnOpenSourceLicence() {
+        // Guards against a file being pasted in with its original header intact, which would put a
+        // contradictory grant on proprietary code.
+        List<String> offenders = new ArrayList<>();
+        for (Path file : sources()) {
+            String text = contentOf(file);
+            int headerEnd = text.indexOf("*/");
+            String header = headerEnd < 0 ? text : text.substring(0, headerEnd);
+            if (header.contains("Apache License")
+                    || header.contains("MIT License")
+                    || header.contains("GNU General Public")) {
+                offenders.add(repoRoot().relativize(file).toString());
+            }
+        }
+        assertThat(offenders)
+                .as("source headers must not carry a third-party licence grant")
+                .isEmpty();
     }
 
     @Test

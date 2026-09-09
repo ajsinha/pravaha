@@ -13,7 +13,7 @@
 [![Status](https://img.shields.io/badge/status-design%20phase-blue)](docs/system_design.md)
 [![Java](https://img.shields.io/badge/Java-21%20LTS-orange)](docs/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/implementation_plan.md)
-[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
+[![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
 
 </div>
 
@@ -194,23 +194,21 @@ model, and the rules the build checks mechanically:
 
 ## Legal
 
-Copyright © 2026 **Ashutosh Sinha** <ajsinha@gmail.com>. All rights reserved.
+**Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.**
 
-Licensed under the **Apache License, Version 2.0**. You may not use this software except in
-compliance with the License. A copy is distributed in [`LICENSE`](LICENSE), and is also available at
-<https://www.apache.org/licenses/LICENSE-2.0>.
+**PROPRIETARY AND CONFIDENTIAL.** Project Pravaha — its source code, design documents,
+architecture, algorithms, data formats, documentation and brand marks — is the sole and exclusive
+property of Ashutosh Sinha. No licence or right is granted by implication or otherwise.
 
-Unless required by applicable law or agreed to in writing, software distributed under the License is
-distributed on an **"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND**, either express or
-implied. See the License for the specific language governing permissions and limitations under it.
+Use, copying, modification, distribution and disclosure are prohibited except with the express prior
+written permission of the copyright holder. See [`LICENSE`](LICENSE) for the full terms.
 
-Third-party components and their licences are listed in [`NOTICE`](NOTICE). Storage-engine client
-libraries are confined to their own plugin modules and are neither bundled with nor required by the
-engine core.
+If you have obtained a copy of this software without written authorisation, you are not permitted to
+retain it; destroy all copies and contact ajsinha@gmail.com.
 
-The scope is deliberate: Apache 2.0 covers the entire engine, the console and all first-party
-plugins. The moat is architecture and execution quality, not a crippled open edition.
-[Rationale →](docs/system_design.md#304-licensing-and-commercial-posture)
+Third-party open-source components used by Pravaha remain the property of their respective owners
+and are governed by their own licences, which this project's terms do not affect. Their attribution
+notices are reproduced in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
-"Pravaha" and the Pravaha flow mark are used as the identity of this project; see
-[`brand/README.md`](brand/README.md) for usage.
+The Pravaha name, the flow mark, and the slogan "Ask once. Answer always." are proprietary; see
+[`brand/README.md`](brand/README.md).

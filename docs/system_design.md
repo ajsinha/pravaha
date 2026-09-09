@@ -9,7 +9,8 @@
 | Changes in 3.2 | Deployment modes & Spring Boot integration (§22); Maven coordinates `com.ash.messaging:pravaha` |
 | Changes in 3.3 | §23 expanded from a control-plane accessory into a full web-application specification; console rescheduled as a continuous workstream from Phase 3 |
 | Changes in 3.4 | §4.5–4.6 corrected from implementation: Agrona requires a JVM flag and cannot be the default; `ByteBuffer`/`VarHandle` is |
-| Version | 3.4 |
+| Changes in 3.5 | Licensing changed from Apache 2.0 to proprietary, wholly owned (§30.4, ADR-018); client SDKs relocated to `sdk/` (§7) |
+| Version | 3.5 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -89,7 +90,7 @@ The 1.0 draft has the right *product vision* and the right *component inventory*
 
 A Maven multi-module Java project producing: an embeddable engine library, a standalone clustered server (Docker/Helm), storage plugins loaded via isolated classloaders, a gRPC + Avatica gateway with an integrated serving API, Java/Python/Go client libraries typed from the catalog, a **Spring Boot starter** that drops the engine into a customer's existing Spring application, a `pravaha` CLI whose `dev` mode boots a full engine in under a second, and **the Pravaha Console** — a full-featured Spring Boot 3 + React web application with an IDE-grade SQL workbench, a live plan DAG, a time-travel debugger and a real design system (§23) — which is architecturally out of the data path and experientially the centre of the product.
 
-Everything ships under Apache 2.0 (§30.4). The moat is architecture and execution quality, not a crippled open edition.
+Everything is proprietary and wholly owned by Ashutosh Sinha (§30.4).
 
 ---
 
@@ -600,6 +601,14 @@ Everything expensive happens **once, at query registration**; the steady state d
 
 Single reactor, `pom` packaging at root, Java 21 (`pravaha-api` at 17). Dependency direction is strictly downward; ArchUnit enforces it.
 
+**Client SDKs live under `sdk/`** and are deliberately kept apart from the engine modules. A client
+is embedded in *someone else's* application, so every transitive dependency it carries is one their
+build has to reconcile — `pravaha-sdk-java` depends on `pravaha-api` alone, and a `maven-enforcer`
+rule fails the build if Netty, Calcite, RocksDB, Agrona, Spring or an engine module ever appears on
+its path. The transport lands behind an optional module rather than on the default one. The Java SDK
+jar is produced by every build because it is a shipped deliverable; the Python SDK builds under
+`-Ppython`, so a Python toolchain is not required to build the engine.
+
 **Maven coordinates.**
 
 | | |
@@ -661,10 +670,10 @@ pravaha/                                    (pom — parent, pluginManagement, p
 ├── pravaha-debug/                          ← time-travel replay engine, fixture export  (§16.4)
 ├── pravaha-ui/                             ← Spring Boot 3 + React SPA (standalone, or embedded in the server)
 │
-├── clients/
-│   ├── pravaha-client-java/
-│   ├── pravaha-client-python/              ← packaged from proto, published to PyPI
-│   └── pravaha-client-go/
+├── sdk/                                    ← CLIENT SDKs. Thin: pravaha-api only, no engine.
+│   ├── pravaha-sdk-java/                   ← always built; produces the client jar
+│   ├── pravaha-sdk-python/                 ← built under -Ppython; wheel published to PyPI
+│   └── pravaha-sdk-go/                     ← Wave 7
 │
 ├── pravaha-testkit/                        ← deterministic harness, virtual clock, JUnit ext, plugin TCK
 ├── pravaha-benchmarks/                     ← JMH micro + Profiles A–E + Nexmark q0–q22  (§28.4)
@@ -3140,11 +3149,36 @@ A cost claim is only credible if it says when it fails to hold.
 
 ### 30.4 Licensing and commercial posture
 
-- **Apache 2.0 core.** The full engine, all SPIs, the Aerospike/Kafka/JDBC plugins, the CLI and the UI. The moat is architecture and execution quality, not a crippled open edition — a restricted core would cost more adoption than it protects.
-- **Commercial value sits above the engine:** managed/cloud operation, enterprise connectors, multi-region coordination, long-term support, certification, and the plugin TCK certification programme.
+**Pravaha is proprietary software, wholly owned by Ashutosh Sinha.** All rights reserved; see
+`LICENSE`. This supersedes an earlier revision of this document which proposed Apache 2.0.
+
+- **Closed source, commercially licensed.** The engine, SPIs, plugins, CLI, SDKs and console are
+  licensed to customers under commercial terms rather than published.
+- **Third-party components keep their own licences.** Those grants are not ours to alter, and
+  several carry attribution obligations that survive our terms; `THIRD-PARTY-NOTICES.md` discharges
+  them. This is a real compliance surface, not a formality: every dependency added to a *shipped*
+  module must be checked for a copyleft or attribution obligation before it lands.
 - **No telemetry by default**, ever. Opt-in only, documented, and inspectable.
 
-This posture matters strategically: the adopters who will make this product succeed are engineers who will not evaluate a closed core, and the competitors most vulnerable to displacement are the ones charging cloud-only prices for what should be a library.
+**What this costs, stated plainly.** A closed engine forfeits the bottom-up adoption route: the
+engineers who would have tried it in an afternoon and championed it internally largely will not
+evaluate software they cannot read. Materialize and RisingWave already occupy the commercial-product
+position, so the competition is on equal terms rather than asymmetric ones.
+
+**What it must therefore rely on instead.** Everything in §2's moat has to do more work, because
+none of it can be verified by reading the source:
+
+| Lever | What it now has to carry |
+|---|---|
+| **W5 published Nexmark** (§28.4) | Becomes *the* credibility mechanism. Nobody can inspect the engine, so measured, reproducible, third-party-runnable numbers are the only external evidence. Publishing the harness matters more here than it would for an open project, not less. |
+| **Evaluation licence** | A frictionless time-limited licence with no sales conversation is the substitute for "just clone it". Without one, the funnel starts at a procurement meeting. |
+| **§24 developer experience** | The `pravaha dev` loop and the error catalogue are what an evaluator judges instead of the code. |
+| **Plugin TCK** (§24.6) | A third party writing a connector against a closed engine needs the conformance suite to be genuinely good, since they cannot read how the engine calls them. |
+| **Escrow** | Enterprise buyers of a closed engine in a critical path will ask for source escrow. Worth planning for rather than being surprised by. |
+
+None of this makes the proprietary choice wrong — it is the owner's call, and the technical moat in
+§2 is unaffected. It does move where the risk sits: from "can we out-execute the incumbents" to
+"can we get evaluated at all", which is a distribution problem rather than an engineering one.
 
 ---
 
@@ -3160,7 +3194,7 @@ Ten phases, roughly two-week increments for a team of 4–6. Each phase ends wit
 | **3 — Stateful & incremental** | 12–18 | Watermarks + idle detection; tumbling/hopping/session windows with slicing; timer wheel; L0 off-heap state; RocksDB tier; **incremental aggregates, `DISTINCT`, bounded-state enforcement**; changelog derivation; emit modes; late data + DLQ | **Profile B ≥ 350 k rec/s/lane**; correctness invariants 1–8 green; unbounded queries rejected with a useful diagnostic |
 | **4 — Aerospike, joins & durability** | 19–25 | Aerospike plugin (all four strategies), expression pushdown, idempotent sink, lookup join; **bilinear incremental joins**; checkpointing + recovery; capability negotiation | Exactly-once state proven by chaos test; **Profile C ≥ 120 k rec/s/lane**; pushdown equivalence green; **W4 ≥ 5× fewer bytes ingested** |
 | **5 — Backfill & serving** | 26–32 | Consistent snapshot→CDC splice; throttled adaptive backfill; blue/green query update; **served materialized views** with all four consistency modes; read replicas & read admission control | 3 years of history backfilled with OLTP p99 impact < 10 %; **W3: p99 point lookup ≤ 200 µs**; zero-downtime SQL change demonstrated |
-| **6 — Gateways, clients & DX** | 33–38 | gRPC streaming + Arrow + credit flow control; Avatica control plane; catalog-typed Java/Python/Go clients; **`pravaha-spring-boot-starter` with `@PravahaListener` and `@PravahaTest`**; full CLI; stable error-code catalogue; docs-as-tests; plugin TCK | Python client sustains 1 M rows/s; Avatica works from DBeaver; **W2: deploy ≤ 2 s**; TCK passes for all first-party plugins; starter verified against Spring Boot 3.2–3.5 |
+| **6 — Gateways, clients & DX** | 33–38 | gRPC streaming + Arrow + credit flow control; Avatica control plane; catalog-typed Java/Python/Go SDKs under `sdk/`; **`pravaha-spring-boot-starter` with `@PravahaListener` and `@PravahaTest`**; full CLI; stable error-code catalogue; docs-as-tests; plugin TCK | Python client sustains 1 M rows/s; Avatica works from DBeaver; **W2: deploy ≤ 2 s**; TCK passes for all first-party plugins; starter verified against Spring Boot 3.2–3.5 |
 | **7 — Cluster & HA** | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, savepoints, multi-tenancy quotas; elastic lane rescaling | 3-node cluster survives rolling node kills with no data loss; rebalance ≤ 5 s pause; **W7: 10 GB restore ≤ 30 s** |
 | **8 — Debugger, self-tuning & console polish** | 46–53 | **Time-travel debugger UI**, adaptive-controller screens, security (OIDC/RBAC/audit) end to end, full observability, skew remediation, live replanning, state tier promotion, **console polish pass + WCAG 2.2 AA audit + visual-regression baseline**, Helm chart | Operator runs the full lifecycle from the console; **W10:** a seeded production bug is found by replay and exported as a passing JUnit fixture; §23.20 checklist green |
 | **9 — Benchmarks, breadth & GA** | 54–62 | Cassandra + PostgreSQL + Redis plugins; **`WITH RECURSIVE`**; **published Nexmark q0–q22 head-to-head vs Flink**; 72 h soak; security review; TCO validation; GA docs and migration tooling | All NFR SLOs met; **W5 ≥ parity on 18/22, ≥ 2× on 8**; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated on a real workload; SBOM + security review signed off |
@@ -3229,7 +3263,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **020** | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` | Documentation only; a bare `PravahaEngine` bean | Lets a team add continuous SQL to a service they already run, in the idiom they already use. Modelled on `@KafkaListener` so the mental model transfers (§22.4) |
 | **022** | The console is a flagship product surface with its own design system, built as a continuous workstream from Phase 3 | A late control-plane admin UI; CLI-only; a thin metrics page | For most users the console *is* the product, and W10 (the time-travel debugger) exists nowhere else. A polished UI cannot be produced in one late phase, so it is resourced with a dedicated frontend engineer and shipped alongside each engine capability (§23.1) |
 | **021** | No GraalVM native image for the engine | Native image via Spring AOT; drop runtime codegen to enable it | Runtime Java-source compilation (ADR-005) is fundamentally incompatible with a closed-world image, and it is what makes the hot path fast. Stated so no one spends a sprint on it. Clients and UI may still go native (§22.7) |
-| **018** | Apache 2.0 for the entire engine, UI and first-party plugins | Open core with a restricted engine; source-available; dual licence | The engineers who decide adoption will not evaluate a crippled core. The moat is architecture and execution; commercial value sits in managed operation, support and certification (§30.4) |
+| **018** | **Proprietary, wholly owned by Ashutosh Sinha.** All rights reserved | Apache 2.0 (proposed in an earlier revision of this document); open core; source-available; dual licence | Owner's decision. The technical moat in §2 is unaffected, but the distribution risk moves from execution to evaluation: §30.4 sets out what has to carry the weight instead — published Nexmark results, a frictionless evaluation licence, and the developer-experience surface |
 
 ---
 
@@ -3274,7 +3308,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **Deployment modes** | Single engine instance, YAML-bound | Four modes from one core: plain embedded, Spring Boot starter, Spring Boot server, all-in-one server+UI (§22.2) | Flink (cluster-only), Materialize/RisingWave (cloud-only) |
 | **Web console** | Absent | Full web application: IDE-grade SQL workbench, live plan DAG, time-travel debugger, backfill control, design system, WCAG 2.2 AA, performance-budgeted (§23) | Flink's UI is read-only job status; ksqlDB has none of consequence; Materialize is SQL-console-only |
 | **Spring integration** | Absent | `@PravahaListener`, `PravahaTemplate`, `@PravahaTest`, actuator — engine core stays Spring-free (§22.4) | No competitor ships a first-class Spring starter |
-| **Licensing** | Unstated | Apache 2.0 core, engine and UI included (§30.4) | Materialize, RisingWave, Confluent |
+| **Licensing** | Unstated | Proprietary, wholly owned; third-party obligations discharged in `THIRD-PARTY-NOTICES.md` (§30.4) | — |
 
 ## Appendix B — Immediate Next Steps
 
@@ -3299,6 +3333,6 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 ---
 
 <sub>**Project Pravaha (प्रवाह)** — *Ask once. Answer always.*<br>
-Copyright © 2026 Ashutosh Sinha &lt;ajsinha@gmail.com&gt;. Licensed under the Apache License, Version 2.0.
-This document is part of the Pravaha project and is distributed under the same terms; see `LICENSE` and `NOTICE`.
-Provided "as is", without warranties or conditions of any kind.</sub>
+Copyright © 2026 Ashutosh Sinha &lt;ajsinha@gmail.com&gt;. All rights reserved. **Proprietary and confidential.**<br>
+This document is the confidential property of Ashutosh Sinha. Unauthorised copying, disclosure or distribution is prohibited; see `LICENSE`.
+Provided "as is", without warranty of any kind.</sub>

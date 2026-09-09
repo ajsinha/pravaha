@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+  <artifactId>pravaha-sdk-java</artifactId>
+  <name>Pravaha :: sdk :: java</name>
+  <description>Java client SDK. Depends on pravaha-api only, so adding a Pravaha client to an application
+    pulls in no engine, no Netty, no Calcite and no storage clients.</description>
+
+  <properties>
+    <!-- Matches pravaha-api: a client is embedded in someone else's application, and that
+         application is frequently on an older LTS than the engine's own baseline. -->
+    <maven.compiler.release>${api.compiler.release}</maven.compiler.release>
+    <jacoco.line.coverage>0.80</jacoco.line.coverage>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-thin-client</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <bannedDependencies>
+                  <searchTransitive>true</searchTransitive>
+                  <excludes>
+                    <exclude>io.netty:*</exclude>
+                    <exclude>org.apache.calcite:*</exclude>
+                    <exclude>org.rocksdb:*</exclude>
+                    <exclude>org.agrona:*</exclude>
+                    <exclude>com.aerospike:*</exclude>
+                    <exclude>org.springframework:*</exclude>
+                    <exclude>com.ash.messaging:pravaha-runtime</exclude>
+                    <exclude>com.ash.messaging:pravaha-common</exclude>
+                  </excludes>
+                  <message>The client SDK must stay thin. It is embedded in someone else's application,
+                    and every transitive dependency it adds is one their build has to reconcile.
+                    Transport libraries belong behind an optional module, not on the default path.</message>
+                </bannedDependencies>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <archive>
+            <manifestEntries>
+              <Implementation-Title>Pravaha Java SDK</Implementation-Title>
+              <Implementation-Vendor>Ashutosh Sinha</Implementation-Vendor>
+              <Implementation-Version>${project.version}</Implementation-Version>
+              <Specification-Vendor>Ashutosh Sinha</Specification-Vendor>
+            </manifestEntries>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
