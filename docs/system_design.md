@@ -10,7 +10,8 @@
 | Changes in 3.3 | §23 expanded from a control-plane accessory into a full web-application specification; console rescheduled as a continuous workstream from Phase 3 |
 | Changes in 3.4 | §4.5–4.6 corrected from implementation: Agrona requires a JVM flag and cannot be the default; `ByteBuffer`/`VarHandle` is |
 | Changes in 3.5 | Licensing changed from Apache 2.0 to proprietary, wholly owned (§30.4, ADR-018); client SDKs relocated to `sdk/` (§7) |
-| Version | 3.5 |
+| Changes in 3.6 | Console theming, templating and vendoring settled (§23.4a); public landing/about/help pages specified (§23.4b) |
+| Version | 3.6 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -2439,6 +2440,114 @@ The console ships a real design system, defined once and enforced by lint rules 
 
 **Explicitly banned:** decorative gradients, purely ornamental illustration, animated backgrounds, marketing copy inside the product, and any element that moves without carrying information.
 
+### 23.4a Theming, templating and vendoring
+
+Three decisions that shape every page, settled here rather than per screen.
+
+#### Themes are generated, never hand-written
+
+A theme declares **its surfaces and one accent**; every other colour is *derived* by moving the hue
+only as far as the contrast threshold for its job requires — 3:1 for a mark (a bar, a ring, a status
+dot), 4.5:1 for a word. A theme is therefore five colours and a rule, not forty hex codes.
+
+This matters because hand-maintained palettes fail in a specific way: someone adds a token, checks it
+in the theme they happen to be using, and ships one unreadable combination in the theme nobody looked
+at. Deriving them makes that impossible, and a test **regenerates the stylesheet and compares it byte
+for byte** so a hand edit fails the build.
+
+| Theme | For |
+|---|---|
+| `light` | Default. Verdigris on a cool white ground. |
+| `dark` | The same palette on a night ground — the operations default, and what an incident at 03:00 actually wants. |
+| `high-contrast` | WCAG AAA ratios throughout. |
+| `amber` | Amber on black. Long unbroken monitoring sessions. |
+
+A **picker, not a light/dark toggle**: four themes is more than a toggle can express, and each exists
+for a different reading context rather than a preference.
+
+#### The server renders the theme into the markup
+
+The preference is stored in **both** `localStorage` and a cookie. The cookie is the load-bearing one:
+`localStorage` cannot be read server-side, so a page that renders light and is then repainted by a
+script **flashes on every single load**. On the amber-on-black theme that flash is a full white
+screen, which is not a rough edge — it is unusable.
+
+```html
+<html lang="en"
+      data-theme="{{ theme }}"
+      data-bs-theme="{{ themeBases[theme] }}"
+      data-density="{{ density }}">
+```
+
+`data-bs-theme` — whether the framework should use its light or dark base — is supplied **by the
+server**, not re-derived in the browser. A second opinion about whether `amber` counts as a dark
+theme would surface as one unreadable dropdown on one page, which is the hardest kind of bug to find.
+
+#### Everything is vendored. No CDN, ever.
+
+Nothing is fetched at run time. Not a script, not a stylesheet, not a font, not an icon.
+
+This is a **precondition, not a preference**. The console has to render identically in an air-gapped
+deployment, and the customers most likely to buy a proprietary engine for a payments or trading path
+are exactly the ones whose networks cannot reach a CDN. A CDN dependency is also a supply-chain
+surface and a third-party availability dependency on a page whose whole job is to be reachable
+during an incident.
+
+| Vendored | Approx. |
+|---|---|
+| Bootstrap 5 (CSS + bundle JS) | ~320 KB |
+| Bootstrap Icons | ~300 KB |
+| IBM Plex (subset: Sans, Sans Condensed, Mono, Sans Devanagari) | ~250 KB |
+| Monaco (SQL workbench) | lazy-loaded route chunk |
+| ECharts, React Flow | lazy-loaded route chunks |
+
+Vendored assets live under `pravaha-ui/src/main/resources/static/vendor/`, are checked in with their
+licences, and are listed in `THIRD-PARTY-NOTICES.md`. A build-time check fails on any `http://` or
+`https://` asset reference in a template or stylesheet — the rule is mechanical, because it is the
+kind that erodes one convenient exception at a time.
+
+#### Templates
+
+Server-rendered pages use one inherited shell so navigation, theming, the skip link and the
+screen-reader announcer exist once rather than per page.
+
+```
+templates/
+├── _shell.html          <html> with theme/density attributes, vendored assets, nav, footer
+├── _macros.html         card, stat tile, status chip, empty state, error state
+├── landing.html         extends _shell
+├── about.html
+├── help/index.html
+└── ...
+```
+
+Two elements the shell carries that are almost always missing and cost almost nothing:
+
+- **A skip link** as the first focusable element. Without it a keyboard user traverses the whole
+  navigation on every page.
+- **An `aria-live` announcer region**. A screen-reader user who submits a form and hears nothing has,
+  from their point of view, an application that did not respond. Every asynchronous change announces
+  through it.
+
+### 23.4b Public pages
+
+Three pages exist before anyone signs in, and they are the first thing an evaluator sees. With a
+proprietary engine (§30.4) they carry more weight than they would otherwise: nobody can read the
+source, so these pages *are* the first impression.
+
+| Page | Job | Shape |
+|---|---|---|
+| **Landing** | Answer "what is this and why would I use it?" in fifteen seconds | The slogan, the four-way position of §2.2 as four cards, a worked SQL example beside the microsecond read it enables, and one honest paragraph on what Pravaha is *not* |
+| **About** | Provenance and credibility | What Pravaha is, the name and what it means, the architecture in one diagram, the measured numbers with a link to the published Nexmark harness (§28.4), ownership and licensing, contact |
+| **Help** | Get someone unstuck without a support ticket | **Card grid** by task, not by feature: *Write your first query · Connect a source · Understand a plan · Read the metrics · Recover from a failure · Error codes · SDKs · FAQ*. Every `PRV-nnnn` code resolves to a page here with a runnable reproduction (§24.4). |
+
+The help card grid is deliberately organised by **what someone is trying to do**, not by which
+subsystem owns it. Somebody reaching for help knows their goal and not our module boundaries, and a
+help index that mirrors the architecture is a help index that only helps its authors.
+
+All three are public, cached, and render without a session. They must also work with JavaScript
+disabled — an evaluator behind a restrictive corporate proxy is exactly the reader worth keeping.
+
 ### 23.5 Information architecture
 
 ```
@@ -2491,6 +2600,9 @@ The console ships a real design system, defined once and enforced by lint rules 
 | 22 | **Admin · Audit** | Full searchable audit trail | REST paged | admin |
 | 23 | **Metrics explorer** | Ad-hoc charting of any exposed metric | SSE 1 Hz | viewer |
 | 24 | **Onboarding / first run** | Get a first query running in under five minutes | — | any |
+| 25 | **Landing** (public) | What this is, in fifteen seconds | static | none |
+| 26 | **About** (public) | Provenance, measured numbers, ownership | static | none |
+| 27 | **Help** (public) | Card grid by task; every `PRV-nnnn` resolves here | static | none |
 
 Screen 24 is not filler. A product that is hard to start is a product that is not adopted, and the first-run experience is the only screen every single user sees.
 
