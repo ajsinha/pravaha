@@ -27,6 +27,7 @@
     <module>pravaha-catalog</module>
     <module>pravaha-sql</module>
     <module>pravaha-runtime</module>
+    <module>pravaha-codegen</module>
     <module>pravaha-state</module>
     <module>pravaha-connect</module>
     <module>pravaha-testkit</module>
@@ -56,6 +57,7 @@
     <jctools.version>4.0.7</jctools.version>
     <slf4j.version>2.0.19</slf4j.version>
     <calcite.version>1.40.0</calcite.version>
+    <janino.version>3.1.12</janino.version>
 
     <!-- ==== test dependencies ==== -->
     <junit.version>5.14.4</junit.version>
