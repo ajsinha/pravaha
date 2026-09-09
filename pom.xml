@@ -34,6 +34,7 @@
     <module>pravaha-it</module>
     <module>plugins/pravaha-plugin-filesystem</module>
     <module>pravaha-embedded</module>
+    <module>pravaha-cli</module>
     <module>sdk/pravaha-sdk-java</module>
     <!-- Added by the story that needs them (implementation plan 10.1):
          pravaha-embedded (Sprint 5), pravaha-server + pravaha-spring-boot-starter (E6),
