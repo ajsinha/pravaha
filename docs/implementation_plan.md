@@ -5,13 +5,13 @@
 | Field | Value |
 |---|---|
 | Document | Pravaha Implementation Plan |
-| Version | 1.1 |
+| Version | 1.2 |
 | Status | Proposed — for review |
 | Companion to | [`system_design.md`](./system_design.md) v3.1 |
 | Platform | **Java 21 LTS** (baseline), Maven 3.9+ via wrapper, Java 25 also CI-tested |
 | Coordinates | `com.ash.messaging:pravaha` — base package `com.ash.messaging.pravaha` |
 | Date | 2026-09-09 |
-| Horizon | 31 sprints / 62 weeks, team of 5–6 |
+| Horizon | 31 sprints / 62 weeks, team of **7.5** (revised from 6 — see §6.1) |
 
 ---
 
@@ -32,8 +32,8 @@
 13. [Milestones, Demos & Go/No-Go Gates](#13-milestones-demos--gono-go-gates)
 14. [Tracking & Metrics](#14-tracking--metrics)
 15. [Descope Ladder](#15-descope-ladder)
-16. [Appendix A — Starter POMs](#appendix-a--starter-poms)
-17. [Appendix B — Sprint 1 Task Checklist](#appendix-b--sprint-1-task-checklist)
+- [Appendix A — Starter POMs](#appendix-a--starter-poms)
+- [Appendix B — Sprint 1 Task Checklist](#appendix-b--sprint-1-task-checklist)
 
 ---
 
@@ -217,6 +217,7 @@ docs(design): revise Java baseline to 21
 | **Nexmark** — q0–q22 vs recorded baseline | nightly from Phase 3 | ≤ 60 min | reported, blocking from Phase 7 |
 | **Chaos** — node kills, partitions, stalled sinks | nightly from Phase 4 | ≤ 40 min | yes |
 | **Soak** — 72 h at 70 % capacity, leak assertions | weekly from Phase 4 | 72 h | yes |
+| **Console** — Vitest, axe, Playwright visual regression (light/dark × both densities), Lighthouse + bundle budget | PR touching `pravaha-ui` | ≤ 18 min | yes, from sprint 12 |
 | **Security** — OSV/dependency scan, SBOM | nightly | ≤ 10 min | yes on high severity |
 | **Release** — Jib images, Helm chart, staged artifacts | tag on `main` | ≤ 15 min | — |
 
@@ -238,9 +239,15 @@ This is set up in **Sprint 1**, before there is anything to benchmark. Retrofitt
 | Core runtime engineer | 2 | `common`, `runtime`, `state`, `codegen`, `algebra` — the hot path |
 | SQL / planner engineer | 1 | `sql`, `catalog`, `algebra` (shared), optimizer rules |
 | Connectors engineer | 1 | `connect`, all `plugins/*`, `backfill` |
-| Platform engineer | 1 | `cluster`, `gateways`, `server`, `cli`, `ui`, CI/CD, release |
+| Platform engineer | 1 | `cluster`, `gateways`, `server`, `spring-boot-starter`, `cli`, CI/CD, release |
+| **Frontend engineer** | **1** | **`pravaha-ui` frontend: design system, all screens, workbench, plan DAG, debugger UI** |
+| **Product designer** | **0.5** | **Design system, IA, interaction design, usability testing, accessibility audits** |
 
-Six people. With five, the platform engineer's UI work moves to Phase 8 and the lead absorbs CI/CD — this is accounted for in §15.
+**7.5 people, revised upward from 6.** The v1.1 plan folded the console into the platform engineer's remit and scheduled it entirely in Phase 8. That was wrong on both counts: design §23 specifies a full web application with an IDE-grade SQL workbench, a live plan DAG, a time-travel debugger and a real design system, and no part-time owner produces that in eight sprints at the end of a project.
+
+The honest arithmetic: the console is roughly **20–24 engineer-sprints of frontend work plus ~12 sprints of design**. Resourcing it properly is what makes "highly polished" a plan rather than an aspiration.
+
+**If the console must be built with 6 people** — no dedicated frontend engineer — then say so explicitly and accept the consequence: the console becomes a functional admin UI, design §23.20's checklist is not met, W10's debugger ships as a CLI (`pravaha replay`) instead of a UI, and the operability differentiator (D-E) weakens substantially. That is a legitimate trade to make deliberately. It is not a legitimate one to make by accident, which is what the previous plan would have done.
 
 ### 6.2 Parallel workstreams
 
@@ -260,6 +267,10 @@ WS-B  ═══════╪═════════╪══════�
 WS-C  ═══════╪═════════╪══════════════════╪═══  Plugins, platform & tooling
  (1–2 eng)   │ SPI     │ fs + kafka       │     Aerospike, CLI, CI
              │ + TCK   │ plugins, dev CLI │
+             │         │                  │
+WS-D         │         │      ════════════╪═══  Console (frontend + design)
+ (1.5)       │         │      design sys, │     starts sprint 9, ships a
+             │         │      shell, BFF  │     surface with every phase
    ▲         ▲         ▲                  ▲
  all-hands  gate P0   gate P1          gate P2
 ```
@@ -333,6 +344,31 @@ Epics map 1:1 to the design's phases. Story IDs are stable and referenced by bra
 | P2-11 | Generated-source retention + `EXPLAIN codegen` | 2 d | Source downloadable for any running query under a debug flag |
 
 **Gate P2:** **Profile A ≥ 1.2 M rec/s/lane**; ≥ 90 % scaling to 8 lanes; differential tests green; no metaspace leak over 10 000 query cycles.
+
+### EU — The Console *(continuous workstream, sprints 9–62)*
+
+Design §23 specifies the console. This epic runs **alongside** E3–E9 rather than inside any one of them, and each phase ships the console surfaces for the engine capability that phase delivers. Full stories are decomposed per phase; the shape is fixed here.
+
+| ID | Story | Sprints | Depends on | Acceptance |
+|---|---|---|---|---|
+| U-01 | **Design system**: tokens, both themes, both densities, primitives, Storybook | 9–12 | — | Every primitive documented in Storybook with all eight states of design §23.12; contrast verified by a token-level test in both themes |
+| U-02 | App shell, IA, routing, command palette, auth (OIDC), RBAC-driven navigation | 11–14 | U-01, E1 | Every route deep-linkable; full keyboard navigation; affordances absent (not disabled-and-failing) without permission |
+| U-03 | BFF: OpenAPI contract, generated TS types + Zod, SSE fan-out, session caps | 11–15 | E1 | A backend contract change breaks the frontend build, not production |
+| U-04 | Catalog screens: streams/tables/sinks, schema browser, version diff | 13–17 | E3 | Schema version diff renders correctly for every compatibility case in design §11.4 |
+| U-05 | Queries list + query detail (overview, state, timeline, errors/DLQ) | 15–19 | E3 | 1 000-row virtualised list streams at 1 Hz within a 16 ms frame budget |
+| U-06 | **SQL Workbench**: Monaco, catalog completion, live validate, EXPLAIN, dry run, cost estimate | 18–24 | E3, E4 | Validation round trip **< 50 ms**; every `PRV-nnnn` diagnostic renders with its actionable fix |
+| U-07 | **Live plan DAG** with per-operator telemetry, lane expansion, node drawer | 21–26 | E4 | 200-node DAG updates within a 16 ms frame; layout stable across refreshes |
+| U-08 | Live results tap with explicit sampling/drop indication; export | 24–27 | E5 | A slow browser provably cannot backpressure the engine (asserted by an E2E test) |
+| U-09 | Views browser + client-snippet generation (Java/Python/Go) | 26–29 | E5 | Generated snippet compiles and runs against the live view |
+| U-10 | **Backfill & blue/green cutover control** with storage-impact display | 27–32 | E5 | Storage p99 plotted alongside ingest rate; throttle takes effect within 2 s |
+| U-11 | Cluster topology, assignment map, rebalance driver | 33–40 | E7 | Rebalance progress and per-partition handoff visible live |
+| U-12 | Plugins, tenants, roles, quotas, audit | 36–42 | E6, E7 | Every admin action typed-confirmed and audited |
+| U-13 | **Time-travel debugger UI** (W10) | 44–50 | E8 | A seeded production bug is diagnosed and exported as a passing JUnit fixture entirely from the browser |
+| U-14 | Adaptive-controller screens; metrics explorer | 48–52 | E8 | Every auto-tuning decision explained with its inputs, and pinnable from the UI |
+| U-15 | Onboarding / first-run experience | 50–54 | all | **A new user reaches a running query in under five minutes**, measured with five real people who have not seen the product |
+| U-16 | **Polish pass**: design §23.20 checklist, WCAG 2.2 AA audit, visual-regression baseline, performance budgets | 52–58 | all | Design §23.20 fully green; zero axe violations; Lighthouse budgets gated in CI |
+
+**Gate U:** design §23.20's acceptance checklist green, all eight critical journeys passing on every PR, and the five-minute onboarding measured rather than asserted.
 
 ### E3–E9 — summarised in §11
 
@@ -715,12 +751,14 @@ If the schedule compresses, cut in this order — decided now, in the calm, rath
 | 4 | Cassandra + Redis plugins (E9) | ~3 sprints | Aerospike + Kafka + PostgreSQL + filesystem ship; others post-GA |
 | 5 | Read replicas (E5) | ~1 sprint | Read scaling limited to admission control |
 | 5b | All-in-one server+UI mode D (E6) | ~0.5 sprint | UI must be deployed separately; onboarding gets one step longer |
-| 6 | Time-travel debugger (E8) | ~3 sprints | **Lose W10.** Painful — this is a headline differentiator. Cut only under real pressure. |
+| 6 | Time-travel debugger **UI** (U-13) — ship `pravaha replay` on the CLI instead | ~2 sprints | **W10 survives but weakened.** The capability exists; the demo does not. Cut only under real pressure. |
 | 7 | Multi-tenancy quotas (E7) | ~2 sprints | Single-tenant deployments only at 1.0 |
 
-**Never cut, at any pressure:** the property oracle (P1-04), bounded-state enforcement (E3), differential codegen testing (P2-05), checkpoint correctness (E4), or the benchmark regression gates. These are what separate a product from a demo, and every one of them is cheaper to build than to retrofit.
+**Never cut, at any pressure:** the property oracle (P1-04), bounded-state enforcement (E3), differential codegen testing (P2-05), checkpoint correctness (E4), the benchmark regression gates, or the console's design system and state discipline (U-01, design §23.12). These are what separate a product from a demo, and every one of them is far cheaper to build than to retrofit.
 
-If a team of **five** rather than six: the UI (E8) slips ~3 sprints and CI/CD ownership moves to the lead. GA moves to roughly week 68.
+**On the console specifically:** individual *screens* can be deferred (U-09, U-14, parts of U-12 are the candidates, in that order). The **design system, the shell, and the eight-state discipline cannot** — retrofitting consistency across twenty screens costs more than building them consistently in the first place, and a half-polished UI reads as an unfinished product in a way a missing screen does not.
+
+**Staffing sensitivity.** With **7.5 people** the plan holds at 62 weeks. With **6** (no dedicated frontend engineer) the console degrades to a functional admin UI and design §23.20 is not met — state this openly rather than discovering it at Gate U. With **5**, GA moves to roughly week 72.
 
 ---
 

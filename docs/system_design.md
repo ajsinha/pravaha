@@ -7,7 +7,8 @@
 | Document | Pravaha System Design & Architecture |
 | Changes in 3.1 | Runtime baseline revised from Java 25 to Java 21 LTS (§4.5–4.8, ADR-001, R10) |
 | Changes in 3.2 | Deployment modes & Spring Boot integration (§22); Maven coordinates `com.ash.messaging:pravaha` |
-| Version | 3.2 |
+| Changes in 3.3 | §23 expanded from a control-plane accessory into a full web-application specification; console rescheduled as a continuous workstream from Phase 3 |
+| Version | 3.3 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -19,41 +20,41 @@
 
 ## Table of Contents
 
-1. [Executive Summary & Key Recommendations](#1-executive-summary-key-recommendations)
-2. [Competitive Landscape & Winning Strategy](#2-competitive-landscape-winning-strategy)
+1. [Executive Summary & Key Recommendations](#1-executive-summary--key-recommendations)
+2. [Competitive Landscape & Winning Strategy](#2-competitive-landscape--winning-strategy)
 3. [Gap Analysis of the 1.0 Draft](#3-gap-analysis-of-the-10-draft)
 4. [Language Decision: Java vs Scala](#4-language-decision-java-vs-scala)
-5. [Restated Requirements & Measurable SLOs](#5-restated-requirements-measurable-slos)
+5. [Restated Requirements & Measurable SLOs](#5-restated-requirements--measurable-slos)
 6. [Architecture Overview](#6-architecture-overview)
 7. [Maven Module Structure](#7-maven-module-structure)
-8. [Core Data Model & Memory Layout](#8-core-data-model-memory-layout)
+8. [Core Data Model & Memory Layout](#8-core-data-model--memory-layout)
 9. [The Incremental Computation Core](#9-the-incremental-computation-core)
 10. [Plugin SPI](#10-plugin-spi)
-11. [SQL, Catalog & Planning Layer](#11-sql-catalog-planning-layer)
-12. [Code Generation & Physical Execution](#12-code-generation-physical-execution)
-13. [Concurrency & Threading Model](#13-concurrency-threading-model)
-14. [State Management & Checkpointing](#14-state-management-checkpointing)
-15. [Time, Watermarks, Windows & Changelog Semantics](#15-time-watermarks-windows-changelog-semantics)
-16. [Backfill, Bootstrap & Time Travel](#16-backfill-bootstrap-time-travel)
+11. [SQL, Catalog & Planning Layer](#11-sql-catalog--planning-layer)
+12. [Code Generation & Physical Execution](#12-code-generation--physical-execution)
+13. [Concurrency & Threading Model](#13-concurrency--threading-model)
+14. [State Management & Checkpointing](#14-state-management--checkpointing)
+15. [Time, Watermarks, Windows & Changelog Semantics](#15-time-watermarks-windows--changelog-semantics)
+16. [Backfill, Bootstrap & Time Travel](#16-backfill-bootstrap--time-travel)
 17. [The Serving Layer](#17-the-serving-layer)
-18. [Adaptive & Self-Tuning Runtime](#18-adaptive-self-tuning-runtime)
+18. [Adaptive & Self-Tuning Runtime](#18-adaptive--self-tuning-runtime)
 19. [Storage Plugin Deep Dive](#19-storage-plugin-deep-dive)
-20. [Gateways & Client Protocols](#20-gateways-client-protocols)
-21. [Clustering, HA & Elastic Scaling](#21-clustering-ha-elastic-scaling)
-22. [Deployment Modes & Spring Boot Integration](#22-deployment-modes-spring-boot-integration)
-23. [Spring Boot Control-Plane UI](#23-spring-boot-control-plane-ui)
+20. [Gateways & Client Protocols](#20-gateways--client-protocols)
+21. [Clustering, HA & Elastic Scaling](#21-clustering-ha--elastic-scaling)
+22. [Deployment Modes & Spring Boot Integration](#22-deployment-modes--spring-boot-integration)
+23. [The Pravaha Console — Web UI](#23-the-pravaha-console--web-ui)
 24. [Developer Experience](#24-developer-experience)
 25. [Security Architecture](#25-security-architecture)
 26. [Observability](#26-observability)
-27. [Configuration & Deployment](#27-configuration-deployment)
-28. [Testing & Benchmarking Strategy](#28-testing-benchmarking-strategy)
+27. [Configuration & Deployment](#27-configuration--deployment)
+28. [Testing & Benchmarking Strategy](#28-testing--benchmarking-strategy)
 29. [Performance Budget Analysis](#29-performance-budget-analysis)
-30. [Cost & TCO Model](#30-cost-tco-model)
+30. [Cost & TCO Model](#30-cost--tco-model)
 31. [Delivery Roadmap](#31-delivery-roadmap)
 32. [Risk Register](#32-risk-register)
 33. [Architecture Decision Records](#33-architecture-decision-records)
-- [Appendix A — Summary of Changes from SRS 1.0](#appendix-a-summary-of-changes-from-srs-10)
-- [Appendix B — Immediate Next Steps](#appendix-b-immediate-next-steps)
+- [Appendix A — Summary of Changes from SRS 1.0](#appendix-a--summary-of-changes-from-srs-10)
+- [Appendix B — Immediate Next Steps](#appendix-b--immediate-next-steps)
 
 ---
 
@@ -85,7 +86,7 @@ The 1.0 draft has the right *product vision* and the right *component inventory*
 
 ### What ships
 
-A Maven multi-module Java project producing: an embeddable engine library, a standalone clustered server (Docker/Helm), storage plugins loaded via isolated classloaders, a gRPC + Avatica gateway with an integrated serving API, Java/Python/Go client libraries typed from the catalog, a **Spring Boot starter** that drops the engine into a customer's existing Spring application, a `pravaha` CLI whose `dev` mode boots a full engine in under a second, and a Spring Boot 3 + React control plane — with a time-travel debugger — that is strictly **out of the data path**.
+A Maven multi-module Java project producing: an embeddable engine library, a standalone clustered server (Docker/Helm), storage plugins loaded via isolated classloaders, a gRPC + Avatica gateway with an integrated serving API, Java/Python/Go client libraries typed from the catalog, a **Spring Boot starter** that drops the engine into a customer's existing Spring application, a `pravaha` CLI whose `dev` mode boots a full engine in under a second, and **the Pravaha Console** — a full-featured Spring Boot 3 + React web application with an IDE-grade SQL workbench, a live plan DAG, a time-travel debugger and a real design system (§23) — which is architecturally out of the data path and experientially the centre of the product.
 
 Everything ships under Apache 2.0 (§30.4). The moat is architecture and execution quality, not a crippled open edition.
 
@@ -2325,49 +2326,309 @@ The engine compiles Java source with Janino at query-registration time (§12.4).
 
 ---
 
-## 23. Spring Boot Control-Plane UI
+## 23. The Pravaha Console — Web UI
 
-### 23.1 Architectural rule
+### 23.1 Two rules that look contradictory and are not
 
-**The UI is never in the data path.** It consumes a conflating tap and a metrics stream. A UI outage, a slow browser, or fifty analysts opening live previews must have zero effect on query throughput. This is the single most important constraint on this module and it is enforced by the tap's drop-oldest semantics (§13.3).
+**Rule 1 — the console is never in the data path.** It consumes a conflating tap and a server-aggregated metrics stream. A console outage, a slow browser, or fifty analysts opening live previews must have exactly zero effect on query throughput. Enforced by the tap's drop-oldest semantics (§13.3) and by an ArchUnit rule forbidding UI modules from depending on runtime internals.
 
-### 23.2 Stack
+**Rule 2 — the console is a flagship product surface, not an accessory.** For most people who ever touch Pravaha, the console *is* Pravaha. They will never read this document, never call the gRPC API, and never see the codegen. Their entire judgement of the product is formed in a browser.
 
-| Layer | Choice |
+These are not in tension: the console is architecturally peripheral and experientially central. Both facts have to be designed for.
+
+Three concrete consequences:
+
+- **W10 — the time-travel debugger — lives entirely in the console.** It is a headline differentiator (§2.3, D-E) and it has no meaningful CLI form. If the console is mediocre, that differentiator does not exist.
+- **D-E (operability) is delivered through the console.** "Operable by people who are not stream-processing experts" is a claim about a user interface before it is a claim about control loops.
+- **§30's TCO argument counts operator time.** A console that makes an incident take twenty minutes instead of two hours is a line item in the cost comparison, not a nicety.
+
+### 23.2 Four users, four different products
+
+The console serves audiences with genuinely different jobs. A single undifferentiated "admin UI" serves none of them well. Navigation, default landing page and surfaced actions adapt to the signed-in role (§25 RBAC).
+
+| Persona | Their job | Lands on | Cares most about |
+|---|---|---|---|
+| **Analyst / data engineer** | Write and iterate on continuous SQL | **SQL Workbench** | Catalog completion, instant validation, `EXPLAIN`, sampled dry-run, live result preview |
+| **SRE / operator** | Keep it running; diagnose incidents | **Operations dashboard** | Backpressure, lag, watermark skew, checkpoint health, cluster topology, the debugger |
+| **Application developer** | Consume results from their service | **Catalog / Views** | Schemas, served-view browser, consistency modes, copy-paste client snippets |
+| **Platform admin** | Tenants, plugins, security, cost | **Administration** | RBAC, quotas, plugin health, audit trail, per-tenant resource use |
+
+### 23.3 Stack
+
+| Layer | Choice | Why this one |
+|---|---|---|
+| Backend | **Spring Boot 3.5** (Java 21), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi | A BFF, not a second engine (§23.17) |
+| Live updates | **SSE** for metrics/status/progress; **WebSocket (STOMP)** for the result tap and the debugger | SSE is simpler and auto-reconnects; WebSocket only where genuinely bidirectional |
+| Frontend | **React 19 + TypeScript (strict)**, Vite, TanStack Query + Router | Mature, typed end-to-end from the OpenAPI spec |
+| Styling | **Tailwind CSS + shadcn/ui**, extended with a Pravaha component layer | Owned components, not a framework we cannot restyle |
+| SQL editor | **Monaco** + a Pravaha language service | Catalog-aware completion, inline diagnostics, hover types, format |
+| Plan graph | **React Flow** with a custom ELK-based layout | The DAG is the signature screen; generic graph libraries look generic |
+| Charts | **Apache ECharts** (canvas) | Canvas survives high-frequency updates; SVG charting does not |
+| Tables | **TanStack Table** + TanStack Virtual | 100 k-row result previews without pagination theatre |
+| Forms | React Hook Form + Zod, schemas generated from the OpenAPI spec | One source of truth for validation, client and server |
+| State | TanStack Query for server state; Zustand for the little that is genuinely client state | No global store cargo cult |
+| i18n | react-intl, strings externalised from day one | Retrofitting i18n costs 5× |
+| Build | `frontend-maven-plugin` → pnpm → static resources in the Spring Boot jar | One artefact, `./mvnw -Pui verify` |
+
+### 23.4 Design system
+
+The console ships a real design system, defined once and enforced by lint rules and visual regression tests. Ad-hoc styling per screen is what makes internal tools look like internal tools.
+
+| Layer | Definition |
 |---|---|
-| Backend | Spring Boot 3.5 (Java 21+), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi |
-| Live updates | SSE for metrics/status; WebSocket (STOMP) for the live result tap |
-| Frontend | React 19 + TypeScript, Vite, TanStack Query + Router, Tailwind + shadcn/ui |
-| SQL editor | Monaco with a Pravaha SQL language service (catalog-aware completion, live validation via a `/validate` endpoint) |
-| Plan visualisation | React Flow — the physical DAG with per-operator live throughput, backpressure and state size |
-| Charts | Apache ECharts (canvas-based; handles high-frequency updates that SVG charting cannot) |
-| Tables | TanStack Table + virtualisation for large result previews |
-| Build | `frontend-maven-plugin` → pnpm build → static resources inside the Spring Boot jar; single artefact to deploy |
+| **Color — semantic** | `surface`/`surface-raised`/`surface-sunk`, `border`, `text`/`text-muted`/`text-subtle`, `accent`, and a state ramp: `ok`, `info`, `warn`, `critical`, `degraded`, `idle`. State color is **never** the accent — a running query and a branded button must not share a hue. |
+| **Color — data** | A separate categorical palette (8 hues, colour-blind safe, checked against deuteranopia and protanopia) plus sequential and diverging ramps for heatmaps. Data colour is never reused for UI chrome. |
+| **Typography** | One UI face + one monospace face. A 6-step scale. `tabular-nums` everywhere digits align — every metric, every table column, every latency figure. |
+| **Spacing** | 4 px base, 8-step scale. No arbitrary pixel values; the lint rule rejects them. |
+| **Density** | **Two modes: comfortable and compact.** An SRE on a 32" monitor watching 400 queries needs compact; a first-time user needs comfortable. Persisted per user. This is a real requirement in operations tooling, not a preference toggle. |
+| **Theme** | Light and dark, both designed rather than one auto-inverted. Dark is the default for the operations surfaces, where it is genuinely easier during an incident at 03:00. |
+| **Motion** | ≤ 150 ms transitions on state change; **no ambient or decorative animation** — motion in this product means *something changed*, and diluting that signal makes live data harder to read. `prefers-reduced-motion` fully honoured. |
+| **Iconography** | One set (Lucide), consistent stroke weight. **No emoji in the UI.** |
+| **Status vocabulary** | Every entity state renders as a chip with a fixed colour, a fixed icon and a fixed label. `RUNNING` looks identical on every screen it appears on. |
 
-### 23.3 Screens
+**Explicitly banned:** decorative gradients, purely ornamental illustration, animated backgrounds, marketing copy inside the product, and any element that moves without carrying information.
 
-| Screen | Contents |
+### 23.5 Information architecture
+
+```
+┌── Pravaha ──────────── [tenant ▾] ──── ⌘K ──── [alerts 3] ─ [user ▾] ─┐
+│                                                                       │
+│  Overview   Queries   Catalog   Views   Cluster   Plugins   Admin     │
+└───────────────────────────────────────────────────────────────────────┘
+
+/                                    role-aware landing
+/queries                             list, filter, bulk actions
+/queries/:id                         overview · plan · state · results · timeline · logs
+/queries/:id/debug?t=<checkpoint>    time-travel debugger
+/workbench                           SQL editor (new or ?query=:id)
+/catalog/streams/:name               schema, versions, connector, lineage
+/views/:name                         served view browser + client snippets
+/cluster/nodes/:id                   node detail, assignments, drain
+/plugins/:name                       health, capabilities, config
+/admin/{tenants,roles,audit,quotas}
+```
+
+- **Every view is deep-linkable.** Filters, tab selection, time range and debugger position all live in the URL. An SRE pastes a link into the incident channel and a colleague sees exactly the same screen.
+- **Command palette (⌘K / Ctrl-K)** is a first-class navigation and action surface: jump to any query, stream or node by name; run lifecycle actions; open the debugger — all without the mouse.
+- **Tenant switcher** is global and always visible; the current tenant is unmistakable, because acting on the wrong one is the expensive mistake this UI can cause.
+
+### 23.6 Screen inventory
+
+| # | Screen | Primary job | Live-data strategy | Min. role |
+|---|---|---|---|---|
+| 1 | **Overview** | "Is everything healthy, and if not, where?" | SSE 1 Hz aggregate | viewer |
+| 2 | **Queries list** | Find a query among hundreds; act on many at once | SSE 1 Hz, virtualised rows | viewer |
+| 3 | **Query · Overview** | Health of one query at a glance | SSE 1 Hz | viewer |
+| 4 | **Query · Plan** | Understand and diagnose the physical plan | SSE 1 Hz onto DAG nodes | viewer |
+| 5 | **Query · State** | State size, tiers, checkpoints, savepoints | SSE 5 s | viewer |
+| 6 | **Query · Results** | See what it is actually emitting, now | WebSocket, conflated | analyst |
+| 7 | **Query · Timeline** | What happened to this query, and when | REST + SSE on new events | viewer |
+| 8 | **Query · Errors / DLQ** | Inspect and replay poison records | REST paged | analyst |
+| 9 | **SQL Workbench** | Author, validate, explain, dry-run, deploy | REST + WebSocket preview | analyst |
+| 10 | **Time-travel Debugger** | Find out why a query produced a wrong row | WebSocket step protocol | operator |
+| 11 | **Catalog · Streams / Tables / Sinks** | Discover what exists; inspect schemas & versions | REST, cached | viewer |
+| 12 | **Catalog · Schema diff** | See exactly what a schema version changed | REST | viewer |
+| 13 | **Views (serving)** | Browse and point-query served views; copy client code | REST on demand | developer |
+| 14 | **Backfill control** | Start, throttle, monitor, pause a historical load | SSE 1 Hz progress | operator |
+| 15 | **Blue/green cutover** | Compare v1 vs v2, cut over, roll back | SSE 1 Hz | operator |
+| 16 | **Cluster · Topology** | Nodes, health, assignment distribution | SSE 2 s | viewer |
+| 17 | **Cluster · Rebalance** | Drive and observe a rebalance | SSE job progress | operator |
+| 18 | **Plugins** | Health, capabilities, circuit-breaker state, config | REST + SSE health | operator |
+| 19 | **Adaptive controllers** | What auto-tuning did, and why; pin a parameter | SSE on decisions | operator |
+| 20 | **Admin · Tenants & quotas** | Allocate and cap resources | REST | admin |
+| 21 | **Admin · Roles & grants** | Who can do what | REST | admin |
+| 22 | **Admin · Audit** | Full searchable audit trail | REST paged | admin |
+| 23 | **Metrics explorer** | Ad-hoc charting of any exposed metric | SSE 1 Hz | viewer |
+| 24 | **Onboarding / first run** | Get a first query running in under five minutes | — | any |
+
+Screen 24 is not filler. A product that is hard to start is a product that is not adopted, and the first-run experience is the only screen every single user sees.
+
+### 23.7 Signature surface — SQL Workbench
+
+This is where the analyst persona forms their entire opinion of the product. It has to feel like an IDE, not a textarea with a Run button.
+
+```
+┌─ Workbench ────────────────────────────────────── [Validate ✓] [Explain] [Deploy] ─┐
+│ ┌── Catalog ──────┐ ┌──────────────────────────────────────────────────────────┐  │
+│ │ ▾ financial     │ │  1  CREATE CONTINUOUS QUERY q_user_volume                 │  │
+│ │   ▾ streams     │ │  2  INTO user_volume_agg                                  │  │
+│ │     txn_stream  │ │  3  SERVE AS VIEW user_volume                             │  │
+│ │       txn_id    │ │  4  AS SELECT STREAM                                      │  │
+│ │       user_id   │ │  5    TUMBLE_END(event_time, INTERVAL '10' SECOND) …      │  │
+│ │       amount ⓘ  │ │  6  FROM txn_stream AS t                                  │  │
+│ │   ▾ tables      │ │  7  LEFT JOIN user_profile FOR SYSTEM_TIME AS OF …        │  │
+│ │     user_profile│ │  8  WHERE t.stat│                                          │  │
+│ │   ▾ sinks       │ │       ┌──────────────────────────────────┐                 │  │
+│ │     user_volume │ │       │ status      VARCHAR   txn_stream │ ← catalog-aware │  │
+│ └─────────────────┘ │       │ state       VARCHAR   user_prof… │   completion    │  │
+│                     └──────────────────────────────────────────────────────────┘  │
+│ ┌── Diagnostics ───────────────────────────────────────────────────────────────┐  │
+│ │ ⚠ PRV-2041  line 7 — LEFT JOIN can emit updates; sink 'alerts_http' is       │  │
+│ │             append-only.  [Change emit mode] [Pick another sink] [Docs ↗]     │  │
+│ └──────────────────────────────────────────────────────────────────────────────┘  │
+│ ┌── Explain ─ Cost ─ Dry run ─ Preview ────────────────────────────────────────┐  │
+│ │  est. 4 lanes · 180 MB state · 12 k rec/s in → 400 rec/s out · guarantee:    │  │
+│ │  effectively-once  ·  [see plan DAG ↗]                                        │  │
+│ └──────────────────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Requirements that make this real rather than aspirational:
+
+- **Validation as you type**, debounced to 300 ms, target **< 50 ms** server round trip (§24.1). Diagnostics appear inline with squiggles *and* in the diagnostics panel.
+- **Errors carry their fix.** Every `PRV-nnnn` diagnostic (§24.4) renders with actionable buttons that apply the suggested change, plus a docs link. This is where the error-catalogue work pays off visually.
+- **Catalog-aware completion**: tables in scope, columns with types, functions with signatures, and — critically — *only* what is valid at that cursor position.
+- **Dry run against sampled live data** before deploying anything, with the sample clearly labelled.
+- **Cost and resource estimate before registration**, so nobody deploys a query that will not fit.
+- **Diff view** when editing an existing query: SQL diff *and* plan diff, so the blue/green consequence is visible before cutover (§16.3).
+- Multi-tab, drafts autosaved locally, full keyboard operation, and a snippet library.
+
+### 23.8 Signature surface — live plan DAG
+
+The physical plan (§12.2) rendered as a graph with live telemetry flowing through it. This is the screen that makes an opaque engine legible, and it is the one people screenshot.
+
+- Nodes are operators; **edge thickness encodes throughput**, edge colour encodes backpressure. A bottleneck is visible in under a second without reading a number.
+- Per-node badges: rec/s in-out, p99 latency, state size, watermark lag. Click a node for a detail drawer with its generated source (§12.4), its state descriptor and its own metric history.
+- **Lane view toggle:** collapse to the logical plan, or expand to per-lane instances to expose skew directly.
+- Live watermark position shown travelling through the graph.
+- Zoom, pan, fit, focus-on-node, and an exportable PNG/SVG for incident writeups.
+- Automatic layout via ELK, stable across refreshes so nodes do not jump between renders — instability here destroys trust in the whole screen.
+
+### 23.9 Signature surface — time-travel debugger
+
+W10. There is no competitor equivalent, and it exists only here.
+
+```
+┌─ Debug · q_user_volume ─────────────────────────────── DEBUG · sinks disabled ─┐
+│                                                                                │
+│  ├────────●────────────────────────────────────────────┤                       │
+│  14:31:30  ▲14:31:47                              14:32:10                     │
+│  ckpt C-4471                                      ckpt C-4472                  │
+│                                                                                │
+│  [⏮ prev batch] [◀ step record] [▶ step record] [⏭ next watermark] [▶▶ run to] │
+│  Breakpoint:  group = "user_42"  AND  SUM(amount) < 0            [armed ●]      │
+│                                                                                │
+│ ┌─ Input batch (32 rows) ────────┐ ┌─ Operator state ────────────────────────┐ │
+│ │ seq   user_id  amount  w  kind │ │ agg[user_42] · window 14:31:40          │ │
+│ │ 8841  user_42  120.00 +1  +I   │ │   count = 3      sum = −40.00  ← here   │ │
+│ │ 8842  user_42 −160.00 +1  +I ◀ │ │ search key: [user_42          ]         │ │
+│ └────────────────────────────────┘ └─────────────────────────────────────────┘ │
+│ ┌─ Generated source · stage S2 ──┐ ┌─ Output delta ──────────────────────────┐ │
+│ │  47  long s = state.getLong(o);│ │ (none — zero-delta pruned)              │ │
+│ │  48▶ s += Layout.getLong(row,…)│ │                                         │ │
+│ └────────────────────────────────┘ └─────────────────────────────────────────┘ │
+│                        [Export as JUnit fixture]  [Copy permalink]             │
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- Forked from a retained checkpoint into an isolated instance; **sinks hard-disabled**, and the banner says so permanently.
+- Step by record, batch, or watermark advance; conditional breakpoints on state predicates.
+- Simultaneous view of input rows (with Z-set weights), operator state, the generated source line, and the emitted delta — which is what makes a wrong answer explainable rather than mysterious.
+- **Export as JUnit fixture** in one click — the incident becomes a permanent regression test (§16.4).
+- Permalink shares the exact debugger position with a colleague.
+
+### 23.10 Signature surface — backfill & cutover control
+
+Backfill (§16.2) is a long-running, risky operation against a customer's production storage. The UI is where its safety is actually delivered.
+
+- Live progress: rows done / estimated, current scan position, ETA, achieved rate.
+- **The storage cluster's own p99 latency plotted next to our ingest rate**, so the operator sees the impact they are causing, not just the progress they are making. A throttle slider with immediate effect, and a visible indicator when adaptive throttling has engaged.
+- Pause / resume / abort, always available, always safe.
+- Cutover screen: v1 and v2 side by side with frontier positions, row counts and a sampled output diff; a cutover button that is deliberately deliberate; and a rollback button that stays available for the retention window.
+
+### 23.11 Live data strategy
+
+A monitoring UI that hammers the control plane is its own outage. Every stream has a declared budget.
+
+| Surface | Transport | Rate | Aggregation | Backpressure behaviour |
+|---|---|---|---|---|
+| Overview / lists | SSE | 1 Hz | Server-side, all queries in one message | Drop to 0.2 Hz on a hidden tab |
+| Query detail / DAG | SSE | 1 Hz | Per-query envelope | Pause entirely when the tab is hidden |
+| Result preview | WebSocket | ≤ 20 Hz | Conflating, drop-oldest | **Shows "sampled — N dropped"**; never backpressures the engine |
+| Debugger | WebSocket | on demand | — | Request/response stepping |
+| Long jobs (rebalance, backfill, restore) | SSE | 1 Hz | Job envelope | Reconnect resumes from last event id |
+| Metrics explorer | SSE | 1 Hz | Query-scoped subscription | Unsubscribed on navigation |
+
+Rules: the browser never polls when a stream exists; `document.hidden` suspends every subscription; every SSE stream reconnects with `Last-Event-ID`; ten viewers of one query cost the engine **one** tap, fanned out by the BFF.
+
+### 23.12 State discipline
+
+Most internal tools are polished on the happy path and raw everywhere else. Every data-bearing component in the console must implement all eight states, and this is checked in review and by Storybook coverage.
+
+| State | Requirement |
 |---|---|
-| **Dashboard** | Cluster health, aggregate throughput, backpressure heatmap by query × lane, active alerts, checkpoint status |
-| **Catalog** | Streams / tables / sinks; schema browser with version history and diffs; connector config with plugin-manifest-driven forms |
-| **Query Editor** | Monaco SQL, catalog completion, live validate, **EXPLAIN** (logical / optimized / physical / generated source), dry-run against sampled data, cost and resource estimate before registration |
-| **Queries** | List with state, rates, lag, watermark skew, effective delivery guarantee (§14.4), owner, version; lifecycle actions |
-| **Query Detail** | Live plan DAG with per-operator metrics; latency histogram (HdrHistogram percentiles, not averages); state size over time; checkpoint timeline; error/DLQ feed; event/audit timeline |
-| **Live Results** | Streaming preview from the conflating tap; explicit "sampled — N dropped" indicator so nobody mistakes it for a complete feed; pause/resume; export current buffer to CSV/Parquet |
-| **State & Checkpoints** | Per-query state breakdown by tier, checkpoint history and durations, savepoint create/restore |
-| **Plugins** | Installed plugins, versions, health, circuit-breaker state, capability matrix, config schema |
-| **Cluster** | Nodes, lane assignment map, vpartition distribution, rebalance history, manual drain |
-| **Security & Audit** | Users, roles, grants; full audit log with filters |
+| **Loading (first)** | Skeleton matching the eventual layout — never a spinner on a blank page |
+| **Loading (refresh)** | Existing data stays visible; a subtle freshness indicator updates. Never blank-then-refill. |
+| **Empty (never had data)** | Explains what this is and offers the action that creates the first one |
+| **Empty (filtered to nothing)** | Distinct from the above, and offers to clear the filter |
+| **Error** | What failed, whether it is retryable, a retry button, and a correlation id to paste into a ticket |
+| **Partial** | Some nodes answered, some did not — shows what is missing rather than silently under-reporting |
+| **Stale** | Stream disconnected: data dims, a banner shows age and reconnect state. **Never show stale numbers as if they were live.** |
+| **Unauthorized** | The affordance is absent or disabled with a reason — never a button that fails on click |
 
-### 23.4 Backend design notes
+### 23.13 Data visualisation standards
+
+Drawn from §26.1: this is an engine whose value is tail latency, and charting it badly misrepresents the product.
+
+- **Percentiles, never averages.** Latency renders as p50/p99/p99.9/p99.99 lines or as a full HdrHistogram distribution. An average latency chart is a bug.
+- Log scale by default for latency; linear for rates.
+- Every chart states its time window and its aggregation interval on the chart.
+- Fixed y-axis scales when comparing series side by side, so two panels are actually comparable.
+- Heatmaps (query × lane backpressure) use a perceptually uniform ramp, not a rainbow.
+- Sparklines in table rows share one y-scale per column.
+- Every chart is keyboard-focusable with a screen-reader-accessible data table behind it (§23.14).
+- Null and gap handling is explicit: a gap in data draws as a gap, never as an interpolated line.
+
+### 23.14 Accessibility and keyboard-first operation
+
+Target: **WCAG 2.2 AA**, verified by automated axe checks in CI plus a manual audit each phase.
+
+- Full keyboard operation for every workflow, including the DAG and the debugger. The command palette is the fast path.
+- Visible focus rings that survive theming; logical tab order; focus trapping and restoration in dialogs.
+- Contrast ≥ 4.5:1 for text and ≥ 3:1 for UI boundaries, **in both themes** — verified by a token-level test, not by eye.
+- Status is never encoded by colour alone: chips carry icon and text.
+- Live regions announce state changes to screen readers, rate-limited so a busy dashboard is not a stream of noise.
+- `prefers-reduced-motion` honoured throughout.
+
+Accessibility here is not only compliance. Keyboard-first operation is what an SRE actually wants at 03:00, and it is the same work.
+
+### 23.15 Console performance budget
+
+A slow monitoring UI is worse than no monitoring UI, because it is consulted during incidents.
+
+| Metric | Budget |
+|---|---|
+| Initial JS bundle (gzipped) | ≤ 250 kB; route-split, Monaco and ECharts lazy-loaded |
+| Time to interactive, cold | ≤ 2.0 s on a mid-range laptop |
+| Route transition | ≤ 200 ms |
+| Queries list with 1 000 rows | Virtualised; ≤ 16 ms per frame while streaming |
+| Plan DAG with 200 nodes | ≤ 16 ms per frame during live updates |
+| Result preview at 20 Hz | No dropped frames; memory flat over an hour |
+| Memory after 8 h idle on a dashboard | No growth — a leak test runs nightly |
+
+Enforced by Lighthouse CI and a bundle-size gate in the pipeline (§5 of the implementation plan), on the same principle as the JMH gates: performance is a test.
+
+### 23.16 Security in the console
+
+- **RBAC drives affordances.** Actions a role cannot perform are absent, not present-and-failing. The server re-checks regardless (§25) — the UI is convenience, never enforcement.
+- Secrets are redacted server-side before serialisation. A connector's password never reaches the browser, in any view, including `EXPLAIN` output.
+- Destructive actions (drop query, cutover, rebalance, delete tenant) require typed confirmation of the object's name, and appear in the audit trail with the initiating user.
+- CSP with no `unsafe-inline`; no third-party scripts, fonts or analytics; **no telemetry** (§30.4).
+- Session handling via OIDC with silent refresh; explicit re-authentication before admin actions.
+- The current tenant is always visible, because acting on the wrong tenant is this UI's most expensive possible mistake.
+
+### 23.17 Backend design — a BFF, not a second engine
 
 ```java
 @RestController
 @RequestMapping("/api/v1/queries")
 class QueryController {
 
-    @PostMapping                                  // register (validate → plan → deploy)
+    @PostMapping
     ResponseEntity<QueryDto> register(@Valid @RequestBody RegisterQueryRequest r) { … }
+
+    @PostMapping("/validate")                     // < 50 ms target, called on every keystroke burst
+    ValidationDto validate(@RequestBody String sql) { … }
 
     @GetMapping("/{id}/explain")                  // logical | optimized | physical | codegen
     ExplainDto explain(@PathVariable String id, @RequestParam ExplainLevel level) { … }
@@ -2377,10 +2638,59 @@ class QueryController {
 }
 ```
 
-- The UI backend talks to engine nodes over the **internal gRPC control API** — it is a client of the engine, never a co-resident part of it. In mode D (§22.2) it runs in the same JVM as an engine node for convenience, but still talks to that node over the same control API, so the two are never coupled and the UI can be scaled, restarted or split into its own deployment without changing anything.
-- Live-result WebSocket sessions are capped per user and per query, with a server-side sampling rate that adapts to subscriber count. Ten viewers on one query cost one tap, not ten.
-- All metrics are aggregated server-side at a fixed 1 Hz. The UI never pulls raw per-record data.
-- Long-running actions (rebalance, savepoint, restore) are async jobs with progress over SSE, not blocking HTTP calls.
+- The BFF talks to engine nodes over the **internal gRPC control API**. It is a client of the engine, never a co-resident part of it. In mode D (§22.2) it shares a JVM with a node for convenience but still uses the same API, so the two are never coupled and the console can be scaled, restarted or split out without changing anything.
+- **Fan-out happens here.** Ten browsers watching one query share one engine subscription. Result-tap sessions are capped per user and per query, with a sampling rate that adapts to subscriber count.
+- All metrics are aggregated server-side at a fixed 1 Hz. The browser never receives per-record data.
+- Long-running actions are async jobs with progress over SSE, never blocking HTTP calls.
+- The OpenAPI spec is the contract: TypeScript types and Zod schemas are **generated** from it in the build, so a backend change that breaks the frontend fails compilation rather than production.
+
+### 23.18 Frontend testing
+
+| Level | Tool | Gate |
+|---|---|---|
+| Unit / component | Vitest + Testing Library | Every component's eight states (§23.12) covered |
+| Contract | Generated types from OpenAPI | Type errors fail the build |
+| Visual regression | Playwright + snapshot, light **and** dark, both densities | No unreviewed pixel change |
+| Accessibility | axe-core in component and E2E tests | Zero violations; blocking |
+| E2E | Playwright against a real `pravaha dev` engine | The eight critical journeys below |
+| Performance | Lighthouse CI + bundle-size budget | §23.15 budgets are gates |
+
+**The eight critical journeys**, run on every PR: first-run onboarding → first query; author-validate-explain-deploy; diagnose a backpressured query from the dashboard; inspect and act on a DLQ record; start and throttle a backfill; blue/green update with rollback; debug a wrong result and export the fixture; grant a role and verify the affordance appears.
+
+### 23.19 Build and packaging
+
+```
+pravaha-ui/
+├── pom.xml                      frontend-maven-plugin → pnpm → target/classes/static
+├── src/main/java/…              Spring Boot BFF
+└── src/main/frontend/
+    ├── src/{app,components,features,lib,styles}
+    ├── src/design-system/       tokens, primitives, Storybook
+    └── e2e/                     Playwright
+```
+
+- `./mvnw -Pui verify` builds and tests everything; without `-Pui` the reactor skips Node entirely, so backend engineers never wait on pnpm.
+- Storybook is published per build as living documentation of the design system.
+- Deployable standalone or embedded in `pravaha-server` (mode D, §22.2) — same artefact, different bootstrap.
+
+### 23.20 What "polished" means — the acceptance checklist
+
+Not a feeling. A release gate.
+
+- [ ] Every screen implements all eight states of §23.12
+- [ ] Light and dark both designed and visually regression-tested; both densities likewise
+- [ ] Zero axe violations; WCAG 2.2 AA verified by manual audit
+- [ ] Every workflow completable by keyboard alone
+- [ ] Every view deep-linkable; every filter in the URL
+- [ ] Every destructive action confirmed, audited and reversible where reversal is possible
+- [ ] Every error message names the cause, the fix and a correlation id
+- [ ] Every latency chart shows percentiles; no averages anywhere
+- [ ] Stale data visibly stale; partial data visibly partial
+- [ ] §23.15 performance budgets met and gated in CI
+- [ ] Onboarding: a new user reaches a running query in **under five minutes**, measured with real people
+- [ ] The eight critical journeys pass on every PR
+- [ ] No secret is ever serialised to the browser, verified by a test
+- [ ] Storybook covers every design-system component with all its states
 
 ---
 
@@ -2810,8 +3120,10 @@ Ten phases, roughly two-week increments for a team of 4–6. Each phase ends wit
 | **5 — Backfill & serving** | 26–32 | Consistent snapshot→CDC splice; throttled adaptive backfill; blue/green query update; **served materialized views** with all four consistency modes; read replicas & read admission control | 3 years of history backfilled with OLTP p99 impact < 10 %; **W3: p99 point lookup ≤ 200 µs**; zero-downtime SQL change demonstrated |
 | **6 — Gateways, clients & DX** | 33–38 | gRPC streaming + Arrow + credit flow control; Avatica control plane; catalog-typed Java/Python/Go clients; **`pravaha-spring-boot-starter` with `@PravahaListener` and `@PravahaTest`**; full CLI; stable error-code catalogue; docs-as-tests; plugin TCK | Python client sustains 1 M rows/s; Avatica works from DBeaver; **W2: deploy ≤ 2 s**; TCK passes for all first-party plugins; starter verified against Spring Boot 3.2–3.5 |
 | **7 — Cluster & HA** | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, savepoints, multi-tenancy quotas; elastic lane rescaling | 3-node cluster survives rolling node kills with no data loss; rebalance ≤ 5 s pause; **W7: 10 GB restore ≤ 30 s** |
-| **8 — Control plane & self-tuning** | 46–53 | Spring Boot + React UI, all screens, **time-travel debugger**, security (OIDC/RBAC/audit), full observability, skew remediation, live replanning, state tier promotion, Helm chart | Operator runs the full lifecycle from the UI; **W10:** a seeded production bug is found by replay and exported as a passing JUnit fixture |
+| **8 — Debugger, self-tuning & console polish** | 46–53 | **Time-travel debugger UI**, adaptive-controller screens, security (OIDC/RBAC/audit) end to end, full observability, skew remediation, live replanning, state tier promotion, **console polish pass + WCAG 2.2 AA audit + visual-regression baseline**, Helm chart | Operator runs the full lifecycle from the console; **W10:** a seeded production bug is found by replay and exported as a passing JUnit fixture; §23.20 checklist green |
 | **9 — Benchmarks, breadth & GA** | 54–62 | Cassandra + PostgreSQL + Redis plugins; **`WITH RECURSIVE`**; **published Nexmark q0–q22 head-to-head vs Flink**; 72 h soak; security review; TCO validation; GA docs and migration tooling | All NFR SLOs met; **W5 ≥ parity on 18/22, ≥ 2× on 8**; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated on a real workload; SBOM + security review signed off |
+
+**The console is a continuous workstream, not a phase.** §23 specifies a product surface, and a product surface cannot be built in one late phase. From Phase 3 onward a dedicated frontend workstream ships the console screens for each engine capability *in the same phase that capability lands* — catalog and query screens with E3, plan DAG and workbench with E4, backfill and cutover with E5, and so on. Phase 8 is then a *polish and debugger* phase rather than a build-the-whole-UI phase. See §6.2 and §9 of the implementation plan.
 
 **Critical path:** Phase 1's Z-set foundation and Phase 2's codegen. Everything incremental depends on the first; every performance claim depends on the second. Phase 5 (backfill + serving) is the largest single differentiator and the most likely to need a full extra iteration — plan for it.
 
@@ -2869,6 +3181,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **017** | Adapt performance automatically; never adapt semantics | Full manual tuning; adapt everything | Operations is where streaming projects die, but silent semantic changes are unacceptable. Every controller is observable, bounded, reversible and pinnable (§18.1) |
 | **019** | Engine core is Spring-free; Spring Boot is a bootstrap layer above a plain-Java `PravahaEngine` seam | Spring throughout; no Spring anywhere; Quarkus/Micronaut | Keeps embeddability intact (a host on Boot 3.2 cannot be forced to 3.5), keeps `pravaha dev` under 1 s, and keeps proxies off the hot path — while the server still inherits Boot's config, actuator, security and packaging for free (§22.1) |
 | **020** | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` | Documentation only; a bare `PravahaEngine` bean | Lets a team add continuous SQL to a service they already run, in the idiom they already use. Modelled on `@KafkaListener` so the mental model transfers (§22.4) |
+| **022** | The console is a flagship product surface with its own design system, built as a continuous workstream from Phase 3 | A late control-plane admin UI; CLI-only; a thin metrics page | For most users the console *is* the product, and W10 (the time-travel debugger) exists nowhere else. A polished UI cannot be produced in one late phase, so it is resourced with a dedicated frontend engineer and shipped alongside each engine capability (§23.1) |
 | **021** | No GraalVM native image for the engine | Native image via Spring AOT; drop runtime codegen to enable it | Runtime Java-source compilation (ADR-005) is fundamentally incompatible with a closed-world image, and it is what makes the hot path fast. Stated so no one spends a sprint on it. Clients and UI may still go native (§22.7) |
 | **018** | Apache 2.0 for the entire engine, UI and first-party plugins | Open core with a restricted engine; source-available; dual licence | The engineers who decide adoption will not evaluate a crippled core. The moat is architecture and execution; commercial value sits in managed operation, support and certification (§30.4) |
 
@@ -2913,6 +3226,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **Cost model** | Absent | Worked TCO with stated qualifications; ≤ 40 % of Flink's vCPU (§30) | — |
 | **Benchmarks** | Unfalsifiable NFRs | Nexmark q0–q22 published head-to-head, harness open (§28.4, §31 Phase 9) | Establishes credibility rather than asserting it |
 | **Deployment modes** | Single engine instance, YAML-bound | Four modes from one core: plain embedded, Spring Boot starter, Spring Boot server, all-in-one server+UI (§22.2) | Flink (cluster-only), Materialize/RisingWave (cloud-only) |
+| **Web console** | Absent | Full web application: IDE-grade SQL workbench, live plan DAG, time-travel debugger, backfill control, design system, WCAG 2.2 AA, performance-budgeted (§23) | Flink's UI is read-only job status; ksqlDB has none of consequence; Materialize is SQL-console-only |
 | **Spring integration** | Absent | `@PravahaListener`, `PravahaTemplate`, `@PravahaTest`, actuator — engine core stays Spring-free (§22.4) | No competitor ships a first-class Spring starter |
 | **Licensing** | Unstated | Apache 2.0 core, engine and UI included (§30.4) | Materialize, RisingWave, Confluent |
 
