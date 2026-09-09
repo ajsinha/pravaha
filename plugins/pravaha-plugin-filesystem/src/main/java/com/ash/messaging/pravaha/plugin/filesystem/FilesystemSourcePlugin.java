@@ -92,8 +92,12 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
      * <p>Declared rather than inferred. Sniffing types from the first few lines guesses wrong on
      * exactly the columns that matter -- an identifier of all digits becomes an integer, and the
      * first row containing a letter fails at 3 a.m.
+     *
+     * <p>Public because the spec is part of this plugin's configuration contract: anything binding a
+     * query to a filesystem stream needs the same schema the plugin will decode with, and deriving
+     * it twice is how the two drift apart.
      */
-    static StreamSchema parseSchema(String streamName, String spec) {
+    public static StreamSchema parseSchema(String streamName, String spec) {
         StreamSchema.Builder builder = StreamSchema.builder(streamName);
         for (String column : spec.split(",")) {
             String[] parts = column.strip().split(":");

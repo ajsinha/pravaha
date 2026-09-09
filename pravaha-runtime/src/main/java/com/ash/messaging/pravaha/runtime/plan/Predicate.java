@@ -13,7 +13,7 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
-package com.ash.messaging.pravaha.sql.plan;
+package com.ash.messaging.pravaha.runtime.plan;
 
 import com.ash.messaging.pravaha.api.data.RowView;
 

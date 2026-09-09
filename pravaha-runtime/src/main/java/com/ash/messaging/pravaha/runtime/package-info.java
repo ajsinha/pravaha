@@ -14,10 +14,10 @@
  * See the LICENSE file in the root of this repository for the full terms.
  */
 /**
- * Pravaha's own plan representation.
+ * The execution runtime.
  *
- * <p>A sealed operator hierarchy, so the code generator and the interpreted fallback both switch
- * over the full set and the compiler flags any operator either forgets. Adding an operator without
- * handling it everywhere is a build failure rather than a runtime surprise in a customer's query.
+ * <p>Deliberately free of Calcite. The plan IR lives here and {@code pravaha-sql} depends on this
+ * module rather than the reverse, so the compiler targets the runtime's contract and none of
+ * Calcite's thirty transitive dependencies reach execution (ADR-002).
  */
-package com.ash.messaging.pravaha.sql.plan;
+package com.ash.messaging.pravaha.runtime;
