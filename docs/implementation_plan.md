@@ -138,6 +138,9 @@ IntelliJ IDEA is the reference IDE. Committed config: `.editorconfig`, a shared 
 | **No allocation in hot-path methods** — no boxing, no varargs, no lambdas capturing, no iterator allocation | Review + `JMH` allocation-rate assertions + an `@HotPath` marker annotation checked by ArchUnit |
 | No unbounded collections or queues on the runtime classpath | ArchUnit rule (design NFR-9) |
 | No `java.io.Serializable` anywhere | ArchUnit rule |
+| **Source files stay under 1500 lines** (docs and UI code exempt) | `SourceFileSizeTest` walks the tree and fails the build; warns from 1200 so files get split deliberately rather than in a panic |
+| **Every production type has JUnit coverage** | JaCoCo line gate per module, plus review |
+| **Highly modular**: one public type per file, one responsibility per type | Review, and the file-size rule as a backstop |
 | No storage-client imports outside `plugins/**` | ArchUnit + `maven-enforcer` banned dependencies |
 | **No `org.springframework` import in any core module** — Spring lives only in `pravaha-server`, `pravaha-ui`, `pravaha-spring-boot-starter` (design §22.1) | ArchUnit + `maven-enforcer` banned dependencies |
 | No Spring type reachable from an `@HotPath` method | ArchUnit |

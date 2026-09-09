@@ -1,0 +1,65 @@
+name: matrix
+
+# Java 21 is the baseline and the only JDK we compile with (design section 4.5). The 25 leg is a
+# *runtime* compatibility check: it runs the tests against artifacts compiled on 21, which is what
+# a customer on a newer JVM actually does. Recompiling on 25 would test something nobody ships.
+on:
+  pull_request:
+    branches: [develop, main]
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  build-on-baseline:
+    name: build (JDK 21)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      - run: ./mvnw -B clean install -DskipTests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: classes-jdk21
+          path: '**/target/*.jar'
+          retention-days: 1
+
+  run-on-newer-jvm:
+    name: run tests (JDK ${{ matrix.jdk }})
+    needs: build-on-baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        jdk: ['21', '25']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.jdk }}
+          distribution: temurin
+          cache: maven
+      # Compilation is pinned to 21 by the toolchain; only test execution varies.
+      - run: ./mvnw -B clean verify -DskipITs
+
+  agrona-flagged:
+    name: agrona memory path (flagged)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      # Agrona 2.x reaches jdk.internal.misc.Unsafe. It is never the default for exactly that
+      # reason, but the implementation still has to keep working where the flag is available.
+      - run: >
+          ./mvnw -B clean verify -DskipITs
+          -DargLine="--add-exports java.base/jdk.internal.misc=ALL-UNNAMED"
