@@ -1,0 +1,426 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.ash.messaging</groupId>
+  <artifactId>pravaha</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>Pravaha</name>
+  <description>An embeddable, store-native, incrementally-maintained continuous query engine</description>
+  <url>https://github.com/ajsinha/pravaha</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <modules>
+    <module>pravaha-bom</module>
+    <module>pravaha-api</module>
+    <module>pravaha-common</module>
+    <module>pravaha-algebra</module>
+    <module>pravaha-catalog</module>
+    <module>pravaha-sql</module>
+    <module>pravaha-runtime</module>
+    <module>pravaha-state</module>
+    <module>pravaha-connect</module>
+    <module>pravaha-testkit</module>
+    <module>pravaha-benchmarks</module>
+    <module>pravaha-it</module>
+    <!-- Added by the story that needs them (implementation plan 10.1):
+         pravaha-embedded (Sprint 5), pravaha-server + pravaha-spring-boot-starter (E6),
+         pravaha-serving / backfill / adaptive (E3-E5), plugins/* (E1, E4, E9),
+         pravaha-ui (EU, sprint 9). Empty modules are noise. -->
+  </modules>
+
+  <properties>
+    <!-- Design 4.5: Java 21 LTS is the baseline; pravaha-api targets 17 for embedders. -->
+    <maven.compiler.release>21</maven.compiler.release>
+    <api.compiler.release>17</api.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!-- Reproducible builds. -->
+    <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
+
+    <!-- ==== runtime dependencies ==== -->
+    <agrona.version>2.6.0</agrona.version>
+    <jctools.version>4.0.7</jctools.version>
+    <slf4j.version>2.0.19</slf4j.version>
+
+    <!-- ==== test dependencies ==== -->
+    <junit.version>5.14.4</junit.version>
+    <assertj.version>3.27.7</assertj.version>
+    <jqwik.version>1.10.1</jqwik.version>
+    <archunit.version>1.5.0</archunit.version>
+    <jmh.version>1.37</jmh.version>
+
+    <!-- ==== plugins ==== -->
+    <maven.compiler.plugin.version>3.16.0</maven.compiler.plugin.version>
+    <maven.surefire.plugin.version>3.6.0</maven.surefire.plugin.version>
+    <maven.failsafe.plugin.version>3.6.0</maven.failsafe.plugin.version>
+    <maven.enforcer.plugin.version>3.6.3</maven.enforcer.plugin.version>
+    <maven.toolchains.plugin.version>3.3.0</maven.toolchains.plugin.version>
+    <maven.jar.plugin.version>3.5.1</maven.jar.plugin.version>
+    <maven.clean.plugin.version>3.5.0</maven.clean.plugin.version>
+    <maven.resources.plugin.version>3.5.0</maven.resources.plugin.version>
+    <maven.install.plugin.version>3.1.4</maven.install.plugin.version>
+    <maven.deploy.plugin.version>3.1.4</maven.deploy.plugin.version>
+    <maven.site.plugin.version>3.22.0</maven.site.plugin.version>
+    <maven.javadoc.plugin.version>3.12.0</maven.javadoc.plugin.version>
+    <spotless.plugin.version>3.10.2</spotless.plugin.version>
+    <palantir.format.version>2.98.0</palantir.format.version>
+    <jacoco.plugin.version>0.8.15</jacoco.plugin.version>
+    <japicmp.plugin.version>0.26.2</japicmp.plugin.version>
+    <errorprone.version>2.50.0</errorprone.version>
+    <nullaway.version>0.14.1</nullaway.version>
+
+    <!-- Coverage gate. Core modules raise this in their own POMs (see pravaha-api). -->
+    <jacoco.line.coverage>0.00</jacoco.line.coverage>
+
+    <!-- Toggles. -->
+    <benchmarks.skip>true</benchmarks.skip>
+    <errorprone.skip>true</errorprone.skip>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${junit.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.agrona</groupId>
+        <artifactId>agrona</artifactId>
+        <version>${agrona.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jctools</groupId>
+        <artifactId>jctools-core</artifactId>
+        <version>${jctools.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.jqwik</groupId>
+        <artifactId>jqwik</artifactId>
+        <version>${jqwik.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.tngtech.archunit</groupId>
+        <artifactId>archunit-junit5</artifactId>
+        <version>${archunit.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.openjdk.jmh</groupId>
+        <artifactId>jmh-core</artifactId>
+        <version>${jmh.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.openjdk.jmh</groupId>
+        <artifactId>jmh-generator-annprocess</artifactId>
+        <version>${jmh.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- Every module gets the test stack. Nothing else is inherited. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${maven.compiler.plugin.version}</version>
+          <configuration>
+            <release>${maven.compiler.release}</release>
+            <compilerArgs>
+              <arg>-Xlint:all,-serial,-processing</arg>
+              <arg>-parameters</arg>
+            </compilerArgs>
+            <showDeprecation>true</showDeprecation>
+          </configuration>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${maven.surefire.plugin.version}</version>
+          <configuration>
+            <argLine>@{jacoco.surefire.argLine} -Xss4m</argLine>
+            <excludes>
+              <exclude>**/*IT.java</exclude>
+            </excludes>
+          </configuration>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>${maven.failsafe.plugin.version}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>${maven.jar.plugin.version}</version>
+        </plugin>
+
+        <!-- Pinned explicitly: the enforcer's requirePluginVersions rule rejects
+             lifecycle-bound plugins that fall back to Maven's own defaults, because
+             those defaults drift between Maven versions and break reproducible builds. -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-clean-plugin</artifactId>
+          <version>${maven.clean.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>${maven.resources.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-install-plugin</artifactId>
+          <version>${maven.install.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-deploy-plugin</artifactId>
+          <version>${maven.deploy.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-site-plugin</artifactId>
+          <version>${maven.site.plugin.version}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>${maven.javadoc.plugin.version}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-toolchains-plugin</artifactId>
+          <version>${maven.toolchains.plugin.version}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>com.github.siom79.japicmp</groupId>
+          <artifactId>japicmp-maven-plugin</artifactId>
+          <version>${japicmp.plugin.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <plugins>
+      <!-- ==== P0-02: enforce the invariants the design depends on ==== -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${maven.enforcer.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>enforce-build-environment</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <requireMavenVersion>
+                  <version>[3.9,)</version>
+                </requireMavenVersion>
+                <requireJavaVersion>
+                  <version>[21,)</version>
+                </requireJavaVersion>
+                <banDuplicatePomDependencyVersions />
+                <requirePluginVersions>
+                  <banSnapshots>true</banSnapshots>
+                </requirePluginVersions>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- ==== P0-02: one format, applied not argued about ==== -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${spotless.plugin.version}</version>
+        <configuration>
+          <java>
+            <includes>
+              <include>src/main/java/**/*.java</include>
+              <include>src/test/java/**/*.java</include>
+            </includes>
+            <palantirJavaFormat>
+              <version>${palantir.format.version}</version>
+            </palantirJavaFormat>
+            <removeUnusedImports />
+            <importOrder>
+              <file>${maven.multiModuleProjectDirectory}/config/spotless/pravaha.importorder</file>
+            </importOrder>
+            <licenseHeader>
+              <file>${maven.multiModuleProjectDirectory}/config/spotless/license-header.txt</file>
+            </licenseHeader>
+            <trimTrailingWhitespace />
+            <endWithNewline />
+          </java>
+          <pom>
+            <sortPom>
+              <expandEmptyElements>false</expandEmptyElements>
+              <spaceBeforeCloseEmptyElement>true</spaceBeforeCloseEmptyElement>
+              <nrOfIndentSpace>2</nrOfIndentSpace>
+              <sortDependencies>none</sortDependencies>
+              <sortPlugins>none</sortPlugins>
+              <sortModules>false</sortModules>
+              <sortProperties>false</sortProperties>
+            </sortPom>
+          </pom>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <phase>validate</phase>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- ==== P0-02: coverage gate ==== -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>jacoco-prepare</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+            <configuration>
+              <propertyName>jacoco.surefire.argLine</propertyName>
+            </configuration>
+          </execution>
+          <execution>
+            <id>jacoco-report</id>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+          <execution>
+            <id>jacoco-check</id>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <phase>verify</phase>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${jacoco.line.coverage}</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!-- Integration tests (Testcontainers). Off by default: the fast loop must stay fast. -->
+    <profile>
+      <id>it</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!-- JMH benchmarks. -->
+    <profile>
+      <id>bench</id>
+      <properties>
+        <benchmarks.skip>false</benchmarks.skip>
+      </properties>
+    </profile>
+
+    <!-- Error Prone + NullAway. Opt-in until P0-02b lands it in the default build. -->
+    <profile>
+      <id>ep</id>
+      <properties>
+        <errorprone.skip>false</errorprone.skip>
+      </properties>
+    </profile>
+
+    <!-- Design 4.6: the FFM MemoryAccess implementation, JDK 22+ only. -->
+    <profile>
+      <id>ffm</id>
+      <activation>
+        <jdk>[22,)</jdk>
+      </activation>
+    </profile>
+
+    <!-- Everything, as CI runs it on main. -->
+    <profile>
+      <id>all</id>
+      <properties>
+        <benchmarks.skip>false</benchmarks.skip>
+        <errorprone.skip>false</errorprone.skip>
+      </properties>
+    </profile>
+  </profiles>
+</project>

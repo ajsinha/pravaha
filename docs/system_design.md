@@ -8,7 +8,8 @@
 | Changes in 3.1 | Runtime baseline revised from Java 25 to Java 21 LTS (§4.5–4.8, ADR-001, R10) |
 | Changes in 3.2 | Deployment modes & Spring Boot integration (§22); Maven coordinates `com.ash.messaging:pravaha` |
 | Changes in 3.3 | §23 expanded from a control-plane accessory into a full web-application specification; console rescheduled as a continuous workstream from Phase 3 |
-| Version | 3.3 |
+| Changes in 3.4 | §4.5–4.6 corrected from implementation: Agrona requires a JVM flag and cannot be the default; `ByteBuffer`/`VarHandle` is |
+| Version | 3.4 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -341,7 +342,7 @@ The contradiction: §2's moat depends on Pravaha being **embeddable** (D-D). An 
 | **Build & runtime baseline** | **Java 21 LTS** (`--release 21`) |
 | `pravaha-api` module | `--release 17` — widest embeddability for the SPI plugin authors compile against |
 | Supported & CI-tested runtimes | **21, 25** (and 17 for `pravaha-api` consumers) |
-| Off-heap | **Agrona `UnsafeBuffer` / `DirectBuffer`** by default, behind a `MemoryAccess` abstraction; an FFM (`java.lang.foreign`) implementation auto-selects on 22+ via a Multi-Release JAR |
+| Off-heap | **Direct `ByteBuffer` + `VarHandle`** by default — the only flag-free option (see the correction below); Agrona and FFM are opt-in implementations behind the `MemoryAccess` seam |
 | GC | **Generational ZGC** — `-XX:+UseZGC -XX:+ZGenerational` on 21; on 24+ ZGC is generational by default and the flag is obsolete |
 | Concurrency | Virtual threads (final in 21) for the control plane and plugin I/O |
 | Language features | Records, sealed interfaces, pattern matching for `switch`, sequenced collections — all final in 21 |
@@ -350,7 +351,7 @@ The contradiction: §2's moat depends on Pravaha being **embeddable** (D-D). An 
 
 | Feature | First available | Do we need it? |
 |---|---|---|
-| **FFM / `MemorySegment`** (§8.5 arenas) | Preview in 21, **final in 22** | **No.** Agrona's `UnsafeBuffer` is the substitute and it is what Aeron, Artio and the rest of the low-latency JVM ecosystem have used for a decade. Throughput is equivalent; FFM's advantages are ergonomics, bounds-safety and future-proofing, not speed. Using FFM on 21 would require `--enable-preview`, which is disqualifying for a library — preview bytecode runs only on the exact JVM version that compiled it, and every embedder would have to enable it too. |
+| **FFM / `MemorySegment`** (§8.5 arenas) | Preview in 21, **final in 22** | **No.** `MethodHandles.byteBufferViewVarHandle` over a direct `ByteBuffer` is supported public API on 21, needs no flags, and HotSpot intrinsifies plain get/set to the same single load or store. Using FFM on 21 would require `--enable-preview`, which is disqualifying for a library — preview bytecode runs only on the exact JVM version that compiled it, and every embedder would have to enable it too. |
 | Virtual threads | **Final in 21** | Have it. |
 | Records, sealed types, pattern matching for `switch` | **Final in 21** | Have it. This is the §4 argument against Scala, and it is intact on 21. |
 | Generational ZGC | Opt-in flag in **21**; default in 23+ | Have it, with one flag. |
@@ -361,23 +362,64 @@ The contradiction: §2's moat depends on Pravaha being **embeddable** (D-D). An 
 | Compact object headers | Product in 25 | Saves 4–8 B/object. Our hot path allocates almost nothing (§29), so the benefit lands mostly on the control plane. Nice, not needed. |
 | AOT class loading & linking | 24/25 | Would help `pravaha dev` startup (§24.1) and embedded cold start. A genuine benefit, and the main reason to *offer* a 25 profile — but it is a nice-to-have against a < 1 s target we can hit without it. |
 
-There is also a point that cuts the other way. `sun.misc.Unsafe`'s memory-access methods are **deprecated for removal in 23** and **warn on use from 24**. On Java 21 Agrona is warning-free; on 25 it is not. So the two candidate baselines each carry one future-facing liability — 21 depends on an API being retired, 25 depends on an API most enterprises cannot yet run. The `MemoryAccess` abstraction resolves both: one interface, two implementations, selected at runtime.
+> #### Correction, from implementing it (P0-05)
+>
+> An earlier revision of this section said Agrona was the default and that "on Java 21 Agrona is
+> warning-free". **Both halves were wrong**, and building it surfaced why in week one.
+>
+> Agrona 2.x reaches `jdk.internal.misc.Unsafe`, which the platform does not export to unnamed
+> modules. It fails at class-initialisation time on *any* JDK unless the JVM is launched with:
+>
+> ```
+> --add-exports java.base/jdk.internal.misc=ALL-UNNAMED
+> ```
+>
+> Measured on this workstation: without the flag `AgronaMemoryAccess.isAvailable()` is `false` on
+> both JDK 21 and 25; with it, `true` on both.
+>
+> **That requirement disqualifies Agrona as the default, for a product reason rather than a
+> technical one.** An embedded engine inherits its *host application's* launch arguments (§22.2,
+> mode A and B). Requiring a JVM flag would mean a customer cannot adopt Pravaha without changing
+> how their own service starts — which forfeits precisely the embeddability the product is
+> positioned on (§2.2). A flag is a small ask for a server we launch ourselves and a large one for
+> a library someone else launches.
+>
+> **The default is therefore `ByteBufferMemoryAccess`**: direct `ByteBuffer` addressed through
+> `MethodHandles.byteBufferViewVarHandle`. Supported public API, no flags on any JDK from 17
+> upward, and HotSpot intrinsifies plain get/set into the same single load or store `Unsafe` would
+> emit. Agrona (`-Dpravaha.memory=agrona`) and FFM (`-Dpravaha.ffm=true`, JDK 22+) remain available
+> where the deployment controls its own launch arguments; the JMH comparison in
+> `pravaha-benchmarks` decides whether either is worth selecting.
+>
+> This is the `MemoryAccess` seam earning its keep on its first day: the finding changed the
+> default implementation and cost one file, not a migration.
+
+There is also a point that cuts the other way. `sun.misc.Unsafe`'s memory-access methods are **deprecated for removal in 23** and **warn on use from 24**, and Agrona's replacement needs the flag above. So every low-level option carries some liability — which is the argument for the seam rather than for any one implementation. The `ByteBuffer`/`VarHandle` default is the one with none: it is supported, flag-free, and portable across every JDK in scope.
 
 ```java
-// pravaha-common — the only place either API is named
+// pravaha-common — the only place any low-level memory API is named.
+// An ArchUnit rule fails the build if anything outside this package imports
+// org.agrona, sun.misc or jdk.internal.
 public interface MemoryAccess {
-    long allocate(long bytes);
-    long getLong(long addr, int offset);
-    void putLong(long addr, int offset, long value);
-    boolean utf8Equals(long addr, int offset, byte[] literal);
-    // …
+    MemoryRegion allocate(int bytes);
+    MemoryRegion allocate(int bytes, int alignment);
+    String name();
+
     static MemoryAccess best() {
-        return Runtime.version().feature() >= 22 && Boolean.getBoolean("pravaha.ffm")
-             ? ForeignMemoryAccess.INSTANCE      // META-INF/versions/22/
-             : AgronaMemoryAccess.INSTANCE;      // default, 17+
+        String requested = System.getProperty("pravaha.memory", "");
+        if ("agrona".equals(requested) && AgronaMemoryAccess.isAvailable()) {
+            return AgronaMemoryAccess.INSTANCE;          // needs --add-exports
+        }
+        if (Boolean.getBoolean("pravaha.ffm") && Runtime.version().feature() >= 22) {
+            MemoryAccess ffm = tryLoadForeign();          // META-INF/versions/22/
+            if (ffm != null) return ffm;
+        }
+        return ByteBufferMemoryAccess.INSTANCE;           // flag-free default
     }
 }
 ```
+
+`MemoryRegion` is index-addressed rather than raw-address-addressed. That keeps a region's lifetime tied to its object, so a use-after-free is impossible by construction rather than by discipline — worth the small indirection in a system where the alternative is silent memory corruption.
 
 Codegen (§12) emits calls against this interface; the JIT inlines the single implementation present at runtime, so the abstraction is free. A JMH gate in CI asserts the two implementations are within 3 % of each other on the arena benchmarks — if FFM ever pulls decisively ahead, the default flips with a one-line change and no API churn.
 
