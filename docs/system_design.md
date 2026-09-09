@@ -5,7 +5,8 @@
 | Field | Value |
 |---|---|
 | Document | Pravaha System Design & Architecture |
-| Version | 3.0 |
+| Changes in 3.1 | Runtime baseline revised from Java 25 to Java 21 LTS (§4.5–4.8, ADR-001, R10) |
+| Version | 3.1 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -68,7 +69,7 @@ The 1.0 draft has the right *product vision* and the right *component inventory*
 
 | # | Decision | Rationale (short) |
 |---|---|---|
-| **D1** | **Java 25 LTS, single language.** No Scala in the core. | Every dependency in the stack (Calcite, Avatica, RocksDB JNI, Aerospike client, Netty, Agrona, JCTools) is Java-native. Java 21+ records/sealed types/pattern matching close most of Scala's expressiveness gap, and Java gives us direct control over allocation, which is the whole ballgame here. See §4. |
+| **D1** | **Java 21 LTS baseline, single language.** No Scala in the core. | Every dependency in the stack (Calcite, Avatica, RocksDB JNI, Aerospike client, Netty, Agrona, JCTools) is Java-native. Java 21+ records/sealed types/pattern matching close most of Scala's expressiveness gap, and Java gives us direct control over allocation, which is the whole ballgame here. See §4. |
 | **D2** | **Calcite is a compiler, not a runtime.** | Use Calcite for parse → validate → optimize. Then translate the physical `RelNode` tree into Pravaha's own operator DAG and **generate Java source per query** (whole-stage fusion, Janino-compiled). Never execute through `ScannableTable.scan()` / `Enumerable`. See §11, §12. |
 | **D3** | **No `Map<String,Object>` on the hot path.** | Records are schema-bound **flyweights over an off-heap arena**; field access is an ordinal into a fixed binary layout. `Map`-based `ContinuousRecord` survives only as a convenience API at the SPI boundary and in tests. See §8. |
 | **D4** | **Partitioned lanes with the single-writer principle.** | One global `LinkedBlockingQueue` is a hard scalability ceiling. Instead: hash-partition each stream into *lanes*; each lane owns one thread, one MPSC ring buffer (JCTools/Agrona), one state slice, one timer wheel. Zero lock contention in steady state. See §13. |
@@ -269,18 +270,20 @@ Covered in §24, §11.4, §15.6, §13.5 and §25 respectively.
 
 ## 4. Language Decision: Java vs Scala
 
-### Recommendation: **Java 25 LTS for the entire system.** No Scala in the core engine.
+### 4.1 Recommendation: **Java for the entire system, on a Java 21 LTS baseline.** No Scala in the core engine.
+
+> **Revised in v3.1.** This document previously specified Java 25. Java 21 is now the baseline; 25 remains supported and CI-tested. The reasoning — and it is a product argument, not only an engineering one — is in §4.5.
 
 This is a considered recommendation, not a default. Scala is a genuinely strong fit for *some* streaming systems — Kafka Streams' Scala DSL, Flink's original core, Spark. The case here goes the other way, and the deciding factor is that Pravaha's value proposition is **per-record cost**, and Scala's ergonomics are built on abstractions that allocate.
 
-### Decision matrix
+### 4.2 Decision matrix
 
-| Criterion | Weight | Java 25 | Scala 3.4 | Notes |
+| Criterion | Weight | Java 21+ | Scala 3.4 | Notes |
 |---|---|---|---|---|
 | Control over allocation on the hot path | ★★★★★ | **9** | 5 | Scala closures, `Option`, tuples, boxed generics, and collection combinators all allocate. Writing allocation-free Scala means avoiding most of Scala. |
 | Ecosystem fit (Calcite, Avatica, RocksDB JNI, Aerospike, Netty, Agrona, JCTools, Micrometer) | ★★★★★ | **10** | 6 | All Java APIs. From Scala these are usable but every SAM/collection boundary needs conversion. Calcite's codegen path in particular is Java-source-oriented. |
 | Runtime code generation (§12) | ★★★★★ | **10** | 4 | We generate Java source and compile with Janino at query-registration time. Generating Scala would require the full Scala compiler in-process — seconds per query, hundreds of MB. |
-| FFM / off-heap / `MemorySegment` / Vector API | ★★★★☆ | **9** | 6 | Java-first APIs; Scala works but with friction and no idiom. |
+| Off-heap memory (Agrona `UnsafeBuffer`, or FFM on 22+) | ★★★★☆ | **9** | 6 | Java-first APIs; Scala works but with friction and no idiom. |
 | Virtual threads & structured concurrency (control plane, plugin I/O) | ★★★★☆ | **9** | 7 | Loom is Java-native. Scala's answer is effect systems (ZIO/Cats Effect), a large and opinionated dependency. |
 | Expressiveness for the planner/AST layer (ADTs, exhaustive matching) | ★★★☆☆ | 7 | **9** | Java 21 sealed interfaces + records + pattern matching for `switch` recover most of this. Scala still wins, but on maybe 8 % of the codebase. |
 | Spring Boot control plane & UI backend | ★★★☆☆ | **10** | 5 | Spring is Java-first. Scala + Spring is possible and unpleasant. |
@@ -291,7 +294,7 @@ This is a considered recommendation, not a default. Scala is a genuinely strong 
 
 **Weighted outcome: Java by a wide margin**, driven by the two highest-weight rows.
 
-### Where Scala would have won, and why it does not decide it
+### 4.3 Where Scala would have won, and why it does not decide it
 
 Scala's advantages here are real but concentrated in the ~8 % of the codebase that is the planner, the AST and the configuration model — exactly the part where Java 21+ has closed most of the gap:
 
@@ -314,7 +317,7 @@ long slices = switch (spec) {
 
 That is close enough to Scala's version to not justify a second language, a second build toolchain, a second hiring profile and a second set of profiling idiosyncrasies across the whole repository.
 
-### If Scala is nonetheless desired
+### 4.4 If Scala is nonetheless desired
 
 The Maven reactor supports it via `scala-maven-plugin`, but it must be **confined to modules with no per-record work**:
 
@@ -324,17 +327,84 @@ The Maven reactor supports it via `scala-maven-plugin`, but it must be **confine
 
 **Hard rule:** nothing under `pravaha-runtime`, `pravaha-state`, `pravaha-codegen` or any `pravaha-plugin-*` may be Scala. Enforced by `maven-enforcer-plugin` and CI.
 
-### Java platform baseline
+### 4.5 Java platform baseline — revised to **Java 21 LTS**
+
+**Java 21 LTS is the baseline. Java 25 is supported and tested, not required.** The v2.0 draft of this document specified Java 25; that was an engineering preference that quietly contradicted the product strategy, and it is corrected here.
+
+The contradiction: §2's moat depends on Pravaha being **embeddable** (D-D). An embeddable library inherits its host application's JVM. Enterprise Java is overwhelmingly on 17 and 21 — a library that demands 25 cannot be embedded in most of the applications we are trying to win, which forfeits the one property Hazelcast Jet holds and Flink does not. The runtime baseline is a *distribution* decision before it is a technical one.
 
 | Aspect | Choice |
 |---|---|
-| Build & runtime target | **Java 25 LTS** (`--release 25`) |
-| `pravaha-api` module | compiled `--release 21` so embedders on Java 21 LTS can depend on the SPI |
-| Off-heap | `java.lang.foreign` (FFM, final since 22) via a thin `MemoryAccess` abstraction; **Agrona `UnsafeBuffer` fallback** for the Java 21 path |
-| GC | **Generational ZGC** (`-XX:+UseZGC -XX:+ZGenerational`), sized so the hot path allocates ~nothing and GC is effectively idle |
-| Extras | Virtual threads (control plane & plugin I/O), Vector API (incubating — optional SIMD in aggregation kernels, behind a feature flag) |
+| **Build & runtime baseline** | **Java 21 LTS** (`--release 21`) |
+| `pravaha-api` module | `--release 17` — widest embeddability for the SPI plugin authors compile against |
+| Supported & CI-tested runtimes | **21, 25** (and 17 for `pravaha-api` consumers) |
+| Off-heap | **Agrona `UnsafeBuffer` / `DirectBuffer`** by default, behind a `MemoryAccess` abstraction; an FFM (`java.lang.foreign`) implementation auto-selects on 22+ via a Multi-Release JAR |
+| GC | **Generational ZGC** — `-XX:+UseZGC -XX:+ZGenerational` on 21; on 24+ ZGC is generational by default and the flag is obsolete |
+| Concurrency | Virtual threads (final in 21) for the control plane and plugin I/O |
+| Language features | Records, sealed interfaces, pattern matching for `switch`, sequenced collections — all final in 21 |
 
-> **Environment note:** this workstation currently has OpenJDK 21.0.12 and no Maven on `PATH`. Bootstrapping requires a JDK 25 toolchain and Maven 3.9.x (or the Maven Wrapper, which the project will vendor). The build will be configured with `maven-toolchains-plugin` so the JDK 25 requirement is explicit and reproducible.
+### 4.6 What Java 25 would have bought, and why none of it is load-bearing
+
+| Feature | First available | Do we need it? |
+|---|---|---|
+| **FFM / `MemorySegment`** (§8.5 arenas) | Preview in 21, **final in 22** | **No.** Agrona's `UnsafeBuffer` is the substitute and it is what Aeron, Artio and the rest of the low-latency JVM ecosystem have used for a decade. Throughput is equivalent; FFM's advantages are ergonomics, bounds-safety and future-proofing, not speed. Using FFM on 21 would require `--enable-preview`, which is disqualifying for a library — preview bytecode runs only on the exact JVM version that compiled it, and every embedder would have to enable it too. |
+| Virtual threads | **Final in 21** | Have it. |
+| Records, sealed types, pattern matching for `switch` | **Final in 21** | Have it. This is the §4 argument against Scala, and it is intact on 21. |
+| Generational ZGC | Opt-in flag in **21**; default in 23+ | Have it, with one flag. |
+| Vector API (SIMD) | **Still incubating in 25** | No difference — it was behind a feature flag either way. |
+| Structured concurrency | **Still preview in 25** | Cannot use it on any version. No loss. |
+| Scoped values | Preview in 21, final in 25 | `ThreadLocal` is adequate for our context propagation. Minor. |
+| Class-File API | Final in 24 | Irrelevant — we generate Java *source* and compile with Janino (§12.4), not bytecode. |
+| Compact object headers | Product in 25 | Saves 4–8 B/object. Our hot path allocates almost nothing (§28), so the benefit lands mostly on the control plane. Nice, not needed. |
+| AOT class loading & linking | 24/25 | Would help `pravaha dev` startup (§23.1) and embedded cold start. A genuine benefit, and the main reason to *offer* a 25 profile — but it is a nice-to-have against a < 1 s target we can hit without it. |
+
+There is also a point that cuts the other way. `sun.misc.Unsafe`'s memory-access methods are **deprecated for removal in 23** and **warn on use from 24**. On Java 21 Agrona is warning-free; on 25 it is not. So the two candidate baselines each carry one future-facing liability — 21 depends on an API being retired, 25 depends on an API most enterprises cannot yet run. The `MemoryAccess` abstraction resolves both: one interface, two implementations, selected at runtime.
+
+```java
+// pravaha-common — the only place either API is named
+public interface MemoryAccess {
+    long allocate(long bytes);
+    long getLong(long addr, int offset);
+    void putLong(long addr, int offset, long value);
+    boolean utf8Equals(long addr, int offset, byte[] literal);
+    // …
+    static MemoryAccess best() {
+        return Runtime.version().feature() >= 22 && Boolean.getBoolean("pravaha.ffm")
+             ? ForeignMemoryAccess.INSTANCE      // META-INF/versions/22/
+             : AgronaMemoryAccess.INSTANCE;      // default, 17+
+    }
+}
+```
+
+Codegen (§12) emits calls against this interface; the JIT inlines the single implementation present at runtime, so the abstraction is free. A JMH gate in CI asserts the two implementations are within 3 % of each other on the arena benchmarks — if FFM ever pulls decisively ahead, the default flips with a one-line change and no API churn.
+
+### 4.7 Could we go lower than 21?
+
+| Baseline | Verdict | What it costs |
+|---|---|---|
+| **21 LTS** | **Recommended** | Nothing material. One substitution (Agrona for FFM), one GC flag. |
+| **17 LTS** | Viable for `pravaha-api`; **not recommended for the engine** | Loses virtual threads — the control plane and plugin I/O (§13.2) revert to bounded platform-thread pools and async callback style. Workable (it is what everyone did before Loom) but meaningfully worse code. Also loses pattern matching for `switch` and sequenced collections, which weakens the §4 case against Scala. Generational ZGC unavailable. |
+| **11** | **No** | No records, no sealed types, no pattern matching, no virtual threads, no usable ZGC. This would be a different codebase with a different design, and the Scala comparison in §4 would need re-running. |
+| **8** | No | Not a serious option. |
+
+`pravaha-api` targets **17** specifically so that a customer still on Java 17 can write a plugin or embed the SPI types even though the engine itself needs 21. That is the one place the extra compatibility is worth the constraint.
+
+### 4.8 Dependency floors — nothing forces us above 21
+
+| Dependency | Minimum JDK |
+|---|---|
+| Spring Boot 3.5 | 17 |
+| Apache Calcite / Avatica | 11 |
+| Netty 4.2, gRPC-Java | 8 |
+| RocksDB JNI | 8 |
+| Aerospike Java client | 8–11 |
+| Agrona 2.x | 17 |
+| JCTools | 11 |
+| Janino | 8 |
+
+The binding constraint on the *engine* is our own use of virtual threads and pattern matching, i.e. Java 21 — not any third-party library.
+
+> **Environment note:** this workstation has OpenJDK 21.0.12, which is now exactly the baseline — no JDK upgrade is required to start. Maven is not on `PATH`; the project will vendor the Maven Wrapper (`mvnw`) so a clone bootstraps without a system Maven install. `maven-toolchains-plugin` pins the compile JDK for reproducibility, and CI runs the full suite on **21 and 25** so the higher runtime never rots.
 
 ---
 
@@ -483,13 +553,13 @@ Everything expensive happens **once, at query registration**; the steady state d
 
 ## 7. Maven Module Structure
 
-Single reactor, `pom` packaging at root, Java 25 (`pravaha-api` at 21). Dependency direction is strictly downward; ArchUnit enforces it.
+Single reactor, `pom` packaging at root, Java 21 (`pravaha-api` at 17). Dependency direction is strictly downward; ArchUnit enforces it.
 
 ```
 pravaha/                                    (pom — parent, pluginManagement, profiles)
 ├── pravaha-bom/                            (pom — dependencyManagement for consumers)
 │
-├── pravaha-api/                            ← PUBLIC, semver, ZERO third-party deps, --release 21
+├── pravaha-api/                            ← PUBLIC, semver, ZERO third-party deps, --release 17
 │   └── model, SPI interfaces, capability descriptors, exceptions
 ├── pravaha-common/                         ← buffers, arenas, time, ids, config binding, hashing
 │
@@ -541,7 +611,7 @@ pravaha/                                    (pom — parent, pluginManagement, p
 
 ```xml
 <properties>
-  <maven.compiler.release>25</maven.compiler.release>
+  <maven.compiler.release>21</maven.compiler.release>
   <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   <calcite.version>1.40.0</calcite.version>
   <rocksdb.version>9.10.0</rocksdb.version>
@@ -559,8 +629,8 @@ Plugins configured at parent level:
 
 | Plugin | Purpose |
 |---|---|
-| `maven-enforcer-plugin` | Require Maven ≥ 3.9, JDK 25, ban duplicate/conflicting deps, **ban storage clients outside plugin modules**, ban Scala outside allowed modules |
-| `maven-toolchains-plugin` | Pin JDK 25 explicitly for reproducibility |
+| `maven-enforcer-plugin` | Require Maven ≥ 3.9, JDK ≥ 21, ban duplicate/conflicting deps, **ban storage clients outside plugin modules**, ban Scala outside allowed modules |
+| `maven-toolchains-plugin` | Pin the compile JDK explicitly for reproducibility; CI matrix runs 21 and 25 |
 | `spotless-maven-plugin` | `palantir-java-format`, import order, license headers — `check` in CI, `apply` locally |
 | `error-prone` + `NullAway` | Compile-time bug patterns; NullAway on `pravaha-api`/`runtime` to make nullability explicit |
 | `jacoco-maven-plugin` | Coverage gates: 85 % line on core modules, 70 % overall |
@@ -574,7 +644,7 @@ Plugins configured at parent level:
 
 ### 7.2 The `pravaha-api` contract
 
-`pravaha-api` has **zero third-party dependencies** and is compiled to Java 21 bytecode. This is deliberate and load-bearing: it is what plugin authors compile against, it is the only package visible from a plugin's parent classloader, and it is the module under `japicmp` semver enforcement. Every richer type (buffers, Netty, Calcite) stays behind it.
+`pravaha-api` has **zero third-party dependencies** and is compiled to Java 17 bytecode. This is deliberate and load-bearing: it is what plugin authors compile against, it is the only package visible from a plugin's parent classloader, and it is the module under `japicmp` semver enforcement. Every richer type (buffers, Netty, Calcite) stays behind it.
 
 ---
 
@@ -664,7 +734,7 @@ Generated operator code never calls `getString`; it compares UTF-8 slices direct
 
 ### 8.5 Arena and lifetime
 
-Each lane owns a **slab arena**: a small number of large `MemorySegment`s (default 4 MB slabs) carved bump-pointer style. A batch is processed and the arena reset in one move — no per-record free, no GC involvement.
+Each lane owns a **slab arena**: a small number of large off-heap slabs (default 4 MB), allocated through the `MemoryAccess` abstraction of §4.6 — Agrona `UnsafeBuffer` on 21, FFM `MemorySegment` on 22+ — and carved bump-pointer style. A batch is processed and the arena reset in one move — no per-record free, no GC involvement.
 
 ```java
 public interface RowArena extends AutoCloseable {
@@ -1998,7 +2068,7 @@ Per-tenant quotas on: lane-count share, total state bytes, sink egress rate, reg
 
 | Layer | Choice |
 |---|---|
-| Backend | Spring Boot 3.5 (Java 25), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi |
+| Backend | Spring Boot 3.5 (Java 21+), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi |
 | Live updates | SSE for metrics/status; WebSocket (STOMP) for the live result tap |
 | Frontend | React 19 + TypeScript, Vite, TanStack Query + Router, Tailwind + shadcn/ui |
 | SQL editor | Monaco with a Pravaha SQL language service (catalog-aware completion, live validation via a `/validate` endpoint) |
@@ -2279,7 +2349,7 @@ pravaha:
 ### 26.2 JVM flags (reference)
 
 ```
--XX:+UseZGC -XX:+ZGenerational
+-XX:+UseZGC -XX:+ZGenerational        # ZGenerational is a no-op on 24+, where it is the default
 -Xms16g -Xmx16g                        # fixed heap; the hot path barely allocates
 -XX:MaxDirectMemorySize=8g
 -XX:+AlwaysPreTouch
@@ -2287,8 +2357,8 @@ pravaha:
 -XX:-RestrictContended                 # allow @Contended padding
 -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints   # accurate profiles
 -XX:StartFlightRecording=settings=pravaha-low,disk=true
---enable-native-access=ALL-UNNAMED     # FFM
---add-modules jdk.incubator.vector     # optional SIMD kernels
+--enable-native-access=ALL-UNNAMED     # only on the FFM profile (JDK 22+)
+--add-modules jdk.incubator.vector     # optional SIMD kernels; still incubating on every release
 ```
 
 ### 26.3 Packaging
@@ -2497,7 +2567,7 @@ Ten phases, roughly two-week increments for a team of 4–6. Each phase ends wit
 | R7 | **Performance regressions** creep in over a long project | Medium | High | Nightly JMH + end-to-end profiles with a 10 % failure threshold; performance treated as a test |
 | R8 | **Scope creep toward "rebuild Flink"** | High | Medium | Hold the line on the differentiator: *embeddable, store-native, pushdown-first*. Explicitly out of scope for v1: batch, ML, arbitrary UDF sandboxing, SQL/CEP beyond `MATCH_RECOGNIZE` |
 | R9 | **Plugin classloader issues** — leaks, TCCL bugs, version conflicts | Medium | Medium | Strict parent-last policy; classloader leak test; shading in plugin jars; a plugin conformance TCK plugin authors must pass |
-| R10 | **JDK 25 adoption friction** in enterprise environments | Medium | Medium | `pravaha-api` at Java 21; Agrona fallback for the off-heap path; document a supported Java 21 build profile |
+| R10 | **JDK adoption friction** — an embeddable library inherits its host's JVM, and enterprise Java is largely on 17/21 | Medium | ~~Medium~~ **Low** | **Resolved by revising the baseline to Java 21** (§4.5). `pravaha-api` targets 17. Residual risk is `sun.misc.Unsafe` removal on future JDKs, contained by the `MemoryAccess` abstraction with an FFM implementation already written and CI-tested (§4.6) |
 | R11 | **UI accidentally becomes a data path** under feature pressure | Medium | Medium | Architectural rule (§22.1) + ArchUnit test forbidding UI modules from depending on `pravaha-runtime` internals; conflating tap by construction |
 | R12 | **Metaspace growth** from per-query generated classes | Medium | Low | Per-query classloaders; register/drop leak test; metaspace metric as a canary; hard cap on generated class count per tenant |
 | **R13** | **DBSP/Z-set incrementalization is a young technique** with essentially one production implementation. Getting an operator's incremental form subtly wrong produces silently wrong answers | **High** | Medium | The property-based oracle (§9.7) checks `Q(S+ΔS) = Q(S) + Q^Δ(ΔS,S)` over *generated* queries and deltas continuously in CI — a machine-checkable correctness proof that retract-stream engines cannot have. Phased adoption: linear ops in Phase 1, aggregates in 3, joins in 4, recursion in 9. Non-incremental escape hatch per operator |
@@ -2513,7 +2583,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 
 | ADR | Decision | Alternatives rejected | Why |
 |---|---|---|---|
-| **001** | Java 25 for everything; Scala only in optional non-hot-path client modules | Scala 3 core; Kotlin; mixed | Allocation control, ecosystem fit, Janino codegen, Spring, hiring (§4) |
+| **001** | Java for everything, **baseline Java 21 LTS** (`pravaha-api` at 17), 25 supported; Scala only in optional non-hot-path client modules | Java 25 baseline (v2.0 of this doc); Java 17; Scala 3 core; Kotlin; mixed | Allocation control, ecosystem fit, Janino codegen, Spring, hiring (§4). **Baseline revised from 25 to 21:** an embeddable library inherits its host's JVM, so demanding 25 forfeits the embeddability moat (§2.2) for features that are convenience, not capability (§4.6) |
 | **002** | Calcite as compiler, custom runtime | Calcite `Enumerable` execution; Flink embedding; hand-written parser | Enumerable cannot meet the NFRs; Flink violates the embeddable/lightweight premise; a hand-written parser throws away Calcite's optimizer (§11, G1) |
 | **003** | Binary flyweight rows over an arena | `Map<String,Object>`; POJOs + reflection; Arrow internally | ~10× lower per-record cost; Arrow retained as the *wire* format where its columnar layout pays (§8, §20.2) |
 | **004** | Partitioned lanes, single-writer | Shared thread pool + concurrent state; actor framework | Removes lock contention entirely; makes state ownership and checkpointing tractable (§13) |
@@ -2540,7 +2610,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 
 | Area | 1.0 Draft | This design |
 |---|---|---|
-| Language | "Java or Scala or mixed" | Java 25, single language; Scala confined to optional client modules |
+| Language | "Java or Scala or mixed" | Java 21 LTS baseline, single language; Scala confined to optional client modules |
 | Execution | Calcite `Enumerable` + blocking enumerator | Calcite plans; generated fused operators execute |
 | Record model | `Map<String,Object>`, `Serializable` | Binary flyweight over an arena; map form kept for SPI ergonomics |
 | Queueing | One global `LinkedBlockingQueue` | Partitioned lanes, MPSC/SPSC ring buffers, single writer |
@@ -2578,7 +2648,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 
 **Decisions needed before Phase 0 starts** — each changes what gets built:
 
-1. **Language and platform** (§4) — Java 25, single language. Everything else depends on it. *Recommendation: approve as written.*
+1. **Language and platform** (§4) — Java, single language, **baseline Java 21 LTS** with 25 supported and CI-tested. Everything else depends on it. *Recommendation: approve as written. No JDK upgrade is needed to begin — 21 is already installed.*
 2. **The DBSP bet** (§9, R13). This is the highest-upside and highest-uncertainty decision in the document. Approving it buys the incremental moat, recursion and the correctness oracle; declining it means a competent Flink alternative without a durable differentiator. *Recommendation: approve, with the Phase 1 property oracle as the gate — if the oracle is hard to build, that is the early warning signal, and it arrives in week 6 rather than week 40.*
 3. **Aerospike edition** available to the target deployment (§19.1, R1). This determines whether the flagship exactly-once ingest path is available at all, and is the highest-value *external* open question. Ask this first; it has a procurement lead time.
 4. **Scope versus schedule** (R14). The plan is 62 weeks for a team of 4–6. If that is not acceptable, decide the cut *now* using the order in R14, rather than discovering it in month nine.

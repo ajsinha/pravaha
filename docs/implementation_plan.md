@@ -1,0 +1,885 @@
+# Project Pravaha — Implementation Plan
+
+**From approved design to running code on Java 21 LTS**
+
+| Field | Value |
+|---|---|
+| Document | Pravaha Implementation Plan |
+| Version | 1.0 |
+| Status | Proposed — for review |
+| Companion to | [`system_design.md`](./system_design.md) v3.1 |
+| Platform | **Java 21 LTS** (baseline), Maven 3.9+ via wrapper, Java 25 also CI-tested |
+| Date | 2026-09-09 |
+| Horizon | 31 sprints / 62 weeks, team of 5–6 |
+
+---
+
+## Table of Contents
+
+1. [How to Use This Document](#1-how-to-use-this-document)
+2. [Prerequisites & Environment Setup](#2-prerequisites--environment-setup)
+3. [Engineering Standards & Definition of Done](#3-engineering-standards--definition-of-done)
+4. [Repository, Branching & Release Model](#4-repository-branching--release-model)
+5. [CI/CD Pipeline](#5-cicd-pipeline)
+6. [Team Model & Workstreams](#6-team-model--workstreams)
+7. [Work Breakdown Structure](#7-work-breakdown-structure)
+8. [Critical Path & Dependency Graph](#8-critical-path--dependency-graph)
+9. [Sprint Plan — Phase 0 & 1 in Detail](#9-sprint-plan--phase-0--1-in-detail)
+10. [Bootstrap: The Concrete First Commits](#10-bootstrap-the-concrete-first-commits)
+11. [Phases 2–9 — Epics & Acceptance Gates](#11-phases-29--epics--acceptance-gates)
+12. [Risk-Driven Spikes](#12-risk-driven-spikes)
+13. [Milestones, Demos & Go/No-Go Gates](#13-milestones-demos--gono-go-gates)
+14. [Tracking & Metrics](#14-tracking--metrics)
+15. [Descope Ladder](#15-descope-ladder)
+16. [Appendix A — Starter POMs](#appendix-a--starter-poms)
+17. [Appendix B — Sprint 1 Task Checklist](#appendix-b--sprint-1-task-checklist)
+
+---
+
+## 1. How to Use This Document
+
+The design document says *what* Pravaha is and *why*. This one says *who builds what, in which order, and how we know it works*.
+
+**Granularity is deliberately uneven.** Phases 0–2 (sprints 1–11) are specified at task level, because that work starts now and vagueness there is expensive. Phases 3–9 are specified at epic level with hard acceptance gates, because detailing sprint 27 today would be fiction — those epics get decomposed at the start of the phase that contains them.
+
+**Every story has an acceptance criterion that a machine can check.** "Implement the ring buffer" is not a story. "`MpscRingBuffer` passes the JCTools conformance suite and sustains ≥ 50 M offers/s single-producer in JMH" is.
+
+**Reading order for a new engineer:** §2 (get building), §3 (how we work), §9 or §11 (your current phase), then the design doc section your epic references.
+
+---
+
+## 2. Prerequisites & Environment Setup
+
+### 2.1 Required toolchain
+
+| Tool | Version | Notes |
+|---|---|---|
+| JDK | **21 LTS** (Temurin recommended) | Already present on the reference workstation (21.0.12) |
+| JDK (CI only) | 25 | Second matrix leg; not needed locally |
+| Maven | 3.9.x | **Via the vendored wrapper** — do not install system Maven |
+| Docker / Podman | recent | Testcontainers only; not needed for unit tests or `pravaha dev` |
+| Node.js + pnpm | 20 LTS / 9.x | Only for `pravaha-ui`; the reactor skips it without the `ui` profile |
+| Git | 2.40+ | |
+
+### 2.2 One-time setup
+
+```bash
+# 1. Verify the JDK
+java -version                      # expect 21.x
+echo $JAVA_HOME
+
+# 2. Bootstrap the Maven wrapper (done once, committed to the repo)
+#    After this, everyone uses ./mvnw and nobody installs Maven.
+mvn -N wrapper:wrapper -Dmaven=3.9.9      # requires a temporary system Maven, once
+git add mvnw mvnw.cmd .mvn/ && git commit -m "Add Maven wrapper"
+
+# 3. Full build
+./mvnw clean verify
+
+# 4. Fast inner loop (skips ITs, benchmarks, UI)
+./mvnw -T1C -DskipITs -Dbenchmarks.skip=true test
+```
+
+> **Note on step 2:** Maven is not currently on `PATH` on the reference workstation. Bootstrapping the wrapper needs Maven exactly once — from a package manager, SDKMAN, or a downloaded tarball. After the wrapper is committed, no contributor ever needs a system Maven again. This is task **P0-01**.
+
+### 2.3 Build profiles
+
+| Profile | Activation | Effect |
+|---|---|---|
+| *(default)* | — | Core modules, unit tests |
+| `-Pit` | explicit | Testcontainers integration tests (Aerospike, Kafka, …) |
+| `-Pbench` | explicit | JMH benchmark modules |
+| `-Pui` | explicit | pnpm build of the React SPA |
+| `-Pffm` | explicit, JDK 22+ | Compiles and tests the FFM `MemoryAccess` implementation (§4.6 of the design) |
+| `-Pall` | explicit | Everything; what CI runs on `main` |
+
+### 2.4 IDE
+
+IntelliJ IDEA is the reference IDE. Committed config: `.editorconfig`, a shared code style matching `palantir-java-format`, and a run configuration for `pravaha dev`. **No IDE-specific build logic** — if it only works in IntelliJ, it is broken.
+
+---
+
+## 3. Engineering Standards & Definition of Done
+
+### 3.1 Definition of Done — a story is not done until all of these hold
+
+1. Code merged to `develop` via a reviewed PR.
+2. Unit tests cover the new logic; **no new uncovered branch in `pravaha-runtime`, `pravaha-state`, `pravaha-algebra`, or `pravaha-codegen`**.
+3. The story's stated acceptance criterion is asserted by an automated test, not by inspection.
+4. `./mvnw -Pall verify` green — includes Spotless, Error Prone, NullAway, ArchUnit, JaCoCo gates.
+5. No JMH benchmark regressed > 10 % against the recorded baseline (hot-path stories only).
+6. Public API changes pass `japicmp`, or carry an explicit approved break.
+7. Javadoc on every public type in `pravaha-api`; a one-paragraph "why" comment on any non-obvious hot-path optimisation.
+8. Documentation updated if behaviour, configuration or an error code changed — and doc snippets still execute (docs-as-tests, from Phase 6).
+
+### 3.2 Coding standards
+
+| Rule | Enforcement |
+|---|---|
+| `palantir-java-format`, 120-col | `spotless:check` |
+| No `null` in new APIs without `@Nullable` | NullAway |
+| **No allocation in hot-path methods** — no boxing, no varargs, no lambdas capturing, no iterator allocation | Review + `JMH` allocation-rate assertions + an `@HotPath` marker annotation checked by ArchUnit |
+| No unbounded collections or queues on the runtime classpath | ArchUnit rule (design NFR-9) |
+| No `java.io.Serializable` anywhere | ArchUnit rule |
+| No storage-client imports outside `plugins/**` | ArchUnit + `maven-enforcer` banned dependencies |
+| No Scala outside allowed modules | `maven-enforcer` |
+| Every thrown exception carries a stable `PRV-nnnn` code from Phase 6 | Review; codegen'd error catalogue |
+| No `Thread.sleep` in tests | ArchUnit rule on test sources |
+
+### 3.3 Review policy
+
+- One approving review for ordinary changes; **two for `pravaha-algebra`, `pravaha-codegen`, and anything touching checkpoint or consistency semantics.**
+- The author does not merge their own PR.
+- A PR that changes a hot path attaches before/after JMH numbers in the description. No numbers, no merge.
+
+### 3.4 Test taxonomy and where each lives
+
+| Kind | Module | Runs in |
+|---|---|---|
+| Unit | alongside source | every build |
+| Property-based (jqwik) | alongside source | every build |
+| Golden plan | `pravaha-sql/src/test/resources/plans/` | every build |
+| Differential (codegen vs interpreted) | `pravaha-testkit` driven | every build |
+| Architecture (ArchUnit) | `pravaha-it` | every build |
+| Integration (Testcontainers) | `pravaha-it` | `-Pit`, on PR to `develop` |
+| Chaos | `pravaha-it` | nightly |
+| Soak (72 h) | `pravaha-it` | weekly |
+| JMH micro | `pravaha-benchmarks` | nightly + on hot-path PRs |
+| Nexmark | `pravaha-benchmarks` | nightly from Phase 3 |
+
+---
+
+## 4. Repository, Branching & Release Model
+
+### 4.1 Branching
+
+```
+main        ← always releasable; tagged releases; protected
+  ▲ merge --no-ff, only from develop, only when the phase gate passes
+develop     ← integration branch; CI green at all times; protected
+  ▲ squash-merge from feature branches
+feat/<epic>-<story>-<slug>     e.g. feat/E0-P0-07-mpsc-ring-buffer
+fix/<issue>-<slug>
+spike/<name>                   time-boxed, never merged, findings written up
+```
+
+The `develop` → `main` merge happens at **phase boundaries only** — that is what makes `main` a meaningful record of demonstrable milestones rather than a mirror of `develop`.
+
+### 4.2 Commit convention
+
+Conventional Commits, scoped by module:
+
+```
+feat(runtime): add MPSC ring buffer with configurable wait strategy
+fix(state): close RocksDB column family handles on lane shutdown
+perf(codegen): split generated stages at 4 kB bytecode to stay JIT-eligible
+test(algebra): property oracle for linear incremental operators
+docs(design): revise Java baseline to 21
+```
+
+### 4.3 Versioning
+
+- `0.x.y` until Phase 6; `1.0.0` at GA (end of Phase 9).
+- `pravaha-api` is under `japicmp` semver enforcement **from Sprint 3** — it is the contract plugin authors compile against, and breaking it late is far more expensive than constraining it early.
+- Every phase boundary produces a tagged milestone build with release notes.
+
+---
+
+## 5. CI/CD Pipeline
+
+### 5.1 Stages
+
+| Stage | Trigger | Duration target | Blocking |
+|---|---|---|---|
+| **Fast** — compile, Spotless, Error Prone, unit + property tests, ArchUnit | every push | ≤ 6 min | yes |
+| **Verify** — integration tests (Testcontainers), JaCoCo gates, `japicmp` | PR to `develop` | ≤ 20 min | yes |
+| **Matrix** — full build on JDK **21** and **25** | PR to `develop` | ≤ 25 min | yes |
+| **Bench** — JMH subset, regression threshold 10 % | nightly + hot-path PRs | ≤ 45 min | yes on PR label `hot-path` |
+| **Nexmark** — q0–q22 vs recorded baseline | nightly from Phase 3 | ≤ 60 min | reported, blocking from Phase 7 |
+| **Chaos** — node kills, partitions, stalled sinks | nightly from Phase 4 | ≤ 40 min | yes |
+| **Soak** — 72 h at 70 % capacity, leak assertions | weekly from Phase 4 | 72 h | yes |
+| **Security** — OSV/dependency scan, SBOM | nightly | ≤ 10 min | yes on high severity |
+| **Release** — Jib images, Helm chart, staged artifacts | tag on `main` | ≤ 15 min | — |
+
+### 5.2 Performance is a test, not a hope
+
+The Bench stage stores results in a committed `benchmarks/baselines/` directory keyed by benchmark name and hardware profile. A regression > 10 % fails the build. Improving a baseline requires an explicit commit that updates the recorded value, so every performance change is deliberate and reviewed.
+
+This is set up in **Sprint 1**, before there is anything to benchmark. Retrofitting performance gates onto an existing codebase does not work — by then the regressions are already in and nobody knows which commit caused them.
+
+---
+
+## 6. Team Model & Workstreams
+
+### 6.1 Composition
+
+| Role | Count | Owns |
+|---|---|---|
+| Tech lead / architect | 1 | Design integrity, ADRs, cross-cutting review, the two-reviewer modules |
+| Core runtime engineer | 2 | `common`, `runtime`, `state`, `codegen`, `algebra` — the hot path |
+| SQL / planner engineer | 1 | `sql`, `catalog`, `algebra` (shared), optimizer rules |
+| Connectors engineer | 1 | `connect`, all `plugins/*`, `backfill` |
+| Platform engineer | 1 | `cluster`, `gateways`, `server`, `cli`, `ui`, CI/CD, release |
+
+Six people. With five, the platform engineer's UI work moves to Phase 8 and the lead absorbs CI/CD — this is accounted for in §15.
+
+### 6.2 Parallel workstreams
+
+The three workstreams below run concurrently from Sprint 3 onward, joining at phase gates. Sprints 1–2 are deliberately **single-stream** — everyone builds the foundations together so that everyone understands the row layout, the arena and the testkit, since every subsequent line of code touches them.
+
+```
+Sprint  1  2 │ 3  4  5 │ 6  7  8  9 10 11 │ 12 …
+             │         │                  │
+WS-A  ═══════╪═════════╪══════════════════╪═══  Runtime & performance
+ (2 eng)     │ arena   │ lanes, rings,    │     state, windows, timers
+             │ layout  │ codegen, fusion  │
+             │         │                  │
+WS-B  ═══════╪═════════╪══════════════════╪═══  SQL, algebra & planning
+ (1–2 eng)   │ Calcite │ Z-sets, lift     │     aggregates, joins
+             │ bind    │ rules, oracle    │
+             │         │                  │
+WS-C  ═══════╪═════════╪══════════════════╪═══  Plugins, platform & tooling
+ (1–2 eng)   │ SPI     │ fs + kafka       │     Aerospike, CLI, CI
+             │ + TCK   │ plugins, dev CLI │
+   ▲         ▲         ▲                  ▲
+ all-hands  gate P0   gate P1          gate P2
+```
+
+### 6.3 Coordination
+
+- Daily 15-minute standup per workstream; twice-weekly 30-minute cross-workstream sync.
+- **Design review before implementation** for any story touching `pravaha-api`, the algebra, or checkpoint semantics — a one-page RFC in `docs/rfc/`, reviewed within 48 h.
+- ADRs are amended, never rewritten; a superseded ADR keeps its number and gains a "superseded by NNN" header.
+
+---
+
+## 7. Work Breakdown Structure
+
+Epics map 1:1 to the design's phases. Story IDs are stable and referenced by branch names and commits.
+
+### E0 — Foundations *(Phase 0, sprints 1–2)*
+
+| ID | Story | Est. | Depends | Acceptance |
+|---|---|---|---|---|
+| P0-01 | Maven wrapper + parent POM + BOM + 8 skeleton modules | 3 d | — | `./mvnw clean verify` green on a clean clone with no system Maven |
+| P0-02 | Build plumbing: Spotless, Error Prone, NullAway, JaCoCo, enforcer, toolchains | 2 d | P0-01 | A deliberately mis-formatted commit fails CI |
+| P0-03 | CI: Fast + Verify + Matrix (JDK 21, 25) stages | 2 d | P0-02 | Both matrix legs green; total ≤ 25 min |
+| P0-04 | `pravaha-api`: `RowKind`, `PravahaType`, `StreamSchema`, exceptions, `Version` | 3 d | P0-01 | Compiles at `--release 17`; zero third-party deps asserted by enforcer |
+| P0-05 | `MemoryAccess` abstraction + Agrona implementation | 3 d | P0-04 | JMH: get/put long ≤ 2 ns; allocation rate 0 B/op |
+| P0-06 | Binary row layout: `RowLayout` computation, `RowView`, `RowWriter` | 5 d | P0-05 | Round-trip property test over generated schemas; ≥ 1 field of every `PravahaType` |
+| P0-07 | `RowArena` slab allocator with mark/reset | 3 d | P0-05 | JMH: allocate+reset ≤ 5 ns/row amortised, 0 B/op heap |
+| P0-08 | MPSC and SPSC ring buffers (wrapping JCTools/Agrona) + wait strategies | 3 d | P0-05 | JCTools conformance suite passes; ≥ 50 M offers/s SPSC in JMH |
+| P0-09 | `pravaha-testkit`: virtual clock, deterministic scheduler, `TestHarness` | 5 d | P0-06 | A two-operator pipeline produces byte-identical output across 1 000 runs with randomised interleavings |
+| P0-10 | JMH harness + `benchmarks/baselines/` + CI Bench stage | 3 d | P0-03 | A seeded 15 % regression fails the build |
+| P0-11 | ArchUnit rule set (no `Serializable`, no unbounded collections, module deps, no `Thread.sleep` in tests) | 2 d | P0-01 | Each rule has a deliberately-violating fixture that fails |
+| P0-12 | `docs/adr/` seeded with ADRs 001–018 from the design doc | 1 d | — | Each ADR is one file with context/decision/consequences |
+
+**Gate P0:** clean clone → `./mvnw clean verify` green on JDK 21 and 25 in under 25 minutes; deterministic harness demonstrated; JMH baselines recorded.
+
+### E1 — Minimal vertical slice *(Phase 1, sprints 3–5)*
+
+| ID | Story | Est. | Depends | Acceptance |
+|---|---|---|---|---|
+| P1-01 | `pravaha-algebra`: Z-set model, weight arithmetic, consolidation | 4 d | P0-06 | Property: consolidation is associative, commutative, and annihilates `+w`/`−w` pairs |
+| P1-02 | Frontier & logical-time model | 3 d | P1-01 | Property: frontiers advance monotonically under arbitrary merge orders |
+| P1-03 | Incremental lift rules for **linear** operators (filter, project, union) | 5 d | P1-01 | — |
+| P1-04 | **The property oracle**: `Q(S+ΔS) == Q(S) + Q^Δ(ΔS, S)` over generated `Q`, `S`, `ΔS` | 5 d | P1-03 | Runs 10 000 generated cases per CI run; a seeded operator bug is caught within 100 cases |
+| P1-05 | Calcite integration: `PravahaSchema`, catalog reader, type mapping | 5 d | P0-04 | `SELECT a,b FROM s WHERE c > 1` parses, validates and produces a `RelNode` |
+| P1-06 | Interpreted operator set: scan, filter, project, union | 4 d | P1-03, P1-05 | Differential-test fixture ready for Phase 2's codegen |
+| P1-07 | Physical plan builder: `RelNode` → `PhysicalPlan` | 4 d | P1-05 | Golden-plan tests for 10 representative queries |
+| P1-08 | Single-lane executor loop with batching | 3 d | P0-08, P1-06 | End-to-end record flow, deterministic under the testkit |
+| P1-09 | Plugin SPI + `PluginClassLoader` (parent-last) + `ServiceLoader` discovery | 4 d | P0-04 | Two plugins with conflicting Guava versions both load and work |
+| P1-10 | Filesystem source & sink plugin | 2 d | P1-09 | CSV/JSON-lines in, out; used by every later test |
+| P1-11 | Kafka source & sink plugin | 4 d | P1-09 | Testcontainers IT: 1 M records round-trip, offsets committed |
+| P1-12 | `pravaha-embedded` facade | 2 d | P1-08 | A 15-line Java main runs a query in-process |
+| P1-13 | `pravaha dev` CLI: fixture-driven in-process engine, hot reload | 4 d | P1-12 | **Cold start to first output < 1 s**, asserted in CI |
+| P1-14 | Plugin TCK v1 (capability declarations vs actual behaviour) | 3 d | P1-09 | Filesystem and Kafka plugins pass; a plugin falsely claiming replayable offsets fails |
+
+**Gate P1:** `SELECT STREAM … WHERE …` runs end to end Kafka → filesystem; property oracle green for linear operators; `pravaha dev` under 1 s. *This gate is the go/no-go on the DBSP bet — see §13.*
+
+### E2 — Performance core *(Phase 2, sprints 6–11)*
+
+| ID | Story | Est. | Acceptance |
+|---|---|---|---|
+| P2-01 | Expression compiler: `RexNode` → Java source, null-aware, type-specialised | 8 d | Every `RexNode` in the test corpus compiles or falls back explicitly |
+| P2-02 | Operator code templates + whole-stage fusion + stage splitter | 8 d | Fused stage for filter+project+window-assign generates and runs |
+| P2-03 | Janino compilation pipeline, per-query classloader, warm-up | 4 d | Compile ≤ 30 ms/stage; 10 000 register/drop cycles leave metaspace at baseline |
+| P2-04 | Interpreted fallback + automatic method splitting at 4 kB bytecode | 4 d | A deliberately huge stage compiles via splitting, or falls back and logs |
+| P2-05 | Differential test rig: generated vs interpreted, byte-identical | 3 d | Runs over the full query corpus every build |
+| P2-06 | Lane model: pinned threads, per-lane arena, per-lane state slice | 5 d | 16 lanes, zero cross-lane sharing verified by a contention benchmark |
+| P2-07 | Hash exchange between lanes (SPSC rings) | 4 d | ≥ 90 % linear scaling 1→8 lanes on Profile A |
+| P2-08 | Adaptive batching controller (§18.2 of the design) | 4 d | Same query meets its latency target at 10 rec/s and 1 M rec/s |
+| P2-09 | Backpressure: high/low watermarks, `pause`/`resume` propagation to plugins | 4 d | A stalled sink pauses the source within 200 ms; no unbounded growth anywhere |
+| P2-10 | False-sharing audit + padding + JMH regression guard | 2 d | Padding removal is detected by the benchmark |
+| P2-11 | Generated-source retention + `EXPLAIN codegen` | 2 d | Source downloadable for any running query under a debug flag |
+
+**Gate P2:** **Profile A ≥ 1.2 M rec/s/lane**; ≥ 90 % scaling to 8 lanes; differential tests green; no metaspace leak over 10 000 query cycles.
+
+### E3–E9 — summarised in §11
+
+| Epic | Phase | Sprints | Theme |
+|---|---|---|---|
+| **E3** | 3 | 12–18 | Stateful & incremental: watermarks, windows, timers, tiered state, aggregates, `DISTINCT`, bounded-state enforcement |
+| **E4** | 4 | 19–25 | Aerospike, bilinear incremental joins, checkpointing, recovery, pushdown |
+| **E5** | 5 | 26–32 | Backfill, blue/green updates, serving layer, consistency modes |
+| **E6** | 6 | 33–38 | gRPC + Arrow gateways, Avatica, typed clients, full CLI, error catalogue, TCK, docs-as-tests |
+| **E7** | 7 | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, multi-tenancy, elastic rescale |
+| **E8** | 8 | 46–53 | Control-plane UI, time-travel debugger, security, observability, self-tuning controllers |
+| **E9** | 9 | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, soak, security review, TCO validation, GA |
+
+---
+
+## 8. Critical Path & Dependency Graph
+
+```
+ P0-05 MemoryAccess
+   └─► P0-06 Row layout ──────────────┬─► P0-09 testkit ─────────┐
+         └─► P0-07 arena              │                          │
+ P0-08 rings ───────────────────┐     │                          │
+                                ▼     ▼                          ▼
+                          P1-08 single-lane executor      P1-04 PROPERTY ORACLE ★
+                                ▲     ▲                          ▲
+ P1-05 Calcite bind ─► P1-07 physical plan            P1-01 Z-sets ─► P1-03 lift rules
+                                │
+                                ▼
+            ★ P2-01 expression compiler ─► P2-02 fusion ─► P2-03 Janino
+                                                              │
+                                                              ▼
+                          P2-06 lanes ─► P2-07 exchange ─► GATE P2
+                                                              │
+                                                              ▼
+        E3 windows + tiered state ─► E4 joins + checkpoints ─► E5 backfill + serving
+                                                              │
+                              ┌───────────────────────────────┤
+                              ▼                               ▼
+                    E6 gateways + DX                    E7 cluster + HA
+                              └───────────────┬───────────────┘
+                                              ▼
+                                 E8 UI + debugger + self-tuning
+                                              ▼
+                                    E9 breadth + Nexmark + GA
+```
+
+★ = the two items that carry the most schedule risk.
+
+**Critical path:** `P0-06 → P1-01/P1-03 → P1-04 → P2-01 → P2-02 → E3 → E4 → E5`.
+
+Three observations that should shape day-to-day decisions:
+
+1. **The row layout (P0-06) blocks everything.** Two engineers on it in sprint 1, reviewed by the whole team, and do not start dependent work until it is stable. A layout change in sprint 12 is a multi-week rewrite.
+2. **The property oracle (P1-04) is the cheapest insurance in the plan.** It is the mechanism by which the DBSP bet is de-risked, and it must exist before the aggregate and join lift rules are written — not after.
+3. **E6 and E7 can genuinely run in parallel** with six people; E8 partially overlaps E7. E3→E4→E5 cannot be parallelised because each consumes the previous one's state machinery.
+
+---
+
+## 9. Sprint Plan — Phase 0 & 1 in Detail
+
+Two-week sprints. Capacity assumes ~8 productive days per engineer per sprint.
+
+### Sprint 1 — "It builds" *(all-hands)*
+
+| Story | Owner | Days |
+|---|---|---|
+| P0-01 wrapper + parent POM + module skeletons | Platform | 3 |
+| P0-02 build plumbing | Platform | 2 |
+| P0-03 CI Fast + Verify + Matrix | Platform | 2 |
+| P0-04 `pravaha-api` core types | Lead + SQL | 3 |
+| P0-05 `MemoryAccess` + Agrona impl | Runtime A | 3 |
+| P0-06 binary row layout *(starts)* | Runtime A + B | 5 |
+| P0-12 ADR files | Lead | 1 |
+
+**Sprint goal:** a clean clone builds green on JDK 21 and 25 in CI, and `pravaha-api` compiles at `--release 17`.
+**Demo:** CI dashboard; a deliberately mis-formatted PR failing.
+
+### Sprint 2 — "It's deterministic"
+
+| Story | Owner | Days |
+|---|---|---|
+| P0-06 row layout *(complete)* | Runtime A + B | 5 |
+| P0-07 arena | Runtime A | 3 |
+| P0-08 ring buffers | Runtime B | 3 |
+| P0-09 testkit: virtual clock + scheduler | Lead + Runtime B | 5 |
+| P0-10 JMH harness + baselines + Bench stage | Platform | 3 |
+| P0-11 ArchUnit rules | Platform | 2 |
+| P1-09 plugin SPI + classloader *(starts)* | Connectors | 4 |
+
+**Sprint goal:** **Gate P0.** Deterministic harness runs a two-operator pipeline identically across 1 000 randomised interleavings; JMH baselines recorded.
+**Demo:** run the same pipeline 1 000 times, diff all outputs, show zero differences. Show a seeded 15 % regression failing CI.
+
+### Sprint 3 — "Z-sets and Calcite" *(workstreams split here)*
+
+| Story | WS | Owner | Days |
+|---|---|---|---|
+| P1-01 Z-set model + consolidation | B | SQL + Lead | 4 |
+| P1-02 frontiers & logical time | B | SQL | 3 |
+| P1-05 Calcite schema binding *(starts)* | B | SQL | 5 |
+| P0-05b FFM `MemoryAccess` impl + MR-JAR + `-Pffm` | A | Runtime A | 3 |
+| P1-08 single-lane executor loop *(starts)* | A | Runtime B | 3 |
+| P1-09 plugin SPI *(complete)* + P1-10 filesystem plugin | C | Connectors | 6 |
+| `japicmp` enabled on `pravaha-api` | C | Platform | 1 |
+
+**Sprint goal:** Z-set algebra with property-tested consolidation; a SQL string reaches a validated `RelNode`.
+
+### Sprint 4 — "The oracle"
+
+| Story | WS | Owner | Days |
+|---|---|---|---|
+| P1-03 linear lift rules | B | SQL + Lead | 5 |
+| **P1-04 property oracle** | B | Lead | 5 |
+| P1-06 interpreted operators | A | Runtime B | 4 |
+| P1-07 physical plan builder | A/B | SQL | 4 |
+| P1-08 executor loop *(complete)* | A | Runtime B | 3 |
+| P1-11 Kafka plugin | C | Connectors | 4 |
+| P0-05b/FFM parity JMH gate | A | Runtime A | 2 |
+
+**Sprint goal:** the property oracle runs 10 000 generated cases per build and catches a seeded bug.
+**Demo:** inject a deliberate off-by-one into the filter lift rule; watch the oracle find it and print the minimal counterexample.
+
+### Sprint 5 — "End to end"
+
+| Story | WS | Owner | Days |
+|---|---|---|---|
+| P1-12 embedded facade | A | Runtime B | 2 |
+| P1-13 `pravaha dev` CLI | C | Platform | 4 |
+| P1-14 plugin TCK v1 | C | Connectors | 3 |
+| P1-11 Kafka IT hardening | C | Connectors | 2 |
+| P2-01 expression compiler *(starts)* | A | Runtime A | 5 |
+| Golden-plan corpus (20 queries) | B | SQL | 3 |
+| Gate P1 evidence pack | — | Lead | 2 |
+
+**Sprint goal:** **Gate P1.** Kafka → filter/project → filesystem, running from `pravaha dev` in under a second.
+**Demo:** live — edit the SQL file, watch output change without a restart. Then the go/no-go conversation on §13's Gate P1.
+
+### Sprints 6–11 — Phase 2
+
+Decomposed at the Sprint 6 planning session from the E2 table. Indicative shape:
+
+| Sprint | Focus |
+|---|---|
+| 6–7 | P2-01 expression compiler, P2-02 templates & fusion *(the hardest two stories in the plan)* |
+| 8 | P2-03 Janino pipeline, P2-04 fallback + method splitting, P2-05 differential rig |
+| 9 | P2-06 lane model, P2-10 false-sharing audit |
+| 10 | P2-07 hash exchange, scaling benchmarks |
+| 11 | P2-08 adaptive batching, P2-09 backpressure, P2-11 EXPLAIN codegen, **Gate P2** |
+
+---
+
+## 10. Bootstrap: The Concrete First Commits
+
+What exists at the end of Sprint 1.
+
+### 10.1 Directory tree
+
+```
+pravaha/
+├── mvnw  mvnw.cmd  .mvn/wrapper/
+├── pom.xml                          ← parent (packaging: pom)
+├── .editorconfig  .gitattributes  .gitignore
+├── .github/workflows/{fast,verify,matrix,bench,nightly}.yml
+├── config/
+│   ├── spotless/pravaha.importorder
+│   ├── spotless/license-header.txt
+│   └── archunit/rules.md
+├── docs/
+│   ├── system_design.md
+│   ├── implementation_plan.md
+│   ├── adr/0001-language-and-platform.md … 0018-licensing.md
+│   └── rfc/
+├── benchmarks/baselines/            ← committed JMH baselines
+├── pravaha-bom/pom.xml
+├── pravaha-api/
+├── pravaha-common/
+├── pravaha-algebra/
+├── pravaha-catalog/
+├── pravaha-sql/
+├── pravaha-runtime/
+├── pravaha-state/
+├── pravaha-connect/
+├── pravaha-testkit/
+├── pravaha-benchmarks/
+└── pravaha-it/
+```
+
+Modules from the design's §7 that no story touches before Phase 3 are **not** created in Sprint 1. Empty modules are noise; they get created by the story that needs them.
+
+### 10.2 The first types — `pravaha-api`
+
+```java
+// com.pravaha.api.data
+public enum RowKind { INSERT, UPDATE_BEFORE, UPDATE_AFTER, DELETE }
+
+public sealed interface PravahaType permits PrimitiveType, DecimalType,
+        StringType, BytesType, TimestampType, ArrayType, MapType, RowType {
+    int fixedWidth();        // -1 for variable-width
+    boolean isNullable();
+    String sqlName();
+}
+
+public record Field(String name, PravahaType type, int ordinal) {}
+
+public record StreamSchema(String name, List<Field> fields, int version,
+                           OptionalInt eventTimeOrdinal, List<String> primaryKey) {
+    public int indexOf(String field) { … }
+}
+```
+
+```java
+// com.pravaha.api.data — the flyweight contract (design §8.4)
+public interface RowView {
+    long address();
+    int  length();
+    RowKind rowKind();
+    long eventTimestampNanos();
+    long sequence();
+    long weight();                       // Z-set weight (design §9.2)
+
+    boolean isNull(int ordinal);
+    boolean getBoolean(int ordinal);
+    int     getInt(int ordinal);
+    long    getLong(int ordinal);
+    double  getDouble(int ordinal);
+    void    getBytes(int ordinal, MutableSlice out);
+    String  getString(int ordinal);      // off hot path only
+}
+```
+
+### 10.3 `MemoryAccess` — the Java 21 / 22+ seam
+
+The one place either memory API is named (design §4.6).
+
+```java
+// com.pravaha.common.memory
+public interface MemoryAccess {
+    long allocate(long bytes);
+    void free(long address);
+    long getLong(long base, int offset);
+    void putLong(long base, int offset, long value);
+    int  getInt(long base, int offset);
+    void putInt(long base, int offset, int value);
+    void copyMemory(long src, long dst, int bytes);
+    boolean utf8Equals(long base, int offset, int len, byte[] literal);
+
+    static MemoryAccess best() {
+        if (Runtime.version().feature() >= 22
+                && Boolean.parseBoolean(System.getProperty("pravaha.ffm", "false"))) {
+            try { return (MemoryAccess) Class
+                    .forName("com.pravaha.common.memory.ForeignMemoryAccess")
+                    .getField("INSTANCE").get(null);
+            } catch (ReflectiveOperationException ignored) { /* fall through */ }
+        }
+        return AgronaMemoryAccess.INSTANCE;   // default on 21
+    }
+}
+```
+
+`ForeignMemoryAccess` lives under `src/main/java22/` and is packaged into `META-INF/versions/22/` by the `-Pffm` profile. On JDK 21 it is neither compiled nor loaded. **P0-05 delivers the Agrona implementation only**; the FFM one is P0-05b in Sprint 3, so the seam is proven early but does not block anything.
+
+### 10.4 The first test that matters
+
+```java
+class DeterminismTest {
+    @Test
+    void identicalInputProducesIdenticalOutputAcrossInterleavings() {
+        List<byte[]> reference = null;
+        for (int seed = 0; seed < 1_000; seed++) {
+            var h = TestHarness.builder()
+                    .virtualClock()
+                    .scheduler(DeterministicScheduler.withSeed(seed))  // varies interleaving
+                    .pipeline(filter(c -> c.getInt(1) > 10).then(project(0, 2)))
+                    .build();
+            h.feed(FIXED_INPUT);
+            h.runToCompletion();
+            if (reference == null) reference = h.rawOutput();
+            else assertThat(h.rawOutput()).isEqualTo(reference);   // byte-identical
+        }
+    }
+}
+```
+
+This is the Sprint 2 demo and the foundation of every correctness claim in the design.
+
+---
+
+## 11. Phases 2–9 — Epics & Acceptance Gates
+
+Epics are decomposed into stories at the start of their phase. What is fixed now is the **gate** — the machine-checkable condition for merging `develop` into `main` and starting the next phase.
+
+| Epic | Sprints | Key stories | **Gate** |
+|---|---|---|---|
+| **E2** Performance core | 6–11 | expression compiler, fusion, Janino, lanes, exchange, adaptive batching, backpressure | Profile A **≥ 1.2 M rec/s/lane**; ≥ 90 % scaling 1→8 lanes; differential tests green; no metaspace leak over 10 000 register/drop cycles |
+| **E3** Stateful & incremental | 12–18 | watermarks + idle detection, timing wheel, tumbling/hopping/session with slicing, L0 off-heap state, RocksDB tier, incremental aggregates + `DISTINCT`, bounded-state enforcement, changelog derivation, DLQ | Profile B **≥ 350 k rec/s/lane**; correctness invariants 1–8 green; an unbounded `GROUP BY` is rejected at planning with a diagnostic naming the key |
+| **E4** Aerospike, joins, durability | 19–25 | Aerospike plugin (4 strategies), expression pushdown, idempotent sink, lookup join, bilinear incremental join, aligned checkpoints, recovery, capability negotiation | Exactly-once state proven by chaos test; Profile C **≥ 120 k rec/s/lane**; pushdown equivalence property green; **W4 ≥ 5× fewer bytes ingested** |
+| **E5** Backfill & serving | 26–32 | snapshot→CDC splice, adaptive throttling, blue/green cutover, served views, 4 consistency modes, read replicas, read admission control | 3 years backfilled with storage p99 impact **< 10 %**; **W3 p99 point lookup ≤ 200 µs**; a SQL change deployed with zero downtime and rolled back |
+| **E6** Gateways, clients, DX | 33–38 | gRPC + Arrow + credit flow control, Avatica, typed Java/Python/Go clients, full CLI, `PRV-nnnn` error catalogue, plugin TCK v2, docs-as-tests | Python client sustains **1 M rows/s**; DBeaver connects via Avatica; **W2 deploy ≤ 2 s**; every first-party plugin passes the TCK |
+| **E7** Cluster & HA | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, savepoints, tenant quotas, elastic rescale | 3-node cluster survives rolling kills with zero data loss; rebalance pause **≤ 5 s**; **W7 10 GB restore ≤ 30 s** |
+| **E8** Control plane & self-tuning | 46–53 | Spring Boot + React UI, all screens, time-travel debugger, OIDC/RBAC/audit, observability, skew remediation, live replanning, tier promotion | Full lifecycle driven from the UI; **W10** a seeded production bug is found by replay and exported as a passing JUnit fixture |
+| **E9** Breadth, benchmarks, GA | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, 72 h soak, security review, TCO validation, migration tooling, GA docs | All NFR SLOs met; **W5** ≥ parity on 18/22 Nexmark queries and ≥ 2× on 8; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated; soak clean; SBOM + security sign-off |
+
+`W1`–`W10` are the win conditions from design §2.5.
+
+---
+
+## 12. Risk-Driven Spikes
+
+Time-boxed investigations that run *before* the story that depends on them, on `spike/*` branches that are never merged. Each produces a written finding in `docs/rfc/`.
+
+| Spike | When | Time box | Question it answers |
+|---|---|---|---|
+| **S1 — Janino limits** | Sprint 5 | 3 d | How large a generated stage can Janino compile, and where exactly does the JVM stop JIT-compiling it? Sets the method-splitting threshold in P2-04 before we design around a guess. |
+| **S2 — Agrona vs FFM parity** | Sprint 3 | 2 d | Are the two `MemoryAccess` implementations within 3 %? If FFM is decisively faster, the Java 25 profile becomes more attractive and §4.5 of the design gets revisited. |
+| **S3 — Aerospike ingest reality** | Sprint 8 | 5 d | Measured throughput and latency of XDR→Kafka, XDR→HTTP and LUT-scan against a real cluster. Drives E4's strategy priority and validates the licensing conversation (R1). |
+| **S4 — RocksDB native memory** | Sprint 12 | 3 d | Does a shared block cache + write-buffer manager actually bound RSS across 200 column families? Direct test of R4 before we build on the assumption. |
+| **S5 — Incremental join state growth** | Sprint 18 | 4 d | Real state size for bilinear joins at target cardinalities. Determines whether E4's join work needs a spilling design from day one. |
+| **S6 — Nexmark first look** | Sprint 14 | 3 d | Run whatever subset of Nexmark works at that point. Early bad news on W5 is cheap; late bad news is not (R16). |
+
+---
+
+## 13. Milestones, Demos & Go/No-Go Gates
+
+| # | Milestone | Sprint | Demo | Decision |
+|---|---|---|---|---|
+| M0 | It builds | 1 | CI green on 21 and 25 | — |
+| M1 | It's deterministic | 2 | 1 000 identical runs; seeded regression fails CI | Gate P0 |
+| **M2** | **The DBSP bet is real** | **5** | Property oracle catches a seeded lift-rule bug; end-to-end query from `pravaha dev` in < 1 s | **GO/NO-GO on §9 of the design** |
+| M3 | It's fast | 11 | Profile A ≥ 1.2 M rec/s/lane, live | Gate P2 |
+| M4 | It's stateful | 18 | Windowed aggregation with retractions and late data | Gate P3 |
+| M5 | It's durable, on Aerospike | 25 | Kill a node mid-checkpoint; exact recovery | Gate P4 |
+| **M6** | **First defensible demo** | **32** | Incremental compute over Aerospike with pushdown; 3 years backfilled safely; point queries in µs — no other system involved | **External/customer demo** |
+| M7 | It's usable | 38 | Python client at 1 M rows/s; DBeaver; 2 s deploy | Gate P6 |
+| M8 | It's highly available | 45 | Rolling node kills under load, zero loss | Gate P7 |
+| M9 | It's operable | 53 | Time-travel debug of a seeded production bug | Gate P8 |
+| M10 | **GA** | 62 | Nexmark numbers published head-to-head | Release 1.0.0 |
+
+### The M2 decision, in detail
+
+Sprint 5's gate is the one that can change the plan's shape, so its criteria are set now, before anyone is invested:
+
+**GO** if all hold: linear lift rules implemented; the property oracle runs ≥ 10 000 generated cases per CI run in ≤ 90 s; a deliberately seeded bug in any lift rule is caught within 100 cases with a minimised counterexample; and the team's honest assessment is that aggregate and join lift rules are tractable within E3/E4's budget.
+
+**NO-GO fallback** if not: fall back to conventional retract-stream operators (design §9.1). Cost: lose W6 (recursion), lose the correctness oracle, lose part of the incremental efficiency claim. Keep: everything else — pushdown, serving, backfill, embeddability, DX. The product remains differentiated on three of five axes. **The fallback costs roughly 3 sprints, taken in E3.** Discovering this in sprint 5 costs 3 sprints; discovering it in sprint 20 costs 15.
+
+---
+
+## 14. Tracking & Metrics
+
+### 14.1 What we track weekly
+
+| Metric | Target | Why |
+|---|---|---|
+| Sprint goal met | ≥ 80 % of sprints | Goals, not story points, are the unit of progress |
+| CI Fast-stage duration | ≤ 6 min | Slow CI silently destroys iteration speed |
+| CI flake rate | < 1 % | The determinism work in P0-09 exists to make this achievable |
+| JMH baseline regressions | 0 unexplained | Performance is a test |
+| Open ADR/RFC review latency | ≤ 48 h | Design review must not be the bottleneck |
+| Coverage on core modules | ≥ 85 % line | Gate, not a vanity number |
+| Nexmark queries at parity | rising from Sprint 14 | Leading indicator for W5 |
+
+### 14.2 What we deliberately do not track
+
+Story-point velocity as a productivity measure, and lines of code. Both reward the wrong behaviour on a project whose hardest work — the property oracle, the codegen templates, the row layout — is small in volume and large in consequence.
+
+### 14.3 Phase-boundary artefact
+
+Each gate produces a committed evidence pack under `docs/gates/PN/`: benchmark output, test reports, the demo recording, and a one-page retrospective on what the phase got wrong. The retrospective is the input to re-estimating the next phase.
+
+---
+
+## 15. Descope Ladder
+
+If the schedule compresses, cut in this order — decided now, in the calm, rather than in month nine.
+
+| Order | Cut | Saves | Cost |
+|---|---|---|---|
+| 1 | `WITH RECURSIVE` (E9) | ~2 sprints | Lose W6. Defer to 1.1. |
+| 2 | Live replanning (E8, design §18.5) | ~1.5 sprints | Manual replanning via blue/green still works |
+| 3 | Migration tooling `import --from flink-sql` (E9) | ~1.5 sprints | Higher switching cost for adopters |
+| 4 | Cassandra + Redis plugins (E9) | ~3 sprints | Aerospike + Kafka + PostgreSQL + filesystem ship; others post-GA |
+| 5 | Read replicas (E5) | ~1 sprint | Read scaling limited to admission control |
+| 6 | Time-travel debugger (E8) | ~3 sprints | **Lose W10.** Painful — this is a headline differentiator. Cut only under real pressure. |
+| 7 | Multi-tenancy quotas (E7) | ~2 sprints | Single-tenant deployments only at 1.0 |
+
+**Never cut, at any pressure:** the property oracle (P1-04), bounded-state enforcement (E3), differential codegen testing (P2-05), checkpoint correctness (E4), or the benchmark regression gates. These are what separate a product from a demo, and every one of them is cheaper to build than to retrofit.
+
+If a team of **five** rather than six: the UI (E8) slips ~3 sprints and CI/CD ownership moves to the lead. GA moves to roughly week 68.
+
+---
+
+## Appendix A — Starter POMs
+
+### A.1 Parent `pom.xml` (abridged)
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.pravaha</groupId>
+  <artifactId>pravaha-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <api.compiler.release>17</api.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
+
+    <calcite.version>1.40.0</calcite.version>
+    <agrona.version>2.2.0</agrona.version>
+    <jctools.version>4.0.5</jctools.version>
+    <rocksdb.version>9.10.0</rocksdb.version>
+    <janino.version>3.1.12</janino.version>
+    <slf4j.version>2.0.16</slf4j.version>
+    <micrometer.version>1.15.0</micrometer.version>
+
+    <junit.version>5.11.4</junit.version>
+    <assertj.version>3.27.0</assertj.version>
+    <jqwik.version>1.9.2</jqwik.version>
+    <archunit.version>1.3.0</archunit.version>
+    <testcontainers.version>1.20.4</testcontainers.version>
+    <jmh.version>1.37</jmh.version>
+  </properties>
+
+  <modules>
+    <module>pravaha-bom</module>
+    <module>pravaha-api</module>
+    <module>pravaha-common</module>
+    <module>pravaha-algebra</module>
+    <module>pravaha-catalog</module>
+    <module>pravaha-sql</module>
+    <module>pravaha-runtime</module>
+    <module>pravaha-state</module>
+    <module>pravaha-connect</module>
+    <module>pravaha-testkit</module>
+    <module>pravaha-benchmarks</module>
+    <module>pravaha-it</module>
+  </modules>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-enforcer-plugin</artifactId>
+          <executions><execution>
+            <id>enforce</id><goals><goal>enforce</goal></goals>
+            <configuration><rules>
+              <requireMavenVersion><version>[3.9,)</version></requireMavenVersion>
+              <requireJavaVersion><version>[21,)</version></requireJavaVersion>
+              <banDuplicatePomDependencyVersions/>
+              <dependencyConvergence/>
+            </rules></configuration>
+          </execution></executions>
+        </plugin>
+
+        <plugin>
+          <groupId>com.diffplug.spotless</groupId>
+          <artifactId>spotless-maven-plugin</artifactId>
+          <configuration>
+            <java>
+              <palantirJavaFormat/>
+              <importOrder><file>${maven.multiModuleProjectDirectory}/config/spotless/pravaha.importorder</file></importOrder>
+              <removeUnusedImports/>
+              <licenseHeader><file>${maven.multiModuleProjectDirectory}/config/spotless/license-header.txt</file></licenseHeader>
+            </java>
+          </configuration>
+          <executions><execution><phase>validate</phase><goals><goal>check</goal></goals></execution></executions>
+        </plugin>
+
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <executions>
+            <execution><id>prepare</id><goals><goal>prepare-agent</goal></goals></execution>
+            <execution>
+              <id>check</id><goals><goal>check</goal></goals>
+              <configuration><rules><rule>
+                <limits><limit>
+                  <counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.85</minimum>
+                </limit></limits>
+              </rule></rules></configuration>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>ffm</id>
+      <activation><jdk>[22,)</jdk></activation>
+      <!-- compiles src/main/java22 into META-INF/versions/22 -->
+    </profile>
+  </profiles>
+</project>
+```
+
+### A.2 `pravaha-api/pom.xml` — the strict one
+
+```xml
+<project>
+  <parent>
+    <groupId>com.pravaha</groupId><artifactId>pravaha-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>pravaha-api</artifactId>
+
+  <properties>
+    <!-- widest embeddability: plugin authors and embedders may be on Java 17 -->
+    <maven.compiler.release>${api.compiler.release}</maven.compiler.release>
+  </properties>
+
+  <!-- NO dependencies. Enforced below, and by review. -->
+  <dependencies/>
+
+  <build><plugins>
+    <plugin>
+      <artifactId>maven-enforcer-plugin</artifactId>
+      <executions><execution>
+        <id>no-third-party</id><goals><goal>enforce</goal></goals>
+        <configuration><rules><bannedDependencies>
+          <excludes><exclude>*:*</exclude></excludes>
+          <includes><include>*:*:*:*:test</include></includes>
+          <message>pravaha-api must have zero compile dependencies (design §7.2)</message>
+        </bannedDependencies></rules></configuration>
+      </execution></executions>
+    </plugin>
+    <plugin>
+      <groupId>com.github.siom79.japicmp</groupId>
+      <artifactId>japicmp-maven-plugin</artifactId>
+      <!-- enabled from Sprint 3, once the first tag exists -->
+    </plugin>
+  </plugins></build>
+</project>
+```
+
+---
+
+## Appendix B — Sprint 1 Task Checklist
+
+Copy into the tracker. Owner column filled at planning.
+
+- [ ] **P0-01a** Install Maven once, run `mvn -N wrapper:wrapper -Dmaven=3.9.9`, commit `mvnw`, `mvnw.cmd`, `.mvn/`
+- [ ] **P0-01b** Parent `pom.xml` with properties, `<modules>`, `pluginManagement` (Appendix A.1)
+- [ ] **P0-01c** `pravaha-bom` with `dependencyManagement` for all third-party versions
+- [ ] **P0-01d** 11 skeleton modules, each with a package-info and one placeholder test so the reactor is non-trivial
+- [ ] **P0-01e** `.gitignore`, `.gitattributes`, `.editorconfig`, IntelliJ code style
+- [ ] **P0-02a** Spotless + `palantir-java-format` + import order + license header
+- [ ] **P0-02b** Error Prone + NullAway on `api`, `common`, `runtime`
+- [ ] **P0-02c** `maven-enforcer` rules incl. `pravaha-api` zero-dependency rule
+- [ ] **P0-02d** JaCoCo with the 85 % gate on core modules
+- [ ] **P0-02e** `maven-toolchains-plugin` + `toolchains.xml` sample in `config/`
+- [ ] **P0-03a** `fast.yml` — compile + unit tests, ≤ 6 min
+- [ ] **P0-03b** `matrix.yml` — full build on JDK 21 and 25
+- [ ] **P0-03c** Branch protection on `main` and `develop`; required checks wired
+- [ ] **P0-04a** `RowKind`, `PravahaType` hierarchy, `Field`, `StreamSchema`
+- [ ] **P0-04b** `RowView`, `RowWriter`, `MutableSlice` interfaces
+- [ ] **P0-04c** Exception hierarchy + the `PRV-nnnn` code scaffold
+- [ ] **P0-04d** Verify `pravaha-api` compiles at `--release 17` in CI
+- [ ] **P0-05a** `MemoryAccess` interface + `AgronaMemoryAccess`
+- [ ] **P0-05b** JMH: get/put long ≤ 2 ns, 0 B/op — recorded as the first baseline
+- [ ] **P0-06a** `RowLayout`: null bitmap, fixed region, var-len pointers, alignment
+- [ ] **P0-06b** `BinaryRowView` / `BinaryRowWriter` over `MemoryAccess`
+- [ ] **P0-06c** jqwik round-trip property over generated schemas, all types
+- [ ] **P0-12** 18 ADR files under `docs/adr/`, one per design §32 row
+
+**Sprint 1 exit:** a clean clone of `develop` runs `./mvnw clean verify` green on JDK 21 and 25, with no system Maven installed.
