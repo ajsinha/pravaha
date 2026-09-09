@@ -3167,7 +3167,7 @@ Ten phases, roughly two-week increments for a team of 4–6. Each phase ends wit
 
 **Phases ship as waves.** Each phase below is one wave in the delivery model: `develop` moves
 continuously within it, and `main` moves exactly once at its gate, tagged. The mapping from phase to
-wave, and the gate for each, is in §4.0 of the implementation plan.
+wave, and the gate for each, is in the implementation plan (section 4.0).
 
 **The console is a continuous workstream, not a phase.** §23 specifies a product surface, and a product surface cannot be built in one late phase. From Phase 3 onward a dedicated frontend workstream ships the console screens for each engine capability *in the same phase that capability lands* — catalog and query screens with E3, plan DAG and workbench with E4, backfill and cutover with E5, and so on. Phase 8 is then a *polish and debugger* phase rather than a build-the-whole-UI phase. See §6.2 and §9 of the implementation plan.
 
