@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>pravaha-api</artifactId>
+  <name>Pravaha :: api</name>
+  <description>The public SPI. Zero third-party dependencies, compiled to Java 17 bytecode so that
+    plugin authors and embedders still on 17 can depend on it (design 4.5, 7.2).</description>
+
+  <properties>
+    <maven.compiler.release>${api.compiler.release}</maven.compiler.release>
+    <jacoco.line.coverage>0.85</jacoco.line.coverage>
+  </properties>
+
+  <!-- No compile dependencies. Enforced below, not merely intended. -->
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-zero-compile-dependencies</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <bannedDependencies>
+                  <searchTransitive>true</searchTransitive>
+                  <excludes>
+                    <exclude>*:*:*:*:compile</exclude>
+                    <exclude>*:*:*:*:runtime</exclude>
+                    <exclude>*:*:*:*:provided</exclude>
+                  </excludes>
+                  <message>pravaha-api must have zero compile/runtime dependencies (design 7.2). It is the
+                    only package a plugin sees from its parent classloader and the module under
+                    japicmp semver enforcement. Put richer types behind it.</message>
+                </bannedDependencies>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

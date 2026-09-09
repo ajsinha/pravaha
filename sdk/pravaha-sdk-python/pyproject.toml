@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pravaha"
+version = "0.1.0"
+description = "Python client SDK for Project Pravaha"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Ashutosh Sinha", email = "ajsinha@gmail.com" }]
+keywords = ["streaming", "continuous-query", "sql", "aerospike"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "License :: Other/Proprietary License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Database",
+]
+# No runtime dependencies yet, deliberately. A client is installed into someone else's
+# environment, and every pin it adds is one their resolver has to reconcile. The gRPC and
+# Arrow dependencies arrive with the transport, behind the "grpc" extra.
+dependencies = []
+
+[project.optional-dependencies]
+grpc = ["grpcio>=1.60", "protobuf>=4.25", "pyarrow>=14.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "mypy>=1.8", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/ajsinha/pravaha"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pravaha"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+strict = true

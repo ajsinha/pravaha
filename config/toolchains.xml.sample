@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copy to ~/.m2/toolchains.xml.
+
+  On this workstation `java` resolves to 25 and `javac` to 21 with JAVA_HOME unset.
+  Pinning the compile JDK here is what stops that inconsistency producing confusing
+  build failures (implementation plan P0-02e).
+-->
+<toolchains>
+  <toolchain>
+    <type>jdk</type>
+    <provides><version>21</version><vendor>openjdk</vendor></provides>
+    <configuration><jdkHome>/usr/lib/jvm/java-21-openjdk-amd64</jdkHome></configuration>
+  </toolchain>
+  <toolchain>
+    <type>jdk</type>
+    <provides><version>25</version><vendor>openjdk</vendor></provides>
+    <configuration><jdkHome>/usr/lib/jvm/java-25-openjdk-amd64</jdkHome></configuration>
+  </toolchain>
+</toolchains>

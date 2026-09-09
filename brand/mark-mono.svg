@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
+     role="img" aria-label="Pravaha">
+  <title>Pravaha</title>
+  <!-- Single-colour build. Inherits currentColor, so it themes with its surroundings. -->
+  <g fill="none" stroke="currentColor" stroke-width="7"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4,18 Q16,6 28,18 T52,18" opacity="0.55"/>
+    <path d="M4,32 Q16,20 28,32 T52,32"/>
+    <path d="M4,46 Q16,34 28,46 T52,46" opacity="0.55"/>
+  </g>
+</svg>

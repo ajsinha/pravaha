@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
+     role="img" aria-label="Pravaha">
+  <title>Pravaha</title>
+  <!--
+    Three streamlines in phase: continuous flow, which is what "pravaha" means.
+    They run past the edges of the frame rather than terminating inside it: a
+    continuous query has no last row, and the mark should not imply one.
+  -->
+  <defs>
+    <linearGradient id="pravaha-flow" x1="0" y1="0" x2="1" y2="0.35">
+      <stop offset="0%"   stop-color="#0A5C5B"/>
+      <stop offset="55%"  stop-color="#0E7C7B"/>
+      <stop offset="100%" stop-color="#37B0A8"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#pravaha-flow)" stroke-width="7"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4,18 Q16,6 28,18 T52,18" opacity="0.55"/>
+    <path d="M4,32 Q16,20 28,32 T52,32"/>
+    <path d="M4,46 Q16,34 28,46 T52,46" opacity="0.55"/>
+  </g>
+</svg>

@@ -8,7 +8,10 @@
 | Changes in 3.1 | Runtime baseline revised from Java 25 to Java 21 LTS (§4.5–4.8, ADR-001, R10) |
 | Changes in 3.2 | Deployment modes & Spring Boot integration (§22); Maven coordinates `com.ash.messaging:pravaha` |
 | Changes in 3.3 | §23 expanded from a control-plane accessory into a full web-application specification; console rescheduled as a continuous workstream from Phase 3 |
-| Version | 3.3 |
+| Changes in 3.4 | §4.5–4.6 corrected from implementation: Agrona requires a JVM flag and cannot be the default; `ByteBuffer`/`VarHandle` is |
+| Changes in 3.5 | Licensing changed from Apache 2.0 to proprietary, wholly owned (§30.4, ADR-018); client SDKs relocated to `sdk/` (§7) |
+| Changes in 3.6 | Console theming, templating and vendoring settled (§23.4a); public landing/about/help pages specified (§23.4b) |
+| Version | 3.6 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -88,7 +91,7 @@ The 1.0 draft has the right *product vision* and the right *component inventory*
 
 A Maven multi-module Java project producing: an embeddable engine library, a standalone clustered server (Docker/Helm), storage plugins loaded via isolated classloaders, a gRPC + Avatica gateway with an integrated serving API, Java/Python/Go client libraries typed from the catalog, a **Spring Boot starter** that drops the engine into a customer's existing Spring application, a `pravaha` CLI whose `dev` mode boots a full engine in under a second, and **the Pravaha Console** — a full-featured Spring Boot 3 + React web application with an IDE-grade SQL workbench, a live plan DAG, a time-travel debugger and a real design system (§23) — which is architecturally out of the data path and experientially the centre of the product.
 
-Everything ships under Apache 2.0 (§30.4). The moat is architecture and execution quality, not a crippled open edition.
+Everything is proprietary and wholly owned by Ashutosh Sinha (§30.4).
 
 ---
 
@@ -341,7 +344,7 @@ The contradiction: §2's moat depends on Pravaha being **embeddable** (D-D). An 
 | **Build & runtime baseline** | **Java 21 LTS** (`--release 21`) |
 | `pravaha-api` module | `--release 17` — widest embeddability for the SPI plugin authors compile against |
 | Supported & CI-tested runtimes | **21, 25** (and 17 for `pravaha-api` consumers) |
-| Off-heap | **Agrona `UnsafeBuffer` / `DirectBuffer`** by default, behind a `MemoryAccess` abstraction; an FFM (`java.lang.foreign`) implementation auto-selects on 22+ via a Multi-Release JAR |
+| Off-heap | **Direct `ByteBuffer` + `VarHandle`** by default — the only flag-free option (see the correction below); Agrona and FFM are opt-in implementations behind the `MemoryAccess` seam |
 | GC | **Generational ZGC** — `-XX:+UseZGC -XX:+ZGenerational` on 21; on 24+ ZGC is generational by default and the flag is obsolete |
 | Concurrency | Virtual threads (final in 21) for the control plane and plugin I/O |
 | Language features | Records, sealed interfaces, pattern matching for `switch`, sequenced collections — all final in 21 |
@@ -350,7 +353,7 @@ The contradiction: §2's moat depends on Pravaha being **embeddable** (D-D). An 
 
 | Feature | First available | Do we need it? |
 |---|---|---|
-| **FFM / `MemorySegment`** (§8.5 arenas) | Preview in 21, **final in 22** | **No.** Agrona's `UnsafeBuffer` is the substitute and it is what Aeron, Artio and the rest of the low-latency JVM ecosystem have used for a decade. Throughput is equivalent; FFM's advantages are ergonomics, bounds-safety and future-proofing, not speed. Using FFM on 21 would require `--enable-preview`, which is disqualifying for a library — preview bytecode runs only on the exact JVM version that compiled it, and every embedder would have to enable it too. |
+| **FFM / `MemorySegment`** (§8.5 arenas) | Preview in 21, **final in 22** | **No.** `MethodHandles.byteBufferViewVarHandle` over a direct `ByteBuffer` is supported public API on 21, needs no flags, and HotSpot intrinsifies plain get/set to the same single load or store. Using FFM on 21 would require `--enable-preview`, which is disqualifying for a library — preview bytecode runs only on the exact JVM version that compiled it, and every embedder would have to enable it too. |
 | Virtual threads | **Final in 21** | Have it. |
 | Records, sealed types, pattern matching for `switch` | **Final in 21** | Have it. This is the §4 argument against Scala, and it is intact on 21. |
 | Generational ZGC | Opt-in flag in **21**; default in 23+ | Have it, with one flag. |
@@ -361,23 +364,64 @@ The contradiction: §2's moat depends on Pravaha being **embeddable** (D-D). An 
 | Compact object headers | Product in 25 | Saves 4–8 B/object. Our hot path allocates almost nothing (§29), so the benefit lands mostly on the control plane. Nice, not needed. |
 | AOT class loading & linking | 24/25 | Would help `pravaha dev` startup (§24.1) and embedded cold start. A genuine benefit, and the main reason to *offer* a 25 profile — but it is a nice-to-have against a < 1 s target we can hit without it. |
 
-There is also a point that cuts the other way. `sun.misc.Unsafe`'s memory-access methods are **deprecated for removal in 23** and **warn on use from 24**. On Java 21 Agrona is warning-free; on 25 it is not. So the two candidate baselines each carry one future-facing liability — 21 depends on an API being retired, 25 depends on an API most enterprises cannot yet run. The `MemoryAccess` abstraction resolves both: one interface, two implementations, selected at runtime.
+> #### Correction, from implementing it (P0-05)
+>
+> An earlier revision of this section said Agrona was the default and that "on Java 21 Agrona is
+> warning-free". **Both halves were wrong**, and building it surfaced why in week one.
+>
+> Agrona 2.x reaches `jdk.internal.misc.Unsafe`, which the platform does not export to unnamed
+> modules. It fails at class-initialisation time on *any* JDK unless the JVM is launched with:
+>
+> ```
+> --add-exports java.base/jdk.internal.misc=ALL-UNNAMED
+> ```
+>
+> Measured on this workstation: without the flag `AgronaMemoryAccess.isAvailable()` is `false` on
+> both JDK 21 and 25; with it, `true` on both.
+>
+> **That requirement disqualifies Agrona as the default, for a product reason rather than a
+> technical one.** An embedded engine inherits its *host application's* launch arguments (§22.2,
+> mode A and B). Requiring a JVM flag would mean a customer cannot adopt Pravaha without changing
+> how their own service starts — which forfeits precisely the embeddability the product is
+> positioned on (§2.2). A flag is a small ask for a server we launch ourselves and a large one for
+> a library someone else launches.
+>
+> **The default is therefore `ByteBufferMemoryAccess`**: direct `ByteBuffer` addressed through
+> `MethodHandles.byteBufferViewVarHandle`. Supported public API, no flags on any JDK from 17
+> upward, and HotSpot intrinsifies plain get/set into the same single load or store `Unsafe` would
+> emit. Agrona (`-Dpravaha.memory=agrona`) and FFM (`-Dpravaha.ffm=true`, JDK 22+) remain available
+> where the deployment controls its own launch arguments; the JMH comparison in
+> `pravaha-benchmarks` decides whether either is worth selecting.
+>
+> This is the `MemoryAccess` seam earning its keep on its first day: the finding changed the
+> default implementation and cost one file, not a migration.
+
+There is also a point that cuts the other way. `sun.misc.Unsafe`'s memory-access methods are **deprecated for removal in 23** and **warn on use from 24**, and Agrona's replacement needs the flag above. So every low-level option carries some liability — which is the argument for the seam rather than for any one implementation. The `ByteBuffer`/`VarHandle` default is the one with none: it is supported, flag-free, and portable across every JDK in scope.
 
 ```java
-// pravaha-common — the only place either API is named
+// pravaha-common — the only place any low-level memory API is named.
+// An ArchUnit rule fails the build if anything outside this package imports
+// org.agrona, sun.misc or jdk.internal.
 public interface MemoryAccess {
-    long allocate(long bytes);
-    long getLong(long addr, int offset);
-    void putLong(long addr, int offset, long value);
-    boolean utf8Equals(long addr, int offset, byte[] literal);
-    // …
+    MemoryRegion allocate(int bytes);
+    MemoryRegion allocate(int bytes, int alignment);
+    String name();
+
     static MemoryAccess best() {
-        return Runtime.version().feature() >= 22 && Boolean.getBoolean("pravaha.ffm")
-             ? ForeignMemoryAccess.INSTANCE      // META-INF/versions/22/
-             : AgronaMemoryAccess.INSTANCE;      // default, 17+
+        String requested = System.getProperty("pravaha.memory", "");
+        if ("agrona".equals(requested) && AgronaMemoryAccess.isAvailable()) {
+            return AgronaMemoryAccess.INSTANCE;          // needs --add-exports
+        }
+        if (Boolean.getBoolean("pravaha.ffm") && Runtime.version().feature() >= 22) {
+            MemoryAccess ffm = tryLoadForeign();          // META-INF/versions/22/
+            if (ffm != null) return ffm;
+        }
+        return ByteBufferMemoryAccess.INSTANCE;           // flag-free default
     }
 }
 ```
+
+`MemoryRegion` is index-addressed rather than raw-address-addressed. That keeps a region's lifetime tied to its object, so a use-after-free is impossible by construction rather than by discipline — worth the small indirection in a system where the alternative is silent memory corruption.
 
 Codegen (§12) emits calls against this interface; the JIT inlines the single implementation present at runtime, so the abstraction is free. A JMH gate in CI asserts the two implementations are within 3 % of each other on the arena benchmarks — if FFM ever pulls decisively ahead, the default flips with a one-line change and no API churn.
 
@@ -558,6 +602,14 @@ Everything expensive happens **once, at query registration**; the steady state d
 
 Single reactor, `pom` packaging at root, Java 21 (`pravaha-api` at 17). Dependency direction is strictly downward; ArchUnit enforces it.
 
+**Client SDKs live under `sdk/`** and are deliberately kept apart from the engine modules. A client
+is embedded in *someone else's* application, so every transitive dependency it carries is one their
+build has to reconcile — `pravaha-sdk-java` depends on `pravaha-api` alone, and a `maven-enforcer`
+rule fails the build if Netty, Calcite, RocksDB, Agrona, Spring or an engine module ever appears on
+its path. The transport lands behind an optional module rather than on the default one. The Java SDK
+jar is produced by every build because it is a shipped deliverable; the Python SDK builds under
+`-Ppython`, so a Python toolchain is not required to build the engine.
+
 **Maven coordinates.**
 
 | | |
@@ -619,10 +671,10 @@ pravaha/                                    (pom — parent, pluginManagement, p
 ├── pravaha-debug/                          ← time-travel replay engine, fixture export  (§16.4)
 ├── pravaha-ui/                             ← Spring Boot 3 + React SPA (standalone, or embedded in the server)
 │
-├── clients/
-│   ├── pravaha-client-java/
-│   ├── pravaha-client-python/              ← packaged from proto, published to PyPI
-│   └── pravaha-client-go/
+├── sdk/                                    ← CLIENT SDKs. Thin: pravaha-api only, no engine.
+│   ├── pravaha-sdk-java/                   ← always built; produces the client jar
+│   ├── pravaha-sdk-python/                 ← built under -Ppython; wheel published to PyPI
+│   └── pravaha-sdk-go/                     ← Wave 7
 │
 ├── pravaha-testkit/                        ← deterministic harness, virtual clock, JUnit ext, plugin TCK
 ├── pravaha-benchmarks/                     ← JMH micro + Profiles A–E + Nexmark q0–q22  (§28.4)
@@ -2388,6 +2440,114 @@ The console ships a real design system, defined once and enforced by lint rules 
 
 **Explicitly banned:** decorative gradients, purely ornamental illustration, animated backgrounds, marketing copy inside the product, and any element that moves without carrying information.
 
+### 23.4a Theming, templating and vendoring
+
+Three decisions that shape every page, settled here rather than per screen.
+
+#### Themes are generated, never hand-written
+
+A theme declares **its surfaces and one accent**; every other colour is *derived* by moving the hue
+only as far as the contrast threshold for its job requires — 3:1 for a mark (a bar, a ring, a status
+dot), 4.5:1 for a word. A theme is therefore five colours and a rule, not forty hex codes.
+
+This matters because hand-maintained palettes fail in a specific way: someone adds a token, checks it
+in the theme they happen to be using, and ships one unreadable combination in the theme nobody looked
+at. Deriving them makes that impossible, and a test **regenerates the stylesheet and compares it byte
+for byte** so a hand edit fails the build.
+
+| Theme | For |
+|---|---|
+| `light` | Default. Verdigris on a cool white ground. |
+| `dark` | The same palette on a night ground — the operations default, and what an incident at 03:00 actually wants. |
+| `high-contrast` | WCAG AAA ratios throughout. |
+| `amber` | Amber on black. Long unbroken monitoring sessions. |
+
+A **picker, not a light/dark toggle**: four themes is more than a toggle can express, and each exists
+for a different reading context rather than a preference.
+
+#### The server renders the theme into the markup
+
+The preference is stored in **both** `localStorage` and a cookie. The cookie is the load-bearing one:
+`localStorage` cannot be read server-side, so a page that renders light and is then repainted by a
+script **flashes on every single load**. On the amber-on-black theme that flash is a full white
+screen, which is not a rough edge — it is unusable.
+
+```html
+<html lang="en"
+      data-theme="{{ theme }}"
+      data-bs-theme="{{ themeBases[theme] }}"
+      data-density="{{ density }}">
+```
+
+`data-bs-theme` — whether the framework should use its light or dark base — is supplied **by the
+server**, not re-derived in the browser. A second opinion about whether `amber` counts as a dark
+theme would surface as one unreadable dropdown on one page, which is the hardest kind of bug to find.
+
+#### Everything is vendored. No CDN, ever.
+
+Nothing is fetched at run time. Not a script, not a stylesheet, not a font, not an icon.
+
+This is a **precondition, not a preference**. The console has to render identically in an air-gapped
+deployment, and the customers most likely to buy a proprietary engine for a payments or trading path
+are exactly the ones whose networks cannot reach a CDN. A CDN dependency is also a supply-chain
+surface and a third-party availability dependency on a page whose whole job is to be reachable
+during an incident.
+
+| Vendored | Approx. |
+|---|---|
+| Bootstrap 5 (CSS + bundle JS) | ~320 KB |
+| Bootstrap Icons | ~300 KB |
+| IBM Plex (subset: Sans, Sans Condensed, Mono, Sans Devanagari) | ~250 KB |
+| Monaco (SQL workbench) | lazy-loaded route chunk |
+| ECharts, React Flow | lazy-loaded route chunks |
+
+Vendored assets live under `pravaha-ui/src/main/resources/static/vendor/`, are checked in with their
+licences, and are listed in `THIRD-PARTY-NOTICES.md`. A build-time check fails on any `http://` or
+`https://` asset reference in a template or stylesheet — the rule is mechanical, because it is the
+kind that erodes one convenient exception at a time.
+
+#### Templates
+
+Server-rendered pages use one inherited shell so navigation, theming, the skip link and the
+screen-reader announcer exist once rather than per page.
+
+```
+templates/
+├── _shell.html          <html> with theme/density attributes, vendored assets, nav, footer
+├── _macros.html         card, stat tile, status chip, empty state, error state
+├── landing.html         extends _shell
+├── about.html
+├── help/index.html
+└── ...
+```
+
+Two elements the shell carries that are almost always missing and cost almost nothing:
+
+- **A skip link** as the first focusable element. Without it a keyboard user traverses the whole
+  navigation on every page.
+- **An `aria-live` announcer region**. A screen-reader user who submits a form and hears nothing has,
+  from their point of view, an application that did not respond. Every asynchronous change announces
+  through it.
+
+### 23.4b Public pages
+
+Three pages exist before anyone signs in, and they are the first thing an evaluator sees. With a
+proprietary engine (§30.4) they carry more weight than they would otherwise: nobody can read the
+source, so these pages *are* the first impression.
+
+| Page | Job | Shape |
+|---|---|---|
+| **Landing** | Answer "what is this and why would I use it?" in fifteen seconds | The slogan, the four-way position of §2.2 as four cards, a worked SQL example beside the microsecond read it enables, and one honest paragraph on what Pravaha is *not* |
+| **About** | Provenance and credibility | What Pravaha is, the name and what it means, the architecture in one diagram, the measured numbers with a link to the published Nexmark harness (§28.4), ownership and licensing, contact |
+| **Help** | Get someone unstuck without a support ticket | **Card grid** by task, not by feature: *Write your first query · Connect a source · Understand a plan · Read the metrics · Recover from a failure · Error codes · SDKs · FAQ*. Every `PRV-nnnn` code resolves to a page here with a runnable reproduction (§24.4). |
+
+The help card grid is deliberately organised by **what someone is trying to do**, not by which
+subsystem owns it. Somebody reaching for help knows their goal and not our module boundaries, and a
+help index that mirrors the architecture is a help index that only helps its authors.
+
+All three are public, cached, and render without a session. They must also work with JavaScript
+disabled — an evaluator behind a restrictive corporate proxy is exactly the reader worth keeping.
+
 ### 23.5 Information architecture
 
 ```
@@ -2440,6 +2600,9 @@ The console ships a real design system, defined once and enforced by lint rules 
 | 22 | **Admin · Audit** | Full searchable audit trail | REST paged | admin |
 | 23 | **Metrics explorer** | Ad-hoc charting of any exposed metric | SSE 1 Hz | viewer |
 | 24 | **Onboarding / first run** | Get a first query running in under five minutes | — | any |
+| 25 | **Landing** (public) | What this is, in fifteen seconds | static | none |
+| 26 | **About** (public) | Provenance, measured numbers, ownership | static | none |
+| 27 | **Help** (public) | Card grid by task; every `PRV-nnnn` resolves here | static | none |
 
 Screen 24 is not filler. A product that is hard to start is a product that is not adopted, and the first-run experience is the only screen every single user sees.
 
@@ -3098,11 +3261,36 @@ A cost claim is only credible if it says when it fails to hold.
 
 ### 30.4 Licensing and commercial posture
 
-- **Apache 2.0 core.** The full engine, all SPIs, the Aerospike/Kafka/JDBC plugins, the CLI and the UI. The moat is architecture and execution quality, not a crippled open edition — a restricted core would cost more adoption than it protects.
-- **Commercial value sits above the engine:** managed/cloud operation, enterprise connectors, multi-region coordination, long-term support, certification, and the plugin TCK certification programme.
+**Pravaha is proprietary software, wholly owned by Ashutosh Sinha.** All rights reserved; see
+`LICENSE`. This supersedes an earlier revision of this document which proposed Apache 2.0.
+
+- **Closed source, commercially licensed.** The engine, SPIs, plugins, CLI, SDKs and console are
+  licensed to customers under commercial terms rather than published.
+- **Third-party components keep their own licences.** Those grants are not ours to alter, and
+  several carry attribution obligations that survive our terms; `THIRD-PARTY-NOTICES.md` discharges
+  them. This is a real compliance surface, not a formality: every dependency added to a *shipped*
+  module must be checked for a copyleft or attribution obligation before it lands.
 - **No telemetry by default**, ever. Opt-in only, documented, and inspectable.
 
-This posture matters strategically: the adopters who will make this product succeed are engineers who will not evaluate a closed core, and the competitors most vulnerable to displacement are the ones charging cloud-only prices for what should be a library.
+**What this costs, stated plainly.** A closed engine forfeits the bottom-up adoption route: the
+engineers who would have tried it in an afternoon and championed it internally largely will not
+evaluate software they cannot read. Materialize and RisingWave already occupy the commercial-product
+position, so the competition is on equal terms rather than asymmetric ones.
+
+**What it must therefore rely on instead.** Everything in §2's moat has to do more work, because
+none of it can be verified by reading the source:
+
+| Lever | What it now has to carry |
+|---|---|
+| **W5 published Nexmark** (§28.4) | Becomes *the* credibility mechanism. Nobody can inspect the engine, so measured, reproducible, third-party-runnable numbers are the only external evidence. Publishing the harness matters more here than it would for an open project, not less. |
+| **Evaluation licence** | A frictionless time-limited licence with no sales conversation is the substitute for "just clone it". Without one, the funnel starts at a procurement meeting. |
+| **§24 developer experience** | The `pravaha dev` loop and the error catalogue are what an evaluator judges instead of the code. |
+| **Plugin TCK** (§24.6) | A third party writing a connector against a closed engine needs the conformance suite to be genuinely good, since they cannot read how the engine calls them. |
+| **Escrow** | Enterprise buyers of a closed engine in a critical path will ask for source escrow. Worth planning for rather than being surprised by. |
+
+None of this makes the proprietary choice wrong — it is the owner's call, and the technical moat in
+§2 is unaffected. It does move where the risk sits: from "can we out-execute the incumbents" to
+"can we get evaluated at all", which is a distribution problem rather than an engineering one.
 
 ---
 
@@ -3118,10 +3306,14 @@ Ten phases, roughly two-week increments for a team of 4–6. Each phase ends wit
 | **3 — Stateful & incremental** | 12–18 | Watermarks + idle detection; tumbling/hopping/session windows with slicing; timer wheel; L0 off-heap state; RocksDB tier; **incremental aggregates, `DISTINCT`, bounded-state enforcement**; changelog derivation; emit modes; late data + DLQ | **Profile B ≥ 350 k rec/s/lane**; correctness invariants 1–8 green; unbounded queries rejected with a useful diagnostic |
 | **4 — Aerospike, joins & durability** | 19–25 | Aerospike plugin (all four strategies), expression pushdown, idempotent sink, lookup join; **bilinear incremental joins**; checkpointing + recovery; capability negotiation | Exactly-once state proven by chaos test; **Profile C ≥ 120 k rec/s/lane**; pushdown equivalence green; **W4 ≥ 5× fewer bytes ingested** |
 | **5 — Backfill & serving** | 26–32 | Consistent snapshot→CDC splice; throttled adaptive backfill; blue/green query update; **served materialized views** with all four consistency modes; read replicas & read admission control | 3 years of history backfilled with OLTP p99 impact < 10 %; **W3: p99 point lookup ≤ 200 µs**; zero-downtime SQL change demonstrated |
-| **6 — Gateways, clients & DX** | 33–38 | gRPC streaming + Arrow + credit flow control; Avatica control plane; catalog-typed Java/Python/Go clients; **`pravaha-spring-boot-starter` with `@PravahaListener` and `@PravahaTest`**; full CLI; stable error-code catalogue; docs-as-tests; plugin TCK | Python client sustains 1 M rows/s; Avatica works from DBeaver; **W2: deploy ≤ 2 s**; TCK passes for all first-party plugins; starter verified against Spring Boot 3.2–3.5 |
+| **6 — Gateways, clients & DX** | 33–38 | gRPC streaming + Arrow + credit flow control; Avatica control plane; catalog-typed Java/Python/Go SDKs under `sdk/`; **`pravaha-spring-boot-starter` with `@PravahaListener` and `@PravahaTest`**; full CLI; stable error-code catalogue; docs-as-tests; plugin TCK | Python client sustains 1 M rows/s; Avatica works from DBeaver; **W2: deploy ≤ 2 s**; TCK passes for all first-party plugins; starter verified against Spring Boot 3.2–3.5 |
 | **7 — Cluster & HA** | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, savepoints, multi-tenancy quotas; elastic lane rescaling | 3-node cluster survives rolling node kills with no data loss; rebalance ≤ 5 s pause; **W7: 10 GB restore ≤ 30 s** |
 | **8 — Debugger, self-tuning & console polish** | 46–53 | **Time-travel debugger UI**, adaptive-controller screens, security (OIDC/RBAC/audit) end to end, full observability, skew remediation, live replanning, state tier promotion, **console polish pass + WCAG 2.2 AA audit + visual-regression baseline**, Helm chart | Operator runs the full lifecycle from the console; **W10:** a seeded production bug is found by replay and exported as a passing JUnit fixture; §23.20 checklist green |
 | **9 — Benchmarks, breadth & GA** | 54–62 | Cassandra + PostgreSQL + Redis plugins; **`WITH RECURSIVE`**; **published Nexmark q0–q22 head-to-head vs Flink**; 72 h soak; security review; TCO validation; GA docs and migration tooling | All NFR SLOs met; **W5 ≥ parity on 18/22, ≥ 2× on 8**; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated on a real workload; SBOM + security review signed off |
+
+**Phases ship as waves.** Each phase below is one wave in the delivery model: `develop` moves
+continuously within it, and `main` moves exactly once at its gate, tagged. The mapping from phase to
+wave, and the gate for each, is in the implementation plan (section 4.0).
 
 **The console is a continuous workstream, not a phase.** §23 specifies a product surface, and a product surface cannot be built in one late phase. From Phase 3 onward a dedicated frontend workstream ships the console screens for each engine capability *in the same phase that capability lands* — catalog and query screens with E3, plan DAG and workbench with E4, backfill and cutover with E5, and so on. Phase 8 is then a *polish and debugger* phase rather than a build-the-whole-UI phase. See §6.2 and §9 of the implementation plan.
 
@@ -3183,7 +3375,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **020** | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` | Documentation only; a bare `PravahaEngine` bean | Lets a team add continuous SQL to a service they already run, in the idiom they already use. Modelled on `@KafkaListener` so the mental model transfers (§22.4) |
 | **022** | The console is a flagship product surface with its own design system, built as a continuous workstream from Phase 3 | A late control-plane admin UI; CLI-only; a thin metrics page | For most users the console *is* the product, and W10 (the time-travel debugger) exists nowhere else. A polished UI cannot be produced in one late phase, so it is resourced with a dedicated frontend engineer and shipped alongside each engine capability (§23.1) |
 | **021** | No GraalVM native image for the engine | Native image via Spring AOT; drop runtime codegen to enable it | Runtime Java-source compilation (ADR-005) is fundamentally incompatible with a closed-world image, and it is what makes the hot path fast. Stated so no one spends a sprint on it. Clients and UI may still go native (§22.7) |
-| **018** | Apache 2.0 for the entire engine, UI and first-party plugins | Open core with a restricted engine; source-available; dual licence | The engineers who decide adoption will not evaluate a crippled core. The moat is architecture and execution; commercial value sits in managed operation, support and certification (§30.4) |
+| **018** | **Proprietary, wholly owned by Ashutosh Sinha.** All rights reserved | Apache 2.0 (proposed in an earlier revision of this document); open core; source-available; dual licence | Owner's decision. The technical moat in §2 is unaffected, but the distribution risk moves from execution to evaluation: §30.4 sets out what has to carry the weight instead — published Nexmark results, a frictionless evaluation licence, and the developer-experience surface |
 
 ---
 
@@ -3228,7 +3420,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **Deployment modes** | Single engine instance, YAML-bound | Four modes from one core: plain embedded, Spring Boot starter, Spring Boot server, all-in-one server+UI (§22.2) | Flink (cluster-only), Materialize/RisingWave (cloud-only) |
 | **Web console** | Absent | Full web application: IDE-grade SQL workbench, live plan DAG, time-travel debugger, backfill control, design system, WCAG 2.2 AA, performance-budgeted (§23) | Flink's UI is read-only job status; ksqlDB has none of consequence; Materialize is SQL-console-only |
 | **Spring integration** | Absent | `@PravahaListener`, `PravahaTemplate`, `@PravahaTest`, actuator — engine core stays Spring-free (§22.4) | No competitor ships a first-class Spring starter |
-| **Licensing** | Unstated | Apache 2.0 core, engine and UI included (§30.4) | Materialize, RisingWave, Confluent |
+| **Licensing** | Unstated | Proprietary, wholly owned; third-party obligations discharged in `THIRD-PARTY-NOTICES.md` (§30.4) | — |
 
 ## Appendix B — Immediate Next Steps
 
@@ -3248,3 +3440,11 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 **Then:**
 
 8. Scaffold Phase 0 — the Maven reactor, `pravaha-api`, the binary row layout with the Z-set header, and `pravaha-testkit` with its virtual clock. The testkit is not infrastructure overhead; it is what makes every subsequent phase's exit criteria checkable, and it is why it ships first.
+
+
+---
+
+<sub>**Project Pravaha (प्रवाह)** — *Ask once. Answer always.*<br>
+Copyright © 2026 Ashutosh Sinha &lt;ajsinha@gmail.com&gt;. All rights reserved. **Proprietary and confidential.**<br>
+This document is the confidential property of Ashutosh Sinha. Unauthorised copying, disclosure or distribution is prohibited; see `LICENSE`.
+Provided "as is", without warranty of any kind.</sub>

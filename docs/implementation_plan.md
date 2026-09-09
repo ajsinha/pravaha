@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Document | Pravaha Implementation Plan |
-| Version | 1.2 |
+| Version | 1.4 |
 | Status | Proposed — for review |
 | Companion to | [`system_design.md`](./system_design.md) v3.1 |
 | Platform | **Java 21 LTS** (baseline), Maven 3.9+ via wrapper, Java 25 also CI-tested |
@@ -107,6 +107,7 @@ git add mvnw mvnw.cmd .mvn/ && git commit -m "Add Maven wrapper"
 | `-Pit` | explicit | Testcontainers integration tests (Aerospike, Kafka, …) |
 | `-Pbench` | explicit | JMH benchmark modules |
 | `-Pui` | explicit | pnpm build of the React SPA |
+| `-Ppython` | explicit | Builds and tests the Python SDK, and produces its wheel. A failing Python test fails the Maven build. |
 | `-Pffm` | explicit, JDK 22+ | Compiles and tests the FFM `MemoryAccess` implementation (§4.6 of the design) |
 | `-Pall` | explicit | Everything; what CI runs on `main` |
 
@@ -138,6 +139,9 @@ IntelliJ IDEA is the reference IDE. Committed config: `.editorconfig`, a shared 
 | **No allocation in hot-path methods** — no boxing, no varargs, no lambdas capturing, no iterator allocation | Review + `JMH` allocation-rate assertions + an `@HotPath` marker annotation checked by ArchUnit |
 | No unbounded collections or queues on the runtime classpath | ArchUnit rule (design NFR-9) |
 | No `java.io.Serializable` anywhere | ArchUnit rule |
+| **Source files stay under 1500 lines** (docs and UI code exempt) | `SourceFileSizeTest` walks the tree and fails the build; warns from 1200 so files get split deliberately rather than in a panic |
+| **Every production type has JUnit coverage** | JaCoCo line gate per module, plus review |
+| **Highly modular**: one public type per file, one responsibility per type | Review, and the file-size rule as a backstop |
 | No storage-client imports outside `plugins/**` | ArchUnit + `maven-enforcer` banned dependencies |
 | **No `org.springframework` import in any core module** — Spring lives only in `pravaha-server`, `pravaha-ui`, `pravaha-spring-boot-starter` (design §22.1) | ArchUnit + `maven-enforcer` banned dependencies |
 | No Spring type reachable from an `@HotPath` method | ArchUnit |
@@ -169,6 +173,37 @@ IntelliJ IDEA is the reference IDE. Committed config: `.editorconfig`, a shared 
 ---
 
 ## 4. Repository, Branching & Release Model
+
+### 4.0 Waves
+
+Work ships in **waves**. A wave is one epic's worth of work with a demonstrable outcome and a
+machine-checkable gate; `develop` moves continuously within a wave, and `main` moves exactly once
+at the end of one.
+
+| | |
+|---|---|
+| **Within a wave** | Commit and push to `develop` freely — several times a day is normal. `develop` stays green; a red `develop` is fixed before anything else proceeds. |
+| **End of a wave** | The gate's acceptance criteria are met and evidenced, then `develop` merges to `main` with `--no-ff` and the milestone is tagged. |
+| **Never** | A merge to `main` mid-wave. `main` is the record of demonstrable milestones, not a mirror of `develop`. |
+
+| Wave | Epic | Sprints | Gate |
+|---|---|---|---|
+| **1** | E0 Foundations | 1–2 | Clean clone builds green on the JDK 21 baseline; deterministic harness demonstrated; JMH baselines recorded |
+| **2** | E1 Minimal vertical slice | 3–5 | Query runs end to end; property oracle green; **M2 go/no-go on the DBSP bet** |
+| **3** | E2 Performance core | 6–11 | Profile A ≥ 1.2 M rec/s/lane; ≥ 90 % scaling to 8 lanes |
+| **4** | E3 Stateful & incremental | 12–18 | Profile B ≥ 350 k rec/s/lane; invariants 1–8 green |
+| **5** | E4 Aerospike, joins, durability | 19–25 | Exactly-once state proven by chaos test; W4 ≥ 5× |
+| **6** | E5 Backfill & serving | 26–32 | **First defensible demo** — W3 point lookup ≤ 200 µs |
+| **7** | E6 Gateways, clients, DX | 33–38 | W2 deploy ≤ 2 s; starter green on Spring Boot 3.2–3.5 |
+| **8** | E7 Cluster & HA | 39–45 | Rolling node kills, zero loss; W7 restore ≤ 30 s |
+| **9** | E8 Control plane & self-tuning | 46–53 | W10 debugger finds a seeded bug and exports the fixture |
+| **10** | E9 Breadth, benchmarks, GA | 54–62 | All SLOs; W5 Nexmark published; **GA** |
+
+Epic **EU** (the console) runs across waves 3–10 rather than owning one, because it ships a surface
+alongside each engine capability (§6.2).
+
+Each wave ends with an evidence pack under `docs/gates/` — benchmark output, test reports, and a
+one-page retrospective on what the wave got wrong. The retrospective feeds the next wave's estimate.
 
 ### 4.1 Branching
 
@@ -285,7 +320,7 @@ WS-D         │         │      ════════════╪══�
 
 ## 7. Work Breakdown Structure
 
-Epics map 1:1 to the design's phases. Story IDs are stable and referenced by branch names and commits.
+Epics map 1:1 to the design's phases and to the **waves** of §4.0 — one epic, one wave, one merge to `main`. Story IDs are stable and referenced by branch names and commits.
 
 ### E0 — Foundations *(Phase 0, sprints 1–2)*
 
@@ -372,15 +407,15 @@ Design §23 specifies the console. This epic runs **alongside** E3–E9 rather t
 
 ### E3–E9 — summarised in §11
 
-| Epic | Phase | Sprints | Theme |
-|---|---|---|---|
-| **E3** | 3 | 12–18 | Stateful & incremental: watermarks, windows, timers, tiered state, aggregates, `DISTINCT`, bounded-state enforcement |
-| **E4** | 4 | 19–25 | Aerospike, bilinear incremental joins, checkpointing, recovery, pushdown |
-| **E5** | 5 | 26–32 | Backfill, blue/green updates, serving layer, consistency modes |
-| **E6** | 6 | 33–38 | gRPC + Arrow gateways, Avatica, typed clients, full CLI, error catalogue, TCK, docs-as-tests |
-| **E7** | 7 | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, multi-tenancy, elastic rescale |
-| **E8** | 8 | 46–53 | Control-plane UI, time-travel debugger, security, observability, self-tuning controllers |
-| **E9** | 9 | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, soak, security review, TCO validation, GA |
+| Wave | Epic | Phase | Sprints | Theme |
+|---|---|---|---|---|
+| **4** | **E3** | 3 | 12–18 | Stateful & incremental: watermarks, windows, timers, tiered state, aggregates, `DISTINCT`, bounded-state enforcement |
+| **5** | **E4** | 4 | 19–25 | Aerospike, bilinear incremental joins, checkpointing, recovery, pushdown |
+| **6** | **E5** | 5 | 26–32 | Backfill, blue/green updates, serving layer, consistency modes |
+| **7** | **E6** | 6 | 33–38 | gRPC + Arrow gateways, Avatica, typed clients, full CLI, error catalogue, TCK, docs-as-tests |
+| **8** | **E7** | 7 | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, multi-tenancy, elastic rescale |
+| **9** | **E8** | 8 | 46–53 | Control-plane UI, time-travel debugger, security, observability, self-tuning controllers |
+| **10** | **E9** | 9 | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, soak, security review, TCO validation, GA |
 
 ---
 
@@ -657,18 +692,18 @@ This is the Sprint 2 demo and the foundation of every correctness claim in the d
 
 ## 11. Phases 2–9 — Epics & Acceptance Gates
 
-Epics are decomposed into stories at the start of their phase. What is fixed now is the **gate** — the machine-checkable condition for merging `develop` into `main` and starting the next phase.
+Each epic is one **wave** (§4.0). Epics are decomposed into stories at the start of their wave; what is fixed now is the **gate** — the machine-checkable condition for merging `develop` into `main`, tagging the milestone, and starting the next wave.
 
-| Epic | Sprints | Key stories | **Gate** |
-|---|---|---|---|
-| **E2** Performance core | 6–11 | expression compiler, fusion, Janino, lanes, exchange, adaptive batching, backpressure | Profile A **≥ 1.2 M rec/s/lane**; ≥ 90 % scaling 1→8 lanes; differential tests green; no metaspace leak over 10 000 register/drop cycles |
-| **E3** Stateful & incremental | 12–18 | watermarks + idle detection, timing wheel, tumbling/hopping/session with slicing, L0 off-heap state, RocksDB tier, incremental aggregates + `DISTINCT`, bounded-state enforcement, changelog derivation, DLQ | Profile B **≥ 350 k rec/s/lane**; correctness invariants 1–8 green; an unbounded `GROUP BY` is rejected at planning with a diagnostic naming the key |
-| **E4** Aerospike, joins, durability | 19–25 | Aerospike plugin (4 strategies), expression pushdown, idempotent sink, lookup join, bilinear incremental join, aligned checkpoints, recovery, capability negotiation | Exactly-once state proven by chaos test; Profile C **≥ 120 k rec/s/lane**; pushdown equivalence property green; **W4 ≥ 5× fewer bytes ingested** |
-| **E5** Backfill & serving | 26–32 | snapshot→CDC splice, adaptive throttling, blue/green cutover, served views, 4 consistency modes, read replicas, read admission control | 3 years backfilled with storage p99 impact **< 10 %**; **W3 p99 point lookup ≤ 200 µs**; a SQL change deployed with zero downtime and rolled back |
-| **E6** Gateways, clients, DX | 33–38 | gRPC + Arrow + credit flow control, Avatica, typed Java/Python/Go clients, **`pravaha-server` as a Spring Boot app (modes C/D)**, **`pravaha-spring-boot-starter` (mode B)**, full CLI, `PRV-nnnn` error catalogue, plugin TCK v2, docs-as-tests | Python client sustains **1 M rows/s**; DBeaver connects via Avatica; **W2 deploy ≤ 2 s**; every first-party plugin passes the TCK; server reaches ready in ≤ 2 s; starter green against Spring Boot 3.2, 3.3, 3.4 and 3.5 in the CI matrix |
-| **E7** Cluster & HA | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, savepoints, tenant quotas, elastic rescale | 3-node cluster survives rolling kills with zero data loss; rebalance pause **≤ 5 s**; **W7 10 GB restore ≤ 30 s** |
-| **E8** Control plane & self-tuning | 46–53 | Spring Boot + React UI, all screens, time-travel debugger, OIDC/RBAC/audit, observability, skew remediation, live replanning, tier promotion | Full lifecycle driven from the UI; **W10** a seeded production bug is found by replay and exported as a passing JUnit fixture |
-| **E9** Breadth, benchmarks, GA | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, 72 h soak, security review, TCO validation, migration tooling, GA docs | All NFR SLOs met; **W5** ≥ parity on 18/22 Nexmark queries and ≥ 2× on 8; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated; soak clean; SBOM + security sign-off |
+| Wave | Epic | Sprints | Key stories | **Gate** |
+|---|---|---|---|---|
+| **3** | **E2** Performance core | 6–11 | expression compiler, fusion, Janino, lanes, exchange, adaptive batching, backpressure | Profile A **≥ 1.2 M rec/s/lane**; ≥ 90 % scaling 1→8 lanes; differential tests green; no metaspace leak over 10 000 register/drop cycles |
+| **4** | **E3** Stateful & incremental | 12–18 | watermarks + idle detection, timing wheel, tumbling/hopping/session with slicing, L0 off-heap state, RocksDB tier, incremental aggregates + `DISTINCT`, bounded-state enforcement, changelog derivation, DLQ | Profile B **≥ 350 k rec/s/lane**; correctness invariants 1–8 green; an unbounded `GROUP BY` is rejected at planning with a diagnostic naming the key |
+| **5** | **E4** Aerospike, joins, durability | 19–25 | Aerospike plugin (4 strategies), expression pushdown, idempotent sink, lookup join, bilinear incremental join, aligned checkpoints, recovery, capability negotiation | Exactly-once state proven by chaos test; Profile C **≥ 120 k rec/s/lane**; pushdown equivalence property green; **W4 ≥ 5× fewer bytes ingested** |
+| **6** | **E5** Backfill & serving | 26–32 | snapshot→CDC splice, adaptive throttling, blue/green cutover, served views, 4 consistency modes, read replicas, read admission control | 3 years backfilled with storage p99 impact **< 10 %**; **W3 p99 point lookup ≤ 200 µs**; a SQL change deployed with zero downtime and rolled back |
+| **7** | **E6** Gateways, clients, DX | 33–38 | gRPC + Arrow + credit flow control, Avatica, typed Java/Python/Go clients, **`pravaha-server` as a Spring Boot app (modes C/D)**, **`pravaha-spring-boot-starter` (mode B)**, full CLI, `PRV-nnnn` error catalogue, plugin TCK v2, docs-as-tests | Python client sustains **1 M rows/s**; DBeaver connects via Avatica; **W2 deploy ≤ 2 s**; every first-party plugin passes the TCK; server reaches ready in ≤ 2 s; starter green against Spring Boot 3.2, 3.3, 3.4 and 3.5 in the CI matrix |
+| **8** | **E7** Cluster & HA | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, savepoints, tenant quotas, elastic rescale | 3-node cluster survives rolling kills with zero data loss; rebalance pause **≤ 5 s**; **W7 10 GB restore ≤ 30 s** |
+| **9** | **E8** Control plane & self-tuning | 46–53 | Spring Boot + React UI, all screens, time-travel debugger, OIDC/RBAC/audit, observability, skew remediation, live replanning, tier promotion | Full lifecycle driven from the UI; **W10** a seeded production bug is found by replay and exported as a passing JUnit fixture |
+| **10** | **E9** Breadth, benchmarks, GA | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, 72 h soak, security review, TCO validation, migration tooling, GA docs | All NFR SLOs met; **W5** ≥ parity on 18/22 Nexmark queries and ≥ 2× on 8; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated; soak clean; SBOM + security sign-off |
 
 `W1`–`W10` are the win conditions from design §2.5.
 
@@ -691,19 +726,19 @@ Time-boxed investigations that run *before* the story that depends on them, on `
 
 ## 13. Milestones, Demos & Go/No-Go Gates
 
-| # | Milestone | Sprint | Demo | Decision |
-|---|---|---|---|---|
-| M0 | It builds | 1 | CI green on 21 and 25 | — |
-| M1 | It's deterministic | 2 | 1 000 identical runs; seeded regression fails CI | Gate P0 |
-| **M2** | **The DBSP bet is real** | **5** | Property oracle catches a seeded lift-rule bug; end-to-end query from `pravaha dev` in < 1 s | **GO/NO-GO on §9 of the design** |
-| M3 | It's fast | 11 | Profile A ≥ 1.2 M rec/s/lane, live | Gate P2 |
-| M4 | It's stateful | 18 | Windowed aggregation with retractions and late data | Gate P3 |
-| M5 | It's durable, on Aerospike | 25 | Kill a node mid-checkpoint; exact recovery | Gate P4 |
-| **M6** | **First defensible demo** | **32** | Incremental compute over Aerospike with pushdown; 3 years backfilled safely; point queries in µs — no other system involved | **External/customer demo** |
-| M7 | It's usable | 38 | Python client at 1 M rows/s; DBeaver; 2 s deploy | Gate P6 |
-| M8 | It's highly available | 45 | Rolling node kills under load, zero loss | Gate P7 |
-| M9 | It's operable | 53 | Time-travel debug of a seeded production bug | Gate P8 |
-| M10 | **GA** | 62 | Nexmark numbers published head-to-head | Release 1.0.0 |
+| # | Wave | Milestone | Sprint | Demo | Decision |
+|---|---|---|---|---|---|
+| M0 | 1 | It builds | 1 | CI green on 21 and 25 | — |
+| M1 | 1 | It's deterministic | 2 | 1 000 identical runs; seeded regression fails CI | **Gate P0 — Wave 1 ends, merge to `main`** |
+| **M2** | 2 | **The DBSP bet is real** | **5** | Property oracle catches a seeded lift-rule bug; end-to-end query from `pravaha dev` in < 1 s | **GO/NO-GO on §9 of the design** |
+| M3 | 3 | It's fast | 11 | Profile A ≥ 1.2 M rec/s/lane, live | Gate P2 |
+| M4 | 4 | It's stateful | 18 | Windowed aggregation with retractions and late data | Gate P3 |
+| M5 | 5 | It's durable, on Aerospike | 25 | Kill a node mid-checkpoint; exact recovery | Gate P4 |
+| **M6** | 6 | **First defensible demo** | **32** | Incremental compute over Aerospike with pushdown; 3 years backfilled safely; point queries in µs — no other system involved | **External/customer demo** |
+| M7 | 7 | It's usable | 38 | Python client at 1 M rows/s; DBeaver; 2 s deploy | Gate P6 |
+| M8 | 8 | It's highly available | 45 | Rolling node kills under load, zero loss | Gate P7 |
+| M9 | 9 | It's operable | 53 | Time-travel debug of a seeded production bug | Gate P8 |
+| M10 | 10 | **GA** | 62 | Nexmark numbers published head-to-head | Release 1.0.0 |
 
 ### The M2 decision, in detail
 
@@ -944,3 +979,11 @@ Copy into the tracker. Owner column filled at planning.
 - [ ] **P0-12** 18 ADR files under `docs/adr/`, one per design §33 row
 
 **Sprint 1 exit:** a clean clone of `develop` runs `./mvnw clean verify` green on JDK 21 and 25, with no system Maven installed.
+
+
+---
+
+<sub>**Project Pravaha (प्रवाह)** — *Ask once. Answer always.*<br>
+Copyright © 2026 Ashutosh Sinha &lt;ajsinha@gmail.com&gt;. All rights reserved. **Proprietary and confidential.**<br>
+This document is the confidential property of Ashutosh Sinha. Unauthorised copying, disclosure or distribution is prohibited; see `LICENSE`.
+Provided "as is", without warranty of any kind.</sub>
