@@ -3165,6 +3165,10 @@ Ten phases, roughly two-week increments for a team of 4–6. Each phase ends wit
 | **8 — Debugger, self-tuning & console polish** | 46–53 | **Time-travel debugger UI**, adaptive-controller screens, security (OIDC/RBAC/audit) end to end, full observability, skew remediation, live replanning, state tier promotion, **console polish pass + WCAG 2.2 AA audit + visual-regression baseline**, Helm chart | Operator runs the full lifecycle from the console; **W10:** a seeded production bug is found by replay and exported as a passing JUnit fixture; §23.20 checklist green |
 | **9 — Benchmarks, breadth & GA** | 54–62 | Cassandra + PostgreSQL + Redis plugins; **`WITH RECURSIVE`**; **published Nexmark q0–q22 head-to-head vs Flink**; 72 h soak; security review; TCO validation; GA docs and migration tooling | All NFR SLOs met; **W5 ≥ parity on 18/22, ≥ 2× on 8**; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated on a real workload; SBOM + security review signed off |
 
+**Phases ship as waves.** Each phase below is one wave in the delivery model: `develop` moves
+continuously within it, and `main` moves exactly once at its gate, tagged. The mapping from phase to
+wave, and the gate for each, is in §4.0 of the implementation plan.
+
 **The console is a continuous workstream, not a phase.** §23 specifies a product surface, and a product surface cannot be built in one late phase. From Phase 3 onward a dedicated frontend workstream ships the console screens for each engine capability *in the same phase that capability lands* — catalog and query screens with E3, plan DAG and workbench with E4, backfill and cutover with E5, and so on. Phase 8 is then a *polish and debugger* phase rather than a build-the-whole-UI phase. See §6.2 and §9 of the implementation plan.
 
 **Critical path:** Phase 1's Z-set foundation and Phase 2's codegen. Everything incremental depends on the first; every performance claim depends on the second. Phase 5 (backfill + serving) is the largest single differentiator and the most likely to need a full extra iteration — plan for it.
