@@ -5,10 +5,11 @@
 | Field | Value |
 |---|---|
 | Document | Pravaha Implementation Plan |
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | Proposed — for review |
 | Companion to | [`system_design.md`](./system_design.md) v3.1 |
 | Platform | **Java 21 LTS** (baseline), Maven 3.9+ via wrapper, Java 25 also CI-tested |
+| Coordinates | `com.ash.messaging:pravaha` — base package `com.ash.messaging.pravaha` |
 | Date | 2026-09-09 |
 | Horizon | 31 sprints / 62 weeks, team of 5–6 |
 
@@ -46,9 +47,25 @@ The design document says *what* Pravaha is and *why*. This one says *who builds 
 
 **Reading order for a new engineer:** §2 (get building), §3 (how we work), §9 or §11 (your current phase), then the design doc section your epic references.
 
+> **Reference convention.** A bare `§N` points at a section of *this* document. A reference into the architecture document is always written `design §N` or `§N of the design`. Both documents are validated in CI: a script resolves every cross-reference against the target document's headings and fails the build on a dangling one, which is what keeps them honest as sections get renumbered.
+
 ---
 
 ## 2. Prerequisites & Environment Setup
+
+### 2.0 Project coordinates
+
+Fixed, and referenced by every POM, package declaration and enforcer rule:
+
+| | |
+|---|---|
+| `groupId` | `com.ash.messaging` |
+| Root `artifactId` | `pravaha` (packaging `pom`) |
+| Module `artifactId`s | `pravaha-api`, `pravaha-common`, `pravaha-runtime`, … |
+| Base package | `com.ash.messaging.pravaha` |
+| Initial version | `0.1.0-SNAPSHOT` |
+
+Two rules key off the base package and are checked in CI from Sprint 1: `PluginClassLoader`'s parent-first prefix list, and the ArchUnit module-dependency / no-Spring rules. Changing the package root later means touching both — so it is fixed here, before P0-01.
 
 ### 2.1 Required toolchain
 
@@ -122,6 +139,8 @@ IntelliJ IDEA is the reference IDE. Committed config: `.editorconfig`, a shared 
 | No unbounded collections or queues on the runtime classpath | ArchUnit rule (design NFR-9) |
 | No `java.io.Serializable` anywhere | ArchUnit rule |
 | No storage-client imports outside `plugins/**` | ArchUnit + `maven-enforcer` banned dependencies |
+| **No `org.springframework` import in any core module** — Spring lives only in `pravaha-server`, `pravaha-ui`, `pravaha-spring-boot-starter` (design §22.1) | ArchUnit + `maven-enforcer` banned dependencies |
+| No Spring type reachable from an `@HotPath` method | ArchUnit |
 | No Scala outside allowed modules | `maven-enforcer` |
 | Every thrown exception carries a stable `PRV-nnnn` code from Phase 6 | Review; codegen'd error catalogue |
 | No `Thread.sleep` in tests | ArchUnit rule on test sources |
@@ -193,7 +212,7 @@ docs(design): revise Java baseline to 21
 |---|---|---|---|
 | **Fast** — compile, Spotless, Error Prone, unit + property tests, ArchUnit | every push | ≤ 6 min | yes |
 | **Verify** — integration tests (Testcontainers), JaCoCo gates, `japicmp` | PR to `develop` | ≤ 20 min | yes |
-| **Matrix** — full build on JDK **21** and **25** | PR to `develop` | ≤ 25 min | yes |
+| **Matrix** — full build on JDK **21** and **25**; from E6 also `pravaha-spring-boot-starter` against Spring Boot 3.2–3.5 | PR to `develop` | ≤ 25 min | yes |
 | **Bench** — JMH subset, regression threshold 10 % | nightly + hot-path PRs | ≤ 45 min | yes on PR label `hot-path` |
 | **Nexmark** — q0–q22 vs recorded baseline | nightly from Phase 3 | ≤ 60 min | reported, blocking from Phase 7 |
 | **Chaos** — node kills, partitions, stalled sinks | nightly from Phase 4 | ≤ 40 min | yes |
@@ -271,7 +290,7 @@ Epics map 1:1 to the design's phases. Story IDs are stable and referenced by bra
 | P0-08 | MPSC and SPSC ring buffers (wrapping JCTools/Agrona) + wait strategies | 3 d | P0-05 | JCTools conformance suite passes; ≥ 50 M offers/s SPSC in JMH |
 | P0-09 | `pravaha-testkit`: virtual clock, deterministic scheduler, `TestHarness` | 5 d | P0-06 | A two-operator pipeline produces byte-identical output across 1 000 runs with randomised interleavings |
 | P0-10 | JMH harness + `benchmarks/baselines/` + CI Bench stage | 3 d | P0-03 | A seeded 15 % regression fails the build |
-| P0-11 | ArchUnit rule set (no `Serializable`, no unbounded collections, module deps, no `Thread.sleep` in tests) | 2 d | P0-01 | Each rule has a deliberately-violating fixture that fails |
+| P0-11 | ArchUnit rule set (no `Serializable`, no unbounded collections, module deps, **no Spring in core**, no `Thread.sleep` in tests) | 2 d | P0-01 | Each rule has a deliberately-violating fixture that fails |
 | P0-12 | `docs/adr/` seeded with ADRs 001–018 from the design doc | 1 d | — | Each ADR is one file with context/decision/consequences |
 
 **Gate P0:** clean clone → `./mvnw clean verify` green on JDK 21 and 25 in under 25 minutes; deterministic harness demonstrated; JMH baselines recorded.
@@ -291,7 +310,7 @@ Epics map 1:1 to the design's phases. Story IDs are stable and referenced by bra
 | P1-09 | Plugin SPI + `PluginClassLoader` (parent-last) + `ServiceLoader` discovery | 4 d | P0-04 | Two plugins with conflicting Guava versions both load and work |
 | P1-10 | Filesystem source & sink plugin | 2 d | P1-09 | CSV/JSON-lines in, out; used by every later test |
 | P1-11 | Kafka source & sink plugin | 4 d | P1-09 | Testcontainers IT: 1 M records round-trip, offsets committed |
-| P1-12 | `pravaha-embedded` facade | 2 d | P1-08 | A 15-line Java main runs a query in-process |
+| P1-12 | `pravaha-embedded` facade + the `PravahaEngine` seam (design §22.1) | 3 d | P1-08 | A 15-line Java main runs a query in-process; ArchUnit confirms zero Spring on the module's classpath |
 | P1-13 | `pravaha dev` CLI: fixture-driven in-process engine, hot reload | 4 d | P1-12 | **Cold start to first output < 1 s**, asserted in CI |
 | P1-14 | Plugin TCK v1 (capability declarations vs actual behaviour) | 3 d | P1-09 | Filesystem and Kafka plugins pass; a plugin falsely claiming replayable offsets fails |
 
@@ -500,12 +519,12 @@ pravaha/
 └── pravaha-it/
 ```
 
-Modules from the design's §7 that no story touches before Phase 3 are **not** created in Sprint 1. Empty modules are noise; they get created by the story that needs them.
+Modules from the design's §7 that no story touches before Phase 3 are **not** created in Sprint 1. Empty modules are noise; they get created by the story that needs them — `pravaha-embedded` in Sprint 5, `pravaha-server` and `pravaha-spring-boot-starter` in E6.
 
 ### 10.2 The first types — `pravaha-api`
 
 ```java
-// com.pravaha.api.data
+// com.ash.messaging.pravaha.api.data
 public enum RowKind { INSERT, UPDATE_BEFORE, UPDATE_AFTER, DELETE }
 
 public sealed interface PravahaType permits PrimitiveType, DecimalType,
@@ -524,7 +543,7 @@ public record StreamSchema(String name, List<Field> fields, int version,
 ```
 
 ```java
-// com.pravaha.api.data — the flyweight contract (design §8.4)
+// com.ash.messaging.pravaha.api.data — the flyweight contract (design §8.4)
 public interface RowView {
     long address();
     int  length();
@@ -548,7 +567,7 @@ public interface RowView {
 The one place either memory API is named (design §4.6).
 
 ```java
-// com.pravaha.common.memory
+// com.ash.messaging.pravaha.common.memory
 public interface MemoryAccess {
     long allocate(long bytes);
     void free(long address);
@@ -563,7 +582,7 @@ public interface MemoryAccess {
         if (Runtime.version().feature() >= 22
                 && Boolean.parseBoolean(System.getProperty("pravaha.ffm", "false"))) {
             try { return (MemoryAccess) Class
-                    .forName("com.pravaha.common.memory.ForeignMemoryAccess")
+                    .forName("com.ash.messaging.pravaha.common.memory.ForeignMemoryAccess")
                     .getField("INSTANCE").get(null);
             } catch (ReflectiveOperationException ignored) { /* fall through */ }
         }
@@ -610,7 +629,7 @@ Epics are decomposed into stories at the start of their phase. What is fixed now
 | **E3** Stateful & incremental | 12–18 | watermarks + idle detection, timing wheel, tumbling/hopping/session with slicing, L0 off-heap state, RocksDB tier, incremental aggregates + `DISTINCT`, bounded-state enforcement, changelog derivation, DLQ | Profile B **≥ 350 k rec/s/lane**; correctness invariants 1–8 green; an unbounded `GROUP BY` is rejected at planning with a diagnostic naming the key |
 | **E4** Aerospike, joins, durability | 19–25 | Aerospike plugin (4 strategies), expression pushdown, idempotent sink, lookup join, bilinear incremental join, aligned checkpoints, recovery, capability negotiation | Exactly-once state proven by chaos test; Profile C **≥ 120 k rec/s/lane**; pushdown equivalence property green; **W4 ≥ 5× fewer bytes ingested** |
 | **E5** Backfill & serving | 26–32 | snapshot→CDC splice, adaptive throttling, blue/green cutover, served views, 4 consistency modes, read replicas, read admission control | 3 years backfilled with storage p99 impact **< 10 %**; **W3 p99 point lookup ≤ 200 µs**; a SQL change deployed with zero downtime and rolled back |
-| **E6** Gateways, clients, DX | 33–38 | gRPC + Arrow + credit flow control, Avatica, typed Java/Python/Go clients, full CLI, `PRV-nnnn` error catalogue, plugin TCK v2, docs-as-tests | Python client sustains **1 M rows/s**; DBeaver connects via Avatica; **W2 deploy ≤ 2 s**; every first-party plugin passes the TCK |
+| **E6** Gateways, clients, DX | 33–38 | gRPC + Arrow + credit flow control, Avatica, typed Java/Python/Go clients, **`pravaha-server` as a Spring Boot app (modes C/D)**, **`pravaha-spring-boot-starter` (mode B)**, full CLI, `PRV-nnnn` error catalogue, plugin TCK v2, docs-as-tests | Python client sustains **1 M rows/s**; DBeaver connects via Avatica; **W2 deploy ≤ 2 s**; every first-party plugin passes the TCK; server reaches ready in ≤ 2 s; starter green against Spring Boot 3.2, 3.3, 3.4 and 3.5 in the CI matrix |
 | **E7** Cluster & HA | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, savepoints, tenant quotas, elastic rescale | 3-node cluster survives rolling kills with zero data loss; rebalance pause **≤ 5 s**; **W7 10 GB restore ≤ 30 s** |
 | **E8** Control plane & self-tuning | 46–53 | Spring Boot + React UI, all screens, time-travel debugger, OIDC/RBAC/audit, observability, skew remediation, live replanning, tier promotion | Full lifecycle driven from the UI; **W10** a seeded production bug is found by replay and exported as a passing JUnit fixture |
 | **E9** Breadth, benchmarks, GA | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, 72 h soak, security review, TCO validation, migration tooling, GA docs | All NFR SLOs met; **W5** ≥ parity on 18/22 Nexmark queries and ≥ 2× on 8; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated; soak clean; SBOM + security sign-off |
@@ -695,6 +714,7 @@ If the schedule compresses, cut in this order — decided now, in the calm, rath
 | 3 | Migration tooling `import --from flink-sql` (E9) | ~1.5 sprints | Higher switching cost for adopters |
 | 4 | Cassandra + Redis plugins (E9) | ~3 sprints | Aerospike + Kafka + PostgreSQL + filesystem ship; others post-GA |
 | 5 | Read replicas (E5) | ~1 sprint | Read scaling limited to admission control |
+| 5b | All-in-one server+UI mode D (E6) | ~0.5 sprint | UI must be deployed separately; onboarding gets one step longer |
 | 6 | Time-travel debugger (E8) | ~3 sprints | **Lose W10.** Painful — this is a headline differentiator. Cut only under real pressure. |
 | 7 | Multi-tenancy quotas (E7) | ~2 sprints | Single-tenant deployments only at 1.0 |
 
@@ -711,8 +731,8 @@ If a team of **five** rather than six: the UI (E8) slips ~3 sprints and CI/CD ow
 ```xml
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>com.pravaha</groupId>
-  <artifactId>pravaha-parent</artifactId>
+  <groupId>com.ash.messaging</groupId>
+  <artifactId>pravaha</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
@@ -751,6 +771,9 @@ If a team of **five** rather than six: the UI (E8) slips ~3 sprints and CI/CD ow
     <module>pravaha-testkit</module>
     <module>pravaha-benchmarks</module>
     <module>pravaha-it</module>
+    <!-- added by the story that needs them:
+         pravaha-embedded (Sprint 5), pravaha-server + pravaha-spring-boot-starter (E6),
+         pravaha-serving/backfill/adaptive (E3–E5), plugins/* (E1, E4, E9), pravaha-ui (E8) -->
   </modules>
 
   <build>
@@ -818,7 +841,7 @@ If a team of **five** rather than six: the UI (E8) slips ~3 sprints and CI/CD ow
 ```xml
 <project>
   <parent>
-    <groupId>com.pravaha</groupId><artifactId>pravaha-parent</artifactId>
+    <groupId>com.ash.messaging</groupId><artifactId>pravaha</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
   <artifactId>pravaha-api</artifactId>
@@ -859,13 +882,13 @@ If a team of **five** rather than six: the UI (E8) slips ~3 sprints and CI/CD ow
 Copy into the tracker. Owner column filled at planning.
 
 - [ ] **P0-01a** Install Maven once, run `mvn -N wrapper:wrapper -Dmaven=3.9.9`, commit `mvnw`, `mvnw.cmd`, `.mvn/`
-- [ ] **P0-01b** Parent `pom.xml` with properties, `<modules>`, `pluginManagement` (Appendix A.1)
+- [ ] **P0-01b** Parent `pom.xml` — `com.ash.messaging:pravaha`, properties, `<modules>`, `pluginManagement` (Appendix A.1)
 - [ ] **P0-01c** `pravaha-bom` with `dependencyManagement` for all third-party versions
 - [ ] **P0-01d** 11 skeleton modules, each with a package-info and one placeholder test so the reactor is non-trivial
 - [ ] **P0-01e** `.gitignore`, `.gitattributes`, `.editorconfig`, IntelliJ code style
 - [ ] **P0-02a** Spotless + `palantir-java-format` + import order + license header
 - [ ] **P0-02b** Error Prone + NullAway on `api`, `common`, `runtime`
-- [ ] **P0-02c** `maven-enforcer` rules incl. `pravaha-api` zero-dependency rule
+- [ ] **P0-02c** `maven-enforcer` rules incl. `pravaha-api` zero-dependency rule and the banned-`org.springframework` rule for core modules
 - [ ] **P0-02d** JaCoCo with the 85 % gate on core modules
 - [ ] **P0-02e** `maven-toolchains-plugin` + `toolchains.xml` sample in `config/`
 - [ ] **P0-03a** `fast.yml` — compile + unit tests, ≤ 6 min
@@ -880,6 +903,6 @@ Copy into the tracker. Owner column filled at planning.
 - [ ] **P0-06a** `RowLayout`: null bitmap, fixed region, var-len pointers, alignment
 - [ ] **P0-06b** `BinaryRowView` / `BinaryRowWriter` over `MemoryAccess`
 - [ ] **P0-06c** jqwik round-trip property over generated schemas, all types
-- [ ] **P0-12** 18 ADR files under `docs/adr/`, one per design §32 row
+- [ ] **P0-12** 18 ADR files under `docs/adr/`, one per design §33 row
 
 **Sprint 1 exit:** a clean clone of `develop` runs `./mvnw clean verify` green on JDK 21 and 25, with no system Maven installed.

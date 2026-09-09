@@ -6,7 +6,8 @@
 |---|---|
 | Document | Pravaha System Design & Architecture |
 | Changes in 3.1 | Runtime baseline revised from Java 25 to Java 21 LTS (§4.5–4.8, ADR-001, R10) |
-| Version | 3.1 |
+| Changes in 3.2 | Deployment modes & Spring Boot integration (§22); Maven coordinates `com.ash.messaging:pravaha` |
+| Version | 3.2 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -39,17 +40,18 @@
 19. [Storage Plugin Deep Dive](#19-storage-plugin-deep-dive)
 20. [Gateways & Client Protocols](#20-gateways-client-protocols)
 21. [Clustering, HA & Elastic Scaling](#21-clustering-ha-elastic-scaling)
-22. [Spring Boot Control-Plane UI](#22-spring-boot-control-plane-ui)
-23. [Developer Experience](#23-developer-experience)
-24. [Security Architecture](#24-security-architecture)
-25. [Observability](#25-observability)
-26. [Configuration & Deployment](#26-configuration-deployment)
-27. [Testing & Benchmarking Strategy](#27-testing-benchmarking-strategy)
-28. [Performance Budget Analysis](#28-performance-budget-analysis)
-29. [Cost & TCO Model](#29-cost-tco-model)
-30. [Delivery Roadmap](#30-delivery-roadmap)
-31. [Risk Register](#31-risk-register)
-32. [Architecture Decision Records](#32-architecture-decision-records)
+22. [Deployment Modes & Spring Boot Integration](#22-deployment-modes-spring-boot-integration)
+23. [Spring Boot Control-Plane UI](#23-spring-boot-control-plane-ui)
+24. [Developer Experience](#24-developer-experience)
+25. [Security Architecture](#25-security-architecture)
+26. [Observability](#26-observability)
+27. [Configuration & Deployment](#27-configuration-deployment)
+28. [Testing & Benchmarking Strategy](#28-testing-benchmarking-strategy)
+29. [Performance Budget Analysis](#29-performance-budget-analysis)
+30. [Cost & TCO Model](#30-cost-tco-model)
+31. [Delivery Roadmap](#31-delivery-roadmap)
+32. [Risk Register](#32-risk-register)
+33. [Architecture Decision Records](#33-architecture-decision-records)
 - [Appendix A — Summary of Changes from SRS 1.0](#appendix-a-summary-of-changes-from-srs-10)
 - [Appendix B — Immediate Next Steps](#appendix-b-immediate-next-steps)
 
@@ -83,9 +85,9 @@ The 1.0 draft has the right *product vision* and the right *component inventory*
 
 ### What ships
 
-A Maven multi-module Java project producing: an embeddable engine library, a standalone clustered server (Docker/Helm), storage plugins loaded via isolated classloaders, a gRPC + Avatica gateway with an integrated serving API, Java/Python/Go client libraries typed from the catalog, a `pravaha` CLI whose `dev` mode boots a full engine in under a second, and a Spring Boot 3 + React control plane — with a time-travel debugger — that is strictly **out of the data path**.
+A Maven multi-module Java project producing: an embeddable engine library, a standalone clustered server (Docker/Helm), storage plugins loaded via isolated classloaders, a gRPC + Avatica gateway with an integrated serving API, Java/Python/Go client libraries typed from the catalog, a **Spring Boot starter** that drops the engine into a customer's existing Spring application, a `pravaha` CLI whose `dev` mode boots a full engine in under a second, and a Spring Boot 3 + React control plane — with a time-travel debugger — that is strictly **out of the data path**.
 
-Everything ships under Apache 2.0 (§29.4). The moat is architecture and execution quality, not a crippled open edition.
+Everything ships under Apache 2.0 (§30.4). The moat is architecture and execution quality, not a crippled open edition.
 
 ---
 
@@ -146,7 +148,7 @@ Every serious competitor holds at most two of these four properties. Pravaha is 
 
 **D-C · It serves what it computes.** A maintained result is a queryable, indexed materialized view living in lane-local state, answering point lookups in ~10–50 µs over gRPC/JDBC/REST with a choice of consistency modes — with no network hop to a separate serving database. Flink's answer to "now let me read the result" is "run another database." Ours is "it is already here." *(§17)*
 
-**D-D · It runs anywhere, including inside your process.** The same binary is an embedded library, a single node, or a 5-node HA cluster. `pravaha dev` starts a full engine with fixtures in under a second, no Docker. Query deploy is < 2 s, not 30–120 s. Iteration speed is a competitive weapon and it is the thing every Flink user complains about first. *(§23)*
+**D-D · It runs anywhere, including inside your process.** The same binary is an embedded library, a single node, or a 5-node HA cluster. `pravaha dev` starts a full engine with fixtures in under a second, no Docker. Query deploy is < 2 s, not 30–120 s. Iteration speed is a competitive weapon and it is the thing every Flink user complains about first. *(§24)*
 
 **D-E · Operable by people who are not stream-processing experts.** Adaptive batching, automatic skew remediation, elastic lane rescaling, live replanning, and a **time-travel debugger** that rewinds a running query to a retained checkpoint and steps it forward deterministically. The dominant reason streaming projects fail is operational, not functional. *(§16.4, §18)*
 
@@ -166,7 +168,7 @@ These are the claims the product must be able to prove on a customer's hardware.
 
 | # | Claim | Measured against | Target |
 |---|---|---|---|
-| W1 | Lower total cost for the same workload | Flink SQL on K8s, Profile B at 500 k ev/s | ≤ 40 % of the vCPU count (§29) |
+| W1 | Lower total cost for the same workload | Flink SQL on K8s, Profile B at 500 k ev/s | ≤ 40 % of the vCPU count (§30) |
 | W2 | Faster iteration | Flink job submit → first output | ≤ 2 s vs 30–120 s |
 | W3 | Serves its own results | Flink + external serving store | p99 point lookup ≤ 200 µs, zero extra infrastructure |
 | W4 | Less data moved | Flink connector read, Profile A | ≥ 5× fewer bytes ingested via pushdown |
@@ -177,7 +179,7 @@ These are the claims the product must be able to prove on a customer's hardware.
 | W9 | Native to the store | All | First engine with true Aerospike pushdown + XDR ingest + idempotent sink |
 | W10 | Debuggable | All | Time-travel debugger; no competitor ships one |
 
-W5 deserves emphasis: **Nexmark** is the streaming-SQL benchmark that Flink, RisingWave and Feldera all publish numbers for. Committing to run it, publish the results, and publish the harness is how a challenger earns technical credibility instead of asserting it. It is a Phase-8 release gate (§30).
+W5 deserves emphasis: **Nexmark** is the streaming-SQL benchmark that Flink, RisingWave and Feldera all publish numbers for. Committing to run it, publish the results, and publish the harness is how a challenger earns technical credibility instead of asserting it. It is a Phase-8 release gate (§31).
 
 ---
 
@@ -215,7 +217,7 @@ The draft assumes an "Aerospike CDC / Change Notifier" source. Aerospike's chang
 
 "Sub-millisecond latency" in the heading versus "must not add more than 2 ms per record" in the body. And "≥ 100 000 CDC events/second per core" specifies no percentile, no query shape, no payload size, no state cardinality.
 
-**Resolution:** a proper SLO table with p50/p99/p99.9 targets against three named benchmark profiles and a committed measurement harness (§5.2, §27.4, §28).
+**Resolution:** a proper SLO table with p50/p99/p99.9 targets against three named benchmark profiles and a committed measurement harness (§5.2, §28.4, §29).
 
 ### G6 — Single shared `BlockingQueue` is a scalability bottleneck *(High)*
 
@@ -255,7 +257,7 @@ The draft's YAML binds a single engine instance to a single query, a single sour
 
 ### G12 — Missing: security, schema evolution, DLQ, backpressure semantics, observability *(Medium)*
 
-Covered in §24, §11.4, §15.6, §13.5 and §25 respectively.
+Covered in §25, §11.4, §15.6, §13.5 and §26 respectively.
 
 ### What the draft got right and this design keeps
 
@@ -355,8 +357,8 @@ The contradiction: §2's moat depends on Pravaha being **embeddable** (D-D). An 
 | Structured concurrency | **Still preview in 25** | Cannot use it on any version. No loss. |
 | Scoped values | Preview in 21, final in 25 | `ThreadLocal` is adequate for our context propagation. Minor. |
 | Class-File API | Final in 24 | Irrelevant — we generate Java *source* and compile with Janino (§12.4), not bytecode. |
-| Compact object headers | Product in 25 | Saves 4–8 B/object. Our hot path allocates almost nothing (§28), so the benefit lands mostly on the control plane. Nice, not needed. |
-| AOT class loading & linking | 24/25 | Would help `pravaha dev` startup (§23.1) and embedded cold start. A genuine benefit, and the main reason to *offer* a 25 profile — but it is a nice-to-have against a < 1 s target we can hit without it. |
+| Compact object headers | Product in 25 | Saves 4–8 B/object. Our hot path allocates almost nothing (§29), so the benefit lands mostly on the control plane. Nice, not needed. |
+| AOT class loading & linking | 24/25 | Would help `pravaha dev` startup (§24.1) and embedded cold start. A genuine benefit, and the main reason to *offer* a 25 profile — but it is a nice-to-have against a < 1 s target we can hit without it. |
 
 There is also a point that cuts the other way. `sun.misc.Unsafe`'s memory-access methods are **deprecated for removal in 23** and **warn on use from 24**. On Java 21 Agrona is warning-free; on 25 it is not. So the two candidate baselines each carry one future-facing liability — 21 depends on an API being retired, 25 depends on an API most enterprises cannot yet run. The `MemoryAccess` abstraction resolves both: one interface, two implementations, selected at runtime.
 
@@ -427,7 +429,7 @@ The binding constraint on the *engine* is our own use of virtual threads and pat
 
 ### 5.2 Non-functional requirements — measurable SLOs
 
-The draft's NFRs are replaced with a falsifiable SLO table tied to three benchmark profiles (defined in §27.4). "Engine latency" = ingest-queue enqueue → sink-dispatch enqueue, excluding all network and store I/O, measured with HdrHistogram on a coordinated-omission-corrected harness.
+The draft's NFRs are replaced with a falsifiable SLO table tied to three benchmark profiles (defined in §28.4). "Engine latency" = ingest-queue enqueue → sink-dispatch enqueue, excluding all network and store I/O, measured with HdrHistogram on a coordinated-omission-corrected harness.
 
 | ID | Metric | Profile A<br/>*filter + project* | Profile B<br/>*10 s tumbling agg,<br/>100 k keys* | Profile C<br/>*temporal join +<br/>session window* |
 |---|---|---|---|---|
@@ -555,6 +557,25 @@ Everything expensive happens **once, at query registration**; the steady state d
 
 Single reactor, `pom` packaging at root, Java 21 (`pravaha-api` at 17). Dependency direction is strictly downward; ArchUnit enforces it.
 
+**Maven coordinates.**
+
+| | |
+|---|---|
+| `groupId` | `com.ash.messaging` (every module) |
+| Root aggregator `artifactId` | `pravaha` — packaging `pom` |
+| Module `artifactId`s | `pravaha-api`, `pravaha-runtime`, `pravaha-plugin-aerospike`, … |
+| Base Java package | `com.ash.messaging.pravaha` — mirrors the coordinates, so `pravaha-api` is `com.ash.messaging.pravaha.api`, the runtime is `…pravaha.runtime`, and so on |
+| Version line | `0.1.0-SNAPSHOT` → `1.0.0` at GA (§4.3 of the implementation plan) |
+
+```xml
+<groupId>com.ash.messaging</groupId>
+<artifactId>pravaha</artifactId>
+<version>0.1.0-SNAPSHOT</version>
+<packaging>pom</packaging>
+```
+
+The package root is load-bearing in two places and must not drift from it: `PluginClassLoader`'s parent-first list is keyed on `com.ash.messaging.pravaha.api.` (§10.3), and the ArchUnit module-dependency and no-Spring rules are keyed on the same prefix (§22.1).
+
 ```
 pravaha/                                    (pom — parent, pluginManagement, profiles)
 ├── pravaha-bom/                            (pom — dependencyManagement for consumers)
@@ -590,11 +611,12 @@ pravaha/                                    (pom — parent, pluginManagement, p
 ├── pravaha-cluster/                        ← membership, Raft metadata, assignment, rebalance, failover
 ├── pravaha-security/                       ← authn/z, RBAC, TLS, secrets, audit
 │
-├── pravaha-embedded/                       ← in-process facade (library mode)
-├── pravaha-server/                         ← standalone node bootstrap (fat jar)
-├── pravaha-cli/                            ← `pravaha dev|validate|explain|bench|replay|test`  (§23.2)
+├── pravaha-embedded/                       ← plain-Java in-process facade, NO Spring  (mode A, §22.2)
+├── pravaha-spring-boot-starter/            ← auto-config, @PravahaListener, actuator  (mode B, §22.4)
+├── pravaha-server/                         ← Spring Boot engine node, optional embedded UI  (modes C/D, §22.3)
+├── pravaha-cli/                            ← `pravaha dev|validate|explain|bench|replay|test`  (§24.2)
 ├── pravaha-debug/                          ← time-travel replay engine, fixture export  (§16.4)
-├── pravaha-ui/                             ← Spring Boot 3 + React SPA (control plane only)
+├── pravaha-ui/                             ← Spring Boot 3 + React SPA (standalone, or embedded in the server)
 │
 ├── clients/
 │   ├── pravaha-client-java/
@@ -602,7 +624,7 @@ pravaha/                                    (pom — parent, pluginManagement, p
 │   └── pravaha-client-go/
 │
 ├── pravaha-testkit/                        ← deterministic harness, virtual clock, JUnit ext, plugin TCK
-├── pravaha-benchmarks/                     ← JMH micro + Profiles A–E + Nexmark q0–q22  (§27.4)
+├── pravaha-benchmarks/                     ← JMH micro + Profiles A–E + Nexmark q0–q22  (§28.4)
 ├── pravaha-it/                             ← Testcontainers integration suites
 └── pravaha-dist/                           ← assembly, Jib images, Helm chart, sample configs
 ```
@@ -707,7 +729,7 @@ The header carries `rowKind` (§15.5), `schemaId`, event timestamp and a per-par
 ### 8.4 Flyweight accessor
 
 ```java
-package com.pravaha.api.data;
+package com.ash.messaging.pravaha.api.data;
 
 /** Zero-copy, mutable-cursor view over one row in an arena. Not thread-safe by design:
  *  each lane owns its cursors. Field access is an ordinal, resolved at codegen time. */
@@ -894,7 +916,7 @@ Unbounded integration is how incremental engines die in production. Every integr
 | §14 State | Integrated state is exactly what the tiers hold; L0 holds hot accumulators |
 | §15 Changelog | `RowKind` is derived at the sink from weight sign + emit mode |
 | §17 Serving | A served view is the integral `I(Δ)` — already materialised, already indexed |
-| §27 Testing | The algebra is property-testable: `Q(S+ΔS) == Q(S) + Q^Δ(ΔS,S)` for generated `Q`, `S`, `ΔS` — a machine-checkable correctness oracle over the whole operator set |
+| §28 Testing | The algebra is property-testable: `Q(S+ΔS) == Q(S) + Q^Δ(ΔS,S)` for generated `Q`, `S`, `ΔS` — a machine-checkable correctness oracle over the whole operator set |
 
 That last row matters more than it looks. Retract-stream engines have no such oracle; their correctness rests on per-operator test cases. Pravaha can assert its central correctness property over *randomly generated queries and randomly generated changes*, continuously, in CI.
 
@@ -906,7 +928,7 @@ DBSP is a young technique with one significant production implementation (Felder
 - **Escape hatch.** The operator interface does not expose Z-sets to plugin authors; a conventional non-incremental operator can be dropped in for any construct where the incremental form proves impractical, at the cost of that operator's efficiency but not the query's correctness.
 - **Grounding.** The algebra is well-specified in published literature and the property-based oracle (§9.7) means we find out immediately when an implementation diverges from it.
 
-Tracked as **R13** (§31).
+Tracked as **R13** (§32).
 
 ---
 
@@ -917,13 +939,13 @@ Tracked as **R13** (§31).
 1. **Capability negotiation over assumption.** A plugin declares what it can do (replayable offsets, predicate pushdown, transactional writes, idempotent upsert); the planner adapts and refuses plans the plugin cannot honour.
 2. **Lifecycle is explicit.** `configure → validate → open → start → checkpoint/restore → stop → close`, with idempotent stop/close.
 3. **Backpressure is the plugin's contract too.** Sources are told to pause; they must honour it.
-4. **Isolation.** One classloader per plugin, parent-last, `com.pravaha.api.*` from parent only.
+4. **Isolation.** One classloader per plugin, parent-last, `com.ash.messaging.pravaha.api.*` from parent only.
 5. **No blocking in callbacks.** Engine-invoked callbacks must not block; plugins own their own I/O threads (virtual threads are the default).
 
 ### 10.2 Base contracts
 
 ```java
-package com.pravaha.api.plugin;
+package com.ash.messaging.pravaha.api.plugin;
 
 public interface PravahaPlugin extends AutoCloseable {
     /** Stable identifier used in configuration, e.g. "aerospike". */
@@ -938,7 +960,7 @@ public interface PravahaPlugin extends AutoCloseable {
 ```
 
 ```java
-package com.pravaha.api.plugin;
+package com.ash.messaging.pravaha.api.plugin;
 
 public interface StreamSourcePlugin extends PravahaPlugin {
 
@@ -997,7 +1019,7 @@ public record SourceCapabilities(
 If a source reports `replayableOffsets = false`, the engine registers the query with a downgraded guarantee and says so, loudly, in the API response and the UI — rather than silently claiming exactly-once.
 
 ```java
-package com.pravaha.api.plugin;
+package com.ash.messaging.pravaha.api.plugin;
 
 public interface StreamSinkPlugin extends PravahaPlugin {
 
@@ -1037,12 +1059,12 @@ public interface StateBackendPlugin extends PravahaPlugin {
 
 ### 10.3 Discovery, loading and isolation
 
-Plugins are jars in `$PRAVAHA_HOME/plugins/<name>/` containing a `META-INF/services/com.pravaha.api.plugin.PravahaPlugin` entry plus a `pravaha-plugin.yaml` manifest (name, version, required API range, config schema for UI form generation).
+Plugins are jars in `$PRAVAHA_HOME/plugins/<name>/` containing a `META-INF/services/com.ash.messaging.pravaha.api.plugin.PravahaPlugin` entry plus a `pravaha-plugin.yaml` manifest (name, version, required API range, config schema for UI form generation).
 
 ```java
 final class PluginClassLoader extends URLClassLoader {
     private static final List<String> PARENT_FIRST = List.of(
-        "com.pravaha.api.", "java.", "javax.", "jdk.", "org.slf4j.");
+        "com.ash.messaging.pravaha.api.", "java.", "javax.", "jdk.", "org.slf4j.");
 
     @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
         synchronized (getClassLoadingLock(name)) {
@@ -1298,7 +1320,7 @@ PhysicalPlan
 
 - **Interpreted fallback.** Every operator has a correct, slow, interpreted implementation. If generation or compilation fails, or the generated class exceeds JIT limits (the JVM refuses to compile methods > 8 kB of bytecode — `-XX:-DontCompileHugeMethods` is not an acceptable answer), the stage falls back and logs at WARN. Correctness never depends on codegen succeeding.
 - **Method splitting.** The generator splits long stages at ~4 kB of bytecode.
-- **Differential testing.** CI runs every query in the test corpus through both paths and asserts identical output, including row kinds and ordering (§27.3).
+- **Differential testing.** CI runs every query in the test corpus through both paths and asserts identical output, including row kinds and ordering (§28.3).
 - **Source retention.** Generated source is retained on disk under a debug flag and is downloadable from the UI — indispensable when diagnosing a production plan.
 - **Class-unloading discipline.** Per-query classloaders, and a leak test that registers/drops 10 000 queries and asserts metaspace returns to baseline.
 
@@ -1538,7 +1560,7 @@ client.put(p, key, bins);
 
 ### 14.5 Recovery
 
-On node start or failover: read latest committed checkpoint metadata from Raft → download state handles for assigned partitions (parallel, with local SST reuse when the same node restarts) → restore L0 arenas and RocksDB CFs → reset readers to checkpointed offsets → resume. Target: ≤ 30 s for ≤ 10 GB (NFR-3), verified by a chaos test (§27.5).
+On node start or failover: read latest committed checkpoint metadata from Raft → download state handles for assigned partitions (parallel, with local SST reuse when the same node restarts) → restore L0 arenas and RocksDB CFs → reset readers to checkpointed offsets → resume. Target: ≤ 30 s for ≤ 10 GB (NFR-3), verified by a chaos test (§28.5).
 
 ---
 
@@ -1682,7 +1704,7 @@ Applies equally to: SQL changes, parallelism changes, plan changes from replanni
 
 Nothing in the commercial field ships this, and it is the feature engineers will demo to each other.
 
-Because (a) sources are replayable, (b) state is checkpointed at a known logical time, and (c) execution is deterministic given the same input and watermark sequence (§27.3 invariant 1), a running query can be **rewound and replayed under inspection**:
+Because (a) sources are replayable, (b) state is checkpointed at a known logical time, and (c) execution is deterministic given the same input and watermark sequence (§28.3 invariant 1), a running query can be **rewound and replayed under inspection**:
 
 ```
 Operator observes wrong output at 14:32:07.
@@ -1798,7 +1820,7 @@ Read traffic is served by the lanes that own the data, which means read load lan
 
 ## 18. Adaptive & Self-Tuning Runtime
 
-Differentiator **D-E**. Streaming systems do not usually fail because they are slow; they fail because tuning them requires an expert who has left the company. Every knob in §26 has a default, and the important ones have a control loop.
+Differentiator **D-E**. Streaming systems do not usually fail because they are slow; they fail because tuning them requires an expert who has left the company. Every knob in §27 has a default, and the important ones have a control loop.
 
 ### 18.1 Principles for anything that tunes itself
 
@@ -1825,7 +1847,7 @@ The effect that matters: a query at 10 rec/s and the same query at 1 M rec/s bot
 
 ### 18.3 Automatic skew remediation
 
-A single hot key serialises onto one lane, and skew is the norm rather than the exception in real data (Zipf, not uniform — which is why Profile B is specified that way in §27.4).
+A single hot key serialises onto one lane, and skew is the norm rather than the exception in real data (Zipf, not uniform — which is why Profile B is specified that way in §28.4).
 
 ```
 Detect     per-lane rate histogram + per-key top-K sketch (Space-Saving, bounded memory)
@@ -2051,20 +2073,265 @@ Per-tenant quotas on: lane-count share, total state bytes, sink egress rate, reg
 
 | Topology | Nodes | Use |
 |---|---|---|
-| Embedded | in-process library | Single-app enrichment; no cluster |
+| Embedded (plain or Spring starter) | in-process library | Single-app enrichment; no cluster. Modes A and B of §22.2 |
 | Single node | 1 | Dev, small workloads |
 | HA cluster | 3, 5 | Production; Raft quorum |
 | Multi-region | 3 per region, independent | Regional queries over regional stores; XDR handles replication |
 
 ---
 
-## 22. Spring Boot Control-Plane UI
+## 22. Deployment Modes & Spring Boot Integration
 
-### 22.1 Architectural rule
+Pravaha runs in four modes from one engine core. Three of them involve Spring Boot, and each involves it differently — which is the part that needs to be specified precisely, because getting the Spring boundary wrong is how an embeddable engine stops being embeddable.
+
+### 22.1 The layering rule
+
+> **The engine core contains no Spring. Spring is a bootstrap layer that wraps it, never a layer inside it.**
+
+This is not stylistic. Three concrete consequences depend on it:
+
+1. **Embeddability (D-D).** A customer embedding Pravaha into *their* Spring Boot 3.2 application cannot have us drag in Spring Boot 3.5. Two Spring contexts and two Spring versions on one classpath is a support nightmare, and it would silently destroy the moat in §2.2.
+2. **Startup time.** A Spring context costs 1–3 s to initialise. `pravaha dev` targets **< 1 s** cold start (§24.1) and embedded mode must not tax its host's boot. Both take the Spring-free path.
+3. **Hot path integrity.** Spring's proxies, AOP interception and managed executors must never come near a lane thread. Lane threads are created by the engine's own pinning thread factory, and nothing on the per-record path is a Spring bean.
+
+Enforced, not merely intended: `maven-enforcer` bans `org.springframework:*` from every core module, and an ArchUnit rule fails the build if any class under `com.ash.messaging.pravaha.{api,common,algebra,runtime,state,sql,codegen,connect}` imports `org.springframework`. Same mechanism as the storage-client rule (NFR-4).
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  BOOTSTRAP LAYER  (Spring lives here, and only here)             │
+│                                                                  │
+│   pravaha-server            pravaha-spring-boot-starter          │
+│   (Spring Boot app)         (auto-config into the HOST's app)    │
+│   pravaha-ui                pravaha-cli / plain embedded         │
+│   (Spring Boot app)         (no Spring at all)                   │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │  PravahaEngine — plain Java lifecycle
+                                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  ENGINE CORE  — zero Spring, zero reflection on the hot path     │
+│  api · common · algebra · sql · codegen · runtime · state ·      │
+│  serving · backfill · adaptive · connect · cluster · gateways    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+The seam is a small plain-Java interface. Everything above it is replaceable; nothing below it knows what is above.
+
+```java
+// com.ash.messaging.pravaha.api — the entire contract a bootstrap needs
+public interface PravahaEngine extends AutoCloseable {
+    static PravahaEngine create(PravahaConfig config) { … }
+
+    void start();
+    void stop(Duration graceTimeout);
+    EngineState state();
+
+    QueryHandle register(String sql, QueryOptions options);
+    Optional<QueryHandle> query(String queryId);
+    Collection<QueryHandle> queries();
+
+    ViewReader view(String viewName);          // §17 serving
+    Catalog catalog();
+    PluginRegistry plugins();
+    MeterRegistry meters();                    // Micrometer — a plain, non-Spring dependency
+    HealthReport health();
+}
+```
+
+### 22.2 The four modes
+
+| Mode | Artifact | Spring | Process | Use |
+|---|---|---|---|---|
+| **A — Plain embedded** | `pravaha-embedded` | **none** | Host application's | Any Java app; lowest footprint; `pravaha dev`; unit tests |
+| **B — Spring-embedded** | `pravaha-spring-boot-starter` | Auto-config into the **host's** context | Host application's | A customer's own Spring Boot service embedding Pravaha |
+| **C — Server** | `pravaha-server` | **Yes — it is a Spring Boot application** | Dedicated | The standard production deployment: single node or HA cluster |
+| **D — Server + UI (all-in-one)** | `pravaha-server` with `pravaha.ui.enabled=true` | Yes | Dedicated, one process | Dev, POCs, and small production deployments — one jar, one port |
+
+Mode C with the UI split out into a separate `pravaha-ui` deployment remains the recommendation at scale (§23.4); mode D exists so that "download one jar, run it, open a browser" is a real onboarding path. Both are supported and CI-tested.
+
+**All four run the same engine code.** §24.6's deployment-parity claim depends on this: what differs between a unit test, `pravaha dev`, a customer's embedded service and a 5-node cluster is configuration and bootstrap, never the engine.
+
+### 22.3 Mode C — `pravaha-server` as a Spring Boot application
+
+The engine node *is* a Spring Boot 3.5 application. This is a deliberate reversal of the v3.1 draft, which described it as a plain fat jar, and the reason is the same one that decided the Java 21 baseline (§4.5): enterprise Java operations are built around Spring Boot's conventions, and inheriting them free is worth more than the 2 s of startup it costs a long-running server.
+
+What Spring Boot provides in the server that we would otherwise hand-build:
+
+| Capability | Spring Boot gives us |
+|---|---|
+| Externalised config | `application.yml`, profiles, env/`SPRING_APPLICATION_JSON`/command-line precedence, `@ConfigurationProperties` binding with validation |
+| Health & readiness | Actuator `/actuator/health` with **separate liveness and readiness groups** (§26.2 requires this distinction) |
+| Metrics | Micrometer auto-configuration → Prometheus scrape endpoint, JVM/system meters for free |
+| Security | Spring Security + OIDC resource server for the REST and gRPC gateways (§25) |
+| API docs | springdoc-openapi generating the OpenAPI spec from the controllers |
+| Graceful shutdown | `SmartLifecycle` ordering, `server.shutdown=graceful`, drain-then-stop semantics |
+| Virtual threads | `spring.threads.virtual.enabled=true` (Boot 3.2+) — exactly the control-plane model in §13.2 |
+| Packaging | Layered jars, Buildpacks/Jib images, `spring-boot:build-image` |
+
+```java
+@SpringBootApplication
+@EnableConfigurationProperties(PravahaProperties.class)
+public class PravahaServerApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(PravahaServerApplication.class, args);
+    }
+}
+
+@Configuration(proxyBeanMethods = false)
+class PravahaEngineConfiguration {
+
+    /** The engine is one bean. Spring owns its lifecycle and nothing else about it. */
+    @Bean(destroyMethod = "")   // we manage shutdown explicitly via SmartLifecycle below
+    PravahaEngine pravahaEngine(PravahaProperties props, ObjectProvider<PravahaCustomizer> customizers) {
+        var builder = PravahaConfig.builder().from(props.toEngineConfig());
+        customizers.orderedStream().forEach(c -> c.customize(builder));
+        return PravahaEngine.create(builder.build());
+    }
+
+    /** Start after the web layer is ready to serve health; stop before it goes away. */
+    @Bean
+    SmartLifecycle pravahaLifecycle(PravahaEngine engine, PravahaProperties props) {
+        return new SmartLifecycle() {
+            @Override public int getPhase() { return Integer.MAX_VALUE - 1000; }
+            @Override public void start() { engine.start(); }
+            @Override public void stop()  { engine.stop(props.getShutdown().getGraceTimeout()); }
+            @Override public boolean isRunning() { return engine.state() == EngineState.RUNNING; }
+        };
+    }
+
+    @Bean MeterBinder pravahaMeters(PravahaEngine e) { return r -> e.meters().forEachMeter(r::register); }
+    @Bean HealthIndicator pravahaHealth(PravahaEngine e) { return () -> toSpringHealth(e.health()); }
+    @Bean HealthIndicator pravahaCheckpointHealth(PravahaEngine e) { … }   // readiness group
+}
+```
+
+Note `@Configuration(proxyBeanMethods = false)` and `@Bean(destroyMethod = "")` — small details that matter. We do not want CGLIB proxies around engine wiring, and we want shutdown ordered explicitly through `SmartLifecycle` rather than by Spring's bean-destruction order, because lanes must drain before the gateways stop accepting.
+
+**Startup budget.** Spring context ~1.5 s + engine init ~0.5 s ≈ **2 s to ready** for a server with no queries to restore. Restoring checkpointed state dominates after that (§14.5). Acceptable for a long-running node; the reason modes A and B exist is that it is *not* acceptable everywhere.
+
+### 22.4 Mode B — `pravaha-spring-boot-starter`
+
+This is the mode the question implies but that most engines never build properly, and it is worth real effort: it lets a customer add continuous SQL to a service they already have, in the framework they already use, without running a cluster.
+
+```xml
+<dependency>
+  <groupId>com.ash.messaging</groupId>
+  <artifactId>pravaha-spring-boot-starter</artifactId>
+  <version>${pravaha.version}</version>
+</dependency>
+```
+
+```yaml
+# the host application's own application.yml
+pravaha:
+  mode: embedded
+  runtime:
+    lanes: 4
+    wait-strategy: BACKOFF_PARK        # a co-resident engine should not busy-spin
+  state:
+    default-tier: HEAP
+    offheap:
+      max-per-lane: 256MB
+  sources:
+    orders:
+      connector: kafka
+      topic: orders
+  queries:
+    - name: high-value-orders
+      sql: |
+        SELECT STREAM order_id, customer_id, amount
+        FROM orders WHERE amount > 10000
+```
+
+```java
+@Service
+class FraudService {
+
+    // Spring-idiomatic facade, in the shape of JdbcTemplate / KafkaTemplate
+    private final PravahaTemplate pravaha;
+
+    FraudService(PravahaTemplate pravaha) { this.pravaha = pravaha; }
+
+    /** Consume a continuous query's output the way you'd consume a Kafka topic. */
+    @PravahaListener(query = "high-value-orders", concurrency = 4)
+    void onHighValueOrder(HighValueOrder order) {          // typed from the query's schema
+        riskEngine.evaluate(order);
+    }
+
+    /** Read a served materialized view (§17) — a point lookup in microseconds. */
+    public BigDecimal volumeFor(String customerId) {
+        return pravaha.view("customer_volume")
+                      .consistency(Consistency.CONSISTENT)
+                      .get(customerId)
+                      .map(r -> r.getDecimal("total_volume"))
+                      .orElse(BigDecimal.ZERO);
+    }
+}
+```
+
+`@PravahaListener` is deliberately modelled on `@KafkaListener` — same mental model, same concurrency semantics, same error-handling hooks (`@PravahaListener(errorHandler = …)`, DLQ routing per §15.6). Records are deserialised into the listener's parameter type using the query's catalog schema, so the method signature is the contract.
+
+The starter contributes:
+
+| | |
+|---|---|
+| `PravahaAutoConfiguration` | `@ConditionalOnMissingBean` throughout, so any bean the host defines wins |
+| `PravahaProperties` | `@ConfigurationProperties("pravaha")` with JSR-303 validation and IDE completion via `spring-configuration-metadata.json` |
+| `PravahaTemplate` | Register/query/subscribe/read-view facade |
+| `@PravahaListener` + `PravahaListenerAnnotationBeanPostProcessor` | Declarative consumption |
+| `@PravahaTest` | A test slice booting an in-memory engine with fixtures — no Docker, no cluster |
+| Actuator | `pravaha` health indicator, `/actuator/pravaha` endpoint listing queries and lag, Micrometer meters bound automatically |
+| `PravahaCustomizer` | Programmatic escape hatch for anything the properties don't cover |
+
+**Dependency hygiene is the whole game here.** The starter declares Spring Boot as `provided`/`optional` scope and supports a *range* of Boot versions (3.2–3.5 at launch, tested in the CI matrix). The host's Spring version always wins. The starter itself adds only `pravaha-embedded` and its transitive engine dependencies, which contain no Spring.
+
+### 22.5 Configuration across modes — one model, three binding paths
+
+The engine consumes exactly one immutable `PravahaConfig`. How it gets built differs:
+
+| Mode | Binding path |
+|---|---|
+| A — plain embedded | `PravahaConfig.builder()…build()` programmatically, or `PravahaConfig.fromYaml(path)` |
+| B — Spring-embedded | Spring binds `pravaha.*` → `PravahaProperties` → `PravahaConfig`; host's property sources and profiles apply |
+| C / D — server | Same as B, plus `application.yml`, env vars, command line, and runtime changes persisted to the Raft catalog (§27.1) |
+
+The §27.1 precedence chain (defaults → file → environment → runtime API) is unchanged; Spring simply supplies a far richer implementation of the middle two layers in modes B, C and D. `PravahaProperties` is a mechanical mirror of `PravahaConfig` — kept in sync by a test that reflects over both and fails on any field present in one and absent from the other.
+
+### 22.6 What Spring must never touch
+
+| Rule | Enforcement |
+|---|---|
+| No `org.springframework` import in any core module | ArchUnit + `maven-enforcer` banned dependencies |
+| Lane threads are created by the engine's thread factory, never a Spring `TaskExecutor` | Code review + a test asserting lane thread names and their creating factory |
+| No Spring bean, proxy or `ApplicationContext` reachable from a per-record code path | ArchUnit: no class annotated `@HotPath` may reference a Spring type |
+| No `@Transactional`, no AOP, no `ApplicationEvent` on the data path | Same rule |
+| Engine shutdown is ordered explicitly, not by bean-destruction order | `SmartLifecycle` with an explicit phase; an IT asserts lanes drain before gateways close |
+| The starter never forces its own Spring Boot version on the host | `provided` scope + a multi-version CI matrix (Boot 3.2 … 3.5) |
+
+### 22.7 GraalVM native image — explicitly not supported
+
+Spring Boot 3's AOT/native support is attractive for startup time, and it is worth stating plainly that **Pravaha cannot ship as a GraalVM native image**, so that nobody spends a sprint discovering it:
+
+The engine compiles Java source with Janino at query-registration time (§12.4). Runtime code generation is fundamentally incompatible with a closed-world native image. This is not an oversight to be worked around — it is the direct cost of the design decision that makes the hot path fast (ADR-005).
+
+`pravaha-ui` and the thin clients have no such constraint and *may* be built native if a deployment wants it. The engine cannot. Modes A and B already give sub-second startup where startup matters, which removes most of the motivation.
+
+### 22.8 Module additions
+
+| Module | Contents |
+|---|---|
+| `pravaha-spring-boot-starter` | Auto-configuration, `PravahaProperties`, `PravahaTemplate`, `@PravahaListener`, actuator contributions, `@PravahaTest` |
+| `pravaha-server` | *(revised)* Spring Boot application: engine + gateways + actuator + optional embedded UI |
+| `pravaha-embedded` | *(unchanged)* plain-Java facade, no Spring — what modes A and B both build on |
+
+---
+
+## 23. Spring Boot Control-Plane UI
+
+### 23.1 Architectural rule
 
 **The UI is never in the data path.** It consumes a conflating tap and a metrics stream. A UI outage, a slow browser, or fifty analysts opening live previews must have zero effect on query throughput. This is the single most important constraint on this module and it is enforced by the tap's drop-oldest semantics (§13.3).
 
-### 22.2 Stack
+### 23.2 Stack
 
 | Layer | Choice |
 |---|---|
@@ -2077,7 +2344,7 @@ Per-tenant quotas on: lane-count share, total state bytes, sink egress rate, reg
 | Tables | TanStack Table + virtualisation for large result previews |
 | Build | `frontend-maven-plugin` → pnpm build → static resources inside the Spring Boot jar; single artefact to deploy |
 
-### 22.3 Screens
+### 23.3 Screens
 
 | Screen | Contents |
 |---|---|
@@ -2092,7 +2359,7 @@ Per-tenant quotas on: lane-count share, total state bytes, sink egress rate, reg
 | **Cluster** | Nodes, lane assignment map, vpartition distribution, rebalance history, manual drain |
 | **Security & Audit** | Users, roles, grants; full audit log with filters |
 
-### 22.4 Backend design notes
+### 23.4 Backend design notes
 
 ```java
 @RestController
@@ -2110,18 +2377,18 @@ class QueryController {
 }
 ```
 
-- The UI backend talks to engine nodes over the **internal gRPC control API** — it is a client, not a co-resident component, so it can be scaled and restarted independently (and run as a separate deployment entirely).
+- The UI backend talks to engine nodes over the **internal gRPC control API** — it is a client of the engine, never a co-resident part of it. In mode D (§22.2) it runs in the same JVM as an engine node for convenience, but still talks to that node over the same control API, so the two are never coupled and the UI can be scaled, restarted or split into its own deployment without changing anything.
 - Live-result WebSocket sessions are capped per user and per query, with a server-side sampling rate that adapts to subscriber count. Ten viewers on one query cost one tap, not ten.
 - All metrics are aggregated server-side at a fixed 1 Hz. The UI never pulls raw per-record data.
 - Long-running actions (rebalance, savepoint, restore) are async jobs with progress over SSE, not blocking HTTP calls.
 
 ---
 
-## 23. Developer Experience
+## 24. Developer Experience
 
 Differentiator **D-D**. Streaming engines are chosen by the engineer who has to use one on a Tuesday afternoon. Flink's most-cited weakness is not its performance — it is that the loop from "I have an idea" to "I see output" takes minutes and a cluster. Compressing that loop to seconds is a competitive advantage, and it has to be designed in rather than bolted on.
 
-### 23.1 The inner loop
+### 24.1 The inner loop
 
 | Step | Flink SQL (typical) | Pravaha (target) |
 |---|---|---|
@@ -2130,10 +2397,10 @@ Differentiator **D-D**. Streaming engines are chosen by the engineer who has to 
 | See the plan | `EXPLAIN`, textual | **< 200 ms**, plan DAG + cost + generated source |
 | First output | 30–120 s job submit | **< 2 s** deploy |
 | Change one line | Full restart, state lost | Blue/green update, state preserved (§16.3) |
-| Write a unit test | Mini-cluster, `Thread.sleep`, flaky | Virtual clock, deterministic, no sleep (§23.3) |
+| Write a unit test | Mini-cluster, `Thread.sleep`, flaky | Virtual clock, deterministic, no sleep (§24.3) |
 | Debug wrong output | Logs, guesswork | Time-travel debugger (§16.4) |
 
-### 23.2 The CLI
+### 24.2 The CLI
 
 ```bash
 pravaha dev                          # in-process engine + fixture sources, hot reload on file save
@@ -2147,7 +2414,7 @@ pravaha test --record incident-4471  # export a production incident as a JUnit f
 
 `pravaha dev` is the load-bearing one. It reads a fixture file, runs the real engine — same code path, same planner, same codegen — and prints results to the terminal with a live plan view. No Docker, no Kafka, no cluster, no YAML ceremony. A developer can try an idea in the time it takes to think of the next one.
 
-### 23.3 Testing a query is testing a function
+### 24.3 Testing a query is testing a function
 
 ```java
 @ExtendWith(PravahaExtension.class)
@@ -2175,7 +2442,7 @@ class UserVolumeQueryTest {
 
 Deterministic, sub-second, no infrastructure, and it exercises the real planner and the real generated code. Streaming logic becomes ordinary testable code — which is the actual precondition for anyone putting it in a critical path.
 
-### 23.4 Error messages as a feature
+### 24.4 Error messages as a feature
 
 Most planner rejections in streaming SQL are cryptic. Every Pravaha diagnostic names the construct, the reason, the location, and a concrete fix:
 
@@ -2199,7 +2466,7 @@ PRV-2041  Query produces updates but sink 'alerts_http' is append-only.
 
 Every error code is stable, documented, and has a page with a runnable reproduction. This is boring work with a disproportionate effect on adoption.
 
-### 23.5 Catalog-typed clients
+### 24.5 Catalog-typed clients
 
 Clients are generated from the query's actual output schema, so consumers get real types instead of `Object[]` and `row[2]`:
 
@@ -2218,7 +2485,7 @@ for (UserVolumeRow row : query.subscribe()) {
 }
 ```
 
-### 23.6 Parity and documentation
+### 24.6 Parity and documentation
 
 - **Deployment parity.** Embedded, single-node and HA run the *same engine binary and same code paths*. What works locally works in production — the difference is configuration, not implementation.
 - **Docs-as-tests.** Every code block and every SQL snippet in the documentation is extracted and executed in CI. Documentation cannot rot silently.
@@ -2227,7 +2494,7 @@ for (UserVolumeRow row : query.subscribe()) {
 
 ---
 
-## 24. Security Architecture
+## 25. Security Architecture
 
 | Concern | Design |
 |---|---|
@@ -2245,9 +2512,9 @@ for (UserVolumeRow row : query.subscribe()) {
 
 ---
 
-## 25. Observability
+## 26. Observability
 
-### 25.1 Metrics (Micrometer → Prometheus)
+### 26.1 Metrics (Micrometer → Prometheus)
 
 | Group | Metrics |
 |---|---|
@@ -2263,7 +2530,7 @@ for (UserVolumeRow row : query.subscribe()) {
 
 **Percentiles, never averages.** Every latency metric is an HdrHistogram with coordinated-omission correction. An average latency in a streaming system tells you essentially nothing.
 
-### 25.2 Tracing, logging, profiling
+### 26.2 Tracing, logging, profiling
 
 - **Tracing (OpenTelemetry):** control plane only — registration, planning, checkpoint coordination, rebalance. Per-record tracing is deliberately absent; it would cost more than the processing. Instead, an **opt-in sampled record trace** (1 in N) attaches a trace context to individual records for debugging, off by default.
 - **Logging:** structured JSON, correlation id on every control-plane operation, per-query MDC. Hot path logs **nothing** — errors increment counters and, at most, sample into a rate-limited error log.
@@ -2272,9 +2539,9 @@ for (UserVolumeRow row : query.subscribe()) {
 
 ---
 
-## 26. Configuration & Deployment
+## 27. Configuration & Deployment
 
-### 26.1 Configuration model
+### 27.1 Configuration model
 
 Three layers, precedence low → high: packaged defaults → node YAML (`pravaha.yaml`) → environment/system properties → runtime API/UI changes (persisted to the Raft catalog). The draft's single-query YAML becomes *node* configuration; queries themselves are registered entities, not config file entries.
 
@@ -2346,7 +2613,7 @@ pravaha:
     jfr.enabled: true
 ```
 
-### 26.2 JVM flags (reference)
+### 27.2 JVM flags (reference)
 
 ```
 -XX:+UseZGC -XX:+ZGenerational        # ZGenerational is a no-op on 24+, where it is the default
@@ -2361,21 +2628,21 @@ pravaha:
 --add-modules jdk.incubator.vector     # optional SIMD kernels; still incubating on every release
 ```
 
-### 26.3 Packaging
+### 27.3 Packaging
 
 Jib-built distroless images; a Helm chart with a StatefulSet (stable identity for local state), PodDisruptionBudget, pod anti-affinity across zones, node-local NVMe PVCs for RocksDB, and HPA driven by `lane_backpressure_ratio` rather than CPU (CPU is a poor proxy when the wait strategy spins).
 
 ---
 
-## 27. Testing & Benchmarking Strategy
+## 28. Testing & Benchmarking Strategy
 
 Correctness in a streaming engine is unusually hard because bugs are timing-, order- and failure-dependent. The strategy is layered accordingly.
 
-### 27.1 Deterministic test harness (`pravaha-testkit`)
+### 28.1 Deterministic test harness (`pravaha-testkit`)
 
 A **virtual clock** and a **single-threaded deterministic scheduler** let an entire multi-lane pipeline run reproducibly: no `Thread.sleep`, no flakiness, exact control over watermark advance, record interleaving and failure injection points. Every runtime test uses it. This is a Phase-1 deliverable, not an afterthought — it is what makes the rest of the schedule achievable.
 
-### 27.2 Test levels
+### 28.2 Test levels
 
 | Level | Scope | Tools |
 |---|---|---|
@@ -2389,20 +2656,20 @@ A **virtual clock** and a **single-threaded deterministic scheduler** let an ent
 | Benchmark | JMH micro + end-to-end load rig | JMH, HdrHistogram |
 | Architecture | Module dependency rules, no storage clients in core, no unbounded collections on the runtime path, no `Serializable` | ArchUnit |
 
-### 27.3 Correctness invariants asserted continuously
+### 28.3 Correctness invariants asserted continuously
 
 1. **Determinism:** identical input + identical watermarks ⇒ identical output, including row kinds and order within a key.
 2. **Replay safety:** kill at any point, restore from checkpoint, replay ⇒ final sink state identical to the no-failure run (for exactly-once and effectively-once configurations).
 3. **Watermark monotonicity:** a watermark never regresses on any channel.
 4. **State boundedness:** with a bounded key space and finite lateness, state size converges.
 5. **Pushdown equivalence:** for generated random predicates, engine-side and store-side filtering agree exactly.
-6. **Codegen equivalence:** generated and interpreted paths agree exactly (§27.2).
+6. **Codegen equivalence:** generated and interpreted paths agree exactly (§28.2).
 7. **No silent drops:** `in = out + filtered + late_dropped + dlq` for every query, checked by an accounting invariant in the test harness.
 8. **The incremental oracle:** for randomly generated queries `Q`, base relations `S` and change sets `ΔS`, assert `Q(S + ΔS) == Q(S) + Q^Δ(ΔS, S)`. This is the property that makes §9 shippable — a machine-checkable correctness statement over the *whole operator set*, generated rather than hand-written. Retract-stream engines have no equivalent; their correctness rests on the test cases someone thought to write. Runs on every commit and continuously in a nightly fuzzing job.
 9. **Frontier consistency:** a `CONSISTENT` read across any set of views returns results reflecting exactly one common prefix of every shared input (§9.5).
 10. **Backfill splice correctness:** for a generated history plus a concurrent change stream, `snapshot-then-splice` produces byte-identical final state to replaying the entire history through the CDC path (§16.1).
 
-### 27.4 Benchmark profiles (the basis for §5.2)
+### 28.4 Benchmark profiles (the basis for §5.2)
 
 | Profile | Query | Data |
 |---|---|---|
@@ -2424,19 +2691,19 @@ Profiles A–E are *our* benchmarks, which means a sceptical reader is entitled 
 - The release gate is §2.5's **W5**: parity or better on ≥ 18 of 22 queries, ≥ 2× on ≥ 8.
 - Queries where the incremental model should dominate — q4, q5, q7, q15, q16, q20 (aggregations and joins over updating inputs) — are tracked as leading indicators of whether §9's bet is paying off.
 
-A separate **TCO validation** (§29.2) runs the same workload on a like-for-like Flink deployment and measures actual vCPU, so W1 is a measurement rather than an argument.
+A separate **TCO validation** (§30.2) runs the same workload on a like-for-like Flink deployment and measures actual vCPU, so W1 is a measurement rather than an argument.
 
-### 27.5 Recovery benchmark
+### 28.5 Recovery benchmark
 
 Measure restore time for 1 GB / 10 GB / 100 GB of state, cold and warm, to validate NFR-3's 30 s objective and to size the checkpoint interval.
 
 ---
 
-## 28. Performance Budget Analysis
+## 29. Performance Budget Analysis
 
 This section shows the NFRs are reachable, and where the headroom goes.
 
-### 28.1 The per-record budget
+### 29.1 The per-record budget
 
 At 3.0 GHz, **100 000 rec/s/core = 30 000 cycles/record**. Target profile B at 350 000 rec/s/core = **~8 600 cycles/record**. Approximate costs:
 
@@ -2462,7 +2729,7 @@ At 3.0 GHz, **100 000 rec/s/core = 30 000 cycles/record**. Target profile B at 3
 
 The draft's design spends **3 000–12 000 cycles/record on overhead alone** before doing any query work. That is why G1/G2/G7 are marked critical: they are not stylistic preferences, they are the difference between meeting and missing the stated NFR by an order of magnitude.
 
-### 28.2 Where the risk actually is
+### 29.2 Where the risk actually is
 
 The engine's internal cost is, by design, not the bottleneck. The realistic limits are:
 
@@ -2476,11 +2743,11 @@ Capacity planning guidance and a sizing calculator ship with the docs, keyed on 
 
 ---
 
-## 29. Cost & TCO Model
+## 30. Cost & TCO Model
 
 **W1** claims Pravaha runs the same workload for ≤ 40 % of the compute. This section shows the arithmetic behind that claim and identifies which assumptions a customer should check on their own data.
 
-### 29.1 Where the savings come from
+### 30.1 Where the savings come from
 
 | Lever | Mechanism | Typical effect |
 |---|---|---|
@@ -2491,7 +2758,7 @@ Capacity planning guidance and a sizing calculator ship with the docs, keyed on 
 | **No mandatory Kafka hop** | Sources are read natively; Kafka is used where it earns its place, not because the engine only speaks Kafka | Removes a whole cluster in ksqlDB comparisons |
 | **Zero-allocation hot path** | GC work is a rounding error, so CPU is spent on the query | 10–20 % of CPU that Flink spends on GC |
 
-### 29.2 Worked comparison — Profile B at 500 000 events/s
+### 30.2 Worked comparison — Profile B at 500 000 events/s
 
 10-second tumbling aggregate over 100 k keys, 90 % selective filter, results queryable by an application.
 
@@ -2510,7 +2777,7 @@ Capacity planning guidance and a sizing calculator ship with the docs, keyed on 
 
 At a representative $0.04/vCPU-hour this is roughly **$18.9 k/year → $4.2 k/year** in compute. The compute line is usually the smaller half of the saving; the larger half is the two systems nobody has to operate, patch, upgrade or be paged for.
 
-### 29.3 Honest qualifications
+### 30.3 Honest qualifications
 
 A cost claim is only credible if it says when it fails to hold.
 
@@ -2519,7 +2786,7 @@ A cost claim is only credible if it says when it fails to hold.
 - **Very large state** (> 100 GB/node) pushes work into RocksDB and onto disk; the advantage narrows and NVMe becomes a line item.
 - **Flink's ecosystem has value** that does not appear on a vCPU bill: connectors, existing expertise, existing operational tooling. A migration has a real one-time cost.
 
-### 29.4 Licensing and commercial posture
+### 30.4 Licensing and commercial posture
 
 - **Apache 2.0 core.** The full engine, all SPIs, the Aerospike/Kafka/JDBC plugins, the CLI and the UI. The moat is architecture and execution quality, not a crippled open edition — a restricted core would cost more adoption than it protects.
 - **Commercial value sits above the engine:** managed/cloud operation, enterprise connectors, multi-region coordination, long-term support, certification, and the plugin TCK certification programme.
@@ -2529,9 +2796,9 @@ This posture matters strategically: the adopters who will make this product succ
 
 ---
 
-## 30. Delivery Roadmap
+## 31. Delivery Roadmap
 
-Ten phases, roughly two-week increments for a team of 4–6. Each phase ends with something demonstrable and benchmarked. The added scope over a conventional streaming engine (§9, §16, §17, §18, §23) is what §2.5's win conditions require, and it is sequenced so that each differentiator arrives with the machinery it depends on.
+Ten phases, roughly two-week increments for a team of 4–6. Each phase ends with something demonstrable and benchmarked. The added scope over a conventional streaming engine (§9, §16, §17, §18, §24) is what §2.5's win conditions require, and it is sequenced so that each differentiator arrives with the machinery it depends on.
 
 | Phase | Weeks | Deliverable | Exit criteria |
 |---|---|---|---|
@@ -2541,7 +2808,7 @@ Ten phases, roughly two-week increments for a team of 4–6. Each phase ends wit
 | **3 — Stateful & incremental** | 12–18 | Watermarks + idle detection; tumbling/hopping/session windows with slicing; timer wheel; L0 off-heap state; RocksDB tier; **incremental aggregates, `DISTINCT`, bounded-state enforcement**; changelog derivation; emit modes; late data + DLQ | **Profile B ≥ 350 k rec/s/lane**; correctness invariants 1–8 green; unbounded queries rejected with a useful diagnostic |
 | **4 — Aerospike, joins & durability** | 19–25 | Aerospike plugin (all four strategies), expression pushdown, idempotent sink, lookup join; **bilinear incremental joins**; checkpointing + recovery; capability negotiation | Exactly-once state proven by chaos test; **Profile C ≥ 120 k rec/s/lane**; pushdown equivalence green; **W4 ≥ 5× fewer bytes ingested** |
 | **5 — Backfill & serving** | 26–32 | Consistent snapshot→CDC splice; throttled adaptive backfill; blue/green query update; **served materialized views** with all four consistency modes; read replicas & read admission control | 3 years of history backfilled with OLTP p99 impact < 10 %; **W3: p99 point lookup ≤ 200 µs**; zero-downtime SQL change demonstrated |
-| **6 — Gateways, clients & DX** | 33–38 | gRPC streaming + Arrow + credit flow control; Avatica control plane; catalog-typed Java/Python/Go clients; full CLI; stable error-code catalogue; docs-as-tests; plugin TCK | Python client sustains 1 M rows/s; Avatica works from DBeaver; **W2: deploy ≤ 2 s**; TCK passes for all first-party plugins |
+| **6 — Gateways, clients & DX** | 33–38 | gRPC streaming + Arrow + credit flow control; Avatica control plane; catalog-typed Java/Python/Go clients; **`pravaha-spring-boot-starter` with `@PravahaListener` and `@PravahaTest`**; full CLI; stable error-code catalogue; docs-as-tests; plugin TCK | Python client sustains 1 M rows/s; Avatica works from DBeaver; **W2: deploy ≤ 2 s**; TCK passes for all first-party plugins; starter verified against Spring Boot 3.2–3.5 |
 | **7 — Cluster & HA** | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, savepoints, multi-tenancy quotas; elastic lane rescaling | 3-node cluster survives rolling node kills with no data loss; rebalance ≤ 5 s pause; **W7: 10 GB restore ≤ 30 s** |
 | **8 — Control plane & self-tuning** | 46–53 | Spring Boot + React UI, all screens, **time-travel debugger**, security (OIDC/RBAC/audit), full observability, skew remediation, live replanning, state tier promotion, Helm chart | Operator runs the full lifecycle from the UI; **W10:** a seeded production bug is found by replay and exported as a passing JUnit fixture |
 | **9 — Benchmarks, breadth & GA** | 54–62 | Cassandra + PostgreSQL + Redis plugins; **`WITH RECURSIVE`**; **published Nexmark q0–q22 head-to-head vs Flink**; 72 h soak; security review; TCO validation; GA docs and migration tooling | All NFR SLOs met; **W5 ≥ parity on 18/22, ≥ 2× on 8**; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated on a real workload; SBOM + security review signed off |
@@ -2554,7 +2821,7 @@ Ten phases, roughly two-week increments for a team of 4–6. Each phase ends wit
 
 ---
 
-## 31. Risk Register
+## 32. Risk Register
 
 | # | Risk | Impact | Likelihood | Mitigation |
 |---|---|---|---|---|
@@ -2568,16 +2835,16 @@ Ten phases, roughly two-week increments for a team of 4–6. Each phase ends wit
 | R8 | **Scope creep toward "rebuild Flink"** | High | Medium | Hold the line on the differentiator: *embeddable, store-native, pushdown-first*. Explicitly out of scope for v1: batch, ML, arbitrary UDF sandboxing, SQL/CEP beyond `MATCH_RECOGNIZE` |
 | R9 | **Plugin classloader issues** — leaks, TCCL bugs, version conflicts | Medium | Medium | Strict parent-last policy; classloader leak test; shading in plugin jars; a plugin conformance TCK plugin authors must pass |
 | R10 | **JDK adoption friction** — an embeddable library inherits its host's JVM, and enterprise Java is largely on 17/21 | Medium | ~~Medium~~ **Low** | **Resolved by revising the baseline to Java 21** (§4.5). `pravaha-api` targets 17. Residual risk is `sun.misc.Unsafe` removal on future JDKs, contained by the `MemoryAccess` abstraction with an FFM implementation already written and CI-tested (§4.6) |
-| R11 | **UI accidentally becomes a data path** under feature pressure | Medium | Medium | Architectural rule (§22.1) + ArchUnit test forbidding UI modules from depending on `pravaha-runtime` internals; conflating tap by construction |
+| R11 | **UI accidentally becomes a data path** under feature pressure | Medium | Medium | Architectural rule (§23.1) + ArchUnit test forbidding UI modules from depending on `pravaha-runtime` internals; conflating tap by construction |
 | R12 | **Metaspace growth** from per-query generated classes | Medium | Low | Per-query classloaders; register/drop leak test; metaspace metric as a canary; hard cap on generated class count per tenant |
 | **R13** | **DBSP/Z-set incrementalization is a young technique** with essentially one production implementation. Getting an operator's incremental form subtly wrong produces silently wrong answers | **High** | Medium | The property-based oracle (§9.7) checks `Q(S+ΔS) = Q(S) + Q^Δ(ΔS,S)` over *generated* queries and deltas continuously in CI — a machine-checkable correctness proof that retract-stream engines cannot have. Phased adoption: linear ops in Phase 1, aggregates in 3, joins in 4, recursion in 9. Non-incremental escape hatch per operator |
-| **R14** | **Scope is now materially larger** — serving layer, backfill, debugger and self-tuning are each a product in their own right. Classic cause of a 62-week plan becoming 100 weeks | **High** | **High** | Every phase has a hard exit criterion and ships something demonstrable. Phase 5 is explicitly flagged as most likely to slip. If the schedule compresses, cut in this order: recursion (§9.3), live replanning (§18.5), migration tooling (§23.6) — never the correctness oracle, the bounded-state enforcement, or the benchmarks |
+| **R14** | **Scope is now materially larger** — serving layer, backfill, debugger and self-tuning are each a product in their own right. Classic cause of a 62-week plan becoming 100 weeks | **High** | **High** | Every phase has a hard exit criterion and ships something demonstrable. Phase 5 is explicitly flagged as most likely to slip. If the schedule compresses, cut in this order: recursion (§9.3), live replanning (§18.5), migration tooling (§24.6) — never the correctness oracle, the bounded-state enforcement, or the benchmarks |
 | **R15** | **Serving from lane-local state couples read availability to engine availability** — a restart makes results unreadable | Medium | Medium | `MEMORY+SINK` is the **default** posture (§17.4): results also live in the customer's own Aerospike set and stay readable by any client while Pravaha is down or recovering. Read replicas cover node-level failure. `MEMORY`-only is opt-in |
 | **R16** | **Publishing head-to-head Nexmark results is a public commitment** — losing badly on some queries is a credibility problem | Medium | Medium | Run Nexmark continuously from Phase 3, not once at the end, so weak queries are found while there is time to fix them. Publish the harness and the losses alongside the wins; selective benchmarking is detected and punished by this audience far more harshly than an honest loss |
 
 ---
 
-## 32. Architecture Decision Records
+## 33. Architecture Decision Records
 
 Condensed ADRs; each will be expanded in `docs/adr/` with full context and consequences.
 
@@ -2593,14 +2860,17 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **008** | Aligned checkpoints; exactly-once state, effectively-once output | Unaligned only; no checkpoints; per-record acks | Matches proven practice; honest about what sinks can guarantee (§14.4) |
 | **009** | Embedded Raft (Ratis) for metadata | Store-backed CAS lease; ZooKeeper mandatory; gossip only | Assignment correctness needs real consensus; embedded avoids a mandatory external dependency; ZK/etcd remain pluggable (§21.2) |
 | **010** | Plugins in isolated parent-last classloaders | Flat classpath; JPMS modules; OSGi | Solves real dependency conflicts; JPMS is too rigid for dynamic loading; OSGi is disproportionate (§10.3) |
-| **011** | UI strictly out of the data path, on a conflating tap | UI subscribes as a normal sink | A slow browser must never affect a production query (§22.1) |
+| **011** | UI strictly out of the data path, on a conflating tap | UI subscribes as a normal sink | A slow browser must never affect a production query (§23.1) |
 | **012** | Nanosecond `long` timestamps | `Instant`; millis; 96-bit | No allocation, adequate range to 2262, 2× cheaper than 96-bit (§15.1) |
 | **013** | Z-sets + DBSP-derived incremental operators as the execution algebra | Flink-style hand-written retract streams; full recomputation; micro-batching | Correctness composes instead of being re-established per operator; work ∝ change; unlocks recursion; yields a machine-checkable correctness oracle (§9) |
 | **014** | Serve maintained views from lane-local state, with `MEMORY+SINK` as the default posture | Sink-only (Flink); serve-only (Materialize) | Removes an entire serving tier and its latency, without trapping the customer's results inside our engine (§17) |
 | **015** | Buffer-CDC-first, then snapshot, then splice with a bounded dedupe window | Snapshot-then-subscribe; lock the table; dual-pipeline by hand | The only ordering with no gap and a *finite, known* overlap; correct by construction under Z-set consolidation (§16.1) |
 | **016** | Blue/green shadow deployment for every query change | Stop-and-restart (Flink); in-place mutation | Zero downtime, state preserved, instant rollback; also the substrate for live replanning and version upgrades (§16.3) |
 | **017** | Adapt performance automatically; never adapt semantics | Full manual tuning; adapt everything | Operations is where streaming projects die, but silent semantic changes are unacceptable. Every controller is observable, bounded, reversible and pinnable (§18.1) |
-| **018** | Apache 2.0 for the entire engine, UI and first-party plugins | Open core with a restricted engine; source-available; dual licence | The engineers who decide adoption will not evaluate a crippled core. The moat is architecture and execution; commercial value sits in managed operation, support and certification (§29.4) |
+| **019** | Engine core is Spring-free; Spring Boot is a bootstrap layer above a plain-Java `PravahaEngine` seam | Spring throughout; no Spring anywhere; Quarkus/Micronaut | Keeps embeddability intact (a host on Boot 3.2 cannot be forced to 3.5), keeps `pravaha dev` under 1 s, and keeps proxies off the hot path — while the server still inherits Boot's config, actuator, security and packaging for free (§22.1) |
+| **020** | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` | Documentation only; a bare `PravahaEngine` bean | Lets a team add continuous SQL to a service they already run, in the idiom they already use. Modelled on `@KafkaListener` so the mental model transfers (§22.4) |
+| **021** | No GraalVM native image for the engine | Native image via Spring AOT; drop runtime codegen to enable it | Runtime Java-source compilation (ADR-005) is fundamentally incompatible with a closed-world image, and it is what makes the hot path fast. Stated so no one spends a sprint on it. Clients and UI may still go native (§22.7) |
+| **018** | Apache 2.0 for the entire engine, UI and first-party plugins | Open core with a restricted engine; source-available; dual licence | The engineers who decide adoption will not evaluate a crippled core. The moat is architecture and execution; commercial value sits in managed operation, support and certification (§30.4) |
 
 ---
 
@@ -2638,11 +2908,13 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **Query updates** | Restart | Blue/green shadow cutover, zero downtime, instant rollback (§16.3) | Flink, ksqlDB |
 | **Debugging** | Absent | Time-travel debugger; incidents export as JUnit fixtures (§16.4) | No competitor ships this |
 | **Self-tuning** | Absent | Adaptive batching, per-key skew remediation, elastic rescale, measured replanning (§18) | Flink's tuning burden is its top complaint |
-| **Developer loop** | Absent | `pravaha dev` < 1 s, validate < 50 ms, deploy < 2 s, deterministic unit tests (§23) | Flink's 30–120 s submit |
-| **Error messages** | Absent | Stable codes, named construct, concrete fixes (§23.4) | All |
-| **Cost model** | Absent | Worked TCO with stated qualifications; ≤ 40 % of Flink's vCPU (§29) | — |
-| **Benchmarks** | Unfalsifiable NFRs | Nexmark q0–q22 published head-to-head, harness open (§27.4, §30 Phase 9) | Establishes credibility rather than asserting it |
-| **Licensing** | Unstated | Apache 2.0 core, engine and UI included (§29.4) | Materialize, RisingWave, Confluent |
+| **Developer loop** | Absent | `pravaha dev` < 1 s, validate < 50 ms, deploy < 2 s, deterministic unit tests (§24) | Flink's 30–120 s submit |
+| **Error messages** | Absent | Stable codes, named construct, concrete fixes (§24.4) | All |
+| **Cost model** | Absent | Worked TCO with stated qualifications; ≤ 40 % of Flink's vCPU (§30) | — |
+| **Benchmarks** | Unfalsifiable NFRs | Nexmark q0–q22 published head-to-head, harness open (§28.4, §31 Phase 9) | Establishes credibility rather than asserting it |
+| **Deployment modes** | Single engine instance, YAML-bound | Four modes from one core: plain embedded, Spring Boot starter, Spring Boot server, all-in-one server+UI (§22.2) | Flink (cluster-only), Materialize/RisingWave (cloud-only) |
+| **Spring integration** | Absent | `@PravahaListener`, `PravahaTemplate`, `@PravahaTest`, actuator — engine core stays Spring-free (§22.4) | No competitor ships a first-class Spring starter |
+| **Licensing** | Unstated | Apache 2.0 core, engine and UI included (§30.4) | Materialize, RisingWave, Confluent |
 
 ## Appendix B — Immediate Next Steps
 
