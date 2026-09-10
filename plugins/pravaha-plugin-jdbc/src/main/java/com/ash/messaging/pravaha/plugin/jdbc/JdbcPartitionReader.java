@@ -51,6 +51,10 @@ final class JdbcPartitionReader implements PartitionReader {
     private final Connection connection;
     private final String firstQuery;
     private final String resumeQuery;
+
+    /** Values for the pushed filters' markers, empty when nothing was pushed. */
+    private final java.util.List<Object> pushedValues;
+
     private final StreamSchema schema;
     private final String watermarkColumn;
     private final String keyColumn;
@@ -69,6 +73,29 @@ final class JdbcPartitionReader implements PartitionReader {
             String keyColumn,
             int fetchSize,
             SourceOffset resumeFrom) {
+        this(
+                connection,
+                firstQuery,
+                resumeQuery,
+                schema,
+                watermarkColumn,
+                keyColumn,
+                fetchSize,
+                resumeFrom,
+                java.util.List.of());
+    }
+
+    JdbcPartitionReader(
+            Connection connection,
+            String firstQuery,
+            String resumeQuery,
+            StreamSchema schema,
+            String watermarkColumn,
+            String keyColumn,
+            int fetchSize,
+            SourceOffset resumeFrom,
+            java.util.List<Object> pushedValues) {
+        this.pushedValues = java.util.List.copyOf(pushedValues);
         this.connection = connection;
         this.firstQuery = firstQuery;
         this.resumeQuery = resumeQuery;
@@ -95,6 +122,13 @@ final class JdbcPartitionReader implements PartitionReader {
                     statement.setLong(parameter++, offset.watermark());
                     statement.setLong(parameter++, offset.key());
                 }
+            }
+            // Pushed filter values, in the order the clause was built and after the resume
+            // parameters, because that is the order the markers appear in. setObject rather than a
+            // typed setter: the value came from a literal in the query and the driver knows its own
+            // mapping better than a switch here would.
+            for (Object value : pushedValues) {
+                statement.setObject(parameter++, value);
             }
             // Keyless mode re-selects the boundary rows it has already emitted, so it must ask for
             // enough to still return `limit` new ones after skipping them.

@@ -130,14 +130,43 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
      * legitimately sits at that value.
      */
     private void buildQueries() {
-        String order = keyColumn.isBlank() ? watermarkColumn : watermarkColumn + ", " + keyColumn;
-        this.firstQuery = "SELECT * FROM " + source + " ORDER BY " + order + " " + pageClause;
+        this.firstQuery = firstQueryWith(JdbcPushdown.NOTHING);
+        this.resumeQuery = resumeQueryWith(JdbcPushdown.NOTHING);
+    }
+
+    /**
+     * The first-poll statement, optionally with the engine's filters folded in.
+     *
+     * <p>Pure, so a reader can build its own without disturbing the plugin's. Two readers of one
+     * stream can be serving different queries, and a shared statement would give one of them the
+     * other's filters -- which reads as data quietly missing from a query nobody changed.
+     */
+    private String firstQueryWith(JdbcPushdown pushed) {
+        String where = pushed.isEmpty() ? "" : " WHERE " + pushed.sql();
+        return "SELECT * FROM " + source + where + " ORDER BY " + orderClause() + " " + pageClause;
+    }
+
+    /**
+     * The resume statement.
+     *
+     * <p>The pushed clause goes after the resume predicate in both the SQL and the parameter order,
+     * because the reader binds resume parameters first and the page size last. Getting that order
+     * wrong binds a filter value as a watermark, which does not fail -- it silently reads from the
+     * wrong place.
+     */
+    private String resumeQueryWith(JdbcPushdown pushed) {
         String predicate = keyColumn.isBlank()
                 // Keyless: >= re-selects the boundary, and the reader skips what it already emitted.
                 ? watermarkColumn + " >= ?"
                 // Keyset pagination: a total order, so the resume is exact.
                 : "(" + watermarkColumn + " > ? OR (" + watermarkColumn + " = ? AND " + keyColumn + " > ?))";
-        this.resumeQuery = "SELECT * FROM " + source + " WHERE " + predicate + " ORDER BY " + order + " " + pageClause;
+        String pushedClause = pushed.isEmpty() ? "" : " AND (" + pushed.sql() + ")";
+        return "SELECT * FROM " + source + " WHERE " + predicate + pushedClause + " ORDER BY " + orderClause() + " "
+                + pageClause;
+    }
+
+    private String orderClause() {
+        return keyColumn.isBlank() ? watermarkColumn : watermarkColumn + ", " + keyColumn;
     }
 
     @Override
@@ -246,7 +275,10 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
                 // seen once with its new value and never as a correction of the old one, so the
                 // stream is not a faithful changelog however careful the offsets are.
                 DeliveryGuarantee.AT_LEAST_ONCE,
-                EnumSet.noneOf(PushdownKind.class),
+                // Filters only. A projection would change the row shape the schema promises, and a
+                // partial aggregate would need the engine to combine what the database returned --
+                // both are real and neither is written yet, so neither is declared.
+                EnumSet.of(PushdownKind.FILTER),
                 Duration.ofSeconds(1));
     }
 
@@ -264,8 +296,30 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
 
     @Override
     public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+        return createReader(partition, resumeFrom, com.ash.messaging.pravaha.api.plugin.ReadRequest.NOTHING);
+    }
+
+    @Override
+    public PartitionReader createReader(
+            SourcePartition partition,
+            SourceOffset resumeFrom,
+            com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
+        JdbcPushdown pushed = JdbcPushdown.of(request, schema);
         return new JdbcPartitionReader(
-                connection, firstQuery, resumeQuery, schema, watermarkColumn, keyColumn, fetchSize, resumeFrom);
+                connection,
+                firstQueryWith(pushed),
+                resumeQueryWith(pushed),
+                schema,
+                watermarkColumn,
+                keyColumn,
+                fetchSize,
+                resumeFrom,
+                pushed.values());
+    }
+
+    /** The SQL a reader with these filters would run, for tests and EXPLAIN. */
+    String pollQueryFor(com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
+        return firstQueryWith(JdbcPushdown.of(request, schema));
     }
 
     /** The stream this plugin exposes. */

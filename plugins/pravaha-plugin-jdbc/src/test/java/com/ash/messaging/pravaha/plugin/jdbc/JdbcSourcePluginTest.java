@@ -34,6 +34,7 @@ import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -246,6 +247,10 @@ class JdbcSourcePluginTest {
         insert(1, "ann", 10.5, 100);
         var capabilities = open(Map.of()).capabilities();
 
+        assertThat(capabilities.pushdown())
+                .as("filters are honoured; projections and partial aggregates are not written yet")
+                .containsExactly(com.ash.messaging.pravaha.api.plugin.PushdownKind.FILTER);
+
         assertThat(capabilities.emitsDeletes())
                 .as("a deleted row is simply absent from the next result set, which is "
                         + "indistinguishable from a row that never existed")
@@ -254,6 +259,109 @@ class JdbcSourcePluginTest {
         assertThat(capabilities.guarantee())
                 .as("resumption is exact, but an update seen once with its new value is not a changelog")
                 .isEqualTo(DeliveryGuarantee.AT_LEAST_ONCE);
+    }
+
+    @Test
+    void aPushedFilterBecomesAWhereClauseTheDatabaseEvaluates() throws SQLException {
+        for (long id = 1; id <= 50; id++) {
+            insert(id, "n" + id, (double) id, id);
+        }
+        JdbcSourcePlugin plugin = open(Map.of());
+        ReadRequest request = new ReadRequest(List.of(new ReadRequest.Filter("ID", ReadRequest.Comparison.GT, 45L)));
+
+        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
+            List<RowView> rows = drain(reader, collector);
+
+            // Five rows crossed the boundary instead of fifty. That number is the entire point: the
+            // engine would have filtered the other forty-five out, having already paid to read,
+            // decode and copy every one of them.
+            assertThat(rows).hasSize(5);
+            assertThat(rows.stream().map(row -> row.getLong(0)).toList()).containsExactly(46L, 47L, 48L, 49L, 50L);
+        }
+    }
+
+    @Test
+    void aPushedValueIsBoundRatherThanSplicedIntoTheSql() throws SQLException {
+        insert(1, "ann", 10.5, 100);
+        JdbcSourcePlugin plugin = open(Map.of());
+        ReadRequest request = new ReadRequest(
+                List.of(new ReadRequest.Filter("NAME", ReadRequest.Comparison.EQ, "o'brien'); DROP TABLE orders; --")));
+
+        // The value never reaches the SQL text, so there is nothing to escape and nothing to
+        // inject. The marker does.
+        assertThat(plugin.pollQueryFor(request)).contains("NAME = ?").doesNotContain("DROP TABLE");
+
+        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
+            assertThat(drain(reader, collector)).isEmpty();
+        }
+        // And the table is still there.
+        assertThat(open(Map.of()).schema().fields()).isNotEmpty();
+    }
+
+    @Test
+    void aFilterOnAColumnTheSourceDoesNotHaveIsDroppedRatherThanSent() throws SQLException {
+        insert(1, "ann", 10.5, 100);
+        JdbcSourcePlugin plugin = open(Map.of());
+        ReadRequest request = new ReadRequest(List.of(
+                new ReadRequest.Filter("ID", ReadRequest.Comparison.GE, 1L),
+                new ReadRequest.Filter("NOT_A_COLUMN", ReadRequest.Comparison.EQ, 7L)));
+
+        // A name cannot be a bound parameter, so the only safe name is one the database's own
+        // catalogue produced. Anything else is dropped -- costing bandwidth, not correctness.
+        String sql = plugin.pollQueryFor(request);
+        assertThat(sql).contains("ID >= ?").doesNotContain("NOT_A_COLUMN");
+
+        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
+            assertThat(drain(reader, collector)).hasSize(1);
+        }
+    }
+
+    @Test
+    void pushingFiltersDoesNotDisturbResumption() throws SQLException {
+        for (long id = 1; id <= 20; id++) {
+            insert(id, "n" + id, (double) id, id);
+        }
+        JdbcSourcePlugin plugin = open(Map.of());
+        ReadRequest request = new ReadRequest(List.of(new ReadRequest.Filter("ID", ReadRequest.Comparison.GT, 10L)));
+
+        // The filter's markers sit after the resume predicate's. Bound in the wrong order they
+        // would be read as a watermark, and the reader would resume from a filter value -- which
+        // does not fail, it just reads from the wrong place.
+        SourceOffset midpoint;
+        JdbcCollector first = new JdbcCollector(plugin.schema());
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
+            reader.poll(first, 5);
+            midpoint = reader.position();
+        }
+        assertThat(first.rows().stream().map(row -> row.getLong(0)).toList()).containsExactly(11L, 12L, 13L, 14L, 15L);
+
+        JdbcCollector rest = new JdbcCollector(plugin.schema());
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("orders").get(0), midpoint, request)) {
+            assertThat(drain(reader, rest).stream().map(row -> row.getLong(0)).toList())
+                    .containsExactly(16L, 17L, 18L, 19L, 20L);
+        }
+    }
+
+    @Test
+    void aReaderWithoutARequestReadsEverything() throws SQLException {
+        for (long id = 1; id <= 10; id++) {
+            insert(id, "n" + id, (double) id, id);
+        }
+        JdbcSourcePlugin plugin = open(Map.of());
+        JdbcCollector collector = new JdbcCollector(plugin.schema());
+
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("orders").get(0), null)) {
+            assertThat(drain(reader, collector)).hasSize(10);
+        }
     }
 
     @Test

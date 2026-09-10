@@ -17,6 +17,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>net.jqwik</groupId>
+      <artifactId>jqwik</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-api</artifactId>
       <version>${project.version}</version>

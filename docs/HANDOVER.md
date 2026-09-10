@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **27 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **949** (plus 28 Python) |
+| Java tests | **963** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -191,7 +191,9 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Outer joins | ❌ — refused with the reason: an unmatched row must be held for as long as a match could arrive |
 | Self-joins | ❌ — both sides would read one stream and a stream name cannot say which side a row is for |
 | Aerospike plugin, four strategies | ❌ |
-| Expression pushdown, idempotent sink | ❌ |
+| Filter pushdown to sources | ✅ `Pushdown` extracts the pushable conjunction, `ReadRequest` carries it, the JDBC plugin turns it into a bound `WHERE`. The engine keeps its own filter regardless, which is what makes a plugin's partial or absent support harmless |
+| Pushdown equivalence, as a property | ✅ `PushdownEquivalenceTest` — a source honouring every pushed filter must return exactly what one honouring none returns |
+| Projection / partial-aggregate pushdown, idempotent sink | ❌ |
 
 `abort()` versus `close()` is worth knowing before writing any recovery test: `close()` is a
 shutdown and emits everything held, `abort()` is what a crash does and emits nothing. A recovery
