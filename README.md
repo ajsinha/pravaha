@@ -19,18 +19,26 @@
 
 ---
 
-> **Project status: Wave 3 — the performance core, in progress.**
+> **Project status: Wave 4 — stateful and incremental, built; gate blocked on hardware.**
 >
-> Waves 1 and 2 are complete and merged (tags `M1`, `M2`). **SQL runs end to end today**: Calcite
-> parses and optimises it, the plan is translated into Pravaha's own operator tree, and rows are
-> executed over off-heap binary layout from a real source to a real sink. Try it in
-> [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
+> Waves 1 and 2 are complete and merged (tags `M1`, `M2`). **SQL runs end to end today**, now
+> across the lane runtime: Calcite parses and optimises, the plan becomes Pravaha's own operator
+> tree, and rows travel from a plugin reader through an ingest pump into a lane's off-heap inbox and
+> out to a sink. Try it in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 >
-> Wave 3 adds whole-stage code generation — measured at roughly **10× the interpreted path** — plus
-> the lane model that turns that operator throughput into pipeline throughput.
+> Wave 3 added whole-stage code generation — roughly **10× the interpreted path** — the lane model,
+> the hash exchange between lanes, backpressure that reaches the source plugin, and adaptive
+> batching. Wave 4 added **windowed `GROUP BY`** end to end, watermarks with idle detection, window
+> slicing, session windows, late-data correction by retraction, a dead-letter queue, changelog
+> negotiation and the L0 state map.
 >
-> Still to come: windowing and stateful joins (Wave 4), Aerospike (Wave 5), the serving layer
-> (Wave 6), and the console (Wave 7 onward). The Aerospike edition question in
+> **Gates P2 and P3 are both blocked on the same thing, and it is not code.** The throughput and
+> scaling figures need 16 physical homogeneous cores; the development machine is a 12-core
+> heterogeneous laptop part. The evidence packs in [`docs/gates`](docs/gates/) say exactly what is
+> and is not measurable, and no number from this machine is quoted as if it were.
+>
+> Still to come: checkpointing and joins (Wave 5), Aerospike and the serving layer (Waves 5–6), the
+> console (Wave 7 onward). The Aerospike edition question in
 > [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
 > is worth settling early.
 
