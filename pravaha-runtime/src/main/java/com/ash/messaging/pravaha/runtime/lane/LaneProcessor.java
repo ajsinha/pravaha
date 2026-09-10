@@ -69,6 +69,19 @@ public interface LaneProcessor extends AutoCloseable {
     }
 
     /**
+     * Called on the lane thread when there is no work waiting.
+     *
+     * <p>For anything holding a record it could finish but has not been asked to. A lookup join
+     * parks records on a network round trip and pushes them out when the next record arrives -- so
+     * a stream that goes quiet would leave its last few unanswered for as long as the quiet lasts,
+     * which is the same latency bug as a watermark that only advances on arrival.
+     *
+     * <p>Called on every idle cycle, so an implementation that has nothing to do must be cheap: a
+     * lane with no work spins here.
+     */
+    default void onIdle() {}
+
+    /**
      * Called when the lane has stopped, on the lane thread, exactly once.
      *
      * <p>Runs even when the lane is stopping because the processor threw, so a half-built stage

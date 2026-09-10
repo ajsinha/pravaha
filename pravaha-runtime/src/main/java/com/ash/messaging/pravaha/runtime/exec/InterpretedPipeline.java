@@ -253,6 +253,62 @@ public final class InterpretedPipeline implements AutoCloseable {
         return total;
     }
 
+    /**
+     * Finishes any outstanding lookups without ending the query.
+     *
+     * <p>For a lane that has run out of work: a record parked on a network round trip would
+     * otherwise wait for the next arrival to push it out, so a stream that goes quiet leaves its
+     * last few records unanswered for as long as the quiet lasts. The same latency bug as a
+     * watermark that only advances when something arrives.
+     */
+    public void drainPending() {
+        for (LookupJoin join : lookupJoins) {
+            join.drain();
+        }
+    }
+
+    /** Lookups served from cache rather than from the store. */
+    public long lookupCacheHits() {
+        long total = 0;
+        for (LookupJoin join : lookupJoins) {
+            total += join.cacheHitCount();
+        }
+        return total;
+    }
+
+    /** Lookups that reached the store. */
+    public long lookupCalls() {
+        long total = 0;
+        for (LookupJoin join : lookupJoins) {
+            total += join.lookupCount();
+        }
+        return total;
+    }
+
+    /** Records whose key matched nothing in the dimension table. */
+    public long lookupMisses() {
+        long total = 0;
+        for (LookupJoin join : lookupJoins) {
+            total += join.unmatchedCount();
+        }
+        return total;
+    }
+
+    /**
+     * The most lookups outstanding at once.
+     *
+     * <p>The number that says whether the waits are actually overlapping. One means every lookup
+     * finished before the next began, which is the shape this operator exists to avoid and is
+     * invisible in any assertion about output.
+     */
+    public long peakLookupsInFlight() {
+        long peak = 0;
+        for (LookupJoin join : lookupJoins) {
+            peak = Math.max(peak, join.peakInFlight());
+        }
+        return peak;
+    }
+
     /** Marks this pipeline as failed rather than finished: nothing more is emitted. */
     public void abandon() {
         abandoned = true;

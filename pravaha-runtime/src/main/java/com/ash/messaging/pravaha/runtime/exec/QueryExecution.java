@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.runtime.exec;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -96,6 +97,24 @@ public final class QueryExecution implements AutoCloseable {
             LaneConfig config,
             MemoryAccess access,
             Supplier<RowOutput> sinkPerLane) {
+        return start(plan, laneCount, config, access, sinkPerLane, Map.of());
+    }
+
+    /**
+     * Starts a query whose lookup joins are bound to dimension tables.
+     *
+     * @param lookups by the registered stream name the query joined against. Shared across lanes,
+     *     unlike everything else here: a dimension table is a client to something outside the
+     *     process, and one per lane would multiply its connections by the lane count for no benefit.
+     *     The SPI requires them to be thread-safe for exactly this reason.
+     */
+    public static QueryExecution start(
+            PhysicalOperator plan,
+            int laneCount,
+            LaneConfig config,
+            MemoryAccess access,
+            Supplier<RowOutput> sinkPerLane,
+            Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups) {
 
         List<InterpretedPipeline> pipelines = new ArrayList<>(laneCount);
         List<String> streams = streamsOf(plan);
@@ -107,7 +126,7 @@ public final class QueryExecution implements AutoCloseable {
                 config,
                 access,
                 context -> {
-                    InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get());
+                    InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups);
                     pipelines.add(pipeline);
                     inputSchema[0] = pipeline.inputSchema(streams.get(0));
 
@@ -448,6 +467,13 @@ public final class QueryExecution implements AutoCloseable {
                 pipeline.accept(stream, view.wrap(region, (int) offsets[i]));
             }
             return count;
+        }
+
+        @Override
+        public void onIdle() {
+            // Nothing arriving means nothing will push a parked record out, so anything waiting on
+            // a lookup is finished here instead of waiting for the stream to resume.
+            pipeline.drainPending();
         }
 
         @Override

@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **27 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **997** (plus 28 Python) |
+| Java tests | **998** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 

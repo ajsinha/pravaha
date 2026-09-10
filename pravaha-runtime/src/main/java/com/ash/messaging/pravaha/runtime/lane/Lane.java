@@ -446,6 +446,9 @@ public final class Lane implements AutoCloseable {
                     }
                     localIdle++;
                     idleCycles = localIdle;
+                    // Before parking, not after: an operator holding a finished result should
+                    // release it now rather than after the wait it is about to take.
+                    processor.onIdle();
                     waitStrategy.idle(++idle);
                     continue;
                 }

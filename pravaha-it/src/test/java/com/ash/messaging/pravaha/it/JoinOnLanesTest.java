@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.it;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.junit.jupiter.api.Test;
@@ -361,6 +362,110 @@ class JoinOnLanesTest {
             assertThat(execution.awaitQuiescent(Duration.ofSeconds(30))).isTrue();
             assertThat(results).hasSize(10);
         }
+    }
+
+    @Test
+    void aParkedLookupIsDeliveredWhenTheLaneGoesQuietRatherThanOnTheNextRecord() {
+        // A lookup join parks a record on a network round trip and pushes it out when the next
+        // record arrives. On a quiet stream that is never: the last few records sit unanswered for
+        // as long as the quiet lasts, which is the same latency bug as a watermark that only
+        // advances when something turns up. The lane's idle path is what closes it.
+        StreamSchema dim = StreamSchema.builder("dim")
+                .field("user_id", Types.int64())
+                .field("segment", Types.string())
+                .build();
+        // The temporal syntax wants a timestamp to be "as of", so this stream has one where the
+        // others have a plain amount. It is not honoured -- a lookup answers as of now -- but the
+        // validator is right to insist the column at least means a time.
+        StreamSchema timed = StreamSchema.builder("orders")
+                .field("order_id", Types.int64())
+                .field("user_id", Types.int64())
+                .field("ts", Types.timestamp())
+                .build();
+        PhysicalOperator plan = new PhysicalPlanBuilder()
+                .build(SqlPlanner.withLookups(timed, dim)
+                        .plan("SELECT o.order_id, d.segment FROM orders o "
+                                + "JOIN dim FOR SYSTEM_TIME AS OF o.ts AS d ON o.user_id = d.user_id"));
+
+        ConcurrentLinkedQueue<CapturingRowWriter.Captured> results = new ConcurrentLinkedQueue<>();
+        SlowDimension table = new SlowDimension();
+
+        try (QueryExecution execution = QueryExecution.start(
+                plan,
+                1,
+                config(),
+                MemoryAccess.best(),
+                () -> (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add),
+                Map.of("dim", table))) {
+
+            IngestPump orders =
+                    execution.pumpInto(0, "orders", new FiniteReader(1, 3, 8), BackpressurePolicy.defaults());
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while (orders.rowsPumped() < 1 && System.nanoTime() < deadline) {
+                orders.pumpOnce(8);
+                execution.checkHealth();
+            }
+
+            // No further records. The result must appear anyway, and before the query is closed --
+            // closing would flush it and prove nothing.
+            while (results.isEmpty() && System.nanoTime() < deadline) {
+                execution.checkHealth();
+                Thread.onSpinWait();
+            }
+            assertThat(results)
+                    .as("the parked record was never delivered while the stream was quiet")
+                    .hasSize(1);
+        }
+    }
+
+    /** A dimension table slow enough that the record is certainly parked. */
+    private static final class SlowDimension implements com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin {
+
+        @Override
+        public StreamSchema schema() {
+            return StreamSchema.builder("dim")
+                    .field("user_id", Types.int64())
+                    .field("segment", Types.string())
+                    .build();
+        }
+
+        @Override
+        public List<String> keyColumns() {
+            return List.of("user_id");
+        }
+
+        @Override
+        public int lookup(Object[] key, com.ash.messaging.pravaha.api.plugin.PartitionReader.RecordSink sink) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            sink.beginRow()
+                    .setLong(0, ((Number) key[0]).longValue())
+                    .setString(1, "gold")
+                    .commit();
+            return 1;
+        }
+
+        @Override
+        public String name() {
+            return "slow-dim";
+        }
+
+        @Override
+        public com.ash.messaging.pravaha.api.plugin.Version version() {
+            return new com.ash.messaging.pravaha.api.plugin.Version(1, 0, 0);
+        }
+
+        @Override
+        public void configure(com.ash.messaging.pravaha.api.plugin.PluginContext context) {}
+
+        @Override
+        public void open() {}
+
+        @Override
+        public void close() {}
     }
 
     private static PhysicalOperator plan() {
