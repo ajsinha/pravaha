@@ -15,17 +15,20 @@ otherwise have to rediscover the hard way.
 | | |
 |---|---|
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
-| `develop` | **13 commits ahead**, green, *not yet pushed* |
+| `develop` | **21 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **796** (plus 28 Python) |
+| Java tests | **860** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
-**Session of 2026-09-09/10 — what changed.** Wave 3's story list is **complete**: P2-01 through
-P2-13, including two stories added mid-wave (P2-12, P2-13) that follow from the 10 000-queries-per-node
-target. **Gate P2 is blocked on hardware, not on code** — see [`gates/wave-3`](gates/wave-3/), read
-that first. Three connectors were also built out of wave, at the owner's request: Delta Lake, feed
-files (CSV + Parquet drop directories) and JDBC.
+**Session of 2026-09-09/10 — what changed.** Wave 3's story list is **complete** (P2-01 to P2-13,
+two of them added mid-wave from the 10 000-queries-per-node target), and **Wave 4 is under way**.
+**Gate P2 is blocked on hardware, not on code** — see [`gates/wave-3`](gates/wave-3/), read that
+first. Three connectors were also built out of wave, at the owner's request: Delta Lake, feed files
+(CSV + Parquet drop directories) and JDBC.
+
+**A windowed `GROUP BY` now runs end to end**, which is the first time a keyed aggregate has been
+allowed at all — every one before this was refused for unbounded state.
 
 **Waves 1 and 2 are done and gated.** Evidence packs and retrospectives are in
 [`docs/gates/wave-1`](gates/wave-1/), [`docs/gates/wave-2`](gates/wave-2/) and
@@ -146,16 +149,31 @@ so nobody re-derives it and believes it.
 
 It blocks Gate P3's Profile B figure too, so it is overdue rather than upcoming.
 
-### Start here, after that
+### Wave 4 (E3) — what is done and what is next
 
-**Wave 4 (E3): stateful and incremental.** Watermarks + idle detection, timing wheel, tumbling and
-hopping windows with slicing, session windows, L0 off-heap state, RocksDB tier, incremental
-aggregates and `DISTINCT`, bounded-state enforcement, changelog derivation, DLQ. Gate: Profile B
-≥ 350 k rec/s/lane, correctness invariants 1–8 green, and an unbounded `GROUP BY` rejected at
-planning with a diagnostic naming the key.
+| Piece | State |
+|---|---|
+| Watermarks, per-partition generators, **idle detection** | ✅ `WatermarkTracker` |
+| Timer wheel, event-time driven | ✅ `TimerWheel` |
+| Window slicing (tumbling, hopping) | ✅ `WindowSpec`, `SlicedWindows` |
+| Session windows with merge-on-insert | ✅ `SessionWindows` — runtime only, not reachable from SQL |
+| Incremental windowed aggregates, bounded | ✅ `SlicedAggregateState` |
+| Bounded-state refusal naming the key | ✅ gate criterion met |
+| Windowed `GROUP BY` in SQL, end to end | ✅ `TABLE(TUMBLE(...))` and `HOP` |
+| Late data: correction with retraction, late output | ✅ |
+| Dead-letter queue | ❌ next — the late output is the seam it attaches to |
+| Emit modes / changelog negotiation (`APPEND`/`UPSERT`/`RETRACT`) | ❌ |
+| L0 off-heap state store | ❌ |
+| RocksDB tier | ❌ |
+| `DISTINCT` | ❌ |
 
-Nothing in Wave 3 blocks it. `LaneContext` already carries the arena and the virtual-partition
-assignment, which is the state slice a keyed operator needs.
+**Gate P3:** Profile B ≥ 350 k rec/s/lane (**same hardware block as Gate P2**), correctness
+invariants 1–8 green, unbounded `GROUP BY` rejected naming the key (done).
+
+Two limitations are recorded in the code where somebody will meet them, not only here: grouping
+keys are hashed into one `long`, so a collision would merge two groups silently (~3 × 10⁻⁸ at a
+million keys) — the fix is carrying key bytes, which belongs with the keyed state store; and
+`SESSION` exists in the runtime but has no SQL surface for the same reason.
 
 ### Deferred, on purpose
 
