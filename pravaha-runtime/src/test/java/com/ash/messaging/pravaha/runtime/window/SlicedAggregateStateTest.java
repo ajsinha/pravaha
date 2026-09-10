@@ -45,9 +45,9 @@ class SlicedAggregateStateTest {
         SlicedAggregateState state = state(
                 WindowSpec.tumbling(10 * SECOND), 100, SlicedAggregateState.Kind.COUNT, SlicedAggregateState.Kind.SUM);
 
-        state.update(1L, SECOND, new long[] {0, 100}, 1);
-        state.update(1L, 2 * SECOND, new long[] {0, 200}, 1);
-        state.update(2L, 3 * SECOND, new long[] {0, 50}, 1);
+        state.update(1L, new Object[] {1L}, SECOND, new long[] {0, 100}, 1);
+        state.update(1L, new Object[] {1L}, 2 * SECOND, new long[] {0, 200}, 1);
+        state.update(2L, new Object[] {2L}, 3 * SECOND, new long[] {0, 50}, 1);
 
         List<SlicedAggregateState.WindowResult> results = state.fire(10 * SECOND);
 
@@ -65,7 +65,7 @@ class SlicedAggregateStateTest {
         SlicedAggregateState state =
                 state(WindowSpec.hopping(60 * SECOND, 10 * SECOND), 100, SlicedAggregateState.Kind.COUNT);
 
-        state.update(1L, 5 * SECOND, new long[] {0}, 1);
+        state.update(1L, new Object[] {1L}, 5 * SECOND, new long[] {0}, 1);
 
         assertThat(state.liveSlices())
                 .as("one record, one accumulator, not one per window it belongs to")
@@ -87,7 +87,7 @@ class SlicedAggregateStateTest {
             long key = i % 3;
             long value = i;
             records[i] = new long[] {eventTime, key, value};
-            state.update(key, eventTime, new long[] {0, value}, 1);
+            state.update(key, new Object[] {key}, eventTime, new long[] {0, value}, 1);
         }
 
         for (long windowEnd = 60 * SECOND; windowEnd <= 160 * SECOND; windowEnd += 10 * SECOND) {
@@ -134,11 +134,11 @@ class SlicedAggregateStateTest {
         SlicedAggregateState state = state(
                 WindowSpec.tumbling(10 * SECOND), 100, SlicedAggregateState.Kind.COUNT, SlicedAggregateState.Kind.SUM);
 
-        state.update(1L, SECOND, new long[] {0, 100}, 1);
-        state.update(1L, 2 * SECOND, new long[] {0, 200}, 1);
+        state.update(1L, new Object[] {1L}, SECOND, new long[] {0, 100}, 1);
+        state.update(1L, new Object[] {1L}, 2 * SECOND, new long[] {0, 200}, 1);
         assertThat(state.fire(10 * SECOND).get(0).values()).containsExactly(2, 300);
 
-        state.update(1L, 2 * SECOND, new long[] {0, 200}, -1);
+        state.update(1L, new Object[] {1L}, 2 * SECOND, new long[] {0, 200}, -1);
         assertThat(state.fire(10 * SECOND).get(0).values())
                 .as("the retraction undoes exactly what the insert did")
                 .containsExactly(1, 100);
@@ -150,8 +150,8 @@ class SlicedAggregateStateTest {
         // "no rows" from "rows summing to nothing", and for a COUNT the difference is the answer.
         SlicedAggregateState state = state(WindowSpec.tumbling(10 * SECOND), 100, SlicedAggregateState.Kind.COUNT);
 
-        state.update(1L, SECOND, new long[] {0}, 1);
-        state.update(1L, SECOND, new long[] {0}, -1);
+        state.update(1L, new Object[] {1L}, SECOND, new long[] {0}, 1);
+        state.update(1L, new Object[] {1L}, SECOND, new long[] {0}, -1);
 
         assertThat(state.fire(10 * SECOND)).isEmpty();
     }
@@ -164,9 +164,9 @@ class SlicedAggregateStateTest {
                 SlicedAggregateState.Kind.MIN,
                 SlicedAggregateState.Kind.MAX);
 
-        state.update(1L, SECOND, new long[] {50, 50}, 1);
-        state.update(1L, 12 * SECOND, new long[] {10, 10}, 1);
-        state.update(1L, 22 * SECOND, new long[] {90, 90}, 1);
+        state.update(1L, new Object[] {1L}, SECOND, new long[] {50, 50}, 1);
+        state.update(1L, new Object[] {1L}, 12 * SECOND, new long[] {10, 10}, 1);
+        state.update(1L, new Object[] {1L}, 22 * SECOND, new long[] {90, 90}, 1);
 
         assertThat(state.fire(30 * SECOND).get(0).values()).containsExactly(10, 90);
     }
@@ -176,9 +176,9 @@ class SlicedAggregateStateTest {
         // Knowing the current extreme does not tell you the previous one. Returning a stale extreme
         // would be a wrong answer that looks exactly like a right one.
         SlicedAggregateState state = state(WindowSpec.tumbling(10 * SECOND), 100, SlicedAggregateState.Kind.MAX);
-        state.update(1L, SECOND, new long[] {50}, 1);
+        state.update(1L, new Object[] {1L}, SECOND, new long[] {50}, 1);
 
-        assertThatThrownBy(() -> state.update(1L, SECOND, new long[] {50}, -1))
+        assertThatThrownBy(() -> state.update(1L, new Object[] {1L}, SECOND, new long[] {50}, -1))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("ordered multiset");
     }
@@ -191,10 +191,10 @@ class SlicedAggregateStateTest {
         SlicedAggregateState state = state(WindowSpec.tumbling(10 * SECOND), 5, SlicedAggregateState.Kind.COUNT);
 
         for (long key = 0; key < 5; key++) {
-            state.update(key, SECOND, new long[] {0}, 1);
+            state.update(key, new Object[] {key}, SECOND, new long[] {0}, 1);
         }
 
-        assertThatThrownBy(() -> state.update(99L, SECOND, new long[] {0}, 1))
+        assertThatThrownBy(() -> state.update(99L, new Object[] {99L}, SECOND, new long[] {0}, 1))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("key 99")
                 .hasMessageContaining("key space is unbounded");
@@ -205,10 +205,11 @@ class SlicedAggregateStateTest {
         // Eviction would make the answer wrong instead of making the query fail, and a wrong answer
         // nobody is told about is worse than a stopped query.
         SlicedAggregateState state = state(WindowSpec.tumbling(10 * SECOND), 2, SlicedAggregateState.Kind.COUNT);
-        state.update(1L, SECOND, new long[] {0}, 1);
-        state.update(2L, SECOND, new long[] {0}, 1);
+        state.update(1L, new Object[] {1L}, SECOND, new long[] {0}, 1);
+        state.update(2L, new Object[] {2L}, SECOND, new long[] {0}, 1);
 
-        assertThatThrownBy(() -> state.update(3L, SECOND, new long[] {0}, 1)).isInstanceOf(PravahaException.class);
+        assertThatThrownBy(() -> state.update(3L, new Object[] {3L}, SECOND, new long[] {0}, 1))
+                .isInstanceOf(PravahaException.class);
         assertThat(state.liveSlices()).as("nothing was evicted to make room").isEqualTo(2);
         assertThat(state.fire(10 * SECOND)).hasSize(2);
     }
@@ -221,7 +222,7 @@ class SlicedAggregateStateTest {
                 state(WindowSpec.hopping(60 * SECOND, 10 * SECOND), 1_000, SlicedAggregateState.Kind.COUNT);
 
         for (long eventTime = 0; eventTime < 120 * SECOND; eventTime += 5 * SECOND) {
-            state.update(1L, eventTime, new long[] {0}, 1);
+            state.update(1L, new Object[] {1L}, eventTime, new long[] {0}, 1);
         }
         int before = state.liveSlices();
         assertThat(before).isEqualTo(12);
@@ -237,7 +238,7 @@ class SlicedAggregateStateTest {
     @Test
     void allowedLatenessKeepsSlicesAliveForCorrections() {
         SlicedAggregateState state = state(WindowSpec.tumbling(10 * SECOND), 1_000, SlicedAggregateState.Kind.COUNT);
-        state.update(1L, SECOND, new long[] {0}, 1);
+        state.update(1L, new Object[] {1L}, SECOND, new long[] {0}, 1);
 
         assertThat(state.discardSlicesEndingBefore(15 * SECOND, 30 * SECOND))
                 .as("still within the lateness allowance, so the window can be corrected")

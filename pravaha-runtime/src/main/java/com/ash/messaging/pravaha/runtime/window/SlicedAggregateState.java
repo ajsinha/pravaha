@@ -50,8 +50,17 @@ import com.ash.messaging.pravaha.runtime.RuntimeErrors;
  */
 public final class SlicedAggregateState {
 
-    /** What a window produced for one key. */
-    public record WindowResult(long key, long windowStartNanos, long windowEndNanos, long[] values, long count) {}
+    /**
+     * What a window produced for one key.
+     *
+     * @param keyValues the grouping columns' values, in group-key order. Carried rather than
+     *     recomputed because the result row has to contain them: an aggregate keyed only by a hash
+     *     can tell you that some group counted seven, and not which group. That was found by the
+     *     first end-to-end query, which failed with "NOT NULL field never written" rather than with
+     *     a wrong number -- a better outcome than the alternative.
+     */
+    public record WindowResult(
+            long key, Object[] keyValues, long windowStartNanos, long windowEndNanos, long[] values, long count) {}
 
     /** Which aggregate a column holds. */
     public enum Kind {
@@ -65,6 +74,7 @@ public final class SlicedAggregateState {
 
     private static final class Accumulator {
         final long[] values;
+        Object[] keyValues;
         long count;
 
         Accumulator(int columns) {
@@ -98,7 +108,7 @@ public final class SlicedAggregateState {
      * @param values one per aggregate column; ignored for {@code COUNT}
      * @param weight the Z-set weight: {@code +1} for an insert, {@code -1} for a retraction
      */
-    public void update(long key, long eventTimeNanos, long[] values, long weight) {
+    public void update(long key, Object[] keyValues, long eventTimeNanos, long[] values, long weight) {
         if (weight == 0) {
             // A consolidated row contributes nothing and must not be counted. Skipping it here also
             // stops it creating an accumulator, which would otherwise be state held for no data.
@@ -118,6 +128,7 @@ public final class SlicedAggregateState {
                                 + "narrow the window, or add a key predicate.");
             }
             accumulator = new Accumulator(kinds.length);
+            accumulator.keyValues = keyValues;
             slices.put(sliceKey, accumulator);
             peakSlices = Math.max(peakSlices, slices.size());
         }
@@ -175,7 +186,12 @@ public final class SlicedAggregateState {
                 // A key whose weights cancel to zero within the window has no rows in it. Emitting a
                 // result for it would report an empty group as a present one.
                 results.add(new WindowResult(
-                        key, windowStart, windowEndNanos, accumulator.values.clone(), accumulator.count));
+                        key,
+                        accumulator.keyValues,
+                        windowStart,
+                        windowEndNanos,
+                        accumulator.values.clone(),
+                        accumulator.count));
             }
         });
         results.sort((a, b) -> Long.compare(a.key(), b.key()));
@@ -184,6 +200,9 @@ public final class SlicedAggregateState {
 
     private void merge(Accumulator target, Accumulator source) {
         boolean targetWasEmpty = target.count == 0;
+        if (target.keyValues == null) {
+            target.keyValues = source.keyValues;
+        }
         target.count += source.count;
         for (int i = 0; i < kinds.length; i++) {
             switch (kinds[i]) {

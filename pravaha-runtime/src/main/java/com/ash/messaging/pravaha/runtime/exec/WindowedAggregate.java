@@ -62,10 +62,13 @@ final class WindowedAggregate implements RowProcessor {
     private final long[] scratch;
     private final List<Integer> valueOrdinals;
     private final List<com.ash.messaging.pravaha.api.data.TypeName> groupTypes;
+    /** Group keys other than the window boundaries: the actual data keys. */
+    private final List<Integer> dataKeyOrdinals;
 
     private long watermark = Long.MIN_VALUE;
     private long lastFiredWatermark = Long.MIN_VALUE;
     private long highestEventTime = Long.MIN_VALUE;
+    private long earliestWindowStart = Long.MAX_VALUE;
 
     WindowedAggregate(WindowedAggregateOperator operator, RowArena arena, RowProcessor downstream) {
         this.operator = operator;
@@ -91,8 +94,16 @@ final class WindowedAggregate implements RowProcessor {
         }
         this.state = new SlicedAggregateState(windows, kinds, operator.maxSlices());
         this.scratch = new long[kinds.length];
+        // The window boundaries are group keys in SQL and must NOT be part of the accumulator's key
+        // here. The slice dimension already separates windows; including the boundaries as well
+        // gives each slice of a window its own accumulator and they never combine -- which is
+        // exactly what happened, and produced two partial sums where one total belonged, both of
+        // them arithmetically correct and neither of them the answer.
+        this.dataKeyOrdinals = operator.groupKeys().stream()
+                .filter(ordinal -> ordinal != operator.windowStartOrdinal() && ordinal != operator.windowEndOrdinal())
+                .toList();
         // Resolved once, at construction: the key hash must not look a column's type up per row.
-        this.groupTypes = operator.groupKeys().stream()
+        this.groupTypes = dataKeyOrdinals.stream()
                 .map(ordinal ->
                         operator.input().outputSchema().field(ordinal).type().typeName())
                 .toList();
@@ -106,10 +117,18 @@ final class WindowedAggregate implements RowProcessor {
             int ordinal = valueOrdinals.get(i);
             scratch[i] = ordinal < 0 || row.isNull(ordinal) ? 0 : row.getLong(ordinal);
         }
+        // The key's values travel with the accumulator: the result row has to contain them, and a
+        // hash can say that a group counted seven without saying which group.
+        Object[] keyValues = new Object[dataKeyOrdinals.size()];
+        for (int i = 0; i < keyValues.length; i++) {
+            int ordinal = dataKeyOrdinals.get(i);
+            keyValues[i] = row.isNull(ordinal) ? null : readKey(row, ordinal, groupTypes.get(i));
+        }
         // The window start is the event time as far as slicing is concerned: the assigner has
         // already placed the row, and using it here keeps the two from disagreeing about a boundary.
-        state.update(key, windowStart, scratch, row.weight());
+        state.update(key, keyValues, windowStart, scratch, row.weight());
         highestEventTime = Math.max(highestEventTime, row.eventTimestampNanos());
+        earliestWindowStart = Math.min(earliestWindowStart, windowStart);
     }
 
     /**
@@ -133,12 +152,21 @@ final class WindowedAggregate implements RowProcessor {
         state.discardSlicesEndingBefore(watermark, 0);
     }
 
+    /**
+     * Where firing starts on the very first advance.
+     *
+     * <p>The <em>earliest</em> window seen, not the latest, and not the epoch. Starting from the
+     * latest silently drops the opening windows of the stream: the first end-to-end query came back
+     * with three groups where five were expected, and every number in those three was correct.
+     * Starting from the epoch would instead walk every window since 1970 to reach the first real one.
+     *
+     * <p>One slide is subtracted because the scan takes window ends strictly after the point it
+     * starts from, and the earliest window's own end must count.
+     */
     private long firstWindowStart() {
-        // Start firing from the earliest window that could exist, not from Long.MIN_VALUE, or the
-        // first advance would walk every window since the epoch.
-        return highestEventTime == Long.MIN_VALUE
+        return earliestWindowStart == Long.MAX_VALUE
                 ? 0
-                : windows.sliceStartFor(highestEventTime) - operator.spec().sizeNanos();
+                : earliestWindowStart - operator.spec().slideNanos();
     }
 
     /** Called when the input ends: a bounded source must not leave its last windows unemitted. */
@@ -160,9 +188,20 @@ final class WindowedAggregate implements RowProcessor {
                         RuntimeErrors.ARENA_EXHAUSTED, "no room to emit a window result for key " + result.key());
             }
             writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+            // Group keys in the order the plan put them. The window boundaries come from the window
+            // that fired, not from the row: the assigner wrote *slice* boundaries, which are what
+            // the slicing needs and are narrower than the window for anything hopping.
             int column = 0;
-            writer.setLong(column++, result.windowStartNanos());
-            writer.setLong(column++, result.windowEndNanos());
+            int dataKey = 0;
+            for (int ordinal : operator.groupKeys()) {
+                if (ordinal == operator.windowStartOrdinal()) {
+                    writer.setLong(column++, result.windowStartNanos());
+                } else if (ordinal == operator.windowEndOrdinal()) {
+                    writer.setLong(column++, result.windowEndNanos());
+                } else {
+                    writeKey(column++, result.keyValues()[dataKey++]);
+                }
+            }
             for (int i = 0; i < result.values().length; i++) {
                 writer.setLong(column++, result.values()[i]);
             }
@@ -183,8 +222,8 @@ final class WindowedAggregate implements RowProcessor {
      */
     private long compositeKey(RowView row) {
         long hash = 0x9E3779B97F4A7C15L;
-        for (int i = 0; i < groupTypes.size(); i++) {
-            int ordinal = operator.groupKeys().get(i);
+        for (int i = 0; i < dataKeyOrdinals.size(); i++) {
+            int ordinal = dataKeyOrdinals.get(i);
             long value;
             if (row.isNull(ordinal)) {
                 // A distinct constant rather than zero: NULL and 0 are different groups, and SQL is
@@ -203,6 +242,38 @@ final class WindowedAggregate implements RowProcessor {
             hash = mix(hash ^ value);
         }
         return hash;
+    }
+
+    /** Reads one group column as an object, so it can be written back out verbatim. */
+    private static Object readKey(RowView row, int ordinal, com.ash.messaging.pravaha.api.data.TypeName type) {
+        return switch (type) {
+            case STRING -> row.getString(ordinal);
+            case BOOLEAN -> row.getBoolean(ordinal);
+            case INT8 -> row.getByte(ordinal);
+            case INT16 -> row.getShort(ordinal);
+            case INT32, DATE -> row.getInt(ordinal);
+            case FLOAT32 -> row.getFloat(ordinal);
+            case FLOAT64 -> row.getDouble(ordinal);
+            default -> row.getLong(ordinal);
+        };
+    }
+
+    /** Writes one group column back into the result row, in the output schema's type. */
+    private void writeKey(int column, Object value) {
+        if (value == null) {
+            writer.setNull(column);
+            return;
+        }
+        switch (operator.outputSchema().field(column).type().typeName()) {
+            case STRING -> writer.setString(column, (String) value);
+            case BOOLEAN -> writer.setBoolean(column, (Boolean) value);
+            case INT8 -> writer.setByte(column, ((Number) value).byteValue());
+            case INT16 -> writer.setShort(column, ((Number) value).shortValue());
+            case INT32, DATE -> writer.setInt(column, ((Number) value).intValue());
+            case FLOAT32 -> writer.setFloat(column, ((Number) value).floatValue());
+            case FLOAT64 -> writer.setDouble(column, ((Number) value).doubleValue());
+            default -> writer.setLong(column, ((Number) value).longValue());
+        }
     }
 
     private static long mix(long z) {
