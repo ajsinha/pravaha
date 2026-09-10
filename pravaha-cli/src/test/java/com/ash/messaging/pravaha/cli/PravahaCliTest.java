@@ -94,7 +94,11 @@ class PravahaCliTest {
     void validateRefusesAnUnboundedGroupByBeforeAnythingRuns() {
         assertThat(run("validate", "--sql", "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id", "--schema", SCHEMA))
                 .isEqualTo(1);
-        assertThat(stderr()).contains("PRV-2050").contains("Add a window");
+        assertThat(stderr())
+                .contains("PRV-2050")
+                .as("the refusal names the key column, not its ordinal (Wave 4 gate)")
+                .contains("GROUP BY user_id")
+                .contains("TUMBLE(event_time");
     }
 
     @Test

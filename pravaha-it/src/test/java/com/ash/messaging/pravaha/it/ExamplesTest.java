@@ -101,11 +101,11 @@ class ExamplesTest {
                 run("validate", "--sql", "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id", "--schema", SCHEMA);
 
         assertThat(result.exitCode()).isOne();
-        assertThat(result.err()).contains("PRV-2050").contains("Add a window");
+        assertThat(result.err()).contains("PRV-2050").contains("Bound it with a window");
 
         // The README quotes the message; if the wording changes, the quote must too.
         String readme = readme("02-aggregate");
-        assertThat(readme).contains("PRV-2050").contains("Add a window");
+        assertThat(readme).contains("PRV-2050").contains("Bound it with a window");
     }
 
     @Test

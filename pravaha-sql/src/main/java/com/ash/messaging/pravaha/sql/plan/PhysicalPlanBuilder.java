@@ -121,15 +121,34 @@ public final class PhysicalPlanBuilder {
 
         // Design 9.6: an unbounded integrate over an unbounded key space never stops growing, and
         // refusing the query is the only intervention that reliably works. A global aggregate is
-        // bounded by construction (one row); a keyed one is not, until windowing arrives in Wave 4.
+        // bounded by construction -- one row, whatever the input volume; a keyed one is not.
         if (!groupKeys.isEmpty()) {
             throw new PravahaException(
                     SqlErrors.UNBOUNDED_STATE,
-                    "GROUP BY " + groupKeys + " has no bound on its key space, so its state would grow "
-                            + "without limit. Add a window (arriving in Wave 4) or a state TTL. "
+                    "GROUP BY " + namesOf(groupKeys, input.outputSchema())
+                            + " has no bound on its key space, so its state grows with the number of distinct "
+                            + "keys and never shrinks. One row per key is fine at a thousand keys and fatal at "
+                            + "a hundred million, and the failure arrives weeks after deployment.\n"
+                            + "  Bound it with a window -- GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), "
+                            + namesOf(groupKeys, input.outputSchema())
+                            + " -- so state is released when each window closes.\n"
                             + "Refusing now rather than exhausting memory later.");
         }
         return operator;
+    }
+
+    /**
+     * Renders group-key ordinals as the column names the query was written with.
+     *
+     * <p>The gate for this wave asks for a diagnostic that <em>names the key</em>, and the reason is
+     * practical rather than cosmetic: "GROUP BY [3]" tells somebody reading it nothing, and a person
+     * debugging a rejected query at speed will map that ordinal to the wrong column at least once.
+     */
+    private static String namesOf(List<Integer> ordinals, StreamSchema schema) {
+        return ordinals.stream()
+                .map(ordinal ->
+                        ordinal < schema.fieldCount() ? schema.field(ordinal).name() : "column " + ordinal)
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     private static AggregateOperator.AggregateCall.Kind kindOf(AggregateCall call) {

@@ -118,13 +118,27 @@ class PhysicalPlanBuilderTest {
     @Test
     void aKeyedAggregateIsRefusedUntilItsStateCanBeBounded() {
         // Design 9.6. Unbounded integration is how incremental engines die in production, and
-        // refusing the query is the only intervention that reliably works. The message says what
-        // to do about it rather than just refusing.
+        // refusing the query is the only intervention that reliably works.
+        //
+        // The Wave 4 gate asks specifically for a diagnostic that *names the key*, and that is
+        // asserted here rather than left to good intentions: "GROUP BY [3]" tells a reader nothing,
+        // and somebody debugging at speed will map that ordinal to the wrong column at least once.
         assertThatThrownBy(() -> plan("SELECT user_id, COUNT(*) FROM txn GROUP BY user_id"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2050")
-                .hasMessageContaining("grow without limit")
-                .hasMessageContaining("Add a window");
+                .hasMessageContaining("GROUP BY user_id")
+                .hasMessageNotContaining("GROUP BY [")
+                .hasMessageContaining("never shrinks")
+                .hasMessageContaining("TUMBLE(event_time");
+    }
+
+    @Test
+    void aRefusalNamesEveryKeyOfACompositeGroupBy() {
+        // One name is the easy case. A composite key is where an ordinal list is most confusing and
+        // most likely to be misread.
+        assertThatThrownBy(() -> plan("SELECT user_id, status, COUNT(*) FROM txn GROUP BY user_id, status"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("GROUP BY user_id, status");
     }
 
     @Test

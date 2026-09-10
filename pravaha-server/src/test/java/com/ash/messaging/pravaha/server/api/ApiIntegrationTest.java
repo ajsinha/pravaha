@@ -152,7 +152,7 @@ class ApiIntegrationTest {
                 .andExpect(jsonPath("$.valid").value(false))
                 .andExpect(jsonPath("$.diagnostics[0].code").value("PRV-2050"))
                 .andExpect(jsonPath("$.diagnostics[0].message")
-                        .value(org.hamcrest.Matchers.containsString("Add a window")));
+                        .value(org.hamcrest.Matchers.containsString("Bound it with a window")));
     }
 
     @Test

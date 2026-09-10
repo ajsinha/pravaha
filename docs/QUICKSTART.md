@@ -133,9 +133,18 @@ pravaha validate --sql "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id" \
 ```
 
 ```
-PRV-2050  GROUP BY [0] has no bound on its key space, so its state would grow without limit.
-Add a window (arriving in Wave 4) or a state TTL. Refusing now rather than exhausting memory later.
+PRV-2050  GROUP BY user_id has no bound on its key space, so its state grows with the number of
+distinct keys and never shrinks. One row per key is fine at a thousand keys and fatal at a hundred
+million, and the failure arrives weeks after deployment.
+  Bound it with a window -- GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), user_id -- so state is
+released when each window closes.
+Refusing now rather than exhausting memory later.
+  https://docs.pravaha.io/errors/PRV-2050
 ```
+
+The message names **the column**, not its ordinal. `GROUP BY [0]` -- which is what this said until
+Wave 4 -- tells a reader nothing, and somebody debugging at speed will map that ordinal to the wrong
+column at least once.
 
 This is not an unimplemented feature so much as a policy. Unbounded integration over an unbounded
 key space is how incremental engines die in production, and the only intervention that reliably
