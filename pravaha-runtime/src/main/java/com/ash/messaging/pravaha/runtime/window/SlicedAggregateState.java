@@ -60,7 +60,27 @@ public final class SlicedAggregateState {
      *     a wrong number -- a better outcome than the alternative.
      */
     public record WindowResult(
-            long key, Object[] keyValues, long windowStartNanos, long windowEndNanos, long[] values, long count) {}
+            long keyHigh,
+            long keyLow,
+            Object[] keyValues,
+            long windowStartNanos,
+            long windowEndNanos,
+            long[] values,
+            long count) {
+
+        /**
+         * A stable single-word identity for the group, for maps and ordering.
+         *
+         * <p>Mixed rather than XORed. XOR collapses to zero whenever the two halves are equal, which
+         * never happens with two independently-seeded digests and happens constantly in a test that
+         * passes the same value twice -- so a test using it as an identity found every group under
+         * the key zero. A degenerate case that only appears in tests is still a bad identity
+         * function.
+         */
+        public long key() {
+            return keyHigh ^ (keyLow * 0x9E3779B97F4A7C15L);
+        }
+    }
 
     /** Which aggregate a column holds. */
     public enum Kind {
@@ -70,7 +90,17 @@ public final class SlicedAggregateState {
         MAX
     }
 
-    private record SliceKey(long key, long sliceStart) {}
+    /**
+     * One accumulator's identity: which group, and which slice.
+     *
+     * <p>The group is a <strong>128-bit</strong> digest of the grouping columns, not a 64-bit one.
+     * With 64 bits and a million live groups the chance that two of them collide is about
+     * 3 x 10^-8 -- small enough to ignore in most systems and not in one whose entire claim is that
+     * its answers are right, because the failure is two unrelated groups silently merged into a
+     * number that looks perfectly reasonable. At 128 bits the same figure is around 10^-27, which is
+     * below the rate at which the hardware gets the arithmetic wrong.
+     */
+    private record SliceKey(long keyHigh, long keyLow, long sliceStart) {}
 
     private static final class Accumulator {
         final long[] values;
@@ -108,21 +138,22 @@ public final class SlicedAggregateState {
      * @param values one per aggregate column; ignored for {@code COUNT}
      * @param weight the Z-set weight: {@code +1} for an insert, {@code -1} for a retraction
      */
-    public void update(long key, Object[] keyValues, long eventTimeNanos, long[] values, long weight) {
+    public void update(long keyHigh, long keyLow, Object[] keyValues, long eventTimeNanos, long[] values, long weight) {
         if (weight == 0) {
             // A consolidated row contributes nothing and must not be counted. Skipping it here also
             // stops it creating an accumulator, which would otherwise be state held for no data.
             return;
         }
         long sliceStart = windows.sliceStartFor(eventTimeNanos);
-        SliceKey sliceKey = new SliceKey(key, sliceStart);
+        SliceKey sliceKey = new SliceKey(keyHigh, keyLow, sliceStart);
         Accumulator accumulator = slices.get(sliceKey);
         if (accumulator == null) {
             if (slices.size() >= maxSlices) {
                 throw new PravahaException(
                         RuntimeErrors.UNSUPPORTED_AGGREGATE,
                         "this windowed aggregate is holding " + slices.size() + " (key, slice) accumulators, "
-                                + "its configured ceiling, and key " + key + " at event time " + eventTimeNanos
+                                + "its configured ceiling, and key " + keyHigh + ":" + keyLow + " at event time "
+                                + eventTimeNanos
                                 + " needs another. Either the key space is unbounded -- which no window can fix -- "
                                 + "or the window is too wide for the key count. Raise the limit deliberately, "
                                 + "narrow the window, or add a key predicate.");
@@ -167,26 +198,30 @@ public final class SlicedAggregateState {
      */
     public List<WindowResult> fire(long windowEndNanos) {
         List<Long> sliceStarts = windows.slicesOfWindowEnding(windowEndNanos);
-        Map<Long, Accumulator> combined = new HashMap<>();
+        Map<SliceKey, Accumulator> combined = new HashMap<>();
         for (long sliceStart : sliceStarts) {
             for (Map.Entry<SliceKey, Accumulator> entry : slices.entrySet()) {
                 if (entry.getKey().sliceStart() != sliceStart) {
                     continue;
                 }
-                Accumulator target =
-                        combined.computeIfAbsent(entry.getKey().key(), key -> new Accumulator(kinds.length));
+                // Keyed by the group alone -- slice zeroed -- because combining slices into a window
+                // is precisely the act of forgetting which slice a value came from.
+                SliceKey groupKey =
+                        new SliceKey(entry.getKey().keyHigh(), entry.getKey().keyLow(), 0);
+                Accumulator target = combined.computeIfAbsent(groupKey, key -> new Accumulator(kinds.length));
                 merge(target, entry.getValue());
             }
         }
 
         long windowStart = windowEndNanos - windows.spec().sizeNanos();
         List<WindowResult> results = new ArrayList<>(combined.size());
-        combined.forEach((key, accumulator) -> {
+        combined.forEach((groupKey, accumulator) -> {
             if (accumulator.count != 0) {
                 // A key whose weights cancel to zero within the window has no rows in it. Emitting a
                 // result for it would report an empty group as a present one.
                 results.add(new WindowResult(
-                        key,
+                        groupKey.keyHigh(),
+                        groupKey.keyLow(),
                         accumulator.keyValues,
                         windowStart,
                         windowEndNanos,
@@ -194,7 +229,9 @@ public final class SlicedAggregateState {
                         accumulator.count));
             }
         });
-        results.sort((a, b) -> Long.compare(a.key(), b.key()));
+        results.sort((a, b) -> a.keyHigh() != b.keyHigh()
+                ? Long.compare(a.keyHigh(), b.keyHigh())
+                : Long.compare(a.keyLow(), b.keyLow()));
         return results;
     }
 

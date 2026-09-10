@@ -147,7 +147,13 @@ final class WindowedAggregate implements RowProcessor {
             lateOutput.accept(row);
             return;
         }
-        long key = compositeKey(row);
+        long keyHigh = compositeKey(row, 0x9E3779B97F4A7C15L);
+        // A second, independently-seeded digest of the same columns. Two 64-bit hashes of the same
+        // input are not two independent 64-bit hashes -- but seeded differently and finalised
+        // separately they are close enough that the joint collision probability is the product,
+        // which is what takes a one-in-thirty-million risk at a million groups down to nothing worth
+        // reasoning about.
+        long keyLow = compositeKey(row, 0xC2B2AE3D27D4EB4FL);
         for (int i = 0; i < scratch.length; i++) {
             int ordinal = valueOrdinals.get(i);
             scratch[i] = ordinal < 0 || row.isNull(ordinal) ? 0 : row.getLong(ordinal);
@@ -161,7 +167,7 @@ final class WindowedAggregate implements RowProcessor {
         }
         // The window start is the event time as far as slicing is concerned: the assigner has
         // already placed the row, and using it here keeps the two from disagreeing about a boundary.
-        state.update(key, keyValues, windowStart, scratch, row.weight());
+        state.update(keyHigh, keyLow, keyValues, windowStart, scratch, row.weight());
         highestEventTime = Math.max(highestEventTime, row.eventTimestampNanos());
         earliestWindowStart = Math.min(earliestWindowStart, windowStart);
 
@@ -313,8 +319,8 @@ final class WindowedAggregate implements RowProcessor {
      * <p>Window boundaries are part of the key, so two windows for the same user are different
      * groups without the state needing to know what a window is.
      */
-    private long compositeKey(RowView row) {
-        long hash = 0x9E3779B97F4A7C15L;
+    private long compositeKey(RowView row, long seed) {
+        long hash = seed;
         for (int i = 0; i < dataKeyOrdinals.size(); i++) {
             int ordinal = dataKeyOrdinals.get(i);
             long value;

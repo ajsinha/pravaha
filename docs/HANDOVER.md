@@ -161,19 +161,22 @@ It blocks Gate P3's Profile B figure too, so it is overdue rather than upcoming.
 | Bounded-state refusal naming the key | ✅ gate criterion met |
 | Windowed `GROUP BY` in SQL, end to end | ✅ `TABLE(TUMBLE(...))` and `HOP` |
 | Late data: correction with retraction, late output | ✅ |
-| Dead-letter queue | ❌ next — the late output is the seam it attaches to |
-| Emit modes / changelog negotiation (`APPEND`/`UPSERT`/`RETRACT`) | ❌ |
-| L0 off-heap state store | ❌ |
+| Dead-letter queue | ✅ `FileDeadLetterQueue`, `DeadLetterRate` |
+| Emit modes / changelog negotiation | ✅ `ChangelogAnalysis` — refuses the *pair*, names the operator |
+| L0 off-heap state store | ✅ `L0StateMap` — built, not yet used by the aggregate |
 | RocksDB tier | ❌ |
 | `DISTINCT` | ❌ |
 
 **Gate P3:** Profile B ≥ 350 k rec/s/lane (**same hardware block as Gate P2**), correctness
 invariants 1–8 green, unbounded `GROUP BY` rejected naming the key (done).
 
-Two limitations are recorded in the code where somebody will meet them, not only here: grouping
-keys are hashed into one `long`, so a collision would merge two groups silently (~3 × 10⁻⁸ at a
-million keys) — the fix is carrying key bytes, which belongs with the keyed state store; and
-`SESSION` exists in the runtime but has no SQL surface for the same reason.
+One limitation is recorded in the code where somebody will meet it: `SESSION` exists in the runtime
+but has no SQL surface, because its state is a per-key interval set rather than a slice grid.
+
+The group-key collision risk noted earlier is **closed**: keys are now a 128-bit digest, which takes
+the chance of two groups merging at a million keys from about 3 × 10⁻⁸ to around 10⁻²⁷ — below the
+rate at which the hardware gets arithmetic wrong. `L0StateMap` stores key bytes outright and is what
+the aggregate should eventually use.
 
 ### Deferred, on purpose
 
