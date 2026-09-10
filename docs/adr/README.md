@@ -31,3 +31,4 @@ decision that was later reversed is usually the most useful thing here.
 | [022](022-console-as-a-product-surface.md) | The console is a flagship product surface with its own design system, built as a continuous... |
 | [021](021-no-graalvm-native-image.md) | No GraalVM native image for the engine |
 | [018](018-proprietary-licence.md) | Proprietary, wholly owned by Ashutosh Sinha. All rights reserved |
+| [023](023-api-first-console.md) | The console uses only the public API; one deployable by default, two supported |

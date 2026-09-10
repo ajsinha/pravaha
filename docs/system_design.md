@@ -11,7 +11,8 @@
 | Changes in 3.4 | §4.5–4.6 corrected from implementation: Agrona requires a JVM flag and cannot be the default; `ByteBuffer`/`VarHandle` is |
 | Changes in 3.5 | Licensing changed from Apache 2.0 to proprietary, wholly owned (§30.4, ADR-018); client SDKs relocated to `sdk/` (§7) |
 | Changes in 3.6 | Console theming, templating and vendoring settled (§23.4a); public landing/about/help pages specified (§23.4b) |
-| Version | 3.6 |
+| Changes in 3.7 | API boundary and deployment split settled (§23.2a, ADR-023); resolved a contradiction between §23.3's SPA and §23.4a's server-rendered shell |
+| Version | 3.7 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -2411,7 +2412,8 @@ The console serves audiences with genuinely different jobs. A single undifferent
 |---|---|---|
 | Backend | **Spring Boot 3.5** (Java 21), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi | A BFF, not a second engine (§23.17) |
 | Live updates | **SSE** for metrics/status/progress; **WebSocket (STOMP)** for the result tap and the debugger | SSE is simpler and auto-reconnects; WebSocket only where genuinely bidirectional |
-| Frontend | **React 19 + TypeScript (strict)**, Vite, TanStack Query + Router | Mature, typed end-to-end from the OpenAPI spec |
+| Page shell and public pages | **Server-rendered templates** (§23.4a) | Renders the theme into the markup, so no flash; works with JavaScript disabled |
+| Application surfaces | **React 19 + TypeScript (strict)** as islands mounted inside the shell, Vite, TanStack Query | Mature, typed end-to-end from the OpenAPI spec |
 | Styling | **Tailwind CSS + shadcn/ui**, extended with a Pravaha component layer | Owned components, not a framework we cannot restyle |
 | SQL editor | **Monaco** + a Pravaha language service | Catalog-aware completion, inline diagnostics, hover types, format |
 | Plan graph | **React Flow** with a custom ELK-based layout | The DAG is the signature screen; generic graph libraries look generic |
@@ -2420,7 +2422,62 @@ The console serves audiences with genuinely different jobs. A single undifferent
 | Forms | React Hook Form + Zod, schemas generated from the OpenAPI spec | One source of truth for validation, client and server |
 | State | TanStack Query for server state; Zustand for the little that is genuinely client state | No global store cargo cult |
 | i18n | react-intl, strings externalised from day one | Retrofitting i18n costs 5× |
-| Build | `frontend-maven-plugin` → pnpm → static resources in the Spring Boot jar | One artefact, `./mvnw -Pui verify` |
+| Build | `frontend-maven-plugin` → pnpm → static resources in the Spring Boot jar | One artefact by default; separate deployment supported (§23.2a) |
+
+### 23.2a The API boundary, and what is deployed where
+
+Two decisions that are easy to conflate and have different answers.
+
+#### The public API is the only API
+
+**The console has no privileged access to the engine.** Every call it makes goes through the same
+documented, versioned REST and gRPC surface a third party would use. There is no internal endpoint,
+no back door, and no "the UI needs this so we added a shortcut".
+
+This is the decision worth being strict about, and it matters more here than in most products because
+the engine is proprietary (§30.4): nobody can read the source, so **the API is the product surface**.
+An API that exists to serve the console, with third-party use as an afterthought, produces exactly
+the second-class integration story a closed-source engine cannot afford.
+
+It is also the expensive-to-reverse direction. A console that accretes privileged calls cannot be
+un-accreted cheaply, whereas a strict boundary costs nothing to maintain once established.
+
+**Enforced, not intended.** An architecture test asserts the console backend depends only on the
+generated API client, never on engine modules directly — the same mechanism that keeps storage
+clients out of the core (NFR-4) and Spring out of the engine (§22.1).
+
+#### Packaging is a separate question, and the answer is different
+
+Shipping the console as its own deployable buys **team autonomy** — a frontend team releasing on its
+own cadence. It buys essentially nothing else: serving a few hundred kilobytes of static assets and
+aggregating metrics at 1 Hz is not a scaling axis, and the ones that are (lanes, state size, read
+replicas — §17.5) are unaffected by where the UI runs.
+
+Against that, a second deployable costs: cross-origin authentication, two artefacts to patch and
+certify, and the loss of "download one jar, run it, open a browser". That last one is a real
+adoption lever for a product that cannot say *just clone it* (§30.4), and air-gapped deployment is
+a stated precondition (§23.4a).
+
+So: **one artefact by default, separate deployment as a supported configuration.** Because the API
+boundary above already exists, splitting the deployable later is a packaging change rather than a
+re-architecture. Splitting late is cheap; un-splitting is not.
+
+#### Rendering is split by page type, not by preference
+
+A pure client-rendered application cannot render the theme into the markup, so it flashes on every
+load — and on the amber-on-black theme that flash is a full white screen (§23.4a). A pure
+server-rendered application cannot host Monaco, a live plan DAG or a stepping debugger without
+fighting the framework. Neither answer is right for the whole console.
+
+| Surface | Rendering | Why |
+|---|---|---|
+| Landing, about, help (§23.4b) | Server-rendered templates | Public, cacheable, work with JavaScript disabled — an evaluator behind a restrictive corporate proxy is exactly the reader worth keeping |
+| App shell: navigation, theme and density attributes, skip link, live region | Server-rendered | This is what removes the theme flash, and it is where the accessibility scaffolding belongs so it exists once rather than per page |
+| Workbench, plan DAG, debugger, live results, metrics explorer | React islands mounted inside the shell | Genuinely application-like; templates would be the wrong tool |
+
+The shell renders `data-theme`, `data-bs-theme` and `data-density` onto `<html>` from the cookie, and
+the islands inherit them. One architecture, two rendering strategies chosen per page rather than one
+strategy applied everywhere it fits badly.
 
 ### 23.4 Design system
 
@@ -3374,6 +3431,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **019** | Engine core is Spring-free; Spring Boot is a bootstrap layer above a plain-Java `PravahaEngine` seam | Spring throughout; no Spring anywhere; Quarkus/Micronaut | Keeps embeddability intact (a host on Boot 3.2 cannot be forced to 3.5), keeps `pravaha dev` under 1 s, and keeps proxies off the hot path — while the server still inherits Boot's config, actuator, security and packaging for free (§22.1) |
 | **020** | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` | Documentation only; a bare `PravahaEngine` bean | Lets a team add continuous SQL to a service they already run, in the idiom they already use. Modelled on `@KafkaListener` so the mental model transfers (§22.4) |
 | **022** | The console is a flagship product surface with its own design system, built as a continuous workstream from Phase 3 | A late control-plane admin UI; CLI-only; a thin metrics page | For most users the console *is* the product, and W10 (the time-travel debugger) exists nowhere else. A polished UI cannot be produced in one late phase, so it is resourced with a dedicated frontend engineer and shipped alongside each engine capability (§23.1) |
+| **023** | The console uses only the public API; one deployable by default, two supported | A privileged internal API for the console; a mandatory second deployable; a pure SPA | For a proprietary engine the API *is* the product surface, so a console-first API produces a second-class integration story. Packaging is a separate and cheaper decision: the boundary makes splitting the deployable later a packaging change rather than a re-architecture (§23.2a) |
 | **021** | No GraalVM native image for the engine | Native image via Spring AOT; drop runtime codegen to enable it | Runtime Java-source compilation (ADR-005) is fundamentally incompatible with a closed-world image, and it is what makes the hot path fast. Stated so no one spends a sprint on it. Clients and UI may still go native (§22.7) |
 | **018** | **Proprietary, wholly owned by Ashutosh Sinha.** All rights reserved | Apache 2.0 (proposed in an earlier revision of this document); open core; source-available; dual licence | Owner's decision. The technical moat in §2 is unaffected, but the distribution risk moves from execution to evaluation: §30.4 sets out what has to carry the weight instead — published Nexmark results, a frictionless evaluation licence, and the developer-experience surface |
 
