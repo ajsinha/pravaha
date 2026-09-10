@@ -89,9 +89,10 @@ final class SymmetricHashJoin implements AutoCloseable {
         for (int ordinal : rightKeys) {
             JoinKeys.checkJoinable(rightSchema, ordinal, "right");
         }
-        this.store = new RowStore(MemoryAccess.best(), STATE_SLAB_BYTES, maxStateSlabs);
-        this.leftState = new JoinSide(store, leftSchema, leftKeys);
-        this.rightState = new JoinSide(store, rightSchema, rightKeys);
+        MemoryAccess access = MemoryAccess.best();
+        this.store = new RowStore(access, STATE_SLAB_BYTES, maxStateSlabs);
+        this.leftState = new JoinSide(store, access, leftSchema, leftKeys);
+        this.rightState = new JoinSide(store, access, rightSchema, rightKeys);
         this.outputLayout = RowLayout.of(plan.outputSchema());
         this.writer = new BinaryRowWriter(outputLayout);
         this.view = new BinaryRowView(outputLayout);
@@ -174,6 +175,18 @@ final class SymmetricHashJoin implements AutoCloseable {
 
     long rowsHeldRight() {
         return rightState.distinctRows();
+    }
+
+    /** Writes both sides, left first. */
+    void writeTo(java.io.DataOutputStream out) throws java.io.IOException {
+        leftState.writeTo(out);
+        rightState.writeTo(out);
+    }
+
+    /** Reads both sides back, in the order they were written. */
+    void readFrom(java.io.DataInputStream in) throws java.io.IOException {
+        leftState.readFrom(in);
+        rightState.readFrom(in);
     }
 
     long keysHeldLeft() {

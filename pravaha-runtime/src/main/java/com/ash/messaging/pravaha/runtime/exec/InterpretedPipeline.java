@@ -183,7 +183,10 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /**
-     * Rows currently held by this pipeline's joins, both sides together.
+     * Distinct rows currently held by this pipeline's joins, both sides together.
+     *
+     * <p>Distinct, because that is what costs memory: two identical arrivals are one entry of
+     * weight 2 in one block.
      *
      * <p>Exposed because a join's most dangerous failure is invisible in its output. An entry whose
      * weight has cancelled to zero emits nothing and matches nothing -- the results stay correct --
@@ -259,12 +262,15 @@ public final class InterpretedPipeline implements AutoCloseable {
      * mutates it produces a snapshot of no moment in particular.
      */
     public byte[] snapshotState() {
-        refuseToCheckpointJoins();
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
         try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {
             out.writeInt(windowed.size());
             for (WindowedAggregate aggregate : windowed) {
                 aggregate.writeTo(out);
+            }
+            out.writeInt(joins.size());
+            for (SymmetricHashJoin join : joins) {
+                join.writeTo(out);
             }
         } catch (java.io.IOException e) {
             throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot snapshot this pipeline's state: " + e, e);
@@ -293,6 +299,18 @@ public final class InterpretedPipeline implements AutoCloseable {
             for (WindowedAggregate aggregate : windowed) {
                 aggregate.readFrom(in);
             }
+
+            int joinCount = in.readInt();
+            if (joinCount != joins.size()) {
+                throw new PravahaException(
+                        RuntimeErrors.LANE_FAILED,
+                        "the checkpoint holds " + joinCount + " joins and this plan has " + joins.size()
+                                + ": the query changed since the checkpoint was taken, and a join restored "
+                                + "against a different plan would match rows against the wrong side.");
+            }
+            for (SymmetricHashJoin join : joins) {
+                join.readFrom(in);
+            }
         } catch (java.io.IOException e) {
             throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot restore pipeline state: " + e, e);
         }
@@ -301,26 +319,6 @@ public final class InterpretedPipeline implements AutoCloseable {
     /** Whether this pipeline holds any state worth checkpointing. */
     public boolean isStateful() {
         return !windowed.isEmpty() || !joins.isEmpty();
-    }
-
-    /**
-     * Refuses to produce a snapshot that would silently omit a join's state.
-     *
-     * <p>A join holds both sides' rows, and a checkpoint that leaves them out restores a query whose
-     * state is empty while its offsets say the rows were consumed -- so every pair those rows would
-     * have formed is lost, permanently and silently. Writing the join state is the next piece of
-     * work; until it exists, a query with a join cannot be checkpointed, and saying so is the only
-     * honest option. Refusing here rather than at planning time keeps the join usable for the
-     * queries that do not need recovery.
-     */
-    private void refuseToCheckpointJoins() {
-        if (!joins.isEmpty()) {
-            throw new PravahaException(
-                    RuntimeErrors.UNSUPPORTED_JOIN,
-                    "a query containing a join cannot be checkpointed yet: the join holds rows on both sides "
-                            + "and the snapshot format does not carry them, so recovery would silently lose "
-                            + "every pair they would have formed");
-        }
     }
 
     /** Records dropped as too late, across every windowed operator in this pipeline. */

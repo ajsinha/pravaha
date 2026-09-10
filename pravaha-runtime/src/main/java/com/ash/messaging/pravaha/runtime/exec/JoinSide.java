@@ -71,12 +71,36 @@ final class JoinSide implements AutoCloseable {
     private long rows;
     private long distinctRows;
 
-    JoinSide(RowStore store, StreamSchema schema, int[] keyOrdinals) {
+    /**
+     * Somewhere to land a row read back from a checkpoint before it is indexed.
+     *
+     * <p>Only ever touched by {@link #readFrom}, which runs while the query is stopped. Reusing it
+     * on the row path would be a bug of exactly the kind this codebase keeps finding: a view handed
+     * downstream while the buffer behind it is about to be overwritten.
+     *
+     * <p>It has its own view for the same reason, learned the hard way. Handing the restored row in
+     * on the shared cursor meant {@code add} re-pointed that cursor at each chain entry it compared
+     * against, so the row being inserted turned into the row it was being compared with, and the
+     * whole side restored as empty.
+     */
+    private MemoryRegion scratch;
+
+    private final BinaryRowView restoreView;
+
+    private final com.ash.messaging.pravaha.common.memory.MemoryAccess access;
+
+    JoinSide(
+            RowStore store,
+            com.ash.messaging.pravaha.common.memory.MemoryAccess access,
+            StreamSchema schema,
+            int[] keyOrdinals) {
         this.store = store;
+        this.access = access;
         this.schema = schema;
         this.layout = RowLayout.of(schema);
         this.keyOrdinals = keyOrdinals.clone();
         this.cursor = new BinaryRowView(layout);
+        this.restoreView = new BinaryRowView(layout);
     }
 
     /**
@@ -151,12 +175,59 @@ final class JoinSide implements AutoCloseable {
         return buckets.size();
     }
 
-    /** Visits every stored row and weight, for checkpointing. */
-    void forEach(MatchVisitor visitor) {
+    /**
+     * Writes every stored row and its weight.
+     *
+     * <p>Rows go out as their own bytes, unchanged. Re-encoding them through the writer would mean a
+     * second encoder that has to agree with the first for the checkpoint to be readable, and the
+     * disagreement would only show up as a corrupt restore.
+     */
+    void writeTo(java.io.DataOutputStream out) throws java.io.IOException {
+        out.writeInt((int) distinctRows);
+        byte[] scratch = new byte[0];
         for (long head : buckets.values()) {
             for (long entry = head; entry != ArenaHandle.NULL; entry = nextOf(entry)) {
-                visitor.matched(wrap(entry), weightOf(entry));
+                int length = store.regionOf(entry).getInt(store.offsetOf(entry) + OFFSET_ROW_LENGTH);
+                if (scratch.length < length) {
+                    scratch = new byte[length];
+                }
+                store.regionOf(entry).getBytes(store.offsetOf(entry) + OFFSET_ROW, scratch, 0, length);
+                out.writeLong(weightOf(entry));
+                out.writeInt(length);
+                out.write(scratch, 0, length);
             }
+        }
+    }
+
+    /**
+     * Reads rows back in.
+     *
+     * <p>Through {@link #add}, not by rebuilding the index directly, so a restored side is indexed
+     * by the same code that indexed it originally. A separate restore path is a second
+     * implementation of the bucket layout, and the two drift.
+     */
+    void readFrom(java.io.DataInputStream in) throws java.io.IOException {
+        int count = in.readInt();
+        byte[] bytes = new byte[0];
+        for (int i = 0; i < count; i++) {
+            long weight = in.readLong();
+            int length = in.readInt();
+            if (bytes.length < length) {
+                bytes = new byte[length];
+            }
+            in.readFully(bytes, 0, length);
+            ensureScratch(length);
+            scratch.putBytes(0, bytes, 0, length);
+            add(restoreView.wrap(scratch, 0), weight);
+        }
+    }
+
+    private void ensureScratch(int length) {
+        if (scratch == null || scratch.capacity() < length) {
+            if (scratch != null) {
+                scratch.close();
+            }
+            scratch = access.allocate(Math.max(length, 1024));
         }
     }
 
@@ -236,6 +307,10 @@ final class JoinSide implements AutoCloseable {
     @Override
     public void close() {
         buckets.clear();
+        if (scratch != null) {
+            scratch.close();
+            scratch = null;
+        }
     }
 
     /** Called for each matching stored row. The row is only valid during the call. */

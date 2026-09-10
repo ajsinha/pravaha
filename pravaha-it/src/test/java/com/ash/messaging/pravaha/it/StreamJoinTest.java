@@ -292,19 +292,60 @@ class StreamJoinTest {
     }
 
     @Test
-    void aJoinedQueryRefusesToCheckpointRatherThanLoseItsState() {
-        // A snapshot that omits the join's rows restores a query that has forgotten them while its
-        // offsets claim they were consumed. Saying so is the only honest answer until the format
-        // carries them.
-        PhysicalOperator plan =
-                plan("SELECT o.order_id, u.country FROM orders o JOIN users u ON o.user_id = u.user_id");
+    void aJoinSurvivesACheckpointAndRestore() {
+        // The state a join holds is invisible in its output until the other side arrives, which is
+        // exactly why losing it is so easy to miss: a restored query that has forgotten the right
+        // side keeps running, keeps reporting healthy, and silently never joins those rows again.
+        String sql = "SELECT o.order_id, u.country FROM orders o JOIN users u ON o.user_id = u.user_id";
+        byte[] snapshot;
+        List<CapturingRowWriter.Captured> before = new ArrayList<>();
+
+        try (Harness harness = new Harness(plan(sql), List.of(orders(), users()), before)) {
+            harness.feed("users", 1, new Object[] {"u1", "IN"});
+            harness.feed("users", 1, new Object[] {"u2", "US"});
+            harness.feed("users", 1, new Object[] {"u2", "US"});
+            harness.feed("orders", 1, new Object[] {1L, "u1", 10L});
+            snapshot = harness.snapshot();
+        }
+        assertThat(before).hasSize(1);
+
+        List<CapturingRowWriter.Captured> after = new ArrayList<>();
+        try (Harness harness = new Harness(plan(sql), List.of(orders(), users()), after)) {
+            harness.restore(snapshot);
+
+            // Everything the first run held is still there: two distinct user rows -- the duplicate
+            // is one element of weight 2, not two rows -- and the order on the other side.
+            assertThat(harness.rowsHeld()).isEqualTo(3);
+
+            harness.feed("orders", 1, new Object[] {2L, "u2", 20L});
+            assertThat(after).hasSize(1);
+            assertThat(after.get(0).weight())
+                    .as("the duplicated user row kept its weight")
+                    .isEqualTo(2);
+            assertThat(after.get(0).values()[1]).isEqualTo("US");
+
+            // And the left side survived too: a user arriving now still finds the stored order.
+            harness.feed("users", 1, new Object[] {"u1", "IN"});
+            assertThat(after).hasSize(2);
+            assertThat(after.get(1).asLong(0)).isEqualTo(1L);
+        }
+    }
+
+    @Test
+    void restoringAJoinIntoADifferentPlanIsRefused() {
+        String joined = "SELECT o.order_id, u.country FROM orders o JOIN users u ON o.user_id = u.user_id";
+        byte[] snapshot;
         List<CapturingRowWriter.Captured> out = new ArrayList<>();
 
-        try (Harness harness = new Harness(plan, List.of(orders(), users()), out)) {
-            assertThatThrownBy(harness::snapshot)
+        try (Harness harness = new Harness(plan(joined), List.of(orders(), users()), out)) {
+            harness.feed("users", 1, new Object[] {"u1", "IN"});
+            snapshot = harness.snapshot();
+        }
+
+        try (Harness harness = new Harness(plan("SELECT order_id FROM orders"), List.of(orders(), users()), out)) {
+            assertThatThrownBy(() -> harness.restore(snapshot))
                     .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("PRV-3021")
-                    .hasMessageContaining("cannot be checkpointed yet");
+                    .hasMessageContaining("the query changed since the checkpoint was taken");
         }
     }
 
@@ -385,6 +426,10 @@ class StreamJoinTest {
 
         byte[] snapshot() {
             return pipeline.snapshotState();
+        }
+
+        void restore(byte[] snapshot) {
+            pipeline.restoreState(snapshot);
         }
 
         @Override
