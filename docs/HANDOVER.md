@@ -17,12 +17,13 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **27 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **911** (plus 28 Python) |
+| Java tests | **942** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
 **Session of 2026-09-09/10 — what changed.** Wave 3 and Wave 4 are both **complete** in scope, and
-**Wave 5 has started**: checkpoint/recovery works and the bilinear join lift is in.
+**Wave 5 is well under way**: checkpoint/recovery works, and stream-to-stream joins now run end to
+end -- SQL, runtime, and checkpointed state on both sides.
 **Gate P2 is blocked on hardware, not on code** — see [`gates/wave-3`](gates/wave-3/), read that
 first. Three connectors were also built out of wave, at the owner's request: Delta Lake, feed files
 (CSV + Parquet drop directories) and JDBC.
@@ -180,8 +181,13 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | State snapshot/restore, lane control path | ✅ `QueryExecution.checkpoint/restore` |
 | **Recovery proven**: interrupted run == uninterrupted run | ✅ `CheckpointRecoveryTest` |
 | Bilinear join lift, checked against recomputation | ✅ `IncrementalJoin` (algebra) |
-| Join in the runtime and SQL | ❌ next |
+| Join in the runtime and SQL | ✅ `SymmetricHashJoin`, `JoinOperator`, `PhysicalPlanBuilder.buildJoin` |
+| Join state checkpointed and restored | ✅ both sides in the snapshot; `StreamJoinTest` |
+| Expressions in `WHERE` (`amount * 2 > 100`) | ✅ `Predicate.CompareExpressions` |
 | Aligned barriers across the exchange | ❌ — checkpointing is per-lane, which is sound only while lanes share no state; the limitation is written into `QueryExecution.checkpoint` |
+| Windowed / time-versioned joins | ❌ — the unwindowed join is bounded only by a row ceiling, which fails the query rather than the node |
+| Outer joins | ❌ — refused with the reason: an unmatched row must be held for as long as a match could arrive |
+| Self-joins | ❌ — both sides would read one stream and a stream name cannot say which side a row is for |
 | Aerospike plugin, four strategies | ❌ |
 | Expression pushdown, idempotent sink | ❌ |
 

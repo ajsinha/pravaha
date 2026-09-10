@@ -209,6 +209,45 @@ Also open at 10 000: per-query quotas so one hot query cannot starve the ~300 sh
 (FR-9, design §21.4), and a metaspace measurement with 10 000 queries *live* — the existing leak test covers
 10 000 register/drop **cycles**, which is a different question and a much easier one.
 
+## How a join stays incremental
+
+A stream-to-stream join is where an incremental engine either earns its keep or falls over, so it is
+worth following the whole path.
+
+**The rule.** `Δ(A⋈B) = ΔA⋈I(B) + I(A)⋈ΔB + ΔA⋈ΔB`. Both sides are streams; both keep state; and an
+update on either side is a retraction and an insert, so the operator has no update path in it at
+all. The third term is the one implementations drop: without it, two rows that arrive together and
+match each other are never joined, because each is compared against the other side *before* this
+batch. The bug is invisible at low rates -- a batch of one contains no pairs to miss -- and shows up
+as quietly missing output when traffic rises, which is exactly backwards from how anyone debugs.
+
+Pravaha executes the rule a row at a time, and at that granularity the third term stops being a
+separate case: rows that would have shared a batch arrive one after another, and the second finds
+the first already in state. The batched form still exists, in `pravaha-algebra`, as the reference the
+property oracle checks the engine against.
+
+**The state.** Each side holds every row that could still match, as Z-set elements rather than as
+events: two identical arrivals are one entry of weight 2, and a retraction cancels against it. That
+distinction is what makes an update release memory instead of accumulating it -- an engine that
+appends events keeps the retracted row forever and re-emits it on the next probe from the other
+side.
+
+**The memory.** Join state needed something the row arena deliberately is not. An arena allocates
+for one batch and drops the whole thing in one assignment, which is why a row costs a pointer bump;
+it has no per-row free, no free list and no fragmentation. State is the opposite shape -- rows held
+across batches, released one at a time as retractions arrive -- and a bump pointer under that
+workload grows to the high-water mark of everything the join has ever held. So `RowStore`: slabs,
+bump-allocated within, with a free list per power-of-two size class. A released block is handed back
+for the next request in its class. A join whose row count is flat reserves a flat amount of memory,
+which is the property the whole class exists for and the one its tests assert.
+
+**The bound.** All of the above is still unbounded in the only sense that matters: two unbounded
+streams joined without a time bound accumulate for as long as the query runs. Until windowed and
+time-versioned joins land, the protection is a row ceiling per side that fails the query, naming the
+count and what to do about it, rather than letting the node die with nothing to point at. Outer
+joins are refused for the same reason -- an unmatched row would have to be held for as long as a
+match could still arrive, which without a time bound is forever.
+
 ## The five ideas everything else follows from
 
 | | |
