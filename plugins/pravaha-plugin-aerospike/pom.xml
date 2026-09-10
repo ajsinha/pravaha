@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+  <artifactId>pravaha-plugin-aerospike</artifactId>
+  <name>Pravaha :: plugin :: aerospike</name>
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.aerospike</groupId>
+      <artifactId>aerospike-client-jdk21</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-testkit</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <!--
+              Testcontainers 1.21 negotiates Docker API 1.32, and Docker 25 and later refuse
+              anything below 1.40 outright: the daemon answers 400 and Testcontainers reports "could
+              not find a valid Docker environment", which reads like a missing daemon rather than a
+              version handshake. Pinning 1.40 (available since Docker 19.03, in 2019) makes the
+              tests run against any daemon anybody still has.
+            -->
+            <api.version>1.40</api.version>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

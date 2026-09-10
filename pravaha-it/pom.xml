@@ -17,6 +17,12 @@
 
   <dependencies>
     <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-serving</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>net.jqwik</groupId>
       <artifactId>jqwik</artifactId>
       <scope>test</scope>

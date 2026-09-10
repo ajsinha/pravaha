@@ -276,11 +276,16 @@ match could still arrive, which without a time bound is forever.
 | [`plugins/pravaha-plugin-filesystem`](../plugins/pravaha-plugin-filesystem) | The reference source and sink. Delimited files, no external dependency. |
 | [`plugins/pravaha-plugin-delta`](../plugins/pravaha-plugin-delta) | Delta Lake source, on Delta Kernel rather than Spark. Version diffs become Z-set weights. |
 | [`plugins/pravaha-plugin-feedfile`](../plugins/pravaha-plugin-feedfile) | Drop-directory feeds. CSV and Parquet, completion detection, per-file replayable offsets. |
-| [`plugins/pravaha-plugin-jdbc`](../plugins/pravaha-plugin-jdbc) | Incremental-poll source for any JDBC database. Keyset pagination, driver supplied by the deployment. |
+| [`plugins/pravaha-plugin-jdbc`](../plugins/pravaha-plugin-jdbc) | Incremental-poll source and dimension table for any JDBC database. Keyset pagination, filter pushdown into `WHERE`, driver supplied by the deployment. |
+| [`plugins/pravaha-plugin-aerospike`](../plugins/pravaha-plugin-aerospike) | The primary target. Scan-based source with server-side filter pushdown, idempotent sink, and a lookup table. Tested against a real Aerospike server, not a mock. |
 | [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | Java client. Depends on `pravaha-api` alone. |
 | [`sdk/pravaha-sdk-python`](../sdk/pravaha-sdk-python) | Python client. The console is built on it. |
 
-`pravaha-catalog` and `pravaha-state` exist as placeholders; their content arrives in Wave 4.
+| `pravaha-state` | Off-heap state: the L0 map, the block store joins hold rows in, and checkpoints. |
+| `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
+| `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. |
+
+`pravaha-catalog` is still a placeholder.
 
 ## Rules the build enforces
 

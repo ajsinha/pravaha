@@ -1,0 +1,151 @@
+/*
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL.
+ *
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
+ *
+ * See the LICENSE file in the root of this repository for the full terms.
+ */
+package com.ash.messaging.pravaha.serving;
+
+import java.util.List;
+
+import org.junit.jupiter.api.Test;
+
+import com.ash.messaging.pravaha.api.data.RowKind;
+import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.api.data.Types;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * What a query writes when its answer is served rather than shipped.
+ *
+ * <p>The sink is thin on purpose, and its whole job is not to lose the changelog's meaning on the
+ * way in. A weight of {@code -1} is a removal; treating it as another insert leaves the view serving
+ * a row the query has already withdrawn.
+ *
+ * <p>That failure hides in the common case. A correction arrives as a retraction and an insert for
+ * the same key in one batch, and the insert overwrites either way -- so a sink that ignores weights
+ * looks correct until a retraction is the last word for its key, which is exactly what a delete is.
+ * That is the case here.
+ */
+class ViewSinkTest {
+
+    private static final StreamSchema SCHEMA = StreamSchema.builder("user_volume")
+            .field("user_id", Types.string())
+            .field("total", Types.int64())
+            .build();
+
+    private static ViewSink sink(ServedView view) {
+        return new ViewSink(view, SCHEMA);
+    }
+
+    private static ServedView view() {
+        return new ServedView("user_volume", SCHEMA, List.of(0), 100);
+    }
+
+    @Test
+    void aRowWrittenAndCommittedIsServed() {
+        ServedView view = view();
+        ViewSink sink = sink(view);
+
+        sink.begin().setString(0, "u1").setLong(1, 42).weight(1).sequence(10).commit();
+        sink.commit(sink.appliedFrontier());
+
+        assertThat(view.get("u1").values().orElseThrow()[1]).isEqualTo(42L);
+        assertThat(sink.rowsApplied()).isEqualTo(1);
+    }
+
+    @Test
+    void aRetractionThatIsTheLastWordRemovesTheKey() {
+        // The case a correction hides: with a retraction and an insert in one batch the insert
+        // overwrites whatever the retraction did, so a sink that ignores weights passes. A delete
+        // is a retraction with nothing after it, and there is nowhere left to hide.
+        ServedView view = view();
+        ViewSink sink = sink(view);
+        sink.begin().setString(0, "u1").setLong(1, 42).weight(1).sequence(10).commit();
+        sink.commit(10);
+        assertThat(view.get("u1").found()).isTrue();
+
+        sink.begin().setString(0, "u1").setLong(1, 42).weight(-1).sequence(20).commit();
+        sink.commit(20);
+
+        assertThat(view.get("u1").found())
+                .as("the query withdrew this row and the view still serves it")
+                .isFalse();
+        assertThat(view.size()).isZero();
+    }
+
+    @Test
+    void aDeleteRowKindIsARetraction() {
+        // Sources and operators express the same thing two ways. Both have to arrive as a removal,
+        // or the meaning depends on which one the writer happened to use.
+        ServedView view = view();
+        ViewSink sink = sink(view);
+        sink.begin().setString(0, "u1").setLong(1, 42).weight(1).sequence(10).commit();
+        sink.commit(10);
+
+        sink.begin()
+                .setString(0, "u1")
+                .setLong(1, 42)
+                .rowKind(RowKind.DELETE)
+                .sequence(20)
+                .commit();
+        sink.commit(20);
+
+        assertThat(view.get("u1").found()).isFalse();
+    }
+
+    @Test
+    void applyingIsNotCommitting() {
+        // Committing per row would make every intermediate state of a batch readable, and a
+        // consistent read would then be consistent with nothing.
+        ServedView view = view();
+        ViewSink sink = sink(view);
+
+        sink.begin().setString(0, "u1").setLong(1, 1).weight(1).sequence(10).commit();
+        sink.begin().setString(0, "u2").setLong(1, 2).weight(1).sequence(11).commit();
+
+        assertThat(view.size()).isZero();
+        assertThat(view.pendingChanges()).isEqualTo(2);
+
+        sink.commit(sink.appliedFrontier());
+
+        assertThat(view.size()).isEqualTo(2);
+    }
+
+    @Test
+    void theAppliedFrontierIsTheFurthestRowSeen() {
+        ServedView view = view();
+        ViewSink sink = sink(view);
+
+        sink.begin().setString(0, "u1").setLong(1, 1).weight(1).sequence(50).commit();
+        sink.begin().setString(0, "u2").setLong(1, 2).weight(1).sequence(20).commit();
+
+        assertThat(sink.appliedFrontier())
+                .as("an out-of-order row must not drag the frontier backwards")
+                .isEqualTo(50);
+    }
+
+    @Test
+    void anAbortedRowLeavesNothingBehind() {
+        ServedView view = view();
+        ViewSink sink = sink(view);
+
+        var writer = sink.begin();
+        writer.setString(0, "u1").setLong(1, 99);
+        writer.abort();
+        sink.commit(10);
+
+        assertThat(view.size()).isZero();
+        assertThat(sink.rowsApplied()).isZero();
+    }
+}

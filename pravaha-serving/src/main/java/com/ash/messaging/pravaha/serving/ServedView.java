@@ -110,6 +110,28 @@ public final class ServedView {
     }
 
     /**
+     * Applies a change already decoded into values.
+     *
+     * <p>For a caller that has the row as objects rather than as bytes -- a sink staging a writer,
+     * a test. Same semantics as {@link #apply}: the overlay, not the visible map.
+     */
+    public void applyValues(Object[] values, long weight, long frontier) {
+        Object[] keyValues = new Object[keyOrdinals.length];
+        for (int i = 0; i < keyOrdinals.length; i++) {
+            keyValues[i] = values[keyOrdinals[i]];
+        }
+        Key key = new Key(keyValues);
+        if (weight < 0) {
+            pending.put(key, null);
+            removals++;
+        } else {
+            pending.put(key, values.clone());
+            updates++;
+        }
+        appliedFrontier = Math.max(appliedFrontier, frontier);
+    }
+
+    /**
      * Publishes everything applied so far, as of {@code frontier}.
      *
      * <p>Called when the engine's frontier commits. Until then, a consistent read is answered from
