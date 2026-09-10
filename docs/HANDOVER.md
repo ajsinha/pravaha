@@ -15,14 +15,14 @@ otherwise have to rediscover the hard way.
 | | |
 |---|---|
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
-| `develop` | **21 commits ahead**, green, *not yet pushed* |
+| `develop` | **27 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **860** (plus 28 Python) |
+| Java tests | **911** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
-**Session of 2026-09-09/10 — what changed.** Wave 3's story list is **complete** (P2-01 to P2-13,
-two of them added mid-wave from the 10 000-queries-per-node target), and **Wave 4 is under way**.
+**Session of 2026-09-09/10 — what changed.** Wave 3 and Wave 4 are both **complete** in scope, and
+**Wave 5 has started**: checkpoint/recovery works and the bilinear join lift is in.
 **Gate P2 is blocked on hardware, not on code** — see [`gates/wave-3`](gates/wave-3/), read that
 first. Three connectors were also built out of wave, at the owner's request: Delta Lake, feed files
 (CSV + Parquet drop directories) and JDBC.
@@ -153,34 +153,42 @@ so nobody re-derives it and believes it.
 
 It blocks Gate P3's Profile B figure too, so it is overdue rather than upcoming.
 
-### Wave 4 (E3) — what is done and what is next
+### Wave 4 (E3) — complete
+
+| Piece | Where |
+|---|---|
+| Watermarks with **idle detection** | `WatermarkTracker` |
+| Event-time timer wheel | `TimerWheel` |
+| Window slicing (tumbling, hopping) | `SlicedWindows` |
+| Session windows, merge-on-insert | `SessionWindows` — runtime only, no SQL surface |
+| Incremental windowed aggregates, bounded | `SlicedAggregateState` |
+| `COUNT(DISTINCT …)` in a window | same |
+| Windowed `GROUP BY` end to end | `TABLE(TUMBLE(...))`, `HOP` |
+| Late data: correct by retraction, or the late output | `WindowedAggregate` |
+| Dead-letter queue and rate monitor | `FileDeadLetterQueue`, `DeadLetterRate` |
+| Changelog analysis, emit-mode negotiation | `ChangelogAnalysis` |
+| L0 off-heap state map | `L0StateMap` |
+
+Gate P3 evidence is in [`gates/wave-4`](gates/wave-4/). **All eight correctness invariants are now
+green** — the eighth went green with checkpointing, at the start of Wave 5.
+
+### Wave 5 (E4) — where it is
 
 | Piece | State |
 |---|---|
-| Watermarks, per-partition generators, **idle detection** | ✅ `WatermarkTracker` |
-| Timer wheel, event-time driven | ✅ `TimerWheel` |
-| Window slicing (tumbling, hopping) | ✅ `WindowSpec`, `SlicedWindows` |
-| Session windows with merge-on-insert | ✅ `SessionWindows` — runtime only, not reachable from SQL |
-| Incremental windowed aggregates, bounded | ✅ `SlicedAggregateState` |
-| Bounded-state refusal naming the key | ✅ gate criterion met |
-| Windowed `GROUP BY` in SQL, end to end | ✅ `TABLE(TUMBLE(...))` and `HOP` |
-| Late data: correction with retraction, late output | ✅ |
-| Dead-letter queue | ✅ `FileDeadLetterQueue`, `DeadLetterRate` |
-| Emit modes / changelog negotiation | ✅ `ChangelogAnalysis` — refuses the *pair*, names the operator |
-| L0 off-heap state store | ✅ `L0StateMap` — built, not yet used by the aggregate |
-| RocksDB tier | ❌ |
-| `DISTINCT` | ❌ |
+| Checkpoint storage, atomic publish, trailer | ✅ `FileCheckpointStore` |
+| State snapshot/restore, lane control path | ✅ `QueryExecution.checkpoint/restore` |
+| **Recovery proven**: interrupted run == uninterrupted run | ✅ `CheckpointRecoveryTest` |
+| Bilinear join lift, checked against recomputation | ✅ `IncrementalJoin` (algebra) |
+| Join in the runtime and SQL | ❌ next |
+| Aligned barriers across the exchange | ❌ — checkpointing is per-lane, which is sound only while lanes share no state; the limitation is written into `QueryExecution.checkpoint` |
+| Aerospike plugin, four strategies | ❌ |
+| Expression pushdown, idempotent sink | ❌ |
 
-**Gate P3:** Profile B ≥ 350 k rec/s/lane (**same hardware block as Gate P2**), correctness
-invariants 1–8 green, unbounded `GROUP BY` rejected naming the key (done).
-
-One limitation is recorded in the code where somebody will meet it: `SESSION` exists in the runtime
-but has no SQL surface, because its state is a per-key interval set rather than a slice grid.
-
-The group-key collision risk noted earlier is **closed**: keys are now a 128-bit digest, which takes
-the chance of two groups merging at a million keys from about 3 × 10⁻⁸ to around 10⁻²⁷ — below the
-rate at which the hardware gets arithmetic wrong. `L0StateMap` stores key bytes outright and is what
-the aggregate should eventually use.
+`abort()` versus `close()` is worth knowing before writing any recovery test: `close()` is a
+shutdown and emits everything held, `abort()` is what a crash does and emits nothing. A recovery
+test that "crashes" by closing gracefully will see every pre-checkpoint window twice, with all the
+right numbers — which is how that distinction was discovered.
 
 ### Deferred, on purpose
 
