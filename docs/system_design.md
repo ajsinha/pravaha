@@ -2234,7 +2234,7 @@ That is why Kafka was deferred out of Wave 2 (P1-11) even though it is Tier 1: t
 | **2** | Iceberg | The same shape for the other table format, and the lakehouse as a sink. |
 | **2** | ClickHouse, Elasticsearch/OpenSearch, Snowflake, BigQuery *(sinks)* | Where continuous results are actually consumed |
 | **2** | OTLP and Prometheus remote-write *(sources)* | Observability data is a stream, and "ask once, answer always" over live telemetry is the product's own story told back to it |
-| **2** | JDBC incremental poll (high-water-mark column) | The universal fallback for any database with no CDC. At-least-once, no deletes — and it says so. |
+| **2** | **JDBC incremental poll** *(shipped)* | The universal fallback for any database with no usable CDC — one connector for PostgreSQL, MySQL, SQL Server, Oracle, H2, since the deployment supplies the driver. At-least-once, no deletes, and **replayable only with a unique key column**: watermark values tie, SQL defines no order among tied rows, and a resume that is right only when the database happens to be consistent is not a guarantee. |
 | **2** | Webhook / WebSocket / SSE source | Push integrations without a broker |
 | **3** | FIX and ITCH market data | Niche, high value where it lands. Real differentiation for continuous queries over a live book. |
 | **3** | Oracle LogMiner / XStream | Licence-encumbered; only if a deployment pays for it |
