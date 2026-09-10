@@ -20,11 +20,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.RowLayout;
+import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
 import com.ash.messaging.pravaha.runtime.lane.Lane;
@@ -86,6 +88,7 @@ public final class QueryExecution implements AutoCloseable {
 
         List<InterpretedPipeline> pipelines = new ArrayList<>(laneCount);
         List<String> streams = streamsOf(plan);
+        refuseUnpartitionedJoin(plan, laneCount);
         StreamSchema[] inputSchema = new StreamSchema[1];
 
         LaneGroup group = new LaneGroup(
@@ -143,6 +146,37 @@ public final class QueryExecution implements AutoCloseable {
                 reader, lanes.lane(laneIndex), input, pipelines.get(laneIndex).inputSchema(streamName), policy);
         pumps.add(pump);
         return pump;
+    }
+
+    /**
+     * Refuses to spread a join over lanes that are not partitioned by its key.
+     *
+     * <p>Every lane compiles its own pipeline, so a join on four lanes is four independent joins
+     * with a quarter of the rows each. A left row and the right row it matches land on whichever
+     * lanes their partitions happened to send them to, and unless that is the <em>same</em> lane
+     * the pair is simply never formed. The query does not fail; it returns fewer rows than it
+     * should, which is the worst way for an engine to be wrong.
+     *
+     * <p>Making it correct needs a shuffle on the join key ahead of the operator, which the exchange
+     * can carry but the planner does not yet emit. Until it does, a join runs on one lane. Refusing
+     * here is not caution -- it is the difference between a known limit and silently missing output.
+     */
+    private static void refuseUnpartitionedJoin(PhysicalOperator plan, int laneCount) {
+        if (laneCount > 1 && containsJoin(plan)) {
+            throw new PravahaException(
+                    RuntimeErrors.UNSUPPORTED_JOIN,
+                    "this query contains a join and was given " + laneCount + " lanes. Each lane holds its own "
+                            + "join state, so a left row and its matching right row would have to land on the "
+                            + "same lane to be joined at all -- and nothing partitions them that way yet. Run "
+                            + "the query on one lane until the planner emits a shuffle on the join key.");
+        }
+    }
+
+    private static boolean containsJoin(PhysicalOperator operator) {
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.JoinOperator) {
+            return true;
+        }
+        return operator.inputs().stream().anyMatch(QueryExecution::containsJoin);
     }
 
     /** The streams this query reads, in plan order: a join's left side first. */

@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **27 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **942** (plus 28 Python) |
+| Java tests | **948** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -183,6 +183,8 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Bilinear join lift, checked against recomputation | ✅ `IncrementalJoin` (algebra) |
 | Join in the runtime and SQL | ✅ `SymmetricHashJoin`, `JoinOperator`, `PhysicalPlanBuilder.buildJoin` |
 | Join state checkpointed and restored | ✅ both sides in the snapshot; `StreamJoinTest` |
+| Join on the lane runtime, two sources | ✅ lanes have one inbox per input; `JoinOnLanesTest` |
+| **Join across lanes** | ❌ — refused, not broken. Each lane holds its own join state, so a pair whose halves land on different lanes is never formed. Needs a shuffle on the join key ahead of the operator; the exchange can carry it, the planner does not emit it |
 | Expressions in `WHERE` (`amount * 2 > 100`) | ✅ `Predicate.CompareExpressions` |
 | Aligned barriers across the exchange | ❌ — checkpointing is per-lane, which is sound only while lanes share no state; the limitation is written into `QueryExecution.checkpoint` |
 | Windowed / time-versioned joins | ❌ — the unwindowed join is bounded only by a row ceiling, which fails the query rather than the node |

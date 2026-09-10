@@ -264,6 +264,18 @@ class JoinOnLanesTest {
     }
 
     @Test
+    void aJoinOnSeveralLanesIsRefusedRatherThanSilentlySplit() {
+        // Each lane compiles its own pipeline, so four lanes would be four independent joins with a
+        // quarter of the rows each -- and a pair whose halves land on different lanes is never
+        // formed. Nothing fails; the query just returns less than it should.
+        assertThatThrownBy(() -> QueryExecution.start(plan(), 4, config(), MemoryAccess.best(), () ->
+                        (RowOutput) () -> new CapturingRowWriter(plan().outputSchema(), row -> {})))
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-3021")
+                .hasMessageContaining("shuffle on the join key");
+    }
+
+    @Test
     void feedingAJoinWithoutNamingTheStreamIsRefused() {
         PhysicalOperator plan = plan();
         ConcurrentLinkedQueue<CapturingRowWriter.Captured> results = new ConcurrentLinkedQueue<>();
