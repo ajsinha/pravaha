@@ -142,9 +142,94 @@ public final class QueryExecution implements AutoCloseable {
         return lanes.metrics();
     }
 
+    /**
+     * Takes a checkpoint: every lane's state, paired with every source's offset.
+     *
+     * <p>Each lane snapshots its own state on its own thread, between batches. That is not caution
+     * about locking -- there is no lock to take -- it is the only moment at which a lane's state is
+     * a coherent thing to copy at all: mid-batch, an operator has seen some of a batch's rows and
+     * not others, and the offset the pump would report has moved past all of them.
+     *
+     * <p>Lanes snapshot independently and not simultaneously, which is the honest description of
+     * what this does. For a query whose lanes share no state and whose sources are partitioned per
+     * lane -- everything the engine currently runs -- that is sufficient, because each lane's state
+     * and its own offsets are consistent with each other. It stops being sufficient the moment rows
+     * cross the exchange, since a row in flight belongs to neither lane's snapshot; aligned barriers
+     * (ADR-008) are what makes that case correct and are not built.
+     */
+    public com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint(long id, Duration timeout) {
+        java.util.Map<String, byte[]> state = new java.util.HashMap<>();
+        java.util.Map<String, String> offsets = new java.util.HashMap<>();
+
+        for (int index = 0; index < pipelines.size(); index++) {
+            InterpretedPipeline pipeline = pipelines.get(index);
+            if (!pipeline.isStateful()) {
+                continue;
+            }
+            String operatorId = "lane-" + index;
+            byte[][] captured = new byte[1][];
+            Lane lane = lanes.lane(index);
+            long ticket = lane.submitControlTask(() -> captured[0] = pipeline.snapshotState());
+            if (!lane.awaitControlTask(ticket, timeout)) {
+                throw new IllegalStateException("lane " + index + " did not take its snapshot within " + timeout
+                        + "; a checkpoint that some lanes joined and others did not is worse than none, so "
+                        + "this one is abandoned rather than stored partially complete.");
+            }
+            state.put(operatorId, captured[0]);
+        }
+
+        for (int index = 0; index < pumps.size(); index++) {
+            offsets.put("partition-" + index, pumps.get(index).position().token());
+        }
+        return new com.ash.messaging.pravaha.state.checkpoint.Checkpoint(id, System.nanoTime(), offsets, state);
+    }
+
+    /**
+     * Restores state from a checkpoint.
+     *
+     * <p>Before the lanes are fed anything, and the caller is responsible for creating readers at
+     * the checkpoint's offsets -- restoring state without rewinding the sources double-counts every
+     * record between the checkpoint and the failure, which is the exact failure the checkpoint
+     * exists to prevent.
+     */
+    public void restore(com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint, Duration timeout) {
+        for (int index = 0; index < pipelines.size(); index++) {
+            InterpretedPipeline pipeline = pipelines.get(index);
+            byte[] state = checkpoint.operatorState().get("lane-" + index);
+            if (state == null) {
+                continue;
+            }
+            Lane lane = lanes.lane(index);
+            long ticket = lane.submitControlTask(() -> pipeline.restoreState(state));
+            if (!lane.awaitControlTask(ticket, timeout)) {
+                throw new IllegalStateException("lane " + index + " did not restore its state within " + timeout);
+            }
+            lane.checkHealth();
+        }
+    }
+
     /** Records too late to correct any window, across every lane. */
     public long lateRecords() {
         return pipelines.stream().mapToLong(InterpretedPipeline::lateRecords).sum();
+    }
+
+    /**
+     * Stops without finishing: what a crash looks like from the inside.
+     *
+     * <p>{@link #close()} is a shutdown -- stateful operators emit what they are holding, because a
+     * bounded source that ends should not lose its final windows. A crash does none of that, and the
+     * difference matters more than it looks.
+     *
+     * <p>It was found by a recovery test that used {@code close()} as its crash. Every number was
+     * right and every window before the checkpoint appeared twice: once emitted by the graceful
+     * shutdown after the checkpoint was taken, and once by the recovered run, which had no way to
+     * know. A test whose failure simulation flushes is testing a shutdown, not a failure -- and the
+     * duplicates it produced were real, in the sense that this is exactly what a clean stop followed
+     * by a restore from an older checkpoint would do.
+     */
+    public void abort() {
+        pipelines.forEach(InterpretedPipeline::abandon);
+        close();
     }
 
     @Override

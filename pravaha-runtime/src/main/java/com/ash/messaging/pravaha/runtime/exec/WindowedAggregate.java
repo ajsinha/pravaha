@@ -304,6 +304,67 @@ final class WindowedAggregate implements RowProcessor {
         }
     }
 
+    /**
+     * Writes this operator's state: the accumulators, the watermark cursors, and what each window
+     * last emitted.
+     *
+     * <p>The last of those is easy to leave out and wrong to. Without it a restored operator does
+     * not know what it has already told anybody, so the first correction after a restore emits a new
+     * answer with no retraction of the old one -- and a retract-mode consumer ends up holding both.
+     * The state that describes what was emitted is part of the state.
+     */
+    void writeTo(java.io.DataOutput out) throws java.io.IOException {
+        out.writeLong(watermark);
+        out.writeLong(lastFiredWatermark);
+        out.writeLong(highestEventTime);
+        out.writeLong(earliestWindowStart);
+        out.writeLong(lateRecords);
+        out.writeLong(corrections);
+
+        out.writeInt(emitted.size());
+        for (java.util.Map.Entry<Long, java.util.Map<Long, long[]>> window : emitted.entrySet()) {
+            out.writeLong(window.getKey());
+            out.writeInt(window.getValue().size());
+            for (java.util.Map.Entry<Long, long[]> perKey : window.getValue().entrySet()) {
+                out.writeLong(perKey.getKey());
+                out.writeInt(perKey.getValue().length);
+                for (long value : perKey.getValue()) {
+                    out.writeLong(value);
+                }
+            }
+        }
+        state.writeTo(out);
+    }
+
+    /** Reads state back, replacing whatever is held. */
+    void readFrom(java.io.DataInput in) throws java.io.IOException {
+        watermark = in.readLong();
+        lastFiredWatermark = in.readLong();
+        highestEventTime = in.readLong();
+        earliestWindowStart = in.readLong();
+        lateRecords = in.readLong();
+        corrections = in.readLong();
+
+        emitted.clear();
+        dirty.clear();
+        int windows = in.readInt();
+        for (int w = 0; w < windows; w++) {
+            long windowEnd = in.readLong();
+            int keys = in.readInt();
+            java.util.Map<Long, long[]> perWindow = new java.util.HashMap<>();
+            for (int k = 0; k < keys; k++) {
+                long key = in.readLong();
+                long[] values = new long[in.readInt()];
+                for (int v = 0; v < values.length; v++) {
+                    values[v] = in.readLong();
+                }
+                perWindow.put(key, values);
+            }
+            emitted.put(windowEnd, perWindow);
+        }
+        state.readFrom(in);
+    }
+
     /** Records too late to correct anything. The number that says whether the lateness is set right. */
     long lateRecords() {
         return lateRecords;

@@ -96,9 +96,26 @@ public final class InterpretedPipeline implements AutoCloseable {
         head.process(row);
     }
 
-    /** Signals end of input, so stateful stages emit. */
+    private volatile boolean abandoned;
+
+    /**
+     * Signals end of input, so stateful stages emit.
+     *
+     * <p>Does nothing once {@link #abandon()} has been called. End of input is a statement that no
+     * more records will arrive and the held state should be reported; a process that is dying is
+     * making no such statement, and emitting on the way out would produce results that the last
+     * checkpoint does not know about.
+     */
     public void finish() {
+        if (abandoned) {
+            return;
+        }
         finishers.forEach(Runnable::run);
+    }
+
+    /** Marks this pipeline as failed rather than finished: nothing more is emitted. */
+    public void abandon() {
+        abandoned = true;
     }
 
     /**
@@ -121,6 +138,57 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     public void lateOutput(java.util.function.Consumer<com.ash.messaging.pravaha.api.data.RowView> sink) {
         windowed.forEach(aggregate -> aggregate.lateOutput(sink));
+    }
+
+    /**
+     * Snapshots every stateful operator in this pipeline.
+     *
+     * <p>Must be called on the thread that owns the pipeline -- the lane thread, between batches --
+     * for the same reason a lane's arena is not shared: reading state from elsewhere while the lane
+     * mutates it produces a snapshot of no moment in particular.
+     */
+    public byte[] snapshotState() {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {
+            out.writeInt(windowed.size());
+            for (WindowedAggregate aggregate : windowed) {
+                aggregate.writeTo(out);
+            }
+        } catch (java.io.IOException e) {
+            throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot snapshot this pipeline's state: " + e, e);
+        }
+        return bytes.toByteArray();
+    }
+
+    /**
+     * Restores state written by {@link #snapshotState()}.
+     *
+     * <p>Refuses a snapshot whose operator count differs, rather than restoring what it can. A
+     * partially-restored pipeline resumes with some operators holding history and others empty,
+     * which produces answers that are wrong in a way no downstream check would catch.
+     */
+    public void restoreState(byte[] snapshot) {
+        try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(snapshot))) {
+            int operators = in.readInt();
+            if (operators != windowed.size()) {
+                throw new PravahaException(
+                        RuntimeErrors.LANE_FAILED,
+                        "the checkpoint holds " + operators + " stateful operators and this plan has "
+                                + windowed.size() + ": the query changed since the checkpoint was taken, and "
+                                + "restoring part of it would resume with some operators holding history and "
+                                + "others empty.");
+            }
+            for (WindowedAggregate aggregate : windowed) {
+                aggregate.readFrom(in);
+            }
+        } catch (java.io.IOException e) {
+            throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot restore pipeline state: " + e, e);
+        }
+    }
+
+    /** Whether this pipeline holds any state worth checkpointing. */
+    public boolean isStateful() {
+        return !windowed.isEmpty();
     }
 
     /** Records dropped as too late, across every windowed operator in this pipeline. */
