@@ -121,7 +121,11 @@ public final class FilterProjectGenerator {
                 .comment("Clear the header and null bitmap; arena space is reused between batches.")
                 .line("out.setMemory(outRow, " + outputLayout.fixedEnd() + ", (byte) 0);");
 
-        emitProjection(source, projection, inputLayout, outputLayout, outputSchema);
+        // Split into helper methods rather than inlined. See emitProjectionMethods.
+        int chunks = chunkCount(projection.size());
+        for (int chunk = 0; chunk < chunks; chunk++) {
+            source.line("project" + chunk + "(region, row, out, outRow);");
+        }
 
         source.comment("Header: the Z-set weight travels with the row (design 9.2).")
                 .line("out.putLong(outRow + " + RowLayout.OFFSET_WEIGHT + ", region.getLong(row + "
@@ -134,19 +138,68 @@ public final class FilterProjectGenerator {
                 .line("emitted++;")
                 .close()
                 .line("return emitted;")
-                .close()
                 .close();
+
+        emitProjectionMethods(source, projection, inputLayout, outputLayout, outputSchema);
+        source.close();
     }
 
-    private void emitProjection(
+    /**
+     * How many columns one generated method copies.
+     *
+     * <p>The JVM refuses to JIT a method over 8 kB of bytecode, and a projection emits a handful of
+     * instructions per column, so a wide enough projection would push {@code process} past the limit
+     * and it would run interpreted -- slower than the interpreter it was generated to replace, with
+     * nothing to indicate why. Sixty-four columns is comfortably inside the limit while keeping the
+     * call overhead at one invocation per sixty-four field copies.
+     */
+    static final int COLUMNS_PER_METHOD = 64;
+
+    private static int chunkCount(int columns) {
+        return Math.max(1, (columns + COLUMNS_PER_METHOD - 1) / COLUMNS_PER_METHOD);
+    }
+
+    /**
+     * Emits the projection as one method per chunk of columns.
+     *
+     * <p>Always split, even for two columns, rather than splitting only when a threshold is crossed.
+     * A conditional split means the wide case takes a code path the narrow case never exercises, so
+     * the first time it runs is on somebody's thousand-column table -- and the JIT inlines a small
+     * private method called once per row without being asked, so the narrow case pays nothing for
+     * the uniformity.
+     */
+    private void emitProjectionMethods(
             SourceBuilder source,
             List<Integer> projection,
             RowLayout inputLayout,
             RowLayout outputLayout,
             StreamSchema outputSchema) {
 
-        for (int out = 0; out < projection.size(); out++) {
-            int in = projection.get(out);
+        int chunks = chunkCount(projection.size());
+        for (int chunk = 0; chunk < chunks; chunk++) {
+            int from = chunk * COLUMNS_PER_METHOD;
+            int to = Math.min(projection.size(), from + COLUMNS_PER_METHOD);
+            source.blank()
+                    .comment("Columns " + from + " to " + (to - 1) + " of " + projection.size() + ".")
+                    .open("private void project" + chunk
+                            + "(com.ash.messaging.pravaha.common.memory.MemoryRegion region, int row,"
+                            + " com.ash.messaging.pravaha.common.memory.MemoryRegion out, int outRow) {");
+            emitProjection(source, projection.subList(from, to), from, inputLayout, outputLayout, outputSchema);
+            source.close();
+        }
+    }
+
+    private void emitProjection(
+            SourceBuilder source,
+            List<Integer> projection,
+            int firstOutputOrdinal,
+            RowLayout inputLayout,
+            RowLayout outputLayout,
+            StreamSchema outputSchema) {
+
+        for (int index = 0; index < projection.size(); index++) {
+            int out = firstOutputOrdinal + index;
+            int in = projection.get(index);
             int from = inputLayout.offsetOf(in);
             int to = outputLayout.offsetOf(out);
             TypeName type = outputSchema.field(out).type().typeName();
