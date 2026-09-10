@@ -16,8 +16,9 @@ otherwise have to rediscover the hard way.
 |---|---|
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **60 commits ahead**, green, *not yet pushed* |
-| Modules | **26** |
-| Java tests | **1092** (plus 28 Python) — 14 of them against real Aerospike and PostgreSQL servers in Docker |
+| Modules | **27** |
+| Java tests | **1101** — 14 of them against real Aerospike and PostgreSQL servers in Docker |
+| Python tests | **39**, including the client driving a real Java Flight SQL server |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -237,7 +238,8 @@ right numbers — which is how that distinction was discovered.
 | ADR-030: Arrow Flight SQL as the one client protocol | ✅ amends ADR-007, drops Avatica. One server gives JDBC, Python, Go and ADBC clients, all maintained upstream |
 | SQL over a maintained view | ✅ `ViewQuery` — planned and executed by the *same* planner and operators a continuous query uses, so a `WHERE` means exactly what it means in a CQ rather than nearly |
 | Flight SQL server | ✅ `pravaha-flight`: SQL in, Arrow batches out, streamed in bounded batches; `FlightSqlEndToEndTest` drives it with the real Flight SQL client |
-| Java and Python SDK request/response | ❌ next — both skeletons exist and were waiting for exactly this transport |
+| Java SDK request/response | ✅ `pravaha-sdk-java-flight` — connect, query, iterate. The thin SDK stays dependency-free (its enforcer rule bans Netty), so the transport is a separate artifact |
+| Python SDK request/response | ✅ `pravaha.connect(...).query(sql)`, iterating rows or `to_table()` straight to pandas/Polars. Tested against the **real Java server**, not a Python fake |
 | Subscriptions over Flight | ❌ |
 | Read admission control | ❌ — ADR-030 makes this load-bearing rather than optional |
 

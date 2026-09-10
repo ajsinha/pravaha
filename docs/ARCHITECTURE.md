@@ -285,6 +285,8 @@ match could still arrive, which without a time bound is forever.
 | `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
 | `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
 | `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |
+| [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | The Java client's types and connection strings. Dependency-free by enforcer rule: it is embedded in somebody else's application. |
+| [`sdk/pravaha-sdk-java-flight`](../sdk/pravaha-sdk-java-flight) | The Java client's transport, kept separate so an application that only wants the types never sees Netty. |
 
 `pravaha-catalog` is still a placeholder.
 

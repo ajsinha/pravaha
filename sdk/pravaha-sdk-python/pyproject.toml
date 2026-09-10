@@ -18,14 +18,18 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Database",
 ]
-# No runtime dependencies yet, deliberately. A client is installed into someone else's
-# environment, and every pin it adds is one their resolver has to reconcile. The gRPC and
-# Arrow dependencies arrive with the transport, behind the "grpc" extra.
+# No required runtime dependencies, deliberately. A client is installed into someone else's
+# environment, and every pin it adds is one their resolver has to reconcile. The transport --
+# Arrow Flight SQL, per ADR-030 -- arrives behind the "flight" extra, so an application that
+# only wants the types never sees pyarrow.
 dependencies = []
 
 [project.optional-dependencies]
-grpc = ["grpcio>=1.60", "protobuf>=4.25", "pyarrow>=14.0"]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "mypy>=1.8", "ruff>=0.4"]
+# The transport, per ADR-030. pyarrow brings Flight and its gRPC underneath, so there is
+# no separate grpcio or protobuf pin for a resolver to argue with -- which is most of the
+# point of choosing a protocol whose client somebody else maintains.
+flight = ["pyarrow>=15.0.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "mypy>=1.8", "ruff>=0.4", "pyarrow>=15.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/ajsinha/pravaha"

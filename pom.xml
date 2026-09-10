@@ -45,6 +45,7 @@
     <module>pravaha-cli</module>
     <module>pravaha-server</module>
     <module>sdk/pravaha-sdk-java</module>
+    <module>sdk/pravaha-sdk-java-flight</module>
     <!-- Added by the story that needs them (implementation plan 10.1):
          pravaha-embedded (Sprint 5), pravaha-server + pravaha-spring-boot-starter (E6),
          pravaha-serving / backfill / adaptive (E3-E5), plugins/* (E1, E4, E9),
