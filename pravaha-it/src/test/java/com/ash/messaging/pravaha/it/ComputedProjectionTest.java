@@ -120,6 +120,68 @@ class ComputedProjectionTest {
     }
 
     @Test
+    void aComputedColumnCanSitBesideATextColumn() {
+        // The expression tree evaluates to a long or a double, so a text column beside a computed
+        // one is a column the tree cannot produce -- and does not need to, because a plain column
+        // reference is a copy rather than a calculation. Without that, the string's bytes were
+        // written as a long and the writer refused them. Found by the README's own query.
+        StreamSchema mixed = StreamSchema.builder("txn")
+                .field("id", Types.int64())
+                .field("name", Types.string())
+                .field("amount", Types.int64())
+                .build();
+        PhysicalOperator plan =
+                new PhysicalPlanBuilder().build(SqlPlanner.withStreams(mixed).plan("SELECT name, amount * 2 FROM txn"));
+
+        List<CapturingRowWriter.Captured> results = new ArrayList<>();
+        RowLayout layout = RowLayout.of(mixed);
+        try (RowArena feed = new RowArena(MemoryAccess.best(), 1 << 20, 4);
+                InterpretedPipeline pipeline = InterpretedPipeline.compile(
+                        plan, (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add))) {
+            BinaryRowWriter writer = new BinaryRowWriter(layout);
+            long handle = feed.allocate(layout.rowSize(256));
+            writer.begin(feed.regionOf(handle), feed.offsetOf(handle));
+            writer.setLong(0, 1).setString(1, "ann").setLong(2, 50);
+            writer.weight(1L).eventTimestampNanos(1).sequence(1).commit();
+            feed.trimTo(handle, writer.sizeSoFar());
+            pipeline.accept(new BinaryRowView(layout).wrap(feed.regionOf(handle), feed.offsetOf(handle)));
+            pipeline.finish();
+        }
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).values()[0]).isEqualTo("ann");
+        assertThat(results.get(0).asLong(1)).isEqualTo(100);
+    }
+
+    @Test
+    void anIntervalLiteralIsNanosecondsRatherThanMilliseconds() {
+        // Calcite carries day-time intervals in milliseconds and this engine works in nanoseconds,
+        // so `ts + INTERVAL '10' SECOND` unconverted adds ten microseconds -- wrong by six orders of
+        // magnitude and still shaped like a timestamp, which is the kind of wrong nobody spots.
+        StreamSchema timed = StreamSchema.builder("txn")
+                .field("id", Types.int64())
+                .field("ts", Types.timestamp())
+                .build();
+        PhysicalOperator plan = new PhysicalPlanBuilder()
+                .build(SqlPlanner.withStreams(timed).plan("SELECT ts + INTERVAL '10' SECOND FROM txn"));
+
+        assertThat(PhysicalPlanBuilder.explain(plan)).contains("10000000000");
+    }
+
+    @Test
+    void aYearMonthIntervalIsRefusedRatherThanGuessedAt() {
+        StreamSchema timed = StreamSchema.builder("txn")
+                .field("id", Types.int64())
+                .field("ts", Types.timestamp())
+                .build();
+
+        assertThatThrownBy(() -> new PhysicalPlanBuilder()
+                        .build(SqlPlanner.withStreams(timed).plan("SELECT ts + INTERVAL '1' MONTH FROM txn")))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("28 to 31 days");
+    }
+
+    @Test
     void decimalArithmeticIsRefusedRatherThanApproximated() {
         StreamSchema money = StreamSchema.builder("ledger")
                 .field("id", Types.int64())

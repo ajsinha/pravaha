@@ -92,20 +92,24 @@ class AerospikeContinuousQueryIT {
     private record Ctx(String instanceName, Map<String, String> config) implements PluginContext {}
 
     /**
-     * The README's query, in the dialect the parser accepts.
+     * The README's query, verbatim apart from the DDL wrapper.
      *
-     * <p>Reading it against the README: {@code SELECT STREAM} is implied, {@code TUMBLE_END} is the
-     * {@code window_end} column the table function produces, and {@code EMIT CHANGES} is what a
-     * windowed aggregate does anyway. What is genuinely the same is the shape -- a tumbling window
-     * over a filtered stream, enriched from a dimension table as of the record's own event time,
-     * grouped by window and key and tier.
+     * <p>{@code SELECT STREAM}, {@code GROUP BY TUMBLE(...)} and {@code TUMBLE_END(...)} are the
+     * README's own text and all three now parse and plan. What is still not parsed is the statement
+     * around them -- {@code CREATE CONTINUOUS QUERY ... INTO ... SERVE AS VIEW ... EMIT CHANGES} --
+     * which is registration and lifecycle rather than the query, and the engine is driven through
+     * its API here instead.
      */
-    private static final String SQL = "SELECT window_end, t.user_id, p.tier, "
-            + "COUNT(*) AS txn_count, SUM(t.amount) AS total_volume "
-            + "FROM TABLE(TUMBLE(TABLE txn_stream, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) AS t "
-            + "LEFT JOIN user_profile FOR SYSTEM_TIME AS OF t.event_time AS p ON t.user_id = p.user_id "
+    private static final String SQL = "SELECT STREAM "
+            + "TUMBLE_END(t.event_time, INTERVAL '10' SECOND) AS window_end, "
+            + "t.user_id, p.tier, "
+            + "COUNT(*)      AS txn_count, "
+            + "SUM(t.amount) AS total_volume "
+            + "FROM  txn_stream AS t "
+            + "LEFT JOIN user_profile FOR SYSTEM_TIME AS OF t.event_time AS p "
+            + "       ON t.user_id = p.user_id "
             + "WHERE t.status = 'COMPLETED' "
-            + "GROUP BY window_start, window_end, t.user_id, p.tier";
+            + "GROUP BY TUMBLE(t.event_time, INTERVAL '10' SECOND), t.user_id, p.tier";
 
     private static StreamSchema txnSchema() {
         return StreamSchema.builder("txn_stream")

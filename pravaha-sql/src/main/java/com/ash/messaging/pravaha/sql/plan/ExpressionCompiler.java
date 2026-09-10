@@ -77,6 +77,21 @@ final class ExpressionCompiler {
         }
         SqlTypeName sqlType = literal.getType().getSqlTypeName();
         BigDecimal value = (BigDecimal) literal.getValue4();
+
+        // An interval literal is a duration, and Calcite carries day-time ones in milliseconds while
+        // this engine works in nanoseconds throughout (ADR-012). Left unconverted, `ts + INTERVAL
+        // '10' SECOND` adds ten microseconds -- an answer that is wrong by six orders of magnitude
+        // and still looks like a timestamp, which is the kind of wrong nobody spots in a result set.
+        if (SqlTypeName.INTERVAL_TYPES.contains(sqlType)) {
+            if (SqlTypeName.YEAR_INTERVAL_TYPES.contains(sqlType)) {
+                throw new PravahaException(
+                        SqlErrors.UNSUPPORTED_EXPRESSION,
+                        "'" + literal + "' is a year-month interval, which has no fixed length in nanoseconds -- "
+                                + "a month is 28 to 31 days. Use a day-time interval, or do the calendar "
+                                + "arithmetic where a calendar is available.");
+            }
+            return Expression.Literal.ofLong(value.longValue() * 1_000_000L);
+        }
         return switch (sqlType) {
             case DOUBLE, FLOAT, REAL -> Expression.Literal.ofDouble(value.doubleValue());
             // A literal written as 2.5 arrives as DECIMAL(2,1) regardless of what it multiplies,

@@ -606,8 +606,22 @@ public final class InterpretedPipeline implements AutoCloseable {
             };
         }
 
+        /**
+         * Writes one computed column.
+         *
+         * <p>A plain column reference is copied rather than evaluated, and that is not an
+         * optimisation. The expression tree evaluates to a long or a double, so a projection that
+         * mixes {@code ts + INTERVAL '10' SECOND} with a text column beside it has one column the
+         * tree can produce and one it cannot -- and the text one needs no evaluation at all, only a
+         * copy. Without this, any computed projection alongside a string column writes the string's
+         * bytes as a long and fails at the writer, which is where the README's own query landed.
+         */
         private static void writeComputed(
                 RowWriter writer, int ordinal, Expression expression, RowView row, StreamSchema schema) {
+            if (expression instanceof Expression.Column column) {
+                InterpretedPipeline.copyField(row, column.ordinal(), writer, ordinal, schema);
+                return;
+            }
             switch (schema.field(ordinal).type().typeName()) {
                 case BOOLEAN -> writer.setBoolean(ordinal, expression.evaluateLong(row) != 0);
                 case INT8 -> writer.setByte(ordinal, (byte) expression.evaluateLong(row));

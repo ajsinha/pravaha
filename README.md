@@ -69,13 +69,15 @@ GROUP BY TUMBLE(t.event_time, INTERVAL '10' SECOND), t.user_id, p.tier
 EMIT CHANGES;
 ```
 
-That query is not an aspiration. Its semantics -- a tumbling window over a filtered stream, enriched
-from a dimension table as of each record's own event time, grouped by window and key -- run against a
-real Aerospike server in `AerospikeContinuousQueryIT`, with the `WHERE` clause evaluated inside
-Aerospike rather than after the read. What is not yet parsed is the wrapper: `CREATE CONTINUOUS
-QUERY`, `SERVE AS VIEW` and `EMIT CHANGES` are the DDL of design section 11.2, and the engine is
-driven through its API until they are. The windowing is spelled `TABLE(TUMBLE(...))` rather than
-`GROUP BY TUMBLE(...)`.
+That query is not an aspiration. Everything from `SELECT STREAM` down -- the tumbling window, the
+temporal lookup join, the filter, the aggregates -- parses, plans and **runs against a real Aerospike
+server** in `AerospikeContinuousQueryIT`, with the `WHERE` clause evaluated inside Aerospike rather
+than after the read, and the answer read back by key without a second system in the call.
+
+What is not yet parsed is the statement *around* it: `CREATE CONTINUOUS QUERY`, `INTO`,
+`SERVE AS VIEW` and `EMIT CHANGES` are registration and lifecycle (design section 11.2), and the
+engine is driven through its API until they exist. `SELECT STREAM` is accepted and redundant -- every
+Pravaha query is continuous, so there is no non-streaming mode to distinguish it from.
 
 ```java
 // …and read the answer, from the same system, in microseconds

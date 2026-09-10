@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **60 commits ahead**, green, *not yet pushed* |
 | Modules | **25** |
-| Java tests | **1071** (plus 28 Python) — 14 of them against real Aerospike and PostgreSQL servers in Docker |
+| Java tests | **1074** (plus 28 Python) — 14 of them against real Aerospike and PostgreSQL servers in Docker |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -207,7 +207,7 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Windowed / time-versioned joins | ❌ — the unwindowed join is bounded only by a row ceiling, which fails the query rather than the node |
 | Outer joins | ❌ — refused with the reason: an unmatched row must be held for as long as a match could arrive |
 | Self-joins | ❌ — both sides would read one stream and a stream name cannot say which side a row is for |
-| **The README's query runs against Aerospike** | ✅ `AerospikeContinuousQueryIT`: transactions scanned from an Aerospike set with the `WHERE` pushed into the server, tiers looked up in a second set, tumbling window, `COUNT(*)`/`SUM`, answer read back by key. The acceptance test for the whole product claim |
+| **The README's query runs against Aerospike, verbatim** | ✅ `AerospikeContinuousQueryIT` uses the README's own SQL — `SELECT STREAM`, `GROUP BY TUMBLE(...)`, `TUMBLE_END(...)`, the temporal `LEFT JOIN` — against a real Aerospike server, with the `WHERE` pushed into the store. Only the `CREATE CONTINUOUS QUERY ... SERVE AS VIEW ... EMIT CHANGES` wrapper is still unparsed; that is registration, not the query |
 | Aerospike plugin | ✅ `lut-scan` source with server-side filter pushdown, idempotent sink, lookup table — **tested against a real Aerospike Community server in Docker**, skipped when docker is absent. The three XDR/intercept strategies are refused by name: they need Enterprise XDR, cannot be exercised against Community, and shipping an untested change-feed path would be worse than not shipping one |
 | Filter pushdown to sources | ✅ `Pushdown` extracts the pushable conjunction, `ReadRequest` carries it, the JDBC plugin turns it into a bound `WHERE`. The engine keeps its own filter regardless, which is what makes a plugin's partial or absent support harmless |
 | Pushdown equivalence, as a property | ✅ `PushdownEquivalenceTest` — a source honouring every pushed filter must return exactly what one honouring none returns |

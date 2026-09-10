@@ -80,7 +80,9 @@ public final class PhysicalPlanBuilder {
                         SqlErrors.UNSUPPORTED_OPERATOR,
                         "the planner produced a " + rel.getRelTypeName()
                                 + ", which Pravaha cannot execute yet. Supported: scan, filter, project, "
-                                + "aggregate. Joins and windows arrive in later waves.");
+                                + "compute, aggregate, windowing (both the TABLE(TUMBLE(...)) and GROUP BY "
+                                + "TUMBLE(...) forms), inner equi-joins between streams, and lookup joins "
+                                + "against a dimension table.");
         };
     }
 
@@ -300,6 +302,16 @@ public final class PhysicalPlanBuilder {
         PhysicalOperator input = build(project.getInput());
         StreamSchema output = schemaOf(project, input.outputSchema().name() + "_projected");
 
+        // The grouped-window form -- GROUP BY TUMBLE(event_time, INTERVAL '10' SECOND) -- arrives as
+        // an ordinary projection containing a $TUMBLE call, because Calcite rewrites the grouping
+        // into "project the window start, then group by it". That is the same window this engine
+        // assigns explicitly, expressed differently, so it is turned back into an assignment rather
+        // than evaluated as an expression.
+        RexCall groupedWindow = groupedWindowCall(project);
+        if (groupedWindow != null) {
+            return buildGroupedWindow(project, input, groupedWindow);
+        }
+
         // A projection of plain column references stays a Project: its generated form is a load and
         // a store at constant offsets, and putting an expression tree in that path would cost a
         // branch per column per row to answer a question the plan already knew.
@@ -320,6 +332,115 @@ public final class PhysicalPlanBuilder {
             expressions.add(compiler.compile(expression));
         }
         return new ComputeOperator(input, output, expressions);
+    }
+
+    /** The {@code $TUMBLE} or {@code $HOP} call in a projection, or null if there is none. */
+    private static RexCall groupedWindowCall(Project project) {
+        for (RexNode expression : project.getProjects()) {
+            if (expression instanceof RexCall call
+                    && call.getOperator()
+                            .getName()
+                            .toUpperCase(java.util.Locale.ROOT)
+                            .startsWith("$")
+                    && isWindowFunction(call.getOperator().getName())) {
+                return call;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isWindowFunction(String name) {
+        String upper = name.toUpperCase(java.util.Locale.ROOT).replace("$", "");
+        return upper.equals("TUMBLE") || upper.equals("HOP") || upper.equals("SESSION");
+    }
+
+    /**
+     * Turns {@code GROUP BY TUMBLE(...)} back into a window assignment.
+     *
+     * <p>Calcite lowers the grouped form into a projection of the window's <em>start</em>, which an
+     * aggregate above then groups by. The engine wants the assignment as an operator -- so the
+     * projection is replaced by an assignment plus a projection that reads the assigner's own
+     * boundary columns.
+     *
+     * <p>The window <em>end</em> is appended even though the SQL never asked for it. The aggregate
+     * above needs both boundaries to know when a window may be fired and its state released, and
+     * the end is a function of the start, so materialising it changes nothing about the answer and
+     * saves reconstructing it from the window spec in three places. {@link #buildAggregate} adds it
+     * to the grouping, which is a no-op semantically for the same reason.
+     */
+    private PhysicalOperator buildGroupedWindow(Project project, PhysicalOperator input, RexCall window) {
+        String function = window.getOperator().getName().replace("$", "").toUpperCase(java.util.Locale.ROOT);
+        int eventTimeOrdinal = -1;
+        List<Long> intervals = new ArrayList<>();
+        for (RexNode operand : window.getOperands()) {
+            if (operand instanceof RexInputRef ref) {
+                eventTimeOrdinal = ref.getIndex();
+            } else if (operand instanceof RexLiteral literal && literal.getValue() != null) {
+                // Milliseconds from Calcite, nanoseconds in the engine (ADR-012).
+                intervals.add(((java.math.BigDecimal) literal.getValue4()).longValue() * 1_000_000L);
+            }
+        }
+        if (eventTimeOrdinal < 0) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "GROUP BY " + function + " names no time column; it needs one, as in "
+                            + "TUMBLE(event_time, INTERVAL '10' SECOND)");
+        }
+        WindowSpec spec =
+                switch (function) {
+                    case "TUMBLE" -> {
+                        requireIntervals(function, intervals, 1);
+                        yield WindowSpec.tumbling(intervals.get(0));
+                    }
+                    case "HOP" -> {
+                        requireIntervals(function, intervals, 2);
+                        yield WindowSpec.hopping(intervals.get(1), intervals.get(0));
+                    }
+                    default ->
+                        throw new PravahaException(
+                                SqlErrors.UNSUPPORTED_OPERATOR,
+                                "GROUP BY " + function + " is not supported; use TUMBLE or HOP");
+                };
+
+        // The assigner appends window_start and window_end to whatever it is given.
+        StreamSchema assigned = appendBoundaries(input.outputSchema());
+        WindowAssignOperator assign = new WindowAssignOperator(input, assigned, spec, eventTimeOrdinal);
+        int startOrdinal = assigned.fields().size() - 2;
+        int endOrdinal = assigned.fields().size() - 1;
+
+        // Now the projection Calcite asked for, with the window call replaced by the assigner's
+        // start column, and the end appended so the aggregate above can find it.
+        List<Integer> ordinals = new ArrayList<>();
+        StreamSchema.Builder schema = StreamSchema.builder(input.outputSchema().name() + "_windowed");
+        List<String> names = project.getRowType().getFieldNames();
+        for (int i = 0; i < project.getProjects().size(); i++) {
+            RexNode expression = project.getProjects().get(i);
+            if (expression == window) {
+                ordinals.add(startOrdinal);
+                // Named, not left as Calcite's $f0: the aggregate resolves the boundaries by name.
+                schema.field("window_start", assigned.field(startOrdinal).type());
+            } else if (expression instanceof RexInputRef ref) {
+                ordinals.add(ref.getIndex());
+                schema.field(names.get(i), assigned.field(ref.getIndex()).type());
+            } else {
+                throw new PravahaException(
+                        SqlErrors.UNSUPPORTED_OPERATOR,
+                        "'" + expression + "' sits beside a windowing function in the same projection, which "
+                                + "Pravaha cannot rewrite yet. Move the expression outside the GROUP BY.");
+            }
+        }
+        ordinals.add(endOrdinal);
+        schema.field("window_end", assigned.field(endOrdinal).type());
+        return new ProjectOperator(assign, schema.build(), ordinals);
+    }
+
+    /** A schema with the assigner's two boundary columns appended. */
+    private static StreamSchema appendBoundaries(StreamSchema input) {
+        StreamSchema.Builder builder = StreamSchema.builder(input.name() + "_assigned");
+        input.fields().forEach(field -> builder.field(field.name(), field.type()));
+        builder.field("window_start", com.ash.messaging.pravaha.api.data.Types.timestamp());
+        builder.field("window_end", com.ash.messaging.pravaha.api.data.Types.timestamp());
+        return builder.build();
     }
 
     /**
@@ -578,14 +699,30 @@ public final class PhysicalPlanBuilder {
             if (ordinal >= schema.fieldCount()) {
                 continue;
             }
-            String name = schema.field(ordinal).name();
-            if (name.equalsIgnoreCase("window_start")) {
+            if (schema.field(ordinal).name().equalsIgnoreCase("window_start")) {
                 start = ordinal;
-            } else if (name.equalsIgnoreCase("window_end")) {
+            } else if (schema.field(ordinal).name().equalsIgnoreCase("window_end")) {
                 end = ordinal;
             }
         }
-        return start >= 0 && end >= 0 ? new int[] {start, end} : null;
+        if (start < 0) {
+            return null;
+        }
+        if (end < 0) {
+            // The grouped-window form -- GROUP BY TUMBLE(...) -- groups by the start alone, because
+            // that is all Calcite projects; the end is a function of it and grouping by both would
+            // be redundant. The operator still needs to know where the end is, but only to read it:
+            // it emits one output column per group key, so a boundary that is not grouped is simply
+            // not emitted, and adding it to the grouping to make it findable would add a column the
+            // query never asked for and shift every ordinal above it.
+            for (int ordinal = 0; ordinal < schema.fieldCount(); ordinal++) {
+                if (schema.field(ordinal).name().equalsIgnoreCase("window_end")) {
+                    end = ordinal;
+                    break;
+                }
+            }
+        }
+        return end >= 0 ? new int[] {start, end} : null;
     }
 
     private static AggregateOperator.AggregateCall.Kind kindOf(AggregateCall call) {
