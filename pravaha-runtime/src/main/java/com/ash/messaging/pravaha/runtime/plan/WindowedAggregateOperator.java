@@ -39,6 +39,11 @@ import com.ash.messaging.pravaha.runtime.window.WindowSpec;
  * @param maxSlices the ceiling on live accumulators. Bounded by a window is not the same as
  *     unconditionally bounded: a window over an unbounded key space is still unbounded within any
  *     one window, so the ceiling stays.
+ * @param allowedLatenessNanos how long after a window closes its state is kept so that a late record
+ *     can still correct it (design section 15.4). Zero means a record arriving after the watermark
+ *     has passed its window is too late, full stop -- which is a defensible default precisely
+ *     because it is visible: the late counter moves and somebody can decide what the number should
+ *     be, rather than a silent allowance deciding for them.
  */
 public record WindowedAggregateOperator(
         PhysicalOperator input,
@@ -48,7 +53,8 @@ public record WindowedAggregateOperator(
         List<AggregateOperator.AggregateCall> aggregates,
         int windowStartOrdinal,
         int windowEndOrdinal,
-        int maxSlices)
+        int maxSlices,
+        long allowedLatenessNanos)
         implements PhysicalOperator {
 
     public WindowedAggregateOperator {
@@ -59,6 +65,9 @@ public record WindowedAggregateOperator(
         }
         if (maxSlices < 1) {
             throw new IllegalArgumentException("the slice ceiling must be at least 1, got " + maxSlices);
+        }
+        if (allowedLatenessNanos < 0) {
+            throw new IllegalArgumentException("allowed lateness must not be negative, got " + allowedLatenessNanos);
         }
     }
 

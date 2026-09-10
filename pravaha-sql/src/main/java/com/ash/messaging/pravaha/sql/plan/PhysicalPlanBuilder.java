@@ -237,7 +237,15 @@ public final class PhysicalPlanBuilder {
                                 + "every window at once, which is the unbounded case wearing a window's clothes.");
             }
             return new WindowedAggregateOperator(
-                    input, output, window.spec(), groupKeys, calls, boundaries[0], boundaries[1], DEFAULT_MAX_SLICES);
+                    input,
+                    output,
+                    window.spec(),
+                    groupKeys,
+                    calls,
+                    boundaries[0],
+                    boundaries[1],
+                    DEFAULT_MAX_SLICES,
+                    DEFAULT_ALLOWED_LATENESS_NANOS);
         }
 
         AggregateOperator operator = new AggregateOperator(input, output, groupKeys, calls);
@@ -284,6 +292,17 @@ public final class PhysicalPlanBuilder {
      * chosen so that a legitimate high-cardinality query fits and a runaway one does not.
      */
     private static final int DEFAULT_MAX_SLICES = 2_000_000;
+
+    /**
+     * Allowed lateness until a query can declare its own.
+     *
+     * <p>Zero, and deliberately so. A default allowance decides on the operator's behalf how much
+     * correctness to trade for how much state, and does it silently; zero means every late record is
+     * counted and visible, so the number can be looked at before anybody picks a value. The
+     * {@code EMIT CHANGES WITH ('allowed.lateness' = ...)} clause of design 11.2 is where a real
+     * value will come from.
+     */
+    private static final long DEFAULT_ALLOWED_LATENESS_NANOS = 0L;
 
     /** The window assignment feeding this aggregate, looking through projections. */
     private static WindowAssignOperator windowBelow(PhysicalOperator operator) {

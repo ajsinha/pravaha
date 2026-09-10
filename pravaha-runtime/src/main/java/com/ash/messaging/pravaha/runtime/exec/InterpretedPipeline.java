@@ -112,6 +112,27 @@ public final class InterpretedPipeline implements AutoCloseable {
         windowed.forEach(aggregate -> aggregate.advanceWatermark(watermarkNanos));
     }
 
+    /**
+     * Where records too late to correct any window are sent.
+     *
+     * <p>A named side output rather than a drop, because "0.2 % of records arrived after their
+     * window was released" is a diagnosis and a missing record is not. This is the seam the
+     * dead-letter queue attaches to (design section 15.6).
+     */
+    public void lateOutput(java.util.function.Consumer<com.ash.messaging.pravaha.api.data.RowView> sink) {
+        windowed.forEach(aggregate -> aggregate.lateOutput(sink));
+    }
+
+    /** Records dropped as too late, across every windowed operator in this pipeline. */
+    public long lateRecords() {
+        return windowed.stream().mapToLong(WindowedAggregate::lateRecords).sum();
+    }
+
+    /** Windows re-emitted because a late record corrected them. */
+    public long corrections() {
+        return windowed.stream().mapToLong(WindowedAggregate::corrections).sum();
+    }
+
     /** The arena stages allocate their output rows in. */
     public RowArena arena() {
         return arena;

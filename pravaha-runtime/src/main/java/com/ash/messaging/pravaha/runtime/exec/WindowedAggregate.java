@@ -48,6 +48,14 @@ import com.ash.messaging.pravaha.runtime.window.SlicedWindows;
  * <p>Firing is driven by {@link #advanceWatermark}, and end of input fires everything still open.
  * A bounded source -- a file, a backfill -- would otherwise leave its last windows unemitted, which
  * looks exactly like the query being wrong about its final period.
+ *
+ * <p><strong>Late data has three outcomes, not two</strong> (design section 15.4). A record whose
+ * window has not closed is simply on time. One whose window has closed but is still within the
+ * allowed lateness re-opens that window: the previous result is retracted with weight {@code -1} and
+ * the corrected one emitted, which downstream consolidates to exactly the difference. One that is
+ * later than that is <em>too late</em> -- its state is gone and cannot be reconstructed -- so it is
+ * routed to the late output and counted, never silently dropped and never allowed to produce a
+ * result that contradicts one already sent.
  */
 final class WindowedAggregate implements RowProcessor {
 
@@ -64,6 +72,15 @@ final class WindowedAggregate implements RowProcessor {
     private final List<com.ash.messaging.pravaha.api.data.TypeName> groupTypes;
     /** Group keys other than the window boundaries: the actual data keys. */
     private final List<Integer> dataKeyOrdinals;
+
+    /** What each window last emitted per key, so a correction can retract it exactly. */
+    private final java.util.Map<Long, java.util.Map<Long, long[]>> emitted = new java.util.HashMap<>();
+    /** Windows a late record has changed since they last fired. */
+    private final java.util.Set<Long> dirty = new java.util.LinkedHashSet<>();
+
+    private java.util.function.Consumer<RowView> lateOutput = row -> {};
+    private long lateRecords;
+    private long corrections;
 
     private long watermark = Long.MIN_VALUE;
     private long lastFiredWatermark = Long.MIN_VALUE;
@@ -109,9 +126,27 @@ final class WindowedAggregate implements RowProcessor {
                 .toList();
     }
 
+    /**
+     * Where records too late to correct anything are sent.
+     *
+     * <p>A named side output rather than a drop. "The number was wrong because 0.2 % of records
+     * arrived after their window had been released" is a diagnosis; a missing record is not.
+     */
+    void lateOutput(java.util.function.Consumer<RowView> sink) {
+        this.lateOutput = sink;
+    }
+
     @Override
     public void process(RowView row) {
         long windowStart = row.getLong(operator.windowStartOrdinal());
+        long lastWindowEnd = windows.lastWindowEndFor(windowStart);
+        if (watermark != Long.MIN_VALUE && lastWindowEnd + operator.allowedLatenessNanos() <= watermark) {
+            // Its state has been released and cannot be rebuilt. Accepting it would produce a result
+            // that contradicts one already sent, from state that no longer exists.
+            lateRecords++;
+            lateOutput.accept(row);
+            return;
+        }
         long key = compositeKey(row);
         for (int i = 0; i < scratch.length; i++) {
             int ordinal = valueOrdinals.get(i);
@@ -129,6 +164,16 @@ final class WindowedAggregate implements RowProcessor {
         state.update(key, keyValues, windowStart, scratch, row.weight());
         highestEventTime = Math.max(highestEventTime, row.eventTimestampNanos());
         earliestWindowStart = Math.min(earliestWindowStart, windowStart);
+
+        // Late but still correctable: mark every already-fired window this record belongs to, so the
+        // next advance re-emits them with the correction rather than leaving the old answer standing.
+        if (watermark != Long.MIN_VALUE) {
+            for (long windowEnd : windows.windowEndsContaining(windowStart)) {
+                if (emitted.containsKey(windowEnd)) {
+                    dirty.add(windowEnd);
+                }
+            }
+        }
     }
 
     /**
@@ -143,13 +188,26 @@ final class WindowedAggregate implements RowProcessor {
         }
         watermark = watermarkNanos;
         long from = lastFiredWatermark == Long.MIN_VALUE ? firstWindowStart() : lastFiredWatermark;
+        // Corrections first: a consumer applying results in arrival order should see the fix for an
+        // old window before the results of newer ones.
+        for (long windowEnd : List.copyOf(dirty)) {
+            corrections++;
+            emitWindow(windowEnd);
+        }
+        dirty.clear();
+
         for (long windowEnd : windows.windowsCompletedBetween(from, watermark)) {
             emitWindow(windowEnd);
         }
         lastFiredWatermark = watermark;
         // Release what no window can need again. Allowed lateness is not wired to the query yet, so
         // this releases at the watermark; when lateness arrives it is one argument.
-        state.discardSlicesEndingBefore(watermark, 0);
+        int released = state.discardSlicesEndingBefore(watermark, operator.allowedLatenessNanos());
+        if (released > 0) {
+            // Forget what those windows emitted too: keeping it would be state that outlives the
+            // state it describes, which is the definition of a leak.
+            emitted.keySet().removeIf(windowEnd -> windowEnd + operator.allowedLatenessNanos() <= watermark);
+        }
     }
 
     /**
@@ -181,7 +239,32 @@ final class WindowedAggregate implements RowProcessor {
     }
 
     private void emitWindow(long windowEnd) {
+        java.util.Map<Long, long[]> previous = emitted.get(windowEnd);
+        java.util.Map<Long, long[]> current = new java.util.HashMap<>();
+
         for (SlicedAggregateState.WindowResult result : state.fire(windowEnd)) {
+            if (previous != null) {
+                long[] before = previous.get(result.key());
+                if (before != null) {
+                    if (java.util.Arrays.equals(before, result.values())) {
+                        // Unchanged by the correction. Emitting a retraction and an identical
+                        // insertion would be two rows that consolidate to nothing, which is
+                        // arithmetically harmless and pure noise on the wire.
+                        current.put(result.key(), before);
+                        continue;
+                    }
+                    emitRow(result, before, -1L);
+                }
+            }
+            current.put(result.key(), result.values());
+            emitRow(result, result.values(), 1L);
+        }
+        emitted.put(windowEnd, current);
+    }
+
+    /** Writes one result row with the given values and Z-set weight. */
+    private void emitRow(SlicedAggregateState.WindowResult result, long[] values, long weight) {
+        {
             long handle = arena.allocate(layout.rowSize(256));
             if (handle == ArenaHandle.NULL) {
                 throw new PravahaException(
@@ -202,16 +285,26 @@ final class WindowedAggregate implements RowProcessor {
                     writeKey(column++, result.keyValues()[dataKey++]);
                 }
             }
-            for (int i = 0; i < result.values().length; i++) {
-                writer.setLong(column++, result.values()[i]);
+            for (int i = 0; i < values.length; i++) {
+                writer.setLong(column++, values[i]);
             }
-            writer.weight(1L)
+            writer.weight(weight)
                     .eventTimestampNanos(result.windowEndNanos())
                     .sequence(result.windowEndNanos())
                     .commit();
             arena.trimTo(handle, writer.sizeSoFar());
             downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
         }
+    }
+
+    /** Records too late to correct anything. The number that says whether the lateness is set right. */
+    long lateRecords() {
+        return lateRecords;
+    }
+
+    /** Windows re-emitted because a late record changed them. */
+    long corrections() {
+        return corrections;
     }
 
     /**
