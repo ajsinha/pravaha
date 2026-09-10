@@ -80,12 +80,30 @@ public final class SplicedReader implements PartitionReader {
     private final int maxBufferedRows;
 
     /**
+     * The rate limit on reading history, or null for no limit.
+     *
+     * <p>It governs the snapshot and nothing else. Throttling the live feed would make the query
+     * fall behind the present to protect the store from the past, which is backwards: the change
+     * feed is the load the store is already carrying, and the backfill is the load being added.
+     */
+    private final BackfillThrottle throttle;
+
+    /**
      * The newest version buffered for each changed key.
      *
      * <p>Bounded by the number of keys that changed during the scan, which is what makes this
      * survivable on a table nobody could hold in memory.
      */
     private final Map<Key, Long> changedDuringSnapshot = new HashMap<>();
+
+    /**
+     * The window a throttle budget is expressed over.
+     *
+     * <p>A tenth of a second: long enough that the arithmetic is not dominated by rounding, short
+     * enough that a backoff takes effect within the two seconds the design asks for rather than
+     * after the current batch, however large that was.
+     */
+    private long pollWindowNanos = 100_000_000L;
 
     private BackfillPhase phase = BackfillPhase.SNAPSHOT;
     private long snapshotRowsRead;
@@ -108,6 +126,22 @@ public final class SplicedReader implements PartitionReader {
             StreamSchema schema,
             SpliceSpec spec,
             int maxBufferedRows) {
+        this(snapshot, changes, schema, spec, maxBufferedRows, null);
+    }
+
+    /**
+     * @param throttle limits how fast history is read, and backs off when the store suffers. Null
+     *     means read as fast as the source allows, which is the right default for a snapshot of
+     *     something nothing else is using and the wrong one for a production cluster
+     */
+    public SplicedReader(
+            PartitionReader snapshot,
+            PartitionReader changes,
+            StreamSchema schema,
+            SpliceSpec spec,
+            int maxBufferedRows,
+            BackfillThrottle throttle) {
+        this.throttle = throttle;
         this.snapshot = snapshot;
         this.changes = changes;
         this.schema = schema;
@@ -140,10 +174,14 @@ public final class SplicedReader implements PartitionReader {
      * compared against nothing and the older row would win.
      */
     private int pollSnapshot(RecordSink sink, int maxRecords) {
+        // Changes are absorbed at full speed whatever the throttle says. They are the store's own
+        // traffic arriving; refusing to read them does not reduce the store's load, it only makes
+        // the buffer the thing that overflows.
         absorbChanges(maxRecords);
 
-        int emitted = snapshot.poll(new FilteringSink(sink), maxRecords);
-        if (emitted == 0 && snapshot.poll(new FilteringSink(sink), maxRecords) == 0) {
+        int budget = throttle == null ? maxRecords : Math.min(maxRecords, throttle.budgetFor(pollWindowNanos));
+        int emitted = snapshot.poll(new FilteringSink(sink), budget);
+        if (emitted == 0 && snapshot.poll(new FilteringSink(sink), budget) == 0) {
             // Twice, because a source is entitled to return zero once and more later; asking again
             // costs one empty poll and avoids ending a backfill early on a source that paused for
             // a moment. A source that is genuinely done says so both times.
@@ -232,6 +270,11 @@ public final class SplicedReader implements PartitionReader {
     }
 
     /** How full the change buffer is, from 0 to 1. What an operator watches during a long scan. */
+    /** The rate history is being read at, or -1 when nothing is limiting it. */
+    public long rowsPerSecond() {
+        return throttle == null ? -1 : throttle.rowsPerSecond();
+    }
+
     public double bufferFill() {
         return (double) buffered.size() / maxBufferedRows;
     }

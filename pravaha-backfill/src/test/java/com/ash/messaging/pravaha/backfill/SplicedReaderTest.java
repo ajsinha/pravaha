@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.backfill;
 
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -388,6 +389,45 @@ class SplicedReaderTest {
             assertThat(reader.position().token()).startsWith("SNAPSHOT:");
             drain(reader, out);
             assertThat(reader.position().token()).startsWith("LIVE:");
+        }
+    }
+
+    @Test
+    void aThrottleLimitsHistoryAndNeverTheChangeFeed() {
+        // The distinction the whole control exists for. Reading history is load the backfill is
+        // adding to the store and may be slowed; the change feed is load the store is already
+        // carrying, and refusing to read it does not help the store -- it only makes the buffer the
+        // thing that overflows.
+        List<Row> history = new ArrayList<>();
+        for (long id = 0; id < 100; id++) {
+            history.add(new Row(id, id, 1));
+        }
+        ListReader historyReader = new ListReader(history);
+        ListReader changes = new ListReader(List.of(new Row(500, 5, 9), new Row(501, 5, 9)));
+        Collector out = new Collector();
+
+        // One row per second, so a tenth-of-a-second budget rounds to the minimum of one row.
+        BackfillThrottle throttle =
+                new BackfillThrottle(1, 1, Duration.ofMillis(10).toNanos());
+
+        try (SplicedReader reader = new SplicedReader(historyReader, changes, SCHEMA, SPEC, 1000, throttle)) {
+            reader.poll(out, 50);
+
+            assertThat(out.rows)
+                    .as("the throttle did not limit the history scan")
+                    .hasSize(1);
+            assertThat(reader.bufferedRows())
+                    .as("the change feed was throttled along with the scan")
+                    .isEqualTo(2);
+            assertThat(reader.rowsPerSecond()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void anUnthrottledSpliceSaysSoRatherThanReportingAFakeRate() {
+        try (SplicedReader reader =
+                new SplicedReader(new ListReader(List.of()), new ListReader(List.of()), SCHEMA, SPEC, 10)) {
+            assertThat(reader.rowsPerSecond()).isEqualTo(-1);
         }
     }
 
