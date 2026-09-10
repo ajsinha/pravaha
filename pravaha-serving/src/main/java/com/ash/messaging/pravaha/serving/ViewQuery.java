@@ -45,6 +45,8 @@ import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
+import com.ash.messaging.pravaha.sql.plan.BoundParameters;
+import com.ash.messaging.pravaha.sql.plan.ParameterMetadata;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 
 /**
@@ -78,6 +80,16 @@ public final class ViewQuery {
      * answer that looks complete is the worst of both.
      */
     public static final int MAX_RESULT_ROWS = 1_000_000;
+
+    /**
+     * How many distinct statements keep their plans.
+     *
+     * <p>Bounded because the keys come from callers: an application generating SQL text in a loop
+     * would otherwise turn a cache into a leak with a client-controlled growth rate.
+     */
+    private static final int MAX_CACHED_PLANS = 256;
+
+    private final java.util.LinkedHashMap<PlanKey, Prepared> plans = new java.util.LinkedHashMap<>();
 
     /** How many input rows pass between deadline checks. */
     private static final int DEADLINE_CHECK_ROWS = 4_096;
@@ -276,6 +288,10 @@ public final class ViewQuery {
     }
 
     private PhysicalOperator planFor(String sql) {
+        return physicalOf(relFor(sql), BoundParameters.none());
+    }
+
+    private RelNode relFor(String sql) {
         if (catalog.isEmpty()) {
             throw new PravahaException(
                     ServingErrors.NO_SUCH_VIEW,
@@ -283,7 +299,194 @@ public final class ViewQuery {
                             + "registering a continuous query that serves one.");
         }
         StreamSchema[] schemas = catalog.schemas().values().toArray(new StreamSchema[0]);
-        return new PhysicalPlanBuilder().build(SqlPlanner.withStreams(schemas).plan(sql));
+        return SqlPlanner.withStreams(schemas).plan(sql);
+    }
+
+    private static PhysicalOperator physicalOf(RelNode rel, BoundParameters parameters) {
+        return new PhysicalPlanBuilder().bind(parameters).build(rel);
+    }
+
+    /**
+     * Parses, validates and plans a statement once, so that binding values to it is cheap.
+     *
+     * <p>The split is the reason prepared statements are worth having here rather than being a
+     * convenience over string building. Everything Calcite does -- parse, validate, resolve names,
+     * optimise -- happens in this method and is reused; binding walks the planned tree and builds
+     * operators, which is the cheap half. It also means a bound value never passes through a parser,
+     * so there is nothing to escape (ADR-032).
+     *
+     * <p>Authorization is deliberately <em>not</em> frozen here. The policy is consulted again on
+     * every execution, so a statement prepared while a principal had access does not keep serving
+     * rows after that access is taken away. A handle is a plan, never a permission.
+     */
+    public Prepared prepare(String sql, Principal principal) {
+        Prepared cached;
+        synchronized (plans) {
+            // Read under the same lock as the write. A LinkedHashMap read while another thread is
+            // structurally modifying it can spin rather than fail, and a server that hangs is worse
+            // than one that is slow. Planning dwarfs this lock, so the contention does not matter.
+            cached = plans.get(new PlanKey(sql, catalog.generation()));
+        }
+        if (cached != null) {
+            // The cache holds plans, not permissions: authorization still runs below, on every call.
+            return authorized(cached, sql, principal);
+        }
+        RelNode rel = relFor(sql);
+        ParameterMetadata parameters = ParameterMetadata.of(rel);
+        // Built with placeholders left unbound only to learn the output shape. Nothing is executed,
+        // so nothing can reach a placeholder.
+        String source = sourceViewOf(physicalOf(rel, unresolvedFor(parameters)));
+
+        AccessDecision decision = policy.mayRead(principal, source);
+        audit.record(AuditEvent.of(principal, "prepare", source, decision, sql));
+        if (!decision.allowed()) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + source + "': " + decision.reason());
+        }
+        StreamSchema resultSchema = physicalOf(rel, unresolvedFor(parameters)).outputSchema();
+        Prepared prepared = new Prepared(sql, rel, parameters, resultSchema, source);
+        remember(new PlanKey(sql, catalog.generation()), prepared);
+        return prepared;
+    }
+
+    /** Re-runs the policy for a plan that came from the cache, and records the decision. */
+    private Prepared authorized(Prepared prepared, String sql, Principal principal) {
+        AccessDecision decision = policy.mayRead(principal, prepared.view());
+        audit.record(AuditEvent.of(principal, "prepare", prepared.view(), decision, sql));
+        if (!decision.allowed()) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN,
+                    principal.id() + " may not read '" + prepared.view() + "': " + decision.reason());
+        }
+        return prepared;
+    }
+
+    /**
+     * Keeps a plan for reuse, evicting the oldest when the cache is full.
+     *
+     * <p>A cache and not session state, and the difference matters. Losing an entry costs the next
+     * caller a re-plan and nothing else; the handles clients hold stay valid, because a handle
+     * carries the statement rather than pointing at something the server is keeping. That is what
+     * lets this be bounded, dropped, or absent entirely without any client noticing more than
+     * latency -- and what lets two clients asking the same question share the planning work.
+     *
+     * <p>Keyed on the catalogue's generation as well as the SQL: a plan built when a view had three
+     * columns must not be reused after that view is re-registered with four.
+     */
+    private void remember(PlanKey key, Prepared prepared) {
+        synchronized (plans) {
+            if (plans.size() >= MAX_CACHED_PLANS) {
+                java.util.Iterator<PlanKey> oldest = plans.keySet().iterator();
+                if (oldest.hasNext()) {
+                    oldest.next();
+                    oldest.remove();
+                }
+            }
+            plans.put(key, prepared);
+        }
+    }
+
+    private record PlanKey(String sql, long catalogGeneration) {}
+
+    /**
+     * Placeholder values used only to discover a statement's shape.
+     *
+     * <p>A plan's output schema and the view it reads do not depend on what is bound -- a filter
+     * changes which rows come back, never which columns. Binding a type-correct nothing lets the
+     * shape be worked out without asking the caller for values they have not chosen yet.
+     */
+    private static BoundParameters unresolvedFor(ParameterMetadata parameters) {
+        Object[] shapeOnly = new Object[parameters.count()];
+        for (int i = 0; i < shapeOnly.length; i++) {
+            shapeOnly[i] = switch (parameters.typeOf(i)) {
+                case STRING -> "";
+                case BOOLEAN -> Boolean.FALSE;
+                case FLOAT32, FLOAT64 -> 0d;
+                default -> 0L;
+            };
+        }
+        return BoundParameters.of(shapeOnly);
+    }
+
+    /**
+     * Runs a prepared statement with values bound to its placeholders.
+     *
+     * <p>Authorized on every call, not once at preparation: the policy may have changed, and a
+     * handle is a plan rather than a permission.
+     */
+    public Result execute(Prepared prepared, BoundParameters parameters, Principal principal) {
+        parameters.requireArity(prepared.parameters().count());
+        ServedView view = catalog.find(prepared.view())
+                .orElseThrow(() -> new PravahaException(
+                        ServingErrors.NO_SUCH_VIEW,
+                        "'" + prepared.view() + "' is no longer registered; this server serves " + catalog.names()));
+
+        AccessDecision decision = policy.mayRead(principal, prepared.view());
+        audit.record(AuditEvent.of(principal, "query", prepared.view(), decision, prepared.sql()));
+        if (!decision.allowed()) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN,
+                    principal.id() + " may not read '" + prepared.view() + "': " + decision.reason());
+        }
+
+        PhysicalOperator plan = physicalOf(prepared.rel(), parameters);
+        if (decision.rowFilter().isPresent()) {
+            plan = withRowFilter(plan, view, decision.rowFilter().get(), prepared.view());
+        }
+        try (ReadAdmission.Lease lease = admission.acquire(principal)) {
+            return run(plan, view);
+        }
+    }
+
+    /**
+     * A statement planned once and executable many times, with different values each time.
+     *
+     * <p>Holds no permission and no connection state: it is a plan and the shape of the answer.
+     * That is what lets a handle be handed back to a client and returned later without the server
+     * keeping a session, and what lets the policy be re-checked on every use.
+     */
+    public static final class Prepared {
+
+        private final String sql;
+        private final RelNode rel;
+        private final ParameterMetadata parameters;
+        private final StreamSchema resultSchema;
+        private final String view;
+
+        Prepared(String sql, RelNode rel, ParameterMetadata parameters, StreamSchema resultSchema, String view) {
+            this.sql = sql;
+            this.rel = rel;
+            this.parameters = parameters;
+            this.resultSchema = resultSchema;
+            this.view = view;
+        }
+
+        public String sql() {
+            return sql;
+        }
+
+        RelNode rel() {
+            return rel;
+        }
+
+        /** The placeholders this statement needs values for, with their inferred types. */
+        public ParameterMetadata parameters() {
+            return parameters;
+        }
+
+        /** The columns the answer will have, known before any value is bound. */
+        public StreamSchema resultSchema() {
+            return resultSchema;
+        }
+
+        public String view() {
+            return view;
+        }
+
+        @Override
+        public String toString() {
+            return "Prepared[" + view + ", " + parameters.count() + " parameters]";
+        }
     }
 
     /**

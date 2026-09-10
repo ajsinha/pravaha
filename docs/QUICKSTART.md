@@ -194,12 +194,17 @@ Stated so you do not go looking:
 
 | | |
 |---|---|
-| Windowing, `GROUP BY` with a key | Wave 4 |
-| Joins | Wave 5 |
-| Aerospike, Kafka, Cassandra | Wave 5 and later; the filesystem plugin is the only source today |
-| Checkpointing and recovery | Wave 5 |
+| Subscriptions over Flight | Wave 7; `query` is request/response today |
+| Kafka, Cassandra, Redis | Later waves. Filesystem, JDBC and Aerospike work now |
+| Parameters in a continuous query | Decided in ADR-032, not built: registration has no surface to classify against yet |
+| Column masking, per-column policy | Deliberately out of ADR-031 until a deployment asks |
 | The console | Wave 7 |
 | Clustering | Wave 8 |
+| Read replicas, range indexes | Wave 6 remainder |
+
+Since this list was last written, windowing and keyed `GROUP BY` (Wave 4), joins, checkpointing and
+recovery (Wave 5), backfill and served views (Wave 6), and the Aerospike and JDBC plugins have all
+landed — along with the Flight SQL gateway, both SDKs, authentication and authorization.
 
 ---
 

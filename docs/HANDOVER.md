@@ -247,6 +247,9 @@ right numbers — which is how that distinction was discovered.
 | Token support in both SDKs | ✅ Java and Python alike; both refuse to send a credential over plaintext unless explicitly told to, and neither prints it in a `toString`/`repr` |
 | Read admission control | ✅ `ReadAdmission`: concurrency, queue depth and a per-tenant share, each bounding a different failure. Refusal is the feature — a queue longer than the client's timeout is work nobody is waiting for. Plus a per-read deadline checked every 4 096 rows |
 | Flight status codes that clients act on | ✅ `FlightErrors.statusFor` — 7001 → UNAUTHENTICATED, 7002/7003 → UNAUTHORIZED, 4026/4027/4028 → RESOURCE_EXHAUSTED, 4029 → TIMED_OUT. Sending a full node's refusal as INVALID_ARGUMENT makes it look like a malformed query, and the client that should have backed off reports a bug |
+| Prepared statements, request/response (ADR-032) | ✅ bound at plan-build time, so a value is never parsed and compiles to the *same* predicate as a literal. Stateless handles — Flight SQL lets the server hand back an updated handle when values are bound, so there is no session table. Plans cached, bounded, keyed on the catalogue generation |
+| Parameters in both SDKs | ✅ `query(sql, params)` in Java and Python alike, types taken from the server's parameter schema rather than guessed |
+| Parameters for continuous queries | ❌ — decided in ADR-032, not built: registration has no surface yet to classify against. The rule is ADR-031's soundness rule, because a security row filter and a query parameter turn out to be the same object |
 | Subscriptions over Flight | ❌ |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 

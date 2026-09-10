@@ -326,6 +326,33 @@ aggregating. Forking state per principal is available and explicit; it is not a 
 policy with a per-user filter would otherwise multiply the engine's state by the number of users and
 the operator would learn that from a memory alarm.
 
+## Parameters
+
+`WHERE user_id = ?` means two different things depending on who is asking, and the syntax hides the
+difference (ADR-032).
+
+For a **request/response** query it is what everyone expects: plan once, bind per call. Binding
+happens when the *physical plan* is built rather than when the SQL is parsed, and two things follow
+from that. A bound value never passes through a parser — by the time it exists there is none left to
+reach, which is a stronger guarantee than escaping. And a bound value compiles to the *same
+predicate* as a written literal, not an equivalent one, so there is a single code path that filter
+pushdown cannot tell apart.
+
+For a **continuous query** the same text is ambiguous, because the computation holds state and lives
+for months. Either the binding is part of what the computation is — a separate computation with its
+own state per distinct value — or it is a filter at the tap, and one computation serves every
+binding. The decision is made by the soundness rule of ADR-031, unchanged: a binding applies at the
+tap iff the view carries every column it names. That is not a coincidence — a security row filter
+and a query parameter are the same object, a predicate supplied from outside the query text and
+applied to a shared computation.
+
+A `?` may stand where a value goes and nowhere else. One in a position that decides the plan's
+*shape* — a window size, a group key, a table name — is refused, because two window sizes have no
+rows in common and cannot share state at all.
+
+Types are inferred rather than declared: the planner works them out from the columns and sends the
+parameter schema when a statement is prepared, so neither SDK guesses.
+
 ## How many reads at once
 
 ADR-030 put continuous queries and request/response on the same engine, which makes an unbounded

@@ -166,3 +166,62 @@ def test_reading_a_result_twice_is_refused_rather_than_silently_empty(client):
 
     with pytest.raises(ReadError, match="already been read"):
         list(result)
+
+
+def test_a_parameter_binds_rather_than_being_interpolated(client):
+    rows = [row["total"] for row in client.query(
+        "SELECT total FROM user_volume WHERE user_id = ?", ["u1"]
+    )]
+
+    assert rows == [300]
+
+
+def test_one_statement_answers_different_questions(client):
+    first = [row["total"] for row in client.query(
+        "SELECT total FROM user_volume WHERE user_id = ?", ["u1"]
+    )]
+    second = [row["total"] for row in client.query(
+        "SELECT total FROM user_volume WHERE user_id = ?", ["u2"]
+    )]
+
+    assert first == [300]
+    assert second == [50]
+
+
+def test_a_numeric_parameter_binds(client):
+    rows = sorted(row["user_id"] for row in client.query(
+        "SELECT user_id FROM user_volume WHERE total > ?", [40]
+    ))
+
+    assert rows == ["u1", "u2"]
+
+
+def test_a_value_that_looks_like_sql_is_a_value(client):
+    # Never escaped, because never parsed: by the time this reaches the server the
+    # statement is planned and there is no parser left for it to reach.
+    rows = list(client.query(
+        "SELECT user_id FROM user_volume WHERE user_id = ?", ["u1' OR '1'='1"]
+    ))
+
+    assert rows == []
+
+
+def test_binding_none_matches_nothing_rather_than_everything(client):
+    # `tier = NULL` is UNKNOWN for every row, u3's included. Three-valued logic, not a bug.
+    rows = list(client.query("SELECT user_id FROM user_volume WHERE tier = ?", [None]))
+
+    assert rows == []
+
+
+def test_the_wrong_number_of_values_is_refused_before_the_call(client):
+    with pytest.raises(ValueError) as refused:
+        client.query("SELECT user_id FROM user_volume WHERE user_id = ? AND total > ?", ["u1"])
+
+    assert "placeholder" in str(refused.value)
+
+
+def test_a_value_of_the_wrong_type_names_the_placeholder(client):
+    with pytest.raises(ValueError) as refused:
+        client.query("SELECT user_id FROM user_volume WHERE total > ?", ["not a number"])
+
+    assert "?1" in str(refused.value)

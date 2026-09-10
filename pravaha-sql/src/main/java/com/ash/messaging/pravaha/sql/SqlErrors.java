@@ -31,5 +31,23 @@ public final class SqlErrors {
 
     public static final ErrorCode UNBOUNDED_STATE = new ErrorCode(2050, "SQL_UNBOUNDED_STATE");
 
+    /** A statement was executed with fewer values than it has placeholders. */
+    public static final ErrorCode PARAMETER_NOT_BOUND = new ErrorCode(2060, "SQL_PARAMETER_NOT_BOUND");
+
+    /** The number of values bound does not match the number of placeholders. */
+    public static final ErrorCode PARAMETER_ARITY = new ErrorCode(2061, "SQL_PARAMETER_ARITY");
+
+    /** A value was bound whose type is not the one the planner inferred for that placeholder. */
+    public static final ErrorCode PARAMETER_TYPE = new ErrorCode(2062, "SQL_PARAMETER_TYPE");
+
+    /**
+     * A {@code ?} in a position that decides the shape of the plan rather than a value.
+     *
+     * <p>{@code GROUP BY ?}, a parameterised window size, a table name. These are not parameters;
+     * they are different queries wearing the same syntax, and a window size in particular cannot
+     * share state with another window size at all (ADR-032).
+     */
+    public static final ErrorCode PARAMETER_NOT_A_VALUE = new ErrorCode(2063, "SQL_PARAMETER_NOT_A_VALUE");
+
     private SqlErrors() {}
 }

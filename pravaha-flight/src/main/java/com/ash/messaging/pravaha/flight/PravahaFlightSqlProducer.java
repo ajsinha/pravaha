@@ -25,7 +25,10 @@ import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
 import org.apache.arrow.flight.FlightInfo;
+import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.flight.Location;
+import org.apache.arrow.flight.PutResult;
+import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.flight.sql.BasicFlightSqlProducer;
 import org.apache.arrow.flight.sql.impl.FlightSql;
@@ -40,6 +43,7 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ReadAdmission;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
+import com.ash.messaging.pravaha.sql.plan.BoundParameters;
 
 /**
  * Pravaha as a Flight SQL server (ADR-030).
@@ -144,8 +148,19 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     public void getStreamStatement(
             FlightSql.TicketStatementQuery ticket, CallContext context, ServerStreamListener listener) {
         String sql = ticket.getStatementHandle().toStringUtf8();
+        emit(listener, () -> queries.execute(sql, principalOf(context)));
+    }
+
+    /**
+     * Runs a query and streams its rows, turning any failure into a status the client can act on.
+     *
+     * <p>Shared by the plain and prepared paths so that the two cannot drift: a batching rule or an
+     * error mapping fixed in one and not the other is a difference nobody sees until a client hits
+     * exactly the wrong one.
+     */
+    private void emit(ServerStreamListener listener, java.util.function.Supplier<ViewQuery.Result> query) {
         try {
-            ViewQuery.Result result = queries.execute(sql, principalOf(context));
+            ViewQuery.Result result = query.get();
             Schema schema = ArrowSchemas.toArrow(result.schema());
             try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
                 listener.start(root);
@@ -175,6 +190,119 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     .withDescription(String.valueOf(e.getMessage()))
                     .toRuntimeException());
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Prepared statements (ADR-032). The server keeps nothing between these calls: the handle
+    // carries the statement, and once bound, its values.
+    // ---------------------------------------------------------------------------------------
+
+    @Override
+    public void createPreparedStatement(
+            FlightSql.ActionCreatePreparedStatementRequest request,
+            CallContext context,
+            StreamListener<Result> listener) {
+        try {
+            String sql = request.getQuery();
+            ViewQuery.Prepared prepared = queries.prepare(sql, principalOf(context));
+
+            // Both schemas go back now, before any value is bound. The dataset schema is what lets a
+            // client lay out a grid while the user is still typing; the parameter schema is what
+            // tells it which types to send, so it never has to guess -- which is the part JDBC's
+            // setObject gets wrong often enough to be a category of bug.
+            FlightSql.ActionCreatePreparedStatementResult result =
+                    FlightSql.ActionCreatePreparedStatementResult.newBuilder()
+                            .setPreparedStatementHandle(ByteString.copyFrom(
+                                    StatementHandle.unbound(sql).encode()))
+                            .setDatasetSchema(ByteString.copyFrom(ArrowSchemas.toArrow(prepared.resultSchema())
+                                    .serializeAsMessage()))
+                            .setParameterSchema(ByteString.copyFrom(ArrowSchemas.parameterSchema(prepared.parameters())
+                                    .serializeAsMessage()))
+                            .build();
+            listener.onNext(new Result(com.google.protobuf.Any.pack(result).toByteArray()));
+            listener.onCompleted();
+        } catch (PravahaException e) {
+            listener.onError(
+                    FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException());
+        } catch (RuntimeException e) {
+            listener.onError(CallStatus.INTERNAL
+                    .withDescription(String.valueOf(e.getMessage()))
+                    .toRuntimeException());
+        }
+    }
+
+    @Override
+    public void closePreparedStatement(
+            FlightSql.ActionClosePreparedStatementRequest request,
+            CallContext context,
+            StreamListener<Result> listener) {
+        // Nothing to release: there was never anything held. The call is still answered, because a
+        // client that closes what it opened should not get an error for doing the right thing.
+        listener.onCompleted();
+    }
+
+    @Override
+    public FlightInfo getFlightInfoPreparedStatement(
+            FlightSql.CommandPreparedStatementQuery command, CallContext context, FlightDescriptor descriptor) {
+        StatementHandle handle =
+                StatementHandle.decode(command.getPreparedStatementHandle().toByteArray());
+        try {
+            ViewQuery.Prepared prepared = queries.prepare(handle.sql(), principalOf(context));
+            return generateFlightInfo(command, descriptor, ArrowSchemas.toArrow(prepared.resultSchema()));
+        } catch (PravahaException e) {
+            throw FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException();
+        }
+    }
+
+    @Override
+    public void getStreamPreparedStatement(
+            FlightSql.CommandPreparedStatementQuery command, CallContext context, ServerStreamListener listener) {
+        emit(listener, () -> {
+            StatementHandle handle =
+                    StatementHandle.decode(command.getPreparedStatementHandle().toByteArray());
+            Principal principal = principalOf(context);
+            ViewQuery.Prepared prepared = queries.prepare(handle.sql(), principal);
+            BoundParameters parameters = handle.boundParameters()
+                    .map(bytes -> ArrowParameters.decode(bytes, allocator, prepared.parameters()))
+                    .orElse(BoundParameters.none());
+            return queries.execute(prepared, parameters, principal);
+        });
+    }
+
+    @Override
+    public Runnable acceptPutPreparedStatementQuery(
+            FlightSql.CommandPreparedStatementQuery command,
+            CallContext context,
+            FlightStream flightStream,
+            StreamListener<PutResult> ackStream) {
+        return () -> {
+            try {
+                StatementHandle handle = StatementHandle.decode(
+                        command.getPreparedStatementHandle().toByteArray());
+                byte[] encoded = ArrowParameters.encode(flightStream);
+                StatementHandle bound = handle.boundTo(encoded);
+
+                // The updated handle goes back to the client, which uses it for the fetch. This is
+                // the mechanism that lets the values live on the client's side of the wire rather
+                // than in a table here waiting for a client that may never return.
+                FlightSql.DoPutPreparedStatementResult result = FlightSql.DoPutPreparedStatementResult.newBuilder()
+                        .setPreparedStatementHandle(ByteString.copyFrom(bound.encode()))
+                        .build();
+                try (org.apache.arrow.memory.ArrowBuf metadata = allocator.buffer(result.getSerializedSize())) {
+                    metadata.writeBytes(result.toByteArray());
+                    ackStream.onNext(PutResult.metadata(metadata));
+                }
+                ackStream.onCompleted();
+            } catch (PravahaException e) {
+                ackStream.onError(FlightErrors.statusFor(e)
+                        .withDescription(e.getMessage())
+                        .toRuntimeException());
+            } catch (RuntimeException e) {
+                ackStream.onError(CallStatus.INTERNAL
+                        .withDescription(String.valueOf(e.getMessage()))
+                        .toRuntimeException());
+            }
+        };
     }
 
     /** Plans without executing, which is how a schema is known before there are rows. */

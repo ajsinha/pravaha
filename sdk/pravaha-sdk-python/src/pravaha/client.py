@@ -221,8 +221,25 @@ class Client:
     def uri(self) -> str:
         return self._uri
 
-    def query(self, sql: str) -> QueryResult:
-        """Runs one query and returns its rows."""
+    def query(self, sql: str, parameters: Optional[Sequence[object]] = None) -> QueryResult:
+        """Runs one query and returns its rows.
+
+        Pass ``parameters`` to bind values to the ``?`` placeholders in ``sql``::
+
+            client.query("SELECT total FROM user_volume WHERE user_id = ?", ["u1"])
+
+        Prefer that to building the SQL string yourself. A bound value can never be
+        read as SQL -- by the time it reaches the server the statement is already
+        planned, and there is no parser left for it to reach -- and the server plans a
+        statement once and reuses the plan, so two callers asking the same question
+        about different users share the work rather than each paying for it.
+
+        Any value may be ``None``. What that *means* is SQL's business: ``WHERE x = ?``
+        bound to ``None`` matches no rows, because a comparison with NULL is UNKNOWN.
+        ``IS NULL`` is what finds the empty ones.
+        """
+        if parameters:
+            return self._query_with_parameters(sql, parameters)
         try:
             descriptor = _flight.FlightDescriptor.for_command(_statement_command(sql))
             info = self._client.get_flight_info(descriptor, self._call_options)
@@ -232,6 +249,62 @@ class Client:
         except Exception as exc:
             raise QueryError(f"query failed: {exc}") from exc
         return QueryResult(reader)
+
+    def _query_with_parameters(self, sql: str, parameters: Sequence[object]) -> QueryResult:
+        """Prepare, bind, fetch.
+
+        Four round trips, and the handle may be rewritten in the middle: the server
+        keeps no session, so when parameters are bound it hands back a *new* handle
+        that carries them, and the fetch uses that one. Doing it this way means a
+        client can be answered by any node and can come back after a restart.
+        """
+        try:
+            handle, parameter_schema = self._prepare(sql)
+            try:
+                batch = _bind(parameter_schema, parameters)
+                handle = self._put_parameters(handle, batch)
+                descriptor = _flight.FlightDescriptor.for_command(_prepared_command(handle))
+                info = self._client.get_flight_info(descriptor, self._call_options)
+                reader = self._client.do_get(info.endpoints[0].ticket, self._call_options)
+            finally:
+                self._close_prepared(handle)
+        except (QueryError, ValueError):
+            raise
+        except _flight.FlightError as exc:
+            raise QueryError(_message_of(exc)) from exc
+        except Exception as exc:
+            raise QueryError(f"query failed: {exc}") from exc
+        return QueryResult(reader)
+
+    def _prepare(self, sql: str) -> tuple[bytes, "pyarrow.Schema"]:
+        action = _flight.Action("CreatePreparedStatement", _create_prepared_request(sql))
+        results = list(self._client.do_action(action, self._call_options))
+        if not results:
+            raise QueryError("the server did not return a prepared statement")
+        handle, _dataset, parameter_schema_bytes = _parse_prepared_result(results[0].body.to_pybytes())
+        return handle, _read_schema(parameter_schema_bytes)
+
+    def _put_parameters(self, handle: bytes, batch: "pyarrow.RecordBatch") -> bytes:
+        descriptor = _flight.FlightDescriptor.for_command(_prepared_command(handle))
+        writer, reader = self._client.do_put(descriptor, batch.schema, self._call_options)
+        with writer:
+            writer.write_batch(batch)
+            writer.done_writing()
+            metadata = reader.read()
+        if metadata is None:
+            # A server that keeps its own session would not send one back; ours does,
+            # and using the old handle then would fetch rows for an unbound statement.
+            return handle
+        return _parse_doput_result(metadata.to_pybytes()) or handle
+
+    def _close_prepared(self, handle: bytes) -> None:
+        try:
+            action = _flight.Action("ClosePreparedStatement", _close_prepared_request(handle))
+            list(self._client.do_action(action, self._call_options))
+        except Exception:  # pragma: no cover - closing is best effort
+            # The server holds nothing, so a failure here costs nothing. Letting it
+            # propagate would replace a good result with an error about tidying up.
+            pass
 
     def close(self) -> None:
         self._client.close()
@@ -272,6 +345,135 @@ def _statement_command(sql: str) -> bytes:
     query = _proto_field(1, sql.encode("utf-8"))
     type_url = _proto_field(1, b"type.googleapis.com/arrow.flight.protocol.sql.CommandStatementQuery")
     return type_url + _proto_field(2, query)
+
+
+def _create_prepared_request(sql: str) -> bytes:
+    """``ActionCreatePreparedStatementRequest{query}``, packed as ``Any``."""
+    body = _proto_field(1, sql.encode("utf-8"))
+    type_url = _proto_field(
+        1, b"type.googleapis.com/arrow.flight.protocol.sql.ActionCreatePreparedStatementRequest"
+    )
+    return type_url + _proto_field(2, body)
+
+
+def _close_prepared_request(handle: bytes) -> bytes:
+    """``ActionClosePreparedStatementRequest{prepared_statement_handle}``, packed as ``Any``."""
+    body = _proto_field(1, handle)
+    type_url = _proto_field(
+        1, b"type.googleapis.com/arrow.flight.protocol.sql.ActionClosePreparedStatementRequest"
+    )
+    return type_url + _proto_field(2, body)
+
+
+def _prepared_command(handle: bytes) -> bytes:
+    """``CommandPreparedStatementQuery{prepared_statement_handle}``, packed as ``Any``."""
+    body = _proto_field(1, handle)
+    type_url = _proto_field(
+        1, b"type.googleapis.com/arrow.flight.protocol.sql.CommandPreparedStatementQuery"
+    )
+    return type_url + _proto_field(2, body)
+
+
+def _parse_prepared_result(body: bytes) -> tuple[bytes, bytes, bytes]:
+    """Reads ``Any{ActionCreatePreparedStatementResult}``: handle, dataset and parameter schemas."""
+    fields = _proto_fields(_proto_fields(body).get(2, b""))
+    return fields.get(1, b""), fields.get(2, b""), fields.get(3, b"")
+
+
+def _parse_doput_result(body: bytes) -> bytes:
+    """Reads ``DoPutPreparedStatementResult{prepared_statement_handle}``.
+
+    Not wrapped in ``Any``: this one travels as application metadata on the put
+    acknowledgement rather than as an action result, which is a difference in the spec
+    and not an inconsistency here.
+    """
+    return _proto_fields(body).get(1, b"")
+
+
+def _proto_fields(payload: bytes) -> dict:
+    """Every length-delimited field in a message, by field number.
+
+    Enough of a protobuf reader for the four messages this SDK exchanges, and no more.
+    Non-length-delimited wire types are skipped rather than decoded, because none of
+    the fields we read use them -- and guessing at the ones we do not read is how a
+    hand-rolled parser starts drifting from the spec.
+    """
+    fields: dict = {}
+    index = 0
+    while index < len(payload):
+        tag, index = _read_varint(payload, index)
+        number, wire_type = tag >> 3, tag & 0x7
+        if wire_type == 2:
+            length, index = _read_varint(payload, index)
+            fields[number] = payload[index : index + length]
+            index += length
+        elif wire_type == 0:
+            _, index = _read_varint(payload, index)
+        elif wire_type == 5:
+            index += 4
+        elif wire_type == 1:
+            index += 8
+        else:
+            break
+    return fields
+
+
+def _read_varint(payload: bytes, index: int) -> tuple[int, int]:
+    value = 0
+    shift = 0
+    while index < len(payload):
+        byte = payload[index]
+        index += 1
+        value |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            return value, index
+        shift += 7
+    return value, index
+
+
+def _read_schema(serialized: bytes) -> "pyarrow.Schema":
+    """The parameter schema, as the server serialised it.
+
+    Flight SQL sends it as an IPC *message*, and pyarrow reads schemas from IPC
+    *streams*, so a stream continuation and end-of-stream marker are added around it.
+    A schema message alone is a valid stream prefix; this is framing, not translation.
+    """
+    import pyarrow as pa
+
+    if not serialized:
+        return pa.schema([])
+    try:
+        return pa.ipc.read_schema(pa.py_buffer(serialized))
+    except Exception:
+        stream = b"\xff\xff\xff\xff" + len(serialized).to_bytes(4, "little") + serialized
+        return pa.ipc.open_stream(pa.py_buffer(stream + b"\xff\xff\xff\xff\x00\x00\x00\x00")).schema
+
+
+def _bind(schema: "pyarrow.Schema", parameters: Sequence[object]) -> "pyarrow.RecordBatch":
+    """One row of values, in the types the server asked for.
+
+    The schema comes from the server, so nothing here guesses a type -- which is the
+    part a driver usually gets wrong. A value of the wrong type fails here, naming the
+    placeholder; the same value reaching the server fails with a message about a query
+    the caller did not write.
+    """
+    import pyarrow as pa
+
+    if len(parameters) != len(schema):
+        raise ValueError(
+            f"this statement has {len(schema)} placeholder"
+            f"{'' if len(schema) == 1 else 's'} and {len(parameters)} "
+            f"value{' was' if len(parameters) == 1 else 's were'} given"
+        )
+    columns = []
+    for index, (field, value) in enumerate(zip(schema, parameters)):
+        try:
+            columns.append(pa.array([value], type=field.type))
+        except (pa.ArrowInvalid, pa.ArrowTypeError, TypeError) as exc:
+            raise ValueError(
+                f"?{index + 1} needs {field.type}, but {value!r} was given"
+            ) from exc
+    return pa.RecordBatch.from_arrays(columns, schema=schema)
 
 
 def _proto_field(number: int, payload: bytes) -> bytes:

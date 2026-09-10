@@ -29,6 +29,12 @@ public final class FlightErrors {
     /** A Flight SQL request this server does not implement. */
     public static final ErrorCode UNSUPPORTED_REQUEST = new ErrorCode(6101, "FLIGHT_UNSUPPORTED_REQUEST");
 
+    /** A prepared-statement handle this server cannot read. */
+    public static final ErrorCode BAD_HANDLE = new ErrorCode(6102, "FLIGHT_BAD_HANDLE");
+
+    /** More bound parameter bytes than a handle should carry. */
+    public static final ErrorCode PARAMETERS_TOO_LARGE = new ErrorCode(6103, "FLIGHT_PARAMETERS_TOO_LARGE");
+
     /**
      * The Flight status a Pravaha failure should arrive as.
      *
@@ -50,6 +56,9 @@ public final class FlightErrors {
             case "PRV-4026", "PRV-4027", "PRV-4028" -> CallStatus.RESOURCE_EXHAUSTED;
             case "PRV-4021", "PRV-4029" -> CallStatus.TIMED_OUT;
             case "PRV-4023" -> CallStatus.NOT_FOUND;
+            // A handle the server cannot read, or one from an older version: the client's move is
+            // to prepare the statement again, which NOT_FOUND is the conventional prompt for.
+            case "PRV-6102" -> CallStatus.NOT_FOUND;
             default -> CallStatus.INVALID_ARGUMENT;
         };
     }

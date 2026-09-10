@@ -15,11 +15,11 @@
  */
 package com.ash.messaging.pravaha.sql.plan;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexDynamicParam;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
@@ -47,9 +47,19 @@ import com.ash.messaging.pravaha.sql.SqlErrors;
 public final class PredicateCompiler {
 
     private final StreamSchema schema;
+    private final BoundParameters parameters;
 
     public PredicateCompiler(StreamSchema schema) {
+        this(schema, BoundParameters.none());
+    }
+
+    /**
+     * @param parameters the values bound to this statement's {@code ?} placeholders. Resolved here,
+     *     while the plan is being built, so no bound value ever passes through a parser
+     */
+    public PredicateCompiler(StreamSchema schema, BoundParameters parameters) {
         this.schema = schema;
+        this.parameters = parameters == null ? BoundParameters.none() : parameters;
     }
 
     public Predicate compile(RexNode node) {
@@ -137,10 +147,19 @@ public final class PredicateCompiler {
         // real predicates. Anything else -- `amount * 2 > 100`, `a > b` -- goes to the general
         // expression compiler below, which is correct but interpreted.
         if (left instanceof RexInputRef ref && right instanceof RexLiteral literal) {
-            return compare(ref.getIndex(), op, literal);
+            return compare(ref.getIndex(), op, Constant.of(literal));
         }
         if (left instanceof RexLiteral literal && right instanceof RexInputRef ref) {
-            return compare(ref.getIndex(), flip(op), literal);
+            return compare(ref.getIndex(), flip(op), Constant.of(literal));
+        }
+        // A bound parameter takes the same path a literal does, and produces the same predicate.
+        // That equivalence is the point: `WHERE user_id = ?` and `WHERE user_id = 'u1'` execute
+        // through identical code, so the parameterised form cannot be slower or subtly different.
+        if (left instanceof RexInputRef ref && right instanceof RexDynamicParam param) {
+            return compare(ref.getIndex(), op, boundValue(ref.getIndex(), param));
+        }
+        if (left instanceof RexDynamicParam param && right instanceof RexInputRef ref) {
+            return compare(ref.getIndex(), flip(op), boundValue(ref.getIndex(), param));
         }
         return compareExpressions(call, op);
     }
@@ -171,15 +190,37 @@ public final class PredicateCompiler {
         }
     }
 
-    private Predicate compare(int ordinal, Predicate.Op op, RexLiteral literal) {
+    /**
+     * Resolves one placeholder against the bound values, checked for type.
+     *
+     * <p>NULL deserves a note. A caller who binds NULL to {@code WHERE tier = ?} usually means "the
+     * rows with no tier", and SQL does not: {@code x = NULL} is UNKNOWN for every row, so the
+     * answer is empty. Pravaha follows the standard -- the predicate becomes {@code false} -- rather
+     * than quietly rewriting it to IS NULL, because a client library that silently changed the
+     * meaning of a comparison would be a worse surprise than an empty result. {@code IS NULL} says
+     * what it means and is what the caller should write.
+     */
+    private Constant boundValue(int ordinal, RexDynamicParam param) {
+        Object value = parameters.at(param.getIndex());
+        BoundParameters.checkAssignable(
+                param.getIndex(), value, schema.field(ordinal).type().typeName());
+        return Constant.of(value, param.getIndex());
+    }
+
+    private Predicate compare(int ordinal, Predicate.Op op, Constant constant) {
         TypeName type = schema.field(ordinal).type().typeName();
         String column = columnName(ordinal);
 
+        if (constant.isNull()) {
+            // Standard three-valued logic: any comparison with NULL is UNKNOWN, and a filter keeps
+            // only rows for which the predicate is TRUE.
+            return new Predicate.False();
+        }
+
         return switch (type) {
-            case INT8, INT16, INT32, DATE ->
-                new Predicate.CompareInt(ordinal, column, op, (int) literalAsLong(literal));
-            case INT64, TIME, TIMESTAMP_LTZ -> new Predicate.CompareLong(ordinal, column, op, literalAsLong(literal));
-            case FLOAT32, FLOAT64 -> new Predicate.CompareDouble(ordinal, column, op, literalAsDouble(literal));
+            case INT8, INT16, INT32, DATE -> new Predicate.CompareInt(ordinal, column, op, (int) constant.asLong());
+            case INT64, TIME, TIMESTAMP_LTZ -> new Predicate.CompareLong(ordinal, column, op, constant.asLong());
+            case FLOAT32, FLOAT64 -> new Predicate.CompareDouble(ordinal, column, op, constant.asDouble());
             case STRING -> {
                 if (op != Predicate.Op.EQ && op != Predicate.Op.NE) {
                     throw new PravahaException(
@@ -188,18 +229,14 @@ public final class PredicateCompiler {
                                     + op.sql() + " needs a collation, and assuming one gives wrong "
                                     + "answers that look right");
                 }
-                yield new Predicate.CompareString(
-                        ordinal, column, op, String.valueOf(literal.getValueAs(String.class)));
+                yield new Predicate.CompareString(ordinal, column, op, constant.asString());
             }
             case BOOLEAN ->
-                new Predicate.CompareBoolean(
-                        ordinal,
-                        column,
-                        Boolean.TRUE.equals(literal.getValueAs(Boolean.class)) == (op == Predicate.Op.EQ));
+                new Predicate.CompareBoolean(ordinal, column, constant.asBoolean() == (op == Predicate.Op.EQ));
             default ->
                 throw new PravahaException(
                         SqlErrors.UNSUPPORTED_EXPRESSION,
-                        "cannot compare column '" + column + "' of type " + type + " against a literal yet");
+                        "cannot compare column '" + column + "' of type " + type + " against a constant yet");
         };
     }
 
@@ -235,24 +272,6 @@ public final class PredicateCompiler {
             case LE -> Predicate.Op.GE;
             default -> op;
         };
-    }
-
-    private static long literalAsLong(RexLiteral literal) {
-        BigDecimal decimal = literal.getValueAs(BigDecimal.class);
-        if (decimal != null) {
-            return decimal.longValue();
-        }
-        Long value = literal.getValueAs(Long.class);
-        if (value == null) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_EXPRESSION, "cannot read literal " + literal + " as a number");
-        }
-        return value;
-    }
-
-    private static double literalAsDouble(RexLiteral literal) {
-        BigDecimal decimal = literal.getValueAs(BigDecimal.class);
-        return decimal == null ? 0d : decimal.doubleValue();
     }
 
     private static PravahaException unsupported(RexNode node) {

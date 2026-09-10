@@ -37,10 +37,11 @@
 > heterogeneous laptop part. The evidence packs in [`docs/gates`](docs/gates/) say exactly what is
 > and is not measurable, and no number from this machine is quoted as if it were.
 >
-> Still to come: checkpointing and joins (Wave 5), Aerospike and the serving layer (Waves 5–6), the
-> console (Wave 7 onward). The Aerospike edition question in
-> [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
-> is worth settling early.
+> Checkpointing and joins (Wave 5), backfill and the serving layer (Wave 6), and the Flight SQL
+> gateway with both SDKs, authentication, authorization and prepared statements (Wave 7) have all
+> landed. Still to come: subscriptions over Flight, and the console. The Aerospike edition question
+> in [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time
+> and is worth settling early.
 
 ---
 

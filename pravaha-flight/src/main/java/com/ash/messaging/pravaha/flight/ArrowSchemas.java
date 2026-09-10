@@ -71,8 +71,31 @@ final class ArrowSchemas {
         return new Schema(fields);
     }
 
+    /**
+     * The Arrow schema for a prepared statement's {@code ?} placeholders (ADR-032).
+     *
+     * <p>Named {@code param_1}, {@code param_2} and so on, counting from one, because that is how a
+     * placeholder is referred to everywhere a person will read about it -- an error message, a JDBC
+     * call, documentation. Counting from zero here and from one everywhere else is a small thing
+     * that costs somebody an afternoon.
+     *
+     * <p>Every field is nullable. A caller is allowed to bind NULL to any placeholder, and the
+     * schema is a statement about what may be sent, not about what the query will match.
+     */
+    static Schema parameterSchema(com.ash.messaging.pravaha.sql.plan.ParameterMetadata parameters) {
+        List<Field> fields = new ArrayList<>(parameters.count());
+        for (int i = 0; i < parameters.count(); i++) {
+            fields.add(new Field("param_" + (i + 1), FieldType.nullable(arrowTypeOf(parameters.typeOf(i))), null));
+        }
+        return new Schema(fields);
+    }
+
     private static ArrowType arrowTypeOf(com.ash.messaging.pravaha.api.data.Field field) {
-        return switch (field.type().typeName()) {
+        return arrowTypeOf(field.type().typeName());
+    }
+
+    private static ArrowType arrowTypeOf(com.ash.messaging.pravaha.api.data.TypeName typeName) {
+        return switch (typeName) {
             case BOOLEAN -> ArrowType.Bool.INSTANCE;
             case INT8 -> new ArrowType.Int(8, true);
             case INT16 -> new ArrowType.Int(16, true);
@@ -89,10 +112,9 @@ final class ArrowSchemas {
             default ->
                 throw new PravahaException(
                         FlightErrors.UNSUPPORTED_TYPE,
-                        "column '" + field.name() + "' is " + field.type().typeName()
-                                + ", which Pravaha does not put on the wire yet. DECIMAL in particular is "
-                                + "refused rather than sent as a float, because the rounding decision belongs "
-                                + "to whoever owns the ledger and not to a serialiser.");
+                        typeName + " is not something Pravaha puts on the wire yet. DECIMAL in "
+                                + "particular is refused rather than sent as a float, because the rounding "
+                                + "decision belongs to whoever owns the ledger and not to a serialiser.");
         };
     }
 

@@ -37,9 +37,24 @@ public final class ViewCatalog {
 
     private final Map<String, ServedView> views = new java.util.concurrent.ConcurrentHashMap<>();
 
+    /**
+     * Bumped whenever the set of views or their schemas changes.
+     *
+     * <p>Exists so that anything caching a plan can tell, in one comparison, whether the catalogue
+     * it planned against is still the catalogue it would plan against now. A plan built when a view
+     * had three columns must not be reused after the view is re-registered with four.
+     */
+    private final java.util.concurrent.atomic.AtomicLong generation = new java.util.concurrent.atomic.AtomicLong();
+
     /** Publishes a view under its own name. */
+    /** The catalogue's version. A cached plan is valid only while this is unchanged. */
+    public long generation() {
+        return generation.get();
+    }
+
     public ViewCatalog register(ServedView view) {
         views.put(view.name(), view);
+        generation.incrementAndGet();
         return this;
     }
 

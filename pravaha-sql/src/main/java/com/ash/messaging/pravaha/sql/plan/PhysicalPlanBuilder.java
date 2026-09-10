@@ -66,6 +66,21 @@ public final class PhysicalPlanBuilder {
     private static final long MAX_JOIN_ROWS_PER_SIDE = 1_000_000;
 
     /** Builds a plan from an optimised relational tree. */
+    private BoundParameters parameters = BoundParameters.none();
+
+    /**
+     * Binds this statement's {@code ?} placeholders for the plan about to be built.
+     *
+     * <p>Binding at plan-build time rather than at parse time is the split that makes prepared
+     * statements worth having here: parse, validate and optimise once, then walk the planned tree
+     * per call. It also means a bound value never passes through a parser, so there is no escaping
+     * to get right (ADR-032).
+     */
+    public PhysicalPlanBuilder bind(BoundParameters parameters) {
+        this.parameters = parameters == null ? BoundParameters.none() : parameters;
+        return this;
+    }
+
     public PhysicalOperator build(RelNode rel) {
         return switch (rel) {
             case TableScan scan -> buildScan(scan);
@@ -294,7 +309,7 @@ public final class PhysicalPlanBuilder {
 
     private PhysicalOperator buildFilter(Filter filter) {
         PhysicalOperator input = build(filter.getInput());
-        Predicate predicate = new PredicateCompiler(input.outputSchema()).compile(filter.getCondition());
+        Predicate predicate = new PredicateCompiler(input.outputSchema(), parameters).compile(filter.getCondition());
         return new FilterOperator(input, predicate);
     }
 
