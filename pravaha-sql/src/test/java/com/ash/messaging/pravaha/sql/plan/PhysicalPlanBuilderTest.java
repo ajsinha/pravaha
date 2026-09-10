@@ -159,6 +159,30 @@ class PhysicalPlanBuilderTest {
     }
 
     @Test
+    void arithmeticInsideAWhereClauseIsEvaluatedRatherThanRefused() {
+        // Predicates used to accept only column-against-literal. The fast path for that shape is
+        // still there; this is the general one behind it.
+        assertThat(PhysicalPlanBuilder.explain(plan("SELECT user_id FROM txn WHERE amount * 2 > 100")))
+                .contains("Filter(")
+                .contains("amount")
+                .contains("Scan(txn)");
+    }
+
+    @Test
+    void oneColumnCanBeComparedAgainstAnother() {
+        assertThat(PhysicalPlanBuilder.explain(plan("SELECT user_id FROM txn WHERE amount > txn_id")))
+                .contains("amount > txn_id");
+    }
+
+    @Test
+    void textInsideALargerExpressionIsRefusedRatherThanComparedAsANumber() {
+        assertThatThrownBy(() -> plan("SELECT user_id FROM txn WHERE status > user_id"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2021")
+                .hasMessageContaining("text");
+    }
+
+    @Test
     void anUnsupportedOperatorNamesItselfAndWhatIsSupported() {
         StreamSchema other =
                 StreamSchema.builder("other").field("user_id", Types.string()).build();

@@ -57,7 +57,9 @@ final class ExpressionCompiler {
         return switch (node) {
             case RexInputRef ref ->
                 new Expression.Column(
-                        ref.getIndex(), inputSchema.field(ref.getIndex()).type().typeName());
+                        ref.getIndex(),
+                        inputSchema.field(ref.getIndex()).name(),
+                        inputSchema.field(ref.getIndex()).type().typeName());
             case RexLiteral literal -> literal(literal);
             case RexCall call -> call(call);
             default ->
@@ -90,6 +92,9 @@ final class ExpressionCompiler {
     }
 
     private Expression call(RexCall call) {
+        if (call.getKind() == org.apache.calcite.sql.SqlKind.CAST) {
+            return cast(call);
+        }
         Expression.Operator operator =
                 switch (call.getOperator().getName().toUpperCase(java.util.Locale.ROOT)) {
                     case "+" -> Expression.Operator.ADD;
@@ -117,6 +122,31 @@ final class ExpressionCompiler {
                 operator,
                 compile(call.getOperands().get(1)),
                 type);
+    }
+
+    /**
+     * A numeric cast, which Calcite inserts on its own whenever operand types differ.
+     *
+     * <p>Accepted only between numbers. A cast to or from text, or anything else, is refused by name
+     * rather than evaluated as whatever the underlying long happens to be.
+     */
+    private Expression cast(RexCall call) {
+        Expression source = compile(call.getOperands().get(0));
+        TypeName target = typeOf(call.getType().getSqlTypeName(), call.toString());
+        if (!isNumeric(source.type()) || !isNumeric(target)) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' converts between " + source.type() + " and " + target
+                            + "; Pravaha evaluates numeric conversions only");
+        }
+        return source.type() == target ? source : new Expression.Cast(source, target);
+    }
+
+    private static boolean isNumeric(TypeName type) {
+        return switch (type) {
+            case INT8, INT16, INT32, INT64, FLOAT32, FLOAT64 -> true;
+            default -> false;
+        };
     }
 
     private TypeName typeOf(SqlTypeName sqlType, String context) {

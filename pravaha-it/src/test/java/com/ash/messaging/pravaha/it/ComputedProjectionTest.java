@@ -115,7 +115,7 @@ class ComputedProjectionTest {
         ComputeOperator compute = (ComputeOperator) plan("SELECT amount * 2 + 1 FROM txn");
 
         assertThat(compute.expressions()).hasSize(1);
-        assertThat(compute.expressions().get(0).describe()).isEqualTo("(($1 * 2) + 1)");
+        assertThat(compute.expressions().get(0).describe()).isEqualTo("((amount * 2) + 1)");
         assertThat(compute.label()).contains("Compute");
     }
 

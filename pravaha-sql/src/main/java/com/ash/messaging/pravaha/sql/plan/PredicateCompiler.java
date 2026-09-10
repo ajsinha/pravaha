@@ -28,6 +28,7 @@ import org.apache.calcite.sql.SqlKind;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
+import com.ash.messaging.pravaha.runtime.plan.Expression;
 import com.ash.messaging.pravaha.runtime.plan.Predicate;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 
@@ -55,9 +56,9 @@ public final class PredicateCompiler {
         return switch (node.getKind()) {
             case AND -> new Predicate.And(compileAll((RexCall) node));
             case OR -> new Predicate.Or(compileAll((RexCall) node));
-            case NOT -> new Predicate.Not(compile(((RexCall) node).getOperands().get(0)));
+            case NOT -> negate(((RexCall) node).getOperands().get(0));
             case EQUALS, NOT_EQUALS, GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL ->
-                comparison((RexCall) node);
+                comparison((RexCall) node, false);
             case IS_NULL -> nullCheck((RexCall) node, true);
             case IS_NOT_NULL -> nullCheck((RexCall) node, false);
             case LITERAL ->
@@ -72,25 +73,102 @@ public final class PredicateCompiler {
         };
     }
 
+    /**
+     * Compiles {@code NOT node} into a predicate that is true exactly where SQL says the negation
+     * is TRUE -- never where it is UNKNOWN.
+     *
+     * <p>This exists because the predicate IR is two-valued. Every comparison here returns false for
+     * a null operand, which is right for a WHERE clause: UNKNOWN and FALSE both drop the row. But
+     * wrapping that in a Java {@code !} turns the dropped row into a kept one, and {@code WHERE NOT
+     * (bonus > 1)} over a null bonus then returns rows SQL says it must not. Calcite hands the plan
+     * over with the NOT intact, so pushing it down is Pravaha's job.
+     *
+     * <p>Doing it here rather than at runtime means the three-valued reasoning happens once per
+     * query instead of once per row, and the runtime keeps returning a plain boolean.
+     */
+    private Predicate negate(RexNode node) {
+        return switch (node.getKind()) {
+            // NOT (A AND B) is TRUE where either half is FALSE; NOT (A OR B) where both are.
+            case AND -> new Predicate.Or(negateAll((RexCall) node));
+            case OR -> new Predicate.And(negateAll((RexCall) node));
+            // NOT NOT A is TRUE exactly where A is TRUE, which is what compile already means.
+            case NOT -> compile(((RexCall) node).getOperands().get(0));
+            case EQUALS, NOT_EQUALS, GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL ->
+                comparison((RexCall) node, true);
+            // A null check is total: it is never UNKNOWN, so its negation is the other one.
+            case IS_NULL -> nullCheck((RexCall) node, false);
+            case IS_NOT_NULL -> nullCheck((RexCall) node, true);
+            case LITERAL ->
+                Boolean.TRUE.equals(((RexLiteral) node).getValueAs(Boolean.class))
+                        ? new Predicate.False()
+                        : new Predicate.True();
+            // NOT flagged is TRUE only where flagged is present and false.
+            case INPUT_REF -> {
+                RexInputRef ref = (RexInputRef) node;
+                yield new Predicate.CompareBoolean(ref.getIndex(), columnName(ref.getIndex()), false);
+            }
+            default -> throw unsupported(node);
+        };
+    }
+
+    private List<Predicate> negateAll(RexCall call) {
+        List<Predicate> parts = new ArrayList<>(call.getOperands().size());
+        call.getOperands().forEach(operand -> parts.add(negate(operand)));
+        return parts;
+    }
+
     private List<Predicate> compileAll(RexCall call) {
         List<Predicate> parts = new ArrayList<>(call.getOperands().size());
         call.getOperands().forEach(operand -> parts.add(compile(operand)));
         return parts;
     }
 
-    private Predicate comparison(RexCall call) {
+    /**
+     * @param negated compile {@code NOT (left op right)} instead, which for a comparison is the same
+     *     comparison with the opposite operator -- and stays false for null operands, as it must
+     */
+    private Predicate comparison(RexCall call, boolean negated) {
         RexNode left = call.getOperands().get(0);
         RexNode right = call.getOperands().get(1);
+        Predicate.Op op = negated ? opOf(call.getKind()).negated() : opOf(call.getKind());
 
-        // Column against literal, in either order. Column-to-column comparison needs the general
-        // expression compiler; refusing it is better than emitting something subtly different.
+        // Column against literal, in either order, first: those are the shapes the code generator
+        // turns into a single typed load and compare, and they are the overwhelming majority of
+        // real predicates. Anything else -- `amount * 2 > 100`, `a > b` -- goes to the general
+        // expression compiler below, which is correct but interpreted.
         if (left instanceof RexInputRef ref && right instanceof RexLiteral literal) {
-            return compare(ref.getIndex(), opOf(call.getKind()), literal);
+            return compare(ref.getIndex(), op, literal);
         }
         if (left instanceof RexLiteral literal && right instanceof RexInputRef ref) {
-            return compare(ref.getIndex(), flip(opOf(call.getKind())), literal);
+            return compare(ref.getIndex(), flip(op), literal);
         }
-        throw unsupported(call);
+        return compareExpressions(call, op);
+    }
+
+    /**
+     * The general comparison: both sides compiled as expressions.
+     *
+     * <p>Text is excluded deliberately. The expression tree evaluates to a long or a double, so a
+     * string comparison reaching here would compare something that is not the string -- and the
+     * only string comparisons Pravaha supports at all are equality against a literal, which the
+     * fast path above already handled.
+     */
+    private Predicate compareExpressions(RexCall call, Predicate.Op op) {
+        ExpressionCompiler expressions = new ExpressionCompiler(schema);
+        Expression left = expressions.compile(call.getOperands().get(0));
+        Expression right = expressions.compile(call.getOperands().get(1));
+        rejectText(call, left);
+        rejectText(call, right);
+        return new Predicate.CompareExpressions(left, op, right);
+    }
+
+    private void rejectText(RexCall call, Expression side) {
+        if (side.type() == TypeName.STRING) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' compares text inside a larger expression, which Pravaha cannot do; "
+                            + "only = and <> between a text column and a literal are supported");
+        }
     }
 
     private Predicate compare(int ordinal, Predicate.Op op, RexLiteral literal) {

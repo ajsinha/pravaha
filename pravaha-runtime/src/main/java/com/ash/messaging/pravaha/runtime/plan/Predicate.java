@@ -82,6 +82,18 @@ public sealed interface Predicate {
             this.java = java;
         }
 
+        /** The operator that is TRUE exactly where this one is FALSE, for both operands present. */
+        public Op negated() {
+            return switch (this) {
+                case EQ -> NE;
+                case NE -> EQ;
+                case LT -> GE;
+                case LE -> GT;
+                case GT -> LE;
+                case GE -> LT;
+            };
+        }
+
         public String sql() {
             return sql;
         }
@@ -196,6 +208,45 @@ public sealed interface Predicate {
         }
     }
 
+    /**
+     * A comparison between two computed expressions: {@code WHERE amount * 2 > threshold}.
+     *
+     * <p>The general case, and deliberately the <em>last</em> case. The specific forms above --
+     * column against literal -- exist because they are what the code generator turns into a single
+     * load and compare with constant offsets, and folding them into this one would hand the
+     * generator an expression tree to walk for every row of the common case. So the compiler tries
+     * the specific shapes first and reaches this only when the query genuinely needs it.
+     *
+     * <p>Null comparison follows SQL: if either side is null the comparison is <em>not true</em>,
+     * which for a WHERE clause means the row is dropped. That is not the same as false -- {@code NOT
+     * (null > 1)} is also not true -- and the difference matters the moment a NOT wraps it.
+     */
+    record CompareExpressions(Expression left, Op op, Expression right) implements Predicate {
+
+        @Override
+        public boolean test(RowView row) {
+            if (left.isNull(row) || right.isNull(row)) {
+                return false;
+            }
+            int comparison = left.isFloatingPoint() || right.isFloatingPoint()
+                    ? Double.compare(left.evaluateDouble(row), right.evaluateDouble(row))
+                    : Long.compare(left.evaluateLong(row), right.evaluateLong(row));
+            return switch (op) {
+                case EQ -> comparison == 0;
+                case NE -> comparison != 0;
+                case LT -> comparison < 0;
+                case LE -> comparison <= 0;
+                case GT -> comparison > 0;
+                case GE -> comparison >= 0;
+            };
+        }
+
+        @Override
+        public String describe() {
+            return left.describe() + " " + op.sql() + " " + right.describe();
+        }
+    }
+
     record And(List<Predicate> parts) implements Predicate {
         public And {
             parts = List.copyOf(parts);
@@ -251,6 +302,16 @@ public sealed interface Predicate {
         }
     }
 
+    /**
+     * Two-valued negation, and a trap worth naming.
+     *
+     * <p>The SQL compiler never emits this. {@code !inner.test(row)} turns a row that a comparison
+     * dropped for being null into a row that passes, which is wrong: SQL says NOT UNKNOWN is
+     * UNKNOWN and the row stays dropped. The SQL predicate compiler pushes negation into the
+     * comparisons at compile time instead. This node remains for a predicate built directly, where
+     * the caller knows its operand is total -- a null check, a boolean column comparison -- and
+     * should not be used over anything that can be UNKNOWN.
+     */
     record Not(Predicate inner) implements Predicate {
         @Override
         public boolean test(RowView row) {

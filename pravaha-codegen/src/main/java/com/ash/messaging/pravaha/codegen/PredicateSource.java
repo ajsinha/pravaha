@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.common.row.RowLayout;
@@ -73,6 +74,18 @@ final class PredicateSource {
             case Predicate.CompareString c ->
                 comparison(rowVar, c.ordinal(), c.op() == Predicate.Op.EQ ? "=" : "!=", c.value());
             case Predicate.CompareBoolean c -> comparison(rowVar, c.ordinal(), "=", c.value());
+            case Predicate.CompareExpressions c ->
+                // Refused rather than generated. Generating arithmetic is the natural next step and
+                // is not free: null propagation, overflow checks and integer-versus-floating-point
+                // promotion all have to match the interpreter exactly, or the differential tests
+                // start reporting differences that are really two specifications rather than one.
+                // Until that is done properly, a query using it runs interpreted -- correct, slower,
+                // and honest about which.
+                throw new PravahaException(
+                        CodegenErrors.UNSUPPORTED,
+                        "predicate '" + c.describe() + "' compares computed expressions, which the generator "
+                                + "does not emit yet. The interpreted path evaluates it correctly and more "
+                                + "slowly.");
         };
     }
 

@@ -53,8 +53,14 @@ public sealed interface Expression {
     /** Renders the expression for {@code EXPLAIN}. */
     String describe();
 
-    /** A column read. The leaf of every expression, and the only one that can be null. */
-    record Column(int ordinal, TypeName type) implements Expression {
+    /**
+     * A column read. The leaf of every expression, and the only one that can be null.
+     *
+     * <p>Carries the column's name purely so {@code EXPLAIN} can print {@code amount * 2 > 100}
+     * rather than {@code $2 * 2 > 100}. Evaluation uses the ordinal; the name is never read on the
+     * row path, and nothing should start depending on it there.
+     */
+    record Column(int ordinal, String name, TypeName type) implements Expression {
 
         @Override
         public long evaluateLong(RowView row) {
@@ -83,7 +89,43 @@ public sealed interface Expression {
 
         @Override
         public String describe() {
-            return "$" + ordinal;
+            return name;
+        }
+    }
+
+    /**
+     * A numeric conversion.
+     *
+     * <p>Present because mixing types forces one: {@code rate * 2 > amount} over a DOUBLE rate and a
+     * BIGINT amount arrives from Calcite with a CAST around the amount, and refusing it would refuse
+     * the query for a reason that has nothing to do with what the user wrote.
+     *
+     * <p>Only numeric conversions. Narrowing is allowed and truncates towards zero, which is what
+     * the SQL standard calls implementation-defined and what Java does anyway; what is not allowed
+     * is a conversion that would silently change a value's meaning rather than its width.
+     */
+    record Cast(Expression source, TypeName type) implements Expression {
+
+        @Override
+        public long evaluateLong(RowView row) {
+            return source.isFloatingPoint() ? (long) source.evaluateDouble(row) : source.evaluateLong(row);
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            return source.isFloatingPoint() ? source.evaluateDouble(row) : source.evaluateLong(row);
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return source.isNull(row);
+        }
+
+        @Override
+        public String describe() {
+            // Deliberately invisible in EXPLAIN: the cast is Pravaha's, not the user's, and printing
+            // it makes a plan harder to match against the query that produced it.
+            return source.describe();
         }
     }
 
