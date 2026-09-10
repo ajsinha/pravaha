@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **60 commits ahead**, green, *not yet pushed* |
 | Modules | **25** |
-| Java tests | **1056** (plus 28 Python) |
+| Java tests | **1069** (plus 28 Python) — 13 of them against real Aerospike and PostgreSQL servers in Docker |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -40,7 +40,9 @@ and which no test had ever fed a null string.
 
 **Gate P2 is blocked on hardware, not on code** — see [`gates/wave-3`](gates/wave-3/), read that
 first. Three connectors were also built out of wave, at the owner's request: Delta Lake, feed files
-(CSV + Parquet drop directories) and JDBC.
+(CSV + Parquet drop directories) and JDBC. The JDBC source, its filter pushdown and its dimension
+table are now also proven against a real PostgreSQL rather than only H2, which folds identifiers the
+other way and hides dialect assumptions.
 
 **A windowed `GROUP BY` now runs end to end**, which is the first time a keyed aggregate has been
 allowed at all — every one before this was refused for unbounded state.
