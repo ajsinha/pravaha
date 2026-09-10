@@ -313,6 +313,9 @@ Aerospike, Cassandra and Redis remain Wave 5 and Wave 10 as planned.
   attribution anywhere — the history was rewritten once to remove it; do not reintroduce it.
 - **Waves:** `develop` moves continuously; `main` moves **once per wave**, at a gate, with an
   evidence pack and a retrospective. Never merge to `main` mid-wave.
+  **Suspended once, deliberately, for waves 5–7** — see [`docs/gates/wave-7`](gates/wave-7/). The
+  gates it would have waited for are hardware-blocked rather than code-blocked, and holding `main`
+  81 commits stale was protecting nothing. The debt is recorded there, not forgiven.
 
 ### Places where the obvious thing is wrong
 
