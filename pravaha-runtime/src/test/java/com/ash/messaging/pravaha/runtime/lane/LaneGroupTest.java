@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLongArray;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -45,6 +46,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * sharing between separately-allocated fields; that is a cache-line question, it is P2-10, and it is
  * answered by a benchmark rather than by an assertion.
  */
+// Bounded so a regression fails rather than hangs. Found the hard way: seeding "never drain the
+// inbound exchange rings" did not fail this suite, it stalled it -- the feeding loop waited for inbox
+// space that a blocked lane would never free. A hanging test in CI is worse than a failing one,
+// because it looks like an infrastructure problem and gets retried rather than read.
+@Timeout(60)
 class LaneGroupTest {
 
     private static final Duration PATIENCE = Duration.ofSeconds(15);

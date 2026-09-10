@@ -38,12 +38,14 @@ public final class LaneContext {
     private final RowArena arena;
     private final int[] virtualPartitions;
     private final LaneConfig config;
+    private final LaneExchange.Sender exchange;
 
-    LaneContext(int laneId, RowArena arena, int[] virtualPartitions, LaneConfig config) {
+    LaneContext(int laneId, RowArena arena, int[] virtualPartitions, LaneConfig config, LaneExchange.Sender exchange) {
         this.laneId = laneId;
         this.arena = arena;
         this.virtualPartitions = virtualPartitions;
         this.config = config;
+        this.exchange = exchange;
     }
 
     /** Zero-based, stable for the lane's lifetime, and what every per-lane metric is tagged with. */
@@ -72,6 +74,17 @@ public final class LaneContext {
 
     public LaneConfig config() {
         return config;
+    }
+
+    /**
+     * How this lane sends a row to the lane that owns its key.
+     *
+     * <p>Empty for a single-lane query, which is the common case and needs no exchange at all: a
+     * lane that owns every partition never repartitions anything. A processor that requires the
+     * exchange should say so when it is built rather than discovering the absence per row.
+     */
+    public java.util.Optional<LaneExchange.Sender> exchange() {
+        return java.util.Optional.ofNullable(exchange);
     }
 
     @Override

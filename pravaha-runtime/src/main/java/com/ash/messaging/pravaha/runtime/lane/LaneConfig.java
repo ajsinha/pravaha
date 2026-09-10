@@ -40,6 +40,9 @@ import com.ash.messaging.pravaha.common.queue.WaitStrategy;
  *     trace, flame graph and {@code top -H}, so the name is an operational feature
  * @param daemonThreads whether lane threads keep the JVM alive. False for the server, true when
  *     embedded in a host that owns its own shutdown.
+ * @param exchangeCells cells in each lane-to-lane ring. There are {@code lanes * (lanes - 1)} of
+ *     them, so this number is multiplied by fifty-six at eight lanes -- worth computing rather than
+ *     setting generously by reflex.
  * @param shutdownTimeout how long {@link Lane#close()} waits for the loop to finish
  */
 public record LaneConfig(
@@ -51,6 +54,7 @@ public record LaneConfig(
         int arenaMaxSlabs,
         String threadNamePrefix,
         boolean daemonThreads,
+        int exchangeCells,
         Duration shutdownTimeout) {
 
     public static final int DEFAULT_BATCH_SIZE = 512;
@@ -64,6 +68,9 @@ public record LaneConfig(
         }
         if (inboxCellBytes < 1) {
             throw new IllegalArgumentException("inbox cell size must be positive, got " + inboxCellBytes);
+        }
+        if (exchangeCells < 2) {
+            throw new IllegalArgumentException("each exchange ring needs at least 2 cells, got " + exchangeCells);
         }
         if (shutdownTimeout.isNegative()) {
             throw new IllegalArgumentException("shutdown timeout must not be negative, got " + shutdownTimeout);
@@ -83,6 +90,7 @@ public record LaneConfig(
                 8,
                 "pravaha-lane",
                 false,
+                1024,
                 Duration.ofSeconds(5));
     }
 
@@ -96,6 +104,7 @@ public record LaneConfig(
                 arenaMaxSlabs,
                 threadNamePrefix,
                 daemonThreads,
+                exchangeCells,
                 shutdownTimeout);
     }
 
@@ -109,6 +118,7 @@ public record LaneConfig(
                 arenaMaxSlabs,
                 threadNamePrefix,
                 daemonThreads,
+                exchangeCells,
                 shutdownTimeout);
     }
 
@@ -122,6 +132,7 @@ public record LaneConfig(
                 arenaMaxSlabs,
                 threadNamePrefix,
                 daemonThreads,
+                exchangeCells,
                 shutdownTimeout);
     }
 
@@ -135,6 +146,7 @@ public record LaneConfig(
                 maxSlabs,
                 threadNamePrefix,
                 daemonThreads,
+                exchangeCells,
                 shutdownTimeout);
     }
 
@@ -148,6 +160,21 @@ public record LaneConfig(
                 arenaMaxSlabs,
                 prefix,
                 daemon,
+                exchangeCells,
+                shutdownTimeout);
+    }
+
+    public LaneConfig withExchangeCells(int cells) {
+        return new LaneConfig(
+                batchSize,
+                inboxCells,
+                inboxCellBytes,
+                waitStrategy,
+                arenaSlabBytes,
+                arenaMaxSlabs,
+                threadNamePrefix,
+                daemonThreads,
+                cells,
                 shutdownTimeout);
     }
 
@@ -161,6 +188,7 @@ public record LaneConfig(
                 arenaMaxSlabs,
                 threadNamePrefix,
                 daemonThreads,
+                exchangeCells,
                 timeout);
     }
 }

@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
@@ -43,6 +44,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * it neither caught regressions nor stayed quiet. Throughput and scaling belong in JMH, where the
  * statistics are taken seriously; what is asserted here is behaviour.
  */
+// Bounded so a regression fails rather than hangs. Found the hard way: seeding "never drain the
+// inbound exchange rings" did not fail this suite, it stalled it -- the feeding loop waited for inbox
+// space that a blocked lane would never free. A hanging test in CI is worse than a failing one,
+// because it looks like an infrastructure problem and gets retried rather than read.
+@Timeout(60)
 class LaneTest {
 
     private static final Duration PATIENCE = Duration.ofSeconds(10);

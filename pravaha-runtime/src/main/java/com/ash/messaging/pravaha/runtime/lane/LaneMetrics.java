@@ -33,6 +33,9 @@ package com.ash.messaging.pravaha.runtime.lane;
  *     signal, and the primary capacity-planning number (design section 13.5)
  * @param arenaHighWaterBytes peak arena usage, which is what sizing the lane actually needs
  * @param inboxFill inbox occupancy from 0 to 1, against which the high and low watermarks are set
+ * @param exchangedIn rows received from other lanes. Against {@code rowsIn} this is the share of the
+ *     lane's work that arrived through a repartition, which is what decides whether an exchange is
+ *     earning its cost.
  */
 public record LaneMetrics(
         int laneId,
@@ -42,7 +45,8 @@ public record LaneMetrics(
         long idleCycles,
         long rejectedOffers,
         long arenaHighWaterBytes,
-        double inboxFill) {
+        double inboxFill,
+        long exchangedIn) {
 
     /** Rows per batch actually achieved. Zero before the first batch. */
     public double averageBatchSize() {

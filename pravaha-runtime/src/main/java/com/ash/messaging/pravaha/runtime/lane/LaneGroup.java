@@ -48,6 +48,7 @@ public final class LaneGroup implements AutoCloseable {
     private final List<Lane> lanes;
     private final int[] assignment;
     private final int partitionMask;
+    private final LaneExchange exchange;
 
     /**
      * @param laneCount lanes to build. Design section 13.2 sizes this
@@ -84,14 +85,24 @@ public final class LaneGroup implements AutoCloseable {
             owned.get(lane).add(partition);
         }
 
+        // One lane owns every partition, so there is nothing to repartition and an exchange would
+        // be N(N-1) = 0 rings of pure ceremony. Building it only when it can be used also keeps the
+        // single-lane case -- the common one -- free of the memory an exchange costs.
+        this.exchange = laneCount > 1
+                ? new LaneExchange(laneCount, access, config.exchangeCells(), config.inboxCellBytes())
+                : null;
+
         List<Lane> built = new ArrayList<>(laneCount);
         try {
             for (int i = 0; i < laneCount; i++) {
-                built.add(new Lane(i, config, access, toIntArray(owned.get(i)), factory));
+                built.add(new Lane(i, config, access, toIntArray(owned.get(i)), factory, exchange));
             }
         } catch (RuntimeException e) {
             // A half-built group would leak an arena and an inbox per lane already constructed.
             built.forEach(Lane::close);
+            if (exchange != null) {
+                exchange.close();
+            }
             throw e;
         }
         this.lanes = List.copyOf(built);
@@ -171,16 +182,34 @@ public final class LaneGroup implements AutoCloseable {
         lanes.forEach(Lane::start);
     }
 
-    /** Waits for every lane to have nothing left to do, sharing one deadline between them. */
+    /** The exchange these lanes share, if there is more than one of them. */
+    public java.util.Optional<LaneExchange> exchange() {
+        return java.util.Optional.ofNullable(exchange);
+    }
+
+    /**
+     * Waits for every lane to have nothing left to do, sharing one deadline between them.
+     *
+     * <p>The exchange is checked as well as the lanes, and checked <em>after</em> them: a lane can
+     * be idle while rows it sent are still in flight to a peer, and calling that quiescent would let
+     * a test assert on a result that has not finished arriving.
+     */
     public boolean awaitQuiescent(Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
-        for (Lane lane : lanes) {
-            long remaining = deadline - System.nanoTime();
-            if (remaining <= 0 || !lane.awaitQuiescent(Duration.ofNanos(remaining))) {
-                return false;
+        while (System.nanoTime() < deadline) {
+            boolean lanesIdle = true;
+            for (Lane lane : lanes) {
+                if (!lane.awaitQuiescent(Duration.ofMillis(1))) {
+                    lanesIdle = false;
+                    break;
+                }
             }
+            if (lanesIdle && (exchange == null || exchange.inFlight() == 0)) {
+                return true;
+            }
+            java.util.concurrent.locks.LockSupport.parkNanos(100_000L);
         }
-        return true;
+        return false;
     }
 
     /** Rethrows the first lane failure, if any lane died. */
@@ -201,6 +230,7 @@ public final class LaneGroup implements AutoCloseable {
         long rejected = 0;
         long highWater = 0;
         double fill = 0;
+        long exchanged = 0;
         for (LaneMetrics m : metrics()) {
             in += m.rowsIn();
             out += m.rowsOut();
@@ -209,8 +239,9 @@ public final class LaneGroup implements AutoCloseable {
             rejected += m.rejectedOffers();
             highWater += m.arenaHighWaterBytes();
             fill += m.inboxFill();
+            exchanged += m.exchangedIn();
         }
-        return new LaneMetrics(-1, in, out, batches, idle, rejected, highWater, fill / lanes.size());
+        return new LaneMetrics(-1, in, out, batches, idle, rejected, highWater, fill / lanes.size(), exchanged);
     }
 
     /**
@@ -232,6 +263,11 @@ public final class LaneGroup implements AutoCloseable {
                     first.addSuppressed(e);
                 }
             }
+        }
+        // After the lanes, never before: closing the exchange releases memory their threads may
+        // still be reading from.
+        if (exchange != null) {
+            exchange.close();
         }
         if (first != null) {
             throw first;

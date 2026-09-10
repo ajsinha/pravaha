@@ -82,6 +82,7 @@ public final class Lane implements AutoCloseable {
     private final WaitStrategy waitStrategy;
     private final LaneProcessor processor;
     private final LaneContext context;
+    private final LaneExchange exchange;
     private final Thread thread;
     private final LongAdder rejectedOffers = new LongAdder();
 
@@ -96,6 +97,7 @@ public final class Lane implements AutoCloseable {
     private volatile long rowsOut;
     private volatile long batches;
     private volatile long idleCycles;
+    private volatile long exchangedIn;
 
     /**
      * Builds a lane and everything it owns.
@@ -105,12 +107,31 @@ public final class Lane implements AutoCloseable {
      */
     public Lane(
             int laneId, LaneConfig config, MemoryAccess access, int[] virtualPartitions, LaneProcessorFactory factory) {
+        this(laneId, config, access, virtualPartitions, factory, null);
+    }
+
+    /**
+     * Builds a lane that takes part in an exchange.
+     *
+     * @param exchange shared with the other lanes of its group. This lane sends on its own row of it
+     *     and drains its own column; it touches no other part, which is what keeps the exchange from
+     *     becoming the shared thing the lane model exists to avoid.
+     */
+    public Lane(
+            int laneId,
+            LaneConfig config,
+            MemoryAccess access,
+            int[] virtualPartitions,
+            LaneProcessorFactory factory,
+            LaneExchange exchange) {
         this.laneId = laneId;
+        this.exchange = exchange;
         this.config = config;
         this.inbox = new RowInbox(access, config.inboxCells(), config.inboxCellBytes());
         this.arena = new RowArena(access, config.arenaSlabBytes(), config.arenaMaxSlabs());
         this.waitStrategy = config.waitStrategy().strategy();
-        this.context = new LaneContext(laneId, arena, virtualPartitions.clone(), config);
+        this.context = new LaneContext(
+                laneId, arena, virtualPartitions.clone(), config, exchange == null ? null : exchange.senderFor(laneId));
         // Built here rather than on the lane thread so that a processor that cannot be built fails
         // the caller synchronously, with a stack trace pointing at the registration that caused it.
         // Thread.start() then publishes it safely to the lane thread.
@@ -216,6 +237,7 @@ public final class Lane implements AutoCloseable {
         long localRowsOut = 0;
         long localBatches = 0;
         long localIdle = 0;
+        long localExchangedIn = 0;
         try {
             while (true) {
                 // Raised before the drain, not after it. An observer that sees an empty inbox and
@@ -226,8 +248,16 @@ public final class Lane implements AutoCloseable {
                 if (!inBatch) {
                     inBatch = true;
                 }
+                // Inbound exchange first. Those rows are already inside the engine and another
+                // lane is blocked on the room they occupy, so draining them before pulling new work
+                // from outside is what keeps a shuffle moving rather than merely correct.
+                int exchanged = drainExchange(batch);
+                if (exchanged > 0) {
+                    localRowsIn += exchanged;
+                    localExchangedIn += exchanged;
+                }
                 int count = inbox.drain(batch, batch.length);
-                if (count == 0) {
+                if (count == 0 && exchanged == 0) {
                     inBatch = false;
                     if (!running) {
                         break; // stop only once the inbox is drained, so shutdown loses nothing
@@ -235,6 +265,15 @@ public final class Lane implements AutoCloseable {
                     localIdle++;
                     idleCycles = localIdle;
                     waitStrategy.idle(++idle);
+                    continue;
+                }
+                if (count == 0) {
+                    // Exchange rows were processed this iteration; go back for more rather than
+                    // treating an empty inbox as idle.
+                    rowsIn = localRowsIn;
+                    rowsOut = localRowsOut;
+                    batches = localBatches;
+                    exchangedIn = localExchangedIn;
                     continue;
                 }
                 idle = 0;
@@ -263,8 +302,42 @@ public final class Lane implements AutoCloseable {
             rowsOut = localRowsOut;
             batches = localBatches;
             idleCycles = localIdle;
+            exchangedIn = localExchangedIn;
             closeQuietly();
         }
+    }
+
+    /**
+     * Drains every inbound exchange ring once and feeds the rows to the processor.
+     *
+     * <p>One pass per iteration rather than draining each ring dry: a lane that emptied one peer
+     * completely before looking at the next would starve the others under load, and starvation in a
+     * shuffle shows up as one slow partition rather than as an error.
+     *
+     * @return how many rows were processed
+     */
+    private int drainExchange(long[] batch) {
+        if (exchange == null) {
+            return 0;
+        }
+        int total = 0;
+        for (int from = 0; from < exchange.laneCount(); from++) {
+            if (from == laneId) {
+                continue;
+            }
+            com.ash.messaging.pravaha.common.queue.SpscRowRing ring = exchange.ring(from, laneId);
+            int count = ring.drain(batch, batch.length);
+            if (count == 0) {
+                continue;
+            }
+            inBatch = true;
+            processor.onBatch(ring.region(), batch, count);
+            // After processing, exactly as with the inbox: the rows were flyweights into those cells.
+            ring.release();
+            arena.resetTo(arena.mark());
+            total += count;
+        }
+        return total;
     }
 
     private void closeQuietly() {
@@ -332,7 +405,8 @@ public final class Lane implements AutoCloseable {
                 idleCycles,
                 rejectedOffers.sum(),
                 arena.highWaterMark(),
-                inbox.fill());
+                inbox.fill(),
+                exchangedIn);
     }
 
     /**
