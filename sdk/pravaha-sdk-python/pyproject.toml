@@ -29,7 +29,9 @@ dependencies = []
 # no separate grpcio or protobuf pin for a resolver to argue with -- which is most of the
 # point of choosing a protocol whose client somebody else maintains.
 flight = ["pyarrow>=15.0.0"]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "mypy>=1.8", "ruff>=0.4", "pyarrow>=15.0.0"]
+# "build" is here because `./mvnw -Ppython verify` packages a wheel; without it the
+# reactor fails at the packaging step in an environment where every test passed.
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "mypy>=1.8", "ruff>=0.4", "pyarrow>=15.0.0", "build>=1.2"]
 
 [project.urls]
 Homepage = "https://github.com/ajsinha/pravaha"

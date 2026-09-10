@@ -15,9 +15,12 @@
  */
 package com.ash.messaging.pravaha.sdk.flight;
 
+import org.apache.arrow.flight.CallOption;
+import org.apache.arrow.flight.FlightCallHeaders;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightRuntimeException;
+import org.apache.arrow.flight.HeaderCallOption;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.sql.FlightSqlClient;
 import org.apache.arrow.memory.BufferAllocator;
@@ -61,10 +64,21 @@ public final class PravahaFlightClient implements AutoCloseable {
     private final boolean ownsAllocator;
     private final FlightSqlClient client;
 
-    private PravahaFlightClient(BufferAllocator allocator, boolean ownsAllocator, FlightSqlClient client) {
+    /**
+     * The credential, sent as a header on every call.
+     *
+     * <p>Held rather than sent once at connect time because Flight has no session: each call is
+     * authenticated on its own, which is what lets a server behind a load balancer answer without
+     * the balancer having to pin a client to a node.
+     */
+    private final CallOption[] callOptions;
+
+    private PravahaFlightClient(
+            BufferAllocator allocator, boolean ownsAllocator, FlightSqlClient client, CallOption[] callOptions) {
         this.allocator = allocator;
         this.ownsAllocator = ownsAllocator;
         this.client = client;
+        this.callOptions = callOptions;
     }
 
     /** Connects to {@code host:port}. */
@@ -98,7 +112,8 @@ public final class PravahaFlightClient implements AutoCloseable {
                     allocator,
                     ownsAllocator,
                     new FlightSqlClient(
-                            FlightClient.builder(allocator, location).build()));
+                            FlightClient.builder(allocator, location).build()),
+                    credentialsOf(options));
         } catch (RuntimeException e) {
             if (ownsAllocator) {
                 allocator.close();
@@ -114,6 +129,28 @@ public final class PravahaFlightClient implements AutoCloseable {
     }
 
     /**
+     * The call options carrying the bearer token, or none when the client was configured without
+     * one.
+     *
+     * <p>A missing token is not an error here. A server that requires authentication says so, with
+     * PRV-7001, and that refusal is a better diagnosis than a client-side guess about whether this
+     * particular server wanted a credential.
+     */
+    private static CallOption[] credentialsOf(ClientOptions options) {
+        return options.token()
+                .map(token -> new CallOption[] {
+                    new HeaderCallOption(headersWith(token)),
+                })
+                .orElse(new CallOption[0]);
+    }
+
+    private static FlightCallHeaders headersWith(String token) {
+        FlightCallHeaders headers = new FlightCallHeaders();
+        headers.insert("authorization", "Bearer " + token);
+        return headers;
+    }
+
+    /**
      * Runs one query and returns its rows.
      *
      * <p>The result must be closed, and the rows are valid only while iterating it -- both because
@@ -121,8 +158,8 @@ public final class PravahaFlightClient implements AutoCloseable {
      */
     public QueryResult query(String sql) {
         try {
-            FlightInfo info = client.execute(sql);
-            return new QueryResult(client.getStream(info.getEndpoints().get(0).getTicket()));
+            FlightInfo info = client.execute(sql, callOptions);
+            return new QueryResult(client.getStream(info.getEndpoints().get(0).getTicket(), callOptions));
         } catch (FlightRuntimeException e) {
             throw new PravahaClientException(
                     ClientErrors.QUERY_REFUSED,

@@ -41,6 +41,7 @@ public final class ClientOptions {
     private final int subscriberBufferRows;
     private final boolean conflateOnOverflow;
     private final String applicationName;
+    private final boolean allowInsecureToken;
 
     private ClientOptions(Builder b) {
         this.endpoint = b.endpoint;
@@ -51,6 +52,7 @@ public final class ClientOptions {
         this.subscriberBufferRows = b.subscriberBufferRows;
         this.conflateOnOverflow = b.conflateOnOverflow;
         this.applicationName = b.applicationName;
+        this.allowInsecureToken = b.allowInsecureToken;
     }
 
     public static Builder builder(String connectionString) {
@@ -63,6 +65,11 @@ public final class ClientOptions {
 
     public Endpoint endpoint() {
         return endpoint;
+    }
+
+    /** Whether a token may travel over a plaintext connection; false unless asked for. */
+    public boolean allowInsecureToken() {
+        return allowInsecureToken;
     }
 
     /** Bearer token, if one was supplied. Never rendered by {@link #toString()}. */
@@ -115,6 +122,7 @@ public final class ClientOptions {
     public static final class Builder {
         private final Endpoint endpoint;
         private String token;
+        private boolean allowInsecureToken;
         private Duration connectTimeout = Duration.ofSeconds(10);
         private Duration requestTimeout = Duration.ofSeconds(30);
         private Consistency defaultConsistency = Consistency.CONSISTENT;
@@ -124,6 +132,19 @@ public final class ClientOptions {
 
         private Builder(Endpoint endpoint) {
             this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
+        }
+
+        /**
+         * Permits a token over a plaintext connection.
+         *
+         * <p>For a test against a loopback server, and for a deployment where TLS is terminated by
+         * a sidecar on the same host. Both are real; neither is the common case, which is why it
+         * takes a call whose name says what is being given up. On a network anybody else can reach,
+         * this hands the credential to whoever is listening.
+         */
+        public Builder allowInsecureToken(boolean value) {
+            this.allowInsecureToken = value;
+            return this;
         }
 
         public Builder token(String value) {
@@ -169,13 +190,14 @@ public final class ClientOptions {
         }
 
         public ClientOptions build() {
-            if (!endpoint.tls() && token != null) {
+            if (!endpoint.tls() && token != null && !allowInsecureToken) {
                 // Sending a bearer token over plaintext hands it to anyone on the path. Refusing is
                 // less convenient than warning and considerably safer.
                 throw new PravahaClientException(
                         INVALID,
                         "refusing to send a token over a plaintext connection to " + endpoint
-                                + "; use grpc+tls:// or remove the token",
+                                + "; use grpc+tls://, remove the token, or call allowInsecureToken(true) if "
+                                + "the connection is loopback or TLS ends at a local sidecar",
                         false);
             }
             return new ClientOptions(this);

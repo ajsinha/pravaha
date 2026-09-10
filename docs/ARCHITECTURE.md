@@ -285,10 +285,46 @@ match could still arrive, which without a time bound is forever.
 | `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
 | `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
 | `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |
+| `pravaha-security` | Who is asking, what they may read, and a record of both (ADR-031). Three SPIs and no implementation of an identity provider: deployments already have one. |
 | [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | The Java client's types and connection strings. Dependency-free by enforcer rule: it is embedded in somebody else's application. |
 | [`sdk/pravaha-sdk-java-flight`](../sdk/pravaha-sdk-java-flight) | The Java client's transport, kept separate so an application that only wants the types never sees Netty. |
 
 `pravaha-catalog` is still a placeholder.
+
+## Who may read what
+
+Enforced here, not in the store the data came from, and the reason is structural rather than a
+preference for defence in depth (ADR-031). A served view is derived: the row "u4's gold-tier total
+for the window ending 12:05" exists only inside Pravaha, and there is no record in Aerospike whose
+permissions correspond to it. A change feed is read once and shared by every query registered
+against it (ADR-027), so per-principal enforcement at the source would mean reading it once per
+principal — the read amplification the architecture exists to remove — or reading it as a superuser,
+which enforces nothing. And a continuous query runs for months with nobody connected, so there is no
+session to push down even in principle.
+
+Three seams, deliberately separate:
+
+- **`TokenVerifier`** — a credential in, a `Principal` out. Pravaha stores no passwords; this is
+  where a deployment plugs in the identity provider it already runs.
+- **`SecurityPolicy`** — `(Principal, view)` in, an `AccessDecision` out: allow, allow with a row
+  filter, or deny. On the path of every read, so an implementation that calls a remote service per
+  query will be felt.
+- **`AuditSink`** — every decision, allow and deny alike. A log of refusals answers "who was
+  stopped" and not "who read the payroll view", which is the question that gets asked.
+
+A row filter goes into the **plan**, immediately above the scan and below any aggregate — never
+concatenated into the SQL text, because `WHERE total > 0 OR total <= 0` is enough to neutralise an
+appended `AND tier = 'gold'`, and a predicate in the plan has no syntax for the caller to reach.
+Below the aggregate, so a `SUM` over rows a principal may not see is never computed in the first
+place.
+
+The rule that governs whether a filter can be applied at all: **it is sound iff every column it
+names is present in the view.** If the column was aggregated away, each row already mixes values
+this principal may and may not see, and no filter applied afterwards separates them — so the read is
+refused with `PRV-7003` and the message names the fix, a view that applies the filter before
+aggregating. Forking state per principal is available and explicit; it is not a default, because a
+policy with a per-user filter would otherwise multiply the engine's state by the number of users and
+the operator would learn that from a memory alarm.
 
 ## Rules the build enforces
 

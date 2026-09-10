@@ -3439,13 +3439,52 @@ for (UserVolumeRow row : query.subscribe()) {
 | **Human authn** | OIDC (Keycloak/Okta/Entra) via Spring Security; no local password store |
 | **Service authn** | mTLS client certs or OAuth2 client-credentials JWT; short-lived tokens |
 | **Authz** | RBAC to stream/table/sink/query granularity. Roles: `viewer`, `analyst` (register queries in own namespace), `operator` (lifecycle, rebalance), `admin`. Permissions checked at registration *and* re-checked at deploy. |
-| **Row/column security** | Optional row filters and column masks per role, injected by the planner as an unremovable filter/project above the scan — enforced in the plan, so it cannot be bypassed by clever SQL |
+| **Row/column security** | Optional row filters and column masks per role, injected by the planner as an unremovable filter/project above the scan — enforced in the plan, so it cannot be bypassed by clever SQL. Bounded by the soundness rule below (ADR-031) |
 | **Secrets** | Never in YAML. Resolved from env, files, HashiCorp Vault or cloud secret managers via a `SecretProvider` SPI; redacted in logs, API responses, EXPLAIN output and UI |
 | **Plugin trust** | Optional jar signature verification; classloader isolation; plugins run with a documented capability list surfaced in the UI before install |
 | **SQL injection** | Not applicable to the engine's own parsing, but the UI/REST layer parameterises everything and the catalog rejects identifiers that are not valid Pravaha identifiers |
 | **Audit** | Append-only audit log of every lifecycle and authz decision: actor, action, target, timestamp, source IP, correlation id, result. Shipped to the configured audit sink. |
 | **Resource abuse** | Admission control on plan cost; per-tenant quotas (§21.4); query timeout for bounded queries; hard cap on generated-class count |
 | **Supply chain** | `dependency-check` / OSV scanning in CI, SBOM (CycloneDX) per release, reproducible builds via Jib, pinned dependency versions in the BOM |
+
+### 25.1 Enforced here, not in the store (ADR-031)
+
+Authorization is Pravaha's own responsibility and is **not** delegated to whatever store the data
+came from. This is structural, not defence in depth. A served view is derived data the store has
+never seen — there is no record in Aerospike whose permissions correspond to "u4's gold-tier total
+for the window ending 12:05". A change feed is read once and shared by every query registered
+against it (§17, ADR-027), so per-principal enforcement at the source means reading it once per
+principal, which is the read amplification the architecture exists to remove, or reading it as a
+superuser, which enforces nothing. And a continuous query runs for months with nobody connected, so
+there is no session to push down even in principle. The store's own controls still matter — the
+engine's connection to it is least-privileged — but they protect the connection, not the query.
+
+### 25.2 The soundness rule for row filters
+
+A row filter can be applied **at read time iff every column it names is present in the view**;
+otherwise the read is refused (`PRV-7003`).
+
+If the filter says `region = 'emea'` and the view aggregated `region` away, each row of that view
+already *mixes* the regions: the number in front of the caller was computed from rows they may not
+see. No filter applied afterwards can separate them, and serving the row leaks exactly what the
+policy exists to prevent. The three outcomes:
+
+1. every filter column is present — inject the predicate into the plan, above the scan and **below
+   any aggregate**, and serve; one view serves every principal;
+2. a column is missing — refuse, naming the fix: a view registered with the filter applied before
+   the aggregate, which is a different query with its own state (ADR-025's fingerprint already
+   includes security predicates, so it is a different query by construction);
+3. neither — refuse. A contaminated aggregate is worse than an error: an error stops, and a wrong
+   number gets acted upon.
+
+Forking state per principal automatically was rejected as a default. A policy with a per-user filter
+would silently multiply engine state by the number of users, and the operator would learn it from a
+memory alarm. Registration-time filtering stays available and explicit.
+
+Metadata is authorized as strictly as data: a schema is the list of columns an organisation keeps
+about its customers, and a catalogue is a map of what a deployment does. A denial for a view that
+exists and one for a view that does not read identically, so a caller cannot enumerate a deployment
+by probing it.
 
 ---
 

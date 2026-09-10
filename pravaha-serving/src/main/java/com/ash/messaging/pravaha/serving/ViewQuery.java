@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.serving;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.calcite.rel.RelNode;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
@@ -28,7 +30,19 @@ import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
+import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
+import com.ash.messaging.pravaha.runtime.plan.ComputeOperator;
+import com.ash.messaging.pravaha.runtime.plan.FilterOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
+import com.ash.messaging.pravaha.runtime.plan.Predicate;
+import com.ash.messaging.pravaha.runtime.plan.ProjectOperator;
+import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
+import com.ash.messaging.pravaha.security.AccessDecision;
+import com.ash.messaging.pravaha.security.AuditEvent;
+import com.ash.messaging.pravaha.security.AuditSink;
+import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.SecurityErrors;
+import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 
@@ -65,9 +79,25 @@ public final class ViewQuery {
     public static final int MAX_RESULT_ROWS = 1_000_000;
 
     private final ViewCatalog catalog;
+    private final SecurityPolicy policy;
+    private final AuditSink audit;
 
+    /** A query path with no authorization, for an engine embedded behind its own wall. */
     public ViewQuery(ViewCatalog catalog) {
+        this(catalog, SecurityPolicy.PERMISSIVE, AuditSink.NONE);
+    }
+
+    /**
+     * A query path that enforces a policy and records what it decided.
+     *
+     * <p>Enforcement lives here rather than in the transport on purpose. A second transport -- REST,
+     * an embedded call, the console -- would otherwise need its own copy of these checks, and the
+     * copies would diverge; the one that diverged would be the one somebody exploited.
+     */
+    public ViewQuery(ViewCatalog catalog, SecurityPolicy policy, AuditSink audit) {
         this.catalog = catalog;
+        this.policy = policy;
+        this.audit = audit;
     }
 
     /** A result: the shape of the rows, and the rows. */
@@ -90,27 +120,36 @@ public final class ViewQuery {
      * of the input, and it is what a person acting on the answer needs.
      */
     public Result execute(String sql) {
-        if (catalog.isEmpty()) {
-            throw new PravahaException(
-                    ServingErrors.NO_SUCH_VIEW,
-                    "no views are registered, so there is nothing to query. A view is created by "
-                            + "registering a continuous query that serves one.");
-        }
+        return execute(sql, Principal.ANONYMOUS);
+    }
 
-        StreamSchema[] schemas = catalog.schemas().values().toArray(new StreamSchema[0]);
-        PhysicalOperator plan;
-        try {
-            plan = new PhysicalPlanBuilder()
-                    .build(SqlPlanner.withStreams(schemas).plan(sql));
-        } catch (PravahaException e) {
-            throw e;
-        }
-
+    /**
+     * Plans and runs one query as {@code principal}, enforcing the policy.
+     *
+     * <p>The row filter is ANDed into the <em>plan</em>, above the scan, rather than concatenated
+     * into the SQL. Text concatenation is how a filter gets removed by a caller who understands
+     * operator precedence better than whoever wrote the concatenation; a filter in the plan has no
+     * syntax for the caller to reach (section 25).
+     */
+    public Result execute(String sql, Principal principal) {
+        PhysicalOperator plan = planFor(sql);
         String source = sourceViewOf(plan);
         ServedView view = catalog.find(source)
                 .orElseThrow(() -> new PravahaException(
                         ServingErrors.NO_SUCH_VIEW,
                         "'" + source + "' is not a registered view; this server serves " + catalog.names()));
+
+        AccessDecision decision = policy.mayRead(principal, source);
+        // Recorded whether allowed or denied: an audit log holding only refusals answers "who was
+        // stopped" and not "who read the salary view", which is the question that gets asked.
+        audit.record(AuditEvent.of(principal, "query", source, decision, sql));
+        if (!decision.allowed()) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + source + "': " + decision.reason());
+        }
+        if (decision.rowFilter().isPresent()) {
+            plan = withRowFilter(plan, view, decision.rowFilter().get(), source);
+        }
 
         List<Object[]> results = new ArrayList<>();
         RowLayout inputLayout = RowLayout.of(view.schema());
@@ -157,7 +196,26 @@ public final class ViewQuery {
      * that never come back.
      */
     public StreamSchema schemaOf(String sql) {
-        return planFor(sql).outputSchema();
+        return schemaOf(sql, Principal.ANONYMOUS);
+    }
+
+    /**
+     * The shape of an answer, for a principal allowed to have one.
+     *
+     * <p>Authorized as strictly as the read itself. A schema is the list of columns an organisation
+     * keeps about its customers; answering "what would this query return" for someone who may not
+     * run it hands them that list for free.
+     */
+    public StreamSchema schemaOf(String sql, Principal principal) {
+        PhysicalOperator plan = planFor(sql);
+        String source = sourceViewOf(plan);
+        AccessDecision decision = policy.mayRead(principal, source);
+        audit.record(AuditEvent.of(principal, "schema", source, decision, sql));
+        if (!decision.allowed()) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + source + "': " + decision.reason());
+        }
+        return plan.outputSchema();
     }
 
     private PhysicalOperator planFor(String sql) {
@@ -169,6 +227,84 @@ public final class ViewQuery {
         }
         StreamSchema[] schemas = catalog.schemas().values().toArray(new StreamSchema[0]);
         return new PhysicalPlanBuilder().build(SqlPlanner.withStreams(schemas).plan(sql));
+    }
+
+    /**
+     * ANDs the policy's row filter into the plan, or refuses because it cannot be enforced.
+     *
+     * <p>The soundness rule of ADR-031, in one check. A filter can be applied to a view only if
+     * every column it names is in that view. When a column is missing it is not merely
+     * inconvenient: the column was aggregated away by the continuous query, so each row of the view
+     * already <em>mixes</em> values this principal may and may not see, and no filter applied
+     * afterwards can separate them. Serving such a row would leak exactly what the policy exists to
+     * prevent, so the read is refused and the message says what would fix it -- a view registered
+     * with the filter already applied, which is a different query with its own state (ADR-025's
+     * fingerprint makes them different queries by construction).
+     */
+    private PhysicalOperator withRowFilter(PhysicalOperator plan, ServedView view, String filterSql, String source) {
+        StreamSchema schema = view.schema();
+        Predicate predicate;
+        try {
+            // Parsed against the view's own schema, so a filter naming a column the view does not
+            // have fails here rather than being silently dropped.
+            RelNode filterPlan = SqlPlanner.withStreams(schema).plan("SELECT * FROM " + source + " WHERE " + filterSql);
+            predicate = predicateOf(new PhysicalPlanBuilder().build(filterPlan));
+        } catch (PravahaException e) {
+            throw new PravahaException(
+                    SecurityErrors.FILTER_NOT_ENFORCEABLE,
+                    "the row filter for " + view.name() + " (" + filterSql + ") cannot be applied to it: "
+                            + e.getMessage()
+                            + ". A filter naming a column this view does not carry cannot be enforced on it -- "
+                            + "the column was aggregated away, so each row already mixes values this principal "
+                            + "may and may not see. Register a view that applies the filter before aggregating.",
+                    e);
+        }
+        return injectAboveScan(plan, predicate);
+    }
+
+    private static Predicate predicateOf(PhysicalOperator plan) {
+        if (plan instanceof FilterOperator filter) {
+            return filter.predicate();
+        }
+        for (PhysicalOperator input : plan.inputs()) {
+            Predicate found = predicateOf(input);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    /** Rebuilds the plan with the security filter immediately above the scan. */
+    private static PhysicalOperator injectAboveScan(PhysicalOperator operator, Predicate predicate) {
+        if (predicate == null) {
+            return operator;
+        }
+        if (operator instanceof ScanOperator) {
+            return new FilterOperator(operator, predicate);
+        }
+        if (operator instanceof FilterOperator filter) {
+            return new FilterOperator(injectAboveScan(filter.input(), predicate), filter.predicate());
+        }
+        if (operator instanceof ProjectOperator project) {
+            return new ProjectOperator(
+                    injectAboveScan(project.input(), predicate), project.outputSchema(), project.sourceOrdinals());
+        }
+        if (operator instanceof ComputeOperator compute) {
+            return new ComputeOperator(
+                    injectAboveScan(compute.input(), predicate), compute.outputSchema(), compute.expressions());
+        }
+        if (operator instanceof AggregateOperator aggregate) {
+            return new AggregateOperator(
+                    injectAboveScan(aggregate.input(), predicate),
+                    aggregate.outputSchema(),
+                    aggregate.groupKeyOrdinals(),
+                    aggregate.aggregates());
+        }
+        throw new PravahaException(
+                SecurityErrors.FILTER_NOT_ENFORCEABLE,
+                "cannot place a row filter under " + operator.label()
+                        + "; refusing rather than running the query without it");
     }
 
     /** The single view a plan reads. */

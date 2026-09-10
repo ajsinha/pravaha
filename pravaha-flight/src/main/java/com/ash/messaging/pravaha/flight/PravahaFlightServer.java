@@ -25,6 +25,9 @@ import org.apache.arrow.memory.RootAllocator;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
+import com.ash.messaging.pravaha.security.AuditSink;
+import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 /**
@@ -52,6 +55,9 @@ public final class PravahaFlightServer implements AutoCloseable {
 
     private final ViewCatalog catalog;
     private final BufferAllocator allocator;
+    private TokenVerifier verifier;
+    private SecurityPolicy policy = SecurityPolicy.PERMISSIVE;
+    private AuditSink audit = AuditSink.NONE;
     private final AtomicReference<FlightServer> server = new AtomicReference<>();
     private final boolean ownsAllocator;
     private Location location;
@@ -76,6 +82,36 @@ public final class PravahaFlightServer implements AutoCloseable {
     }
 
     /**
+     * Requires every call to present a bearer credential this verifier accepts.
+     *
+     * <p>Must be called before {@link #start}. A server started without it accepts every call as
+     * {@link com.ash.messaging.pravaha.security.Principal#ANONYMOUS}, which is correct for an
+     * engine embedded inside a process that has already authenticated its caller and wrong for
+     * anything listening on a network anybody else can reach.
+     */
+    public PravahaFlightServer authenticatedBy(TokenVerifier verifier) {
+        requireNotStarted("authentication");
+        this.verifier = java.util.Objects.requireNonNull(verifier, "verifier");
+        return this;
+    }
+
+    /** Enforces {@code policy} on every read, recording each decision in {@code audit}. */
+    public PravahaFlightServer authorizedBy(SecurityPolicy policy, AuditSink audit) {
+        requireNotStarted("authorization");
+        this.policy = java.util.Objects.requireNonNull(policy, "policy");
+        this.audit = java.util.Objects.requireNonNull(audit, "audit");
+        return this;
+    }
+
+    private void requireNotStarted(String what) {
+        if (server.get() != null) {
+            throw new IllegalStateException(
+                    "cannot configure " + what + " on a server that is already accepting calls; "
+                            + "the calls in flight would be the ones running under the old rules");
+        }
+    }
+
+    /**
      * Binds and starts.
      *
      * @param port the port to listen on, or zero to let the operating system choose -- which is what
@@ -84,10 +120,12 @@ public final class PravahaFlightServer implements AutoCloseable {
     public PravahaFlightServer start(String host, int port) {
         Location requested = Location.forGrpcInsecure(host, port);
         try {
-            FlightServer started = FlightServer.builder(
-                            allocator, requested, new PravahaFlightSqlProducer(catalog, allocator, requested))
-                    .build()
-                    .start();
+            FlightServer.Builder builder = FlightServer.builder(
+                    allocator, requested, new PravahaFlightSqlProducer(catalog, allocator, requested, policy, audit));
+            if (verifier != null) {
+                builder.middleware(PrincipalMiddleware.KEY, new PrincipalMiddleware.Factory(verifier));
+            }
+            FlightServer started = builder.build().start();
             server.set(started);
             this.location = Location.forGrpcInsecure(host, started.getPort());
             return this;

@@ -50,6 +50,28 @@
           <argLine>@{jacoco.surefire.argLine} -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED</argLine>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <!--
+              Writes this module's test classpath to a file so the Python SDK's tests can start the
+              real server rather than a Python imitation of it. Without it those tests skip, and a
+              skipped cross-language test looks exactly like a passing one in the summary line.
+            -->
+            <id>write-test-classpath</id>
+            <goals>
+              <goal>build-classpath</goal>
+            </goals>
+            <phase>test-compile</phase>
+            <configuration>
+              <outputFile>${project.build.directory}/test-classpath.txt</outputFile>
+              <includeScope>test</includeScope>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

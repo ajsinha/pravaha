@@ -22,6 +22,23 @@
     <python.executable>python3</python.executable>
   </properties>
 
+  <profiles>
+    <profile>
+      <!--
+        A developer following the README makes a .venv here, and that is where pytest lives. Without
+        this the reactor runs the system python3, finds no pytest, and fails a build that the same
+        tests pass in by hand, which reads as a broken build rather than a missing activation.
+      -->
+      <id>python-venv</id>
+      <activation>
+        <file><exists>${project.basedir}/.venv/bin/python</exists></file>
+      </activation>
+      <properties>
+        <python.executable>${project.basedir}/.venv/bin/python</python.executable>
+      </properties>
+    </profile>
+  </profiles>
+
   <build>
     <plugins>
       <plugin>

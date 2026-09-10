@@ -39,3 +39,4 @@ decision that was later reversed is usually the most useful thing here.
 | [028](028-connectors-earn-their-place.md) | A connector earns its place by proving an SPI capability or by deployment demand, never by breadth; three shapes, one kit |
 | [029](029-aerospike-scan-only.md) | The Aerospike plugin ships scan-based ingest only; XDR strategies are out of scope, and the cost is that deletes are invisible |
 | [030](030-flight-sql-as-the-client-protocol.md) | Arrow Flight SQL is the one client protocol for subscriptions and request/response alike; amends ADR-007, drops Avatica |
+| [031](031-authorization-at-the-pravaha-layer.md) | Authentication and authorization are enforced by Pravaha on every read, never delegated to the store; a row filter is sound only if the view carries its columns |

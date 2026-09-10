@@ -34,6 +34,9 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.security.AuditSink;
+import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 
@@ -71,8 +74,13 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     private final Location location;
 
     public PravahaFlightSqlProducer(ViewCatalog catalog, BufferAllocator allocator, Location location) {
+        this(catalog, allocator, location, SecurityPolicy.PERMISSIVE, AuditSink.NONE);
+    }
+
+    public PravahaFlightSqlProducer(
+            ViewCatalog catalog, BufferAllocator allocator, Location location, SecurityPolicy policy, AuditSink audit) {
         this.catalog = catalog;
-        this.queries = new ViewQuery(catalog);
+        this.queries = new ViewQuery(catalog, policy, audit);
         this.allocator = allocator;
         this.location = location;
     }
@@ -92,11 +100,24 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         return Collections.singletonList(new FlightEndpoint(ticket, location));
     }
 
+    /**
+     * The caller, as authenticated by {@link PrincipalMiddleware}.
+     *
+     * <p>Anonymous when no verifier is configured. That is a deliberate two-state design rather than
+     * a default that silently downgrades: {@code getMiddleware} returns null only when the server
+     * was built without the middleware at all, which is the embedded case, and a server that <em>is</em>
+     * authenticating has already refused the call before the producer sees it.
+     */
+    private static Principal principalOf(CallContext context) {
+        PrincipalMiddleware middleware = context.getMiddleware(PrincipalMiddleware.KEY);
+        return middleware == null ? Principal.ANONYMOUS : middleware.principal();
+    }
+
     @Override
     public FlightInfo getFlightInfoStatement(
             FlightSql.CommandStatementQuery command, CallContext context, FlightDescriptor descriptor) {
         String sql = command.getQuery();
-        Schema schema = ArrowSchemas.toArrow(plan(sql));
+        Schema schema = ArrowSchemas.toArrow(plan(sql, context));
         // The ticket carries the query itself, so the server holds nothing between this call and the
         // one that fetches the rows.
         FlightSql.TicketStatementQuery ticket = FlightSql.TicketStatementQuery.newBuilder()
@@ -110,7 +131,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             FlightSql.TicketStatementQuery ticket, CallContext context, ServerStreamListener listener) {
         String sql = ticket.getStatementHandle().toStringUtf8();
         try {
-            ViewQuery.Result result = queries.execute(sql);
+            ViewQuery.Result result = queries.execute(sql, principalOf(context));
             Schema schema = ArrowSchemas.toArrow(result.schema());
             try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
                 listener.start(root);
@@ -143,9 +164,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     }
 
     /** Plans without executing, which is how a schema is known before there are rows. */
-    private com.ash.messaging.pravaha.api.data.StreamSchema plan(String sql) {
+    private com.ash.messaging.pravaha.api.data.StreamSchema plan(String sql, CallContext context) {
         try {
-            return queries.schemaOf(sql);
+            return queries.schemaOf(sql, principalOf(context));
         } catch (PravahaException e) {
             throw CallStatus.INVALID_ARGUMENT.withDescription(e.getMessage()).toRuntimeException();
         }

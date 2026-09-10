@@ -202,6 +202,16 @@ class Client:
         node = options.endpoint.nodes[0]
         scheme = "grpc+tls" if options.endpoint.tls else "grpc"
         self._uri = f"{scheme}://{node.host}:{node.port}"
+        # Held rather than sent once at connect time because Flight has no session: each
+        # call is authenticated on its own, which is what lets a server behind a load
+        # balancer answer without the balancer pinning a client to a node.
+        self._call_options = (
+            _flight.FlightCallOptions(
+                headers=[(b"authorization", f"Bearer {options.token}".encode())]
+            )
+            if options.token
+            else _flight.FlightCallOptions()
+        )
         try:
             self._client = _flight.FlightClient(self._uri)
         except Exception as exc:  # pragma: no cover - network failure shape varies
@@ -215,8 +225,8 @@ class Client:
         """Runs one query and returns its rows."""
         try:
             descriptor = _flight.FlightDescriptor.for_command(_statement_command(sql))
-            info = self._client.get_flight_info(descriptor)
-            reader = self._client.do_get(info.endpoints[0].ticket)
+            info = self._client.get_flight_info(descriptor, self._call_options)
+            reader = self._client.do_get(info.endpoints[0].ticket, self._call_options)
         except _flight.FlightError as exc:
             raise QueryError(_message_of(exc)) from exc
         except Exception as exc:

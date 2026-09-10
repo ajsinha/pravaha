@@ -240,8 +240,20 @@ right numbers — which is how that distinction was discovered.
 | Flight SQL server | ✅ `pravaha-flight`: SQL in, Arrow batches out, streamed in bounded batches; `FlightSqlEndToEndTest` drives it with the real Flight SQL client |
 | Java SDK request/response | ✅ `pravaha-sdk-java-flight` — connect, query, iterate. The thin SDK stays dependency-free (its enforcer rule bans Netty), so the transport is a separate artifact |
 | Python SDK request/response | ✅ `pravaha.connect(...).query(sql)`, iterating rows or `to_table()` straight to pandas/Polars. Tested against the **real Java server**, not a Python fake |
+| Authentication on the wire | ✅ `PrincipalMiddleware` — `authorization: Bearer <token>` verified per call, `TokenVerifier` as the seam for a deployment's own identity provider. Middleware rather than Flight's `CallHeaderAuthenticator`, because a `peerIdentity` string is not enough to authorize with and recovering the rest means a session table to size and evict |
+| Authorization at the Pravaha layer (ADR-031) | ✅ `pravaha-security`: `SecurityPolicy` consulted on every read, row filter injected **into the plan** above the scan and below any aggregate. Enforced in `ViewQuery`, not in the transport, so a second transport cannot arrive without it |
+| The soundness rule | ✅ a read-time filter is sound iff the view carries every column it names; otherwise `PRV-7003` and a message naming the fix. A filter over a column that was aggregated away cannot separate rows that are already mixed |
+| Audit | ✅ `AuditSink` records allows as well as denials — a log of refusals cannot answer "who read the payroll view" |
+| Token support in both SDKs | ✅ Java and Python alike; both refuse to send a credential over plaintext unless explicitly told to, and neither prints it in a `toString`/`repr` |
 | Subscriptions over Flight | ❌ |
 | Read admission control | ❌ — ADR-030 makes this load-bearing rather than optional |
+| Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
+
+**The Python SDK's transport tests were skipping silently.** They start the real Java server from
+`pravaha-flight/target/test-classpath.txt`, and nothing wrote that file — so sixteen cross-language
+tests reported as skips, which look identical to passes in a pytest summary line. `pravaha-flight`
+now writes it at `test-compile` via `maven-dependency-plugin:build-classpath`. All 46 Python tests
+now run for real.
 
 **Arrow needs JVM flags**: `--add-opens=java.base/java.nio=ALL-UNNAMED` and
 `--add-opens=java.base/java.lang=ALL-UNNAMED`, plus `--sun-misc-unsafe-memory-access=allow` on Java
