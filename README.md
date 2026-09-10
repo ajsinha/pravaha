@@ -19,9 +19,10 @@
 
 ---
 
-> **Project status: Wave 4 — stateful and incremental, built; gate blocked on hardware.**
+> **Project status: Wave 7 of 10 — an engine with a client protocol; no UI, no clustering.**
 >
-> Waves 1 and 2 are complete and merged (tags `M1`, `M2`). **SQL runs end to end today**, now
+> Waves 1–7 are merged to `main` (see [`docs/gates/wave-7`](docs/gates/wave-7/), which records why
+> that merge happened without a passing performance gate). **SQL runs end to end today**, now
 > across the lane runtime: Calcite parses and optimises, the plan becomes Pravaha's own operator
 > tree, and rows travel from a plugin reader through an ingest pump into a lane's off-heap inbox and
 > out to a sink. Try it in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
@@ -39,9 +40,14 @@
 >
 > Checkpointing and joins (Wave 5), backfill and the serving layer (Wave 6), and the Flight SQL
 > gateway with both SDKs, authentication, authorization and prepared statements (Wave 7) have all
-> landed. Still to come: subscriptions over Flight, and the console. The Aerospike edition question
-> in [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time
-> and is worth settling early.
+> landed. The README's query runs verbatim against a real Aerospike, and there is a test that proves
+> it rather than a claim that asserts it.
+>
+> **What is not built, stated plainly:** there is no way yet to register a query as a persistent
+> running thing, no subscriptions, **no user interface** (three ADRs, no code), and no clustering.
+> That is roughly wave 7 of 10. The Aerospike edition question in
+> [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
+> is worth settling early.
 
 ---
 
