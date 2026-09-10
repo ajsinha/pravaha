@@ -1253,6 +1253,25 @@ EMIT CHANGES WITH ('allowed.lateness' = '30s', 'parallelism' = '16');
 
 `WATERMARK FOR`, `EMIT CHANGES`, `FOR SYSTEM_TIME AS OF` and `CREATE CONTINUOUS QUERY` are parser extensions built with Calcite's standard Freemarker/JavaCC extension mechanism.
 
+#### Windowing syntax — corrected in Wave 4
+
+The example above uses the **grouped-function** form, `GROUP BY TUMBLE(event_time, INTERVAL '10' SECOND)` with `TUMBLE_END(...)` in the projection. Calcite 1.40 still accepts it, but the implemented surface is the **table-function** form of SQL:2016:
+
+```sql
+SELECT window_start, window_end, user_id, COUNT(*), SUM(amount)
+FROM TABLE(TUMBLE(TABLE txn_stream, DESCRIPTOR(event_time), INTERVAL '10' SECOND))
+GROUP BY window_start, window_end, user_id;
+
+-- 60-second window, hopping every 5 seconds
+FROM TABLE(HOP(TABLE txn_stream, DESCRIPTOR(event_time), INTERVAL '5' SECOND, INTERVAL '60' SECOND))
+```
+
+Two reasons, both practical. The table function **names the window columns**, so `window_start` and `window_end` are ordinary columns that can be grouped by, projected, joined and written to a sink — where the grouped form requires `TUMBLE_START`/`TUMBLE_END` to reconstruct boundaries the planner already knew. And it is the direction the standard and every other engine has moved, so a query written against Pravaha reads the same as one written against Flink or Spark.
+
+A `GROUP BY` over a windowed stream that does **not** group by the window is refused: it spans every window at once, which is the unbounded case wearing a window's clothes.
+
+`SESSION` exists in the runtime but is not reachable from SQL yet — its state is a per-key interval set rather than a slice grid, so it waits for the keyed state store.
+
 ### 11.3 Catalog
 
 ```

@@ -23,14 +23,18 @@ import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Project;
+import org.apache.calcite.rel.core.TableFunctionScan;
 import org.apache.calcite.rel.core.TableScan;
+import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
+import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.util.ImmutableBitSet;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.runtime.plan.*;
+import com.ash.messaging.pravaha.runtime.window.WindowSpec;
 import com.ash.messaging.pravaha.sql.PravahaTable;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 import com.ash.messaging.pravaha.sql.TypeMapping;
@@ -55,6 +59,7 @@ public final class PhysicalPlanBuilder {
             case Filter filter -> buildFilter(filter);
             case Project project -> buildProject(project);
             case Aggregate aggregate -> buildAggregate(aggregate);
+            case TableFunctionScan windowing -> buildWindowAssign(windowing);
             default ->
                 throw new PravahaException(
                         SqlErrors.UNSUPPORTED_OPERATOR,
@@ -99,6 +104,105 @@ public final class PhysicalPlanBuilder {
         return new ProjectOperator(input, output, ordinals);
     }
 
+    /**
+     * Translates SQL's windowing table function into a window assignment.
+     *
+     * <p>{@code TABLE(TUMBLE(TABLE s, DESCRIPTOR(event_time), INTERVAL '10' SECOND))} is the SQL:2016
+     * form, and Calcite gives it to us as a scan whose row type is the input's columns plus
+     * {@code window_start} and {@code window_end}. That shape is exactly what the runtime wants:
+     * assignment adds two columns, and a perfectly ordinary GROUP BY on them above is a windowed
+     * aggregate. No special grouping machinery, and the window is visible in EXPLAIN rather than
+     * buried in an aggregate's configuration.
+     *
+     * <p>The design's section 11.2 example uses the older grouped-function form,
+     * {@code GROUP BY TUMBLE(event_time, INTERVAL ...)}. Both parse in Calcite 1.40, and the table
+     * function is preferred here because it names the window columns explicitly rather than
+     * requiring TUMBLE_START/TUMBLE_END to reconstruct them -- the design is corrected to match
+     * rather than the code contorted to fit.
+     */
+    private PhysicalOperator buildWindowAssign(TableFunctionScan windowing) {
+        if (windowing.getInputs().size() != 1) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "a windowing table function takes exactly one input; this one has "
+                            + windowing.getInputs().size());
+        }
+        PhysicalOperator input = build(windowing.getInput(0));
+        if (!(windowing.getCall() instanceof RexCall call)) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR, "cannot read the windowing call " + windowing.getCall());
+        }
+
+        String function = call.getOperator().getName().toUpperCase(java.util.Locale.ROOT);
+        List<Long> intervals = new ArrayList<>();
+        int eventTimeOrdinal = -1;
+        for (RexNode operand : call.getOperands()) {
+            if (operand instanceof RexCall descriptor
+                    && descriptor.getOperator().getName().equalsIgnoreCase("DESCRIPTOR")) {
+                eventTimeOrdinal = descriptorOrdinal(descriptor, input.outputSchema());
+            } else if (operand instanceof RexLiteral literal && literal.getValue() != null) {
+                // Calcite normalises INTERVAL literals to milliseconds; the engine works in
+                // nanoseconds throughout (ADR-012), so the conversion happens once, here.
+                intervals.add(((java.math.BigDecimal) literal.getValue4()).longValue() * 1_000_000L);
+            }
+        }
+        if (eventTimeOrdinal < 0) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "the windowing function names no time column. Pass one with DESCRIPTOR(event_time).");
+        }
+
+        WindowSpec spec =
+                switch (function) {
+                    case "TUMBLE" -> {
+                        requireIntervals(function, intervals, 1);
+                        yield WindowSpec.tumbling(intervals.get(0));
+                    }
+                    case "HOP" -> {
+                        // Calcite passes HOP as (slide, size), which is the opposite of the order the SQL
+                        // reads in. Getting this backwards produces windows of the wrong width that still
+                        // fire plausibly, so it is asserted by test rather than trusted.
+                        requireIntervals(function, intervals, 2);
+                        yield WindowSpec.hopping(intervals.get(1), intervals.get(0));
+                    }
+                    case "SESSION" ->
+                        throw new PravahaException(
+                                SqlErrors.UNSUPPORTED_OPERATOR,
+                                "SESSION windows exist in the runtime but are not wired to SQL yet: their state is a "
+                                        + "per-key interval set rather than a slice grid, so they need the keyed state "
+                                        + "store. Use TUMBLE or HOP.");
+                    default ->
+                        throw new PravahaException(
+                                SqlErrors.UNSUPPORTED_OPERATOR, "unsupported windowing function " + function);
+                };
+
+        StreamSchema output = schemaOf(windowing, input.outputSchema().name() + "_windowed");
+        return new WindowAssignOperator(input, output, spec, eventTimeOrdinal);
+    }
+
+    private static void requireIntervals(String function, List<Long> intervals, int expected) {
+        if (intervals.size() < expected) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    function + " needs " + expected + " interval argument(s); got " + intervals.size());
+        }
+    }
+
+    private static int descriptorOrdinal(RexCall descriptor, StreamSchema schema) {
+        for (RexNode operand : descriptor.getOperands()) {
+            if (operand instanceof RexInputRef ref) {
+                return ref.getIndex();
+            }
+            String name = operand.toString().replace("'", "").trim();
+            for (int i = 0; i < schema.fieldCount(); i++) {
+                if (schema.field(i).name().equalsIgnoreCase(name)) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
     private PhysicalOperator buildAggregate(Aggregate aggregate) {
         PhysicalOperator input = build(aggregate.getInput());
         ImmutableBitSet groupSet = aggregate.getGroupSet();
@@ -117,6 +221,25 @@ public final class PhysicalPlanBuilder {
         }
 
         StreamSchema output = schemaOf(aggregate, input.outputSchema().name() + "_aggregated");
+
+        // A GROUP BY sitting on a window assignment is bounded: each window's state is released when
+        // the window closes, so the state is keys times *open* windows rather than keys times
+        // history. That is the whole reason windowing exists in this design, and it is the one shape
+        // of keyed aggregate that can be admitted.
+        WindowAssignOperator window = windowBelow(input);
+        if (window != null) {
+            int[] boundaries = windowBoundaryOrdinals(input.outputSchema(), groupKeys);
+            if (boundaries == null) {
+                throw new PravahaException(
+                        SqlErrors.UNBOUNDED_STATE,
+                        "this GROUP BY is over a windowed stream but does not group by the window: add "
+                                + "window_start and window_end to the GROUP BY. Without them the aggregate spans "
+                                + "every window at once, which is the unbounded case wearing a window's clothes.");
+            }
+            return new WindowedAggregateOperator(
+                    input, output, window.spec(), groupKeys, calls, boundaries[0], boundaries[1], DEFAULT_MAX_SLICES);
+        }
+
         AggregateOperator operator = new AggregateOperator(input, output, groupKeys, calls);
 
         // Design 9.6: an unbounded integrate over an unbounded key space never stops growing, and
@@ -149,6 +272,59 @@ public final class PhysicalPlanBuilder {
                 .map(ordinal ->
                         ordinal < schema.fieldCount() ? schema.field(ordinal).name() : "column " + ordinal)
                 .collect(java.util.stream.Collectors.joining(", "));
+    }
+
+    /**
+     * The ceiling on live accumulators for a windowed aggregate.
+     *
+     * <p>A window bounds state over *time*; it does nothing about the key space within one window,
+     * so a hundred million distinct keys in a single minute is still a hundred million accumulators.
+     * The ceiling is what turns that into a refusal naming the key rather than an out-of-memory
+     * kill. A per-query setting belongs with the query lifecycle; until then this is the default,
+     * chosen so that a legitimate high-cardinality query fits and a runaway one does not.
+     */
+    private static final int DEFAULT_MAX_SLICES = 2_000_000;
+
+    /** The window assignment feeding this aggregate, looking through projections. */
+    private static WindowAssignOperator windowBelow(PhysicalOperator operator) {
+        PhysicalOperator current = operator;
+        while (true) {
+            if (current instanceof WindowAssignOperator window) {
+                return window;
+            }
+            if (current instanceof ProjectOperator project) {
+                current = project.input();
+                continue;
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Finds the group keys that carry the window boundaries.
+     *
+     * <p>Matched by name, in the aggregate's <em>own input</em> schema rather than the window
+     * assigner's. A projection sits between them and renumbers everything: the boundaries are the
+     * assigner's last two columns and the aggregate's first two here, so resolving against the wrong
+     * schema finds boundaries where there are none -- and, worse, could find them at the wrong
+     * ordinals and group by whichever columns happened to be there, producing correct-looking
+     * numbers for the wrong grouping.
+     */
+    private static int[] windowBoundaryOrdinals(StreamSchema schema, List<Integer> groupKeys) {
+        int start = -1;
+        int end = -1;
+        for (int ordinal : groupKeys) {
+            if (ordinal >= schema.fieldCount()) {
+                continue;
+            }
+            String name = schema.field(ordinal).name();
+            if (name.equalsIgnoreCase("window_start")) {
+                start = ordinal;
+            } else if (name.equalsIgnoreCase("window_end")) {
+                end = ordinal;
+            }
+        }
+        return start >= 0 && end >= 0 ? new int[] {start, end} : null;
     }
 
     private static AggregateOperator.AggregateCall.Kind kindOf(AggregateCall call) {

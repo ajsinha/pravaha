@@ -36,6 +36,8 @@ import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.ProjectOperator;
 import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 import com.ash.messaging.pravaha.runtime.plan.SinkOperator;
+import com.ash.messaging.pravaha.runtime.plan.WindowAssignOperator;
+import com.ash.messaging.pravaha.runtime.plan.WindowedAggregateOperator;
 
 /**
  * Compiles a physical plan into a chain of interpreted stages.
@@ -54,6 +56,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     private final RowArena arena;
     private final RowProcessor head;
     private final List<Runnable> finishers = new ArrayList<>();
+    private final List<WindowedAggregate> windowed = new ArrayList<>();
     private final ScanOperator scan;
 
     private InterpretedPipeline(RowArena arena, RowProcessor head, ScanOperator scan) {
@@ -74,6 +77,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         RowProcessor head = builder.build(plan);
         InterpretedPipeline pipeline = new InterpretedPipeline(arena, head, builder.scan);
         pipeline.finishers.addAll(builder.finishers);
+        pipeline.windowed.addAll(builder.windowed);
         return pipeline;
     }
 
@@ -97,6 +101,17 @@ public final class InterpretedPipeline implements AutoCloseable {
         finishers.forEach(Runnable::run);
     }
 
+    /**
+     * Advances event time, firing any window that has completed.
+     *
+     * <p>Separate from {@link #finish()} because they answer different questions: a watermark says
+     * "no earlier record will arrive", and end of input says "no record will arrive at all". A
+     * continuous query only ever gets the first; a file source gets both.
+     */
+    public void advanceWatermark(long watermarkNanos) {
+        windowed.forEach(aggregate -> aggregate.advanceWatermark(watermarkNanos));
+    }
+
     /** The arena stages allocate their output rows in. */
     public RowArena arena() {
         return arena;
@@ -112,6 +127,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final RowArena arena;
         private final RowOutput sink;
         private final List<Runnable> finishers = new ArrayList<>();
+        private final List<WindowedAggregate> windowed = new ArrayList<>();
         private ScanOperator scan;
 
         Builder(RowArena arena, RowOutput sink) {
@@ -121,6 +137,14 @@ public final class InterpretedPipeline implements AutoCloseable {
 
         RowProcessor build(PhysicalOperator operator) {
             return switch (operator) {
+                case WindowAssignOperator w -> {
+                    RowProcessor terminal = row -> copyInto(sink, row, w.outputSchema());
+                    yield buildInput(w, terminal);
+                }
+                case WindowedAggregateOperator w -> {
+                    RowProcessor terminal = row -> copyInto(sink, row, w.outputSchema());
+                    yield buildInput(w, terminal);
+                }
                 case SinkOperator s -> {
                     RowProcessor terminal = row -> copyInto(sink, row, s.outputSchema());
                     yield buildInput(s.inputs().get(0), terminal);
@@ -161,6 +185,18 @@ public final class InterpretedPipeline implements AutoCloseable {
                     GlobalAggregate aggregate = new GlobalAggregate(a, arena, downstream);
                     finishers.add(aggregate::emit);
                     yield buildInput(a.input(), aggregate);
+                }
+                case WindowAssignOperator w -> {
+                    WindowAssign assign = new WindowAssign(w, arena, downstream);
+                    yield buildInput(w.input(), assign);
+                }
+                case WindowedAggregateOperator w -> {
+                    WindowedAggregate aggregate = new WindowedAggregate(w, arena, downstream);
+                    // A bounded source must not leave its final windows unemitted: that looks
+                    // exactly like the query being wrong about its last period.
+                    finishers.add(aggregate::finish);
+                    windowed.add(aggregate);
+                    yield buildInput(w.input(), aggregate);
                 }
                 case SinkOperator s -> buildInput(s.input(), downstream);
             };
