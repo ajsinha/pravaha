@@ -11,7 +11,11 @@
 | Changes in 3.4 | §4.5–4.6 corrected from implementation: Agrona requires a JVM flag and cannot be the default; `ByteBuffer`/`VarHandle` is |
 | Changes in 3.5 | Licensing changed from Apache 2.0 to proprietary, wholly owned (§30.4, ADR-018); client SDKs relocated to `sdk/` (§7) |
 | Changes in 3.6 | Console theming, templating and vendoring settled (§23.4a); public landing/about/help pages specified (§23.4b) |
-| Version | 3.6 |
+| Changes in 3.7 | API boundary and deployment split settled (§23.2a, ADR-023); resolved a contradiction between §23.3's SPA and §23.4a's server-rendered shell |
+| Changes in 3.8 | The console becomes a separate Python FastAPI process built on the published SDK (§23.2a, ADR-024) |
+| Changes in 3.9 | Sessions, subscriptions, disconnect handling and query sharing specified (§11.7, §11.8, ADR-025) |
+| Changes in 3.10 | WebSocket as a first-class carrier and the subscriber-scale architecture (§20.3a, §20.3b, ADR-026) |
+| Version | 3.10 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -112,6 +116,7 @@ A design that only fixes the draft's engineering produces a competent Flink alte
 | **Arroyo** | Rust, Flink-shaped | Modern, fast, good DX | Young; Kafka-centric; no serving layer; no NoSQL pushdown |
 | **Hazelcast Jet / Platform** | **Embeddable JVM** stream processor | The one incumbent that is genuinely embeddable in a Java app | SQL is thin (no real CBO, limited windowing, no IVM); state is Hazelcast-centric; store-native pushdown absent; the streaming SQL story has been de-emphasised commercially |
 | **Striim, Qlik Replicate, Debezium+X** | CDC replication with light transforms | Excellent CDC breadth, enterprise support | Replication tools, not query engines — no windowing, no stateful joins, no continuous aggregation of substance |
+| **Trino / Presto** | Distributed MPP SQL over federated sources | Excellent connector breadth *(including a first-party Aerospike connector)*, mature CBO, strong ad-hoc analytics across stores | **Pull, not push, and batch, not incremental.** A query runs to completion and exits; there is no registered query, no maintained view, no watermark, no window, no checkpoint. Latency is 100 ms to minutes by design. Requires a coordinator+worker cluster and cannot be embedded. Complementary: the natural consumer of the views Pravaha maintains. |
 | **Apache Pinot / Druid / ClickHouse** | Real-time OLAP | Sub-second analytical queries over fresh data | **Pull, not push.** No continuous queries, no stateful streaming operators, no windows, no push subscriptions. Complementary, not competing. |
 | **Aerospike's own tooling** | Connect for Kafka / Spark / Pulsar | First-party, supported | Export pipes, not a query engine. **This is the gap Pravaha exists to fill.** |
 
@@ -485,6 +490,9 @@ The draft's NFRs are replaced with a falsifiable SLO table tied to three benchma
 | **NFR-2a** | Sustained throughput / lane-core | ≥ 1 200 000 rec/s | ≥ 350 000 rec/s | ≥ 120 000 rec/s |
 | **NFR-2b** | Scaling efficiency, 1 → 16 lanes | ≥ 90 % linear | ≥ 85 % | ≥ 80 % |
 | **NFR-2c** | Steady-state allocation rate | ≤ 5 MB/s/lane | ≤ 20 MB/s/lane | ≤ 50 MB/s/lane |
+| **NFR-2d** | Concurrent queries per node | ≥ 10 000 | ≥ 2 000 | ≥ 500 |
+
+> **NFR-2d is a density target and is only meaningful with a rate and a state budget attached.** Capacity is *query count × per-query rate*, bounded by aggregate throughput, and *query count × per-query state*, bounded by memory. The Profile A figure means 10 000 queries whose **aggregate** ingest is within the node's lane capacity (≈ 1 M rec/s on the reference hardware) and whose per-query state stays inside a 4 MB budget. Ten thousand queries each at 10 000 rec/s is 100 M rec/s and is not a single-node workload under any design; stating the count without the rate is how a capacity claim becomes untrue. What NFR-2d actually constrains is **per-query fixed overhead**: it must be kilobytes, not megabytes, which is what §13.7 is about.
 
 > The draft's "≥ 100 000 events/s/core" is comfortably exceeded for simple queries and is *approximately right* for the hardest profile. Stating it per-profile is what makes it testable. Payload assumption: 12 fields, ~200 B encoded. Reference hardware: 16 physical cores, ≥ 3.0 GHz, 64 GB RAM, NVMe — i.e. this workstation's class (24 cores / 62 GB).
 
@@ -1169,6 +1177,26 @@ SQL text
   ▼ compiled Processor classes, one per fused stage
 ```
 
+### 11.1a Why Calcite and not Trino — and why the answer does not change per backend
+
+This question arrives in a specific form: *Aerospike ships a first-party Trino connector, and Calcite has no Aerospike adapter, so shouldn't the Aerospike deployment use Trino?* The premise is accurate and the conclusion does not follow, for three separate reasons.
+
+**1. Calcite is used here as a compiler, not as a data-access layer.** Calcite owns parsing, validation and cost-based optimisation, and hands over a `RelNode` tree (§11.1, ADR-002). *Calcite adapters* exist to let Calcite **execute** queries against a store through the `Enumerable` convention — the pull-based, row-at-a-time path this design rejected outright as gap G1, because it cannot meet the NFRs. Pravaha would not use an Aerospike Calcite adapter if one existed. Data access is the plugin SPI (§10) and the Aerospike plugin's four strategies (§19.1); the catalog Calcite validates against is Pravaha's own (§11.3), populated from plugin metadata. "No Calcite adapter for X" is therefore not a constraint on Pravaha for any X.
+
+**2. Trino is a different category of system, not an alternative planner.** Trino is a distributed MPP engine — coordinator plus workers — for interactive, pull-based queries over data at rest. It has no continuous queries, no incremental view maintenance, no event time, no watermarks, no windows, no changelog semantics, no checkpoints and no push subscriptions, and it is not embeddable in a host JVM process. Replacing Calcite with Trino is not swapping an optimiser; it is replacing the product with a different product whose latency floor is four orders of magnitude higher.
+
+**3. The Trino Aerospike connector solves a problem Pravaha does not have.** It provides scans and predicate pushdown for analytic reads. What Pravaha needs from Aerospike is a **change feed** — which Community Edition does not have at all (G4), and which the plugin obtains through XDR-to-Kafka, XDR HTTP, last-update-time scanning or write interception (§19.1) — plus async point lookups for enrichment joins and generation-guarded idempotent writes for sinks. The Trino connector provides none of those three. Its existence does not move G4 by a millimetre.
+
+**Where Trino genuinely fits: alongside, not instead.** Pravaha maintains views and writes them to Aerospike, Iceberg or Postgres; Trino federates ad-hoc analytics across those and everything else in the estate. The Avatica endpoint (§20.4) exists so BI tools and federating engines can read maintained views over JDBC. And the honest boundary is worth stating in the other direction too: **if the requirement is ad-hoc SQL over Aerospike data at rest, Trino is the right tool and Pravaha is not needed.** Pravaha's claim is over data in motion, answered continuously.
+
+#### The planner does not vary by backend, and must not
+
+The related proposal — *choose the SQL layer per persistence backend and switch automatically* — is rejected, and for a reason worth stating plainly:
+
+**One SQL surface, one parser, one planner, always.** The dialect and its semantics are the product. A `WHERE` clause, a window, a join or a `NULL` comparison that meant something different on Aerospike than on Cassandra would be a defect nobody could test their way out of: the semantics matrix is *backends × operators × types*, and every cell is a support conversation. Two planners also means two cost models and two sets of optimiser bugs, permanently.
+
+**What legitimately varies by backend is pushdown, and the design already varies it — in the right place.** Each plugin declares its capabilities (§10.2); the planner asks what a source can absorb and translates the absorbable part into store-native form — Aerospike expression filters, Cassandra partition-key predicates, Postgres SQL. Anything untranslatable stays in the engine as a residual filter, never silently dropped, and a property test asserts `filter(engine, rows) == filter(store, rows)` over generated predicates (§19.1). That is backend-specific behaviour expressed as **rules and capabilities under one planner**, which is testable, rather than as a choice of planner, which is not.
+
 ### 11.2 Streaming SQL surface
 
 Phase 1 supports Calcite's streaming semantics plus Pravaha extensions:
@@ -1224,6 +1252,25 @@ EMIT CHANGES WITH ('allowed.lateness' = '30s', 'parallelism' = '16');
 ```
 
 `WATERMARK FOR`, `EMIT CHANGES`, `FOR SYSTEM_TIME AS OF` and `CREATE CONTINUOUS QUERY` are parser extensions built with Calcite's standard Freemarker/JavaCC extension mechanism.
+
+#### Windowing syntax — corrected in Wave 4
+
+The example above uses the **grouped-function** form, `GROUP BY TUMBLE(event_time, INTERVAL '10' SECOND)` with `TUMBLE_END(...)` in the projection. Calcite 1.40 still accepts it, but the implemented surface is the **table-function** form of SQL:2016:
+
+```sql
+SELECT window_start, window_end, user_id, COUNT(*), SUM(amount)
+FROM TABLE(TUMBLE(TABLE txn_stream, DESCRIPTOR(event_time), INTERVAL '10' SECOND))
+GROUP BY window_start, window_end, user_id;
+
+-- 60-second window, hopping every 5 seconds
+FROM TABLE(HOP(TABLE txn_stream, DESCRIPTOR(event_time), INTERVAL '5' SECOND, INTERVAL '60' SECOND))
+```
+
+Two reasons, both practical. The table function **names the window columns**, so `window_start` and `window_end` are ordinary columns that can be grouped by, projected, joined and written to a sink — where the grouped form requires `TUMBLE_START`/`TUMBLE_END` to reconstruct boundaries the planner already knew. And it is the direction the standard and every other engine has moved, so a query written against Pravaha reads the same as one written against Flink or Spark.
+
+A `GROUP BY` over a windowed stream that does **not** group by the window is refused: it spans every window at once, which is the unbounded case wearing a window's clothes.
+
+`SESSION` exists in the runtime but is not reachable from SQL yet — its state is a per-key interval set rather than a slice grid, so it waits for the keyed state store.
 
 ### 11.3 Catalog
 
@@ -1289,6 +1336,120 @@ Compatibility is checked at *registration* and again when a discovery poll detec
 Every transition is an audited event with actor, timestamp, reason and correlation id.
 
 ---
+
+### 11.7 Sessions, subscriptions, and what happens on disconnect
+
+A continuous query is **not** a SQL statement, and treating it like one is the mistake this section
+exists to prevent.
+
+A SQL statement is ephemeral: it belongs to the connection that issued it, and closing the
+connection ends it. A continuous query is closer to a materialized view — it is a *durable
+server-side object* that outlives whoever created it. A fraud-detection query must not stop because
+an analyst closed a laptop.
+
+But clients genuinely do want the interactive experience too. Both are supported, because they are
+**two different objects** rather than one object used two ways:
+
+| | **Registration** | **Subscription** |
+|---|---|---|
+| What it is | A named query the engine maintains | A stream of that query's output to one client |
+| Analogy | `CREATE MATERIALIZED VIEW` | a cursor, or `tail -f` |
+| Lifetime | Independent of any connection | Bound to the connection |
+| Created by | `CREATE CONTINUOUS QUERY` / `POST /queries` | `Subscribe` / `GET /queries/{id}/stream` |
+| Survives disconnect | **Yes** | No |
+| Ends when | Explicitly dropped | The connection closes |
+
+A client connects with the SDK, registers a query, and may then subscribe to it — exactly as you'd
+expect from a database client. The difference is that closing the client does not undo the
+registration, any more than disconnecting from PostgreSQL drops a view.
+
+#### Lifetime modes
+
+The awkward case is an *ad-hoc* query: someone explores interactively, registers something with no
+sink, then disconnects. That query is now computing results nobody will ever read. Left alone it is
+a resource leak that looks exactly like a working query, which is the worst kind.
+
+So a registration declares its lifetime:
+
+| Mode | Survives disconnect | Ends when | For |
+|---|---|---|---|
+| `PERSISTENT` | Yes | Explicitly dropped | Production queries with a sink or a served view |
+| `SESSION` | No | Its last subscriber goes and the grace period expires | Interactive exploration, the console's live preview |
+
+`SESSION` is the default for a query created by subscribing, and `PERSISTENT` for one created by an
+explicit registration with a sink. Neither is inferred silently: the mode appears in the
+registration response and in the console, because "why did my query disappear?" and "why is this
+query still running?" are both bad surprises.
+
+#### Disconnect, and why a grace period exists
+
+A `SESSION` query is **reference-counted by its subscribers**, not tied to one connection. When the
+count reaches zero a timer starts (`session.grace`, default 60 s) and the query is dropped when it
+expires.
+
+The grace period is the difference between a usable system and an infuriating one. A browser
+refresh, a laptop sleeping, a load-balancer moving a connection — all drop the socket for a few
+seconds. Tearing down the query and its accumulated state each time would mean a page refresh costs
+a full re-backfill.
+
+**Detecting the disconnect is the harder half.** A closed socket is easy; a client that has silently
+gone away is not, and a half-open connection can hold resources indefinitely. So:
+
+- gRPC keepalive and HTTP/2 `PING` detect dead peers at the transport level;
+- **credit-based flow control** (§20.2) doubles as a liveness signal — a subscriber that stops
+  acknowledging stops receiving, and after `subscriber.idle.timeout` is considered gone;
+- `PERSISTENT` queries hold a **lease** renewed by their owner's session or by the control plane,
+  so a client that vanishes during a network partition cannot leave a query orphaned forever.
+
+What is released on the last subscriber leaving: the tap and its conflating buffer, the credit
+window, and any per-subscriber cursor. The query's *state* is released only when the query itself is
+dropped, which is what makes reconnecting within the grace period cheap.
+
+#### Nothing is released implicitly on a `PERSISTENT` query
+
+Worth stating flatly because the instinct runs the other way: a `PERSISTENT` query keeps running,
+keeps its state, and keeps writing to its sink whether anyone is connected or not. It stops when
+someone stops it. Cleaning it up on disconnect would be a correctness failure, not a tidiness win.
+
+### 11.8 Two clients, the same query
+
+Not automatically shared, and the reason matters.
+
+The obvious implementation — hash the SQL text and reuse the match — is **wrong in a way that leaks
+data**. Two identical query strings can mean different things:
+
+| Same SQL text, different… | Consequence of sharing |
+|---|---|
+| **Row- or column-level security** (§25) | Analyst A's results delivered to Analyst B. A data breach, produced by an optimisation. |
+| Tenant | Cross-tenant leakage, same shape |
+| Schema version | One query silently planned against a schema it was not written for |
+| Emit mode or sink | Output in a form the second client cannot consume |
+| Consistency mode | A reconciliation job served a `LATEST` read |
+
+So sharing is decided on a **canonical fingerprint**, not on text: the normalised physical plan, the
+schema versions it was planned against, the tenant, the *effective security predicates after
+row-level filters are injected*, and the emit and consistency modes. Two requests share only when
+all of those agree — at which point they are genuinely the same computation, not merely the same
+string.
+
+Whitespace, comments, alias names and predicate ordering are normalised away by planning, so
+cosmetic differences do not defeat sharing. That normalisation is a side effect of planning rather
+than a text transformation, which is what makes it trustworthy.
+
+#### What is shared, and what is not
+
+| | Behaviour |
+|---|---|
+| **`SESSION` queries with equal fingerprints** | **Shared.** One computation, one state, N taps, reference-counted. Ten analysts opening the same dashboard cost one query. |
+| **`PERSISTENT` queries** | **Never shared, even when identical.** A named query is a named object. Two names are two queries because either may later be updated, paused or dropped independently, and silently aliasing them would make one operator's `DROP` another's outage. |
+
+Sharing is reported, not hidden: the API response says the query was attached to an existing
+computation and how many subscribers it now has. A client that needs isolation — a benchmark, a
+reproduction, a test — passes `share: false` and gets its own.
+
+The efficiency is real and worth having. It is also the kind of optimisation that is dangerous
+precisely because it is invisible when it works, which is why the fingerprint includes security
+context and why the response says what happened.
 
 ## 12. Code Generation & Physical Execution
 
@@ -1464,6 +1625,23 @@ Recovery is hysteretic (resume at 50 %) to avoid oscillation. `backpressure.rati
 ### 13.6 False sharing and layout
 
 `@Contended`-style padding (or explicit padding fields, since `jdk.internal.vm.annotation.Contended` needs `-XX:-RestrictContended`) on all cross-thread counters — ring producer/consumer cursors, watermark cells, metric counters. Per-lane state is allocated in separate arena slabs to guarantee no cache line is shared between lanes. This is worth measurable double-digit percentages at high lane counts and is easy to lose accidentally, so it is covered by a JMH regression benchmark.
+
+### 13.7 Many queries on one lane
+
+Lanes are sized by cores; queries are not. At the density NFR-2d asks for, roughly 300 query pipelines share each lane, and that ratio decides several things that would otherwise be decided by accident.
+
+**A lane multiplexes pipelines; the query is not the unit of isolation.** Per-query threads, rings, arenas and timer wheels are all excluded by arithmetic before they are excluded by taste: at 10 000 queries a 1 MB inbox each is 10 GB, a 4 MB arena slab each is 40 GB, and a thread each is a dead machine. Everything megabyte-scale or OS-scale therefore belongs to the **lane** and is shared by every pipeline running on it. What a query owns is its plan, its generated stage, its state slice and its subscriptions — kilobytes of fixed overhead, plus the state it was explicitly budgeted.
+
+**Scheduling is activity-driven, never a scan.** A lane iterating over 300 registered pipelines to ask each whether it has work would spend its entire budget on the 299 that do not. Pipelines are enqueued on the lane's ready list when input arrives for them, and the loop drains that list. This is also what makes low-rate queries cheap: a query receiving ten records a second costs the lane ten wakeups a second, not 300 polls per iteration.
+
+**Fan-out inside a lane is zero-copy.** Many queries read the same stream. A record is copied into the lane's inbox exactly **once** and each subscribed pipeline reads the same flyweight; nothing is copied per query. Copying per subscriber would make ingest cost O(queries) — the identical mistake to encoding per subscriber in §20.3b, in a place where it is much less visible.
+
+**Admission is interpreted-first.** Registering 10 000 queries means 10 000 Janino compilations, and doing that serially at node start is minutes of unavailability at exactly the wrong moment. A query therefore **runs interpreted immediately** and is swapped to its generated stage as a bounded compile pool works through the backlog. The interpreted path already exists as the correctness fallback (§12.4); this makes it the admission strategy as well, which is a second, load-bearing reason never to delete it.
+
+**Fairness is a requirement, not an emergent property.** With 300 pipelines per lane, one hot query can starve the rest, and the failure looks like "the engine is slow" rather than "query 4471 is greedy". Two mechanisms, and the distinction between them was found by building it:
+
+- **Ordering is enforceable.** Pipelines are served in ascending order of the lane time they have already consumed, so a heavy query yields its position to lighter ones rather than accumulating an advantage. Per-query lane time is a first-class metric alongside `backpressure.ratio`, which is what turns "the engine is slow" into a query id.
+- **A quota on lane batches is not.** Withholding rows from a query produces a wrong answer rather than a slow one, and buffering them per query reintroduces exactly the per-query buffer this density budget excludes. A hard ceiling on what one query may consume therefore belongs at **admission** — which lane a query is placed on, and whether it is admitted at all (FR-9, §21.4) — not in the lane loop.
 
 ---
 
@@ -2022,11 +2200,102 @@ Sink and lookup/hot-cache tier. Pipelined writes; `HSET`/`SET` with TTL; RESP3. 
 
 Alerting and webhooks. Per-endpoint circuit breaker, exponential backoff with jitter, bounded retry queue, at-least-once only — declared as such.
 
+### 19.7 Feed files and drop directories
+
+*Shipped: CSV and Parquet, in `pravaha-plugin-feedfile`.*
+
+A large share of real integration is still **a file landing in a directory**: an end-of-day extract, an intraday market-data feed, a partner drop over SFTP, an hourly Parquet export into an object store. The filesystem plugin shipped in Wave 2 is the reference implementation of the SPI; the feed-file connector is that plugin grown up, and it is Tier 1 of §19.8 rather than a convenience.
+
+It is treated as a first-class source because a file feed is the *easiest* source to make replayable and therefore one of the few that can genuinely reach exactly-once — and because every naive implementation of it loses data in one of the following seven ways.
+
+**1. Knowing when a file is complete.** A file appearing is not a file being finished; a writer streaming 400 MB over SFTP will happily let a reader see the first megabyte. Supported, in declining order of trustworthiness: an explicit completion marker (`name.done`, `_SUCCESS`), an atomic rename into the watched directory, a manifest listing files and record counts, and — last resort — size-stable-for-*n*-seconds, which is declared as **at-least-once** because it is a heuristic and pretending otherwise is how a truncated file becomes a wrong answer.
+
+**2. Ordering.** Files have no inherent order and guessing one is a correctness bug. The ordering policy is declared per stream: by filename against a stated pattern, by an embedded sequence number, by modification time, or explicitly unordered. Likewise event time comes from a named field, from a capture group in the filename, or from mtime — declared, never inferred.
+
+**3. Offsets, and what a file's identity is.** The checkpointed offset is *(file identity, record index)*. File identity is a fingerprint — name, size, mtime, and optionally a content hash — not a name, because partners rewrite files under the same name routinely, and a name-keyed reader silently skips the corrected version. This is what makes the source replayable, and replayable is what the capability declaration (§10) is allowed to claim.
+
+**4. Redelivery.** A processed-file registry with a retention window, so the same file arriving twice is skipped or reprocessed *by policy*. SFTP partners redeliver; treating that as an anomaly rather than an expected event is the mistake.
+
+**5. Formats are orthogonal to transport.** CSV with real quoting and escaping, JSON Lines, fixed-width records (still ubiquitous in banking), Parquet, Avro, ORC. Each is a `RecordDecoder`, so the same decoder set serves a local directory, an SFTP drop and an S3 prefix — the transport plugin handles listing, fetching and offsets; the decoder handles bytes.
+
+**6. Poison input has two different scopes.** A malformed *record* goes to the DLQ tagged with file and line (§15.6). A file that cannot be opened or decoded at all fails **that file**, is quarantined, and does not fail the query. Conflating the two turns one bad partner file into an outage.
+
+**7. Backfill is not a special case.** A directory of history is a bootstrap (§16.1), throttled and observable (§16.2), using the same reader. This is the great strength of file sources — replay is trivial and cheap — and it is why a file feed is the best possible first target for time-travel debugging (§16.4).
+
+**Watermarks.** File feeds are bursty, so a watermark from max-event-time alone stalls between drops. Two policies: idle-timeout advance (the general case), and **file-complete advance** — on finishing a file, advance the watermark to that file's maximum event time, which is exactly the semantics an end-of-day feed wants and makes a batch-shaped source behave correctly in a streaming engine.
+
+**Outbound feed files.** The sink side of the same connector: accumulate, write to a temporary name, rename atomically on completion, optionally write a `.done` marker and a manifest, rotate by size, time or record count. Deterministic naming plus atomic rename gives effectively-once output (§14.4) with no coordination at all.
+
+**Transports sharing all of the above:** local filesystem, NFS, SFTP/FTPS, S3, GCS, Azure Blob (with event notification instead of polling where available), HDFS.
+
+### 19.8 The connector portfolio, and how a connector earns its place
+
+The rule, stated once so the roadmap is not an argument every quarter:
+
+> **A connector earns its place by proving an SPI capability, or by being demanded by a named deployment. Never by breadth.**
+
+That is why Kafka was deferred out of Wave 2 (P1-11) even though it is Tier 1: the filesystem plugin already exercised every part of the SPI that slice needed, so Kafka would have added surface, not proof.
+
+| Tier | Connector | What it proves, or why it is wanted |
+|---|---|---|
+| **1** | Filesystem (reference) | The SPI itself. Shipped. |
+| **1** | **Feed files / drop directories** (§19.7) *(shipped)* | File identity, replay, backfill-as-bootstrap. The most common real integration shape. CSV and Parquet, with capabilities computed from the completion policy rather than declared once. |
+| **1** | Kafka | Replayable offsets, transactional sink, 1:1 partition mapping |
+| **1** | Aerospike, four strategies (§19.1) | The flagship. Capability degradation made visible. |
+| **1** | PostgreSQL logical decoding (§19.5) | The best-fidelity source in the set: LSN offsets and full before-images. The reference for exactly-once. |
+| **1** | Cassandra / ScyllaDB (§19.2) | Token-range parallelism; CDC without a broker |
+| **1** | Redis (§19.4), HTTP/gRPC sink (§19.6) | Lookup tier; at-least-once alerting declared honestly |
+| **2** | **Debezium-compatible CDC envelope** | The best breadth-per-unit-effort in the entire list: MySQL, MongoDB, SQL Server, Oracle and Db2 all arrive as one well-specified envelope over Kafka. One connector, five databases. |
+| **2** | S3 / GCS / Azure Blob | Feed files at cloud scale, event-notified rather than polled |
+| **2** | SFTP / FTPS | Unglamorous and absolutely required in banking |
+| **2** | MongoDB change streams | Resume tokens are a clean replayable offset; proves a non-relational before-image |
+| **2** | MySQL binlog (direct) | For deployments unwilling to run Kafka for CDC |
+| **2** | Pulsar, NATS JetStream, Kinesis, Pub/Sub, Event Hubs | Broker breadth. Event Hubs speaks the Kafka protocol, so it is largely configuration. |
+| **2** | MQTT | IoT feeds. The interesting work is mapping QoS 0/1/2 onto declared guarantees rather than assuming. |
+| **2** | **Delta Lake** *(source shipped)* | The lakehouse as a source, on Delta Kernel rather than Spark. Delta rewrites whole files, so a version diff weighted `-1`/`+1` **is** a Z-set delta -- storage semantics and execution algebra agreeing without an adapter (§19.10). |
+| **2** | Iceberg | The same shape for the other table format, and the lakehouse as a sink. |
+| **2** | ClickHouse, Elasticsearch/OpenSearch, Snowflake, BigQuery *(sinks)* | Where continuous results are actually consumed |
+| **2** | OTLP and Prometheus remote-write *(sources)* | Observability data is a stream, and "ask once, answer always" over live telemetry is the product's own story told back to it |
+| **2** | **JDBC incremental poll** *(shipped)* | The universal fallback for any database with no usable CDC — one connector for PostgreSQL, MySQL, SQL Server, Oracle, H2, since the deployment supplies the driver. At-least-once, no deletes, and **replayable only with a unique key column**: watermark values tie, SQL defines no order among tied rows, and a resume that is right only when the database happens to be consistent is not a guarantee. |
+| **2** | Webhook / WebSocket / SSE source | Push integrations without a broker |
+| **3** | FIX and ITCH market data | Niche, high value where it lands. Real differentiation for continuous queries over a live book. |
+| **3** | Oracle LogMiner / XStream | Licence-encumbered; only if a deployment pays for it |
+| **3** | DynamoDB Streams, Cosmos DB change feed, RabbitMQ/AMQP, Redis Streams source | Opportunistic. Each is a few hundred lines on the connector kit. |
+
+### 19.9 The connector kit — why the list above is affordable
+
+Almost every connector in §19.8 is one of **three shapes**, and the shape is where the difficulty lives:
+
+| Shape | Members | The hard part, solved once |
+|---|---|---|
+| **File drop** | Feed files, S3/GCS/Azure, SFTP, HDFS, Iceberg data files | Completion detection, file identity, record-index offsets, quarantine |
+| **Log-based CDC** | Postgres, MySQL, Mongo, Debezium envelope, Aerospike XDR, Cassandra CDC | Resumable log positions, before-image handling, snapshot-then-stream splicing (§16.1) |
+| **Poll with a watermark** | JDBC high-water-mark, Aerospike `lut-scan`, REST pagination | Throttling, overlap windows, the honest admission that deletes are invisible |
+
+The kit ships one base implementation per shape plus the decoders, so a new connector is transport plus configuration rather than a rediscovery of the same three problems. The plugin TCK (P1-14) then checks that what the connector *declares* matches what it *does* — a source claiming replayable offsets that cannot actually rewind fails the TCK, which is precisely the failure that would otherwise surface as silent data loss during a recovery.
+
+
+### 19.10 Delta Lake
+
+Shipped as a source. The connector is small because Delta and Z-sets already agree, and the parts that are not small are the parts where connectors usually go quietly wrong.
+
+**Delta's file-level rewrite is a Z-set delta.** An `UPDATE` or `MERGE` removes the files it touched and adds replacements, so the difference between version *n* and *n+1* is a set of removed files and a set of added files. Emit removed rows at weight `-1` and added rows at `+1` and that difference *is* the changelog (§9.2) — no update path, no before-image plumbing, no per-operator retract logic. This is the clearest available demonstration that ADR-013 was the right bet: a storage format designed with no knowledge of DBSP produces exactly the shape the algebra wants.
+
+**What it costs.** Rewriting a 100 000-row file to change one row yields 100 000 retractions and 100 000 insertions, of which 99 999 pairs annihilate under consolidation. The answer is right; the volume is proportional to *file size* rather than to *change size*. Append-heavy tables — most Delta tables — never pay it. Update-heavy tables want the change data feed instead, and **Delta Kernel 4.0 exposes no public CDF API**, which is recorded here rather than discovered by whoever needs it.
+
+**Built on Delta Kernel, not Spark.** Kernel understands the transaction log, protocol versions, checkpoints and column mapping, and brings Hadoop and Parquet with it but not a cluster. Requiring Spark to feed Pravaha would reintroduce the extra hop the product exists to remove (§2.1). The weight of those transitive dependencies is exactly what plugin classloader isolation (ADR-010) is for.
+
+**Offsets carry a phase, not just a version.** A version's rows are emitted in three different senses — the initial snapshot, a commit's additions, a commit's removals — and each has a different file list. An offset naming only a version cannot say which, so a reader resuming at "version 5, file 2" would re-emit the whole table at version 5 instead of the two files that version added. The rows would be real, the weights right, and the answer wrong. The offset is therefore `(version, phase, file, row)`, all four reconstructible because Delta versions are immutable and their file lists are deterministic once sorted.
+
+**Two things are refused rather than approximated.** *Deletion vectors* mark rows deleted without rewriting the file, so file diffing cannot see them and the deleted rows would keep being served as live — the reader fails with a message naming the table property. *A vacuumed file* that a later commit removed cannot have its retractions reconstructed from anywhere, so the read fails loudly instead of dropping them; a lost retraction leaves deleted rows alive in a maintained view permanently.
+
+**Not yet:** predicate pushdown (Kernel's scan builder takes one, and file skipping from log statistics is the obvious next step — declared as absent until it exists), file-group parallelism beyond one partition per table, and the sink.
+
 ---
 
 ## 20. Gateways & Client Protocols
 
-### 20.1 Why two protocols (G3)
+### 20.1 Why several protocols (G3)
 
 | | Avatica | gRPC |
 |---|---|---|
@@ -2082,6 +2351,117 @@ with Client("grpc+tls://pravaha:9090", token=os.environ["PRAVAHA_TOKEN"]) as c:
         df = batch.to_pandas()          # zero-copy via Arrow
         print(f"wm={batch.watermark} rows={len(df)} dropped={batch.dropped}")
 ```
+
+### 20.3a WebSocket, and one subscription model behind three carriers
+
+A continuous-query subscription is structurally a WebSocket: one long-lived connection, the server
+pushing frames, the client acknowledging. That is worth saying plainly because it explains why
+subscriptions look the way they do — and because **WebSocket is a first-class transport, not a
+fallback**.
+
+| Carrier | For | Why it exists |
+|---|---|---|
+| **gRPC server-streaming** | Services, the SDKs, high-throughput consumers | Highest throughput, typed, HTTP/2 flow control underneath |
+| **WebSocket** | Browsers, restrictive networks, any language | A browser cannot speak gRPC without a proxy, and the console is a browser application. WebSocket over 443 also traverses corporate infrastructure that blocks gRPC outright — for an on-premises product that is not an edge case |
+| **SSE** | Read-only dashboards, metrics, job progress | One-way and far simpler; auto-reconnects with `Last-Event-ID` for free |
+
+**One model, three carriers.** The subscription semantics — credit-based flow control, conflation
+policy, lifetime, reconnection, the shape of a batch — are defined once and are identical on all
+three. Three carriers with three subtly different behaviours would be three sets of bugs and three
+things to document, and the differences would be discovered by customers rather than by us.
+
+A carrier chooses only how bytes move:
+
+```
+  subscribe(queryId, credits, mode)
+        │
+        ▼
+   ┌─────────────────────────────────────────────┐
+   │  Subscription: credits, conflation, cursor   │   ← defined once
+   └───────┬─────────────┬───────────────┬───────┘
+           ▼             ▼               ▼
+        gRPC         WebSocket          SSE         ← carriers only
+```
+
+WebSocket frames carry the same Arrow IPC batch the gRPC stream does, with a small JSON envelope for
+the watermark, batch sequence and dropped count. Binary Arrow over WebSocket keeps the browser's
+decode cost near zero — a JSON row-per-message protocol is what makes live tables in a browser
+stutter at a few thousand rows a second.
+
+### 20.3b Scaling to thousands of subscribers
+
+The number that matters is **how much a subscriber costs a lane, and the answer must be nothing**.
+
+Client fan-out and data-plane throughput are separate problems, and conflating them is what kills
+systems of this shape. Lanes are sized by data volume. Subscribers are sized by connection count.
+The architecture's job is to keep the second from ever touching the first.
+
+#### Four rules that make the number large
+
+**1. A lane never sees a subscriber.** A lane writes to a conflating tap ring and returns. Separate
+dispatch threads fan out. Lane cost is **O(1) in subscriber count** — one thousand subscribers cost
+a lane exactly what one does, and if that ever stops being true the whole design is compromised.
+
+**2. Encode once, write N times.** This is the decisive one. A batch is serialised to Arrow **once
+per query per tick**, and the same buffer is written to every subscriber's socket.
+
+```
+   cost  =  O(queries × ticks)     encoding
+          + O(subscribers × ticks) socket writes   ← a memcpy, not a serialisation
+```
+
+Encoding per subscriber is the mistake that turns a thousand clients into an outage: a thousand
+subscribers at 20 Hz would be 20 000 serialisations a second instead of 20.
+
+**3. Event-loop I/O, never thread-per-connection.** Netty carries thousands of connections on a
+handful of threads. The control plane — validate, explain, register — runs on virtual threads
+(§13.2), which is exactly the workload Loom is for: short, blocking, I/O-bound requests in large
+numbers.
+
+**4. Sharing collapses the query count.** Ten analysts opening the same dashboard are one
+computation with ten taps (§11.8). The subscriber count grows; the *query* count does not.
+
+#### What one thousand subscribers actually costs
+
+Twenty distinct queries, one thousand subscribers, on a single node:
+
+| | |
+|---|---|
+| Computations | **20** — sharing, not 1000 |
+| Serialisations at 1 Hz | **20/s** — encode-once, not 1000/s |
+| Socket writes at 1 Hz | 1 000/s — a buffer copy each |
+| Live taps at 20 Hz | 20 000 writes/s — comfortable on a few event loops |
+| Event-loop threads | ~8 |
+| Lane cost | **unchanged** |
+
+The work that scales with client count is socket writes, and a socket write of an
+already-encoded buffer is cheap. Everything expensive scales with *query* count.
+
+#### The two things that actually go wrong
+
+**A slow consumer.** One client on a bad network, or a paused browser tab, holding buffers. Per
+subscriber: a bounded buffer, and on overflow either conflate and report `dropped_count`
+(`BEST_EFFORT`) or disconnect (`RELIABLE`). Never, under any circumstances, backpressure upstream —
+a slow browser must not be able to slow a production query.
+
+Per-subscriber bounds are necessary and **not sufficient**. A thousand individually-bounded buffers
+is still a thousand buffers, so there is also an **aggregate budget** per node; when it is
+approached, `BEST_EFFORT` subscribers conflate harder and new subscriptions are refused with a
+retryable error rather than the node running out of memory. Bounding each thing and forgetting to
+bound the sum is a classic way to be surprised.
+
+**Reconnection storms.** A node restarts and a thousand clients reconnect at once. The SDKs back off
+with jitter, and the gateway applies admission control so a herd is spread rather than refused. This
+is a client-library responsibility as much as a server one, which is a reason the SDKs are ours
+(§7) rather than left to each integrator.
+
+#### Beyond one node
+
+When subscribers outgrow a node, the answer is **hierarchical fan-out** rather than a bigger node:
+read-only fan-out processes subscribe once upstream and re-fan-out downstream. Each level multiplies
+capacity and adds one tick of latency. Nothing in the subscription model changes, because a fan-out
+node is just another subscriber to the level above it — which is the payoff for having defined the
+model once rather than per carrier.
 
 ### 20.4 Avatica gateway scope
 
@@ -2409,9 +2789,12 @@ The console serves audiences with genuinely different jobs. A single undifferent
 
 | Layer | Choice | Why this one |
 |---|---|---|
-| Backend | **Spring Boot 3.5** (Java 21), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi | A BFF, not a second engine (§23.17) |
+| Console process | **Python 3.13 + FastAPI**, Uvicorn | A separate runtime makes the API boundary unviolable (§23.2a); and the console is then built on the published SDK, which proves the integration story rather than asserting it |
+| Engine API | **Spring Boot 3.5** (Java 21), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi | Serves the public REST and gRPC surface, plus a minimal server-rendered status page that works when the console is down |
+| Console-to-engine | **`pravaha` Python SDK** over REST and gRPC | Never raw HTTP: the console is the SDK's first real consumer |
 | Live updates | **SSE** for metrics/status/progress; **WebSocket (STOMP)** for the result tap and the debugger | SSE is simpler and auto-reconnects; WebSocket only where genuinely bidirectional |
-| Frontend | **React 19 + TypeScript (strict)**, Vite, TanStack Query + Router | Mature, typed end-to-end from the OpenAPI spec |
+| Page shell and public pages | **Jinja2 templates**, server-rendered (§23.4a) | Renders the theme into the markup, so no flash; works with JavaScript disabled. The pattern is proven in the owner's other Python web applications |
+| Application surfaces | **React 19 + TypeScript (strict)** as islands mounted inside the shell, Vite, TanStack Query | Mature, typed end-to-end from the OpenAPI spec |
 | Styling | **Tailwind CSS + shadcn/ui**, extended with a Pravaha component layer | Owned components, not a framework we cannot restyle |
 | SQL editor | **Monaco** + a Pravaha language service | Catalog-aware completion, inline diagnostics, hover types, format |
 | Plan graph | **React Flow** with a custom ELK-based layout | The DAG is the signature screen; generic graph libraries look generic |
@@ -2420,7 +2803,88 @@ The console serves audiences with genuinely different jobs. A single undifferent
 | Forms | React Hook Form + Zod, schemas generated from the OpenAPI spec | One source of truth for validation, client and server |
 | State | TanStack Query for server state; Zustand for the little that is genuinely client state | No global store cargo cult |
 | i18n | react-intl, strings externalised from day one | Retrofitting i18n costs 5× |
-| Build | `frontend-maven-plugin` → pnpm → static resources in the Spring Boot jar | One artefact, `./mvnw -Pui verify` |
+| Build | `uv` for the console; `pnpm` only for the island bundles, vendored into `web/static` | Two artefacts by design (§23.2a) |
+
+### 23.2a The API boundary, and what is deployed where
+
+Two decisions that are easy to conflate and have different answers.
+
+#### The public API is the only API
+
+**The console has no privileged access to the engine.** Every call it makes goes through the same
+documented, versioned REST and gRPC surface a third party would use. There is no internal endpoint,
+no back door, and no "the UI needs this so we added a shortcut".
+
+This is the decision worth being strict about, and it matters more here than in most products because
+the engine is proprietary (§30.4): nobody can read the source, so **the API is the product surface**.
+An API that exists to serve the console, with third-party use as an afterthought, produces exactly
+the second-class integration story a closed-source engine cannot afford.
+
+It is also the expensive-to-reverse direction. A console that accretes privileged calls cannot be
+un-accreted cheaply, whereas a strict boundary costs nothing to maintain once established.
+
+**Enforced, not intended.** An architecture test asserts the console backend depends only on the
+generated API client, never on engine modules directly — the same mechanism that keeps storage
+clients out of the core (NFR-4) and Spring out of the engine (§22.1).
+
+#### Two processes, and why the console is not written in Java
+
+Pravaha ships as **two processes**: the engine and its API, in Java; and the console, a Python
+FastAPI application.
+
+The obvious objection is that this is more to operate than one artefact, and it is. The reason it is
+worth paying is that **a different language makes the API boundary physically unviolable**. An
+architecture test can be weakened, waived for one release, or quietly deleted under deadline
+pressure. A Python process cannot reach into a Java engine at all. For a boundary described above as
+strict and permanent, that is the strongest available implementation of it rather than a stylistic
+preference.
+
+The second reason is dogfooding, and it may matter more. **The console is built on the published
+Python SDK** (§7), not on raw HTTP. That makes it the first real consumer of the integration story a
+closed-source product lives or dies by: if our own console cannot be built comfortably on the public
+API and the SDK, no customer's integration will be comfortable either. The console stops being a
+consumer of the API and becomes a continuously-exercised proof of it.
+
+**What this costs, stated rather than glossed:**
+
+| Cost | Mitigation |
+|---|---|
+| Two runtimes in an air-gapped deployment | The console ships as a container, or a self-contained binary; the engine remains a single jar |
+| Loss of "download one jar, run it, open a browser" | A one-command launcher gets close, but it is genuinely not as good |
+| Two dependency ecosystems to patch, audit and certify | Both are in `THIRD-PARTY-NOTICES.md`; both are scanned in CI |
+| Cross-process authentication | The console holds a service credential and forwards the user's OIDC identity; it is a confidential client, not a proxy with ambient authority |
+
+**Four things this decision requires, not optional:**
+
+1. **The console uses the published SDK**, never raw HTTP. Otherwise the dogfooding benefit is
+   accidental rather than structural.
+2. **The API surface is locked** in a checked-in contract file. Changing it is a reviewed diff, not
+   a side effect of adding a screen.
+3. **A minimal status page stays in the engine**, server-rendered with no Python involved. When the
+   console is down, a node must still be diagnosable — health, version, lane state, active queries.
+   A console that is the *only* way to see anything is a single point of failure for diagnosis.
+4. **Everything vendored**, unchanged from §23.4a.
+
+Packaging remains reversible in principle: because the API boundary is the real separation, merging
+the two processes later would be a packaging change. It is not planned, and the boundary is the
+point.
+
+#### Rendering is split by page type, not by preference
+
+A pure client-rendered application cannot render the theme into the markup, so it flashes on every
+load — and on the amber-on-black theme that flash is a full white screen (§23.4a). A pure
+server-rendered application cannot host Monaco, a live plan DAG or a stepping debugger without
+fighting the framework. Neither answer is right for the whole console.
+
+| Surface | Rendering | Why |
+|---|---|---|
+| Landing, about, help (§23.4b) | Server-rendered templates | Public, cacheable, work with JavaScript disabled — an evaluator behind a restrictive corporate proxy is exactly the reader worth keeping |
+| App shell: navigation, theme and density attributes, skip link, live region | Server-rendered | This is what removes the theme flash, and it is where the accessibility scaffolding belongs so it exists once rather than per page |
+| Workbench, plan DAG, debugger, live results, metrics explorer | React islands mounted inside the shell | Genuinely application-like; templates would be the wrong tool |
+
+The shell renders `data-theme`, `data-bs-theme` and `data-density` onto `<html>` from the cookie, and
+the islands inherit them. One architecture, two rendering strategies chosen per page rather than one
+strategy applied everywhere it fits badly.
 
 ### 23.4 Design system
 
@@ -2975,13 +3439,52 @@ for (UserVolumeRow row : query.subscribe()) {
 | **Human authn** | OIDC (Keycloak/Okta/Entra) via Spring Security; no local password store |
 | **Service authn** | mTLS client certs or OAuth2 client-credentials JWT; short-lived tokens |
 | **Authz** | RBAC to stream/table/sink/query granularity. Roles: `viewer`, `analyst` (register queries in own namespace), `operator` (lifecycle, rebalance), `admin`. Permissions checked at registration *and* re-checked at deploy. |
-| **Row/column security** | Optional row filters and column masks per role, injected by the planner as an unremovable filter/project above the scan — enforced in the plan, so it cannot be bypassed by clever SQL |
+| **Row/column security** | Optional row filters and column masks per role, injected by the planner as an unremovable filter/project above the scan — enforced in the plan, so it cannot be bypassed by clever SQL. Bounded by the soundness rule below (ADR-031) |
 | **Secrets** | Never in YAML. Resolved from env, files, HashiCorp Vault or cloud secret managers via a `SecretProvider` SPI; redacted in logs, API responses, EXPLAIN output and UI |
 | **Plugin trust** | Optional jar signature verification; classloader isolation; plugins run with a documented capability list surfaced in the UI before install |
 | **SQL injection** | Not applicable to the engine's own parsing, but the UI/REST layer parameterises everything and the catalog rejects identifiers that are not valid Pravaha identifiers |
 | **Audit** | Append-only audit log of every lifecycle and authz decision: actor, action, target, timestamp, source IP, correlation id, result. Shipped to the configured audit sink. |
 | **Resource abuse** | Admission control on plan cost; per-tenant quotas (§21.4); query timeout for bounded queries; hard cap on generated-class count |
 | **Supply chain** | `dependency-check` / OSV scanning in CI, SBOM (CycloneDX) per release, reproducible builds via Jib, pinned dependency versions in the BOM |
+
+### 25.1 Enforced here, not in the store (ADR-031)
+
+Authorization is Pravaha's own responsibility and is **not** delegated to whatever store the data
+came from. This is structural, not defence in depth. A served view is derived data the store has
+never seen — there is no record in Aerospike whose permissions correspond to "u4's gold-tier total
+for the window ending 12:05". A change feed is read once and shared by every query registered
+against it (§17, ADR-027), so per-principal enforcement at the source means reading it once per
+principal, which is the read amplification the architecture exists to remove, or reading it as a
+superuser, which enforces nothing. And a continuous query runs for months with nobody connected, so
+there is no session to push down even in principle. The store's own controls still matter — the
+engine's connection to it is least-privileged — but they protect the connection, not the query.
+
+### 25.2 The soundness rule for row filters
+
+A row filter can be applied **at read time iff every column it names is present in the view**;
+otherwise the read is refused (`PRV-7003`).
+
+If the filter says `region = 'emea'` and the view aggregated `region` away, each row of that view
+already *mixes* the regions: the number in front of the caller was computed from rows they may not
+see. No filter applied afterwards can separate them, and serving the row leaks exactly what the
+policy exists to prevent. The three outcomes:
+
+1. every filter column is present — inject the predicate into the plan, above the scan and **below
+   any aggregate**, and serve; one view serves every principal;
+2. a column is missing — refuse, naming the fix: a view registered with the filter applied before
+   the aggregate, which is a different query with its own state (ADR-025's fingerprint already
+   includes security predicates, so it is a different query by construction);
+3. neither — refuse. A contaminated aggregate is worse than an error: an error stops, and a wrong
+   number gets acted upon.
+
+Forking state per principal automatically was rejected as a default. A policy with a per-user filter
+would silently multiply engine state by the number of users, and the operator would learn it from a
+memory alarm. Registration-time filtering stays available and explicit.
+
+Metadata is authorized as strictly as data: a schema is the list of columns an organisation keeps
+about its customers, and a catalogue is a map of what a deployment does. A denial for a view that
+exists and one for a view that does not read identically, so a caller cannot enumerate a deployment
+by probing it.
 
 ---
 
@@ -3374,8 +3877,14 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **019** | Engine core is Spring-free; Spring Boot is a bootstrap layer above a plain-Java `PravahaEngine` seam | Spring throughout; no Spring anywhere; Quarkus/Micronaut | Keeps embeddability intact (a host on Boot 3.2 cannot be forced to 3.5), keeps `pravaha dev` under 1 s, and keeps proxies off the hot path — while the server still inherits Boot's config, actuator, security and packaging for free (§22.1) |
 | **020** | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` | Documentation only; a bare `PravahaEngine` bean | Lets a team add continuous SQL to a service they already run, in the idiom they already use. Modelled on `@KafkaListener` so the mental model transfers (§22.4) |
 | **022** | The console is a flagship product surface with its own design system, built as a continuous workstream from Phase 3 | A late control-plane admin UI; CLI-only; a thin metrics page | For most users the console *is* the product, and W10 (the time-travel debugger) exists nowhere else. A polished UI cannot be produced in one late phase, so it is resourced with a dedicated frontend engineer and shipped alongside each engine capability (§23.1) |
+| **026** | One subscription model behind three carriers: gRPC, WebSocket and SSE; encode once, write N times | gRPC only with a grpc-web proxy; per-carrier subscription semantics; JSON rows per message | A browser cannot speak gRPC natively and the console is a browser application; WebSocket over 443 also crosses corporate networks that block gRPC. Defining semantics once and letting carriers move bytes avoids three subtly different behaviours. Encoding per subscriber rather than per query is what turns a thousand clients into an outage (§20.3a, §20.3b) |
+| **025** | Registration and subscription are separate objects; sharing is by canonical fingerprint, never by SQL text | Connection-scoped queries like a SQL cursor; text-hash deduplication; no sharing at all | A continuous query outlives the connection that created it, so binding the two would stop a production query when a laptop closed. Text-hash sharing leaks data across security contexts: identical SQL under different row-level filters is not the same query. The fingerprint includes the effective security predicates for exactly that reason (§11.7, §11.8) |
+| **024** | The console is a separate Python FastAPI process, built on the published Python SDK | A Java/Spring console in the same artefact; a React SPA served by the engine | A different runtime makes the API boundary unviolable rather than test-enforced, and building the console on the published SDK turns the integration story from an assertion into a continuously-exercised proof. Costs two runtimes and the one-jar onboarding path, both stated in §23.2a |
+| **023** | The console uses only the public API — no privileged endpoints | A privileged internal API for the console | For a proprietary engine the API *is* the product surface, so a console-first API produces a second-class integration story. Superseded on packaging by ADR-024, which makes the separation physical rather than test-enforced (§23.2a) |
 | **021** | No GraalVM native image for the engine | Native image via Spring AOT; drop runtime codegen to enable it | Runtime Java-source compilation (ADR-005) is fundamentally incompatible with a closed-world image, and it is what makes the hot path fast. Stated so no one spends a sprint on it. Clients and UI may still go native (§22.7) |
 | **018** | **Proprietary, wholly owned by Ashutosh Sinha.** All rights reserved | Apache 2.0 (proposed in an earlier revision of this document); open core; source-available; dual licence | Owner's decision. The technical moat in §2 is unaffected, but the distribution risk moves from execution to evaluation: §30.4 sets out what has to carry the weight instead — published Nexmark results, a frictionless evaluation licence, and the developer-experience surface |
+| **027** | The lane, not the query, owns threads, inboxes, arenas and timer wheels; a lane multiplexes many query pipelines | A lane per query; a shared work-stealing pool with queries as tasks; round-robin over registered pipelines | Arithmetic decides it before taste does: at NFR-2d's density a per-query inbox is 10 GB and a per-query thread is a dead machine. Work-stealing would forfeit single-writer state (ADR-004). The ready list, zero-copy in-lane fan-out and interpreted-first admission are consequences of the one budget, not separate optimisations (§13.7) |
+| **028** | A connector earns its place by proving an SPI capability or by deployment demand, never by breadth; three shapes, one kit | Ship many connectors early as the incumbents do; per-connector semantics; treat file input as a test fixture | A shallow connector declaring capabilities it lacks causes silent data loss during recovery, months later. Nearly every connector is a file drop, a log-based CDC feed or a poll-with-watermark, so each shape is solved once and the TCK checks the declaration against behaviour (§19.7–§19.9) |
 
 ---
 

@@ -32,7 +32,16 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  * everywhere becomes a build failure rather than a runtime surprise in a customer's query.
  */
 public sealed interface PhysicalOperator
-        permits ScanOperator, FilterOperator, ProjectOperator, AggregateOperator, SinkOperator {
+        permits ScanOperator,
+                FilterOperator,
+                ProjectOperator,
+                ComputeOperator,
+                AggregateOperator,
+                WindowAssignOperator,
+                WindowedAggregateOperator,
+                JoinOperator,
+                LookupJoinOperator,
+                SinkOperator {
 
     /** The shape of rows this operator emits. */
     StreamSchema outputSchema();

@@ -6,22 +6,45 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 Python client for [Project Pravaha](../../README.md).
 
 ```python
-from pravaha import ClientOptions, Consistency
+import os
+from pravaha import ClientOptions, Consistency, connect
 
 options = ClientOptions.create(
     "grpc+tls://pravaha:9090",
     token=os.environ["PRAVAHA_TOKEN"],
     default_consistency=Consistency.CONSISTENT,
 )
+
+with connect(options=options) as client:
+    for row in client.query("SELECT user_id, total FROM user_volume WHERE total > ?", [100]):
+        print(row["user_id"], row["total"])
+```
+
+Pass values for `?` placeholders rather than building the SQL string. A bound value can never be
+read as SQL — by the time it reaches the server the statement is already planned, and there is no
+parser left for it to reach — and the server plans a statement once and reuses the plan, so two
+callers asking the same question about different users share the work (ADR-032).
+
+Any value may be `None`. What that *means* is SQL's business: `WHERE x = ?` bound to `None` matches
+no rows, because a comparison with NULL is UNKNOWN. `IS NULL` is what finds the empty ones.
+
+`to_table()` hands the whole result to pandas or Polars in one step, without a row loop:
+
+```python
+frame = client.query("SELECT * FROM user_volume").to_table()
 ```
 
 ## Status
 
-Wave 1 delivers the connection and result **contracts** — endpoint parsing, client options,
-consistency modes and the error hierarchy. These are complete and tested.
+**Working against a real server.** Connect, query, iterate, and bind parameters, over Arrow Flight
+SQL (ADR-030). Authentication is a bearer token on `ClientOptions`; the SDK refuses to send one over
+a plaintext connection unless asked to with `allow_insecure_token=True`, which exists for loopback
+tests and sidecar-terminated TLS.
 
-The gRPC transport that implements them lands with the gateways in **Wave 7** (implementation
-plan §11, epic E6). Until then there is nothing to connect to.
+The tests here run against the **actual Java server**, started by the test fixture, rather than a
+Python imitation of it — so what passes here is what an application sees.
+
+Subscriptions are not implemented yet; `query` is request/response.
 
 The surface deliberately mirrors the Java SDK: same concepts, same names, same defaults, so a
 team running both does not have to hold two mental models.

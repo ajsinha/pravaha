@@ -1,0 +1,45 @@
+# Engine node configuration.
+#
+# Only what the HTTP surface needs lives here; engine settings are bound into the engine's own
+# immutable Configuration type (design 22.5) so there is one configuration model rather than two.
+
+spring:
+  application:
+    name: pravaha
+  threads:
+    virtual:
+      # Design 13.2: the control plane is I/O-bound request handling, which is exactly what Loom is
+      # for. Lane threads are created by the engine's own pinning factory and are unaffected.
+      enabled: true
+  mvc:
+    problemdetails:
+      # Off deliberately: every non-2xx response is an ApiError and nothing else. A client that has
+      # to parse two error shapes will handle one of them badly (see ApiExceptionHandler).
+      enabled: false
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      # Liveness and readiness kept distinct: conflating them makes Kubernetes restart a node that
+      # is merely still restoring state (design 26.2).
+      probes:
+        enabled: true
+      show-details: when-authorized
+
+springdoc:
+  api-docs:
+    path: /api/v1/openapi.json
+  swagger-ui:
+    path: /api/docs
+
+pravaha:
+  node:
+    id: pravaha-node-01

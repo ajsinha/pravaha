@@ -110,7 +110,7 @@ public final class PravahaCli {
         out.println("  validate  --sql <query> --schema <spec> [--stream <name>]");
         out.println("            Parse, validate and plan without running anything.");
         out.println();
-        out.println("  explain   --sql <query> --schema <spec> [--level logical|physical|all]");
+        out.println("  explain   --sql <query> --schema <spec> [--level logical|physical|codegen|all]");
         out.println("            Show the plan the engine would execute.");
         out.println();
         out.println("  run       --sql <query> --schema <spec> --in <file>");

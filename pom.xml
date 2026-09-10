@@ -27,15 +27,26 @@
     <module>pravaha-catalog</module>
     <module>pravaha-sql</module>
     <module>pravaha-runtime</module>
+    <module>pravaha-codegen</module>
     <module>pravaha-state</module>
+    <module>pravaha-backfill</module>
+    <module>pravaha-security</module>
+    <module>pravaha-serving</module>
+    <module>pravaha-flight</module>
     <module>pravaha-connect</module>
     <module>pravaha-testkit</module>
     <module>pravaha-benchmarks</module>
     <module>pravaha-it</module>
     <module>plugins/pravaha-plugin-filesystem</module>
+    <module>plugins/pravaha-plugin-delta</module>
+    <module>plugins/pravaha-plugin-feedfile</module>
+    <module>plugins/pravaha-plugin-jdbc</module>
+    <module>plugins/pravaha-plugin-aerospike</module>
     <module>pravaha-embedded</module>
     <module>pravaha-cli</module>
+    <module>pravaha-server</module>
     <module>sdk/pravaha-sdk-java</module>
+    <module>sdk/pravaha-sdk-java-flight</module>
     <!-- Added by the story that needs them (implementation plan 10.1):
          pravaha-embedded (Sprint 5), pravaha-server + pravaha-spring-boot-starter (E6),
          pravaha-serving / backfill / adaptive (E3-E5), plugins/* (E1, E4, E9),
@@ -56,12 +67,16 @@
     <jctools.version>4.0.7</jctools.version>
     <slf4j.version>2.0.19</slf4j.version>
     <calcite.version>1.40.0</calcite.version>
+    <janino.version>3.1.12</janino.version>
 
     <!-- ==== test dependencies ==== -->
     <junit.version>5.14.4</junit.version>
     <assertj.version>3.27.7</assertj.version>
     <jqwik.version>1.10.1</jqwik.version>
     <archunit.version>1.5.0</archunit.version>
+    <testcontainers.version>1.21.3</testcontainers.version>
+    <aerospike.client.version>10.4.0</aerospike.client.version>
+    <arrow.version>19.0.0</arrow.version>
     <jmh.version>1.37</jmh.version>
 
     <!-- ==== plugins ==== -->
@@ -70,6 +85,7 @@
     <maven.failsafe.plugin.version>3.6.0</maven.failsafe.plugin.version>
     <maven.enforcer.plugin.version>3.6.3</maven.enforcer.plugin.version>
     <maven.toolchains.plugin.version>3.3.0</maven.toolchains.plugin.version>
+    <maven.dependency.plugin.version>3.8.1</maven.dependency.plugin.version>
     <maven.jar.plugin.version>3.5.1</maven.jar.plugin.version>
     <maven.shade.plugin.version>3.6.1</maven.shade.plugin.version>
     <maven.clean.plugin.version>3.5.0</maven.clean.plugin.version>
@@ -134,6 +150,25 @@
         <groupId>com.tngtech.archunit</groupId>
         <artifactId>archunit-junit5</artifactId>
         <version>${archunit.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers-bom</artifactId>
+        <version>${testcontainers.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.aerospike</groupId>
+        <artifactId>aerospike-client-jdk21</artifactId>
+        <version>${aerospike.client.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.arrow</groupId>
+        <artifactId>arrow-bom</artifactId>
+        <version>${arrow.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>org.openjdk.jmh</groupId>
@@ -201,6 +236,12 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
           <version>${maven.jar.plugin.version}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>${maven.dependency.plugin.version}</version>
         </plugin>
 
         <!-- Pinned explicitly: the enforcer's requirePluginVersions rule rejects

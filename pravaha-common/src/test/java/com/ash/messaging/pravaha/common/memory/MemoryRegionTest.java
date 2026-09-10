@@ -196,6 +196,34 @@ class MemoryRegionTest {
 
     @ParameterizedTest
     @MethodSource("implementations")
+    void setMemoryHandlesEveryLengthIncludingUnalignedTails(MemoryAccess access) {
+        // setMemory writes eight bytes at a time with a byte tail. The tail is where a bulk fill
+        // goes wrong, and it is called once per row to clear a header and null bitmap whose size is
+        // rarely a multiple of eight -- so an off-by-one here would leave stale null bits and read
+        // as sporadically wrong nullability.
+        try (MemoryRegion region = access.allocate(256)) {
+            for (int length = 0; length <= 40; length++) {
+                region.setMemory(0, 256, (byte) 0);
+                region.setMemory(8, length, (byte) 0x5A);
+                for (int i = 0; i < 8; i++) {
+                    assertThat(region.getByte(i))
+                            .as("byte %d before the fill", i)
+                            .isZero();
+                }
+                for (int i = 0; i < length; i++) {
+                    assertThat(region.getByte(8 + i))
+                            .as("byte %d of a %d-byte fill", i, length)
+                            .isEqualTo((byte) 0x5A);
+                }
+                assertThat(region.getByte(8 + length))
+                        .as("the byte just past a %d-byte fill must be untouched", length)
+                        .isZero();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("implementations")
     void outOfBoundsAccessIsRejected(MemoryAccess access) {
         try (MemoryRegion region = access.allocate(4096)) {
             assertThatThrownBy(() -> region.getLong(region.capacity())).isInstanceOf(IndexOutOfBoundsException.class);

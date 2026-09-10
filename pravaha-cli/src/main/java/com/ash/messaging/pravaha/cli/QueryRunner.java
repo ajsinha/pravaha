@@ -24,18 +24,24 @@ import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.common.queue.WaitStrategy;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.plugin.filesystem.CollectingWriter;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSinkPlugin;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
-import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
+import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
+import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
+import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
+import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
+import com.ash.messaging.pravaha.runtime.plan.Pushdown;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 
@@ -44,6 +50,16 @@ import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
  *
  * <p>Shared by the CLI's {@code run} command and its tests, and it is what makes the vertical slice
  * demonstrable in one call rather than a page of wiring.
+ *
+ * <p><strong>It runs on the lane runtime</strong>, not beside it. The pipeline used to be driven
+ * from the calling thread, which worked and meant the shipped command exercised a different
+ * execution path from the one the design is about -- so a regression in the lanes could not be
+ * noticed by running the product.
+ *
+ * <p>One lane by default, and that is a choice rather than a limitation. A file is one partition and
+ * output order is what {@code QUICKSTART.md} documents; more lanes would interleave results by
+ * thread scheduling and make the documented output true only most of the time. {@code --lanes} is
+ * there for anyone who wants the parallelism and can accept unordered output.
  */
 public final class QueryRunner {
 
@@ -54,7 +70,7 @@ public final class QueryRunner {
 
     private QueryRunner() {}
 
-    /** Plans and runs, returning counts and timings. */
+    /** Plans and runs on a single lane, which keeps output order deterministic. */
     public static Result run(
             String sql,
             String streamName,
@@ -62,6 +78,18 @@ public final class QueryRunner {
             String inputPath,
             String outputSchemaSpec,
             String outputPath) {
+        return run(sql, streamName, inputSchemaSpec, inputPath, outputSchemaSpec, outputPath, 1);
+    }
+
+    /** Plans and runs, returning counts and timings. */
+    public static Result run(
+            String sql,
+            String streamName,
+            String inputSchemaSpec,
+            String inputPath,
+            String outputSchemaSpec,
+            String outputPath,
+            int lanes) {
 
         StreamSchema sourceSchema = FilesystemSourcePlugin.parseSchema(streamName, inputSchemaSpec);
 
@@ -82,17 +110,43 @@ public final class QueryRunner {
             sink.open();
 
             Collector collector = new Collector(plan.outputSchema());
-            try (InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, collector);
-                    Batch batch = new Batch(sourceSchema);
-                    PartitionReader reader =
-                            source.createReader(source.partitions(streamName).get(0), null)) {
+            LaneConfig laneConfig = LaneConfig.defaults()
+                    .withInbox(4096, 4096)
+                    .withBatchSize(256)
+                    .withWaitStrategy(WaitStrategy.Kind.BACKOFF_PARK)
+                    .withThreads("pravaha-run", true);
 
-                int polled;
-                while ((polled = reader.poll(batch, 256)) > 0) {
-                    rowsRead += polled;
-                    batch.drainTo(pipeline);
+            // Offer the source whatever of the WHERE clause it can evaluate itself. The
+            // filesystem plugin declares no pushdown today, so this resolves to nothing and costs
+            // one plan walk; a source that does declare it reads less. The engine's own filter
+            // stays in the plan either way, which is what makes the offer safe to make blindly.
+            ReadRequest request = Pushdown.requestFor(plan, streamName, source.capabilities());
+            try (PartitionReader reader =
+                    source.createReader(source.partitions(streamName).get(0), null, request)) {
+                QueryExecution execution =
+                        QueryExecution.start(plan, lanes, laneConfig, MemoryAccess.best(), () -> collector);
+                try {
+                    IngestPump pump = execution.pumpInto(0, reader, BackpressurePolicy.defaults());
+                    // Pump until the source is exhausted. A pump returns zero both when the source
+                    // has nothing right now and when it has nothing ever, and a file source is the
+                    // one case where those are the same thing.
+                    int moved;
+                    do {
+                        moved = pump.pumpOnce(256);
+                        rowsRead += moved;
+                        execution.checkHealth();
+                    } while (moved > 0);
+
+                    if (!execution.awaitQuiescent(java.time.Duration.ofMinutes(5))) {
+                        throw new IllegalStateException(
+                                "the query did not finish within five minutes; the lane is still working or "
+                                        + "stuck. Check its metrics: " + execution.metrics());
+                    }
+                } finally {
+                    // Closing stops the lanes, and each lane finishes its own pipeline on its own
+                    // thread -- which is what emits the final windows of a stateful query.
+                    execution.close();
                 }
-                pipeline.finish();
                 rowsWritten = sink.write(collector.rows());
                 sink.flush();
             } finally {
@@ -102,45 +156,10 @@ public final class QueryRunner {
         return new Result(rowsRead, rowsWritten, planMicros, (System.nanoTime() - executeStart) / 1_000L);
     }
 
-    /** Buffers a batch of decoded source rows before pushing them through. */
-    private static final class Batch implements PartitionReader.RecordSink, AutoCloseable {
-        private final RowLayout layout;
-        private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 64);
-        private final BinaryRowWriter writer;
-        private final BinaryRowView view;
-        private final List<Long> handles = new ArrayList<>();
-
-        Batch(StreamSchema schema) {
-            this.layout = RowLayout.of(schema);
-            this.writer = new BinaryRowWriter(layout);
-            this.view = new BinaryRowView(layout);
-        }
-
-        @Override
-        public RowWriter beginRow() {
-            long handle = arena.allocate(layout.rowSize(512));
-            if (handle == ArenaHandle.NULL) {
-                throw new IllegalStateException("input batch arena exhausted; reduce the batch size");
-            }
-            writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-            return new CollectingWriter(writer, () -> handles.add(handle));
-        }
-
-        void drainTo(InterpretedPipeline pipeline) {
-            for (long handle : handles) {
-                pipeline.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
-            }
-            handles.clear();
-            // The batch is consumed, so its space goes back in one move -- the whole reason the
-            // arena exists (design 8.5).
-            arena.reset();
-        }
-
-        @Override
-        public void close() {
-            arena.close();
-        }
-    }
+    // The Batch class that used to live here is gone. It buffered decoded rows on the calling
+    // thread and pushed them through the pipeline afterwards; the ingest pump now writes each row
+    // straight into the lane's inbox cell, so the intermediate copy and the arena holding it are
+    // both unnecessary. One fewer copy of every row, on the path the product actually runs.
 
     /** Holds pipeline output until the sink is written. */
     private static final class Collector implements RowOutput, AutoCloseable {

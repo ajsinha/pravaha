@@ -44,4 +44,21 @@ public interface StreamSourcePlugin extends PravahaPlugin {
      * @param resumeFrom where to resume, or {@code null} to start from the configured position
      */
     PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom);
+
+    /**
+     * Creates a reader, offering it work the engine would rather not do itself.
+     *
+     * <p>Defaults to ignoring the request, which is always correct: the engine applies every
+     * predicate itself whatever a source does, so a plugin that overrides this changes how many
+     * bytes cross the boundary and nothing else. That is the whole point -- rows that never arrive
+     * cost nothing to filter.
+     *
+     * <p>A plugin that declares {@link PushdownKind#FILTER} should override this and honour what it
+     * can. Honouring part of a request is fine and needs no announcement; what is never acceptable
+     * is returning fewer rows than the filters allow, because the engine cannot tell the difference
+     * between a row its source withheld and a row that was never there.
+     */
+    default PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom, ReadRequest request) {
+        return createReader(partition, resumeFrom);
+    }
 }

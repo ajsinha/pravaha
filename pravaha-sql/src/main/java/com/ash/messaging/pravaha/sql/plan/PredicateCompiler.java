@@ -15,324 +15,262 @@
  */
 package com.ash.messaging.pravaha.sql.plan;
 
-import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexDynamicParam;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
 
 import com.ash.messaging.pravaha.api.PravahaException;
-import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
-import com.ash.messaging.pravaha.runtime.plan.*;
+import com.ash.messaging.pravaha.runtime.plan.Expression;
+import com.ash.messaging.pravaha.runtime.plan.Predicate;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 
 /**
- * Turns a Calcite {@code RexNode} predicate into something the engine can run.
+ * Turns a Calcite {@code RexNode} into Pravaha's predicate IR.
  *
- * <p>Interpreted, and deliberately so for now. Wave 3 generates fused Java for the same expressions;
- * this stays as the fallback every operator keeps (design section 12.4) and as the independent
- * implementation the differential tests compare generated code against. Correctness never depends
- * on code generation succeeding.
+ * <p>It produces <em>structure</em>, not a closure. That distinction is load-bearing: the
+ * interpreted path evaluates the IR and the code generator emits source from the same IR, so the
+ * differential tests compare two implementations of one specification rather than two separate
+ * translations that could each be wrong in their own way (design section 12.4).
  *
- * <p>An expression this cannot compile raises {@code PRV-2021} at <em>registration</em>, naming the
- * expression. That is the important part: the alternative is a query that plans successfully and
- * then fails on the first record, by which time it is in production and the diagnosis is much
- * harder.
+ * <p>An expression this cannot translate raises {@code PRV-2021} at <em>registration</em>, naming
+ * it. A query that plans successfully and fails on its first record fails in production, where the
+ * diagnosis is expensive.
  */
 public final class PredicateCompiler {
 
     private final StreamSchema schema;
+    private final BoundParameters parameters;
 
     public PredicateCompiler(StreamSchema schema) {
-        this.schema = schema;
+        this(schema, BoundParameters.none());
     }
 
-    /** Compiles a predicate, or fails naming what it could not handle. */
+    /**
+     * @param parameters the values bound to this statement's {@code ?} placeholders. Resolved here,
+     *     while the plan is being built, so no bound value ever passes through a parser
+     */
+    public PredicateCompiler(StreamSchema schema, BoundParameters parameters) {
+        this.schema = schema;
+        this.parameters = parameters == null ? BoundParameters.none() : parameters;
+    }
+
     public Predicate compile(RexNode node) {
         return switch (node.getKind()) {
-            case AND -> combine((RexCall) node, true);
-            case OR -> combine((RexCall) node, false);
-            case NOT -> negate(compile(((RexCall) node).getOperands().get(0)));
+            case AND -> new Predicate.And(compileAll((RexCall) node));
+            case OR -> new Predicate.Or(compileAll((RexCall) node));
+            case NOT -> negate(((RexCall) node).getOperands().get(0));
             case EQUALS, NOT_EQUALS, GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL ->
-                comparison((RexCall) node);
-            case IS_NULL -> isNull((RexCall) node, true);
-            case IS_NOT_NULL -> isNull((RexCall) node, false);
-            case LITERAL -> literalPredicate((RexLiteral) node);
-            case INPUT_REF -> booleanColumn((RexInputRef) node);
+                comparison((RexCall) node, false);
+            case IS_NULL -> nullCheck((RexCall) node, true);
+            case IS_NOT_NULL -> nullCheck((RexCall) node, false);
+            case LITERAL ->
+                Boolean.TRUE.equals(((RexLiteral) node).getValueAs(Boolean.class))
+                        ? new Predicate.True()
+                        : new Predicate.False();
+            case INPUT_REF -> {
+                RexInputRef ref = (RexInputRef) node;
+                yield new Predicate.CompareBoolean(ref.getIndex(), columnName(ref.getIndex()), true);
+            }
             default -> throw unsupported(node);
         };
     }
 
-    private Predicate combine(RexCall call, boolean conjunction) {
+    /**
+     * Compiles {@code NOT node} into a predicate that is true exactly where SQL says the negation
+     * is TRUE -- never where it is UNKNOWN.
+     *
+     * <p>This exists because the predicate IR is two-valued. Every comparison here returns false for
+     * a null operand, which is right for a WHERE clause: UNKNOWN and FALSE both drop the row. But
+     * wrapping that in a Java {@code !} turns the dropped row into a kept one, and {@code WHERE NOT
+     * (bonus > 1)} over a null bonus then returns rows SQL says it must not. Calcite hands the plan
+     * over with the NOT intact, so pushing it down is Pravaha's job.
+     *
+     * <p>Doing it here rather than at runtime means the three-valued reasoning happens once per
+     * query instead of once per row, and the runtime keeps returning a plain boolean.
+     */
+    private Predicate negate(RexNode node) {
+        return switch (node.getKind()) {
+            // NOT (A AND B) is TRUE where either half is FALSE; NOT (A OR B) where both are.
+            case AND -> new Predicate.Or(negateAll((RexCall) node));
+            case OR -> new Predicate.And(negateAll((RexCall) node));
+            // NOT NOT A is TRUE exactly where A is TRUE, which is what compile already means.
+            case NOT -> compile(((RexCall) node).getOperands().get(0));
+            case EQUALS, NOT_EQUALS, GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL ->
+                comparison((RexCall) node, true);
+            // A null check is total: it is never UNKNOWN, so its negation is the other one.
+            case IS_NULL -> nullCheck((RexCall) node, false);
+            case IS_NOT_NULL -> nullCheck((RexCall) node, true);
+            case LITERAL ->
+                Boolean.TRUE.equals(((RexLiteral) node).getValueAs(Boolean.class))
+                        ? new Predicate.False()
+                        : new Predicate.True();
+            // NOT flagged is TRUE only where flagged is present and false.
+            case INPUT_REF -> {
+                RexInputRef ref = (RexInputRef) node;
+                yield new Predicate.CompareBoolean(ref.getIndex(), columnName(ref.getIndex()), false);
+            }
+            default -> throw unsupported(node);
+        };
+    }
+
+    private List<Predicate> negateAll(RexCall call) {
         List<Predicate> parts = new ArrayList<>(call.getOperands().size());
-        for (RexNode operand : call.getOperands()) {
-            parts.add(compile(operand));
-        }
-        return new Predicate() {
-            @Override
-            public boolean test(RowView row) {
-                for (Predicate part : parts) {
-                    boolean value = part.test(row);
-                    if (conjunction != value) {
-                        return !conjunction;
-                    }
-                }
-                return conjunction;
-            }
-
-            @Override
-            public String describe() {
-                List<String> rendered = parts.stream().map(Predicate::describe).toList();
-                return "(" + String.join(conjunction ? " AND " : " OR ", rendered) + ")";
-            }
-        };
+        call.getOperands().forEach(operand -> parts.add(negate(operand)));
+        return parts;
     }
 
-    private static Predicate negate(Predicate inner) {
-        return new Predicate() {
-            @Override
-            public boolean test(RowView row) {
-                return !inner.test(row);
-            }
-
-            @Override
-            public String describe() {
-                return "NOT " + inner.describe();
-            }
-        };
+    private List<Predicate> compileAll(RexCall call) {
+        List<Predicate> parts = new ArrayList<>(call.getOperands().size());
+        call.getOperands().forEach(operand -> parts.add(compile(operand)));
+        return parts;
     }
 
-    private Predicate comparison(RexCall call) {
+    /**
+     * @param negated compile {@code NOT (left op right)} instead, which for a comparison is the same
+     *     comparison with the opposite operator -- and stays false for null operands, as it must
+     */
+    private Predicate comparison(RexCall call, boolean negated) {
         RexNode left = call.getOperands().get(0);
         RexNode right = call.getOperands().get(1);
+        Predicate.Op op = negated ? opOf(call.getKind()).negated() : opOf(call.getKind());
 
-        // Only column-versus-literal for now, in either order. Column-to-column comparison is a
-        // Wave 3 item; refusing it here is better than compiling something subtly different.
+        // Column against literal, in either order, first: those are the shapes the code generator
+        // turns into a single typed load and compare, and they are the overwhelming majority of
+        // real predicates. Anything else -- `amount * 2 > 100`, `a > b` -- goes to the general
+        // expression compiler below, which is correct but interpreted.
         if (left instanceof RexInputRef ref && right instanceof RexLiteral literal) {
-            return compare(ref.getIndex(), call.getKind(), literal, false);
+            return compare(ref.getIndex(), op, Constant.of(literal));
         }
         if (left instanceof RexLiteral literal && right instanceof RexInputRef ref) {
-            return compare(ref.getIndex(), call.getKind(), literal, true);
+            return compare(ref.getIndex(), flip(op), Constant.of(literal));
         }
-        throw unsupported(call);
+        // A bound parameter takes the same path a literal does, and produces the same predicate.
+        // That equivalence is the point: `WHERE user_id = ?` and `WHERE user_id = 'u1'` execute
+        // through identical code, so the parameterised form cannot be slower or subtly different.
+        if (left instanceof RexInputRef ref && right instanceof RexDynamicParam param) {
+            return compare(ref.getIndex(), op, boundValue(ref.getIndex(), param));
+        }
+        if (left instanceof RexDynamicParam param && right instanceof RexInputRef ref) {
+            return compare(ref.getIndex(), flip(op), boundValue(ref.getIndex(), param));
+        }
+        return compareExpressions(call, op);
     }
 
-    private Predicate compare(int ordinal, SqlKind kind, RexLiteral literal, boolean flipped) {
+    /**
+     * The general comparison: both sides compiled as expressions.
+     *
+     * <p>Text is excluded deliberately. The expression tree evaluates to a long or a double, so a
+     * string comparison reaching here would compare something that is not the string -- and the
+     * only string comparisons Pravaha supports at all are equality against a literal, which the
+     * fast path above already handled.
+     */
+    private Predicate compareExpressions(RexCall call, Predicate.Op op) {
+        ExpressionCompiler expressions = new ExpressionCompiler(schema);
+        Expression left = expressions.compile(call.getOperands().get(0));
+        Expression right = expressions.compile(call.getOperands().get(1));
+        rejectText(call, left);
+        rejectText(call, right);
+        return new Predicate.CompareExpressions(left, op, right);
+    }
+
+    private void rejectText(RexCall call, Expression side) {
+        if (side.type() == TypeName.STRING) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' compares text inside a larger expression, which Pravaha cannot do; "
+                            + "only = and <> between a text column and a literal are supported");
+        }
+    }
+
+    /**
+     * Resolves one placeholder against the bound values, checked for type.
+     *
+     * <p>NULL deserves a note. A caller who binds NULL to {@code WHERE tier = ?} usually means "the
+     * rows with no tier", and SQL does not: {@code x = NULL} is UNKNOWN for every row, so the
+     * answer is empty. Pravaha follows the standard -- the predicate becomes {@code false} -- rather
+     * than quietly rewriting it to IS NULL, because a client library that silently changed the
+     * meaning of a comparison would be a worse surprise than an empty result. {@code IS NULL} says
+     * what it means and is what the caller should write.
+     */
+    private Constant boundValue(int ordinal, RexDynamicParam param) {
+        Object value = parameters.at(param.getIndex());
+        BoundParameters.checkAssignable(
+                param.getIndex(), value, schema.field(ordinal).type().typeName());
+        return Constant.of(value, param.getIndex());
+    }
+
+    private Predicate compare(int ordinal, Predicate.Op op, Constant constant) {
         TypeName type = schema.field(ordinal).type().typeName();
-        String column = schema.field(ordinal).name();
-        SqlKind effective = flipped ? flip(kind) : kind;
+        String column = columnName(ordinal);
+
+        if (constant.isNull()) {
+            // Standard three-valued logic: any comparison with NULL is UNKNOWN, and a filter keeps
+            // only rows for which the predicate is TRUE.
+            return new Predicate.False();
+        }
 
         return switch (type) {
-            case INT8, INT16, INT32, INT64, DATE, TIME, TIMESTAMP_LTZ -> {
-                long value = literalAsLong(literal);
-                yield new Predicate() {
-                    @Override
-                    public boolean test(RowView row) {
-                        if (row.isNull(ordinal)) {
-                            // SQL three-valued logic: a comparison with NULL is UNKNOWN, and a
-                            // WHERE clause treats UNKNOWN as false.
-                            return false;
-                        }
-                        return matches(effective, Long.compare(readLong(row, ordinal, type), value));
-                    }
-
-                    @Override
-                    public String describe() {
-                        return column + " " + symbol(effective) + " " + value;
-                    }
-                };
-            }
-            case FLOAT32, FLOAT64 -> {
-                double value = literalAsDouble(literal);
-                yield new Predicate() {
-                    @Override
-                    public boolean test(RowView row) {
-                        if (row.isNull(ordinal)) {
-                            return false;
-                        }
-                        double actual = type == TypeName.FLOAT32 ? row.getFloat(ordinal) : row.getDouble(ordinal);
-                        return matches(effective, Double.compare(actual, value));
-                    }
-
-                    @Override
-                    public String describe() {
-                        return column + " " + symbol(effective) + " " + value;
-                    }
-                };
-            }
+            case INT8, INT16, INT32, DATE -> new Predicate.CompareInt(ordinal, column, op, (int) constant.asLong());
+            case INT64, TIME, TIMESTAMP_LTZ -> new Predicate.CompareLong(ordinal, column, op, constant.asLong());
+            case FLOAT32, FLOAT64 -> new Predicate.CompareDouble(ordinal, column, op, constant.asDouble());
             case STRING -> {
-                String text = literal.getValueAs(String.class);
-                byte[] utf8 = text == null ? new byte[0] : text.getBytes(StandardCharsets.UTF_8);
-                yield new Predicate() {
-                    @Override
-                    public boolean test(RowView row) {
-                        if (row.isNull(ordinal)) {
-                            return false;
-                        }
-                        if (effective == SqlKind.EQUALS || effective == SqlKind.NOT_EQUALS) {
-                            // A UTF-8 byte comparison; no String is materialised. This is the shape
-                            // the generated version keeps (design 12.3).
-                            boolean equal = utf8Equals(row, ordinal, utf8);
-                            return effective == SqlKind.EQUALS == equal;
-                        }
-                        return matches(effective, row.getString(ordinal).compareTo(text));
-                    }
-
-                    @Override
-                    public String describe() {
-                        return column + " " + symbol(effective) + " '" + text + "'";
-                    }
-                };
+                if (op != Predicate.Op.EQ && op != Predicate.Op.NE) {
+                    throw new PravahaException(
+                            SqlErrors.UNSUPPORTED_EXPRESSION,
+                            "only = and <> are supported on text column '" + column + "'; "
+                                    + op.sql() + " needs a collation, and assuming one gives wrong "
+                                    + "answers that look right");
+                }
+                yield new Predicate.CompareString(ordinal, column, op, constant.asString());
             }
-            case BOOLEAN -> {
-                boolean value = Boolean.TRUE.equals(literal.getValueAs(Boolean.class));
-                yield new Predicate() {
-                    @Override
-                    public boolean test(RowView row) {
-                        return !row.isNull(ordinal)
-                                && (row.getBoolean(ordinal) == value) == (effective == SqlKind.EQUALS);
-                    }
-
-                    @Override
-                    public String describe() {
-                        return column + " " + symbol(effective) + " " + value;
-                    }
-                };
-            }
+            case BOOLEAN ->
+                new Predicate.CompareBoolean(ordinal, column, constant.asBoolean() == (op == Predicate.Op.EQ));
             default ->
                 throw new PravahaException(
                         SqlErrors.UNSUPPORTED_EXPRESSION,
-                        "cannot compare column '" + column + "' of type " + type
-                                + " against a literal yet; supported: integers, floats, strings, booleans");
+                        "cannot compare column '" + column + "' of type " + type + " against a constant yet");
         };
     }
 
-    private static boolean utf8Equals(RowView row, int ordinal, byte[] literal) {
-        if (row instanceof com.ash.messaging.pravaha.common.row.BinaryRowView binary) {
-            return binary.utf8Equals(ordinal, literal);
-        }
-        return row.getString(ordinal).equals(new String(literal, StandardCharsets.UTF_8));
-    }
-
-    private static long readLong(RowView row, int ordinal, TypeName type) {
-        return switch (type) {
-            case INT8 -> row.getByte(ordinal);
-            case INT16 -> row.getShort(ordinal);
-            case INT32, DATE -> row.getInt(ordinal);
-            default -> row.getLong(ordinal);
-        };
-    }
-
-    private Predicate isNull(RexCall call, boolean wantNull) {
-        RexNode operand = call.getOperands().get(0);
-        if (!(operand instanceof RexInputRef ref)) {
+    private Predicate nullCheck(RexCall call, boolean wantNull) {
+        if (!(call.getOperands().get(0) instanceof RexInputRef ref)) {
             throw unsupported(call);
         }
-        int ordinal = ref.getIndex();
-        String column = schema.field(ordinal).name();
-        return new Predicate() {
-            @Override
-            public boolean test(RowView row) {
-                return row.isNull(ordinal) == wantNull;
-            }
-
-            @Override
-            public String describe() {
-                return column + (wantNull ? " IS NULL" : " IS NOT NULL");
-            }
-        };
+        return new Predicate.IsNull(ref.getIndex(), columnName(ref.getIndex()), wantNull);
     }
 
-    private static Predicate literalPredicate(RexLiteral literal) {
-        boolean value = Boolean.TRUE.equals(literal.getValueAs(Boolean.class));
-        return value
-                ? Predicate.ALWAYS_TRUE
-                : new Predicate() {
-                    @Override
-                    public boolean test(RowView row) {
-                        return false;
-                    }
-
-                    @Override
-                    public String describe() {
-                        return "false";
-                    }
-                };
+    private String columnName(int ordinal) {
+        return schema.field(ordinal).name();
     }
 
-    private Predicate booleanColumn(RexInputRef ref) {
-        int ordinal = ref.getIndex();
-        String column = schema.field(ordinal).name();
-        return new Predicate() {
-            @Override
-            public boolean test(RowView row) {
-                return !row.isNull(ordinal) && row.getBoolean(ordinal);
-            }
-
-            @Override
-            public String describe() {
-                return column;
-            }
-        };
-    }
-
-    private static long literalAsLong(RexLiteral literal) {
-        Object value = literal.getValueAs(BigDecimal.class);
-        if (value instanceof BigDecimal decimal) {
-            return decimal.longValue();
-        }
-        Long asLong = literal.getValueAs(Long.class);
-        if (asLong == null) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_EXPRESSION, "cannot read literal " + literal + " as a number");
-        }
-        return asLong;
-    }
-
-    private static double literalAsDouble(RexLiteral literal) {
-        BigDecimal decimal = literal.getValueAs(BigDecimal.class);
-        return decimal == null ? 0d : decimal.doubleValue();
-    }
-
-    private static boolean matches(SqlKind kind, int comparison) {
+    private static Predicate.Op opOf(SqlKind kind) {
         return switch (kind) {
-            case EQUALS -> comparison == 0;
-            case NOT_EQUALS -> comparison != 0;
-            case GREATER_THAN -> comparison > 0;
-            case GREATER_THAN_OR_EQUAL -> comparison >= 0;
-            case LESS_THAN -> comparison < 0;
-            case LESS_THAN_OR_EQUAL -> comparison <= 0;
+            case EQUALS -> Predicate.Op.EQ;
+            case NOT_EQUALS -> Predicate.Op.NE;
+            case GREATER_THAN -> Predicate.Op.GT;
+            case GREATER_THAN_OR_EQUAL -> Predicate.Op.GE;
+            case LESS_THAN -> Predicate.Op.LT;
+            case LESS_THAN_OR_EQUAL -> Predicate.Op.LE;
             default -> throw new IllegalArgumentException("not a comparison: " + kind);
         };
     }
 
     /** {@code 100 > amount} means {@code amount < 100}. */
-    private static SqlKind flip(SqlKind kind) {
-        return switch (kind) {
-            case GREATER_THAN -> SqlKind.LESS_THAN;
-            case GREATER_THAN_OR_EQUAL -> SqlKind.LESS_THAN_OR_EQUAL;
-            case LESS_THAN -> SqlKind.GREATER_THAN;
-            case LESS_THAN_OR_EQUAL -> SqlKind.GREATER_THAN_OR_EQUAL;
-            default -> kind;
-        };
-    }
-
-    private static String symbol(SqlKind kind) {
-        return switch (kind) {
-            case EQUALS -> "=";
-            case NOT_EQUALS -> "<>";
-            case GREATER_THAN -> ">";
-            case GREATER_THAN_OR_EQUAL -> ">=";
-            case LESS_THAN -> "<";
-            case LESS_THAN_OR_EQUAL -> "<=";
-            default -> kind.toString();
+    private static Predicate.Op flip(Predicate.Op op) {
+        return switch (op) {
+            case GT -> Predicate.Op.LT;
+            case GE -> Predicate.Op.LE;
+            case LT -> Predicate.Op.GT;
+            case LE -> Predicate.Op.GE;
+            default -> op;
         };
     }
 

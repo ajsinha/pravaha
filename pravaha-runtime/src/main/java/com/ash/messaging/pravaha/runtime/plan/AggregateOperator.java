@@ -45,6 +45,15 @@ public record AggregateOperator(
     public record AggregateCall(Kind kind, int argumentOrdinal, String outputName) {
         public enum Kind {
             COUNT,
+            /**
+             * {@code COUNT(DISTINCT x)}.
+             *
+             * <p>Kept separate from {@link #COUNT} because it is a different kind of thing: COUNT
+             * needs one number per group, and this needs one entry per distinct value, so its state
+             * grows with cardinality rather than staying constant. Treating it as a variant of COUNT
+             * is how an aggregate that looks cheap turns out to hold a million entries per group.
+             */
+            COUNT_DISTINCT,
             SUM,
             MIN,
             MAX,

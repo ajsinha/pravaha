@@ -42,6 +42,19 @@ public final class PravahaSchema extends AbstractSchema {
         return this;
     }
 
+    /**
+     * Registers a dimension table: something to look rows up in rather than consume.
+     *
+     * <p>The difference is not cosmetic. A stream is read from beginning to end and its rows are
+     * kept in join state; a lookup table is asked one key at a time and keeps nothing. Registering
+     * a hundred-million-row customer table as a stream is how a query runs out of memory, and the
+     * two are told apart here, at registration, rather than guessed at from the query.
+     */
+    public PravahaSchema registerLookup(StreamSchema schema) {
+        tables.put(schema.name(), new PravahaTable(schema, true));
+        return this;
+    }
+
     public boolean contains(String name) {
         return tables.containsKey(name);
     }

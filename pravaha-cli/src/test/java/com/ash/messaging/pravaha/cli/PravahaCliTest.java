@@ -94,7 +94,11 @@ class PravahaCliTest {
     void validateRefusesAnUnboundedGroupByBeforeAnythingRuns() {
         assertThat(run("validate", "--sql", "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id", "--schema", SCHEMA))
                 .isEqualTo(1);
-        assertThat(stderr()).contains("PRV-2050").contains("Add a window");
+        assertThat(stderr())
+                .contains("PRV-2050")
+                .as("the refusal names the key column, not its ordinal (Wave 4 gate)")
+                .contains("GROUP BY user_id")
+                .contains("TUMBLE(event_time");
     }
 
     @Test
@@ -128,7 +132,37 @@ class PravahaCliTest {
     void anUnknownExplainLevelIsAUsageError() {
         assertThat(run("explain", "--sql", "SELECT user_id FROM txn", "--schema", SCHEMA, "--level", "weird"))
                 .isEqualTo(2);
-        assertThat(stderr()).contains("logical, physical or all");
+        assertThat(stderr()).contains("logical, physical, codegen or all");
+    }
+
+    @Test
+    void explainCodegenShowsTheJavaTheEngineWillRun() {
+        // A generated plan that produces a wrong answer is otherwise undebuggable from outside:
+        // there is no file to open, and the class named in the stack trace was compiled from a
+        // string. Line numbers because a compiler error citing line 47 is useless without them.
+        assertThat(run(
+                        "explain",
+                        "--sql",
+                        "SELECT amount FROM txn WHERE amount > 100",
+                        "--schema",
+                        SCHEMA,
+                        "--level",
+                        "codegen"))
+                .isZero();
+        assertThat(stdout())
+                .contains("Generated source")
+                .contains("implements com.ash.messaging.pravaha.codegen.FusedStage")
+                .contains("   1  ");
+    }
+
+    @Test
+    void explainCodegenSaysSoWhenAQueryWillRunInterpreted() {
+        // Not an error. Every operator has a correct slow implementation and correctness never
+        // depends on generation succeeding (design 12.4) -- but an operator needs to know that this
+        // query takes the slower path, and why, which is a diagnostic rather than a failure.
+        assertThat(run("explain", "--sql", "SELECT user_id FROM txn", "--schema", SCHEMA, "--level", "codegen"))
+                .isZero();
+        assertThat(stdout()).contains("no generated form").contains("interpreted path, which is correct and slower");
     }
 
     @Test

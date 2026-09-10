@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; narrowed by [ADR-030](030-flight-sql-as-the-client-protocol.md) |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

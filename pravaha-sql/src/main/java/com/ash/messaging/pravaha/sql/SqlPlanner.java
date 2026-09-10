@@ -70,6 +70,16 @@ public final class SqlPlanner {
         return new SqlPlanner(catalog);
     }
 
+    /** A planner whose first stream is consumed and whose remaining ones are dimension tables. */
+    public static SqlPlanner withLookups(StreamSchema stream, StreamSchema... lookups) {
+        PravahaSchema catalog = new PravahaSchema();
+        catalog.register(stream);
+        for (StreamSchema each : lookups) {
+            catalog.registerLookup(each);
+        }
+        return new SqlPlanner(catalog);
+    }
+
     public PravahaSchema schema() {
         return schema;
     }
@@ -93,7 +103,7 @@ public final class SqlPlanner {
 
             SqlNode validated;
             try {
-                validated = planner.validate(parsed);
+                validated = planner.validate(dropStreamKeyword(parsed));
             } catch (ValidationException e) {
                 throw new PravahaException(
                         SqlErrors.VALIDATION_FAILED, rootMessage(e) + ". Known streams: " + schema.streamNames(), e);
@@ -110,6 +120,38 @@ public final class SqlPlanner {
         } catch (Exception e) {
             throw new PravahaException(SqlErrors.PLANNING_FAILED, rootMessage(e), e);
         }
+    }
+
+    /**
+     * Accepts {@code SELECT STREAM} and treats it as {@code SELECT}.
+     *
+     * <p>The keyword is redundant here, and saying why matters. Calcite's distinction is between a
+     * table and the stream of changes to it, and a query must pick one; a table that declares itself
+     * streamable can then <em>only</em> be read as a stream, and every ordinary {@code SELECT}
+     * against it is rejected. In Pravaha there is nothing to pick between: every registered query is
+     * continuous and every operator is incremental, so the table and the stream are the same object
+     * and {@code STREAM} asks for what it would get anyway.
+     *
+     * <p>So the keyword is dropped from the tree rather than honoured. The alternative -- declaring
+     * the tables streamable -- makes {@code SELECT STREAM} work and breaks every query that does not
+     * say it, which is all of them in the quickstart and the examples. Dropping a keyword that
+     * cannot change the answer is the smaller lie by a wide margin, and the design's own SQL (§11.2)
+     * uses it, so refusing it would refuse the documented dialect.
+     */
+    private static SqlNode dropStreamKeyword(SqlNode node) {
+        if (node instanceof org.apache.calcite.sql.SqlSelect select) {
+            if (select.isKeywordPresent(org.apache.calcite.sql.SqlSelectKeyword.STREAM)) {
+                select.setOperand(
+                        0,
+                        new org.apache.calcite.sql.SqlNodeList(
+                                java.util.List.of(), org.apache.calcite.sql.parser.SqlParserPos.ZERO));
+            }
+        } else if (node instanceof org.apache.calcite.sql.SqlOrderBy orderBy) {
+            dropStreamKeyword(orderBy.query);
+        } else if (node instanceof org.apache.calcite.sql.SqlCall call) {
+            call.getOperandList().stream().filter(java.util.Objects::nonNull).forEach(SqlPlanner::dropStreamKeyword);
+        }
+        return node;
     }
 
     /** The plan as text, for {@code EXPLAIN} and for golden-plan tests. */

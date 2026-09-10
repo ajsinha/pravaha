@@ -4,9 +4,10 @@ Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 
 The surface mirrors the Java SDK deliberately: the same concepts under the same
-names, so a team running both does not have to hold two mental models. Wave 1
-delivers the connection and result contracts; the gRPC transport that implements
-them lands with the gateways in Wave 7.
+names, so a team running both does not have to hold two mental models. Wave 1 delivered the connection and result contracts; the Arrow Flight SQL transport
+that implements them landed in Wave 7 (ADR-030). Import ``connect`` to use it -- it
+needs the ``flight`` extra, because a client installed into somebody else's
+environment should not drag pyarrow in unless it is going to talk to a server.
 """
 
 from pravaha.consistency import Consistency
@@ -14,8 +15,23 @@ from pravaha.endpoint import Endpoint, HostPort
 from pravaha.errors import PravahaError, MalformedEndpointError, InvalidOptionsError
 from pravaha.options import ClientOptions
 
+
+
+def connect(*args, **kwargs):
+    """Connects to a Pravaha server. Needs the ``flight`` extra; see :mod:`pravaha.client`.
+
+    Imported lazily so that ``import pravaha`` works without pyarrow -- the types and the
+    connection string parser are useful on their own, and an unconditional import would
+    make the optional dependency mandatory in practice.
+    """
+    from pravaha.client import connect as _connect
+
+    return _connect(*args, **kwargs)
+
+
 __all__ = [
     "ClientOptions",
+    "connect",
     "Consistency",
     "Endpoint",
     "HostPort",

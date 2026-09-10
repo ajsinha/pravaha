@@ -118,21 +118,81 @@ class PhysicalPlanBuilderTest {
     @Test
     void aKeyedAggregateIsRefusedUntilItsStateCanBeBounded() {
         // Design 9.6. Unbounded integration is how incremental engines die in production, and
-        // refusing the query is the only intervention that reliably works. The message says what
-        // to do about it rather than just refusing.
+        // refusing the query is the only intervention that reliably works.
+        //
+        // The Wave 4 gate asks specifically for a diagnostic that *names the key*, and that is
+        // asserted here rather than left to good intentions: "GROUP BY [3]" tells a reader nothing,
+        // and somebody debugging at speed will map that ordinal to the wrong column at least once.
         assertThatThrownBy(() -> plan("SELECT user_id, COUNT(*) FROM txn GROUP BY user_id"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2050")
-                .hasMessageContaining("grow without limit")
-                .hasMessageContaining("Add a window");
+                .hasMessageContaining("GROUP BY user_id")
+                .hasMessageNotContaining("GROUP BY [")
+                .hasMessageContaining("never shrinks")
+                .hasMessageContaining("TUMBLE(event_time");
     }
 
     @Test
-    void aComputedProjectionIsRefusedRatherThanSilentlyWrong() {
-        assertThatThrownBy(() -> plan("SELECT amount * 2 FROM txn"))
+    void aRefusalNamesEveryKeyOfACompositeGroupBy() {
+        // One name is the easy case. A composite key is where an ordinal list is most confusing and
+        // most likely to be misread.
+        assertThatThrownBy(() -> plan("SELECT user_id, status, COUNT(*) FROM txn GROUP BY user_id, status"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("GROUP BY user_id, status");
+    }
+
+    @Test
+    void aComputedProjectionIsNowEvaluatedRatherThanRefused() {
+        // This test used to assert the refusal. Computed projections are evaluated as of Wave 5, so
+        // the assertion is inverted rather than deleted -- a test that recorded a limitation is
+        // worth keeping as the test that records the limitation being lifted.
+        assertThat(plan("SELECT amount * 2 FROM txn"))
+                .isInstanceOf(com.ash.messaging.pravaha.runtime.plan.ComputeOperator.class);
+    }
+
+    @Test
+    void anExpressionPravahaCannotEvaluateIsStillRefusedByName() {
+        assertThatThrownBy(() -> plan("SELECT ABS(amount) FROM txn"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2021")
-                .hasMessageContaining("computed");
+                .hasMessageContaining("ABS");
+    }
+
+    @Test
+    void arithmeticInsideAWhereClauseIsEvaluatedRatherThanRefused() {
+        // Predicates used to accept only column-against-literal. The fast path for that shape is
+        // still there; this is the general one behind it.
+        assertThat(PhysicalPlanBuilder.explain(plan("SELECT user_id FROM txn WHERE amount * 2 > 100")))
+                .contains("Filter(")
+                .contains("amount")
+                .contains("Scan(txn)");
+    }
+
+    @Test
+    void oneColumnCanBeComparedAgainstAnother() {
+        assertThat(PhysicalPlanBuilder.explain(plan("SELECT user_id FROM txn WHERE amount > txn_id")))
+                .contains("amount > txn_id");
+    }
+
+    @Test
+    void textInsideALargerExpressionIsRefusedRatherThanComparedAsANumber() {
+        assertThatThrownBy(() -> plan("SELECT user_id FROM txn WHERE status > user_id"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2021")
+                .hasMessageContaining("text");
+    }
+
+    @Test
+    void anInnerEquiJoinIsNowPlannedRatherThanRefused() {
+        // This test asserted the refusal until joins landed. Inverted rather than deleted: the case
+        // that recorded a limitation is the right place to record it being lifted.
+        StreamSchema other =
+                StreamSchema.builder("other").field("user_id", Types.string()).build();
+        var planner = SqlPlanner.withStreams(txnSchema(), other);
+        PhysicalOperator root = new PhysicalPlanBuilder()
+                .build(planner.plan("SELECT t.user_id FROM txn t JOIN other o ON t.user_id = o.user_id"));
+
+        assertThat(PhysicalPlanBuilder.explain(root)).contains("Join[user_id = user_id]");
     }
 
     @Test
@@ -141,7 +201,7 @@ class PhysicalPlanBuilderTest {
                 StreamSchema.builder("other").field("user_id", Types.string()).build();
         var planner = SqlPlanner.withStreams(txnSchema(), other);
         assertThatThrownBy(() -> new PhysicalPlanBuilder()
-                        .build(planner.plan("SELECT t.user_id FROM txn t JOIN other o ON t.user_id = o.user_id")))
+                        .build(planner.plan("SELECT user_id FROM txn UNION SELECT user_id FROM other")))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2020")
                 .hasMessageContaining("Supported:");

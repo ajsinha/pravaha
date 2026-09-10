@@ -56,6 +56,20 @@ final class GlobalAggregate implements RowProcessor {
     private long lastSequence;
 
     GlobalAggregate(AggregateOperator operator, RowArena arena, RowProcessor downstream) {
+        if (!operator.groupKeyOrdinals().isEmpty()) {
+            // This class aggregates everything into one group, by design. Handed a keyed operator it
+            // would ignore the keys and return a single row where the query asked for one per key --
+            // a wrong answer that looks entirely plausible, which is the worst failure available.
+            //
+            // The SQL planner refuses a keyed unwindowed GROUP BY (PRV-2050) so this cannot normally
+            // be reached. The check is here because the day somebody relaxes that refusal -- to
+            // support GROUP BY over a bounded view read, which is a reasonable thing to want -- the
+            // missing piece is a keyed aggregate operator, and the failure should say so rather than
+            // quietly halving somebody's dashboard.
+            throw new IllegalArgumentException("GlobalAggregate cannot execute a keyed GROUP BY on "
+                    + operator.groupKeyOrdinals() + "; a keyed unwindowed aggregate operator does not "
+                    + "exist yet, and running this one would ignore the keys and return a single row");
+        }
         this.operator = operator;
         this.arena = arena;
         this.downstream = downstream;
@@ -84,6 +98,11 @@ final class GlobalAggregate implements RowProcessor {
             AggregateOperator.AggregateCall call = calls.get(i);
             switch (call.kind()) {
                 case COUNT -> counts[i] += weight;
+                case COUNT_DISTINCT ->
+                    throw new PravahaException(
+                            RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                            "COUNT(DISTINCT ...) over an unwindowed stream is unbounded state: one entry per "
+                                    + "distinct value, kept forever. Put it in a window.");
                 case SUM, AVG -> {
                     if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
                         sums[i] += row.getLong(call.argumentOrdinal()) * weight;
@@ -133,6 +152,12 @@ final class GlobalAggregate implements RowProcessor {
                         case SUM, MIN, MAX -> sums[i];
                         // Integer division, matching SQL's AVG over an integer column.
                         case AVG -> counts[i] == 0 ? 0 : sums[i] / counts[i];
+                        case COUNT_DISTINCT ->
+                            throw new PravahaException(
+                                    RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                                    "COUNT(DISTINCT ...) over an unwindowed stream holds one entry per distinct "
+                                            + "value forever, which is unbounded state by another name. Put it in a "
+                                            + "window.");
                     };
             writer.setLong(i, value);
         }

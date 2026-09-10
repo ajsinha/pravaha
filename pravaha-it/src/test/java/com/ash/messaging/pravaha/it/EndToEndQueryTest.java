@@ -137,7 +137,7 @@ class EndToEndQueryTest {
                         "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id", input, output, "user_id:STRING,n:INT64"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2050")
-                .hasMessageContaining("Add a window");
+                .hasMessageContaining("Bound it with a window");
 
         assertThat(Files.exists(output))
                 .as("a refused query must not have produced output")

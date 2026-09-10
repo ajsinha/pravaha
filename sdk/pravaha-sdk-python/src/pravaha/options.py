@@ -33,6 +33,11 @@ class ClientOptions:
     subscriber_buffer_rows: int = 10_000
     conflate_on_overflow: bool = True
     application_name: str = "pravaha-python-sdk"
+    #: Permits a token over a plaintext connection. For a test against a loopback
+    #: server, and for a deployment where TLS is terminated by a sidecar on the same
+    #: host. Both are real; neither is the common case, which is why it has to be
+    #: asked for by a name that says what is being given up.
+    allow_insecure_token: bool = False
 
     def __post_init__(self) -> None:
         if self.connect_timeout_seconds <= 0:
@@ -49,12 +54,13 @@ class ClientOptions:
             )
         if not self.application_name or not self.application_name.strip():
             raise InvalidOptionsError("application_name must not be blank")
-        if self.token is not None and not self.endpoint.tls:
+        if self.token is not None and not self.endpoint.tls and not self.allow_insecure_token:
             # Sending a bearer token over plaintext hands it to anyone on the path.
             # Refusing is less convenient than warning, and considerably safer.
             raise InvalidOptionsError(
                 f"refusing to send a token over a plaintext connection to {self.endpoint}; "
-                "use grpc+tls:// or remove the token"
+                "use grpc+tls://, remove the token, or pass allow_insecure_token=True if "
+                "the connection is loopback or TLS ends at a local sidecar"
             )
 
     @staticmethod
