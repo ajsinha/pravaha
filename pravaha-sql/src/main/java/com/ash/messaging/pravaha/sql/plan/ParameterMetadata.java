@@ -19,12 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.Filter;
-import org.apache.calcite.rel.core.Project;
-import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexDynamicParam;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.rex.RexVisitorImpl;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -39,13 +37,17 @@ import com.ash.messaging.pravaha.sql.TypeMapping;
  * inferred for each -- Calcite works those out from context, so {@code WHERE user_id = ?} yields
  * STRING without the caller declaring anything.
  *
- * <p>The second is to refuse the placeholders that are not parameters at all. A {@code ?} standing
- * where a value goes varies the answer; a {@code ?} standing where the plan's <em>shape</em> goes --
- * {@code GROUP BY ?}, a window size, a table name -- varies the query. The distinction is invisible
- * in the SQL text and enormous in what it costs: two bindings of a value share one computation and
- * its state, and two window sizes cannot share state at all, because a five-minute window and an
- * hourly one have no rows in common to share. Accepting the second silently would mean a caller
- * looping over window sizes and quietly creating a computation per size.
+ * <p>The second is to refuse every placeholder that is not one. <b>A {@code ?} belongs in a WHERE
+ * clause and nowhere else.</b> That is the whole rule, and it is stated as one position accepted
+ * rather than a list of positions forbidden, so that a place nobody has thought of is refused by
+ * default.
+ *
+ * <p>The reason is not tidiness. A placeholder in a WHERE clause varies which rows come back; one in
+ * a window size, a group key or a table name varies what the query <em>is</em>. The distinction is
+ * invisible in the SQL text and enormous in what it costs -- two bindings of a value share one
+ * computation and its state, while two window sizes have no rows in common and cannot share state at
+ * all. Accepting the second silently would let a caller loop over window sizes and quietly create a
+ * computation per size.
  */
 public final class ParameterMetadata {
 
@@ -74,10 +76,10 @@ public final class ParameterMetadata {
     }
 
     /**
-     * Finds every placeholder in a planned statement, refusing the ones that are not values.
+     * Finds every placeholder in a planned statement, refusing any that is not in a WHERE clause.
      *
-     * @throws PravahaException {@link SqlErrors#PARAMETER_NOT_A_VALUE} if a placeholder decides the
-     *     shape of the plan rather than a value in it
+     * @throws PravahaException {@link SqlErrors#PARAMETER_NOT_A_VALUE} if a placeholder appears
+     *     anywhere but a filter condition
      */
     public static ParameterMetadata of(RelNode plan) {
         List<RexDynamicParam> found = new ArrayList<>();
@@ -92,18 +94,24 @@ public final class ParameterMetadata {
                 continue;
             }
             if (param.getIndex() != types.size()) {
-                // Calcite numbers placeholders by position, so a gap means one of them was consumed
-                // somewhere this walk does not reach -- which is exactly the case that must not be
-                // guessed at.
-                throw new PravahaException(
-                        SqlErrors.PARAMETER_NOT_A_VALUE,
-                        "?" + (param.getIndex() + 1) + " is not in a position this server can bind. "
-                                + "A placeholder must stand where a value goes -- in a comparison, or "
-                                + "an expression -- not where the shape of the query goes");
+                // Calcite numbers placeholders by position across the whole statement, so a gap
+                // means one was consumed somewhere this walk deliberately does not accept.
+                throw notAValue(param.getIndex());
             }
             types.add(typeOf(param));
         }
         return new ParameterMetadata(types);
+    }
+
+    private static PravahaException notAValue(int index) {
+        return new PravahaException(
+                SqlErrors.PARAMETER_NOT_A_VALUE,
+                "?" + (index + 1) + " is not in a WHERE clause. A placeholder stands for a value that "
+                        + "selects rows, and nothing else: a window size, a group key, an aggregate "
+                        + "argument or a table name decides what the query *is* rather than which rows "
+                        + "it returns. Two window sizes have no rows in common, so they cannot share a "
+                        + "computation or its state -- binding one would create a separate query per "
+                        + "size, and the first anyone would know of it is a memory alarm.");
     }
 
     private static TypeName typeOf(RexDynamicParam param) {
@@ -119,59 +127,29 @@ public final class ParameterMetadata {
     }
 
     /**
-     * Walks the plan, gathering placeholders from the positions that hold values.
+     * Walks the plan: placeholders in a filter condition are parameters, and everywhere else is a
+     * refusal.
      *
-     * <p>Filters and projections hold values. A group key or an aggregate argument does not -- a
-     * placeholder there would change what the computation <em>is</em> rather than which rows it
-     * returns, so it is refused rather than collected.
+     * <p>Uniform rather than a list of forbidden positions. An earlier version recognised windowing
+     * functions by operator name and refused those specifically, which meant a brittle dependency on
+     * Calcite's internal spelling and a hole for every position nobody had thought of. Accepting one
+     * position and refusing the rest inverts that: the new place a placeholder could appear is
+     * refused by default, and adding support for it is a deliberate act.
      */
     private static void collect(RelNode node, List<RexDynamicParam> found) {
         if (node instanceof Filter filter) {
             gather(filter.getCondition(), found);
-        } else if (node instanceof Project project) {
-            project.getProjects().forEach(expression -> gather(expression, found));
-        } else if (node instanceof Aggregate aggregate) {
-            // An aggregate's group set and calls are ordinals into its input, so a placeholder
-            // cannot appear in them directly -- but a windowing function underneath can carry one,
-            // and that one decides the window size. Caught by the shape check below.
-            rejectShapeParameters(aggregate);
+        } else {
+            // Every other node's expressions, whatever kind of node it is: RelNode.accept applies a
+            // shuttle to the expressions that node holds, so this needs no per-operator knowledge.
+            node.accept(new RexShuttle() {
+                @Override
+                public RexNode visitDynamicParam(RexDynamicParam param) {
+                    throw notAValue(param.getIndex());
+                }
+            });
         }
         node.getInputs().forEach(input -> collect(input, found));
-    }
-
-    private static void rejectShapeParameters(Aggregate aggregate) {
-        for (RelNode input : aggregate.getInputs()) {
-            if (input instanceof Project project) {
-                for (RexNode expression : project.getProjects()) {
-                    if (expression instanceof RexCall call && isWindowing(call) && hasParameter(call)) {
-                        throw new PravahaException(
-                                SqlErrors.PARAMETER_NOT_A_VALUE,
-                                "a window size cannot be a parameter. Two window sizes have no rows in "
-                                        + "common, so they cannot share a computation or its state -- "
-                                        + "binding one would create a separate query per size, and the "
-                                        + "first anyone would know of it is a memory alarm. Register the "
-                                        + "windows you need as separate queries");
-                    }
-                }
-            }
-        }
-    }
-
-    private static boolean isWindowing(RexCall call) {
-        String name = call.getOperator().getName();
-        return name.startsWith("$TUMBLE") || name.startsWith("$HOP") || name.startsWith("$SESSION");
-    }
-
-    private static boolean hasParameter(RexNode node) {
-        boolean[] seen = {false};
-        node.accept(new RexVisitorImpl<Void>(true) {
-            @Override
-            public Void visitDynamicParam(RexDynamicParam param) {
-                seen[0] = true;
-                return null;
-            }
-        });
-        return seen[0];
     }
 
     private static void gather(RexNode node, List<RexDynamicParam> found) {

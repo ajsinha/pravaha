@@ -346,9 +346,12 @@ tap iff the view carries every column it names. That is not a coincidence — a 
 and a query parameter are the same object, a predicate supplied from outside the query text and
 applied to a shared computation.
 
-A `?` may stand where a value goes and nowhere else. One in a position that decides the plan's
-*shape* — a window size, a group key, a table name — is refused, because two window sizes have no
-rows in common and cannot share state at all.
+A `?` belongs in a **WHERE clause and nowhere else** — `HAVING` too, since it is a filter above the
+aggregate. A parameter selects rows; every other position is a different query rather than a
+different binding of one. A window size is the clearest case: five-minute and hourly windows have no
+rows in common, so a parameterised window is not one query with a knob but a family of queries, and
+a deployment knows its windows when it writes them. The rule is one position accepted rather than a
+list forbidden, so the next place a placeholder could appear is refused by default.
 
 Types are inferred rather than declared: the planner works them out from the columns and sends the
 parameter schema when a statement is prepared, so neither SDK guesses.

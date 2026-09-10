@@ -146,6 +146,27 @@ class ParameterBindingTest {
     }
 
     @Test
+    void aPlaceholderInTheSelectListIsRefused() {
+        // A parameter selects rows. `SELECT total * ?` computes a different answer from the same
+        // rows, which is a different query rather than a different binding of one.
+        assertThatThrownBy(() ->
+                        ParameterMetadata.of(SqlPlanner.withStreams(SCHEMA).plan("SELECT total * ? FROM user_volume")))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2063")
+                .hasMessageContaining("WHERE clause");
+    }
+
+    @Test
+    void aPlaceholderInAHavingClauseIsAParameter() {
+        // HAVING is a filter above the aggregate, so it selects rows and qualifies. This is not a
+        // special case in the code -- it falls out of "a filter condition is where values go".
+        ParameterMetadata metadata = ParameterMetadata.of(SqlPlanner.withStreams(SCHEMA)
+                .plan("SELECT tier, SUM(total) FROM user_volume GROUP BY tier HAVING SUM(total) > ?"));
+
+        assertThat(metadata.count()).isEqualTo(1);
+    }
+
+    @Test
     void aParameterisedWindowSizeIsRefused() {
         SqlPlanner planner = SqlPlanner.withStreams(StreamSchema.builder("events")
                 .field("user_id", Types.string())
@@ -161,7 +182,7 @@ class ParameterBindingTest {
                         "SELECT user_id, SUM(amount) FROM events GROUP BY user_id, TUMBLE(event_time, ?)")))
                 .isInstanceOf(PravahaException.class)
                 .satisfies(e -> assertThat(e.getMessage())
-                        .as("refused as a shape parameter, or refused by the parser -- either is a refusal")
+                        .as("refused as a non-value position, or refused by the parser -- either is a refusal")
                         .containsAnyOf("PRV-2063", "PRV-2001", "PRV-2002"));
     }
 }

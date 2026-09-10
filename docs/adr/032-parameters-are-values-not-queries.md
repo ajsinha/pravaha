@@ -15,9 +15,10 @@ Proprietary and confidential; see `../../LICENSE`.
 **Prepared statements are supported for request/response, over Flight SQL's native protocol, with
 values bound as an Arrow batch.** A statement is planned once and executed many times.
 
-**A `?` may stand where a value goes, and nowhere else.** A placeholder in a position that decides
-the *shape* of the plan — a window size, a group key, a table name — is refused (`PRV-2063`) rather
-than accepted and quietly turned into a separate query.
+**A `?` belongs in a WHERE clause and nowhere else.** That is the whole rule. A placeholder anywhere
+else — the select list, a window size, a group key, an aggregate argument, a table name — is refused
+(`PRV-2063`). `HAVING` qualifies, because it is a filter above the aggregate; that is not a special
+case in the code, it falls out of the rule.
 
 **For continuous queries, a binding is classified rather than assumed**, by the same rule that
 governs security row filters (ADR-031): it is applied at the tap when the view carries every column
@@ -41,6 +42,24 @@ view is free at the tap. The same placeholder below an aggregate that removed `u
 applied at the tap at all, and binding a thousand users would mean a thousand computations. An
 engine that guessed would be an engine whose memory use depended on a distinction its users could
 not see, and the first anyone would know of it is a memory alarm.
+
+## Why WHERE and nothing else
+
+A parameter selects rows. That is the entire job, and every other position a `?` could occupy is a
+different query rather than a different binding of one.
+
+A window size is the clearest case and the reason the rule is worth stating rather than assuming. A
+five-minute window and an hourly one have no rows in common, so they cannot share a computation or
+its state — a parameterised window is not one query with a knob, it is a family of queries. Nobody
+needs that: a deployment knows its windows when it writes the query. The same is true of a group key
+and of a table name. `SELECT total * ?` is subtler and lands the same way: it computes a different
+answer from the same rows.
+
+The rule is written as **one position accepted** rather than a list of positions forbidden. An
+earlier version of this code recognised windowing functions by Calcite's internal operator names and
+refused those specifically, which was a brittle dependency and left a hole for every position nobody
+had thought of. Inverting it means the next place a placeholder could appear is refused by default,
+and supporting it becomes a deliberate act with an ADR behind it.
 
 ## The rule is the one we already have
 
@@ -137,9 +156,9 @@ what it means.
 
 ## Consequences
 
-Parameters are supported in predicates. Expressions in the select list are not yet — `SELECT total *
-?` is refused as an unsupported expression rather than silently mis-planned — and that limit is
-stated here so it is a known gap rather than a discovered one.
+The scope is settled, not partial: WHERE and HAVING take parameters, and nothing else does. A
+request to parameterise a select-list expression or a window is a request to reopen this ADR, which
+is the right amount of friction for a change that decides how many computations a deployment runs.
 
 The continuous-query half of this decision is recorded and not yet built. Registration does not exist
 as a surface, so there is nothing to classify against; when it arrives it uses the rule above and
