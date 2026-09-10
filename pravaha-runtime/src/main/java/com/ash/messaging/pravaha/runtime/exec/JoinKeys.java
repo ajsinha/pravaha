@@ -35,7 +35,7 @@ import com.ash.messaging.pravaha.runtime.RuntimeErrors;
  * candidate is confirmed by comparing the key columns value by value. Skipping that step is how a
  * join emits pairs that never matched, at a rate low enough to reach production.
  */
-final class JoinKeys {
+public final class JoinKeys {
 
     private JoinKeys() {}
 
@@ -47,7 +47,7 @@ final class JoinKeys {
      * its two-word form. Both are refused at plan time, where the query can be rewritten, rather
      * than at run time, where it cannot.
      */
-    static void checkJoinable(StreamSchema schema, int ordinal, String side) {
+    public static void checkJoinable(StreamSchema schema, int ordinal, String side) {
         TypeName type = schema.field(ordinal).type().typeName();
         if (type == TypeName.FLOAT32 || type == TypeName.FLOAT64) {
             throw new PravahaException(
@@ -64,8 +64,15 @@ final class JoinKeys {
         }
     }
 
-    /** A value-only hash of the key columns, in the order given. */
-    static long hash(RowView row, int[] ordinals, StreamSchema schema) {
+    /**
+     * A value-only hash of the key columns, in the order given.
+     *
+     * <p>Public because the ingest path needs the <em>same</em> function. Routing a row to a lane by
+     * one hash and looking it up in the join by another puts the two sides of a key on different
+     * lanes, and the join then returns nothing while every component looks correct on its own. There
+     * is one key hash in this engine and this is it.
+     */
+    public static long hash(RowView row, int[] ordinals, StreamSchema schema) {
         long hash = 0x9E3779B97F4A7C15L;
         for (int ordinal : ordinals) {
             hash = mix(

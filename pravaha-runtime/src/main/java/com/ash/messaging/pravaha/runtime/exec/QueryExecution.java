@@ -29,6 +29,7 @@ import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
+import com.ash.messaging.pravaha.runtime.ingest.PartitionedIngestPump;
 import com.ash.messaging.pravaha.runtime.lane.Lane;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.lane.LaneGroup;
@@ -63,10 +64,20 @@ public final class QueryExecution implements AutoCloseable {
     private final StreamSchema inputSchema;
     private final List<String> streams;
     private final List<IngestPump> pumps = new ArrayList<>();
+    private final List<PartitionedIngestPump> partitionedPumps = new ArrayList<>();
+    private final PhysicalOperator plan;
+    private final MemoryAccess access;
 
     private QueryExecution(
-            LaneGroup lanes, List<InterpretedPipeline> pipelines, StreamSchema inputSchema, List<String> streams) {
+            LaneGroup lanes,
+            List<InterpretedPipeline> pipelines,
+            StreamSchema inputSchema,
+            List<String> streams,
+            PhysicalOperator plan,
+            MemoryAccess access) {
         this.streams = List.copyOf(streams);
+        this.plan = plan;
+        this.access = access;
         this.lanes = lanes;
         this.pipelines = pipelines;
         this.inputSchema = inputSchema;
@@ -88,7 +99,6 @@ public final class QueryExecution implements AutoCloseable {
 
         List<InterpretedPipeline> pipelines = new ArrayList<>(laneCount);
         List<String> streams = streamsOf(plan);
-        refuseUnpartitionedJoin(plan, laneCount);
         StreamSchema[] inputSchema = new StreamSchema[1];
 
         LaneGroup group = new LaneGroup(
@@ -111,7 +121,7 @@ public final class QueryExecution implements AutoCloseable {
                 },
                 streams.size());
         group.start();
-        return new QueryExecution(group, pipelines, inputSchema[0], streams);
+        return new QueryExecution(group, pipelines, inputSchema[0], streams, plan, access);
     }
 
     /**
@@ -137,6 +147,7 @@ public final class QueryExecution implements AutoCloseable {
      * ingest layer to reproduce it is asking it to be wrong eventually.
      */
     public IngestPump pumpInto(int laneIndex, String streamName, PartitionReader reader, BackpressurePolicy policy) {
+        refuseUnpartitionedJoin();
         int input = streams.indexOf(streamName);
         if (input < 0) {
             throw new IllegalArgumentException(
@@ -149,7 +160,7 @@ public final class QueryExecution implements AutoCloseable {
     }
 
     /**
-     * Refuses to spread a join over lanes that are not partitioned by its key.
+     * Refuses to feed a multi-lane join from a reader that is not partitioned by the join key.
      *
      * <p>Every lane compiles its own pipeline, so a join on four lanes is four independent joins
      * with a quarter of the rows each. A left row and the right row it matches land on whichever
@@ -157,18 +168,18 @@ public final class QueryExecution implements AutoCloseable {
      * the pair is simply never formed. The query does not fail; it returns fewer rows than it
      * should, which is the worst way for an engine to be wrong.
      *
-     * <p>Making it correct needs a shuffle on the join key ahead of the operator, which the exchange
-     * can carry but the planner does not yet emit. Until it does, a join runs on one lane. Refusing
-     * here is not caution -- it is the difference between a known limit and silently missing output.
+     * <p>{@link #pumpPartitionedInto} is the answer: it hashes each row's join key and routes it to
+     * the lane that owns it, so both sides of a key meet. This refusal is what makes choosing the
+     * wrong pump a message rather than quietly missing output.
      */
-    private static void refuseUnpartitionedJoin(PhysicalOperator plan, int laneCount) {
-        if (laneCount > 1 && containsJoin(plan)) {
+    private void refuseUnpartitionedJoin() {
+        if (laneCount() > 1 && containsJoin(plan)) {
             throw new PravahaException(
                     RuntimeErrors.UNSUPPORTED_JOIN,
-                    "this query contains a join and was given " + laneCount + " lanes. Each lane holds its own "
-                            + "join state, so a left row and its matching right row would have to land on the "
-                            + "same lane to be joined at all -- and nothing partitions them that way yet. Run "
-                            + "the query on one lane until the planner emits a shuffle on the join key.");
+                    "this query contains a join and runs on " + laneCount() + " lanes, so a row and the rows it "
+                            + "can match must land on the same lane. A plain pump writes to whichever lane it "
+                            + "was given, which would leave most pairs unformed and the query quietly short of "
+                            + "output. Use pumpPartitionedInto, which routes by the join key.");
         }
     }
 
@@ -177,6 +188,92 @@ public final class QueryExecution implements AutoCloseable {
             return true;
         }
         return operator.inputs().stream().anyMatch(QueryExecution::containsJoin);
+    }
+
+    /**
+     * Feeds a stream across every lane, routing each row to the lane that owns its join key.
+     *
+     * <p>The shuffle, done at the edge. A source partition says nothing about where a row's key
+     * belongs -- Kafka partitions by whatever the producer chose, a file not at all -- so rows are
+     * redistributed on the way in, using the same hash the join looks them up with. Both sides of a
+     * key therefore reach the same lane, which is the only thing that makes a multi-lane join
+     * correct.
+     *
+     * <p>One pump per source partition, feeding all lanes, rather than one per lane: the routing
+     * decision belongs to whoever read the row, and splitting it would mean each lane's pump reading
+     * every partition and discarding what is not its own.
+     */
+    public PartitionedIngestPump pumpPartitionedInto(
+            String streamName, PartitionReader reader, BackpressurePolicy policy) {
+        int input = streams.indexOf(streamName);
+        if (input < 0) {
+            throw new IllegalArgumentException(
+                    "'" + streamName + "' is not an input of this query; it reads " + streams);
+        }
+        int[] keyOrdinals = joinKeyOrdinalsFor(input);
+        PartitionedIngestPump pump = new PartitionedIngestPump(
+                reader,
+                lanes.lanes(),
+                lanes::laneFor,
+                input,
+                pipelines.get(0).inputSchema(streamName),
+                keyOrdinals,
+                policy,
+                access);
+        partitionedPumps.add(pump);
+        return pump;
+    }
+
+    /**
+     * The join key columns of one input, expressed in that input's own scan ordinals.
+     *
+     * <p>Walks down from the join, mapping ordinals through anything between it and the scan. A
+     * projection renumbers columns, so taking the join's ordinals as the scan's would route rows by
+     * whatever column happens to sit at that position -- correct-looking, and wrong.
+     */
+    private int[] joinKeyOrdinalsFor(int input) {
+        com.ash.messaging.pravaha.runtime.plan.JoinOperator join = findJoin(plan);
+        if (join == null) {
+            throw new IllegalStateException("this query has no join, so there is no key to partition by; use pumpInto");
+        }
+        boolean left = input == 0;
+        List<Integer> keys = left ? join.leftKeys() : join.rightKeys();
+        PhysicalOperator side = left ? join.left() : join.right();
+        int[] mapped = new int[keys.size()];
+        for (int i = 0; i < mapped.length; i++) {
+            mapped[i] = mapDownToScan(side, keys.get(i));
+        }
+        return mapped;
+    }
+
+    private int mapDownToScan(PhysicalOperator operator, int ordinal) {
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.ScanOperator) {
+            return ordinal;
+        }
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.ProjectOperator project) {
+            return mapDownToScan(project.input(), project.sourceOrdinals().get(ordinal));
+        }
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.FilterOperator filter) {
+            return mapDownToScan(filter.input(), ordinal);
+        }
+        throw new PravahaException(
+                RuntimeErrors.UNSUPPORTED_JOIN,
+                "cannot work out which source column feeds this join key: it passes through "
+                        + operator.label() + ", which changes what a column means. Run this query on one lane, "
+                        + "where no partitioning is needed.");
+    }
+
+    private static com.ash.messaging.pravaha.runtime.plan.JoinOperator findJoin(PhysicalOperator operator) {
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.JoinOperator join) {
+            return join;
+        }
+        for (PhysicalOperator input : operator.inputs()) {
+            com.ash.messaging.pravaha.runtime.plan.JoinOperator found = findJoin(input);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
     }
 
     /** The streams this query reads, in plan order: a join's left side first. */
@@ -324,6 +421,7 @@ public final class QueryExecution implements AutoCloseable {
     @Override
     public void close() {
         pumps.forEach(IngestPump::close);
+        partitionedPumps.forEach(PartitionedIngestPump::close);
         // Closing the group stops each lane, and each lane closes its processor on its own thread --
         // which is where the pipeline's end-of-input runs, so final windows are written into the
         // arena by the thread that owns it.

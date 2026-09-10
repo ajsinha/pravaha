@@ -37,6 +37,7 @@ import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
+import com.ash.messaging.pravaha.runtime.ingest.PartitionedIngestPump;
 import com.ash.messaging.pravaha.runtime.lane.Lane;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
@@ -264,15 +265,60 @@ class JoinOnLanesTest {
     }
 
     @Test
-    void aJoinOnSeveralLanesIsRefusedRatherThanSilentlySplit() {
-        // Each lane compiles its own pipeline, so four lanes would be four independent joins with a
-        // quarter of the rows each -- and a pair whose halves land on different lanes is never
-        // formed. Nothing fails; the query just returns less than it should.
-        assertThatThrownBy(() -> QueryExecution.start(plan(), 4, config(), MemoryAccess.best(), () ->
-                        (RowOutput) () -> new CapturingRowWriter(plan().outputSchema(), row -> {})))
-                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
-                .hasMessageContaining("PRV-3021")
-                .hasMessageContaining("shuffle on the join key");
+    void aJoinAcrossFourLanesJoinsEveryPairWhenRowsAreRoutedByKey() {
+        // The whole point of routing at ingest. Each lane holds its own join state, so a pair whose
+        // halves land on different lanes is never formed; hashing the key on the way in is what puts
+        // both halves in the same place. Four lanes, and the answer must equal the one-lane answer
+        // exactly -- not approximately, and not most of the time.
+        PhysicalOperator plan = plan();
+        ConcurrentLinkedQueue<CapturingRowWriter.Captured> results = new ConcurrentLinkedQueue<>();
+
+        try (QueryExecution execution = QueryExecution.start(plan, 4, config(), MemoryAccess.best(), () ->
+                (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add))) {
+
+            PartitionedIngestPump users =
+                    execution.pumpPartitionedInto("users", new FiniteReader(8, 2, 8), BackpressurePolicy.defaults());
+            PartitionedIngestPump orders =
+                    execution.pumpPartitionedInto("orders", new FiniteReader(200, 3, 8), BackpressurePolicy.defaults());
+
+            long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+            while (users.rowsPumped() + orders.rowsPumped() < 208 && System.nanoTime() < deadline) {
+                users.pumpOnce(64);
+                orders.pumpOnce(64);
+                execution.checkHealth();
+            }
+
+            assertThat(users.rowsPumped() + orders.rowsPumped()).isEqualTo(208);
+            assertThat(execution.awaitQuiescent(Duration.ofSeconds(30))).isTrue();
+            execution.checkHealth();
+
+            assertThat(results).hasSize(200);
+            assertThat(results.stream().map(row -> row.asLong(0)).distinct().count())
+                    .isEqualTo(200);
+
+            // And the work was actually spread. Eight keys over four lanes: every lane gets some,
+            // or this test proves only that one lane can do it all.
+            long[] perLane = orders.rowsPerLane();
+            assertThat(java.util.Arrays.stream(perLane).filter(n -> n > 0).count())
+                    .as("orders went to lanes %s", java.util.Arrays.toString(perLane))
+                    .isGreaterThan(1);
+        }
+    }
+
+    @Test
+    void feedingAMultiLaneJoinFromAnUnroutedPumpIsRefused() {
+        PhysicalOperator plan = plan();
+        ConcurrentLinkedQueue<CapturingRowWriter.Captured> results = new ConcurrentLinkedQueue<>();
+
+        try (QueryExecution execution = QueryExecution.start(plan, 4, config(), MemoryAccess.best(), () ->
+                (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add))) {
+
+            assertThatThrownBy(() ->
+                            execution.pumpInto(0, "orders", new FiniteReader(1, 3, 8), BackpressurePolicy.defaults()))
+                    .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                    .hasMessageContaining("PRV-3021")
+                    .hasMessageContaining("pumpPartitionedInto");
+        }
     }
 
     @Test
