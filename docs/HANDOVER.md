@@ -15,15 +15,29 @@ otherwise have to rediscover the hard way.
 | | |
 |---|---|
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
-| `develop` | **27 commits ahead**, green, *not yet pushed* |
-| Modules | **22** |
+| `develop` | **60 commits ahead**, green, *not yet pushed* |
+| Modules | **23** |
 | Java tests | **1032** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
-**Session of 2026-09-09/10 — what changed.** Wave 3 and Wave 4 are both **complete** in scope, and
-**Wave 5 is well under way**: checkpoint/recovery works, and stream-to-stream joins now run end to
-end -- SQL, runtime, and checkpointed state on both sides.
+**Session of 2026-09-09/10 — what changed.** Waves 3 and 4 are **complete** in scope, Wave 5 (E4) is
+complete except for what needs hardware or a cluster, and **Wave 6 (E5) has started**.
+
+Wave 5 delivered: computed projections and expressions in `WHERE`; **stream-to-stream joins** end to
+end — SQL, runtime, off-heap state with real reclamation, checkpointed on both sides, recovery
+proven under a simulated crash, and running across several lanes by routing rows on the join key at
+ingest; **filter pushdown** into sources with an equivalence property; an **idempotent sink**; and
+**lookup joins** (`JOIN dim FOR SYSTEM_TIME AS OF`) with a JDBC dimension table and lookups
+overlapped on virtual threads.
+
+Wave 6 has the **snapshot→CDC splice**, its **adaptive throttle**, and **blue/green cutover with
+rollback**, all in the new `pravaha-backfill` module.
+
+Two pre-existing bugs surfaced along the way and are fixed: `WHERE NOT (nullable > 1)` kept rows SQL
+says to drop, and a null text column threw in the JDBC decoder — which the polling source shared,
+and which no test had ever fed a null string.
+
 **Gate P2 is blocked on hardware, not on code** — see [`gates/wave-3`](gates/wave-3/), read that
 first. Three connectors were also built out of wave, at the owner's request: Delta Lake, feed files
 (CSV + Parquet drop directories) and JDBC.
