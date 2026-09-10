@@ -95,6 +95,26 @@ Neither would have been visible in a unit test.
 The second matters beyond the number: fixing it made the comparison *fair*, so the two arms now
 differ in dispatch cost rather than in algorithm.
 
+## False sharing — what the padding is worth
+
+`FalseSharingBenchmark` answers the question `FalseSharingAuditTest` cannot. The test fails if the
+padding fields are deleted; only hardware can say whether they are still separating anything, since
+declared padding is not laid-out padding and HotSpot arranges fields as it likes.
+
+Two threads advancing two cursors, on one cache line and a line apart:
+
+| Arm | ops/s |
+|---|---|
+| `padded` | 453 M |
+| `shared` | 110 M |
+
+**Roughly 4×**, which is the cost of two cross-thread cursors sharing a line — paid on every single
+operation of every ring in the engine. Error bars are wide on this hardware; the gap is not.
+
+If the two arms ever converge, either HotSpot has changed its field layout or the padding has
+stopped separating the cursors. Both are worth knowing before they surface as a lane count that
+stops scaling for no visible reason.
+
 ## Lane scaling — the contention benchmark
 
 `LaneScalingBenchmark` is P2-06's acceptance artefact. One JMH thread per lane, each posting rows
