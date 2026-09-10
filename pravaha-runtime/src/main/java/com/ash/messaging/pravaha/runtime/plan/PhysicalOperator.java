@@ -39,6 +39,7 @@ public sealed interface PhysicalOperator
                 AggregateOperator,
                 WindowAssignOperator,
                 WindowedAggregateOperator,
+                JoinOperator,
                 SinkOperator {
 
     /** The shape of rows this operator emits. */

@@ -16,7 +16,9 @@
 package com.ash.messaging.pravaha.runtime.exec;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
@@ -34,6 +36,7 @@ import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
 import com.ash.messaging.pravaha.runtime.plan.ComputeOperator;
 import com.ash.messaging.pravaha.runtime.plan.Expression;
 import com.ash.messaging.pravaha.runtime.plan.FilterOperator;
+import com.ash.messaging.pravaha.runtime.plan.JoinOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.ProjectOperator;
 import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
@@ -55,16 +58,35 @@ import com.ash.messaging.pravaha.runtime.plan.WindowedAggregateOperator;
  */
 public final class InterpretedPipeline implements AutoCloseable {
 
+    /**
+     * How many slabs of join state one join may hold before the store refuses.
+     *
+     * <p>64 MB at a megabyte a slab. It is a backstop under the operator's own row ceiling, not the
+     * primary bound: the ceiling fails with a row count and a suggestion, this fails with bytes.
+     */
+    private static final int MAX_JOIN_STATE_SLABS = 64;
+
     private final RowArena arena;
     private final RowProcessor head;
     private final List<Runnable> finishers = new ArrayList<>();
     private final List<WindowedAggregate> windowed = new ArrayList<>();
-    private final ScanOperator scan;
+    private final List<SymmetricHashJoin> joins = new ArrayList<>();
 
-    private InterpretedPipeline(RowArena arena, RowProcessor head, ScanOperator scan) {
+    /**
+     * Where rows enter, by stream name.
+     *
+     * <p>One entry until a join appears, two after. Keyed by name rather than by position because
+     * the caller has a stream and a row, not a plan: asking it to know which side of the join its
+     * topic is on would push a planning detail into the ingest path.
+     */
+    private final Map<String, RowProcessor> inputs = new LinkedHashMap<>();
+
+    private final List<ScanOperator> scans;
+
+    private InterpretedPipeline(RowArena arena, RowProcessor head, List<ScanOperator> scans) {
         this.arena = arena;
         this.head = head;
-        this.scan = scan;
+        this.scans = List.copyOf(scans);
     }
 
     /**
@@ -76,26 +98,71 @@ public final class InterpretedPipeline implements AutoCloseable {
     public static InterpretedPipeline compile(PhysicalOperator plan, RowOutput sink) {
         RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 64);
         Builder builder = new Builder(arena, sink);
-        RowProcessor head = builder.build(plan);
-        InterpretedPipeline pipeline = new InterpretedPipeline(arena, head, builder.scan);
+        RowProcessor built = builder.build(plan);
+        RowProcessor head = builder.joins.isEmpty() ? built : null;
+        InterpretedPipeline pipeline = new InterpretedPipeline(arena, head, builder.scans);
         pipeline.finishers.addAll(builder.finishers);
         pipeline.windowed.addAll(builder.windowed);
+        pipeline.joins.addAll(builder.joins);
+        pipeline.inputs.putAll(builder.heads);
         return pipeline;
     }
 
-    /** The stream this pipeline reads. */
+    /**
+     * The stream this pipeline reads.
+     *
+     * @throws IllegalStateException if there is more than one, which a caller assuming a single
+     *     source needs to hear about rather than be given an arbitrary one of them
+     */
     public String sourceStream() {
-        return scan.streamName();
+        return only().streamName();
     }
 
-    /** The schema rows must arrive in. */
+    /** The schema rows must arrive in, for a single-source pipeline. */
     public StreamSchema inputSchema() {
-        return scan.outputSchema();
+        return only().outputSchema();
     }
 
-    /** Feeds one row through the pipeline. */
+    /** Every stream this pipeline reads, in plan order: left before right for a join. */
+    public List<String> sourceStreams() {
+        return scans.stream().map(ScanOperator::streamName).toList();
+    }
+
+    /** The schema rows of one named stream must arrive in. */
+    public StreamSchema inputSchema(String streamName) {
+        return scans.stream()
+                .filter(s -> s.streamName().equals(streamName))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "this pipeline does not read '" + streamName + "'; it reads " + sourceStreams()))
+                .outputSchema();
+    }
+
+    private ScanOperator only() {
+        if (scans.size() != 1) {
+            throw new IllegalStateException("this pipeline reads " + sourceStreams()
+                    + "; use the stream-qualified form to say which one a row belongs to");
+        }
+        return scans.get(0);
+    }
+
+    /** Feeds one row through a single-source pipeline. */
     public void accept(RowView row) {
+        if (head == null) {
+            throw new IllegalStateException("this pipeline reads " + sourceStreams()
+                    + "; use accept(streamName, row) to say which side a row arrived on");
+        }
         head.process(row);
+    }
+
+    /** Feeds one row in on a named stream. */
+    public void accept(String streamName, RowView row) {
+        RowProcessor input = inputs.get(streamName);
+        if (input == null) {
+            throw new IllegalArgumentException(
+                    "'" + streamName + "' is not an input of this pipeline; it reads " + sourceStreams());
+        }
+        input.process(row);
     }
 
     private volatile boolean abandoned;
@@ -113,6 +180,48 @@ public final class InterpretedPipeline implements AutoCloseable {
             return;
         }
         finishers.forEach(Runnable::run);
+    }
+
+    /**
+     * Rows currently held by this pipeline's joins, both sides together.
+     *
+     * <p>Exposed because a join's most dangerous failure is invisible in its output. An entry whose
+     * weight has cancelled to zero emits nothing and matches nothing -- the results stay correct --
+     * but if it is not unlinked it holds its block forever, and the query dies of memory exhaustion
+     * hours later with no wrong answer to point at. This number is what a test, or an operator, can
+     * watch to see that retracted rows actually leave.
+     */
+    public long joinRowsHeld() {
+        long total = 0;
+        for (SymmetricHashJoin join : joins) {
+            total += join.rowsHeldLeft() + join.rowsHeldRight();
+        }
+        return total;
+    }
+
+    /**
+     * Distinct join keys currently indexed, across this pipeline's joins.
+     *
+     * <p>Separate from {@link #joinRowsHeld()} because the index leaks separately. Unlinking a key's
+     * last row without removing the key leaves an empty bucket behind, and a query that sees a
+     * million keys over its lifetime then holds a million buckets whose rows are all long gone --
+     * with the row count reading zero the whole time.
+     */
+    public long joinKeysHeld() {
+        long total = 0;
+        for (SymmetricHashJoin join : joins) {
+            total += join.keysHeldLeft() + join.keysHeldRight();
+        }
+        return total;
+    }
+
+    /** Bytes this pipeline's joins have taken for state. */
+    public long joinStateBytes() {
+        long total = 0;
+        for (SymmetricHashJoin join : joins) {
+            total += join.stateBytes();
+        }
+        return total;
     }
 
     /** Marks this pipeline as failed rather than finished: nothing more is emitted. */
@@ -150,6 +259,7 @@ public final class InterpretedPipeline implements AutoCloseable {
      * mutates it produces a snapshot of no moment in particular.
      */
     public byte[] snapshotState() {
+        refuseToCheckpointJoins();
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
         try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {
             out.writeInt(windowed.size());
@@ -190,7 +300,27 @@ public final class InterpretedPipeline implements AutoCloseable {
 
     /** Whether this pipeline holds any state worth checkpointing. */
     public boolean isStateful() {
-        return !windowed.isEmpty();
+        return !windowed.isEmpty() || !joins.isEmpty();
+    }
+
+    /**
+     * Refuses to produce a snapshot that would silently omit a join's state.
+     *
+     * <p>A join holds both sides' rows, and a checkpoint that leaves them out restores a query whose
+     * state is empty while its offsets say the rows were consumed -- so every pair those rows would
+     * have formed is lost, permanently and silently. Writing the join state is the next piece of
+     * work; until it exists, a query with a join cannot be checkpointed, and saying so is the only
+     * honest option. Refusing here rather than at planning time keeps the join usable for the
+     * queries that do not need recovery.
+     */
+    private void refuseToCheckpointJoins() {
+        if (!joins.isEmpty()) {
+            throw new PravahaException(
+                    RuntimeErrors.UNSUPPORTED_JOIN,
+                    "a query containing a join cannot be checkpointed yet: the join holds rows on both sides "
+                            + "and the snapshot format does not carry them, so recovery would silently lose "
+                            + "every pair they would have formed");
+        }
     }
 
     /** Records dropped as too late, across every windowed operator in this pipeline. */
@@ -210,6 +340,7 @@ public final class InterpretedPipeline implements AutoCloseable {
 
     @Override
     public void close() {
+        joins.forEach(SymmetricHashJoin::close);
         arena.close();
     }
 
@@ -219,7 +350,9 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final RowOutput sink;
         private final List<Runnable> finishers = new ArrayList<>();
         private final List<WindowedAggregate> windowed = new ArrayList<>();
-        private ScanOperator scan;
+        private final List<SymmetricHashJoin> joins = new ArrayList<>();
+        private final List<ScanOperator> scans = new ArrayList<>();
+        private final Map<String, RowProcessor> heads = new LinkedHashMap<>();
 
         Builder(RowArena arena, RowOutput sink) {
             this.arena = arena;
@@ -241,7 +374,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                     yield buildInput(s.inputs().get(0), terminal);
                 }
                 case ScanOperator s -> {
-                    scan = s;
+                    registerScan(s, row -> {});
                     yield row -> {};
                 }
                 default -> {
@@ -257,7 +390,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         private RowProcessor buildInput(PhysicalOperator operator, RowProcessor downstream) {
             return switch (operator) {
                 case ScanOperator s -> {
-                    scan = s;
+                    registerScan(s, downstream);
                     yield downstream;
                 }
                 case FilterOperator f -> {
@@ -294,7 +427,32 @@ public final class InterpretedPipeline implements AutoCloseable {
                     yield buildInput(w.input(), aggregate);
                 }
                 case SinkOperator s -> buildInput(s.input(), downstream);
+                case JoinOperator j -> {
+                    // A join is where the plan stops being a chain. Both sides are built with the
+                    // join as their downstream, and each side's scan registers its own entry point;
+                    // there is no single head to hand back, so anything above the join reaches its
+                    // inputs by name rather than by holding a processor.
+                    SymmetricHashJoin join = new SymmetricHashJoin(j, arena, downstream, MAX_JOIN_STATE_SLABS);
+                    joins.add(join);
+                    buildInput(j.left(), join.leftInput());
+                    buildInput(j.right(), join.rightInput());
+                    yield row -> {
+                        throw new IllegalStateException("rows must enter a join's inputs by stream name");
+                    };
+                }
             };
+        }
+
+        private void registerScan(ScanOperator scan, RowProcessor entry) {
+            scans.add(scan);
+            RowProcessor existing = heads.put(scan.streamName(), entry);
+            if (existing != null) {
+                // Both sides reading one stream is a self-join. It needs the same stream's rows fed
+                // into two different entry points, which a name cannot distinguish -- so it is
+                // refused here rather than silently feeding one side.
+                throw new UnsupportedOperationException("stream '" + scan.streamName()
+                        + "' appears on both sides of this plan; " + "self-joins are not supported yet");
+            }
         }
 
         /**

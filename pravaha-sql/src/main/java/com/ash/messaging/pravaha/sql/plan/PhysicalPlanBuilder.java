@@ -29,6 +29,7 @@ import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.util.ImmutableBitSet;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -52,6 +53,17 @@ import com.ash.messaging.pravaha.sql.TypeMapping;
  */
 public final class PhysicalPlanBuilder {
 
+    /**
+     * The default ceiling on rows held per join side.
+     *
+     * <p>A number, not a policy, and deliberately not a large one. A stream-to-stream join without a
+     * time bound accumulates for as long as the query runs, so this exists to make that failure
+     * arrive early and with a sentence explaining it, rather than as an out-of-memory kill days
+     * later. Windowed joins are what will replace it; when they land this becomes the ceiling for
+     * the unwindowed case only.
+     */
+    private static final long MAX_JOIN_ROWS_PER_SIDE = 1_000_000;
+
     /** Builds a plan from an optimised relational tree. */
     public PhysicalOperator build(RelNode rel) {
         return switch (rel) {
@@ -60,6 +72,7 @@ public final class PhysicalPlanBuilder {
             case Project project -> buildProject(project);
             case Aggregate aggregate -> buildAggregate(aggregate);
             case TableFunctionScan windowing -> buildWindowAssign(windowing);
+            case org.apache.calcite.rel.core.Join join -> buildJoin(join);
             default ->
                 throw new PravahaException(
                         SqlErrors.UNSUPPORTED_OPERATOR,
@@ -67,6 +80,88 @@ public final class PhysicalPlanBuilder {
                                 + ", which Pravaha cannot execute yet. Supported: scan, filter, project, "
                                 + "aggregate. Joins and windows arrive in later waves.");
         };
+    }
+
+    /**
+     * An inner equi-join between two streams.
+     *
+     * <p>Only the inner, and only equality, and both restrictions are about state rather than
+     * effort. An outer join has to emit a null-padded row for a left row that has not matched
+     * <em>yet</em> and retract it if a match arrives later, which means holding the unmatched rows
+     * for as long as a match remains possible -- with no watermark on the join, that is forever. A
+     * non-equality condition has no key to index by, so every row is a candidate for every other:
+     * a cross product with a filter, which cannot be executed incrementally at any useful rate.
+     *
+     * <p>Both are refusals with a reason rather than gaps, because a user who reads "not supported"
+     * asks when it will be, and a user who reads why it cannot be bounded rewrites the query.
+     */
+    private PhysicalOperator buildJoin(org.apache.calcite.rel.core.Join join) {
+        if (join.getJoinType() != org.apache.calcite.rel.core.JoinRelType.INNER) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "a " + join.getJoinType() + " join between streams is not supported yet. An outer join must "
+                            + "hold every unmatched row for as long as a match could still arrive, which without "
+                            + "a time bound on the join is forever. Use an inner join, or wait for windowed "
+                            + "joins.");
+        }
+
+        PhysicalOperator left = build(join.getLeft());
+        PhysicalOperator right = build(join.getRight());
+        int leftWidth = left.outputSchema().fields().size();
+
+        List<Integer> leftKeys = new ArrayList<>();
+        List<Integer> rightKeys = new ArrayList<>();
+        collectEquiKeys(join.getCondition(), leftWidth, leftKeys, rightKeys, join);
+
+        StreamSchema output = schemaOf(
+                join, left.outputSchema().name() + "_" + right.outputSchema().name());
+        return new JoinOperator(left, right, leftKeys, rightKeys, output, MAX_JOIN_ROWS_PER_SIDE);
+    }
+
+    /**
+     * Pulls {@code l.k = r.k} pairs out of the join condition.
+     *
+     * <p>Calcite numbers a join's condition over the concatenated inputs: field {@code i} is the
+     * left's {@code i} while {@code i < leftWidth}, and the right's {@code i - leftWidth} after
+     * that. Getting that arithmetic wrong produces a join that indexes the wrong column and returns
+     * nothing, which looks exactly like no data matching.
+     */
+    private void collectEquiKeys(
+            RexNode condition,
+            int leftWidth,
+            List<Integer> leftKeys,
+            List<Integer> rightKeys,
+            org.apache.calcite.rel.core.Join join) {
+        if (condition.getKind() == SqlKind.AND) {
+            ((RexCall) condition)
+                    .getOperands()
+                    .forEach(part -> collectEquiKeys(part, leftWidth, leftKeys, rightKeys, join));
+            return;
+        }
+        if (condition.getKind() == SqlKind.EQUALS
+                && ((RexCall) condition).getOperands().get(0) instanceof RexInputRef a
+                && ((RexCall) condition).getOperands().get(1) instanceof RexInputRef b) {
+            int first = a.getIndex();
+            int second = b.getIndex();
+            // Either order: `l.k = r.k` and `r.k = l.k` are the same join.
+            if (first < leftWidth && second >= leftWidth) {
+                leftKeys.add(first);
+                rightKeys.add(second - leftWidth);
+                return;
+            }
+            if (second < leftWidth && first >= leftWidth) {
+                leftKeys.add(second);
+                rightKeys.add(first - leftWidth);
+                return;
+            }
+        }
+        throw new PravahaException(
+                SqlErrors.UNSUPPORTED_OPERATOR,
+                "the join condition '" + condition + "' is not an equality between one column of each side. "
+                        + "Pravaha indexes both sides by the join key; a condition with no such key makes every "
+                        + "row a candidate for every other, which is a cross product with a filter and has no "
+                        + "incremental execution. Rewrite the condition as an equality, or move the rest of it "
+                        + "into a WHERE clause.");
     }
 
     private PhysicalOperator buildScan(TableScan scan) {

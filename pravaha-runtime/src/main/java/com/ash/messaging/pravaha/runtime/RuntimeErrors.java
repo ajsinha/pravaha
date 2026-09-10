@@ -25,5 +25,8 @@ public final class RuntimeErrors {
     public static final ErrorCode LANE_FAILED = new ErrorCode(3010, "RUNTIME_LANE_FAILED");
     public static final ErrorCode UNSUPPORTED_AGGREGATE = new ErrorCode(3020, "RUNTIME_UNSUPPORTED_AGGREGATE");
 
+    /** A join Pravaha will not run: an unsupported key type, or a shape with no bounded execution. */
+    public static final ErrorCode UNSUPPORTED_JOIN = new ErrorCode(3021, "RUNTIME_UNSUPPORTED_JOIN");
+
     private RuntimeErrors() {}
 }

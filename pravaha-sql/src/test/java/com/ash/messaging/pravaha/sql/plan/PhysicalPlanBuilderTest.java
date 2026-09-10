@@ -183,12 +183,25 @@ class PhysicalPlanBuilderTest {
     }
 
     @Test
+    void anInnerEquiJoinIsNowPlannedRatherThanRefused() {
+        // This test asserted the refusal until joins landed. Inverted rather than deleted: the case
+        // that recorded a limitation is the right place to record it being lifted.
+        StreamSchema other =
+                StreamSchema.builder("other").field("user_id", Types.string()).build();
+        var planner = SqlPlanner.withStreams(txnSchema(), other);
+        PhysicalOperator root = new PhysicalPlanBuilder()
+                .build(planner.plan("SELECT t.user_id FROM txn t JOIN other o ON t.user_id = o.user_id"));
+
+        assertThat(PhysicalPlanBuilder.explain(root)).contains("Join[user_id = user_id]");
+    }
+
+    @Test
     void anUnsupportedOperatorNamesItselfAndWhatIsSupported() {
         StreamSchema other =
                 StreamSchema.builder("other").field("user_id", Types.string()).build();
         var planner = SqlPlanner.withStreams(txnSchema(), other);
         assertThatThrownBy(() -> new PhysicalPlanBuilder()
-                        .build(planner.plan("SELECT t.user_id FROM txn t JOIN other o ON t.user_id = o.user_id")))
+                        .build(planner.plan("SELECT user_id FROM txn UNION SELECT user_id FROM other")))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2020")
                 .hasMessageContaining("Supported:");
