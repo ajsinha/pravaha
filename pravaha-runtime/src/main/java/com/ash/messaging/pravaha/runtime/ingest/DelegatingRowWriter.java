@@ -26,8 +26,12 @@ import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
  * publishes the inbox cell the plugin wrote into, the partitioned pump hashes the staged row and
  * hands it to the lane that owns its key. Everything before the commit is identical, and two copies
  * of thirteen delegating setters is two places for them to drift.
+ *
+ * <p>Public because that argument does not stop at the ingest package. Anything driving a plugin
+ * directly -- a test feeding a source into a pipeline, a tool draining one to a file -- needs the
+ * same adapter, and a third and fourth copy would drift from these two.
  */
-record DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit) implements RowWriter {
+public record DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit) implements RowWriter {
 
     @Override
     public StreamSchema schema() {

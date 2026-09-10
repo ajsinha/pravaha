@@ -397,9 +397,21 @@ final class LookupJoin implements RowProcessor {
         return maxObservedInFlight;
     }
 
-    /** Finishes outstanding lookups and releases the threads. */
+    /**
+     * Finishes outstanding lookups and releases the threads.
+     *
+     * <p>A lookup that fails during close is not re-reported. Whoever triggered the failure has
+     * already seen it, and rethrowing the same instance from a close inside try-with-resources
+     * produces "self-suppression not permitted" -- which replaces the real diagnosis with a message
+     * about exception plumbing. The threads and the memory are released either way, which is what
+     * close is for.
+     */
     void close() {
-        drain();
+        try {
+            drain();
+        } catch (RuntimeException alreadyReported) {
+            // Deliberately swallowed; see above.
+        }
         lookupThreads.shutdown();
         pendingRows.close();
     }

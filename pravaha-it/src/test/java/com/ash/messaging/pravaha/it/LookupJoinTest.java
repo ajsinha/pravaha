@@ -327,6 +327,69 @@ class LookupJoinTest {
         }
     }
 
+    @Test
+    void aWatermarkDoesNotOvertakeRecordsStillWaitingOnTheirLookup() {
+        // The bug this test exists for, found by an end-to-end run against Aerospike where the query
+        // produced nothing at all. A record parked on a network round trip has been consumed but not
+        // yet placed in a window. If a watermark passes it, the window fires without it and the
+        // record then arrives as late data for a window that has already closed -- and with the
+        // default zero allowed lateness it is dropped outright. The query loses exactly the records
+        // whose lookups were slowest, silently, and looks merely quiet.
+        StreamSchema txn = StreamSchema.builder("txn")
+                .field("user_id", Types.int64())
+                .field("amount", Types.int64())
+                .field("event_time", Types.timestamp())
+                .build();
+        StreamSchema dim = StreamSchema.builder("users")
+                .field("user_id", Types.int64())
+                .field("segment", Types.string())
+                .build();
+        String sql = "SELECT window_end, t.user_id, SUM(t.amount) AS total "
+                + "FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) AS t "
+                + "LEFT JOIN users FOR SYSTEM_TIME AS OF t.event_time AS u ON t.user_id = u.user_id "
+                + "GROUP BY window_start, window_end, t.user_id";
+
+        SlowLookup users = new SlowLookup(Duration.ofMillis(40));
+        users.rows.put(1L, "gold");
+
+        PhysicalOperator plan =
+                new PhysicalPlanBuilder().build(SqlPlanner.withLookups(txn, dim).plan(sql));
+        List<CapturingRowWriter.Captured> out = new ArrayList<>();
+        RowLayout layout = RowLayout.of(txn);
+
+        try (RowArena feed = new RowArena(MemoryAccess.best(), 1 << 20, 8);
+                InterpretedPipeline pipeline = InterpretedPipeline.compile(
+                        plan,
+                        (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), out::add),
+                        Map.of("users", users))) {
+            BinaryRowWriter writer = new BinaryRowWriter(layout);
+            BinaryRowView view = new BinaryRowView(layout);
+            for (long i = 1; i <= 3; i++) {
+                long handle = feed.allocate(layout.rowSize(256));
+                writer.begin(feed.regionOf(handle), feed.offsetOf(handle));
+                writer.setLong(0, 1L)
+                        .setLong(1, 100 * i)
+                        .setLong(2, i * 1_000_000_000L)
+                        .weight(1L)
+                        .eventTimestampNanos(i * 1_000_000_000L)
+                        .sequence(i)
+                        .commit();
+                feed.trimTo(handle, writer.sizeSoFar());
+                pipeline.accept(view.wrap(feed.regionOf(handle), feed.offsetOf(handle)));
+            }
+
+            // Straight to the watermark, with every lookup still in flight.
+            pipeline.advanceWatermark(20_000_000_000L);
+        }
+
+        assertThat(out)
+                .as("the window fired without the records still waiting on their lookup")
+                .hasSize(1);
+        assertThat(out.get(0).asLong(2))
+                .as("all three amounts, not the ones that happened to be quick")
+                .isEqualTo(600L);
+    }
+
     private static PhysicalOperator plan(String sql) {
         return new PhysicalPlanBuilder()
                 .build(SqlPlanner.withLookups(orders(), users()).plan(sql));

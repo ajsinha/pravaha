@@ -322,6 +322,14 @@ public final class InterpretedPipeline implements AutoCloseable {
      * continuous query only ever gets the first; a file source gets both.
      */
     public void advanceWatermark(long watermarkNanos) {
+        // Outstanding lookups first, and this ordering is load-bearing. A record parked on a
+        // network round trip has been consumed but not yet placed in a window; letting a watermark
+        // past it fires the window without it, and the record then arrives as late data for a
+        // window that has already closed. With zero allowed lateness -- the default -- it is
+        // dropped outright, so an enriched query would quietly lose exactly the records whose
+        // lookups were slowest. Found by the end-to-end Aerospike test, where every record was in
+        // flight when the watermark advanced and the query produced nothing at all.
+        drainPending();
         windowed.forEach(aggregate -> aggregate.advanceWatermark(watermarkNanos));
     }
 

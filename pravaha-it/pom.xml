@@ -18,6 +18,24 @@
   <dependencies>
     <dependency>
       <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-aerospike</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!-- Declared, not inherited: this test writes Aerospike records directly to set up the
+           scenario, so it uses the client itself rather than only through the plugin. -->
+      <groupId>com.aerospike</groupId>
+      <artifactId>aerospike-client-jdk21</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-serving</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
@@ -105,4 +123,27 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <!-- Testcontainers negotiates Docker API 1.32; Docker 25+ refuse below 1.40 and report
+                 it as a missing daemon. 1.40 has been available since Docker 19.03. -->
+            <api.version>1.40</api.version>
+          </systemPropertyVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>

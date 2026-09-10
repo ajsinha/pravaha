@@ -37,3 +37,4 @@ decision that was later reversed is usually the most useful thing here.
 | [026](026-one-subscription-model-three-carriers.md) | One subscription model behind gRPC, WebSocket and SSE; encode once, write N times |
 | [027](027-lane-multiplexes-queries.md) | The lane, not the query, owns threads, inboxes, arenas and timer wheels; a lane multiplexes many query pipelines |
 | [028](028-connectors-earn-their-place.md) | A connector earns its place by proving an SPI capability or by deployment demand, never by breadth; three shapes, one kit |
+| [029](029-aerospike-scan-only.md) | The Aerospike plugin ships scan-based ingest only; XDR strategies are out of scope, and the cost is that deletes are invisible |

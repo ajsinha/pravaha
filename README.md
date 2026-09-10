@@ -69,6 +69,14 @@ GROUP BY TUMBLE(t.event_time, INTERVAL '10' SECOND), t.user_id, p.tier
 EMIT CHANGES;
 ```
 
+That query is not an aspiration. Its semantics -- a tumbling window over a filtered stream, enriched
+from a dimension table as of each record's own event time, grouped by window and key -- run against a
+real Aerospike server in `AerospikeContinuousQueryIT`, with the `WHERE` clause evaluated inside
+Aerospike rather than after the read. What is not yet parsed is the wrapper: `CREATE CONTINUOUS
+QUERY`, `SERVE AS VIEW` and `EMIT CHANGES` are the DDL of design section 11.2, and the engine is
+driven through its API until they are. The windowing is spelled `TABLE(TUMBLE(...))` rather than
+`GROUP BY TUMBLE(...)`.
+
 ```java
 // …and read the answer, from the same system, in microseconds
 BigDecimal volume = pravaha.view("user_volume")

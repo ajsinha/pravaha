@@ -523,6 +523,22 @@ public final class PhysicalPlanBuilder {
     private static final long DEFAULT_ALLOWED_LATENESS_NANOS = 0L;
 
     /** The window assignment feeding this aggregate, looking through projections. */
+    /**
+     * Finds the window assignment an aggregate sits on, through anything that preserves it.
+     *
+     * <p>What may be walked through is decided by one question: does this operator still emit the
+     * window boundary columns, for the same rows, at the same ordinals? A projection does -- it
+     * renumbers, and the boundaries are resolved by name afterwards. A filter does; it removes rows,
+     * not columns. A lookup join does: it appends the dimension's columns on the right and leaves
+     * the record's own, including its boundaries, exactly where they were.
+     *
+     * <p>A <em>stream-to-stream</em> join deliberately may not be walked through, and that is not
+     * caution. Its output pairs rows from two independently windowed sides, so there is no single
+     * window whose closing releases the state -- the boundary columns are still there and no longer
+     * mean what a windowed aggregate needs them to mean. Admitting it would produce an aggregate
+     * that looks bounded and is not, which is the exact failure the bounded-state check exists to
+     * prevent.
+     */
     private static WindowAssignOperator windowBelow(PhysicalOperator operator) {
         PhysicalOperator current = operator;
         while (true) {
@@ -531,6 +547,14 @@ public final class PhysicalPlanBuilder {
             }
             if (current instanceof ProjectOperator project) {
                 current = project.input();
+                continue;
+            }
+            if (current instanceof FilterOperator filter) {
+                current = filter.input();
+                continue;
+            }
+            if (current instanceof LookupJoinOperator lookup) {
+                current = lookup.input();
                 continue;
             }
             return null;
