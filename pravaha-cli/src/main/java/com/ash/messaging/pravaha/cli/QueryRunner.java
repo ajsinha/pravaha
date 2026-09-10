@@ -24,6 +24,7 @@ import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -40,6 +41,7 @@ import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
+import com.ash.messaging.pravaha.runtime.plan.Pushdown;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 
@@ -114,8 +116,13 @@ public final class QueryRunner {
                     .withWaitStrategy(WaitStrategy.Kind.BACKOFF_PARK)
                     .withThreads("pravaha-run", true);
 
+            // Offer the source whatever of the WHERE clause it can evaluate itself. The
+            // filesystem plugin declares no pushdown today, so this resolves to nothing and costs
+            // one plan walk; a source that does declare it reads less. The engine's own filter
+            // stays in the plan either way, which is what makes the offer safe to make blindly.
+            ReadRequest request = Pushdown.requestFor(plan, streamName, source.capabilities());
             try (PartitionReader reader =
-                    source.createReader(source.partitions(streamName).get(0), null)) {
+                    source.createReader(source.partitions(streamName).get(0), null, request)) {
                 QueryExecution execution =
                         QueryExecution.start(plan, lanes, laneConfig, MemoryAccess.best(), () -> collector);
                 try {

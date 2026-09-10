@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **27 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **963** (plus 28 Python) |
+| Java tests | **971** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -193,7 +193,8 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Aerospike plugin, four strategies | ❌ |
 | Filter pushdown to sources | ✅ `Pushdown` extracts the pushable conjunction, `ReadRequest` carries it, the JDBC plugin turns it into a bound `WHERE`. The engine keeps its own filter regardless, which is what makes a plugin's partial or absent support harmless |
 | Pushdown equivalence, as a property | ✅ `PushdownEquivalenceTest` — a source honouring every pushed filter must return exactly what one honouring none returns |
-| Projection / partial-aggregate pushdown, idempotent sink | ❌ |
+| Idempotent sink | ✅ `DeduplicatingSink` — remembers the highest sequence written, stores it in the checkpoint, drops replays at or below it. Turns an at-least-once sink into effectively-once without asking the sink for anything. **Not yet wired into `QueryExecution`'s checkpoint** |
+| Projection / partial-aggregate pushdown | ❌ |
 
 `abort()` versus `close()` is worth knowing before writing any recovery test: `close()` is a
 shutdown and emits everything held, `abort()` is what a crash does and emits nothing. A recovery
