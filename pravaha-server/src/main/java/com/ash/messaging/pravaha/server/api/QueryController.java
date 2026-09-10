@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.codegen.FilterProjectGenerator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
@@ -51,6 +52,23 @@ public class QueryController {
     public QueryController(StreamCatalog catalog, DtoMapper mapper) {
         this.catalog = catalog;
         this.mapper = mapper;
+    }
+
+    /**
+     * The generated source for a plan, or why there is none.
+     *
+     * <p>A plan the generator does not cover is not an error: the interpreted path runs it
+     * correctly, which is the design's guarantee (section 12.4). What the caller needs to know is
+     * that this query takes the slower path and why, which is an answer rather than a failure.
+     */
+    private String generatedSource(PhysicalOperator plan) {
+        try {
+            return new FilterProjectGenerator().generate(plan, "ExplainStage").source();
+        } catch (PravahaException e) {
+            return "-- no generated form: " + e.getMessage()
+                    + System.lineSeparator()
+                    + "-- this query runs on the interpreted path, which is correct and slower";
+        }
     }
 
     @PostMapping("/validate")
@@ -79,6 +97,13 @@ public class QueryController {
 
         SqlPlanner planner = plannerFor();
         return switch (level) {
+            case "codegen" -> {
+                // The Java the engine will actually run. Not a new endpoint: it is another answer to
+                // the question this one already asks, and adding a path for it would grow the locked
+                // API surface for something an existing parameter expresses.
+                PhysicalOperator plan = planFor(request.sql());
+                yield new ApiDtos.ExplainResult("codegen", generatedSource(plan), mapper.toFields(plan.outputSchema()));
+            }
             case "logical" -> new ApiDtos.ExplainResult("logical", planner.explain(request.sql()), List.of());
             case "physical" -> {
                 PhysicalOperator plan = new PhysicalPlanBuilder().build(planner.plan(request.sql()));

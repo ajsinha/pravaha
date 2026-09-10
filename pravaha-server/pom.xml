@@ -32,6 +32,11 @@
   <dependencies>
     <dependency>
       <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-codegen</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-api</artifactId>
       <version>${project.version}</version>
     </dependency>

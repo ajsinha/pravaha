@@ -376,7 +376,7 @@ Epics map 1:1 to the design's phases and to the **waves** of §4.0 — one epic,
 | P2-08 | Adaptive batching controller (§18.2 of the design) | 4 d | Same query meets its latency target at 10 rec/s and 1 M rec/s |
 | P2-09 | Backpressure: high/low watermarks, `pause`/`resume` propagation to plugins | 4 d | A stalled sink pauses the source within 200 ms; no unbounded growth anywhere |
 | P2-10 | False-sharing audit + padding + JMH regression guard | 2 d | Padding removal is detected by the benchmark |
-| P2-11 | Generated-source retention + `EXPLAIN codegen` | 2 d | Source downloadable for any running query under a debug flag |
+| P2-11 | Generated-source retention + `EXPLAIN codegen` | 2 d | Source downloadable for any running query under a debug flag. *Delivered as `explain --level codegen` on the CLI and `level=codegen` on the existing explain endpoint, plus a bounded opt-in retention registry. The "running query" half needs the query lifecycle (§11.6), which does not exist yet — a source can be shown for any query that can be planned, which is every query the node can run.* |
 | **P2-12** | **Lane multiplexing: ready list, in-lane zero-copy fan-out, per-query quotas** | 6 d | 1 000 registered queries on 4 lanes; an idle query costs its lane no measurable time; a hot query cannot take more than its quota of lane batches (ADR-027, §13.7) |
 | **P2-13** | **Interpreted-first admission with background upgrade to generated code** | 3 d | 1 000 queries registered and producing output within 5 s of a cold start; each is observed to switch to its generated stage; the swap loses no rows |
 
