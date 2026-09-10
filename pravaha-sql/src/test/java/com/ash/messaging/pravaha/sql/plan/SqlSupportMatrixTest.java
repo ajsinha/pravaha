@@ -89,7 +89,18 @@ class SqlSupportMatrixTest {
             // --- Projection -------------------------------------------------------------------
             Case.ok("columns", "SELECT txn_id, amount FROM txn"),
             Case.ok("star", "SELECT * FROM txn"),
-            Case.ok("alias", "SELECT amount AS a FROM txn"),
+            Case.ok("column alias", "SELECT amount AS a FROM txn"),
+            Case.ok("table alias with AS", "SELECT t.txn_id, t.amount FROM txn AS t"),
+            Case.ok("table alias without AS", "SELECT t.txn_id FROM txn t"),
+            Case.ok("qualified column in WHERE", "SELECT t.txn_id FROM txn AS t WHERE t.amount > 1"),
+            Case.ok("unqualified column while aliased", "SELECT txn_id FROM txn AS t"),
+            Case.ok("qualified star", "SELECT t.* FROM txn AS t"),
+            Case.ok(
+                    "table alias on both sides of a join",
+                    "SELECT t.txn_id, o.region FROM txn AS t JOIN other AS o ON t.user_id = o.user_id"),
+            // An alias may shadow the name of a different registered stream. Standard SQL: inside
+            // this query `other` means txn, because the alias hides the base name.
+            Case.ok("alias shadowing another stream's name", "SELECT other.txn_id FROM txn AS other"),
             Case.ok("integer arithmetic", "SELECT amount * 2 + 1 FROM txn"),
             Case.ok("floating arithmetic", "SELECT price / 2 FROM txn"),
             Case.ok("CAST", "SELECT CAST(amount AS DOUBLE) FROM txn"),

@@ -43,7 +43,10 @@ costs whatever was decided on the strength of it.
 
 | | | |
 |---|---|---|
-| `SELECT a, b`, `SELECT *`, `AS` aliases | ✅ | |
+| `SELECT a, b`, `SELECT *` | ✅ | |
+| Column aliases — `amount AS a` | ✅ | |
+| Table aliases — `FROM txn AS t`, or `FROM txn t` | ✅ | With or without `AS` |
+| Qualified columns — `t.amount`, `t.*` | ✅ | In `SELECT`, `WHERE`, `GROUP BY` and join conditions |
 | Integer and floating arithmetic — `amount * 2 + 1`, `price / 2` | ✅ | |
 | `CAST(x AS DOUBLE)` | ✅ | Between numeric types |
 | Literals — `SELECT 1` | ✅ | |
@@ -55,6 +58,16 @@ costs whatever was decided on the strength of it.
 
 The expression compiler evaluates to a number. Text is carried through a projection unchanged but
 never computed with, which is why `UPPER` and `||` are refused rather than half-working.
+
+**Table aliases behave as SQL says.** An alias may be used with or without `AS`; columns may be
+written qualified or bare while an alias is in scope; and an alias may shadow the name of a different
+registered stream — inside `FROM txn AS other`, `other` means `txn`. The query on the front of the
+README uses aliases on both sides of a join, and that is the one exercised against a real Aerospike.
+
+**Name your aggregate columns.** An output column takes the alias if there is one, the column's own
+name if not — and for an unaliased aggregate there is no name to take, so `COUNT(*)` comes back as
+`EXPR$2`. Write `COUNT(*) AS txn_count` unless you enjoy reading `EXPR$2` in a dashboard. A qualified
+column keeps its bare name: `SELECT t.amount` produces a column called `amount`, not `t.amount`.
 
 ## Filtering — `WHERE` and `HAVING`
 
