@@ -59,9 +59,12 @@ public final class QueryExecution implements AutoCloseable {
     private final LaneGroup lanes;
     private final List<InterpretedPipeline> pipelines;
     private final StreamSchema inputSchema;
+    private final List<String> streams;
     private final List<IngestPump> pumps = new ArrayList<>();
 
-    private QueryExecution(LaneGroup lanes, List<InterpretedPipeline> pipelines, StreamSchema inputSchema) {
+    private QueryExecution(
+            LaneGroup lanes, List<InterpretedPipeline> pipelines, StreamSchema inputSchema, List<String> streams) {
+        this.streams = List.copyOf(streams);
         this.lanes = lanes;
         this.pipelines = pipelines;
         this.inputSchema = inputSchema;
@@ -82,19 +85,30 @@ public final class QueryExecution implements AutoCloseable {
             Supplier<RowOutput> sinkPerLane) {
 
         List<InterpretedPipeline> pipelines = new ArrayList<>(laneCount);
+        List<String> streams = streamsOf(plan);
         StreamSchema[] inputSchema = new StreamSchema[1];
 
-        LaneGroup group = new LaneGroup(laneCount, config, access, context -> {
-            InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get());
-            pipelines.add(pipeline);
-            inputSchema[0] = pipeline.inputSchema();
+        LaneGroup group = new LaneGroup(
+                laneCount,
+                LaneGroup.DEFAULT_VIRTUAL_PARTITIONS,
+                config,
+                access,
+                context -> {
+                    InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get());
+                    pipelines.add(pipeline);
+                    inputSchema[0] = pipeline.inputSchema(streams.get(0));
 
-            RowLayout layout = RowLayout.of(pipeline.inputSchema());
-            BinaryRowView view = new BinaryRowView(layout);
-            return new LanePipeline(pipeline, view);
-        });
+                    // One view per input, because the two sides of a join have different layouts and
+                    // a shared view would decode the right side's bytes against the left's schema.
+                    BinaryRowView[] views = new BinaryRowView[streams.size()];
+                    for (int i = 0; i < views.length; i++) {
+                        views[i] = new BinaryRowView(RowLayout.of(pipeline.inputSchema(streams.get(i))));
+                    }
+                    return new LanePipeline(pipeline, views, streams);
+                },
+                streams.size());
         group.start();
-        return new QueryExecution(group, pipelines, inputSchema[0]);
+        return new QueryExecution(group, pipelines, inputSchema[0], streams);
     }
 
     /**
@@ -105,9 +119,50 @@ public final class QueryExecution implements AutoCloseable {
      * it for another's emptiness, which is not backpressure so much as a fight.
      */
     public IngestPump pumpInto(int laneIndex, PartitionReader reader, BackpressurePolicy policy) {
-        IngestPump pump = new IngestPump(reader, lanes.lane(laneIndex), inputSchema, policy);
+        if (streams.size() != 1) {
+            throw new IllegalStateException("this query reads " + streams
+                    + "; name the stream a reader feeds, because a join cannot guess which side a partition is");
+        }
+        return pumpInto(laneIndex, streams.get(0), reader, policy);
+    }
+
+    /**
+     * Feeds one lane's named input from a source partition.
+     *
+     * <p>By stream name rather than by input number, because the caller has a topic and a reader,
+     * not a plan. Which side of the join a stream is on is the planner's knowledge, and asking the
+     * ingest layer to reproduce it is asking it to be wrong eventually.
+     */
+    public IngestPump pumpInto(int laneIndex, String streamName, PartitionReader reader, BackpressurePolicy policy) {
+        int input = streams.indexOf(streamName);
+        if (input < 0) {
+            throw new IllegalArgumentException(
+                    "'" + streamName + "' is not an input of this query; it reads " + streams);
+        }
+        IngestPump pump = new IngestPump(
+                reader, lanes.lane(laneIndex), input, pipelines.get(laneIndex).inputSchema(streamName), policy);
         pumps.add(pump);
         return pump;
+    }
+
+    /** The streams this query reads, in plan order: a join's left side first. */
+    public List<String> streams() {
+        return streams;
+    }
+
+    /** Walks a plan for its scans, in the order the pipeline will register them. */
+    private static List<String> streamsOf(PhysicalOperator plan) {
+        List<String> found = new ArrayList<>();
+        collectStreams(plan, found);
+        return found;
+    }
+
+    private static void collectStreams(PhysicalOperator operator, List<String> into) {
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.ScanOperator scan) {
+            into.add(scan.streamName());
+            return;
+        }
+        operator.inputs().forEach(input -> collectStreams(input, into));
     }
 
     /** Which lane a key belongs to, by the group's virtual-partition assignment. */
@@ -242,15 +297,23 @@ public final class QueryExecution implements AutoCloseable {
     }
 
     /** Adapts a lane's batch of row offsets to the pipeline's row-at-a-time interface. */
-    private record LanePipeline(InterpretedPipeline pipeline, BinaryRowView view)
+    private record LanePipeline(InterpretedPipeline pipeline, BinaryRowView[] views, List<String> streams)
             implements com.ash.messaging.pravaha.runtime.lane.LaneProcessor {
 
         @Override
         public int onBatch(com.ash.messaging.pravaha.common.memory.MemoryRegion region, long[] offsets, int count) {
+            return onBatch(0, region, offsets, count);
+        }
+
+        @Override
+        public int onBatch(
+                int input, com.ash.messaging.pravaha.common.memory.MemoryRegion region, long[] offsets, int count) {
+            BinaryRowView view = views[input];
+            String stream = streams.get(input);
             for (int i = 0; i < count; i++) {
                 // A flyweight over the lane's own inbox cell: the row is read in place and never
                 // copied, which is the entire reason the inbox holds bytes rather than objects.
-                pipeline.accept(view.wrap(region, (int) offsets[i]));
+                pipeline.accept(stream, view.wrap(region, (int) offsets[i]));
             }
             return count;
         }

@@ -48,6 +48,27 @@ public interface LaneProcessor extends AutoCloseable {
     int onBatch(MemoryRegion region, long[] rowOffsets, int count);
 
     /**
+     * Processes one batch that arrived on a named input.
+     *
+     * <p>Only a join has more than one input, and only a join needs to tell them apart -- the two
+     * sides of {@code orders JOIN users} are different schemas going to different state. Everything
+     * else ignores the number, which is why this defaults to the single-input form rather than
+     * making every processor in the codebase carry a parameter it will never read.
+     *
+     * <p>A processor that does not override this and is nonetheless given a second input is a plan
+     * that was built wrong, so it says so rather than quietly treating the right side as the left.
+     *
+     * @param input which of the lane's inputs the rows arrived on, counting from zero
+     */
+    default int onBatch(int input, MemoryRegion region, long[] rowOffsets, int count) {
+        if (input != 0) {
+            throw new IllegalStateException(getClass().getSimpleName() + " has one input; rows arrived on input "
+                    + input + ", which means the plan and the lane disagree about this query's shape");
+        }
+        return onBatch(region, rowOffsets, count);
+    }
+
+    /**
      * Called when the lane has stopped, on the lane thread, exactly once.
      *
      * <p>Runs even when the lane is stopping because the processor threw, so a half-built stage

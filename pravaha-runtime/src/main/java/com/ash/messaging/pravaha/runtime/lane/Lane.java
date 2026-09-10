@@ -77,7 +77,20 @@ public final class Lane implements AutoCloseable {
 
     private final int laneId;
     private final LaneConfig config;
+    /**
+     * One inbox per input, and one input unless the query has a join.
+     *
+     * <p>A second inbox rather than a tag on each row. A tag would mean the two sides of a join
+     * sharing one buffer, so a burst on the left could fill it and starve the right -- and a join
+     * starved on one side does not slow down, it stops producing while still reading. Separate
+     * buffers make the two sides independently backpressurable, which is the only arrangement that
+     * survives one source being faster than the other.
+     */
+    private final RowInbox[] inboxes;
+
+    /** {@code inboxes[0]}, kept as a field because the single-input path reads it on every batch. */
     private final RowInbox inbox;
+
     private final RowArena arena;
     private final WaitStrategy waitStrategy;
     private final LaneProcessor processor;
@@ -138,10 +151,31 @@ public final class Lane implements AutoCloseable {
             int[] virtualPartitions,
             LaneProcessorFactory factory,
             LaneExchange exchange) {
+        this(laneId, config, access, virtualPartitions, factory, exchange, 1);
+    }
+
+    /**
+     * Builds a lane with more than one input.
+     *
+     * @param inputs how many separate inboxes this lane has. One for everything except a join,
+     *     which has one per side
+     */
+    public Lane(
+            int laneId,
+            LaneConfig config,
+            MemoryAccess access,
+            int[] virtualPartitions,
+            LaneProcessorFactory factory,
+            LaneExchange exchange,
+            int inputs) {
         this.laneId = laneId;
         this.exchange = exchange;
         this.config = config;
-        this.inbox = new RowInbox(access, config.inboxCells(), config.inboxCellBytes());
+        this.inboxes = new RowInbox[Math.max(1, inputs)];
+        for (int i = 0; i < inboxes.length; i++) {
+            this.inboxes[i] = new RowInbox(access, config.inboxCells(), config.inboxCellBytes());
+        }
+        this.inbox = inboxes[0];
         this.arena = new RowArena(access, config.arenaSlabBytes(), config.arenaMaxSlabs());
         this.waitStrategy = config.waitStrategy().strategy();
         this.context = new LaneContext(
@@ -241,7 +275,12 @@ public final class Lane implements AutoCloseable {
      *     pause its source (design section 13.5), not a reason to spin.
      */
     public boolean offer(MemoryRegion source, int offset, int length) {
-        boolean accepted = inbox.offer(source, offset, length);
+        return offer(0, source, offset, length);
+    }
+
+    /** Copies a row into one named input's inbox. */
+    public boolean offer(int input, MemoryRegion source, int offset, int length) {
+        boolean accepted = inboxes[input].offer(source, offset, length);
         if (!accepted) {
             rejectedOffers.increment();
         }
@@ -255,7 +294,12 @@ public final class Lane implements AutoCloseable {
      *     {@link RowInbox#NO_SPACE}
      */
     public long claim() {
-        long sequence = inbox.claim();
+        return claim(0);
+    }
+
+    /** Claims a cell on one named input. */
+    public long claim(int input) {
+        long sequence = inboxes[input].claim();
         if (sequence == RowInbox.NO_SPACE) {
             rejectedOffers.increment();
         }
@@ -264,17 +308,37 @@ public final class Lane implements AutoCloseable {
 
     /** Where a claimed cell begins in {@link #inboxRegion()}. */
     public int cellOffset(long sequence) {
-        return inbox.offsetOf(sequence);
+        return cellOffset(0, sequence);
+    }
+
+    /** Where a claimed cell begins in {@link #inboxRegion(int)}. */
+    public int cellOffset(int input, long sequence) {
+        return inboxes[input].offsetOf(sequence);
     }
 
     /** Publishes a claimed cell, after the row has been written into it. */
     public void publish(long sequence) {
-        inbox.publish(sequence);
+        publish(0, sequence);
+    }
+
+    /** Publishes a claimed cell on one named input. */
+    public void publish(int input, long sequence) {
+        inboxes[input].publish(sequence);
     }
 
     /** The region claimed cells live in. */
     public MemoryRegion inboxRegion() {
         return inbox.region();
+    }
+
+    /** The region one named input's claimed cells live in. */
+    public MemoryRegion inboxRegion(int input) {
+        return inboxes[input].region();
+    }
+
+    /** How many inputs this lane has: one, or one per join side. */
+    public int inputCount() {
+        return inboxes.length;
     }
 
     /** The largest row this lane accepts. */
@@ -295,10 +359,34 @@ public final class Lane implements AutoCloseable {
      * cannot have them, whatever the consumer has already read.
      */
     public double inboxFill() {
-        return inbox.fill();
+        double highest = 0;
+        for (RowInbox each : inboxes) {
+            highest = Math.max(highest, each.fill());
+        }
+        return highest;
+    }
+
+    /** One named input's occupancy, which is what that input's own pump backpressures on. */
+    public double inboxFill(int input) {
+        return inboxes[input].fill();
     }
 
     // ---------------------------------------------------------------- the loop
+
+    private boolean allInboxesEmpty() {
+        for (RowInbox each : inboxes) {
+            if (!each.isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void closeInboxes() {
+        for (RowInbox each : inboxes) {
+            each.close();
+        }
+    }
 
     private void run() {
         long[] batch = new long[config.batchSize()];
@@ -328,11 +416,33 @@ public final class Lane implements AutoCloseable {
                     localRowsIn += exchanged;
                     localExchangedIn += exchanged;
                 }
-                int count = inbox.drain(batch, batch.length);
+                // Every input, in turn, one batch each. Round-robin rather than draining input 0
+                // until it is empty: a join whose left side is faster would otherwise never reach
+                // its right side, and a join that stops reading one side stops producing entirely
+                // while still looking busy.
+                int count = 0;
+                for (int input = 0; input < inboxes.length; input++) {
+                    RowInbox from = inboxes[input];
+                    int taken = from.drain(batch, batch.length);
+                    if (taken == 0) {
+                        continue;
+                    }
+                    count += taken;
+                    idle = 0;
+                    localRowsIn += taken;
+                    localRowsOut += processor.onBatch(input, from.region(), batch, taken);
+                    localBatches++;
+
+                    // Only now are this input's cells reusable and the output rows dead. See the
+                    // class javadoc: this order is the difference between a correct lane and a
+                    // rare, load-dependent corruption. Released per input, before the next one is
+                    // drained, because the batch array is about to be overwritten.
+                    from.release();
+                }
                 if (count == 0 && exchanged == 0) {
                     inBatch = false;
                     if (!running) {
-                        break; // stop only once the inbox is drained, so shutdown loses nothing
+                        break; // stop only once the inboxes are drained, so shutdown loses nothing
                     }
                     localIdle++;
                     idleCycles = localIdle;
@@ -348,15 +458,6 @@ public final class Lane implements AutoCloseable {
                     exchangedIn = localExchangedIn;
                     continue;
                 }
-                idle = 0;
-                localRowsIn += count;
-                localRowsOut += processor.onBatch(inbox.region(), batch, count);
-                localBatches++;
-
-                // Only now are the input cells reusable and the output rows dead. See the class
-                // javadoc: this order is the difference between a correct lane and a rare, load
-                // -dependent corruption.
-                inbox.release();
                 arena.resetTo(mark);
 
                 rowsIn = localRowsIn;
@@ -456,12 +557,12 @@ public final class Lane implements AutoCloseable {
             if (state == State.FAILED) {
                 return false;
             }
-            if (inbox.isEmpty() && !inBatch) {
+            if (allInboxesEmpty() && !inBatch) {
                 return true;
             }
             LockSupport.parkNanos(50_000L);
         }
-        return inbox.isEmpty() && !inBatch;
+        return allInboxesEmpty() && !inBatch;
     }
 
     /** The failure that stopped the lane, if one did. */
@@ -492,7 +593,7 @@ public final class Lane implements AutoCloseable {
                 idleCycles,
                 rejectedOffers.sum(),
                 arena.highWaterMark(),
-                inbox.fill(),
+                inboxFill(),
                 exchangedIn);
     }
 
@@ -509,7 +610,7 @@ public final class Lane implements AutoCloseable {
             // Never started, so nothing owns these but this call.
             processorCloseUnstarted();
             arena.close();
-            inbox.close();
+            closeInboxes();
             state = State.STOPPED;
             return;
         }
@@ -534,7 +635,7 @@ public final class Lane implements AutoCloseable {
         }
         // The lane thread released the arena and the processor; the inbox outlives it because
         // producers may still have been claiming cells right up to the join.
-        inbox.close();
+        closeInboxes();
     }
 
     private void processorCloseUnstarted() {

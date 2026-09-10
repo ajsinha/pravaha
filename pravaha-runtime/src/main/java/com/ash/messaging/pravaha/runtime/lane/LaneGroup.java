@@ -62,6 +62,21 @@ public final class LaneGroup implements AutoCloseable {
             LaneConfig config,
             MemoryAccess access,
             LaneProcessorFactory factory) {
+        this(laneCount, virtualPartitions, config, access, factory, 1);
+    }
+
+    /**
+     * A group whose lanes each have {@code inputs} inboxes.
+     *
+     * @param inputs one per query input: one for everything except a join, which has one per side
+     */
+    public LaneGroup(
+            int laneCount,
+            int virtualPartitions,
+            LaneConfig config,
+            MemoryAccess access,
+            LaneProcessorFactory factory,
+            int inputs) {
         if (laneCount < 1) {
             throw new IllegalArgumentException("a query needs at least one lane, got " + laneCount);
         }
@@ -95,7 +110,7 @@ public final class LaneGroup implements AutoCloseable {
         List<Lane> built = new ArrayList<>(laneCount);
         try {
             for (int i = 0; i < laneCount; i++) {
-                built.add(new Lane(i, config, access, toIntArray(owned.get(i)), factory, exchange));
+                built.add(new Lane(i, config, access, toIntArray(owned.get(i)), factory, exchange, inputs));
             }
         } catch (RuntimeException e) {
             // A half-built group would leak an arena and an inbox per lane already constructed.

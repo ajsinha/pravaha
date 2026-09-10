@@ -61,13 +61,30 @@ public final class IngestPump implements AutoCloseable {
     private final AtomicLong resumes = new AtomicLong();
     private final AtomicLong pausedNanos = new AtomicLong();
 
+    private final int input;
+
     private volatile boolean paused;
     private long pausedSince;
     private long claimed = -1L;
 
     public IngestPump(PartitionReader reader, Lane lane, StreamSchema schema, BackpressurePolicy policy) {
+        this(reader, lane, 0, schema, policy);
+    }
+
+    /**
+     * Feeds one of a lane's inputs.
+     *
+     * <p>The input index is what makes a join feedable: each side has its own inbox, so each side
+     * backpressures on its own occupancy. Sharing one would mean the faster side's burst pausing
+     * the slower side's source, which is the opposite of what is needed -- a join waiting on its
+     * right side wants the right side to go faster, not the left to be throttled.
+     *
+     * @param input which of the lane's inboxes to write into
+     */
+    public IngestPump(PartitionReader reader, Lane lane, int input, StreamSchema schema, BackpressurePolicy policy) {
         this.reader = reader;
         this.lane = lane;
+        this.input = input;
         this.policy = policy;
         this.layout = RowLayout.of(schema);
         this.writer = new BinaryRowWriter(layout);
@@ -106,7 +123,7 @@ public final class IngestPump implements AutoCloseable {
 
     /** Applies the hysteresis. Pausing and resuming are edge-triggered, never repeated per poll. */
     private void updateBackpressure() {
-        double fill = lane.inboxFill();
+        double fill = lane.inboxFill(input);
         if (!paused && fill >= policy.highWatermark()) {
             reader.pause();
             paused = true;
@@ -121,7 +138,7 @@ public final class IngestPump implements AutoCloseable {
     }
 
     private int freeCells() {
-        return (int) Math.max(0, Math.round((1.0 - lane.inboxFill()) * lane.inboxCells()));
+        return (int) Math.max(0, Math.round((1.0 - lane.inboxFill(input)) * lane.inboxCells()));
     }
 
     /**
@@ -132,7 +149,7 @@ public final class IngestPump implements AutoCloseable {
      * says so instead of returning something the plugin cannot use.
      */
     private RowWriter beginRow() {
-        claimed = lane.claim();
+        claimed = lane.claim(input);
         if (claimed == com.ash.messaging.pravaha.common.queue.RowInbox.NO_SPACE) {
             throw new PravahaException(
                     RuntimeErrors.BACKPRESSURED,
@@ -140,8 +157,8 @@ public final class IngestPump implements AutoCloseable {
                             + "another producer is writing to this lane's inbox, which the single-writer ingest "
                             + "path does not allow, or the free-cell calculation is wrong.");
         }
-        writer.begin(lane.inboxRegion(), lane.cellOffset(claimed));
-        return new PublishOnCommit(writer, () -> lane.publish(claimed));
+        writer.begin(lane.inboxRegion(input), lane.cellOffset(input, claimed));
+        return new PublishOnCommit(writer, () -> lane.publish(input, claimed));
     }
 
     /** Where the reader is, for the checkpoint. */
