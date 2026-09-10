@@ -31,6 +31,8 @@ import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
+import com.ash.messaging.pravaha.runtime.plan.ComputeOperator;
+import com.ash.messaging.pravaha.runtime.plan.Expression;
 import com.ash.messaging.pravaha.runtime.plan.FilterOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.ProjectOperator;
@@ -270,6 +272,10 @@ public final class InterpretedPipeline implements AutoCloseable {
                     RowProcessor self = projector(p, downstream);
                     yield buildInput(p.input(), self);
                 }
+                case ComputeOperator c -> {
+                    RowProcessor self = computer(c, downstream);
+                    yield buildInput(c.input(), self);
+                }
                 case AggregateOperator a -> {
                     GlobalAggregate aggregate = new GlobalAggregate(a, arena, downstream);
                     finishers.add(aggregate::emit);
@@ -289,6 +295,59 @@ public final class InterpretedPipeline implements AutoCloseable {
                 }
                 case SinkOperator s -> buildInput(s.input(), downstream);
             };
+        }
+
+        /**
+         * Evaluates an expression per output column.
+         *
+         * <p>The evaluators are resolved once, here, rather than per row: an expression tree is a
+         * chain of virtual calls, and re-deciding which branch to take for every column of every
+         * row would put the interpreter's dispatch cost on top of the arithmetic it is performing.
+         */
+        private RowProcessor computer(ComputeOperator compute, RowProcessor downstream) {
+            RowLayout layout = RowLayout.of(compute.outputSchema());
+            BinaryRowWriter writer = new BinaryRowWriter(layout);
+            BinaryRowView view = new BinaryRowView(layout);
+            List<Expression> expressions = compute.expressions();
+
+            return row -> {
+                long handle = arena.allocate(layout.rowSize(1024));
+                if (handle == ArenaHandle.NULL) {
+                    throw new PravahaException(
+                            RuntimeErrors.ARENA_EXHAUSTED,
+                            "the compute stage's arena is full; raise arena.slab.size or reduce the batch size");
+                }
+                writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+                for (int out = 0; out < expressions.size(); out++) {
+                    Expression expression = expressions.get(out);
+                    if (expression.isNull(row)) {
+                        // SQL's rule, not Java's: null in, null out. Writing a zero here would make
+                        // a downstream SUM produce a number that looks entirely reasonable.
+                        writer.setNull(out);
+                        continue;
+                    }
+                    writeComputed(writer, out, expression, row, compute.outputSchema());
+                }
+                writer.weight(row.weight())
+                        .eventTimestampNanos(row.eventTimestampNanos())
+                        .sequence(row.sequence())
+                        .commit();
+                arena.trimTo(handle, writer.sizeSoFar());
+                downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+            };
+        }
+
+        private static void writeComputed(
+                RowWriter writer, int ordinal, Expression expression, RowView row, StreamSchema schema) {
+            switch (schema.field(ordinal).type().typeName()) {
+                case BOOLEAN -> writer.setBoolean(ordinal, expression.evaluateLong(row) != 0);
+                case INT8 -> writer.setByte(ordinal, (byte) expression.evaluateLong(row));
+                case INT16 -> writer.setShort(ordinal, (short) expression.evaluateLong(row));
+                case INT32, DATE -> writer.setInt(ordinal, (int) expression.evaluateLong(row));
+                case FLOAT32 -> writer.setFloat(ordinal, (float) expression.evaluateDouble(row));
+                case FLOAT64 -> writer.setDouble(ordinal, expression.evaluateDouble(row));
+                default -> writer.setLong(ordinal, expression.evaluateLong(row));
+            }
         }
 
         private RowProcessor projector(ProjectOperator project, RowProcessor downstream) {

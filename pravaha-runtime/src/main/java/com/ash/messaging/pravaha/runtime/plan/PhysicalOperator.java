@@ -35,6 +35,7 @@ public sealed interface PhysicalOperator
         permits ScanOperator,
                 FilterOperator,
                 ProjectOperator,
+                ComputeOperator,
                 AggregateOperator,
                 WindowAssignOperator,
                 WindowedAggregateOperator,

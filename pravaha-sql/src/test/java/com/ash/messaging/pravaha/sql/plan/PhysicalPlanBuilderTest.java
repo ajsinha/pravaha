@@ -142,11 +142,20 @@ class PhysicalPlanBuilderTest {
     }
 
     @Test
-    void aComputedProjectionIsRefusedRatherThanSilentlyWrong() {
-        assertThatThrownBy(() -> plan("SELECT amount * 2 FROM txn"))
+    void aComputedProjectionIsNowEvaluatedRatherThanRefused() {
+        // This test used to assert the refusal. Computed projections are evaluated as of Wave 5, so
+        // the assertion is inverted rather than deleted -- a test that recorded a limitation is
+        // worth keeping as the test that records the limitation being lifted.
+        assertThat(plan("SELECT amount * 2 FROM txn"))
+                .isInstanceOf(com.ash.messaging.pravaha.runtime.plan.ComputeOperator.class);
+    }
+
+    @Test
+    void anExpressionPravahaCannotEvaluateIsStillRefusedByName() {
+        assertThatThrownBy(() -> plan("SELECT ABS(amount) FROM txn"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2021")
-                .hasMessageContaining("computed");
+                .hasMessageContaining("ABS");
     }
 
     @Test

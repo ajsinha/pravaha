@@ -87,21 +87,28 @@ public final class PhysicalPlanBuilder {
 
     private PhysicalOperator buildProject(Project project) {
         PhysicalOperator input = build(project.getInput());
-        List<Integer> ordinals = new ArrayList<>(project.getProjects().size());
-        for (RexNode expression : project.getProjects()) {
-            if (!(expression instanceof RexInputRef ref)) {
-                // Computed columns need the expression compiler that Wave 3 generates. Refusing a
-                // computed projection is better than silently producing the wrong column.
-                throw new PravahaException(
-                        SqlErrors.UNSUPPORTED_EXPRESSION,
-                        "projection '" + expression + "' is computed; only direct column references are "
-                                + "supported so far. Compute it in the source query or wait for expression "
-                                + "support.");
-            }
-            ordinals.add(ref.getIndex());
-        }
         StreamSchema output = schemaOf(project, input.outputSchema().name() + "_projected");
-        return new ProjectOperator(input, output, ordinals);
+
+        // A projection of plain column references stays a Project: its generated form is a load and
+        // a store at constant offsets, and putting an expression tree in that path would cost a
+        // branch per column per row to answer a question the plan already knew.
+        boolean allColumnReferences =
+                project.getProjects().stream().allMatch(expression -> expression instanceof RexInputRef);
+        if (allColumnReferences) {
+            List<Integer> ordinals = new ArrayList<>(project.getProjects().size());
+            for (RexNode expression : project.getProjects()) {
+                ordinals.add(((RexInputRef) expression).getIndex());
+            }
+            return new ProjectOperator(input, output, ordinals);
+        }
+
+        ExpressionCompiler compiler = new ExpressionCompiler(input.outputSchema());
+        List<com.ash.messaging.pravaha.runtime.plan.Expression> expressions =
+                new ArrayList<>(project.getProjects().size());
+        for (RexNode expression : project.getProjects()) {
+            expressions.add(compiler.compile(expression));
+        }
+        return new ComputeOperator(input, output, expressions);
     }
 
     /**
