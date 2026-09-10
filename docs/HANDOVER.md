@@ -16,8 +16,8 @@ otherwise have to rediscover the hard way.
 |---|---|
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **60 commits ahead**, green, *not yet pushed* |
-| Modules | **23** |
-| Java tests | **1032** (plus 28 Python) |
+| Modules | **24** |
+| Java tests | **1047** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -224,7 +224,8 @@ right numbers — which is how that distinction was discovered.
 | Snapshot→CDC splice | ✅ `pravaha-backfill`: `SplicedReader`, phase-explicit offsets, off-heap change buffer bounded and failing loudly. The dedup is keyed on *changed* keys, not on every key in the snapshot — which is what makes it survivable on a table nobody could hold in memory |
 | Adaptive throttling | ✅ `BackfillThrottle`: ceiling, floor, back off fast / recover slowly, pinnable. Governs the history scan only — throttling the change feed would make the query fall behind the present to protect the store from the past |
 | Blue/green cutover and rollback | ✅ `ShadowDeployment`: the seam is a frontier, not a moment, so every input record is reflected in exactly one version's output. Rollback is the same swap reversed. Decides *which version's output counts*; it does not run the queries |
-| Served views, consistency modes, read admission control | ❌ — this is `pravaha-serving`, not yet started |
+| Served views and consistency modes | ✅ `pravaha-serving`: `ServedView` with committed and pending kept apart so a consistent read never sees half a batch; `LATEST`, `CONSISTENT` and `AT_LEAST` implemented, `AS_OF` refused because a view holds the present. Every answer carries its own staleness |
+| Read admission control, gRPC/Avatica surface, range indexes | ❌ |
 
 ### Deferred, on purpose
 
