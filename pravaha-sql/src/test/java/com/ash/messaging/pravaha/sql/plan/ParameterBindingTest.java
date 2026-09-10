@@ -146,6 +146,33 @@ class ParameterBindingTest {
     }
 
     @Test
+    void anInListBinds() {
+        // Calcite expands IN into a chain of equalities, so this arrives on the same path a single
+        // comparison does. Asserted rather than assumed: it works today because of how the planner
+        // rewrites IN, and a test is what turns that from a coincidence into a guarantee.
+        assertThat(predicateOf("SELECT user_id FROM user_volume WHERE user_id IN (?, ?)", "u1", "u2"))
+                .isEqualTo(predicateOf("SELECT user_id FROM user_volume WHERE user_id IN ('u1', 'u2')"));
+    }
+
+    @Test
+    void aBetweenBinds() {
+        // Expanded to >= AND <=, and both ends bind.
+        assertThat(predicateOf("SELECT user_id FROM user_volume WHERE total BETWEEN ? AND ?", 10L, 100L))
+                .isEqualTo(predicateOf("SELECT user_id FROM user_volume WHERE total BETWEEN 10 AND 100"));
+    }
+
+    @Test
+    void placeholdersBindAcrossAndOrAndNot() {
+        assertThat(predicateOf(
+                        "SELECT user_id FROM user_volume WHERE (user_id = ? OR total > ?) AND NOT (total > ?)",
+                        "u1",
+                        5L,
+                        900L))
+                .isEqualTo(predicateOf("SELECT user_id FROM user_volume "
+                        + "WHERE (user_id = 'u1' OR total > 5) AND NOT (total > 900)"));
+    }
+
+    @Test
     void aPlaceholderInTheSelectListIsRefused() {
         // A parameter selects rows. `SELECT total * ?` computes a different answer from the same
         // rows, which is a different query rather than a different binding of one.
@@ -164,6 +191,16 @@ class ParameterBindingTest {
                 .plan("SELECT tier, SUM(total) FROM user_volume GROUP BY tier HAVING SUM(total) > ?"));
 
         assertThat(metadata.count()).isEqualTo(1);
+    }
+
+    @Test
+    void aPlaceholderInAnOrderByOrLimitIsRefused() {
+        // Not a judgement about pagination: Pravaha has no sort operator at all, so there is no
+        // ORDER BY or LIMIT to parameterise. Recorded here so that whoever adds one finds this test
+        // and decides deliberately rather than discovering the question in a review.
+        assertThatThrownBy(() -> ParameterMetadata.of(
+                        SqlPlanner.withStreams(SCHEMA).plan("SELECT user_id FROM user_volume LIMIT ?")))
+                .isInstanceOf(PravahaException.class);
     }
 
     @Test

@@ -43,6 +43,29 @@ applied at the tap at all, and binding a thousand users would mean a thousand co
 engine that guessed would be an engine whose memory use depended on a distinction its users could
 not see, and the first anyone would know of it is a memory alarm.
 
+## Exactly which positions
+
+JDBC's `PreparedStatement` permits a `?` wherever a value expression is legal. Pravaha takes that as
+a **ceiling, not a target**: of the positions JDBC allows, these are the ones a read-only serving
+layer has, and they are all supported.
+
+| Position | | Notes |
+|---|---|---|
+| `WHERE col = ?` and `<> < <= > >=` | Yes | |
+| `WHERE col IN (?, ?, …)` | Yes | Calcite expands IN into a chain of equalities, so it arrives on the same path |
+| `WHERE col BETWEEN ? AND ?` | Yes | Expanded to `>= AND <=`; both ends bind |
+| Combined with `AND`, `OR`, `NOT` | Yes | Including under a NOT that the compiler pushes down |
+| `HAVING agg(col) > ?` | Yes | A filter above the aggregate, so it selects rows |
+| Select list — `SELECT col * ?` | **No** | Computes a different answer from the same rows |
+| Window size, group key, table name | **No** | Decides what the query is |
+| `WHERE col LIKE ?` | Not yet | LIKE is not implemented at all; `LIKE 'u%'` is refused too. A gap in the predicate compiler, not in parameters |
+| `ORDER BY ?` / `LIMIT ?` | Not yet | There is no sort operator; `ORDER BY total` and `LIMIT 5` are refused as well. Whoever adds one decides this deliberately, and a test says so |
+
+The last two rows are the honest part of this table. Neither is a decision about parameters — both
+are positions Pravaha cannot execute with a literal either, so allowing a placeholder there would
+mean accepting a statement the engine then refuses. They are listed so the boundary is a stated one
+rather than something discovered by trying it.
+
 ## Why WHERE and nothing else
 
 A parameter selects rows. That is the entire job, and every other position a `?` could occupy is a

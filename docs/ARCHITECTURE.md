@@ -353,6 +353,12 @@ rows in common, so a parameterised window is not one query with a knob but a fam
 a deployment knows its windows when it writes them. The rule is one position accepted rather than a
 list forbidden, so the next place a placeholder could appear is refused by default.
 
+Within a WHERE or HAVING clause the supported positions are the ones JDBC's `PreparedStatement`
+allows that a read-only engine has: comparisons, `IN (?, ?)`, `BETWEEN ? AND ?`, and any combination
+under `AND`, `OR` and `NOT`. `LIKE ?` and `LIMIT ?` are not supported, and neither is a decision
+about parameters — `LIKE 'u%'` and `LIMIT 5` are refused too, so a placeholder there would only
+accept a statement the engine cannot run.
+
 Types are inferred rather than declared: the planner works them out from the columns and sends the
 parameter schema when a statement is prepared, so neither SDK guesses.
 
