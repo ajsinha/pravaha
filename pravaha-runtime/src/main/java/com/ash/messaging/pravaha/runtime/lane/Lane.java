@@ -86,6 +86,20 @@ public final class Lane implements AutoCloseable {
     private final Thread thread;
     private final LongAdder rejectedOffers = new LongAdder();
 
+    /**
+     * Work to run on the lane thread, between batches.
+     *
+     * <p>The single-writer principle makes a lane's state unreachable from anywhere else, which is
+     * exactly what makes it fast and exactly what makes a checkpoint awkward: snapshotting from the
+     * coordinator's thread would be a second reader of state the lane is actively mutating. So the
+     * coordinator submits the work and the lane runs it, between batches, where nothing is
+     * half-updated.
+     */
+    private final java.util.concurrent.ConcurrentLinkedQueue<Runnable> control =
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+    private final java.util.concurrent.atomic.AtomicLong controlRun = new java.util.concurrent.atomic.AtomicLong();
+
     private volatile boolean running;
     private volatile State state = State.NEW;
     private volatile Throwable failure;
@@ -165,6 +179,47 @@ public final class Lane implements AutoCloseable {
      */
     public Thread thread() {
         return thread;
+    }
+
+    /**
+     * Queues work to run on this lane's thread between batches.
+     *
+     * <p>Between batches, never during one: a task that ran mid-batch would see operator state
+     * partly updated by a batch that has not finished, which is the difference between a checkpoint
+     * and a photograph of a car crash.
+     *
+     * @return a completion count to wait on; the task has run once {@link #controlTasksRun()}
+     *     exceeds the value returned here
+     */
+    public long submitControlTask(Runnable task) {
+        long ticket = controlRun.get();
+        control.add(task);
+        return ticket;
+    }
+
+    /** How many control tasks this lane has run. */
+    public long controlTasksRun() {
+        return controlRun.get();
+    }
+
+    /**
+     * Waits for a submitted control task to have run.
+     *
+     * @param ticket the value {@link #submitControlTask} returned
+     * @return false if the deadline passed first, or the lane died
+     */
+    public boolean awaitControlTask(long ticket, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (controlRun.get() > ticket) {
+                return true;
+            }
+            if (state == State.FAILED || state == State.STOPPED) {
+                return controlRun.get() > ticket;
+            }
+            LockSupport.parkNanos(50_000L);
+        }
+        return controlRun.get() > ticket;
     }
 
     /** Starts the loop. Idempotent in the sense that starting twice is a bug and says so. */
@@ -256,6 +311,7 @@ public final class Lane implements AutoCloseable {
         long localExchangedIn = 0;
         try {
             while (true) {
+                runControlTasks();
                 // Raised before the drain, not after it. An observer that sees an empty inbox and
                 // a lane not in a batch concludes the lane is quiescent; setting the flag after the
                 // drain would leave a window where rows had been taken and nobody was accountable
@@ -354,6 +410,21 @@ public final class Lane implements AutoCloseable {
             total += count;
         }
         return total;
+    }
+
+    /** Runs whatever the control plane has queued. Between batches, on this thread. */
+    private void runControlTasks() {
+        Runnable task;
+        while ((task = control.poll()) != null) {
+            try {
+                task.run();
+            } finally {
+                // Counted even when the task threw: a coordinator waiting on it must not wait
+                // forever because the work failed, and a failure it cannot see is worse than one
+                // it can.
+                controlRun.incrementAndGet();
+            }
+        }
     }
 
     private void closeQuietly() {

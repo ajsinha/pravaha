@@ -313,6 +313,157 @@ public final class SlicedAggregateState {
         return before - slices.size();
     }
 
+    /**
+     * Writes every accumulator to a stream.
+     *
+     * <p>The format is deliberately explicit rather than derived from the object graph: Java
+     * serialization is banned as a transport here (ADR-003's reasoning applies just as much to a
+     * checkpoint as to a wire), and a checkpoint that cannot be read by a later version of the
+     * engine is a checkpoint that turns an upgrade into a data loss event. Each value is written
+     * with a tag, so the reader can fail on something it does not understand rather than silently
+     * misinterpreting bytes.
+     *
+     * <p>Called on the lane thread, between batches. Anywhere else it would be reading state that
+     * is being mutated -- a photograph of a car crash rather than a snapshot.
+     */
+    public void writeTo(java.io.DataOutput out) throws java.io.IOException {
+        out.writeInt(FORMAT_VERSION);
+        out.writeInt(kinds.length);
+        for (Kind kind : kinds) {
+            out.writeUTF(kind.name());
+        }
+        out.writeInt(slices.size());
+        for (Map.Entry<SliceKey, Accumulator> entry : slices.entrySet()) {
+            SliceKey key = entry.getKey();
+            Accumulator accumulator = entry.getValue();
+            out.writeLong(key.keyHigh());
+            out.writeLong(key.keyLow());
+            out.writeLong(key.sliceStart());
+            out.writeLong(accumulator.count);
+            for (long value : accumulator.values) {
+                out.writeLong(value);
+            }
+            writeKeyValues(out, accumulator.keyValues);
+            writeDistinct(out, accumulator);
+        }
+    }
+
+    /**
+     * Reads accumulators back, replacing whatever is held.
+     *
+     * <p>Replacing rather than merging: a restore happens after a failure, and merging the restored
+     * state into whatever the process managed to accumulate since would double-count exactly the
+     * records the checkpoint exists to make exactly-once.
+     */
+    public void readFrom(java.io.DataInput in) throws java.io.IOException {
+        int version = in.readInt();
+        if (version != FORMAT_VERSION) {
+            throw new java.io.IOException("checkpoint is format version " + version + ", this engine writes "
+                    + FORMAT_VERSION + ". Refusing to guess at the difference.");
+        }
+        int columns = in.readInt();
+        if (columns != kinds.length) {
+            throw new java.io.IOException("checkpoint holds " + columns + " aggregate columns and this operator has "
+                    + kinds.length + ": the query changed since the checkpoint was taken");
+        }
+        for (int i = 0; i < columns; i++) {
+            String kind = in.readUTF();
+            if (!kind.equals(kinds[i].name())) {
+                throw new java.io.IOException("checkpoint column " + i + " is a " + kind + " and this operator's is a "
+                        + kinds[i] + ": the query changed since the checkpoint was taken");
+            }
+        }
+
+        slices.clear();
+        int count = in.readInt();
+        for (int i = 0; i < count; i++) {
+            SliceKey key = new SliceKey(in.readLong(), in.readLong(), in.readLong());
+            Accumulator accumulator = new Accumulator(kinds.length, needsDistinct);
+            accumulator.count = in.readLong();
+            for (int column = 0; column < kinds.length; column++) {
+                accumulator.values[column] = in.readLong();
+            }
+            accumulator.keyValues = readKeyValues(in);
+            readDistinct(in, accumulator);
+            slices.put(key, accumulator);
+        }
+        peakSlices = Math.max(peakSlices, slices.size());
+    }
+
+    /** Bumped whenever the layout above changes in a way an older reader would misread. */
+    private static final int FORMAT_VERSION = 1;
+
+    private static void writeKeyValues(java.io.DataOutput out, Object[] keyValues) throws java.io.IOException {
+        out.writeInt(keyValues == null ? -1 : keyValues.length);
+        if (keyValues == null) {
+            return;
+        }
+        for (Object value : keyValues) {
+            if (value == null) {
+                out.writeByte(0);
+            } else if (value instanceof String string) {
+                out.writeByte(1);
+                out.writeUTF(string);
+            } else if (value instanceof Double || value instanceof Float) {
+                out.writeByte(2);
+                out.writeDouble(((Number) value).doubleValue());
+            } else if (value instanceof Boolean flag) {
+                out.writeByte(3);
+                out.writeBoolean(flag);
+            } else {
+                out.writeByte(4);
+                out.writeLong(((Number) value).longValue());
+            }
+        }
+    }
+
+    private static Object[] readKeyValues(java.io.DataInput in) throws java.io.IOException {
+        int length = in.readInt();
+        if (length < 0) {
+            return null;
+        }
+        Object[] values = new Object[length];
+        for (int i = 0; i < length; i++) {
+            byte tag = in.readByte();
+            values[i] = switch (tag) {
+                case 0 -> null;
+                case 1 -> in.readUTF();
+                case 2 -> in.readDouble();
+                case 3 -> in.readBoolean();
+                case 4 -> in.readLong();
+                default -> throw new java.io.IOException("unknown key-value tag " + tag + " in the checkpoint");
+            };
+        }
+        return values;
+    }
+
+    private void writeDistinct(java.io.DataOutput out, Accumulator accumulator) throws java.io.IOException {
+        for (int i = 0; i < kinds.length; i++) {
+            if (!needsDistinct[i]) {
+                continue;
+            }
+            Map<Long, Long> seen = accumulator.distinct[i];
+            out.writeInt(seen.size());
+            for (Map.Entry<Long, Long> entry : seen.entrySet()) {
+                out.writeLong(entry.getKey());
+                out.writeLong(entry.getValue());
+            }
+        }
+    }
+
+    private void readDistinct(java.io.DataInput in, Accumulator accumulator) throws java.io.IOException {
+        for (int i = 0; i < kinds.length; i++) {
+            if (!needsDistinct[i]) {
+                continue;
+            }
+            int entries = in.readInt();
+            Map<Long, Long> seen = accumulator.distinct[i];
+            for (int e = 0; e < entries; e++) {
+                seen.put(in.readLong(), in.readLong());
+            }
+        }
+    }
+
     /** Live accumulators. The number bounded-state enforcement watches. */
     public int liveSlices() {
         return slices.size();
