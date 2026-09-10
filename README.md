@@ -19,14 +19,20 @@
 
 ---
 
-> **Project status: Wave 1 — foundations, in progress.**
-> The architecture and delivery plan are complete ([`docs/`](docs/)). Implementation has started:
-> the Maven reactor builds, `pravaha-api` and the binary row layout are in, and the build enforces
-> its own rules. Nothing is runnable end to end yet — that arrives with Wave 2.
+> **Project status: Wave 3 — the performance core, in progress.**
 >
-> The open decisions in [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) do not
-> gate Wave 1, but the Aerospike edition question has procurement lead time and is worth settling
-> early.
+> Waves 1 and 2 are complete and merged (tags `M1`, `M2`). **SQL runs end to end today**: Calcite
+> parses and optimises it, the plan is translated into Pravaha's own operator tree, and rows are
+> executed over off-heap binary layout from a real source to a real sink. Try it in
+> [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
+>
+> Wave 3 adds whole-stage code generation — measured at roughly **10× the interpreted path** — plus
+> the lane model that turns that operator throughput into pipeline throughput.
+>
+> Still to come: windowing and stateful joins (Wave 4), Aerospike (Wave 5), the serving layer
+> (Wave 6), and the console (Wave 7 onward). The Aerospike edition question in
+> [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
+> is worth settling early.
 
 ---
 
@@ -95,16 +101,29 @@ Full competitive analysis, including the ten measurable claims this has to satis
 | **Correctness** | Exactly-once state via aligned checkpoints; effectively-once output via idempotent sinks. The engine computes and reports the **weakest link** per query rather than over-promising. |
 | **Operations** | Adaptive batching, automatic per-key skew remediation, elastic rescaling, blue/green query updates, and a **time-travel debugger** that turns a production incident into a JUnit fixture. |
 
-## Deployment modes
+## Shape
 
-One engine core; four ways to run it.
+Two processes, on purpose.
+
+```
+   pravaha-server  (Java 21)            Pravaha Console  (Python)
+   engine + public REST API      ◄───   FastAPI, built on the pravaha SDK
+   /status  — plain HTML, works
+   when the console is down
+```
+
+The console is a **separate runtime** so the API boundary cannot be violated: a test enforcing
+"the console may only use the public API" can be waived under deadline pressure, and a Python
+process simply cannot reach into a Java engine. It also makes the console the first real consumer of
+the published SDK — a proof of the integration story rather than an assertion (ADR-024).
+
+The engine itself also embeds. One core, several ways to run it:
 
 | Mode | Artifact | Spring | Use |
 |---|---|---|---|
-| **A** Plain embedded | `pravaha-embedded` | none | Any Java app; unit tests; `pravaha dev` |
+| **A** Plain embedded | `pravaha-embedded` | none | Any Java app; unit tests; the CLI |
 | **B** Spring-embedded | `pravaha-spring-boot-starter` | auto-config into *your* app | Add continuous SQL to a service you already run |
 | **C** Server | `pravaha-server` | it *is* a Spring Boot app | Standard production deployment |
-| **D** All-in-one | same jar + `pravaha.ui.enabled=true` | yes | One jar, one port, console included |
 
 ```java
 @Service
@@ -123,22 +142,30 @@ embedding Pravaha never dictates your Spring version.
 
 ## The console
 
-A full web application, not an admin page: an IDE-grade SQL workbench with catalog-aware
-completion and sub-50 ms validation, a live plan DAG with per-operator telemetry, backfill and
-blue/green cutover control, and a time-travel debugger that rewinds a running query and steps it
-forward under inspection. Built on Spring Boot 3 + React 19 with a real design system, WCAG 2.2
-AA, and performance budgets gated in CI.
+A full web application, not an admin page: an IDE-grade SQL workbench with catalog-aware completion
+and sub-50 ms validation, a live plan DAG with per-operator telemetry, backfill and blue/green
+cutover control, and a time-travel debugger that rewinds a running query and steps it forward under
+inspection.
 
-It is architecturally out of the data path and experientially the centre of the product.
+Built as a **Python FastAPI application on the published SDK**, with server-rendered templates for
+the shell and public pages, and interactive islands for the workbench and debugger. Everything
+vendored — no CDN, because air-gapped deployment is a precondition, not a nicety. WCAG 2.2 AA, with
+performance budgets gated in CI.
+
+Architecturally out of the data path and experientially the centre of the product.
 [Specification →](docs/system_design.md#23-the-pravaha-console--web-ui)
 
 ## Documentation
 
 | Document | What's in it |
 |---|---|
-| **[System Design](docs/system_design.md)** | Architecture, competitive position, 33 sections. Start with §1–§2. |
-| **[Implementation Plan](docs/implementation_plan.md)** | 31 sprints, epics E0–E9 + EU, sprints 1–5 at task level, staffing, risks, descope ladder |
-| [Original SRS](docs/initial_req.md) | The 1.0-DRAFT requirements this design supersedes. Kept for provenance. |
+| **[Quickstart](docs/QUICKSTART.md)** | Build it and run a query. Ten minutes. |
+| **[Architecture](docs/ARCHITECTURE.md)** | The shape in two pages, before the 3 000-line version |
+| **[System Design](docs/system_design.md)** | Full architecture and competitive position, 33 sections |
+| **[Implementation Plan](docs/implementation_plan.md)** | Waves, epics, staffing, risks, descope ladder |
+| [Decision records](docs/adr/) | Every architectural decision and why, including the ones later reversed |
+| [Examples](examples/) | Runnable, and executed by the build so they cannot rot |
+| [Original SRS](docs/initial_req.md) | The 1.0-DRAFT this design supersedes. Kept for provenance. |
 
 Good entry points:
 
@@ -164,19 +191,27 @@ wrapper.
 ./mvnw -Pall verify                                  # everything, as CI runs it
 ```
 
-All three work today. See [implementation plan §2](docs/implementation_plan.md) for the toolchain
-and profiles; no system Maven is needed, the wrapper is vendored.
+No system Maven needed — the wrapper is vendored. See
+[implementation plan §2](docs/implementation_plan.md) for the toolchain and build profiles, and
+[`docs/QUICKSTART.md`](docs/QUICKSTART.md) to actually run something.
+
+Modules currently built: `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pravaha-runtime`,
+`pravaha-codegen`, `pravaha-sql`, `pravaha-connect`, `pravaha-embedded`, `pravaha-server`,
+`pravaha-cli`, `pravaha-testkit`, plus [`plugins/pravaha-plugin-filesystem`](plugins/pravaha-plugin-filesystem)
+and the SDKs in [`sdk/pravaha-sdk-java`](sdk/pravaha-sdk-java) and
+[`sdk/pravaha-sdk-python`](sdk/pravaha-sdk-python).
 
 ## Roadmap
 
-| Phase | Weeks | Milestone |
-|---|---|---|
-| 0–1 | 1–6 | Foundations; minimal vertical slice; **go/no-go on the incremental core** |
-| 2 | 7–11 | Codegen, lanes, exchange — Profile A ≥ 1.2 M rec/s/lane |
-| 3–4 | 12–25 | Windows, tiered state, Aerospike, joins, exactly-once checkpointing |
-| 5 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** |
-| 6–7 | 33–45 | Gateways, clients, Spring starter, cluster & HA |
-| 8–9 | 46–62 | Time-travel debugger, console polish, Nexmark published head-to-head, **GA** |
+| Wave | Weeks | Milestone | |
+|---|---|---|---|
+| 1 | 1–2 | Foundations; deterministic harness | ✅ `M1` |
+| 2 | 3–5 | Vertical slice; **go/no-go on the incremental core** | ✅ `M2` |
+| 3 | 6–11 | Codegen, lanes, exchange — Profile A ≥ 1.2 M rec/s/lane | in progress |
+| 4–5 | 12–25 | Windows, tiered state, Aerospike, joins, exactly-once checkpointing | |
+| 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | |
+| 7–8 | 33–45 | Gateways, SDKs, console, cluster and HA | |
+| 9–10 | 46–62 | Time-travel debugger, Nexmark published head-to-head, **GA** | |
 
 [Full roadmap with acceptance gates →](docs/system_design.md#31-delivery-roadmap)
 

@@ -13,7 +13,9 @@
 | Changes in 3.6 | Console theming, templating and vendoring settled (§23.4a); public landing/about/help pages specified (§23.4b) |
 | Changes in 3.7 | API boundary and deployment split settled (§23.2a, ADR-023); resolved a contradiction between §23.3's SPA and §23.4a's server-rendered shell |
 | Changes in 3.8 | The console becomes a separate Python FastAPI process built on the published SDK (§23.2a, ADR-024) |
-| Version | 3.8 |
+| Changes in 3.9 | Sessions, subscriptions, disconnect handling and query sharing specified (§11.7, §11.8, ADR-025) |
+| Changes in 3.10 | WebSocket as a first-class carrier and the subscriber-scale architecture (§20.3a, §20.3b, ADR-026) |
+| Version | 3.10 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
@@ -1292,6 +1294,120 @@ Every transition is an audited event with actor, timestamp, reason and correlati
 
 ---
 
+### 11.7 Sessions, subscriptions, and what happens on disconnect
+
+A continuous query is **not** a SQL statement, and treating it like one is the mistake this section
+exists to prevent.
+
+A SQL statement is ephemeral: it belongs to the connection that issued it, and closing the
+connection ends it. A continuous query is closer to a materialized view — it is a *durable
+server-side object* that outlives whoever created it. A fraud-detection query must not stop because
+an analyst closed a laptop.
+
+But clients genuinely do want the interactive experience too. Both are supported, because they are
+**two different objects** rather than one object used two ways:
+
+| | **Registration** | **Subscription** |
+|---|---|---|
+| What it is | A named query the engine maintains | A stream of that query's output to one client |
+| Analogy | `CREATE MATERIALIZED VIEW` | a cursor, or `tail -f` |
+| Lifetime | Independent of any connection | Bound to the connection |
+| Created by | `CREATE CONTINUOUS QUERY` / `POST /queries` | `Subscribe` / `GET /queries/{id}/stream` |
+| Survives disconnect | **Yes** | No |
+| Ends when | Explicitly dropped | The connection closes |
+
+A client connects with the SDK, registers a query, and may then subscribe to it — exactly as you'd
+expect from a database client. The difference is that closing the client does not undo the
+registration, any more than disconnecting from PostgreSQL drops a view.
+
+#### Lifetime modes
+
+The awkward case is an *ad-hoc* query: someone explores interactively, registers something with no
+sink, then disconnects. That query is now computing results nobody will ever read. Left alone it is
+a resource leak that looks exactly like a working query, which is the worst kind.
+
+So a registration declares its lifetime:
+
+| Mode | Survives disconnect | Ends when | For |
+|---|---|---|---|
+| `PERSISTENT` | Yes | Explicitly dropped | Production queries with a sink or a served view |
+| `SESSION` | No | Its last subscriber goes and the grace period expires | Interactive exploration, the console's live preview |
+
+`SESSION` is the default for a query created by subscribing, and `PERSISTENT` for one created by an
+explicit registration with a sink. Neither is inferred silently: the mode appears in the
+registration response and in the console, because "why did my query disappear?" and "why is this
+query still running?" are both bad surprises.
+
+#### Disconnect, and why a grace period exists
+
+A `SESSION` query is **reference-counted by its subscribers**, not tied to one connection. When the
+count reaches zero a timer starts (`session.grace`, default 60 s) and the query is dropped when it
+expires.
+
+The grace period is the difference between a usable system and an infuriating one. A browser
+refresh, a laptop sleeping, a load-balancer moving a connection — all drop the socket for a few
+seconds. Tearing down the query and its accumulated state each time would mean a page refresh costs
+a full re-backfill.
+
+**Detecting the disconnect is the harder half.** A closed socket is easy; a client that has silently
+gone away is not, and a half-open connection can hold resources indefinitely. So:
+
+- gRPC keepalive and HTTP/2 `PING` detect dead peers at the transport level;
+- **credit-based flow control** (§20.2) doubles as a liveness signal — a subscriber that stops
+  acknowledging stops receiving, and after `subscriber.idle.timeout` is considered gone;
+- `PERSISTENT` queries hold a **lease** renewed by their owner's session or by the control plane,
+  so a client that vanishes during a network partition cannot leave a query orphaned forever.
+
+What is released on the last subscriber leaving: the tap and its conflating buffer, the credit
+window, and any per-subscriber cursor. The query's *state* is released only when the query itself is
+dropped, which is what makes reconnecting within the grace period cheap.
+
+#### Nothing is released implicitly on a `PERSISTENT` query
+
+Worth stating flatly because the instinct runs the other way: a `PERSISTENT` query keeps running,
+keeps its state, and keeps writing to its sink whether anyone is connected or not. It stops when
+someone stops it. Cleaning it up on disconnect would be a correctness failure, not a tidiness win.
+
+### 11.8 Two clients, the same query
+
+Not automatically shared, and the reason matters.
+
+The obvious implementation — hash the SQL text and reuse the match — is **wrong in a way that leaks
+data**. Two identical query strings can mean different things:
+
+| Same SQL text, different… | Consequence of sharing |
+|---|---|
+| **Row- or column-level security** (§25) | Analyst A's results delivered to Analyst B. A data breach, produced by an optimisation. |
+| Tenant | Cross-tenant leakage, same shape |
+| Schema version | One query silently planned against a schema it was not written for |
+| Emit mode or sink | Output in a form the second client cannot consume |
+| Consistency mode | A reconciliation job served a `LATEST` read |
+
+So sharing is decided on a **canonical fingerprint**, not on text: the normalised physical plan, the
+schema versions it was planned against, the tenant, the *effective security predicates after
+row-level filters are injected*, and the emit and consistency modes. Two requests share only when
+all of those agree — at which point they are genuinely the same computation, not merely the same
+string.
+
+Whitespace, comments, alias names and predicate ordering are normalised away by planning, so
+cosmetic differences do not defeat sharing. That normalisation is a side effect of planning rather
+than a text transformation, which is what makes it trustworthy.
+
+#### What is shared, and what is not
+
+| | Behaviour |
+|---|---|
+| **`SESSION` queries with equal fingerprints** | **Shared.** One computation, one state, N taps, reference-counted. Ten analysts opening the same dashboard cost one query. |
+| **`PERSISTENT` queries** | **Never shared, even when identical.** A named query is a named object. Two names are two queries because either may later be updated, paused or dropped independently, and silently aliasing them would make one operator's `DROP` another's outage. |
+
+Sharing is reported, not hidden: the API response says the query was attached to an existing
+computation and how many subscribers it now has. A client that needs isolation — a benchmark, a
+reproduction, a test — passes `share: false` and gets its own.
+
+The efficiency is real and worth having. It is also the kind of optimisation that is dangerous
+precisely because it is invisible when it works, which is why the fingerprint includes security
+context and why the response says what happened.
+
 ## 12. Code Generation & Physical Execution
 
 ### 12.1 Why generate code
@@ -2028,7 +2144,7 @@ Alerting and webhooks. Per-endpoint circuit breaker, exponential backoff with ji
 
 ## 20. Gateways & Client Protocols
 
-### 20.1 Why two protocols (G3)
+### 20.1 Why several protocols (G3)
 
 | | Avatica | gRPC |
 |---|---|---|
@@ -2084,6 +2200,117 @@ with Client("grpc+tls://pravaha:9090", token=os.environ["PRAVAHA_TOKEN"]) as c:
         df = batch.to_pandas()          # zero-copy via Arrow
         print(f"wm={batch.watermark} rows={len(df)} dropped={batch.dropped}")
 ```
+
+### 20.3a WebSocket, and one subscription model behind three carriers
+
+A continuous-query subscription is structurally a WebSocket: one long-lived connection, the server
+pushing frames, the client acknowledging. That is worth saying plainly because it explains why
+subscriptions look the way they do — and because **WebSocket is a first-class transport, not a
+fallback**.
+
+| Carrier | For | Why it exists |
+|---|---|---|
+| **gRPC server-streaming** | Services, the SDKs, high-throughput consumers | Highest throughput, typed, HTTP/2 flow control underneath |
+| **WebSocket** | Browsers, restrictive networks, any language | A browser cannot speak gRPC without a proxy, and the console is a browser application. WebSocket over 443 also traverses corporate infrastructure that blocks gRPC outright — for an on-premises product that is not an edge case |
+| **SSE** | Read-only dashboards, metrics, job progress | One-way and far simpler; auto-reconnects with `Last-Event-ID` for free |
+
+**One model, three carriers.** The subscription semantics — credit-based flow control, conflation
+policy, lifetime, reconnection, the shape of a batch — are defined once and are identical on all
+three. Three carriers with three subtly different behaviours would be three sets of bugs and three
+things to document, and the differences would be discovered by customers rather than by us.
+
+A carrier chooses only how bytes move:
+
+```
+  subscribe(queryId, credits, mode)
+        │
+        ▼
+   ┌─────────────────────────────────────────────┐
+   │  Subscription: credits, conflation, cursor   │   ← defined once
+   └───────┬─────────────┬───────────────┬───────┘
+           ▼             ▼               ▼
+        gRPC         WebSocket          SSE         ← carriers only
+```
+
+WebSocket frames carry the same Arrow IPC batch the gRPC stream does, with a small JSON envelope for
+the watermark, batch sequence and dropped count. Binary Arrow over WebSocket keeps the browser's
+decode cost near zero — a JSON row-per-message protocol is what makes live tables in a browser
+stutter at a few thousand rows a second.
+
+### 20.3b Scaling to thousands of subscribers
+
+The number that matters is **how much a subscriber costs a lane, and the answer must be nothing**.
+
+Client fan-out and data-plane throughput are separate problems, and conflating them is what kills
+systems of this shape. Lanes are sized by data volume. Subscribers are sized by connection count.
+The architecture's job is to keep the second from ever touching the first.
+
+#### Four rules that make the number large
+
+**1. A lane never sees a subscriber.** A lane writes to a conflating tap ring and returns. Separate
+dispatch threads fan out. Lane cost is **O(1) in subscriber count** — one thousand subscribers cost
+a lane exactly what one does, and if that ever stops being true the whole design is compromised.
+
+**2. Encode once, write N times.** This is the decisive one. A batch is serialised to Arrow **once
+per query per tick**, and the same buffer is written to every subscriber's socket.
+
+```
+   cost  =  O(queries × ticks)     encoding
+          + O(subscribers × ticks) socket writes   ← a memcpy, not a serialisation
+```
+
+Encoding per subscriber is the mistake that turns a thousand clients into an outage: a thousand
+subscribers at 20 Hz would be 20 000 serialisations a second instead of 20.
+
+**3. Event-loop I/O, never thread-per-connection.** Netty carries thousands of connections on a
+handful of threads. The control plane — validate, explain, register — runs on virtual threads
+(§13.2), which is exactly the workload Loom is for: short, blocking, I/O-bound requests in large
+numbers.
+
+**4. Sharing collapses the query count.** Ten analysts opening the same dashboard are one
+computation with ten taps (§11.8). The subscriber count grows; the *query* count does not.
+
+#### What one thousand subscribers actually costs
+
+Twenty distinct queries, one thousand subscribers, on a single node:
+
+| | |
+|---|---|
+| Computations | **20** — sharing, not 1000 |
+| Serialisations at 1 Hz | **20/s** — encode-once, not 1000/s |
+| Socket writes at 1 Hz | 1 000/s — a buffer copy each |
+| Live taps at 20 Hz | 20 000 writes/s — comfortable on a few event loops |
+| Event-loop threads | ~8 |
+| Lane cost | **unchanged** |
+
+The work that scales with client count is socket writes, and a socket write of an
+already-encoded buffer is cheap. Everything expensive scales with *query* count.
+
+#### The two things that actually go wrong
+
+**A slow consumer.** One client on a bad network, or a paused browser tab, holding buffers. Per
+subscriber: a bounded buffer, and on overflow either conflate and report `dropped_count`
+(`BEST_EFFORT`) or disconnect (`RELIABLE`). Never, under any circumstances, backpressure upstream —
+a slow browser must not be able to slow a production query.
+
+Per-subscriber bounds are necessary and **not sufficient**. A thousand individually-bounded buffers
+is still a thousand buffers, so there is also an **aggregate budget** per node; when it is
+approached, `BEST_EFFORT` subscribers conflate harder and new subscriptions are refused with a
+retryable error rather than the node running out of memory. Bounding each thing and forgetting to
+bound the sum is a classic way to be surprised.
+
+**Reconnection storms.** A node restarts and a thousand clients reconnect at once. The SDKs back off
+with jitter, and the gateway applies admission control so a herd is spread rather than refused. This
+is a client-library responsibility as much as a server one, which is a reason the SDKs are ours
+(§7) rather than left to each integrator.
+
+#### Beyond one node
+
+When subscribers outgrow a node, the answer is **hierarchical fan-out** rather than a bigger node:
+read-only fan-out processes subscribe once upstream and re-fan-out downstream. Each level multiplies
+capacity and adds one tick of latency. Nothing in the subscription model changes, because a fan-out
+node is just another subscriber to the level above it — which is the payoff for having defined the
+model once rather than per carrier.
 
 ### 20.4 Avatica gateway scope
 
@@ -3460,6 +3687,8 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **019** | Engine core is Spring-free; Spring Boot is a bootstrap layer above a plain-Java `PravahaEngine` seam | Spring throughout; no Spring anywhere; Quarkus/Micronaut | Keeps embeddability intact (a host on Boot 3.2 cannot be forced to 3.5), keeps `pravaha dev` under 1 s, and keeps proxies off the hot path — while the server still inherits Boot's config, actuator, security and packaging for free (§22.1) |
 | **020** | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` | Documentation only; a bare `PravahaEngine` bean | Lets a team add continuous SQL to a service they already run, in the idiom they already use. Modelled on `@KafkaListener` so the mental model transfers (§22.4) |
 | **022** | The console is a flagship product surface with its own design system, built as a continuous workstream from Phase 3 | A late control-plane admin UI; CLI-only; a thin metrics page | For most users the console *is* the product, and W10 (the time-travel debugger) exists nowhere else. A polished UI cannot be produced in one late phase, so it is resourced with a dedicated frontend engineer and shipped alongside each engine capability (§23.1) |
+| **026** | One subscription model behind three carriers: gRPC, WebSocket and SSE; encode once, write N times | gRPC only with a grpc-web proxy; per-carrier subscription semantics; JSON rows per message | A browser cannot speak gRPC natively and the console is a browser application; WebSocket over 443 also crosses corporate networks that block gRPC. Defining semantics once and letting carriers move bytes avoids three subtly different behaviours. Encoding per subscriber rather than per query is what turns a thousand clients into an outage (§20.3a, §20.3b) |
+| **025** | Registration and subscription are separate objects; sharing is by canonical fingerprint, never by SQL text | Connection-scoped queries like a SQL cursor; text-hash deduplication; no sharing at all | A continuous query outlives the connection that created it, so binding the two would stop a production query when a laptop closed. Text-hash sharing leaks data across security contexts: identical SQL under different row-level filters is not the same query. The fingerprint includes the effective security predicates for exactly that reason (§11.7, §11.8) |
 | **024** | The console is a separate Python FastAPI process, built on the published Python SDK | A Java/Spring console in the same artefact; a React SPA served by the engine | A different runtime makes the API boundary unviolable rather than test-enforced, and building the console on the published SDK turns the integration story from an assertion into a continuously-exercised proof. Costs two runtimes and the one-jar onboarding path, both stated in §23.2a |
 | **023** | The console uses only the public API — no privileged endpoints | A privileged internal API for the console | For a proprietary engine the API *is* the product surface, so a console-first API produces a second-class integration story. Superseded on packaging by ADR-024, which makes the separation physical rather than test-enforced (§23.2a) |
 | **021** | No GraalVM native image for the engine | Native image via Spring AOT; drop runtime codegen to enable it | Runtime Java-source compilation (ADR-005) is fundamentally incompatible with a closed-world image, and it is what makes the hot path fast. Stated so no one spends a sprint on it. Clients and UI may still go native (§22.7) |
