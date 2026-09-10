@@ -56,12 +56,34 @@ public interface LookupSourcePlugin extends PravahaPlugin {
     /**
      * Looks up every row matching {@code key}, writing them through {@code sink}.
      *
-     * <p>Called on the lane thread today, so a slow lookup is a slow lane; see {@link #typicalLatency()}.
+     * <p><strong>Called concurrently, from up to {@link #maxConcurrency()} threads at once.</strong>
+     * That is how the engine hides a network round trip: a lookup is nearly all waiting, and waiting
+     * one record at a time caps a lane at the inverse of the store's latency. An implementation
+     * must therefore be thread-safe, which for most clients means a pool rather than one connection
+     * -- a JDBC {@code Connection} shared between threads is the classic version of this mistake,
+     * and it corrupts results rather than failing cleanly.
+     *
+     * <p>Each call gets its own {@code sink}, so nothing about the writing needs coordinating; it is
+     * the client underneath that does.
      *
      * @param key one value per {@link #keyColumns()} entry, in that order
      * @return how many rows were written
      */
     int lookup(Object[] key, PartitionReader.RecordSink sink);
+
+    /**
+     * How many lookups this source will take at once.
+     *
+     * <p>The source's number, not the engine's, because the limit is the store's: a connection pool
+     * of ten, a client that serialises internally, a rate limit somebody else depends on. Returning
+     * one means "call me one at a time", which is always safe and gives up the overlap.
+     *
+     * <p>The engine will not exceed it, so a source can size its own pool to this number and be
+     * certain it is enough.
+     */
+    default int maxConcurrency() {
+        return 8;
+    }
 
     /**
      * How long a lookup usually takes.

@@ -62,7 +62,17 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
     private Duration cacheFor;
     private String query;
     private StreamSchema schema;
-    private Connection connection;
+    private int poolSize;
+
+    /**
+     * Connections, one per concurrent lookup, borrowed and returned.
+     *
+     * <p>Not one shared connection. The engine calls {@code lookup} from several threads at once to
+     * hide the round trip, and a JDBC {@code Connection} used from two threads does not fail
+     * cleanly -- it interleaves statements and result sets, and the rows come back attached to the
+     * wrong query. A pool sized to the concurrency the engine is told about is the whole fix.
+     */
+    private java.util.concurrent.ArrayBlockingQueue<Connection> pool;
 
     @Override
     public String name() {
@@ -88,6 +98,11 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
             throw new ConfigurationException(
                     JdbcErrors.BAD_CONFIGURATION, "key.columns must name at least one column of '" + table + "'");
         }
+        this.poolSize = Integer.parseInt(context.get("pool.size", "8"));
+        if (poolSize < 1) {
+            throw new ConfigurationException(
+                    JdbcErrors.BAD_CONFIGURATION, "pool.size must be at least 1, got " + poolSize);
+        }
         long seconds = Long.parseLong(context.get("cache.seconds", "0"));
         if (seconds < 0) {
             throw new ConfigurationException(
@@ -109,16 +124,20 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
 
     @Override
     public void open() {
+        Properties properties = new Properties();
+        if (!user.isBlank()) {
+            properties.setProperty("user", user);
+        }
+        if (!password.isBlank()) {
+            properties.setProperty("password", password);
+        }
+        this.pool = new java.util.concurrent.ArrayBlockingQueue<>(poolSize);
         try {
-            Properties properties = new Properties();
-            if (!user.isBlank()) {
-                properties.setProperty("user", user);
+            for (int i = 0; i < poolSize; i++) {
+                pool.add(DriverManager.getConnection(url, properties));
             }
-            if (!password.isBlank()) {
-                properties.setProperty("password", password);
-            }
-            this.connection = DriverManager.getConnection(url, properties);
         } catch (SQLException e) {
+            close();
             throw new PravahaException(
                     JdbcErrors.CONNECT_FAILED,
                     "cannot connect to " + url + ": " + e.getMessage()
@@ -138,8 +157,26 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
         }
     }
 
+    /**
+     * Takes a connection, waiting if every one is busy.
+     *
+     * <p>Waiting rather than opening another: the pool is sized to the concurrency the engine
+     * declared it will not exceed, so an empty pool means the accounting is wrong somewhere, and
+     * quietly opening connections would turn that into a database running out of them.
+     */
+    private Connection borrow() {
+        try {
+            return pool.take();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new PravahaException(
+                    JdbcErrors.QUERY_FAILED, "interrupted while waiting for a connection to " + table, e);
+        }
+    }
+
     private StreamSchema readSchema() {
         String probe = "SELECT * FROM " + table + " WHERE 1 = 0";
+        Connection connection = borrow();
         try (PreparedStatement statement = connection.prepareStatement(probe);
                 ResultSet results = statement.executeQuery()) {
             return JdbcTypes.toStreamSchema(table, results.getMetaData());
@@ -148,6 +185,8 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
                     JdbcErrors.QUERY_FAILED,
                     "cannot read the schema of lookup table '" + table + "': " + e.getMessage() + "\n  query: " + probe,
                     e);
+        } finally {
+            pool.add(connection);
         }
     }
 
@@ -176,6 +215,7 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
             }
         }
 
+        Connection connection = borrow();
         try (PreparedStatement statement = connection.prepareStatement(query)) {
             for (int i = 0; i < key.length; i++) {
                 statement.setObject(i + 1, key[i]);
@@ -188,7 +228,15 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
                     JdbcErrors.QUERY_FAILED,
                     "lookup in '" + table + "' failed: " + e.getMessage() + "\n  query: " + query,
                     e);
+        } finally {
+            pool.add(connection);
         }
+    }
+
+    /** As many at once as there are connections, and not one more. */
+    @Override
+    public int maxConcurrency() {
+        return poolSize;
     }
 
     private int emit(ResultSet results, PartitionReader.RecordSink sink) throws SQLException {
@@ -232,14 +280,19 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
 
     @Override
     public void close() {
-        if (connection != null) {
+        if (pool == null) {
+            return;
+        }
+        List<Connection> open = new ArrayList<>();
+        pool.drainTo(open);
+        for (Connection connection : open) {
             try {
                 connection.close();
             } catch (SQLException e) {
                 // Closing a connection that is already gone is not a failure worth propagating out
                 // of a shutdown path.
             }
-            connection = null;
         }
+        pool = null;
     }
 }

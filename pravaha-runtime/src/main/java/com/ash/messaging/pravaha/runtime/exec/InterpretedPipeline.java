@@ -365,6 +365,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     @Override
     public void close() {
         joins.forEach(SymmetricHashJoin::close);
+        lookupJoins.forEach(LookupJoin::close);
         arena.close();
     }
 
@@ -467,6 +468,10 @@ public final class InterpretedPipeline implements AutoCloseable {
                     }
                     LookupJoin join = new LookupJoin(l, table, arena, downstream, MAX_LOOKUP_CACHE_ENTRIES);
                     lookupJoins.add(join);
+                    // Outstanding lookups must finish before the query claims to be done: a record
+                    // parked on a round trip has been consumed and not yet answered, and dropping
+                    // it at shutdown loses output that the offsets say was processed.
+                    finishers.add(join::drain);
                     yield buildInput(l.input(), join);
                 }
                 case JoinOperator j -> {

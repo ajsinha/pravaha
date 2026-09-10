@@ -78,8 +78,8 @@ class LookupJoinTest {
     }
 
     /** A dimension table in a map, counting how often it was actually asked. */
-    private static final class MapLookup implements LookupSourcePlugin {
-        private final Map<Long, String> rows = new LinkedHashMap<>();
+    private static class MapLookup implements LookupSourcePlugin {
+        final Map<Long, String> rows = new LinkedHashMap<>();
         private final AtomicInteger calls = new AtomicInteger();
         private final Duration cacheFor;
 
@@ -241,6 +241,90 @@ class LookupJoinTest {
         }
         assertThat(plan).isInstanceOf(LookupJoinOperator.class);
         assertThat(plan.isStateful()).isFalse();
+    }
+
+    @Test
+    void slowLookupsOverlapRatherThanQueueingBehindEachOther() {
+        // The point of doing this on virtual threads. Ten records, each needing a lookup that takes
+        // 50 ms: done one at a time that is half a second, and the whole operator caps a lane at the
+        // inverse of the store's latency. Overlapped it is one round trip plus change.
+        SlowLookup users = new SlowLookup(Duration.ofMillis(50));
+        for (long id = 0; id < 10; id++) {
+            users.rows.put(id, "seg-" + id);
+        }
+
+        long start = System.nanoTime();
+        List<String> out = run(INNER, users, List.of(0L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L));
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(out).hasSize(10);
+        assertThat(elapsed)
+                .as("ten 50 ms lookups took %s, which is one at a time", elapsed)
+                .isLessThan(Duration.ofMillis(400));
+    }
+
+    @Test
+    void outputStaysInArrivalOrderHoweverTheLookupsFinish() {
+        // Lookups complete out of order by design -- the first key here is slow and the rest are
+        // instant -- and emitting as they finish would reorder the stream. Sequence numbers going
+        // backwards break the deduplicating sink and every window downstream, and the reordering is
+        // invisible in any test that only checks which rows came out.
+        //
+        // Thirty records rather than five, deliberately. With a handful, every lookup is still
+        // outstanding when the last record arrives, the queue drains in order at the end whatever
+        // the draining rule is, and a seeded out-of-order bug passes.
+        SlowLookup users = new SlowLookup(Duration.ZERO);
+        users.slowKey = 0L;
+        users.slowBy = Duration.ofMillis(300);
+        List<Long> keys = new ArrayList<>();
+        List<String> expected = new ArrayList<>();
+        for (long id = 0; id < 30; id++) {
+            users.rows.put(id, "seg-" + id);
+            keys.add(id);
+            expected.add((id + 1) + ":seg-" + id);
+        }
+
+        assertThat(run(INNER, users, keys)).containsExactlyElementsOf(expected);
+    }
+
+    @Test
+    void aQuietStreamDoesNotLeaveItsLastRecordsWaiting() {
+        // A parked record would otherwise wait for the next arrival to push it out, so a stream that
+        // goes quiet leaves its last few records unanswered for as long as the quiet lasts. End of
+        // input is the extreme case of that and is what this checks; the lane's idle path calls the
+        // same drain.
+        SlowLookup users = new SlowLookup(Duration.ZERO);
+        users.slowKey = 7L;
+        users.slowBy = Duration.ofMillis(50);
+        users.rows.put(7L, "gold");
+
+        assertThat(run(INNER, users, List.of(7L))).containsExactly("1:gold");
+    }
+
+    /** A dimension table that takes its time, so the overlap is observable. */
+    private static final class SlowLookup extends MapLookup {
+        private Long slowKey;
+        private Duration slowBy = Duration.ZERO;
+        private final Duration everyLookup;
+
+        SlowLookup(Duration everyLookup) {
+            super(Duration.ZERO);
+            this.everyLookup = everyLookup;
+        }
+
+        @Override
+        public int lookup(Object[] key, PartitionReader.RecordSink sink) {
+            long id = ((Number) key[0]).longValue();
+            Duration delay = slowKey != null && slowKey == id ? slowBy : everyLookup;
+            if (!delay.isZero()) {
+                try {
+                    Thread.sleep(delay.toMillis());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return super.lookup(key, sink);
+        }
     }
 
     private static PhysicalOperator plan(String sql) {

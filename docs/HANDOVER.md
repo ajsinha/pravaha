@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **27 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **994** (plus 28 Python) |
+| Java tests | **997** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -194,7 +194,7 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Aerospike plugin, four strategies | ❌ |
 | Filter pushdown to sources | ✅ `Pushdown` extracts the pushable conjunction, `ReadRequest` carries it, the JDBC plugin turns it into a bound `WHERE`. The engine keeps its own filter regardless, which is what makes a plugin's partial or absent support harmless |
 | Pushdown equivalence, as a property | ✅ `PushdownEquivalenceTest` — a source honouring every pushed filter must return exactly what one honouring none returns |
-| Lookup join (enrichment) | ✅ `JOIN dim FOR SYSTEM_TIME AS OF t.ts`, `LookupJoinOperator`, `LookupJoin`, with `JdbcLookupPlugin` so it works against any database with a driver. Synchronous on the lane thread today — the ceiling is a lookup per record, and virtual threads are the next step |
+| Lookup join (enrichment) | ✅ `JOIN dim FOR SYSTEM_TIME AS OF t.ts`, `LookupJoinOperator`, `LookupJoin`, with `JdbcLookupPlugin` so it works against any database with a driver. Lookups overlap on virtual threads, in-flight bounded by what the source declares, output kept in arrival order |
 | Idempotent sink | ✅ `DeduplicatingSink` — remembers the highest sequence written, stores it in the checkpoint, drops replays at or below it. Turns an at-least-once sink into effectively-once without asking the sink for anything. **Not yet wired into `QueryExecution`'s checkpoint** |
 | Projection / partial-aggregate pushdown | ❌ |
 

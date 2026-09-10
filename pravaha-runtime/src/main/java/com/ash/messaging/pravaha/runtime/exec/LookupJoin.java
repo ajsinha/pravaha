@@ -38,12 +38,23 @@ import com.ash.messaging.pravaha.runtime.plan.LookupJoinOperator;
 /**
  * Enriches each record from a dimension table.
  *
- * <p><strong>The lookup happens on the lane thread, and that is the operator's defining cost.</strong>
- * A millisecond round trip caps a lane at a thousand records a second, three orders of magnitude
- * below what the rest of the engine does, so the cache below is not an optimisation but the thing
- * that makes the operator usable at all. Overlapping lookups on virtual threads is the real answer
- * and is the next piece of work; until it exists this is stated rather than hidden, because a
- * feature whose throughput ceiling is undocumented gets discovered in production.
+ * <p><strong>A lookup is almost entirely waiting, so the waits overlap.</strong> Done one at a time
+ * on the lane thread, a millisecond round trip caps a lane at a thousand records a second -- three
+ * orders of magnitude below the rest of the engine. Each miss is therefore handed to a virtual
+ * thread and the lane carries on; the record waits, its thread waits, and the lane does not. This is
+ * what virtual threads are for and the one place in the engine where blocking is the right shape:
+ * platform threads would need a pool sized for the store's latency rather than for the machine.
+ *
+ * <p><strong>Output stays in arrival order.</strong> Lookups complete out of order -- a cached key
+ * returns instantly, a cold one takes a round trip -- and emitting as they finish would reorder the
+ * stream. Sequence numbers would go backwards, the deduplicating sink would drop live rows, and a
+ * downstream window would see time move backwards. So results queue and the queue drains from the
+ * front: a record's output waits for every earlier record's.
+ *
+ * <p>In-flight lookups are bounded by what the source says it will take at once. Past that the lane
+ * waits for the oldest to finish, which is backpressure in the only form available here -- the
+ * alternative is an unbounded queue of parked records, which is the same memory growth by a longer
+ * route.
  *
  * <p>The cache's lifetime is the source's decision, not the engine's. Only the source knows how
  * stale its rows may safely be: a currency table refreshed hourly tolerates minutes, an account
@@ -70,9 +81,35 @@ final class LookupJoin implements RowProcessor {
     private final long cacheNanos;
     private final int maxCacheEntries;
 
+    private final java.util.ArrayDeque<Pending> pending = new java.util.ArrayDeque<>();
+
+    /**
+     * Lookups already running, by key.
+     *
+     * <p>Touched only from the lane thread, so a plain map: the futures complete elsewhere, but
+     * nothing else ever reads or writes this.
+     */
+    private final Map<KeyValues, java.util.concurrent.CompletableFuture<List<Object[]>>> inFlight =
+            new java.util.HashMap<>();
+
+    /**
+     * Where parked records' bytes live while their lookups run.
+     *
+     * <p>Not the lane's arena, which rewinds at the end of every batch. Not the heap either: a
+     * parked record is a row like any other, and decoding it to objects and back would cost more
+     * than the copy it replaces.
+     */
+    private final com.ash.messaging.pravaha.state.RowStore pendingRows;
+
+    private final BinaryRowView pendingRow;
+    private final java.util.concurrent.ExecutorService lookupThreads;
+    private final int maxInFlight;
+
     private long lookups;
     private long cacheHits;
     private long unmatched;
+    private long maxObservedInFlight;
+    private long coalesced;
 
     LookupJoin(
             LookupJoinOperator plan,
@@ -93,6 +130,14 @@ final class LookupJoin implements RowProcessor {
         this.view = new BinaryRowView(outputLayout);
         this.cacheNanos = source.cacheFor().toNanos();
         this.maxCacheEntries = maxCacheEntries;
+        this.maxInFlight = Math.max(1, source.maxConcurrency());
+        // One virtual thread per lookup, created on demand. They cost hundreds of bytes and park
+        // without holding a carrier, so there is no pool to size and no queue to tune -- which is
+        // the entire reason this operator can overlap waits at all.
+        this.lookupThreads = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
+        this.pendingRows = new com.ash.messaging.pravaha.state.RowStore(
+                com.ash.messaging.pravaha.common.memory.MemoryAccess.best(), 1 << 16, 64);
+        this.pendingRow = new BinaryRowView(RowLayout.of(plan.input().outputSchema()));
         // Access-ordered and bounded: a lookup join's key distribution is usually heavily skewed,
         // and an unbounded cache over an unbounded key space is the memory leak this operator was
         // supposed to avoid.
@@ -106,14 +151,146 @@ final class LookupJoin implements RowProcessor {
 
     @Override
     public void process(RowView row) {
-        KeyValues key = keyOf(row);
-        List<Object[]> matches = lookup(key);
+        // Anything already finished goes out first, so a cache hit behind a slow lookup does not
+        // overtake it and the queue does not grow while there is work it could shed.
+        drainCompleted();
 
+        KeyValues key = keyOf(row);
+        List<Object[]> cached = fromCache(key);
+        if (cached != null) {
+            cacheHits++;
+            if (pending.isEmpty()) {
+                // Nothing is waiting, so nothing can be overtaken: emit straight through and keep
+                // the common case free of queueing and of copying.
+                deliver(row, cached);
+            } else {
+                pending.add(new Pending(copyOf(row), null, null, cached));
+            }
+            return;
+        }
+
+        if (pending.size() >= maxInFlight) {
+            // Backpressure. The alternative is an unbounded queue of parked records, which is the
+            // same memory growth by a longer route.
+            awaitHead();
+            drainCompleted();
+        }
+
+        // A key already being looked up is not looked up again -- but only where the source allows
+        // caching at all. Overlapping waits would otherwise multiply the requests for a hot key by
+        // however many records are in flight, which is exactly the traffic a cache removes, arriving
+        // in a burst because the cache is not populated until the first answer returns.
+        //
+        // A source that permits no caching is saying its rows may change between one record and the
+        // next, and sharing one answer between two records is a cache with a lifetime of "however
+        // long that lookup took". Honouring cacheFor() == 0 literally is the only reading that does
+        // not quietly reintroduce what the source refused.
+        java.util.concurrent.CompletableFuture<List<Object[]>> future = cacheNanos > 0 ? inFlight.get(key) : null;
+        if (future == null) {
+            lookups++;
+            Object[] keyValues = key.values();
+            future = java.util.concurrent.CompletableFuture.supplyAsync(
+                    () -> {
+                        List<Object[]> rows = new ArrayList<>(1);
+                        source.lookup(keyValues, new CollectingSink(rows));
+                        return rows;
+                    },
+                    lookupThreads);
+            if (cacheNanos > 0) {
+                inFlight.put(key, future);
+            }
+        } else {
+            coalesced++;
+        }
+        pending.add(new Pending(copyOf(row), key, future, null));
+        maxObservedInFlight = Math.max(maxObservedInFlight, pending.size());
+    }
+
+    /**
+     * Emits every result at the front of the queue that is ready.
+     *
+     * <p>From the front only. A result behind an unfinished one waits, however long it has been
+     * ready, because emitting it would reorder the stream -- and a stream whose sequence numbers go
+     * backwards breaks the deduplicating sink and every window downstream.
+     */
+    private void drainCompleted() {
+        while (!pending.isEmpty() && pending.peek().isDone()) {
+            release(pending.poll());
+        }
+    }
+
+    /** Emits one queued record's results and gives its copied bytes back. */
+    private void release(Pending head) {
+        List<Object[]> rows = head.result();
+        if (head.key() != null) {
+            inFlight.remove(head.key());
+            if (cacheNanos > 0) {
+                cache(head.key(), rows);
+            }
+        }
+        try {
+            deliver(pendingRow.wrap(pendingRows.regionOf(head.handle()), pendingRows.offsetOf(head.handle())), rows);
+        } finally {
+            // Released whatever happened: a record whose block leaks on an exception takes the
+            // query's memory with it, and the exception is already being reported.
+            pendingRows.release(head.handle());
+        }
+    }
+
+    /** Waits for the oldest outstanding lookup, which is the only one whose result can be emitted. */
+    private void awaitHead() {
+        Pending head = pending.peek();
+        if (head != null) {
+            head.await();
+        }
+    }
+
+    /**
+     * Copies a record so it can outlive the batch it arrived in.
+     *
+     * <p>A parked record is emitted after its lookup returns, which may be several batches later --
+     * and by then the lane has rewound the arena its bytes were in. Keeping the flyweight would read
+     * whatever occupies those bytes now, which is the class of bug that produces one query's rows in
+     * another's output.
+     */
+    private long copyOf(RowView row) {
+        if (!(row instanceof BinaryRowView binary)) {
+            throw new IllegalArgumentException(
+                    "a lookup join parks binary rows; got " + row.getClass().getSimpleName());
+        }
+        long handle = pendingRows.allocate(binary.length());
+        pendingRows
+                .regionOf(handle)
+                .copyFrom(pendingRows.offsetOf(handle), binary.region(), binary.offset(), binary.length());
+        return handle;
+    }
+
+    /** Flushes everything still outstanding. Called at end of input and when the lane goes idle. */
+    void drain() {
+        while (!pending.isEmpty()) {
+            awaitHead();
+            drainCompleted();
+        }
+    }
+
+    private void cache(KeyValues key, List<Object[]> rows) {
+        cache.put(key, new CacheEntry(rows, System.nanoTime()));
+    }
+
+    private List<Object[]> fromCache(KeyValues key) {
+        if (cacheNanos <= 0) {
+            return null;
+        }
+        CacheEntry cached = cache.get(key);
+        return cached != null && System.nanoTime() - cached.storedAtNanos() < cacheNanos ? cached.rows() : null;
+    }
+
+    private void deliver(RowView row, List<Object[]> matches) {
         if (matches.isEmpty()) {
             unmatched++;
             if (plan.leftOuter()) {
-                // Emitted now, with nulls, and never retracted: the lookup already answered, and no
-                // later arrival can turn this miss into a hit for this record.
+                // Emitted with nulls and never retracted: the lookup already answered, and no later
+                // arrival can turn this miss into a hit for this record.
                 emit(row, null);
             }
             return;
@@ -121,23 +298,6 @@ final class LookupJoin implements RowProcessor {
         for (Object[] match : matches) {
             emit(row, match);
         }
-    }
-
-    private List<Object[]> lookup(KeyValues key) {
-        long now = System.nanoTime();
-        CacheEntry cached = cacheNanos > 0 ? cache.get(key) : null;
-        if (cached != null && now - cached.storedAtNanos() < cacheNanos) {
-            cacheHits++;
-            return cached.rows();
-        }
-
-        List<Object[]> rows = new ArrayList<>(1);
-        lookups++;
-        source.lookup(key.values(), new CollectingSink(rows));
-        if (cacheNanos > 0) {
-            cache.put(key, new CacheEntry(rows, now));
-        }
-        return rows;
     }
 
     /** Writes the record's columns, then the dimension's -- or nulls where there was no match. */
@@ -227,6 +387,23 @@ final class LookupJoin implements RowProcessor {
         return unmatched;
     }
 
+    /** Records that joined a lookup already running for their key rather than starting another. */
+    long coalescedCount() {
+        return coalesced;
+    }
+
+    /** The most lookups that were ever outstanding at once. One means nothing ever overlapped. */
+    long peakInFlight() {
+        return maxObservedInFlight;
+    }
+
+    /** Finishes outstanding lookups and releases the threads. */
+    void close() {
+        drain();
+        lookupThreads.shutdown();
+        pendingRows.close();
+    }
+
     /** A key, by value, so it can be a map key. */
     private record KeyValues(Object[] values) {
         @Override
@@ -246,6 +423,50 @@ final class LookupJoin implements RowProcessor {
     }
 
     private record CacheEntry(List<Object[]> rows, long storedAtNanos) {}
+
+    /**
+     * A record waiting for its lookup, or holding a result that must wait its turn.
+     *
+     * @param handle the record's copied bytes, owned by the operator's store
+     * @param key null when the result came from the cache and so needs no storing back
+     * @param future null when the result was already known
+     * @param ready the result, when it was already known
+     */
+    private record Pending(
+            long handle,
+            KeyValues key,
+            java.util.concurrent.CompletableFuture<List<Object[]>> future,
+            List<Object[]> ready) {
+
+        boolean isDone() {
+            return future == null || future.isDone();
+        }
+
+        void await() {
+            if (future != null) {
+                result();
+            }
+        }
+
+        /** The rows, waiting for the lookup if it has not finished. */
+        List<Object[]> result() {
+            if (future == null) {
+                return ready;
+            }
+            try {
+                return future.join();
+            } catch (java.util.concurrent.CompletionException e) {
+                // Unwrapped, because the useful message is the store's -- "connection refused",
+                // "table not found" -- and a CompletionException wrapper buries it one frame deep
+                // in every log line that follows.
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException runtime) {
+                    throw runtime;
+                }
+                throw e;
+            }
+        }
+    }
 
     /**
      * Decodes what the source writes into plain values.
