@@ -48,10 +48,11 @@ plugin reader → ingest pump → lane inbox → lane thread → pipeline → si
 | 5 | Arrival order does not change session boundaries | **Green** — 200 shuffles |
 | 6 | Unbounded state is refused, not discovered | **Green** |
 | 7 | Watermarks never regress; an idle partition never freezes them | **Green** |
-| 8 | Checkpoint/restore round-trips state | **NOT YET** — checkpointing is Wave 5 |
+| 8 | Checkpoint/restore round-trips state | **Green as of Wave 5's first commits** — a run interrupted and recovered produces answers identical to an uninterrupted one, asserted element by element |
 
-Seven of eight. The eighth needs machinery that does not exist yet, and claiming it green would be
-the kind of gate that means nothing.
+Seven of eight when this pack was written; the eighth went green a few hours later when
+checkpointing landed at the start of Wave 5. Recorded that way rather than backdated, because a gate
+that quietly absorbs work done after it is not a gate.
 
 ## Retrospective
 
