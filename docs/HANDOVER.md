@@ -258,14 +258,16 @@ page against the real planner and asserts the outcome, so a construct that start
 fails the build and names the file to edit. It also asserts that every refusal carries a `PRV-` code
 and more than a token of explanation. Adding SQL support means updating both, which is the point.
 
-**Keyed `GROUP BY` over a bounded view read is a real gap.** `SELECT tier, COUNT(*) FROM user_volume
-GROUP BY tier` is refused with PRV-2050, and over a view the memory argument behind that code does
-not apply — the scan ends. The actual blocker is that there is no keyed unwindowed aggregate
-operator: `AggregateOperator` is executed by `GlobalAggregate`, which folds everything into one
-group. Relaxing the planner check was tried and reverted, because it produced a *wrong answer*
-(`SELECT DISTINCT tier` returned one row where there are two) rather than a failure. `GlobalAggregate`
-now throws on a keyed operator so the next attempt fails loudly. Writing that operator is the piece
-of work, and it is what a dashboard over a view will want.
+**Keyed `GROUP BY` over a bounded view read now works** — `KeyedAggregate`, reached only via
+`PhysicalPlanBuilder.overBoundedInput()`, which the serving layer sets and nothing reading a source
+does. The same SQL stays refused for a continuous query (PRV-2050) and must: over an endless stream
+the key space never stops growing, and no operator makes that acceptable.
+
+Getting here the wrong way round is instructive. Relaxing the planner check *before* writing the
+operator produced a **wrong answer**, not a failure — `SELECT DISTINCT tier` returned one row where
+there are two, because `AggregateOperator` fell through to `GlobalAggregate`, which ignores group
+keys. `GlobalAggregate` now throws on a keyed operator, and `GroupedViewQueryTest` asserts that exact
+regression.
 
 **A window bug this found:** `SUM(amount * 2)` over a TUMBLE window was refused as an unbounded
 aggregate. The search for the window assigner walked projections but not `ComputeOperator`, so an

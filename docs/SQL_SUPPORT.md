@@ -17,10 +17,10 @@ two implementations of `WHERE` agree until the day they do not, and that day is 
 a number.
 
 The one asymmetry worth knowing is the unwindowed keyed `GROUP BY`. For a continuous query it is
-refused **and should be** — over an endless stream its state never stops growing. For a bounded read
-of a view the same argument does not hold, because the scan ends, so the same SQL is a reasonable
-question there and is refused only because the operator to run it does not exist yet. Both are
-covered [below](#should-a-continuous-query-aggregate-at-all).
+refused **and should be** — over an endless stream its state never stops growing. Over a bounded read
+of a view the same argument does not hold, because the scan ends, so it is **supported there**. Same
+SQL, different answer, and the difference is the input rather than the query. Covered
+[below](#should-a-continuous-query-aggregate-at-all).
 
 ## The short version
 
@@ -82,7 +82,8 @@ only rows where the predicate is TRUE.
 | `COUNT(DISTINCT x)` | ✅ | |
 | Aggregate over an expression — `SUM(amount * 2)` | ✅ | |
 | `HAVING` on an aggregate | ✅ | |
-| `GROUP BY key` **without** a window | ❌ | `PRV-2050` |
+| `GROUP BY key` **without** a window, over a stream | ❌ | `PRV-2050` — unbounded state |
+| `GROUP BY key` **without** a window, over a view | ✅ | The scan ends, so the state is bounded by it |
 | `SESSION` windows | ❌ | `PRV-2020` — implemented in the runtime, no SQL surface yet |
 
 ### Should a continuous query aggregate at all?
@@ -122,17 +123,17 @@ GROUP BY window_start, window_end, user_id
 Grouping by a windowed stream *without* putting `window_start` and `window_end` in the `GROUP BY` is
 refused too — that is the unbounded case wearing a window's clothes.
 
-**And over a bounded read of a view?** `SELECT tier, COUNT(*) FROM user_volume GROUP BY tier` is a
-perfectly reasonable question — the scan ends, so nothing grows without bound — and it is refused
-today anyway. The memory argument does not apply; the honest reason is that **there is no keyed
-unwindowed aggregate operator**. `AggregateOperator` is executed by `GlobalAggregate`, which
-aggregates everything into a single group. Allowing the plan through without writing that operator
-would return one row where the query asked for one per key: a wrong answer that looks entirely
-plausible, which is worse than any refusal.
+**And over a bounded read of a view?** Supported. `SELECT tier, COUNT(*) FROM user_volume GROUP BY
+tier` is what a dashboard asks, the scan ends, and `KeyedAggregate` answers it — including `SUM`,
+`MIN`, `MAX`, `AVG`, `COUNT(DISTINCT)`, multiple group columns, `HAVING`, and parameters.
 
-This is a real gap and a likely next piece of work, since it is what a dashboard over a view wants.
-`GlobalAggregate` throws if it is ever handed a keyed operator, so whoever relaxes the planner check
-without writing the operator first gets a loud failure rather than quietly halved numbers.
+Two details that follow SQL rather than convenience. **NULL is a group**, not a row that vanishes —
+unlike a comparison, where NULL is UNKNOWN — so rows with no `tier` gather under one NULL key. And
+`COUNT(DISTINCT x)` does not count NULL.
+
+"Bounded by the scan" is only true if the scan is, so the operator caps distinct groups and refuses
+rather than growing. Row order is stable between identical reads: there is no `ORDER BY` to make it
+meaningful, but an answer that shuffles is one somebody wastes an afternoon on.
 
 ## Joins
 

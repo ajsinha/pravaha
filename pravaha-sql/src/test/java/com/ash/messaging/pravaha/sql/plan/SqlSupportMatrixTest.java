@@ -91,7 +91,7 @@ class SqlSupportMatrixTest {
             Case.refused("scalar function", "SELECT ABS(amount) FROM txn", "PRV-2021"),
             Case.refused("string function", "SELECT UPPER(user_id) FROM txn", "PRV-2021"),
             Case.refused("string concatenation", "SELECT user_id || 'x' FROM txn", "PRV-2021"),
-            Case.refused("SELECT DISTINCT", "SELECT DISTINCT user_id FROM txn", "PRV-2050"),
+            Case.refused("SELECT DISTINCT (over a stream)", "SELECT DISTINCT user_id FROM txn", "PRV-2050"),
 
             // --- WHERE ------------------------------------------------------------------------
             Case.ok("comparison", "SELECT txn_id FROM txn WHERE amount > 100"),

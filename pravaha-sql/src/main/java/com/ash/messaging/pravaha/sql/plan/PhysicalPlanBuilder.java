@@ -73,11 +73,13 @@ public final class PhysicalPlanBuilder {
     /**
      * Declares that this plan reads a finite input that ends, rather than a stream that does not.
      *
-     * <p>The only thing it changes is the unbounded-state refusal: a keyed {@code GROUP BY} without
-     * a window is refused over a stream, because its state grows with the number of distinct keys
-     * and never shrinks, and permitted over a bounded read, because the scan stops. The caller is
-     * asserting the input is finite, so this belongs to the serving layer reading a materialised
-     * view and to nothing that reads a source.
+     * <p>The only thing it changes is the unbounded-state refusal on a keyed {@code GROUP BY}. Over
+     * a stream that aggregate holds one accumulator per distinct key forever; over a bounded read
+     * the scan stops and the state goes with it, so the same SQL is an ordinary question there and
+     * a standing memory leak here.
+     *
+     * <p>The caller is asserting the input is finite. That belongs to the serving layer reading a
+     * materialised view and to nothing that reads a source.
      */
     public PhysicalPlanBuilder overBoundedInput() {
         this.boundedInput = true;
@@ -624,13 +626,11 @@ public final class PhysicalPlanBuilder {
         // refusing the query is the only intervention that reliably works. A global aggregate is
         // bounded by construction -- one row, whatever the input volume; a keyed one is not.
         //
-        // The refusal is load-bearing for a second reason that is easy to miss: there is no keyed
-        // unwindowed aggregate operator. AggregateOperator executes as GlobalAggregate, which
-        // ignores group keys entirely, so a keyed plan reaching the runtime would return one row
-        // instead of one per key -- a wrong answer rather than a failure. Relaxing this check
-        // therefore means writing that operator first; GlobalAggregate refuses a keyed operator so
-        // that doing it in the wrong order fails loudly.
-        if (!groupKeys.isEmpty()) {
+        // Over a bounded input the argument does not apply: a read of a maintained view scans a
+        // finite set of rows and stops, so the accumulators are bounded by the scan and released
+        // when it ends. KeyedAggregate executes those, capped at a group count that refuses rather
+        // than grows -- because "bounded by the scan" is only true if the scan is.
+        if (!groupKeys.isEmpty() && !boundedInput) {
             throw new PravahaException(
                     SqlErrors.UNBOUNDED_STATE,
                     "GROUP BY " + namesOf(groupKeys, input.outputSchema())

@@ -503,7 +503,16 @@ public final class InterpretedPipeline implements AutoCloseable {
                     yield buildInput(c.input(), self);
                 }
                 case AggregateOperator a -> {
-                    GlobalAggregate aggregate = new GlobalAggregate(a, arena, downstream);
+                    // Keyed and unkeyed are different operators rather than one with a branch: the
+                    // unkeyed case is a fixed row of state and the keyed case is a map, and pretending
+                    // they are the same is how GlobalAggregate came to silently ignore group keys.
+                    if (a.groupKeyOrdinals().isEmpty()) {
+                        GlobalAggregate aggregate = new GlobalAggregate(a, arena, downstream);
+                        finishers.add(aggregate::emit);
+                        yield buildInput(a.input(), aggregate);
+                    }
+                    KeyedAggregate aggregate = new KeyedAggregate(
+                            a, a.input().outputSchema(), arena, downstream, KeyedAggregate.DEFAULT_MAX_GROUPS);
                     finishers.add(aggregate::emit);
                     yield buildInput(a.input(), aggregate);
                 }
