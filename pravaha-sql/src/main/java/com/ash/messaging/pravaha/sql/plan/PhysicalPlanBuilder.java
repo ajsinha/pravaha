@@ -349,7 +349,10 @@ public final class PhysicalPlanBuilder {
     private static AggregateOperator.AggregateCall.Kind kindOf(AggregateCall call) {
         String name = call.getAggregation().getName().toUpperCase(java.util.Locale.ROOT);
         return switch (name) {
-            case "COUNT" -> AggregateOperator.AggregateCall.Kind.COUNT;
+            case "COUNT" ->
+                call.isDistinct()
+                        ? AggregateOperator.AggregateCall.Kind.COUNT_DISTINCT
+                        : AggregateOperator.AggregateCall.Kind.COUNT;
             case "SUM", "SUM0" -> AggregateOperator.AggregateCall.Kind.SUM;
             case "MIN" -> AggregateOperator.AggregateCall.Kind.MIN;
             case "MAX" -> AggregateOperator.AggregateCall.Kind.MAX;

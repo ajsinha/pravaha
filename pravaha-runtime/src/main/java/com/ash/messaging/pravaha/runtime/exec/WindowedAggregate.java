@@ -104,6 +104,7 @@ final class WindowedAggregate implements RowProcessor {
         for (int i = 0; i < kinds.length; i++) {
             kinds[i] = switch (operator.aggregates().get(i).kind()) {
                 case COUNT -> SlicedAggregateState.Kind.COUNT;
+                case COUNT_DISTINCT -> SlicedAggregateState.Kind.COUNT_DISTINCT;
                 case SUM, AVG -> SlicedAggregateState.Kind.SUM;
                 case MIN -> SlicedAggregateState.Kind.MIN;
                 case MAX -> SlicedAggregateState.Kind.MAX;

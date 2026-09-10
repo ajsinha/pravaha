@@ -84,6 +84,11 @@ final class GlobalAggregate implements RowProcessor {
             AggregateOperator.AggregateCall call = calls.get(i);
             switch (call.kind()) {
                 case COUNT -> counts[i] += weight;
+                case COUNT_DISTINCT ->
+                    throw new PravahaException(
+                            RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                            "COUNT(DISTINCT ...) over an unwindowed stream is unbounded state: one entry per "
+                                    + "distinct value, kept forever. Put it in a window.");
                 case SUM, AVG -> {
                     if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
                         sums[i] += row.getLong(call.argumentOrdinal()) * weight;
@@ -133,6 +138,12 @@ final class GlobalAggregate implements RowProcessor {
                         case SUM, MIN, MAX -> sums[i];
                         // Integer division, matching SQL's AVG over an integer column.
                         case AVG -> counts[i] == 0 ? 0 : sums[i] / counts[i];
+                        case COUNT_DISTINCT ->
+                            throw new PravahaException(
+                                    RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                                    "COUNT(DISTINCT ...) over an unwindowed stream holds one entry per distinct "
+                                            + "value forever, which is unbounded state by another name. Put it in a "
+                                            + "window.");
                     };
             writer.setLong(i, value);
         }

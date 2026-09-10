@@ -85,6 +85,14 @@ public final class SlicedAggregateState {
     /** Which aggregate a column holds. */
     public enum Kind {
         COUNT,
+        /**
+         * {@code COUNT(DISTINCT x)}: one entry per distinct value per group per slice.
+         *
+         * <p>Counted rather than flagged, because a retraction has to be able to remove a value --
+         * and a value seen three times and retracted once is still present. A set would say it had
+         * gone.
+         */
+        COUNT_DISTINCT,
         SUM,
         MIN,
         MAX
@@ -104,16 +112,29 @@ public final class SlicedAggregateState {
 
     private static final class Accumulator {
         final long[] values;
+        /** Per distinct-column, how many times each value is currently present. Null unless needed. */
+        Map<Long, Long>[] distinct;
+
         Object[] keyValues;
         long count;
 
-        Accumulator(int columns) {
+        @SuppressWarnings("unchecked")
+        Accumulator(int columns, boolean[] needsDistinct) {
             this.values = new long[columns];
+            for (int i = 0; i < columns; i++) {
+                if (needsDistinct[i]) {
+                    if (distinct == null) {
+                        distinct = new Map[columns];
+                    }
+                    distinct[i] = new HashMap<>();
+                }
+            }
         }
     }
 
     private final SlicedWindows windows;
     private final Kind[] kinds;
+    private final boolean[] needsDistinct;
     private final int maxSlices;
     private final Map<SliceKey, Accumulator> slices = new HashMap<>();
     private long peakSlices;
@@ -129,6 +150,10 @@ public final class SlicedAggregateState {
         }
         this.windows = windows;
         this.kinds = kinds.clone();
+        this.needsDistinct = new boolean[kinds.length];
+        for (int i = 0; i < kinds.length; i++) {
+            needsDistinct[i] = kinds[i] == Kind.COUNT_DISTINCT;
+        }
         this.maxSlices = maxSlices;
     }
 
@@ -158,7 +183,7 @@ public final class SlicedAggregateState {
                                 + "or the window is too wide for the key count. Raise the limit deliberately, "
                                 + "narrow the window, or add a key predicate.");
             }
-            accumulator = new Accumulator(kinds.length);
+            accumulator = new Accumulator(kinds.length, needsDistinct);
             accumulator.keyValues = keyValues;
             slices.put(sliceKey, accumulator);
             peakSlices = Math.max(peakSlices, slices.size());
@@ -168,6 +193,16 @@ public final class SlicedAggregateState {
         for (int i = 0; i < kinds.length; i++) {
             switch (kinds[i]) {
                 case COUNT -> accumulator.values[i] += weight;
+                case COUNT_DISTINCT -> {
+                    // Counted, not flagged. A value seen three times and retracted once is still
+                    // present, and a set would have said it had gone.
+                    Map<Long, Long> seen = accumulator.distinct[i];
+                    long remaining = seen.merge(values[i], weight, Long::sum);
+                    if (remaining <= 0) {
+                        seen.remove(values[i]);
+                    }
+                    accumulator.values[i] = seen.size();
+                }
                 case SUM -> accumulator.values[i] += values[i] * weight;
                 case MIN, MAX -> {
                     if (weight < 0) {
@@ -208,7 +243,8 @@ public final class SlicedAggregateState {
                 // is precisely the act of forgetting which slice a value came from.
                 SliceKey groupKey =
                         new SliceKey(entry.getKey().keyHigh(), entry.getKey().keyLow(), 0);
-                Accumulator target = combined.computeIfAbsent(groupKey, key -> new Accumulator(kinds.length));
+                Accumulator target =
+                        combined.computeIfAbsent(groupKey, key -> new Accumulator(kinds.length, needsDistinct));
                 merge(target, entry.getValue());
             }
         }
@@ -244,6 +280,14 @@ public final class SlicedAggregateState {
         for (int i = 0; i < kinds.length; i++) {
             switch (kinds[i]) {
                 case COUNT, SUM -> target.values[i] += source.values[i];
+                case COUNT_DISTINCT -> {
+                    // Distinct counts do not add across slices: a value in two slices is one distinct
+                    // value in the window, not two. The per-value counts have to be merged and the
+                    // size taken afterwards, which is why the maps travel rather than the numbers.
+                    Map<Long, Long> merged = target.distinct[i];
+                    source.distinct[i].forEach((value, seenCount) -> merged.merge(value, seenCount, Long::sum));
+                    target.values[i] = merged.size();
+                }
                 case MIN ->
                     target.values[i] = targetWasEmpty ? source.values[i] : Math.min(target.values[i], source.values[i]);
                 case MAX ->
