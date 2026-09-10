@@ -227,6 +227,22 @@ public final class Lane implements AutoCloseable {
         return inbox.cellBytes();
     }
 
+    /** Cells in this lane's inbox. Its entire input buffer: there is no queue behind it. */
+    public int inboxCells() {
+        return inbox.cellCount();
+    }
+
+    /**
+     * Inbox occupancy from 0 to 1.
+     *
+     * <p>What the backpressure watermarks are expressed in (design section 13.5), and it counts
+     * cells that are claimed or drained-but-unreleased as occupied -- because they are: a producer
+     * cannot have them, whatever the consumer has already read.
+     */
+    public double inboxFill() {
+        return inbox.fill();
+    }
+
     // ---------------------------------------------------------------- the loop
 
     private void run() {
