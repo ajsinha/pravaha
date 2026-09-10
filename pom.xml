@@ -34,6 +34,7 @@
     <module>pravaha-benchmarks</module>
     <module>pravaha-it</module>
     <module>plugins/pravaha-plugin-filesystem</module>
+    <module>plugins/pravaha-plugin-delta</module>
     <module>pravaha-embedded</module>
     <module>pravaha-cli</module>
     <module>pravaha-server</module>

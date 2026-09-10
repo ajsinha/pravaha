@@ -234,7 +234,8 @@ Also open at 10 000: per-query quotas so one hot query cannot starve the ~300 sh
 | `pravaha-server` | Spring Boot node: public REST API and the plain `/status` page. |
 | `pravaha-cli` | The `pravaha` command. |
 | `pravaha-testkit` | Virtual clock, deterministic scheduler, plugin TCK. |
-| [`plugins/pravaha-plugin-filesystem`](../plugins/pravaha-plugin-filesystem) | The reference source and sink. |
+| [`plugins/pravaha-plugin-filesystem`](../plugins/pravaha-plugin-filesystem) | The reference source and sink. Delimited files, no external dependency. |
+| [`plugins/pravaha-plugin-delta`](../plugins/pravaha-plugin-delta) | Delta Lake source, on Delta Kernel rather than Spark. Version diffs become Z-set weights. |
 | [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | Java client. Depends on `pravaha-api` alone. |
 | [`sdk/pravaha-sdk-python`](../sdk/pravaha-sdk-python) | Python client. The console is built on it. |
 

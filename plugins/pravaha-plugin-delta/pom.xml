@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+  <artifactId>pravaha-plugin-delta</artifactId>
+  <name>Pravaha :: plugin :: delta</name>
+  <description>Delta Lake source. Reads a table's transaction log and turns the difference between two
+    versions into Z-set weights, which is the shape Delta's file-level rewrite semantics already
+    have. Built on Delta Kernel, not Spark.</description>
+
+  <properties>
+    <!-- Kernel drags in Hadoop and Parquet. That is exactly what plugin classloader isolation
+         (ADR-010) exists for, and it is why this weight is acceptable here and nowhere else. -->
+    <delta.kernel.version>4.0.0</delta.kernel.version>
+    <!-- Kernel's default engine brings hadoop-client-runtime for execution; compiling against
+         Configuration needs the API jar as well. Both stay inside this plugin's classloader. -->
+    <hadoop.client.version>3.4.0</hadoop.client.version>
+    <jacoco.line.coverage>0.55</jacoco.line.coverage>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.delta</groupId>
+      <artifactId>delta-kernel-api</artifactId>
+      <version>${delta.kernel.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.delta</groupId>
+      <artifactId>delta-kernel-defaults</artifactId>
+      <version>${delta.kernel.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client-api</artifactId>
+      <version>${hadoop.client.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-testkit</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

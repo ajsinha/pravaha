@@ -2228,7 +2228,8 @@ That is why Kafka was deferred out of Wave 2 (P1-11) even though it is Tier 1: t
 | **2** | MySQL binlog (direct) | For deployments unwilling to run Kafka for CDC |
 | **2** | Pulsar, NATS JetStream, Kinesis, Pub/Sub, Event Hubs | Broker breadth. Event Hubs speaks the Kafka protocol, so it is largely configuration. |
 | **2** | MQTT | IoT feeds. The interesting work is mapping QoS 0/1/2 onto declared guarantees rather than assuming. |
-| **2** | Iceberg / Delta Lake | Table change feed as a source, and the lakehouse as a sink. Where analytics deployments already keep their data. |
+| **2** | **Delta Lake** *(source shipped)* | The lakehouse as a source, on Delta Kernel rather than Spark. Delta rewrites whole files, so a version diff weighted `-1`/`+1` **is** a Z-set delta -- storage semantics and execution algebra agreeing without an adapter (§19.10). |
+| **2** | Iceberg | The same shape for the other table format, and the lakehouse as a sink. |
 | **2** | ClickHouse, Elasticsearch/OpenSearch, Snowflake, BigQuery *(sinks)* | Where continuous results are actually consumed |
 | **2** | OTLP and Prometheus remote-write *(sources)* | Observability data is a stream, and "ask once, answer always" over live telemetry is the product's own story told back to it |
 | **2** | JDBC incremental poll (high-water-mark column) | The universal fallback for any database with no CDC. At-least-once, no deletes — and it says so. |
@@ -2248,6 +2249,23 @@ Almost every connector in §19.8 is one of **three shapes**, and the shape is wh
 | **Poll with a watermark** | JDBC high-water-mark, Aerospike `lut-scan`, REST pagination | Throttling, overlap windows, the honest admission that deletes are invisible |
 
 The kit ships one base implementation per shape plus the decoders, so a new connector is transport plus configuration rather than a rediscovery of the same three problems. The plugin TCK (P1-14) then checks that what the connector *declares* matches what it *does* — a source claiming replayable offsets that cannot actually rewind fails the TCK, which is precisely the failure that would otherwise surface as silent data loss during a recovery.
+
+
+### 19.10 Delta Lake
+
+Shipped as a source. The connector is small because Delta and Z-sets already agree, and the parts that are not small are the parts where connectors usually go quietly wrong.
+
+**Delta's file-level rewrite is a Z-set delta.** An `UPDATE` or `MERGE` removes the files it touched and adds replacements, so the difference between version *n* and *n+1* is a set of removed files and a set of added files. Emit removed rows at weight `-1` and added rows at `+1` and that difference *is* the changelog (§9.2) — no update path, no before-image plumbing, no per-operator retract logic. This is the clearest available demonstration that ADR-013 was the right bet: a storage format designed with no knowledge of DBSP produces exactly the shape the algebra wants.
+
+**What it costs.** Rewriting a 100 000-row file to change one row yields 100 000 retractions and 100 000 insertions, of which 99 999 pairs annihilate under consolidation. The answer is right; the volume is proportional to *file size* rather than to *change size*. Append-heavy tables — most Delta tables — never pay it. Update-heavy tables want the change data feed instead, and **Delta Kernel 4.0 exposes no public CDF API**, which is recorded here rather than discovered by whoever needs it.
+
+**Built on Delta Kernel, not Spark.** Kernel understands the transaction log, protocol versions, checkpoints and column mapping, and brings Hadoop and Parquet with it but not a cluster. Requiring Spark to feed Pravaha would reintroduce the extra hop the product exists to remove (§2.1). The weight of those transitive dependencies is exactly what plugin classloader isolation (ADR-010) is for.
+
+**Offsets carry a phase, not just a version.** A version's rows are emitted in three different senses — the initial snapshot, a commit's additions, a commit's removals — and each has a different file list. An offset naming only a version cannot say which, so a reader resuming at "version 5, file 2" would re-emit the whole table at version 5 instead of the two files that version added. The rows would be real, the weights right, and the answer wrong. The offset is therefore `(version, phase, file, row)`, all four reconstructible because Delta versions are immutable and their file lists are deterministic once sorted.
+
+**Two things are refused rather than approximated.** *Deletion vectors* mark rows deleted without rewriting the file, so file diffing cannot see them and the deleted rows would keep being served as live — the reader fails with a message naming the table property. *A vacuumed file* that a later commit removed cannot have its retractions reconstructed from anywhere, so the read fails loudly instead of dropping them; a lost retraction leaves deleted rows alive in a maintained view permanently.
+
+**Not yet:** predicate pushdown (Kernel's scan builder takes one, and file skipping from log statistics is the obvious next step — declared as absent until it exists), file-group parallelism beyond one partition per table, and the sink.
 
 ---
 
