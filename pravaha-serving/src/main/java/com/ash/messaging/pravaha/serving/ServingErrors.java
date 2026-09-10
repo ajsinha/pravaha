@@ -38,5 +38,23 @@ public final class ServingErrors {
     /** A query shape this server does not answer -- see ADR-030 for what is deliberately excluded. */
     public static final ErrorCode UNSUPPORTED_QUERY = new ErrorCode(4025, "SERVING_UNSUPPORTED_QUERY");
 
+    /**
+     * The server is at its read concurrency limit and the queue is full.
+     *
+     * <p>Distinct from {@link #READ_QUEUE_TIMED_OUT}: this one never waited. A client seeing it
+     * knows the server is saturated right now, which is a different signal from one that waited its
+     * turn and ran out of patience.
+     */
+    public static final ErrorCode READ_REJECTED = new ErrorCode(4026, "SERVING_READ_REJECTED");
+
+    /** A read waited for a permit and gave up before getting one. */
+    public static final ErrorCode READ_QUEUE_TIMED_OUT = new ErrorCode(4027, "SERVING_READ_QUEUE_TIMED_OUT");
+
+    /** One tenant is already using its whole share of the read concurrency. */
+    public static final ErrorCode TENANT_QUOTA_EXCEEDED = new ErrorCode(4028, "SERVING_TENANT_QUOTA_EXCEEDED");
+
+    /** A read ran past its deadline and was stopped mid-scan. */
+    public static final ErrorCode READ_DEADLINE_EXCEEDED = new ErrorCode(4029, "SERVING_READ_DEADLINE_EXCEEDED");
+
     private ServingErrors() {}
 }

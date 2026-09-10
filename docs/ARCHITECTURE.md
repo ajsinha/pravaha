@@ -326,6 +326,30 @@ aggregating. Forking state per principal is available and explicit; it is not a 
 policy with a per-user filter would otherwise multiply the engine's state by the number of users and
 the operator would learn that from a memory alarm.
 
+## How many reads at once
+
+ADR-030 put continuous queries and request/response on the same engine, which makes an unbounded
+read path a way for a client with a loop to stop a continuous query from keeping up with its input.
+The continuous query is the one with a service level; the read is the one that can be told to come
+back. `ReadAdmission` bounds three things separately, because they fail differently:
+
+- **concurrency** — the work happening at once. Reads run on the calling thread, never on lane
+  threads, so this bounds memory and CPU contention rather than lanes;
+- **queue depth** — the work *waiting*. A queue longer than the client's timeout is work nobody is
+  waiting for any more, which the server will nevertheless do, at the expense of work somebody is;
+- **per-tenant share** — any one tenant's use of the first two. Without it the fairest possible
+  global limit still lets one tenant hold every permit, and what the other tenants report is
+  "Pravaha is down".
+
+Refusal is the feature. Queueing without limit turns a load problem into a latency problem and then
+into a memory problem; refusing gives the client something to retry or shed and the operator a
+number that rises before anything breaks. Metadata calls are admitted too — a client asking only for
+schemas, in a loop, uses the same planner and the same CPU, and an unmetered path is an unmetered
+path.
+
+The refusal reaches the client as `RESOURCE_EXHAUSTED`, not `INVALID_ARGUMENT`, because that is the
+difference between a driver that backs off and retries and one that reports a bug.
+
 ## Rules the build enforces
 
 Not conventions — tests. Each one exists because the failure it prevents is silent.

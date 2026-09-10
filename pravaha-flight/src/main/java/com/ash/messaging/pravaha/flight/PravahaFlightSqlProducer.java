@@ -37,6 +37,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.serving.ReadAdmission;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 
@@ -74,13 +75,26 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     private final Location location;
 
     public PravahaFlightSqlProducer(ViewCatalog catalog, BufferAllocator allocator, Location location) {
-        this(catalog, allocator, location, SecurityPolicy.PERMISSIVE, AuditSink.NONE);
+        this(
+                catalog,
+                allocator,
+                location,
+                SecurityPolicy.PERMISSIVE,
+                AuditSink.NONE,
+                ReadAdmission.UNLIMITED,
+                java.time.Duration.ZERO);
     }
 
     public PravahaFlightSqlProducer(
-            ViewCatalog catalog, BufferAllocator allocator, Location location, SecurityPolicy policy, AuditSink audit) {
+            ViewCatalog catalog,
+            BufferAllocator allocator,
+            Location location,
+            SecurityPolicy policy,
+            AuditSink audit,
+            ReadAdmission admission,
+            java.time.Duration readDeadline) {
         this.catalog = catalog;
-        this.queries = new ViewQuery(catalog, policy, audit);
+        this.queries = new ViewQuery(catalog, policy, audit, admission, readDeadline);
         this.allocator = allocator;
         this.location = location;
     }
@@ -155,7 +169,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             // The engine's own diagnosis, with its PRV code, rather than a generic INTERNAL. A
             // client that gets "PRV-4023 ... this server serves [user_volume]" can act on it.
             listener.error(
-                    CallStatus.INVALID_ARGUMENT.withDescription(e.getMessage()).toRuntimeException());
+                    FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException());
         } catch (RuntimeException e) {
             listener.error(CallStatus.INTERNAL
                     .withDescription(String.valueOf(e.getMessage()))
@@ -168,7 +182,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         try {
             return queries.schemaOf(sql, principalOf(context));
         } catch (PravahaException e) {
-            throw CallStatus.INVALID_ARGUMENT.withDescription(e.getMessage()).toRuntimeException();
+            throw FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException();
         }
     }
 

@@ -158,7 +158,10 @@ class FlightAuthenticationTest {
                 .isInstanceOf(FlightRuntimeException.class)
                 // Not UNAUTHENTICATED: the caller is who they say they are, and retrying with a
                 // fresh credential will not help. Telling them apart is the difference between
-                // "log in again" and "ask for access".
+                // "log in again" and "ask for access", and the status code says which before the
+                // client has read a word of the message.
+                .satisfies(e -> assertThat(((FlightRuntimeException) e).status().code())
+                        .isEqualTo(CallStatus.UNAUTHORIZED.code()))
                 .hasMessageContaining("PRV-7002");
     }
 

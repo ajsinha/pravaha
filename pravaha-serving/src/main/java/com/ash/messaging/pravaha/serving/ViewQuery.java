@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.serving;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -78,9 +79,14 @@ public final class ViewQuery {
      */
     public static final int MAX_RESULT_ROWS = 1_000_000;
 
+    /** How many input rows pass between deadline checks. */
+    private static final int DEADLINE_CHECK_ROWS = 4_096;
+
     private final ViewCatalog catalog;
     private final SecurityPolicy policy;
     private final AuditSink audit;
+    private final ReadAdmission admission;
+    private final long deadlineNanos;
 
     /** A query path with no authorization, for an engine embedded behind its own wall. */
     public ViewQuery(ViewCatalog catalog) {
@@ -95,9 +101,27 @@ public final class ViewQuery {
      * copies would diverge; the one that diverged would be the one somebody exploited.
      */
     public ViewQuery(ViewCatalog catalog, SecurityPolicy policy, AuditSink audit) {
+        this(catalog, policy, audit, ReadAdmission.UNLIMITED, Duration.ZERO);
+    }
+
+    /**
+     * A query path that also bounds how many reads run at once and how long one may take.
+     *
+     * <p>Admission is here rather than in the transport for the same reason enforcement is: a
+     * second way in would otherwise be a second way past the limit. ADR-030 made this load-bearing
+     * -- once one engine answers both continuous queries and request/response, an unbounded read
+     * path is how a client with a loop stops a continuous query from keeping up with its input.
+     *
+     * @param deadline how long a single read may run before it is stopped mid-scan; {@link
+     *     Duration#ZERO} for no deadline
+     */
+    public ViewQuery(
+            ViewCatalog catalog, SecurityPolicy policy, AuditSink audit, ReadAdmission admission, Duration deadline) {
         this.catalog = catalog;
         this.policy = policy;
         this.audit = audit;
+        this.admission = admission == null ? ReadAdmission.UNLIMITED : admission;
+        this.deadlineNanos = deadline == null ? 0L : Math.max(0L, deadline.toNanos());
     }
 
     /** A result: the shape of the rows, and the rows. */
@@ -151,9 +175,20 @@ public final class ViewQuery {
             plan = withRowFilter(plan, view, decision.rowFilter().get(), source);
         }
 
+        // Taken *after* the policy check, so a refused read never occupies a permit somebody
+        // authorized could have used, and before any planning work that would otherwise be done on
+        // behalf of a read this node has no capacity for.
+        try (ReadAdmission.Lease lease = admission.acquire(principal)) {
+            return run(plan, view);
+        }
+    }
+
+    private Result run(PhysicalOperator plan, ServedView view) {
         List<Object[]> results = new ArrayList<>();
         RowLayout inputLayout = RowLayout.of(view.schema());
         StreamSchema outputSchema = plan.outputSchema();
+        long expiry = deadlineNanos == 0L ? Long.MAX_VALUE : System.nanoTime() + deadlineNanos;
+        int sinceDeadlineCheck = 0;
 
         try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 64);
                 InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, (RowOutput) () ->
@@ -172,6 +207,22 @@ public final class ViewQuery {
             BinaryRowWriter writer = new BinaryRowWriter(inputLayout);
             BinaryRowView cursor = new BinaryRowView(inputLayout);
             for (Object[] row : view.scan()) {
+                // Checked periodically rather than per row: System.nanoTime() is a few nanoseconds
+                // and the loop body is not much more, so per-row checking would make the deadline
+                // the dominant cost of a read that meets it.
+                if (++sinceDeadlineCheck == DEADLINE_CHECK_ROWS) {
+                    sinceDeadlineCheck = 0;
+                    if (System.nanoTime() > expiry) {
+                        throw new PravahaException(
+                                ServingErrors.READ_DEADLINE_EXCEEDED,
+                                "this read passed its "
+                                        + Duration.ofNanos(deadlineNanos).toMillis()
+                                        + "ms deadline after " + results.size()
+                                        + " rows and was stopped. A read that outlives its caller's patience "
+                                        + "is work being done for nobody, at the expense of work being done "
+                                        + "for somebody");
+                    }
+                }
                 long handle = arena.allocate(inputLayout.rowSize(1024));
                 writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
                 write(writer, view.schema(), row);
@@ -215,7 +266,13 @@ public final class ViewQuery {
             throw new PravahaException(
                     SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + source + "': " + decision.reason());
         }
-        return plan.outputSchema();
+        // Admitted too, and not because planning is expensive -- it is not, next to a scan. A
+        // metadata call that skipped admission would be an unmetered way in: a client asking only
+        // for schemas, in a loop, would consume the same planner and the same CPU as the reads this
+        // limit exists to bound, while the counter the operator watches stayed flat.
+        try (ReadAdmission.Lease lease = admission.acquire(principal)) {
+            return plan.outputSchema();
+        }
     }
 
     private PhysicalOperator planFor(String sql) {

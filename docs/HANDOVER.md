@@ -245,8 +245,9 @@ right numbers — which is how that distinction was discovered.
 | The soundness rule | ✅ a read-time filter is sound iff the view carries every column it names; otherwise `PRV-7003` and a message naming the fix. A filter over a column that was aggregated away cannot separate rows that are already mixed |
 | Audit | ✅ `AuditSink` records allows as well as denials — a log of refusals cannot answer "who read the payroll view" |
 | Token support in both SDKs | ✅ Java and Python alike; both refuse to send a credential over plaintext unless explicitly told to, and neither prints it in a `toString`/`repr` |
+| Read admission control | ✅ `ReadAdmission`: concurrency, queue depth and a per-tenant share, each bounding a different failure. Refusal is the feature — a queue longer than the client's timeout is work nobody is waiting for. Plus a per-read deadline checked every 4 096 rows |
+| Flight status codes that clients act on | ✅ `FlightErrors.statusFor` — 7001 → UNAUTHENTICATED, 7002/7003 → UNAUTHORIZED, 4026/4027/4028 → RESOURCE_EXHAUSTED, 4029 → TIMED_OUT. Sending a full node's refusal as INVALID_ARGUMENT makes it look like a malformed query, and the client that should have backed off reports a bug |
 | Subscriptions over Flight | ❌ |
-| Read admission control | ❌ — ADR-030 makes this load-bearing rather than optional |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
 **The Python SDK's transport tests were skipping silently.** They start the real Java server from

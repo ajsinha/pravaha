@@ -28,6 +28,7 @@ import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.TokenVerifier;
+import com.ash.messaging.pravaha.serving.ReadAdmission;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 /**
@@ -58,6 +59,8 @@ public final class PravahaFlightServer implements AutoCloseable {
     private TokenVerifier verifier;
     private SecurityPolicy policy = SecurityPolicy.PERMISSIVE;
     private AuditSink audit = AuditSink.NONE;
+    private ReadAdmission admission = ReadAdmission.UNLIMITED;
+    private java.time.Duration readDeadline = java.time.Duration.ZERO;
     private final AtomicReference<FlightServer> server = new AtomicReference<>();
     private final boolean ownsAllocator;
     private Location location;
@@ -112,6 +115,21 @@ public final class PravahaFlightServer implements AutoCloseable {
     }
 
     /**
+     * Bounds how many reads run at once and how long one may take.
+     *
+     * <p>ADR-030 made this load-bearing rather than optional. Once one engine answers both
+     * continuous queries and request/response, an unbounded read path is how a client with a loop
+     * stops a continuous query from keeping up with its input -- and the continuous query is the
+     * one with a service level.
+     */
+    public PravahaFlightServer admitting(ReadAdmission admission, java.time.Duration readDeadline) {
+        requireNotStarted("admission control");
+        this.admission = java.util.Objects.requireNonNull(admission, "admission");
+        this.readDeadline = java.util.Objects.requireNonNull(readDeadline, "readDeadline");
+        return this;
+    }
+
+    /**
      * Binds and starts.
      *
      * @param port the port to listen on, or zero to let the operating system choose -- which is what
@@ -121,7 +139,10 @@ public final class PravahaFlightServer implements AutoCloseable {
         Location requested = Location.forGrpcInsecure(host, port);
         try {
             FlightServer.Builder builder = FlightServer.builder(
-                    allocator, requested, new PravahaFlightSqlProducer(catalog, allocator, requested, policy, audit));
+                    allocator,
+                    requested,
+                    new PravahaFlightSqlProducer(
+                            catalog, allocator, requested, policy, audit, admission, readDeadline));
             if (verifier != null) {
                 builder.middleware(PrincipalMiddleware.KEY, new PrincipalMiddleware.Factory(verifier));
             }
