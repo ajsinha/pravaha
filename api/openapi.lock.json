@@ -1,0 +1,51 @@
+{
+  "paths" : {
+    "/api/v1/queries/explain" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ "query:level" ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/api/v1/queries/validate" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/api/v1/status" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/api/v1/streams" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/api/v1/streams/{name}" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name" ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/status" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200" ]
+      }
+    }
+  }
+}
