@@ -165,6 +165,7 @@ Architecturally out of the data path and experientially the centre of the produc
 | **[Implementation Plan](docs/implementation_plan.md)** | Waves, epics, staffing, risks, descope ladder |
 | [Decision records](docs/adr/) | Every architectural decision and why, including the ones later reversed |
 | [Examples](examples/) | Runnable, and executed by the build so they cannot rot |
+| [Handover](docs/HANDOVER.md) | Current state, working practices, and what to pick up next |
 | [Original SRS](docs/initial_req.md) | The 1.0-DRAFT this design supersedes. Kept for provenance. |
 
 Good entry points:
