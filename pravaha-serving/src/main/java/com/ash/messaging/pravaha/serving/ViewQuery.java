@@ -303,7 +303,11 @@ public final class ViewQuery {
     }
 
     private static PhysicalOperator physicalOf(RelNode rel, BoundParameters parameters) {
-        return new PhysicalPlanBuilder().bind(parameters).build(rel);
+        // Bounded, because a view read scans a finite set of rows and stops. That is what makes
+        // `GROUP BY tier` legal here and refused in a continuous query over the same SQL: the
+        // refusal is about a key space that never stops growing, and this one stops at the end of
+        // the scan.
+        return new PhysicalPlanBuilder().bind(parameters).overBoundedInput().build(rel);
     }
 
     /**

@@ -56,6 +56,20 @@ final class GlobalAggregate implements RowProcessor {
     private long lastSequence;
 
     GlobalAggregate(AggregateOperator operator, RowArena arena, RowProcessor downstream) {
+        if (!operator.groupKeyOrdinals().isEmpty()) {
+            // This class aggregates everything into one group, by design. Handed a keyed operator it
+            // would ignore the keys and return a single row where the query asked for one per key --
+            // a wrong answer that looks entirely plausible, which is the worst failure available.
+            //
+            // The SQL planner refuses a keyed unwindowed GROUP BY (PRV-2050) so this cannot normally
+            // be reached. The check is here because the day somebody relaxes that refusal -- to
+            // support GROUP BY over a bounded view read, which is a reasonable thing to want -- the
+            // missing piece is a keyed aggregate operator, and the failure should say so rather than
+            // quietly halving somebody's dashboard.
+            throw new IllegalArgumentException("GlobalAggregate cannot execute a keyed GROUP BY on "
+                    + operator.groupKeyOrdinals() + "; a keyed unwindowed aggregate operator does not "
+                    + "exist yet, and running this one would ignore the keys and return a single row");
+        }
         this.operator = operator;
         this.arena = arena;
         this.downstream = downstream;

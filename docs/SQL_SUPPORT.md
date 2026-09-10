@@ -8,6 +8,20 @@ Every construct below is **checked by a test**, not by someone's memory:
 runs each statement in this page against the real planner. If a construct starts working, or stops,
 the build fails and names this file. That is the only way a page like this stays true.
 
+## Continuous queries and view reads run the same SQL
+
+There is one planner and one set of operators. A continuous query registered against a source and a
+request/response query against a maintained view both go through `SqlPlanner` → `PhysicalPlanBuilder`
+→ the same physical operators, so **everything on this page applies to both**. That is deliberate:
+two implementations of `WHERE` agree until the day they do not, and that day is a support call about
+a number.
+
+The one asymmetry worth knowing is the unwindowed keyed `GROUP BY`. For a continuous query it is
+refused **and should be** — over an endless stream its state never stops growing. For a bounded read
+of a view the same argument does not hold, because the scan ends, so the same SQL is a reasonable
+question there and is refused only because the operator to run it does not exist yet. Both are
+covered [below](#should-a-continuous-query-aggregate-at-all).
+
 ## The short version
 
 Pravaha runs **the shape of query people actually write against a stream**: pick columns, filter
@@ -71,6 +85,22 @@ only rows where the predicate is TRUE.
 | `GROUP BY key` **without** a window | ❌ | `PRV-2050` |
 | `SESSION` windows | ❌ | `PRV-2020` — implemented in the runtime, no SQL surface yet |
 
+### Should a continuous query aggregate at all?
+
+Yes — **windowed aggregation is the point of the engine**, not a feature bolted onto it. A continuous
+query that only filters and projects is a `grep` with extra steps, and nobody needs incremental
+computation for that. The value is in maintaining `SUM`, `COUNT` and `COUNT(DISTINCT)` over a window
+and keeping them correct as data arrives, late data included. The query on the front of the README is
+exactly that shape, and it is what the Z-set algebra in §4 exists to make incremental.
+
+So the answer splits, and the split is not a compromise:
+
+- **Windowed `GROUP BY` — yes.** Supported, incremental, with bounded state and late-data correction.
+  This is the primary use.
+- **Unwindowed keyed `GROUP BY` — no, and it should stay that way.** Over a stream with no end, its
+  state grows with the number of distinct keys and never shrinks. There is no configuration that
+  fixes it and no machine large enough to outrun it.
+
 ### Why an unwindowed `GROUP BY` is refused
 
 `SELECT user_id, COUNT(*) FROM txn GROUP BY user_id` is refused, and this surprises people, so it is
@@ -91,6 +121,18 @@ GROUP BY window_start, window_end, user_id
 
 Grouping by a windowed stream *without* putting `window_start` and `window_end` in the `GROUP BY` is
 refused too — that is the unbounded case wearing a window's clothes.
+
+**And over a bounded read of a view?** `SELECT tier, COUNT(*) FROM user_volume GROUP BY tier` is a
+perfectly reasonable question — the scan ends, so nothing grows without bound — and it is refused
+today anyway. The memory argument does not apply; the honest reason is that **there is no keyed
+unwindowed aggregate operator**. `AggregateOperator` is executed by `GlobalAggregate`, which
+aggregates everything into a single group. Allowing the plan through without writing that operator
+would return one row where the query asked for one per key: a wrong answer that looks entirely
+plausible, which is worse than any refusal.
+
+This is a real gap and a likely next piece of work, since it is what a dashboard over a view wants.
+`GlobalAggregate` throws if it is ever handed a keyed operator, so whoever relaxes the planner check
+without writing the operator first gets a loud failure rather than quietly halved numbers.
 
 ## Joins
 

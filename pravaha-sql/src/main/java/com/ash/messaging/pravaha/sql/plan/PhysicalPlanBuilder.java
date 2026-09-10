@@ -68,6 +68,22 @@ public final class PhysicalPlanBuilder {
     /** Builds a plan from an optimised relational tree. */
     private BoundParameters parameters = BoundParameters.none();
 
+    private boolean boundedInput;
+
+    /**
+     * Declares that this plan reads a finite input that ends, rather than a stream that does not.
+     *
+     * <p>The only thing it changes is the unbounded-state refusal: a keyed {@code GROUP BY} without
+     * a window is refused over a stream, because its state grows with the number of distinct keys
+     * and never shrinks, and permitted over a bounded read, because the scan stops. The caller is
+     * asserting the input is finite, so this belongs to the serving layer reading a materialised
+     * view and to nothing that reads a source.
+     */
+    public PhysicalPlanBuilder overBoundedInput() {
+        this.boundedInput = true;
+        return this;
+    }
+
     /**
      * Binds this statement's {@code ?} placeholders for the plan about to be built.
      *
@@ -607,6 +623,13 @@ public final class PhysicalPlanBuilder {
         // Design 9.6: an unbounded integrate over an unbounded key space never stops growing, and
         // refusing the query is the only intervention that reliably works. A global aggregate is
         // bounded by construction -- one row, whatever the input volume; a keyed one is not.
+        //
+        // The refusal is load-bearing for a second reason that is easy to miss: there is no keyed
+        // unwindowed aggregate operator. AggregateOperator executes as GlobalAggregate, which
+        // ignores group keys entirely, so a keyed plan reaching the runtime would return one row
+        // instead of one per key -- a wrong answer rather than a failure. Relaxing this check
+        // therefore means writing that operator first; GlobalAggregate refuses a keyed operator so
+        // that doing it in the wrong order fails loudly.
         if (!groupKeys.isEmpty()) {
             throw new PravahaException(
                     SqlErrors.UNBOUNDED_STATE,
