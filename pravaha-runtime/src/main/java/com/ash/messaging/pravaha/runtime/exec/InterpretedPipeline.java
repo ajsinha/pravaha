@@ -25,6 +25,7 @@ import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
+import com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -37,6 +38,7 @@ import com.ash.messaging.pravaha.runtime.plan.ComputeOperator;
 import com.ash.messaging.pravaha.runtime.plan.Expression;
 import com.ash.messaging.pravaha.runtime.plan.FilterOperator;
 import com.ash.messaging.pravaha.runtime.plan.JoinOperator;
+import com.ash.messaging.pravaha.runtime.plan.LookupJoinOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.ProjectOperator;
 import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
@@ -66,11 +68,21 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     private static final int MAX_JOIN_STATE_SLABS = 64;
 
+    /**
+     * How many looked-up rows one lookup join may cache.
+     *
+     * <p>Bounded, and access-ordered underneath, because a lookup join's key distribution is
+     * usually heavily skewed -- a few keys carry most of the traffic -- and an unbounded cache over
+     * an unbounded key space is exactly the memory growth this operator exists to avoid.
+     */
+    private static final int MAX_LOOKUP_CACHE_ENTRIES = 10_000;
+
     private final RowArena arena;
     private final RowProcessor head;
     private final List<Runnable> finishers = new ArrayList<>();
     private final List<WindowedAggregate> windowed = new ArrayList<>();
     private final List<SymmetricHashJoin> joins = new ArrayList<>();
+    private final List<LookupJoin> lookupJoins = new ArrayList<>();
 
     /**
      * Where rows enter, by stream name.
@@ -96,14 +108,28 @@ public final class InterpretedPipeline implements AutoCloseable {
      * @param sink where the terminal stage writes
      */
     public static InterpretedPipeline compile(PhysicalOperator plan, RowOutput sink) {
+        return compile(plan, sink, Map.of());
+    }
+
+    /**
+     * Builds a pipeline whose lookup joins are bound to real dimension tables.
+     *
+     * @param lookups by the registered stream name the query joined against. A plan that names one
+     *     this map does not have fails here, at start-up, rather than on the first record -- a
+     *     lookup join that discovers its table is missing after an hour of running has already
+     *     produced an hour of output that should not exist
+     */
+    public static InterpretedPipeline compile(
+            PhysicalOperator plan, RowOutput sink, Map<String, LookupSourcePlugin> lookups) {
         RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 64);
-        Builder builder = new Builder(arena, sink);
+        Builder builder = new Builder(arena, sink, lookups);
         RowProcessor built = builder.build(plan);
         RowProcessor head = builder.joins.isEmpty() ? built : null;
         InterpretedPipeline pipeline = new InterpretedPipeline(arena, head, builder.scans);
         pipeline.finishers.addAll(builder.finishers);
         pipeline.windowed.addAll(builder.windowed);
         pipeline.joins.addAll(builder.joins);
+        pipeline.lookupJoins.addAll(builder.lookupJoins);
         pipeline.inputs.putAll(builder.heads);
         return pipeline;
     }
@@ -349,12 +375,16 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final List<Runnable> finishers = new ArrayList<>();
         private final List<WindowedAggregate> windowed = new ArrayList<>();
         private final List<SymmetricHashJoin> joins = new ArrayList<>();
+        private final List<LookupJoin> lookupJoins = new ArrayList<>();
         private final List<ScanOperator> scans = new ArrayList<>();
         private final Map<String, RowProcessor> heads = new LinkedHashMap<>();
 
-        Builder(RowArena arena, RowOutput sink) {
+        private final Map<String, LookupSourcePlugin> lookups;
+
+        Builder(RowArena arena, RowOutput sink, Map<String, LookupSourcePlugin> lookups) {
             this.arena = arena;
             this.sink = sink;
+            this.lookups = lookups;
         }
 
         RowProcessor build(PhysicalOperator operator) {
@@ -425,6 +455,20 @@ public final class InterpretedPipeline implements AutoCloseable {
                     yield buildInput(w.input(), aggregate);
                 }
                 case SinkOperator s -> buildInput(s.input(), downstream);
+                case LookupJoinOperator l -> {
+                    LookupSourcePlugin table = lookups.get(l.lookupStream());
+                    if (table == null) {
+                        throw new PravahaException(
+                                RuntimeErrors.UNSUPPORTED_JOIN,
+                                "this query looks rows up in '" + l.lookupStream()
+                                        + "', which is not among the dimension tables this execution was given ("
+                                        + lookups.keySet() + "). Register it as a lookup source before starting "
+                                        + "the query.");
+                    }
+                    LookupJoin join = new LookupJoin(l, table, arena, downstream, MAX_LOOKUP_CACHE_ENTRIES);
+                    lookupJoins.add(join);
+                    yield buildInput(l.input(), join);
+                }
                 case JoinOperator j -> {
                     // A join is where the plan stops being a chain. Both sides are built with the
                     // join as their downstream, and each side's scan registers its own entry point;

@@ -34,12 +34,52 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  * calls it at run time -- the planner's output is translated into Pravaha's own operator DAG, and
  * that is what executes. Calcite is a compiler here, not a runtime (ADR-002).
  */
-public final class PravahaTable extends AbstractTable {
+public final class PravahaTable extends AbstractTable implements org.apache.calcite.schema.TemporalTable {
 
     private final StreamSchema schema;
+    private final boolean lookup;
 
     public PravahaTable(StreamSchema schema) {
+        this(schema, false);
+    }
+
+    /**
+     * @param lookup whether this stream is a dimension to be looked up rather than consumed. A
+     *     lookup table is what makes {@code JOIN ... FOR SYSTEM_TIME AS OF} legal: the syntax asks
+     *     for the version of a row as of a point in time, which only means something for a table
+     *     somebody can ask about a row at a time
+     */
+    public PravahaTable(StreamSchema schema, boolean lookup) {
         this.schema = schema;
+        this.lookup = lookup;
+    }
+
+    /** Whether a query may join against this as a temporal table. */
+    public boolean isLookup() {
+        return lookup;
+    }
+
+    /**
+     * Calcite asks for the system-time columns of a temporal table.
+     *
+     * <p>Pravaha has none: a lookup returns the row as the store holds it now, and there is no
+     * validity interval stored beside it. Returning null says exactly that, and Calcite is content
+     * -- it needs the table to <em>be</em> temporal for the syntax to validate, not to have those
+     * columns. Declaring column names that do not exist would be worse than saying nothing: the
+     * first query that referenced one would fail somewhere far from here.
+     *
+     * <p>A non-lookup stream returns null as well and is rejected earlier, by
+     * {@link #isLookup()} at plan time, with a message about what to register rather than a
+     * Calcite validation error about system time.
+     */
+    @Override
+    public String getSysStartFieldName() {
+        return null;
+    }
+
+    @Override
+    public String getSysEndFieldName() {
+        return null;
     }
 
     public StreamSchema streamSchema() {

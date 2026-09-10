@@ -70,6 +70,16 @@ public final class SqlPlanner {
         return new SqlPlanner(catalog);
     }
 
+    /** A planner whose first stream is consumed and whose remaining ones are dimension tables. */
+    public static SqlPlanner withLookups(StreamSchema stream, StreamSchema... lookups) {
+        PravahaSchema catalog = new PravahaSchema();
+        catalog.register(stream);
+        for (StreamSchema each : lookups) {
+            catalog.registerLookup(each);
+        }
+        return new SqlPlanner(catalog);
+    }
+
     public PravahaSchema schema() {
         return schema;
     }

@@ -22,6 +22,7 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.core.Filter;
+import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.TableFunctionScan;
 import org.apache.calcite.rel.core.TableScan;
@@ -73,6 +74,7 @@ public final class PhysicalPlanBuilder {
             case Aggregate aggregate -> buildAggregate(aggregate);
             case TableFunctionScan windowing -> buildWindowAssign(windowing);
             case org.apache.calcite.rel.core.Join join -> buildJoin(join);
+            case org.apache.calcite.rel.core.Correlate correlate -> buildLookupJoin(correlate);
             default ->
                 throw new PravahaException(
                         SqlErrors.UNSUPPORTED_OPERATOR,
@@ -162,6 +164,120 @@ public final class PhysicalPlanBuilder {
                         + "row a candidate for every other, which is a cross product with a filter and has no "
                         + "incremental execution. Rewrite the condition as an equality, or move the rest of it "
                         + "into a WHERE clause.");
+    }
+
+    /**
+     * {@code JOIN dim FOR SYSTEM_TIME AS OF t.ts ON ...} -- enrichment from a dimension table.
+     *
+     * <p>Calcite expresses this as a correlated join: for each row of the left, evaluate the right
+     * subtree with that row's values bound. The right subtree it produces is always the same shape
+     * -- a filter comparing the correlation variable to a column, over a snapshot, over the scan of
+     * the dimension table -- and anything else is a correlated subquery Pravaha does not run.
+     *
+     * <p>{@code LEFT} is accepted here and refused for stream-to-stream joins, which is not the
+     * inconsistency it looks like. A lookup answers definitively at the moment it is asked, so an
+     * unmatched record is emitted with nulls and never retracted. Between two streams the same
+     * syntax means holding every unmatched row for as long as a match could still arrive.
+     *
+     * <p>The period the syntax names is <em>not</em> honoured: the lookup is as of now, so a replay
+     * of last month's stream is enriched with today's dimension rows. Every engine with this
+     * operator behaves the same way, and it matters most exactly when somebody is rebuilding
+     * history, which is when they are least likely to be reading the manual.
+     */
+    private PhysicalOperator buildLookupJoin(org.apache.calcite.rel.core.Correlate correlate) {
+        JoinRelType type = correlate.getJoinType();
+        if (type != JoinRelType.INNER && type != JoinRelType.LEFT) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "a " + type + " join against a lookup table is not supported; use an inner or left join");
+        }
+
+        PhysicalOperator left = build(correlate.getLeft());
+        RelNode right = correlate.getRight();
+
+        RexNode condition = null;
+        if (right instanceof Filter filter) {
+            condition = filter.getCondition();
+            right = filter.getInput();
+        }
+        if (!(right instanceof org.apache.calcite.rel.core.Snapshot snapshot)) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "correlated subqueries are not supported; the only correlated form Pravaha runs is a join "
+                            + "against a lookup table, written as 'JOIN dim FOR SYSTEM_TIME AS OF <time>'");
+        }
+        if (!(snapshot.getInput() instanceof TableScan scan)) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "a lookup join must read a registered dimension table directly, not "
+                            + snapshot.getInput().getRelTypeName());
+        }
+
+        PravahaTable table = scan.getTable().unwrap(PravahaTable.class);
+        if (table == null || !table.isLookup()) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "stream '" + scan.getTable().getQualifiedName() + "' is registered as a stream, not as a "
+                            + "lookup table. A stream is consumed and its rows are held in join state; a lookup "
+                            + "table is asked one key at a time and holds nothing. Register it with "
+                            + "registerLookup to join against it this way.");
+        }
+
+        List<Integer> streamKeys = new ArrayList<>();
+        collectLookupKeys(condition, left.outputSchema().fields().size(), streamKeys, correlate);
+
+        StreamSchema output = schemaOf(
+                correlate,
+                left.outputSchema().name() + "_" + table.streamSchema().name());
+        return new LookupJoinOperator(
+                left, table.streamSchema().name(), streamKeys, table.streamSchema(), output, type == JoinRelType.LEFT);
+    }
+
+    /**
+     * Pulls {@code $cor0.k = dim.k} pairs out of the correlated condition.
+     *
+     * <p>The left side of each equality is a field access on the correlation variable -- a column of
+     * the record being enriched -- and the right is a plain reference into the dimension table. The
+     * dimension's ordinals are not carried through: the source declares its own key columns and is
+     * asked in that order, because a store answers only on the keys it is indexed for.
+     */
+    private void collectLookupKeys(
+            RexNode condition, int leftWidth, List<Integer> streamKeys, org.apache.calcite.rel.core.Correlate node) {
+        if (condition == null) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "a lookup join needs an equality on the dimension table's key; without one every record "
+                            + "would ask the store for its whole contents");
+        }
+        if (condition.getKind() == SqlKind.AND) {
+            ((RexCall) condition).getOperands().forEach(part -> collectLookupKeys(part, leftWidth, streamKeys, node));
+            return;
+        }
+        if (condition.getKind() == SqlKind.EQUALS) {
+            List<RexNode> operands = ((RexCall) condition).getOperands();
+            Integer fromCorrelation = correlatedOrdinal(operands.get(0));
+            if (fromCorrelation == null) {
+                fromCorrelation = correlatedOrdinal(operands.get(1));
+            }
+            if (fromCorrelation != null) {
+                streamKeys.add(fromCorrelation);
+                return;
+            }
+        }
+        throw new PravahaException(
+                SqlErrors.UNSUPPORTED_OPERATOR,
+                "'" + condition + "' is not an equality between a column of the stream and one of the lookup "
+                        + "table. A lookup is a key-value read; a condition it cannot be a key for would mean "
+                        + "scanning the dimension table once per record.");
+    }
+
+    /** The stream-side ordinal behind {@code $cor0.column}, or null if this is not one. */
+    private static Integer correlatedOrdinal(RexNode node) {
+        if (node instanceof org.apache.calcite.rex.RexFieldAccess access
+                && access.getReferenceExpr() instanceof org.apache.calcite.rex.RexCorrelVariable) {
+            return access.getField().getIndex();
+        }
+        return null;
     }
 
     private PhysicalOperator buildScan(TableScan scan) {
