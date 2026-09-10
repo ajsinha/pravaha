@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **27 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **971** (plus 28 Python) |
+| Java tests | **973** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -183,6 +183,7 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Bilinear join lift, checked against recomputation | ✅ `IncrementalJoin` (algebra) |
 | Join in the runtime and SQL | ✅ `SymmetricHashJoin`, `JoinOperator`, `PhysicalPlanBuilder.buildJoin` |
 | Join state checkpointed and restored | ✅ both sides in the snapshot; `StreamJoinTest` |
+| **Recovery proven for a join**: interrupted run == uninterrupted run | ✅ `JoinRecoveryTest`, crash-not-shutdown, with a duplicate row's weight crossing the interruption |
 | Join on the lane runtime, two sources | ✅ lanes have one inbox per input; `JoinOnLanesTest` |
 | Join across lanes | ✅ `pumpPartitionedInto` hashes each row's join key and routes it to the lane that owns it, with the same hash the join looks it up with. A plain pump on a multi-lane join is refused, naming the right one |
 | Expressions in `WHERE` (`amount * 2 > 100`) | ✅ `Predicate.CompareExpressions` |
