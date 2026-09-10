@@ -286,10 +286,38 @@ match could still arrive, which without a time bound is forever.
 | `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
 | `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |
 | `pravaha-security` | Who is asking, what they may read, and a record of both (ADR-031). Three SPIs and no implementation of an identity provider: deployments already have one. |
+| `pravaha-registry` | Where SQL becomes a computation with a name, a state and an end (ADR-025). Sharing is by fingerprint, so the same question asked twice is one computation with two names. |
 | [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | The Java client's types and connection strings. Dependency-free by enforcer rule: it is embedded in somebody else's application. |
 | [`sdk/pravaha-sdk-java-flight`](../sdk/pravaha-sdk-java-flight) | The Java client's transport, kept separate so an application that only wants the types never sees Netty. |
 
 `pravaha-catalog` is still a placeholder.
+
+## Registering a query
+
+A registration turns SQL into a computation that keeps running and keeps a view current. It is the
+surface everything else hangs off: a subscription attaches to a registered query, the console lists
+them, a cluster assigns them to nodes, and a continuous query's parameters can only be classified
+against one.
+
+**Sharing is by fingerprint, never by name or by text** (ADR-025). The fingerprint is the normalised
+plan, so two people who type the same question differently — different aliases, different
+whitespace, operands of an `AND` in a different order — get one computation holding one copy of the
+state. That is the mechanism behind "ten analysts on one dashboard cost one query", and it is
+enforced in the registry rather than left to whoever writes the SQL.
+
+The fingerprint includes the **security predicates** applied to the plan, which is what makes
+implicit sharing safe rather than merely cheap: two principals with different entitlements produce
+different plans, so a shared computation can never serve one of them rows filtered for the other.
+Nobody has to remember the rule — it falls out of what is hashed.
+
+A computation may answer to several names and is released when the **last** one is dropped. Dropping
+on the first would take the answer away from everyone else who registered the same question and has
+no idea the others exist.
+
+Pausing is not dropping: a paused query stops advancing and its view keeps answering at the frontier
+it reached, which is a far better failure mode for a dashboard than answers that disappear. Rows
+arriving while paused are dropped rather than buffered — buffering would turn a pause into a memory
+commitment of unknown size, and the operator paused it precisely to stop it doing work.
 
 ## Who may read what
 

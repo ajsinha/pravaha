@@ -32,6 +32,7 @@
     <module>pravaha-backfill</module>
     <module>pravaha-security</module>
     <module>pravaha-serving</module>
+    <module>pravaha-registry</module>
     <module>pravaha-flight</module>
     <module>pravaha-connect</module>
     <module>pravaha-testkit</module>

@@ -252,7 +252,8 @@ right numbers — which is how that distinction was discovered.
 | Prepared statements, request/response (ADR-032) | ✅ bound at plan-build time, so a value is never parsed and compiles to the *same* predicate as a literal. **WHERE and HAVING only** — a parameter selects rows, and every other position is a different query. Stateless handles — Flight SQL lets the server hand back an updated handle when values are bound, so there is no session table. Plans cached, bounded, keyed on the catalogue generation |
 | Parameters in both SDKs | ✅ `query(sql, params)` in Java and Python alike, types taken from the server's parameter schema rather than guessed |
 | Parameters for continuous queries | ❌ — decided in ADR-032, not built: registration has no surface yet to classify against. The rule is ADR-031's soundness rule, because a security row filter and a query parameter turn out to be the same object |
-| Subscriptions over Flight | ❌ |
+| Query registration and lifecycle (ADR-025) | ✅ `pravaha-registry` — register, list, pause, resume, drop; sharing by fingerprint so the same question twice is one computation with two names, released on the *last* drop. The surface everything else was waiting on |
+| Subscriptions over Flight | ❌ — next |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
 **`docs/SQL_SUPPORT.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
