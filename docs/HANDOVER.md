@@ -16,8 +16,8 @@ otherwise have to rediscover the hard way.
 |---|---|
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **60 commits ahead**, green, *not yet pushed* |
-| Modules | **25** |
-| Java tests | **1074** (plus 28 Python) — 14 of them against real Aerospike and PostgreSQL servers in Docker |
+| Modules | **26** |
+| Java tests | **1092** (plus 28 Python) — 14 of them against real Aerospike and PostgreSQL servers in Docker |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -229,6 +229,21 @@ right numbers — which is how that distinction was discovered.
 | Blue/green cutover and rollback | ✅ `ShadowDeployment`: the seam is a frontier, not a moment, so every input record is reflected in exactly one version's output. Rollback is the same swap reversed. Decides *which version's output counts*; it does not run the queries |
 | Served views and consistency modes | ✅ `pravaha-serving`: `ServedView` with committed and pending kept apart so a consistent read never sees half a batch; `LATEST`, `CONSISTENT` and `AT_LEAST` implemented, `AS_OF` refused because a view holds the present. Every answer carries its own staleness |
 | Read admission control, gRPC/Avatica surface, range indexes | ❌ |
+
+### Wave 7 (E6) — started
+
+| Piece | State |
+|---|---|
+| ADR-030: Arrow Flight SQL as the one client protocol | ✅ amends ADR-007, drops Avatica. One server gives JDBC, Python, Go and ADBC clients, all maintained upstream |
+| SQL over a maintained view | ✅ `ViewQuery` — planned and executed by the *same* planner and operators a continuous query uses, so a `WHERE` means exactly what it means in a CQ rather than nearly |
+| Flight SQL server | ✅ `pravaha-flight`: SQL in, Arrow batches out, streamed in bounded batches; `FlightSqlEndToEndTest` drives it with the real Flight SQL client |
+| Java and Python SDK request/response | ❌ next — both skeletons exist and were waiting for exactly this transport |
+| Subscriptions over Flight | ❌ |
+| Read admission control | ❌ — ADR-030 makes this load-bearing rather than optional |
+
+**Arrow needs JVM flags**: `--add-opens=java.base/java.nio=ALL-UNNAMED` and
+`--add-opens=java.base/java.lang=ALL-UNNAMED`, plus `--sun-misc-unsafe-memory-access=allow` on Java
+24+ (which is *not* a valid option on 21 — the JVM refuses to start rather than ignoring it).
 
 ### Deferred, on purpose
 

@@ -57,6 +57,7 @@ public final class ServedView {
 
     private final String name;
     private final StreamSchema schema;
+    private final StreamSchema presented;
     private final int[] keyOrdinals;
     private final int maxKeys;
 
@@ -83,6 +84,9 @@ public final class ServedView {
         }
         this.name = name;
         this.schema = schema;
+        StreamSchema.Builder presenting = StreamSchema.builder(name);
+        schema.fields().forEach(field -> presenting.field(field.name(), field.type()));
+        this.presented = presenting.build();
         this.keyOrdinals = keyOrdinals.stream().mapToInt(Integer::intValue).toArray();
         this.maxKeys = maxKeys;
     }
@@ -235,6 +239,18 @@ public final class ServedView {
 
     public String name() {
         return name;
+    }
+
+    /**
+     * The shape of the rows this view holds, under the view's own name.
+     *
+     * <p>Renamed deliberately. A view's schema arrives from a query's output, which the planner
+     * names after its inputs -- {@code txn_stream_windowed_aggregated} and worse. A client queries
+     * {@code SELECT ... FROM user_volume}, so that is the name the schema has to carry, or two views
+     * built from the same query shape collide under one name and the second is invisible.
+     */
+    public StreamSchema schema() {
+        return presented;
     }
 
     public long committedFrontier() {

@@ -31,6 +31,7 @@
     <module>pravaha-state</module>
     <module>pravaha-backfill</module>
     <module>pravaha-serving</module>
+    <module>pravaha-flight</module>
     <module>pravaha-connect</module>
     <module>pravaha-testkit</module>
     <module>pravaha-benchmarks</module>
@@ -73,6 +74,7 @@
     <archunit.version>1.5.0</archunit.version>
     <testcontainers.version>1.21.3</testcontainers.version>
     <aerospike.client.version>10.4.0</aerospike.client.version>
+    <arrow.version>19.0.0</arrow.version>
     <jmh.version>1.37</jmh.version>
 
     <!-- ==== plugins ==== -->
@@ -157,6 +159,13 @@
         <groupId>com.aerospike</groupId>
         <artifactId>aerospike-client-jdk21</artifactId>
         <version>${aerospike.client.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.arrow</groupId>
+        <artifactId>arrow-bom</artifactId>
+        <version>${arrow.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>org.openjdk.jmh</groupId>

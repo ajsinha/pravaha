@@ -24,5 +24,15 @@
       <artifactId>pravaha-state</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-sql</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-runtime</artifactId>
+      <version>${project.version}</version>
+    </dependency>
   </dependencies>
 </project>

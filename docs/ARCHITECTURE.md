@@ -283,7 +283,8 @@ match could still arrive, which without a time bound is forever.
 
 | `pravaha-state` | Off-heap state: the L0 map, the block store joins hold rows in, and checkpoints. |
 | `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
-| `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. |
+| `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
+| `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |
 
 `pravaha-catalog` is still a placeholder.
 

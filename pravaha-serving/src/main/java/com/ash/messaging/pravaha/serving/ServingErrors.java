@@ -29,5 +29,14 @@ public final class ServingErrors {
     /** The view holds more keys than it was given room for. */
     public static final ErrorCode VIEW_TOO_LARGE = new ErrorCode(4022, "SERVING_VIEW_TOO_LARGE");
 
+    /** A query named a view this server does not serve. */
+    public static final ErrorCode NO_SUCH_VIEW = new ErrorCode(4023, "SERVING_NO_SUCH_VIEW");
+
+    /** A single request produced more rows than one response may carry. */
+    public static final ErrorCode RESULT_TOO_LARGE = new ErrorCode(4024, "SERVING_RESULT_TOO_LARGE");
+
+    /** A query shape this server does not answer -- see ADR-030 for what is deliberately excluded. */
+    public static final ErrorCode UNSUPPORTED_QUERY = new ErrorCode(4025, "SERVING_UNSUPPORTED_QUERY");
+
     private ServingErrors() {}
 }
