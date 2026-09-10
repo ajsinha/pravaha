@@ -32,5 +32,11 @@ public final class BackfillErrors {
     /** A stored offset this reader did not write, or one from a different phase layout. */
     public static final ErrorCode MALFORMED_OFFSET = new ErrorCode(4013, "BACKFILL_MALFORMED_OFFSET");
 
+    /** A cutover was asked for before the new version had caught up. */
+    public static final ErrorCode NOT_CAUGHT_UP = new ErrorCode(4014, "BACKFILL_NOT_CAUGHT_UP");
+
+    /** A cutover seam at or before the previous one, which would make two versions both responsible. */
+    public static final ErrorCode SEAM_WENT_BACKWARDS = new ErrorCode(4015, "BACKFILL_SEAM_WENT_BACKWARDS");
+
     private BackfillErrors() {}
 }
