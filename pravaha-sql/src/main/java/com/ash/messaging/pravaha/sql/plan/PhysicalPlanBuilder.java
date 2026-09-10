@@ -689,6 +689,17 @@ public final class PhysicalPlanBuilder {
                 current = filter.input();
                 continue;
             }
+            if (current instanceof ComputeOperator compute) {
+                // A projection that computes something -- SUM(amount * 2), or any expression in the
+                // select list -- becomes a ComputeOperator rather than a ProjectOperator. Omitting
+                // it here made the window assigner invisible, so `SUM(amount * 2) ... GROUP BY
+                // window_start, window_end` was refused as an unbounded aggregate: a correct-looking
+                // refusal for an entirely ordinary query. Safe for the same reason walking a
+                // projection is, since the boundaries are resolved by name against the aggregate's
+                // own input schema.
+                current = compute.input();
+                continue;
+            }
             if (current instanceof LookupJoinOperator lookup) {
                 current = lookup.input();
                 continue;

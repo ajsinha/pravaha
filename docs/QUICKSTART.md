@@ -184,13 +184,15 @@ with no Spring and no cluster, which is the property the whole competitive posit
 | | |
 |---|---|
 | [Architecture in two pages](ARCHITECTURE.md) | The shape, before the long version |
+| [What SQL it runs](SQL_SUPPORT.md) | Every construct that works and every one that does not, and why |
 | [Examples](../examples/) | Each one runnable and checked by the build |
 | [Decision records](adr/) | Why things are the way they are |
 | [System design](system_design.md) | Everything, in 33 sections |
 
 ## What does not work yet
 
-Stated so you do not go looking:
+Stated so you do not go looking. For SQL specifically, [`SQL_SUPPORT.md`](SQL_SUPPORT.md) is the
+complete list — every construct, checked by a test rather than by memory.
 
 | | |
 |---|---|

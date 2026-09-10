@@ -253,6 +253,16 @@ right numbers — which is how that distinction was discovered.
 | Subscriptions over Flight | ❌ |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
+**`docs/SQL_SUPPORT.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
+page against the real planner and asserts the outcome, so a construct that starts or stops working
+fails the build and names the file to edit. It also asserts that every refusal carries a `PRV-` code
+and more than a token of explanation. Adding SQL support means updating both, which is the point.
+
+**A window bug this found:** `SUM(amount * 2)` over a TUMBLE window was refused as an unbounded
+aggregate. The search for the window assigner walked projections but not `ComputeOperator`, so an
+expression inside an aggregate made the window invisible. A correct-looking refusal for an entirely
+ordinary query, and nothing but a support call would have surfaced it.
+
 **The Python SDK's transport tests were skipping silently.** They start the real Java server from
 `pravaha-flight/target/test-classpath.txt`, and nothing wrote that file — so sixteen cross-language
 tests reported as skips, which look identical to passes in a pytest summary line. `pravaha-flight`

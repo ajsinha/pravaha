@@ -61,7 +61,8 @@ class DocumentationFreshnessTest {
             "docs/implementation_plan.md",
             "docs/QUICKSTART.md",
             "docs/ARCHITECTURE.md",
-            "docs/HANDOVER.md");
+            "docs/HANDOVER.md",
+            "docs/SQL_SUPPORT.md");
 
     @Test
     void everyMavenModuleIsDescribedInTheDocumentation() throws IOException {

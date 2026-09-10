@@ -180,6 +180,7 @@ Architecturally out of the data path and experientially the centre of the produc
 |---|---|
 | **[Quickstart](docs/QUICKSTART.md)** | Build it and run a query. Ten minutes. |
 | **[Architecture](docs/ARCHITECTURE.md)** | The shape in two pages, before the 3 000-line version |
+| **[What SQL it runs](docs/SQL_SUPPORT.md)** | Every construct that works and every one that does not, with the reason. Checked by a test, so it cannot rot |
 | **[System Design](docs/system_design.md)** | Full architecture and competitive position, 33 sections |
 | **[Implementation Plan](docs/implementation_plan.md)** | Waves, epics, staffing, risks, descope ladder |
 | [Decision records](docs/adr/) | Every architectural decision and why, including the ones later reversed |

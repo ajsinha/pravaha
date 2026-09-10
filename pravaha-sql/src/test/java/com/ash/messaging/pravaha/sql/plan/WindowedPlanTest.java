@@ -146,4 +146,17 @@ class WindowedPlanTest {
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("keyed state store");
     }
+
+    @Test
+    void anAggregateOverAnExpressionStillFindsItsWindow() {
+        // SUM(amount * 2) puts a ComputeOperator between the window assigner and the aggregate.
+        // While the search for the assigner walked projections but not computations, the window was
+        // invisible and this was refused as an unbounded aggregate -- a correct-looking refusal for
+        // an entirely ordinary query, and the kind of thing only a support call would have found.
+        PhysicalOperator root = plan("SELECT window_start, window_end, SUM(amount * 2) FROM "
+                + "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                + "GROUP BY window_start, window_end");
+
+        assertThat(PhysicalPlanBuilder.explain(root)).contains("WindowedAggregate");
+    }
 }

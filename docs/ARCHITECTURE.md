@@ -406,6 +406,7 @@ Not conventions — tests. Each one exists because the failure it prevents is si
 
 - **Why does this exist?** — design [§1](system_design.md), [§2](system_design.md)
 - **Is the engineering sound?** — design [§3](system_design.md), [§9](system_design.md), [§29](system_design.md)
+- **What SQL can I write?** — [`SQL_SUPPORT.md`](SQL_SUPPORT.md), every construct with a test behind it
 - **How do I run it?** — [`QUICKSTART.md`](QUICKSTART.md)
 - **What was decided and why?** — [`adr/`](adr/)
 - **When does it ship?** — [implementation plan](implementation_plan.md)
