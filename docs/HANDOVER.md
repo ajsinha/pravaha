@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
 | `develop` | **27 commits ahead**, green, *not yet pushed* |
 | Modules | **22** |
-| Java tests | **998** (plus 28 Python) |
+| Java tests | **1008** (plus 28 Python) |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **28** |
 
@@ -202,6 +202,13 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 shutdown and emits everything held, `abort()` is what a crash does and emits nothing. A recovery
 test that "crashes" by closing gracefully will see every pre-checkpoint window twice, with all the
 right numbers — which is how that distinction was discovered.
+
+### Wave 6 (E5) — started
+
+| Piece | State |
+|---|---|
+| Snapshot→CDC splice | ✅ `pravaha-backfill`: `SplicedReader`, phase-explicit offsets, off-heap change buffer bounded and failing loudly. The dedup is keyed on *changed* keys, not on every key in the snapshot — which is what makes it survivable on a table nobody could hold in memory |
+| Adaptive throttling, blue/green cutover, served views, consistency modes | ❌ |
 
 ### Deferred, on purpose
 

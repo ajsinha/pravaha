@@ -29,6 +29,7 @@
     <module>pravaha-runtime</module>
     <module>pravaha-codegen</module>
     <module>pravaha-state</module>
+    <module>pravaha-backfill</module>
     <module>pravaha-connect</module>
     <module>pravaha-testkit</module>
     <module>pravaha-benchmarks</module>
