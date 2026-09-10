@@ -1619,7 +1619,10 @@ Lanes are sized by cores; queries are not. At the density NFR-2d asks for, rough
 
 **Admission is interpreted-first.** Registering 10 000 queries means 10 000 Janino compilations, and doing that serially at node start is minutes of unavailability at exactly the wrong moment. A query therefore **runs interpreted immediately** and is swapped to its generated stage as a bounded compile pool works through the backlog. The interpreted path already exists as the correctness fallback (§12.4); this makes it the admission strategy as well, which is a second, load-bearing reason never to delete it.
 
-**Fairness is a requirement, not an emergent property.** With 300 pipelines per lane, one hot query can starve the rest, and the failure looks like "the engine is slow" rather than "query 4471 is greedy". Per-query quotas (FR-9, §21.4) are enforced as a bounded share of lane batches, and the per-query share of lane time is a first-class metric alongside `backpressure.ratio`.
+**Fairness is a requirement, not an emergent property.** With 300 pipelines per lane, one hot query can starve the rest, and the failure looks like "the engine is slow" rather than "query 4471 is greedy". Two mechanisms, and the distinction between them was found by building it:
+
+- **Ordering is enforceable.** Pipelines are served in ascending order of the lane time they have already consumed, so a heavy query yields its position to lighter ones rather than accumulating an advantage. Per-query lane time is a first-class metric alongside `backpressure.ratio`, which is what turns "the engine is slow" into a query id.
+- **A quota on lane batches is not.** Withholding rows from a query produces a wrong answer rather than a slow one, and buffering them per query reintroduces exactly the per-query buffer this density budget excludes. A hard ceiling on what one query may consume therefore belongs at **admission** — which lane a query is placed on, and whether it is admitted at all (FR-9, §21.4) — not in the lane loop.
 
 ---
 
