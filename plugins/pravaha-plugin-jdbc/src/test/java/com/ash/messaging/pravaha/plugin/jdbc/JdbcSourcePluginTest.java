@@ -38,6 +38,7 @@ import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -259,6 +260,24 @@ class JdbcSourcePluginTest {
         assertThat(capabilities.guarantee())
                 .as("resumption is exact, but an update seen once with its new value is not a changelog")
                 .isEqualTo(DeliveryGuarantee.AT_LEAST_ONCE);
+    }
+
+    @Test
+    void aNullTextColumnIsReadAsNullRatherThanThrowing() {
+        // The polling source had this bug too and no test had ever fed it a null string: JDBC
+        // returns null for a text column, the row writer will not take one, and the "write it, then
+        // ask wasNull" protocol that works for a long throws before it can ask. It surfaced in the
+        // lookup plugin first, on the same shared decoder.
+        assertThatCode(() -> {
+                    execute("INSERT INTO orders VALUES (1, NULL, 5.0, 100)");
+                    JdbcSourcePlugin plugin = open(Map.of());
+                    JdbcCollector collector = new JdbcCollector(plugin.schema());
+                    try (PartitionReader reader =
+                            plugin.createReader(plugin.partitions("orders").get(0), null)) {
+                        assertThat(drain(reader, collector).get(0).isNull(1)).isTrue();
+                    }
+                })
+                .doesNotThrowAnyException();
     }
 
     @Test

@@ -110,8 +110,28 @@ final class JdbcTypes {
                         .unscaledValue();
                 writer.setDecimal(ordinal, unscaled.shiftRight(64).longValue(), unscaled.longValue());
             }
-            case BYTES -> writer.setBytes(ordinal, results.getBytes(column));
-            default -> writer.setString(ordinal, results.getString(column));
+            // The variable-width types are read before being written, unlike the primitives above.
+            // JDBC returns null for them rather than a zero, and the row writer will not take a
+            // null -- so the "write it, then ask wasNull" protocol that works for a long throws a
+            // NullPointerException here, on the first nullable text column that happens to be
+            // empty. Found by a lookup test; it was reachable from the polling source too, where
+            // no test had ever had a null string.
+            case BYTES -> {
+                byte[] value = results.getBytes(column);
+                if (value == null) {
+                    writer.setNull(ordinal);
+                } else {
+                    writer.setBytes(ordinal, value);
+                }
+            }
+            default -> {
+                String value = results.getString(column);
+                if (value == null) {
+                    writer.setNull(ordinal);
+                } else {
+                    writer.setString(ordinal, value);
+                }
+            }
         }
         if (results.wasNull()) {
             // Checked after reading, because that is the only moment JDBC will answer the question.
