@@ -35,6 +35,7 @@
     <module>pravaha-it</module>
     <module>plugins/pravaha-plugin-filesystem</module>
     <module>plugins/pravaha-plugin-delta</module>
+    <module>plugins/pravaha-plugin-feedfile</module>
     <module>pravaha-embedded</module>
     <module>pravaha-cli</module>
     <module>pravaha-server</module>

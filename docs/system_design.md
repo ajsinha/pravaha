@@ -2180,6 +2180,8 @@ Alerting and webhooks. Per-endpoint circuit breaker, exponential backoff with ji
 
 ### 19.7 Feed files and drop directories
 
+*Shipped: CSV and Parquet, in `pravaha-plugin-feedfile`.*
+
 A large share of real integration is still **a file landing in a directory**: an end-of-day extract, an intraday market-data feed, a partner drop over SFTP, an hourly Parquet export into an object store. The filesystem plugin shipped in Wave 2 is the reference implementation of the SPI; the feed-file connector is that plugin grown up, and it is Tier 1 of §19.8 rather than a convenience.
 
 It is treated as a first-class source because a file feed is the *easiest* source to make replayable and therefore one of the few that can genuinely reach exactly-once — and because every naive implementation of it loses data in one of the following seven ways.
@@ -2215,7 +2217,7 @@ That is why Kafka was deferred out of Wave 2 (P1-11) even though it is Tier 1: t
 | Tier | Connector | What it proves, or why it is wanted |
 |---|---|---|
 | **1** | Filesystem (reference) | The SPI itself. Shipped. |
-| **1** | **Feed files / drop directories** (§19.7) | File identity, replay, backfill-as-bootstrap. The most common real integration shape. |
+| **1** | **Feed files / drop directories** (§19.7) *(shipped)* | File identity, replay, backfill-as-bootstrap. The most common real integration shape. CSV and Parquet, with capabilities computed from the completion policy rather than declared once. |
 | **1** | Kafka | Replayable offsets, transactional sink, 1:1 partition mapping |
 | **1** | Aerospike, four strategies (§19.1) | The flagship. Capability degradation made visible. |
 | **1** | PostgreSQL logical decoding (§19.5) | The best-fidelity source in the set: LSN offsets and full before-images. The reference for exactly-once. |
