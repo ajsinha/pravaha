@@ -116,6 +116,7 @@ A design that only fixes the draft's engineering produces a competent Flink alte
 | **Arroyo** | Rust, Flink-shaped | Modern, fast, good DX | Young; Kafka-centric; no serving layer; no NoSQL pushdown |
 | **Hazelcast Jet / Platform** | **Embeddable JVM** stream processor | The one incumbent that is genuinely embeddable in a Java app | SQL is thin (no real CBO, limited windowing, no IVM); state is Hazelcast-centric; store-native pushdown absent; the streaming SQL story has been de-emphasised commercially |
 | **Striim, Qlik Replicate, Debezium+X** | CDC replication with light transforms | Excellent CDC breadth, enterprise support | Replication tools, not query engines — no windowing, no stateful joins, no continuous aggregation of substance |
+| **Trino / Presto** | Distributed MPP SQL over federated sources | Excellent connector breadth *(including a first-party Aerospike connector)*, mature CBO, strong ad-hoc analytics across stores | **Pull, not push, and batch, not incremental.** A query runs to completion and exits; there is no registered query, no maintained view, no watermark, no window, no checkpoint. Latency is 100 ms to minutes by design. Requires a coordinator+worker cluster and cannot be embedded. Complementary: the natural consumer of the views Pravaha maintains. |
 | **Apache Pinot / Druid / ClickHouse** | Real-time OLAP | Sub-second analytical queries over fresh data | **Pull, not push.** No continuous queries, no stateful streaming operators, no windows, no push subscriptions. Complementary, not competing. |
 | **Aerospike's own tooling** | Connect for Kafka / Spark / Pulsar | First-party, supported | Export pipes, not a query engine. **This is the gap Pravaha exists to fill.** |
 
@@ -489,6 +490,9 @@ The draft's NFRs are replaced with a falsifiable SLO table tied to three benchma
 | **NFR-2a** | Sustained throughput / lane-core | ≥ 1 200 000 rec/s | ≥ 350 000 rec/s | ≥ 120 000 rec/s |
 | **NFR-2b** | Scaling efficiency, 1 → 16 lanes | ≥ 90 % linear | ≥ 85 % | ≥ 80 % |
 | **NFR-2c** | Steady-state allocation rate | ≤ 5 MB/s/lane | ≤ 20 MB/s/lane | ≤ 50 MB/s/lane |
+| **NFR-2d** | Concurrent queries per node | ≥ 10 000 | ≥ 2 000 | ≥ 500 |
+
+> **NFR-2d is a density target and is only meaningful with a rate and a state budget attached.** Capacity is *query count × per-query rate*, bounded by aggregate throughput, and *query count × per-query state*, bounded by memory. The Profile A figure means 10 000 queries whose **aggregate** ingest is within the node's lane capacity (≈ 1 M rec/s on the reference hardware) and whose per-query state stays inside a 4 MB budget. Ten thousand queries each at 10 000 rec/s is 100 M rec/s and is not a single-node workload under any design; stating the count without the rate is how a capacity claim becomes untrue. What NFR-2d actually constrains is **per-query fixed overhead**: it must be kilobytes, not megabytes, which is what §13.7 is about.
 
 > The draft's "≥ 100 000 events/s/core" is comfortably exceeded for simple queries and is *approximately right* for the hardest profile. Stating it per-profile is what makes it testable. Payload assumption: 12 fields, ~200 B encoded. Reference hardware: 16 physical cores, ≥ 3.0 GHz, 64 GB RAM, NVMe — i.e. this workstation's class (24 cores / 62 GB).
 
@@ -1173,6 +1177,26 @@ SQL text
   ▼ compiled Processor classes, one per fused stage
 ```
 
+### 11.1a Why Calcite and not Trino — and why the answer does not change per backend
+
+This question arrives in a specific form: *Aerospike ships a first-party Trino connector, and Calcite has no Aerospike adapter, so shouldn't the Aerospike deployment use Trino?* The premise is accurate and the conclusion does not follow, for three separate reasons.
+
+**1. Calcite is used here as a compiler, not as a data-access layer.** Calcite owns parsing, validation and cost-based optimisation, and hands over a `RelNode` tree (§11.1, ADR-002). *Calcite adapters* exist to let Calcite **execute** queries against a store through the `Enumerable` convention — the pull-based, row-at-a-time path this design rejected outright as gap G1, because it cannot meet the NFRs. Pravaha would not use an Aerospike Calcite adapter if one existed. Data access is the plugin SPI (§10) and the Aerospike plugin's four strategies (§19.1); the catalog Calcite validates against is Pravaha's own (§11.3), populated from plugin metadata. "No Calcite adapter for X" is therefore not a constraint on Pravaha for any X.
+
+**2. Trino is a different category of system, not an alternative planner.** Trino is a distributed MPP engine — coordinator plus workers — for interactive, pull-based queries over data at rest. It has no continuous queries, no incremental view maintenance, no event time, no watermarks, no windows, no changelog semantics, no checkpoints and no push subscriptions, and it is not embeddable in a host JVM process. Replacing Calcite with Trino is not swapping an optimiser; it is replacing the product with a different product whose latency floor is four orders of magnitude higher.
+
+**3. The Trino Aerospike connector solves a problem Pravaha does not have.** It provides scans and predicate pushdown for analytic reads. What Pravaha needs from Aerospike is a **change feed** — which Community Edition does not have at all (G4), and which the plugin obtains through XDR-to-Kafka, XDR HTTP, last-update-time scanning or write interception (§19.1) — plus async point lookups for enrichment joins and generation-guarded idempotent writes for sinks. The Trino connector provides none of those three. Its existence does not move G4 by a millimetre.
+
+**Where Trino genuinely fits: alongside, not instead.** Pravaha maintains views and writes them to Aerospike, Iceberg or Postgres; Trino federates ad-hoc analytics across those and everything else in the estate. The Avatica endpoint (§20.4) exists so BI tools and federating engines can read maintained views over JDBC. And the honest boundary is worth stating in the other direction too: **if the requirement is ad-hoc SQL over Aerospike data at rest, Trino is the right tool and Pravaha is not needed.** Pravaha's claim is over data in motion, answered continuously.
+
+#### The planner does not vary by backend, and must not
+
+The related proposal — *choose the SQL layer per persistence backend and switch automatically* — is rejected, and for a reason worth stating plainly:
+
+**One SQL surface, one parser, one planner, always.** The dialect and its semantics are the product. A `WHERE` clause, a window, a join or a `NULL` comparison that meant something different on Aerospike than on Cassandra would be a defect nobody could test their way out of: the semantics matrix is *backends × operators × types*, and every cell is a support conversation. Two planners also means two cost models and two sets of optimiser bugs, permanently.
+
+**What legitimately varies by backend is pushdown, and the design already varies it — in the right place.** Each plugin declares its capabilities (§10.2); the planner asks what a source can absorb and translates the absorbable part into store-native form — Aerospike expression filters, Cassandra partition-key predicates, Postgres SQL. Anything untranslatable stays in the engine as a residual filter, never silently dropped, and a property test asserts `filter(engine, rows) == filter(store, rows)` over generated predicates (§19.1). That is backend-specific behaviour expressed as **rules and capabilities under one planner**, which is testable, rather than as a choice of planner, which is not.
+
 ### 11.2 Streaming SQL surface
 
 Phase 1 supports Calcite's streaming semantics plus Pravaha extensions:
@@ -1582,6 +1606,20 @@ Recovery is hysteretic (resume at 50 %) to avoid oscillation. `backpressure.rati
 ### 13.6 False sharing and layout
 
 `@Contended`-style padding (or explicit padding fields, since `jdk.internal.vm.annotation.Contended` needs `-XX:-RestrictContended`) on all cross-thread counters — ring producer/consumer cursors, watermark cells, metric counters. Per-lane state is allocated in separate arena slabs to guarantee no cache line is shared between lanes. This is worth measurable double-digit percentages at high lane counts and is easy to lose accidentally, so it is covered by a JMH regression benchmark.
+
+### 13.7 Many queries on one lane
+
+Lanes are sized by cores; queries are not. At the density NFR-2d asks for, roughly 300 query pipelines share each lane, and that ratio decides several things that would otherwise be decided by accident.
+
+**A lane multiplexes pipelines; the query is not the unit of isolation.** Per-query threads, rings, arenas and timer wheels are all excluded by arithmetic before they are excluded by taste: at 10 000 queries a 1 MB inbox each is 10 GB, a 4 MB arena slab each is 40 GB, and a thread each is a dead machine. Everything megabyte-scale or OS-scale therefore belongs to the **lane** and is shared by every pipeline running on it. What a query owns is its plan, its generated stage, its state slice and its subscriptions — kilobytes of fixed overhead, plus the state it was explicitly budgeted.
+
+**Scheduling is activity-driven, never a scan.** A lane iterating over 300 registered pipelines to ask each whether it has work would spend its entire budget on the 299 that do not. Pipelines are enqueued on the lane's ready list when input arrives for them, and the loop drains that list. This is also what makes low-rate queries cheap: a query receiving ten records a second costs the lane ten wakeups a second, not 300 polls per iteration.
+
+**Fan-out inside a lane is zero-copy.** Many queries read the same stream. A record is copied into the lane's inbox exactly **once** and each subscribed pipeline reads the same flyweight; nothing is copied per query. Copying per subscriber would make ingest cost O(queries) — the identical mistake to encoding per subscriber in §20.3b, in a place where it is much less visible.
+
+**Admission is interpreted-first.** Registering 10 000 queries means 10 000 Janino compilations, and doing that serially at node start is minutes of unavailability at exactly the wrong moment. A query therefore **runs interpreted immediately** and is swapped to its generated stage as a bounded compile pool works through the backlog. The interpreted path already exists as the correctness fallback (§12.4); this makes it the admission strategy as well, which is a second, load-bearing reason never to delete it.
+
+**Fairness is a requirement, not an emergent property.** With 300 pipelines per lane, one hot query can starve the rest, and the failure looks like "the engine is slow" rather than "query 4471 is greedy". Per-query quotas (FR-9, §21.4) are enforced as a bounded share of lane batches, and the per-query share of lane time is a first-class metric alongside `backpressure.ratio`.
 
 ---
 
@@ -2139,6 +2177,77 @@ Sink and lookup/hot-cache tier. Pipelined writes; `HSET`/`SET` with TTL; RESP3. 
 ### 19.6 HTTP / gRPC sink
 
 Alerting and webhooks. Per-endpoint circuit breaker, exponential backoff with jitter, bounded retry queue, at-least-once only — declared as such.
+
+### 19.7 Feed files and drop directories
+
+A large share of real integration is still **a file landing in a directory**: an end-of-day extract, an intraday market-data feed, a partner drop over SFTP, an hourly Parquet export into an object store. The filesystem plugin shipped in Wave 2 is the reference implementation of the SPI; the feed-file connector is that plugin grown up, and it is Tier 1 of §19.8 rather than a convenience.
+
+It is treated as a first-class source because a file feed is the *easiest* source to make replayable and therefore one of the few that can genuinely reach exactly-once — and because every naive implementation of it loses data in one of the following seven ways.
+
+**1. Knowing when a file is complete.** A file appearing is not a file being finished; a writer streaming 400 MB over SFTP will happily let a reader see the first megabyte. Supported, in declining order of trustworthiness: an explicit completion marker (`name.done`, `_SUCCESS`), an atomic rename into the watched directory, a manifest listing files and record counts, and — last resort — size-stable-for-*n*-seconds, which is declared as **at-least-once** because it is a heuristic and pretending otherwise is how a truncated file becomes a wrong answer.
+
+**2. Ordering.** Files have no inherent order and guessing one is a correctness bug. The ordering policy is declared per stream: by filename against a stated pattern, by an embedded sequence number, by modification time, or explicitly unordered. Likewise event time comes from a named field, from a capture group in the filename, or from mtime — declared, never inferred.
+
+**3. Offsets, and what a file's identity is.** The checkpointed offset is *(file identity, record index)*. File identity is a fingerprint — name, size, mtime, and optionally a content hash — not a name, because partners rewrite files under the same name routinely, and a name-keyed reader silently skips the corrected version. This is what makes the source replayable, and replayable is what the capability declaration (§10) is allowed to claim.
+
+**4. Redelivery.** A processed-file registry with a retention window, so the same file arriving twice is skipped or reprocessed *by policy*. SFTP partners redeliver; treating that as an anomaly rather than an expected event is the mistake.
+
+**5. Formats are orthogonal to transport.** CSV with real quoting and escaping, JSON Lines, fixed-width records (still ubiquitous in banking), Parquet, Avro, ORC. Each is a `RecordDecoder`, so the same decoder set serves a local directory, an SFTP drop and an S3 prefix — the transport plugin handles listing, fetching and offsets; the decoder handles bytes.
+
+**6. Poison input has two different scopes.** A malformed *record* goes to the DLQ tagged with file and line (§15.6). A file that cannot be opened or decoded at all fails **that file**, is quarantined, and does not fail the query. Conflating the two turns one bad partner file into an outage.
+
+**7. Backfill is not a special case.** A directory of history is a bootstrap (§16.1), throttled and observable (§16.2), using the same reader. This is the great strength of file sources — replay is trivial and cheap — and it is why a file feed is the best possible first target for time-travel debugging (§16.4).
+
+**Watermarks.** File feeds are bursty, so a watermark from max-event-time alone stalls between drops. Two policies: idle-timeout advance (the general case), and **file-complete advance** — on finishing a file, advance the watermark to that file's maximum event time, which is exactly the semantics an end-of-day feed wants and makes a batch-shaped source behave correctly in a streaming engine.
+
+**Outbound feed files.** The sink side of the same connector: accumulate, write to a temporary name, rename atomically on completion, optionally write a `.done` marker and a manifest, rotate by size, time or record count. Deterministic naming plus atomic rename gives effectively-once output (§14.4) with no coordination at all.
+
+**Transports sharing all of the above:** local filesystem, NFS, SFTP/FTPS, S3, GCS, Azure Blob (with event notification instead of polling where available), HDFS.
+
+### 19.8 The connector portfolio, and how a connector earns its place
+
+The rule, stated once so the roadmap is not an argument every quarter:
+
+> **A connector earns its place by proving an SPI capability, or by being demanded by a named deployment. Never by breadth.**
+
+That is why Kafka was deferred out of Wave 2 (P1-11) even though it is Tier 1: the filesystem plugin already exercised every part of the SPI that slice needed, so Kafka would have added surface, not proof.
+
+| Tier | Connector | What it proves, or why it is wanted |
+|---|---|---|
+| **1** | Filesystem (reference) | The SPI itself. Shipped. |
+| **1** | **Feed files / drop directories** (§19.7) | File identity, replay, backfill-as-bootstrap. The most common real integration shape. |
+| **1** | Kafka | Replayable offsets, transactional sink, 1:1 partition mapping |
+| **1** | Aerospike, four strategies (§19.1) | The flagship. Capability degradation made visible. |
+| **1** | PostgreSQL logical decoding (§19.5) | The best-fidelity source in the set: LSN offsets and full before-images. The reference for exactly-once. |
+| **1** | Cassandra / ScyllaDB (§19.2) | Token-range parallelism; CDC without a broker |
+| **1** | Redis (§19.4), HTTP/gRPC sink (§19.6) | Lookup tier; at-least-once alerting declared honestly |
+| **2** | **Debezium-compatible CDC envelope** | The best breadth-per-unit-effort in the entire list: MySQL, MongoDB, SQL Server, Oracle and Db2 all arrive as one well-specified envelope over Kafka. One connector, five databases. |
+| **2** | S3 / GCS / Azure Blob | Feed files at cloud scale, event-notified rather than polled |
+| **2** | SFTP / FTPS | Unglamorous and absolutely required in banking |
+| **2** | MongoDB change streams | Resume tokens are a clean replayable offset; proves a non-relational before-image |
+| **2** | MySQL binlog (direct) | For deployments unwilling to run Kafka for CDC |
+| **2** | Pulsar, NATS JetStream, Kinesis, Pub/Sub, Event Hubs | Broker breadth. Event Hubs speaks the Kafka protocol, so it is largely configuration. |
+| **2** | MQTT | IoT feeds. The interesting work is mapping QoS 0/1/2 onto declared guarantees rather than assuming. |
+| **2** | Iceberg / Delta Lake | Table change feed as a source, and the lakehouse as a sink. Where analytics deployments already keep their data. |
+| **2** | ClickHouse, Elasticsearch/OpenSearch, Snowflake, BigQuery *(sinks)* | Where continuous results are actually consumed |
+| **2** | OTLP and Prometheus remote-write *(sources)* | Observability data is a stream, and "ask once, answer always" over live telemetry is the product's own story told back to it |
+| **2** | JDBC incremental poll (high-water-mark column) | The universal fallback for any database with no CDC. At-least-once, no deletes — and it says so. |
+| **2** | Webhook / WebSocket / SSE source | Push integrations without a broker |
+| **3** | FIX and ITCH market data | Niche, high value where it lands. Real differentiation for continuous queries over a live book. |
+| **3** | Oracle LogMiner / XStream | Licence-encumbered; only if a deployment pays for it |
+| **3** | DynamoDB Streams, Cosmos DB change feed, RabbitMQ/AMQP, Redis Streams source | Opportunistic. Each is a few hundred lines on the connector kit. |
+
+### 19.9 The connector kit — why the list above is affordable
+
+Almost every connector in §19.8 is one of **three shapes**, and the shape is where the difficulty lives:
+
+| Shape | Members | The hard part, solved once |
+|---|---|---|
+| **File drop** | Feed files, S3/GCS/Azure, SFTP, HDFS, Iceberg data files | Completion detection, file identity, record-index offsets, quarantine |
+| **Log-based CDC** | Postgres, MySQL, Mongo, Debezium envelope, Aerospike XDR, Cassandra CDC | Resumable log positions, before-image handling, snapshot-then-stream splicing (§16.1) |
+| **Poll with a watermark** | JDBC high-water-mark, Aerospike `lut-scan`, REST pagination | Throttling, overlap windows, the honest admission that deletes are invisible |
+
+The kit ships one base implementation per shape plus the decoders, so a new connector is transport plus configuration rather than a rediscovery of the same three problems. The plugin TCK (P1-14) then checks that what the connector *declares* matches what it *does* — a source claiming replayable offsets that cannot actually rewind fails the TCK, which is precisely the failure that would otherwise surface as silent data loss during a recovery.
 
 ---
 
@@ -3693,6 +3802,8 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **023** | The console uses only the public API — no privileged endpoints | A privileged internal API for the console | For a proprietary engine the API *is* the product surface, so a console-first API produces a second-class integration story. Superseded on packaging by ADR-024, which makes the separation physical rather than test-enforced (§23.2a) |
 | **021** | No GraalVM native image for the engine | Native image via Spring AOT; drop runtime codegen to enable it | Runtime Java-source compilation (ADR-005) is fundamentally incompatible with a closed-world image, and it is what makes the hot path fast. Stated so no one spends a sprint on it. Clients and UI may still go native (§22.7) |
 | **018** | **Proprietary, wholly owned by Ashutosh Sinha.** All rights reserved | Apache 2.0 (proposed in an earlier revision of this document); open core; source-available; dual licence | Owner's decision. The technical moat in §2 is unaffected, but the distribution risk moves from execution to evaluation: §30.4 sets out what has to carry the weight instead — published Nexmark results, a frictionless evaluation licence, and the developer-experience surface |
+| **027** | The lane, not the query, owns threads, inboxes, arenas and timer wheels; a lane multiplexes many query pipelines | A lane per query; a shared work-stealing pool with queries as tasks; round-robin over registered pipelines | Arithmetic decides it before taste does: at NFR-2d's density a per-query inbox is 10 GB and a per-query thread is a dead machine. Work-stealing would forfeit single-writer state (ADR-004). The ready list, zero-copy in-lane fan-out and interpreted-first admission are consequences of the one budget, not separate optimisations (§13.7) |
+| **028** | A connector earns its place by proving an SPI capability or by deployment demand, never by breadth; three shapes, one kit | Ship many connectors early as the incumbents do; per-connector semantics; treat file input as a test fixture | A shallow connector declaring capabilities it lacks causes silent data loss during recovery, months later. Nearly every connector is a file drop, a log-based CDC feed or a poll-with-watermark, so each shape is solved once and the TCK checks the declaration against behaviour (§19.7–§19.9) |
 
 ---
 

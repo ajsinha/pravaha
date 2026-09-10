@@ -377,8 +377,14 @@ Epics map 1:1 to the design's phases and to the **waves** of §4.0 — one epic,
 | P2-09 | Backpressure: high/low watermarks, `pause`/`resume` propagation to plugins | 4 d | A stalled sink pauses the source within 200 ms; no unbounded growth anywhere |
 | P2-10 | False-sharing audit + padding + JMH regression guard | 2 d | Padding removal is detected by the benchmark |
 | P2-11 | Generated-source retention + `EXPLAIN codegen` | 2 d | Source downloadable for any running query under a debug flag |
+| **P2-12** | **Lane multiplexing: ready list, in-lane zero-copy fan-out, per-query quotas** | 6 d | 1 000 registered queries on 4 lanes; an idle query costs its lane no measurable time; a hot query cannot take more than its quota of lane batches (ADR-027, §13.7) |
+| **P2-13** | **Interpreted-first admission with background upgrade to generated code** | 3 d | 1 000 queries registered and producing output within 5 s of a cold start; each is observed to switch to its generated stage; the swap loses no rows |
 
 **Gate P2:** **Profile A ≥ 1.2 M rec/s/lane**; ≥ 90 % scaling to 8 lanes; differential tests green; no metaspace leak over 10 000 query cycles.
+
+> **The scaling clause needs hardware this project does not currently have.** The development machine is a 12-physical-core heterogeneous laptop SoC with SMT and aggressive frequency scaling, on which an all-core measurement is confounded by the power envelope before the software is reached (`benchmarks/README.md`). Single-lane throughput and structural cross-lane independence *are* measurable here and are asserted; the 1→8 figure must be taken on the reference hardware of design §5.2, and scheduling that is a gate prerequisite rather than a detail of it.
+
+> **P2-12 and P2-13 are additions made in Wave 3**, not part of the original E2 scope. They follow from NFR-2d — 10 000 concurrent queries per node — which was stated after the wave began. Recording them here rather than absorbing them silently keeps the estimate honest: this is the third time the plan has under-counted adjacent work, and the pattern is worth more than any individual estimate.
 
 ### EU — The Console *(continuous workstream, sprints 9–62)*
 
@@ -550,6 +556,7 @@ Decomposed at the Sprint 6 planning session from the E2 table. Indicative shape:
 | 8 | P2-03 Janino pipeline, P2-04 fallback + method splitting, P2-05 differential rig |
 | 9 | P2-06 lane model, P2-10 false-sharing audit |
 | 10 | P2-07 hash exchange, scaling benchmarks |
+| 11 | P2-12 lane multiplexing, P2-13 interpreted-first admission |
 | 11 | P2-08 adaptive batching, P2-09 backpressure, P2-11 EXPLAIN codegen, **Gate P2** |
 
 ---

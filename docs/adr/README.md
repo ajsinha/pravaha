@@ -32,3 +32,8 @@ decision that was later reversed is usually the most useful thing here.
 | [021](021-no-graalvm-native-image.md) | No GraalVM native image for the engine |
 | [018](018-proprietary-licence.md) | Proprietary, wholly owned by Ashutosh Sinha. All rights reserved |
 | [023](023-api-first-console.md) | The console uses only the public API; one deployable by default, two supported |
+| [024](024-console-as-a-separate-process.md) | The console is a separate Python FastAPI process built on the published SDK; supersedes ADR-023 on packaging |
+| [025](025-registration-and-subscription-separated.md) | Registration and subscription are separate objects; sharing is by canonical fingerprint including security predicates |
+| [026](026-one-subscription-model-three-carriers.md) | One subscription model behind gRPC, WebSocket and SSE; encode once, write N times |
+| [027](027-lane-multiplexes-queries.md) | The lane, not the query, owns threads, inboxes, arenas and timer wheels; a lane multiplexes many query pipelines |
+| [028](028-connectors-earn-their-place.md) | A connector earns its place by proving an SPI capability or by deployment demand, never by breadth; three shapes, one kit |

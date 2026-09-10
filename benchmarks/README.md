@@ -23,6 +23,24 @@ Add `--add-exports java.base/jdk.internal.misc=ALL-UNNAMED` to include the Agron
 
 ## Reading the numbers
 
+**What this machine actually is.** Earlier notes in this repository described it as "a shared 24-core
+box". That is an overstatement worth correcting, because it changes how much these numbers are worth:
+
+| | |
+|---|---|
+| CPU | AMD Ryzen AI 9 HX 370 — a **laptop** SoC |
+| Cores | **12 physical**, 24 logical (SMT2). Not 24 cores. |
+| Core types | **Heterogeneous** — Zen 5 and Zen 5c. Two lanes on two cores are not necessarily two equal lanes. |
+| Clock | Frequency-scaled; `lscpu` reported 65 % of nominal while idle-ish |
+| Other tenants | An IDE, browsers and other work. Load average 3–13 between runs. |
+
+Consequences, stated once so nobody re-derives them: **single-threaded throughput comparisons are
+sound** (same core, same conditions, and that is what the generated-versus-interpreted ratio below
+rests on). **Multi-core scaling measurements are not.** An all-core workload on a laptop part drops
+clock substantially against a single-threaded one, so a scaling curve here measures the power
+envelope as much as the software. Add SMT and two different core designs and the confounds compound.
+
+
 The reference hardware in the design is 16 physical cores at ≥ 3.0 GHz. Baselines recorded on a
 developer workstation are useful as **relative regression detectors** and are not SLO evidence:
 throughput numbers are meaningful, but p99.9 and p99.99 on a shared machine are noise. Absolute SLO
@@ -33,6 +51,11 @@ validation (design §5.2) needs dedicated hardware and is a Wave 3 activity.
 | File | What it records |
 |---|---|
 | `memory-access.json` | `MemoryAccessBenchmark` — per-accessor cost for each `MemoryAccess` implementation |
+
+**`LaneScalingBenchmark` deliberately has no committed baseline.** A baseline is a regression bar CI
+enforces, and enforcing one against a number this hardware cannot measure reliably would fail builds
+for reasons unrelated to the code. Its results live in this document until they can be taken on the
+reference hardware.
 
 ## Profile A — generated versus interpreted
 
@@ -71,3 +94,51 @@ Neither would have been visible in a unit test.
 
 The second matters beyond the number: fixing it made the comparison *fair*, so the two arms now
 differ in dispatch cost rather than in algorithm.
+
+## Lane scaling — the contention benchmark
+
+`LaneScalingBenchmark` is P2-06's acceptance artefact. One JMH thread per lane, each posting rows
+only into its own lane's inbox; the row is copied in, drained, batched and summed. The processor
+deliberately does almost nothing, because the subject is the **lane machinery** — handoff, batch
+loop, arena, counters — and not the operators on it.
+
+Run it as `-t N -p lanes=N`:
+
+```bash
+java -jar pravaha-benchmarks/target/benchmarks.jar LaneScalingBenchmark -t 4 -p lanes=4
+```
+
+Measured here, `SPIN_THEN_YIELD`, 1 fork, rows per second:
+
+| Lanes | rows/s | vs 1 lane | Efficiency |
+|---|---|---|---|
+| 1 | 21.3 M ± 1.7 M | — | — |
+| 2 | 26.8 M ± 9.7 M | 1.26× | 63 % |
+| 4 | 35.6 M ± 7.9 M | 1.67× | 42 % |
+| 8 | 57.8 M ± 47 M | 2.71× | 34 % |
+
+**These are not evidence for or against the scaling gate, and must not be quoted as either.** The
+gate (design §5.2, NFR-2b) is ≥ 90 % efficiency from 1 to 16 lanes and it belongs to P2-07. Three
+things make this hardware unable to answer it: an all-core clock well below the single-core boost
+clock, two different core designs, and a harness that needs *two* threads per lane — a producer and
+the lane — so eight lanes is sixteen busy threads on twelve physical cores. In production the
+producers are I/O-bound virtual threads, not saturating spinners. **The scaling number needs the
+reference hardware: 16 physical, homogeneous cores at ≥ 3.0 GHz, quiet.**
+
+What the numbers *do* establish: a single lane moves **21 M rows/s** of pure machinery, which is
+roughly 17× the 1.2 M rec/s/lane gate. The lane loop is therefore not the thing that will make the
+gate hard — the operators, the source decode and the sink dispatch are.
+
+### What the first version of this benchmark got wrong
+
+Worth recording, because it produced a plausible, specific, wrong number. The original harness
+released a round of work through a `Phaser` and measured the time until every lane had drained it.
+That measures the **slowest thread in each round**: with other work on the machine, one preempted
+thread stalls the entire round, and more lanes means more chances to be unlucky. It reported 33 %
+efficiency at four lanes and 26 % at eight, looked exactly like lane contention, and survived a
+plausible hypothesis — that the per-lane reject counters were false-sharing — being tested and
+refuted before the harness itself was suspected.
+
+Removing the barrier changed the four-lane figure from 33 % to 42 % and the shape of the curve. The
+lesson is the one this project keeps relearning: **a benchmark is a program and can be wrong in the
+same ways as any other program**, and a number with a story attached is the easiest kind to believe.

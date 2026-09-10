@@ -109,6 +109,43 @@ class DocumentationFreshnessTest {
     }
 
     @Test
+    void everyDecisionADocumentCitesHasAnAdrFile() throws IOException {
+        // Found by looking, not by a test: ADR-024, ADR-025 and ADR-026 were cited by name in three
+        // documents -- including the design's own decision table -- while no such file existed. The
+        // path check above did not catch it because a bare "ADR-024" is not a link, and a decision
+        // record that is cited but unwritten is the most expensive kind of rot: the reasoning is
+        // gone, and the citation makes it look as though it was captured.
+        Set<String> recorded = new LinkedHashSet<>();
+        Path adrDir = repoRoot().resolve("docs/adr");
+        try (Stream<Path> files = Files.list(adrDir)) {
+            files.map(f -> f.getFileName().toString())
+                    .filter(n -> n.matches("\\d{3}-.*\\.md"))
+                    .forEach(n -> recorded.add(n.substring(0, 3)));
+        }
+        assertThat(recorded)
+                .as("the ADR directory must contain numbered records")
+                .hasSizeGreaterThan(10);
+
+        List<String> uncaptured = new ArrayList<>();
+        Pattern citation = Pattern.compile("ADR-(\\d{3})");
+        for (String doc : DOCS) {
+            Path path = repoRoot().resolve(doc);
+            if (!Files.exists(path)) {
+                continue;
+            }
+            Matcher matcher = citation.matcher(Files.readString(path, StandardCharsets.UTF_8));
+            while (matcher.find()) {
+                if (!recorded.contains(matcher.group(1))) {
+                    uncaptured.add(doc + " -> ADR-" + matcher.group(1));
+                }
+            }
+        }
+        assertThat(uncaptured)
+                .as("these documents cite decisions that have no record in docs/adr: %s", uncaptured)
+                .isEmpty();
+    }
+
+    @Test
     void everyRepositoryPathADocumentPointsAtExists() throws IOException {
         List<String> broken = new ArrayList<>();
         // Markdown links to files inside the repository, ignoring anchors and external URLs.
