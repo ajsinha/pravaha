@@ -5,8 +5,13 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 
 Every construct below is **checked by a test**, not by someone's memory:
 [`SqlSupportMatrixTest`](../pravaha-sql/src/test/java/com/ash/messaging/pravaha/sql/plan/SqlSupportMatrixTest.java)
-runs each statement in this page against the real planner. If a construct starts working, or stops,
-the build fails and names this file. That is the only way a page like this stays true.
+plans each statement in this page, builds it, **and compiles it into a runnable pipeline**. If a
+construct starts working, or stops, the build fails and names this file.
+
+That third step is there because the first version of this page got two rows wrong without it.
+Planning a statement and being able to run it are different things — a self-join plans perfectly and
+is refused when the pipeline is built — so a matrix that stopped at the planner reported it as
+supported and this page repeated the claim.
 
 ## Continuous queries and view reads run the same SQL
 
@@ -141,8 +146,8 @@ meaningful, but an answer that shuffles is one somebody wastes an afternoon on.
 |---|---|---|
 | `INNER JOIN` on an equality | ✅ | Symmetric hash join, incremental both ways |
 | Multi-column equi-join | ✅ | `ON a.x = b.x AND a.y = b.y` |
-| Three-way and deeper | ✅ | |
-| Self join | ✅ | |
+| Three-way and deeper | ✅ | Between *distinct* streams |
+| Self join — one stream on both sides | ❌ | Rows enter a join by stream name, which cannot say which side a row is for |
 | Lookup join against a dimension table | ✅ | Async, on virtual threads, ordered output |
 | `LEFT` / `RIGHT` / `FULL OUTER` | ❌ | `PRV-2020` |
 | `CROSS JOIN` | ❌ | `PRV-2020` |
@@ -155,6 +160,10 @@ made incremental at all.
 
 **In practice this covers the joins people write.** A stream joined to another stream on a key, and a
 stream enriched from a dimension table, are the two shapes that make up nearly all of it.
+
+A self-join is refused later than the rest — when the pipeline is built rather than when the query is
+planned — and it is the one refusal that arrives without a `PRV-` code. Both are worth fixing; until
+then, the message says plainly what is wrong.
 
 ## Sorting, sets and subqueries
 

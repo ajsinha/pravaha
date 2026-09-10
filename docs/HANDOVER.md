@@ -207,7 +207,7 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Aligned barriers across the exchange | ❌ — checkpointing is per-lane, which is sound only while lanes share no state; the limitation is written into `QueryExecution.checkpoint` |
 | Windowed / time-versioned joins | ❌ — the unwindowed join is bounded only by a row ceiling, which fails the query rather than the node |
 | Outer joins | ❌ — refused with the reason: an unmatched row must be held for as long as a match could arrive |
-| Self-joins | ❌ — both sides would read one stream and a stream name cannot say which side a row is for |
+| Self-joins | ❌ — both sides would read one stream and a stream name cannot say which side a row is for. Refused when the pipeline is built, and the one refusal reachable from SQL that carries no `PRV-` code |
 | **The README's query runs against Aerospike, verbatim** | ✅ `AerospikeContinuousQueryIT` uses the README's own SQL — `SELECT STREAM`, `GROUP BY TUMBLE(...)`, `TUMBLE_END(...)`, the temporal `LEFT JOIN` — against a real Aerospike server, with the `WHERE` pushed into the store. Only the `CREATE CONTINUOUS QUERY ... SERVE AS VIEW ... EMIT CHANGES` wrapper is still unparsed; that is registration, not the query |
 | Aerospike plugin | ✅ `lut-scan` source with server-side filter pushdown, idempotent sink, lookup table — **tested against a real Aerospike Community server in Docker**, skipped when docker is absent. The three XDR/intercept strategies are refused by name: they need Enterprise XDR, cannot be exercised against Community, and shipping an untested change-feed path would be worse than not shipping one |
 | Filter pushdown to sources | ✅ `Pushdown` extracts the pushable conjunction, `ReadRequest` carries it, the JDBC plugin turns it into a bound `WHERE`. The engine keeps its own filter regardless, which is what makes a plugin's partial or absent support harmless |
@@ -229,7 +229,9 @@ right numbers — which is how that distinction was discovered.
 | Adaptive throttling | ✅ `BackfillThrottle`: ceiling, floor, back off fast / recover slowly, pinnable. Governs the history scan only — throttling the change feed would make the query fall behind the present to protect the store from the past |
 | Blue/green cutover and rollback | ✅ `ShadowDeployment`: the seam is a frontier, not a moment, so every input record is reflected in exactly one version's output. Rollback is the same swap reversed. Decides *which version's output counts*; it does not run the queries |
 | Served views and consistency modes | ✅ `pravaha-serving`: `ServedView` with committed and pending kept apart so a consistent read never sees half a batch; `LATEST`, `CONSISTENT` and `AT_LEAST` implemented, `AS_OF` refused because a view holds the present. Every answer carries its own staleness |
-| Read admission control, gRPC/Avatica surface, range indexes | ❌ |
+| Read admission control | ✅ delivered in Wave 7 — `ReadAdmission`, see that section |
+| Range indexes, read replicas | ❌ |
+| gRPC/Avatica surface | ⛔ superseded by ADR-030: one Flight SQL surface replaces both |
 
 ### Wave 7 (E6) — started
 

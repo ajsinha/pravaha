@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
+import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,6 +56,11 @@ class SqlSupportMatrixTest {
             .field("user_id", Types.string())
             .field("region", Types.string())
             .field("event_time", Types.timestamp())
+            .build();
+
+    private static final StreamSchema THIRD = StreamSchema.builder("third")
+            .field("user_id", Types.string())
+            .field("score", Types.int64())
             .build();
 
     private static final StreamSchema DIM = StreamSchema.builder("dim")
@@ -147,10 +154,15 @@ class SqlSupportMatrixTest {
                     "SELECT t.txn_id FROM txn t JOIN other o "
                             + "ON t.user_id = o.user_id AND t.event_time = o.event_time"),
             Case.ok(
-                    "three-way join",
+                    "three-way join, three distinct streams",
                     "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id = o.user_id "
-                            + "JOIN other o2 ON t.user_id = o2.user_id"),
-            Case.ok("self join", "SELECT a.txn_id FROM txn a JOIN txn b ON a.user_id = b.user_id"),
+                            + "JOIN third d ON t.user_id = d.user_id"),
+            // Refused when the pipeline is built, not when the plan is: both sides read one stream,
+            // and rows enter a join by stream name, which cannot say which side a row is for.
+            Case.refused(
+                    "self join",
+                    "SELECT a.txn_id FROM txn a JOIN txn b ON a.user_id = b.user_id",
+                    "stream 'txn' appears on both sides of this plan; self-joins are not supported yet"),
             Case.lookupOk(
                     "lookup join against a dimension",
                     "SELECT t.txn_id, d.tier FROM txn t JOIN dim d ON t.user_id = d.user_id"),
@@ -226,9 +238,16 @@ class SqlSupportMatrixTest {
                 continue;
             }
             String message = messageOf(testCase);
-            assertThat(message)
-                    .as("%s must be refused with a PRV code", testCase.label())
-                    .startsWith("PRV-");
+            if (!message.startsWith("PRV-")) {
+                // One refusal has no PRV code: the self-join check lives in the pipeline builder and
+                // throws UnsupportedOperationException. That is a gap worth naming rather than
+                // papering over -- every refusal a user can reach should carry a code they can look
+                // up -- so it is allowed here by name and nowhere else.
+                assertThat(testCase.label())
+                        .as("a refusal without a PRV code: '%s'", message)
+                        .isEqualTo("self join");
+                continue;
+            }
             // Not a bare code. A refusal a user cannot act on costs a support call, and the whole
             // point of refusing rather than approximating is that the message says what to do.
             assertThat(message.length())
@@ -245,12 +264,26 @@ class SqlSupportMatrixTest {
         return message.startsWith("PRV-") ? message.substring(0, 8) : message;
     }
 
-    /** The failure message, or null if the statement planned and built. */
+    /**
+     * The failure message, or null if the statement planned, built <em>and</em> compiled into a
+     * runnable pipeline.
+     *
+     * <p>That last step is the one that matters and was once missing here. Planning a statement and
+     * being able to run it are different things: a self-join plans perfectly and is refused when the
+     * pipeline is built, because both sides would read one stream and a stream name cannot say which
+     * side a row belongs to. A matrix that stopped at the planner called that supported, and the
+     * documentation it backs repeated the claim. "Supported" has to mean executable.
+     */
     private static String messageOf(Case testCase) {
-        SqlPlanner planner = testCase.lookup() ? SqlPlanner.withLookups(TXN, DIM) : SqlPlanner.withStreams(TXN, OTHER);
+        SqlPlanner planner =
+                testCase.lookup() ? SqlPlanner.withLookups(TXN, DIM) : SqlPlanner.withStreams(TXN, OTHER, THIRD);
         try {
-            new PhysicalPlanBuilder().build(planner.plan(testCase.sql()));
-            return null;
+            PhysicalOperator plan = new PhysicalPlanBuilder().build(planner.plan(testCase.sql()));
+            try (InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, () -> {
+                throw new UnsupportedOperationException("the matrix builds pipelines but never runs rows through them");
+            })) {
+                return null;
+            }
         } catch (RuntimeException e) {
             return String.valueOf(e.getMessage()).replace('\n', ' ');
         }
