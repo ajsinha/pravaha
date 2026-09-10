@@ -52,8 +52,12 @@ Since 2026-09-10 there is also a **runnable lane runtime** — pinned threads, p
 inboxes, a hash exchange between lanes, backpressure that reaches the source plugin, many queries
 multiplexed onto one lane, and queries that start interpreted and upgrade to generated code behind
 themselves — and **four source connectors**: filesystem, Delta Lake, feed files (CSV and Parquet),
-and JDBC. None of the lane runtime is wired into the SQL path yet: it is exercised by its own tests
-and benchmarks, and joining it to `InterpretedPipeline` is the first job of Wave 4.
+and JDBC.
+
+**The two halves are now joined.** `QueryExecution` compiles a SQL plan onto N lanes, one pipeline
+and one arena per lane, fed through the ingest pump from plugin readers — `QueryOnLanesTest` runs a
+query across four lanes and checks every row arrives and every lane does some of the work. Before
+that, the lane runtime and the SQL path both worked and neither was the engine.
 
 ---
 
