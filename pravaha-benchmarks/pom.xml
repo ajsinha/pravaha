@@ -26,6 +26,16 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-runtime</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-codegen</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.openjdk.jmh</groupId>
       <artifactId>jmh-core</artifactId>
     </dependency>

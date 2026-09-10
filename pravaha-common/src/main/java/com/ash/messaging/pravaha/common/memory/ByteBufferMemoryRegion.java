@@ -189,8 +189,21 @@ final class ByteBufferMemoryRegion implements MemoryRegion {
     @Override
     public void setMemory(int index, int length, byte value) {
         ByteBuffer b = buf();
-        for (int i = 0; i < length; i++) {
+        // Eight bytes at a time. This is called once per row -- the writer clears a row's header and
+        // null bitmap before building it, because stale null bits from a previous row in reused
+        // arena space would read as null fields in this one. A byte-at-a-time loop made that clear
+        // cost ~50 iterations per row and showed up as the dominant term in the Profile A
+        // benchmark, which is how it was found.
+        long word = (value & 0xFFL) * 0x0101010101010101L;
+        int i = 0;
+        int aligned = length & ~7;
+        while (i < aligned) {
+            LONG_HANDLE.set(b, index + i, word);
+            i += 8;
+        }
+        while (i < length) {
             b.put(index + i, value);
+            i++;
         }
     }
 

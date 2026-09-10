@@ -201,10 +201,18 @@ public sealed interface Predicate {
             parts = List.copyOf(parts);
         }
 
+        /**
+         * Indexed rather than enhanced-for.
+         *
+         * <p>An enhanced-for over a {@code List} allocates an iterator, and this runs once per row.
+         * It is invisible in a unit test and shows up in a throughput benchmark as GC noise -- which
+         * is how it was found. The hot path allocates nothing, and "nothing" has to include the
+         * things the language does on your behalf.
+         */
         @Override
         public boolean test(RowView row) {
-            for (Predicate part : parts) {
-                if (!part.test(row)) {
+            for (int i = 0; i < parts.size(); i++) {
+                if (!parts.get(i).test(row)) {
                     return false;
                 }
             }
@@ -224,10 +232,11 @@ public sealed interface Predicate {
             parts = List.copyOf(parts);
         }
 
+        /** Indexed, for the same reason {@link And} is: an iterator per row is an allocation per row. */
         @Override
         public boolean test(RowView row) {
-            for (Predicate part : parts) {
-                if (part.test(row)) {
+            for (int i = 0; i < parts.size(); i++) {
+                if (parts.get(i).test(row)) {
                     return true;
                 }
             }
