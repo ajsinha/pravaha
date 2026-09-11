@@ -1,93 +1,93 @@
-# Waves 5–7 merge record — the state `main` is being moved to
+# Gate P6 — end of Wave 7 (E6 Gateways & DX)
 
 Copyright © 2026 Ashutosh Sinha. Proprietary and confidential.
 
 | | |
 |---|---|
-| Waves | 5 (E4 Durable), 6 (E5 Backfill & serving), 7 (E6 Gateways & DX) |
-| Date | 2026-09-10 |
-| Verdict | **MERGED WITHOUT A PASSING PERFORMANCE GATE.** Deliberate, and recorded here so nobody has to reconstruct why |
+| Wave | 7 of 10 — E6 Gateways & developer experience |
+| Date | 2026-09-11 |
+| Verdict | **Wave complete. Gate P6 not passed** — its criteria are unmeasured, two of them for the same hardware reason as P2 and P3 |
 
-## Why this record exists
+> An earlier version of this file was a *merge record* for waves 5–7, written when Wave 7 was still
+> in progress and `main` had been stale for 81 commits. Wave 7 has since finished; this is its gate
+> record, and it replaces that note rather than sitting beside it.
 
-`main` had been at Wave 2 for 81 commits while waves 3 through 7 were built on `develop`. The
-convention — `main` moves once per wave, at a gate, with an evidence pack — was written on the
-assumption that gates could be evaluated. Gates P2 and P3 cannot be, on this hardware, and no amount
-of code changes that. Holding `main` at Wave 2 indefinitely was making the branch useless to release
-or demo from without protecting anything.
+## The gate, honestly
 
-So the convention is being **suspended for these three waves and the reason written down**, rather
-than quietly abandoned. The gate debt is real, still outstanding, and named below.
-
-## What is unmeasurable, and why
-
-Gates P2 (Profile A ≥ 1.2 M rec/s per lane, ≥ 90 % scaling 1→8 lanes) and P3 (Profile B ≥ 350 k
-rec/s per lane) need **16 physical homogeneous cores at ≥ 3.0 GHz, quiet**.
-
-The development machine is a 12-physical-core heterogeneous laptop SoC — Zen 5 plus Zen 5c — with
-SMT and frequency scaling, shared with an IDE and a browser. A one-lane and an eight-lane
-measurement are taken at different clock speeds on cores of different sizes, so the ratio measures
-the power envelope at least as much as the software. **The 2.7× at eight lanes recorded in the
-benchmarks is not evidence of anything** and is written down only so nobody re-derives it and
-believes it.
-
-This is a purchase order, not an engineering task. It is the single oldest outstanding item in the
-project.
-
-## What was built, waves 5–7
-
-| Piece | Where |
-|---|---|
-| Symmetric hash join, incremental both ways | `SymmetricHashJoin`, `JoinSide` |
-| Key-partitioned ingest so a join can span lanes | `LaneExchange`, partitioned pump |
-| Checkpoint and recovery across a join | `CheckpointRecoveryTest`, `JoinRecoveryTest` |
-| Filter pushdown with capability negotiation | `pravaha-connect`, `PushdownEquivalenceTest` |
-| Effectively-once output for non-transactional sinks | dedup sink |
-| Lookup joins, async, on virtual threads, ordered | `LookupJoinOperator` |
-| JDBC plugin, proven against real PostgreSQL | `plugins/pravaha-plugin-jdbc`, `PostgresJdbcIT` |
-| Aerospike plugin, proven against a real server | `plugins/pravaha-plugin-aerospike`, `AerospikePluginIT` |
-| Snapshot→CDC splice, throttle, blue/green cutover | `pravaha-backfill` |
-| Served views with declared consistency | `pravaha-serving` |
-| Keyed `GROUP BY` over a bounded view read | `KeyedAggregate` |
-| Arrow Flight SQL gateway (ADR-030) | `pravaha-flight` |
-| Java and Python SDKs — connect, query, iterate | `sdk/` |
-| Authentication and authorization (ADR-031) | `pravaha-security` |
-| Read admission control | `ReadAdmission` |
-| Prepared statements (ADR-032) | `BoundParameters`, `StatementHandle` |
-
-## What passes
+**M7 "It's usable"** asks for: the Python client at 1 M rows/s, DBeaver connecting, a 2-second deploy.
 
 | Criterion | Status |
 |---|---|
-| The README's query runs verbatim against real Aerospike | **PASS** — `AerospikeContinuousQueryIT`, 14.4 s, container, not a mock |
-| Join survives a crash: interrupted run equals uninterrupted | **PASS** |
-| Filter pushdown does not change results | **PASS** — `PushdownEquivalenceTest` |
-| SQL surface documented and enforced by test | **PASS** — `SqlSupportMatrixTest`, `docs/SQL_SUPPORT.md` |
-| Authorization enforced at the Pravaha layer, not the store | **PASS** — ADR-031 |
-| Both SDKs against the real server, no fakes | **PASS** |
-| Full build green | **PASS** — `./mvnw -Ppython clean verify`, 1 195 Java unit tests, 46 Python |
-| Profile A / Profile B throughput | **NOT MEASURABLE** — see above |
+| Python client at 1 M rows/s | **NOT MEASURED.** No throughput benchmark exists for the client, and this machine could not produce a defensible figure if one did — the same confound as Gates P2 and P3 |
+| DBeaver connects | **NOT VERIFIED.** The server speaks Flight SQL, so the upstream JDBC driver *should* work, and "should" is not a gate. Nobody has pointed DBeaver at it |
+| Two-second deploy | **NOT MEASURED.** Registration is sub-second in tests, but "deploy" in the plan means something broader and nobody has timed it end to end |
+
+So the wave is finished and the gate is not passed. Both statements are true and they are not in
+tension: the work E6 scoped is built and tested, and the *evidence* the gate asks for has not been
+gathered. Recording it this way is the point — a gate quietly redefined to match what was built is
+not a gate.
+
+## What Wave 7 delivered
+
+| Piece | Where |
+|---|---|
+| Arrow Flight SQL gateway (ADR-030) | `pravaha-flight` |
+| SQL over maintained views, with consistency and staleness | `pravaha-serving` |
+| Prepared statements, bound at plan-build time (ADR-032) | `BoundParameters`, `StatementHandle` |
+| Authentication, authorization, audit (ADR-031) | `pravaha-security` |
+| Read admission control | `ReadAdmission` |
+| **Query registration and lifecycle (ADR-025)** | `pravaha-registry` |
+| **Subscriptions**, engine side and over the wire (ADR-026) | `Subscription`, Flight tickets |
+| **Both SDKs**: connect, query, prepare, register, subscribe | `sdk/pravaha-sdk-java*`, `sdk/python` |
+| **CLI against a server**: query, register, queries, subscribe, lifecycle | `pravaha-cli` |
+| **The console** (ADR-024) | `console/` |
+| Retention on views; a match window on joins | `Retention`, `JoinOperator` |
+| Parameters for continuous queries, classified (ADR-032) | `ParameterPlacement` |
+
+## What this wave changed its mind about
+
+Worth recording, because each was a correction rather than an addition.
+
+**Views grew without limit.** A pass-through view gained a row per event forever and answered that
+by failing at a ceiling. "The node dies eventually, loudly" is not a design. Views now forget, by
+event-time age, with a default applied unless a registration chooses otherwise.
+
+**Retention was briefly expressed in rows as well as time.** Removed: "the last million rows" is four
+hours on a quiet day and twenty minutes on a busy one, so the view's *meaning* would have depended on
+throughput. Counting rows is a capacity ceiling, not a retention policy, and the view already had one.
+
+**A join held every unmatched row forever.** Fixed differently, and the difference is the lesson: a
+view can forget because forgetting is a cache policy, while a join cannot, because evicting to fit
+would silently lose matches the query asked for. So the bound went into the query's *meaning* — a
+match window — where releasing old rows honours the definition instead of breaking it.
+
+**`SecurityPolicy.PERMISSIVE` said one thing and did another.** Being a lambda, it implemented only
+`mayRead` and kept the default `mayRegisterQuery`, which refuses anonymous callers. A policy named
+PERMISSIVE permitted every read and then refused registration on a server with no authentication.
+
+**Closing a client left the server holding its subscription.** A subscription is a call that does not
+return; the server learns nobody is listening from a *cancellation*, and dropping the transport
+without one left it attached, assembling batches for a client that had gone.
 
 ## What is knowingly outstanding
 
-Named so the merge does not read as completion:
-
 | Gap | Wave |
 |---|---|
-| Query registration and lifecycle — **no surface exists** | 7 |
-| Subscriptions over Flight | 7 |
-| Parameters for continuous queries (ADR-032's deferred half) | 7 |
-| The console — three ADRs, no code | 7 |
+| Gate P2, P3, P6 evidence — **needs the reference hardware** | 3, 4, 7 |
+| A temporal predicate in SQL (`BETWEEN b.t - INTERVAL '1' HOUR AND b.t`), so a join's window can be chosen per query | 5 |
+| Checkpoint retention: `FileCheckpointStore.prune` exists and nothing calls it | 5 |
 | Aligned checkpoint barriers across the exchange | 5 |
 | Self-joins; outer joins between streams | 5 |
 | Range indexes, read replicas | 6 |
-| Clustering, HA, Raft — no module | 8 |
+| Column masking, per-column policy — out of ADR-031 until asked for | 7 |
+| Clustering, HA, Raft — **no module** | 8 |
 | Operability, time-travel debug | 9 |
 | GA: further plugins, `WITH RECURSIVE`, Nexmark, soak, security review | 10 |
 
 ## The honest summary
 
-A working streaming SQL engine with a client protocol, two SDKs, authentication, authorization and
-five source plugins, proven end to end against real Aerospike and real PostgreSQL. **No user
-interface, no clustering, no way yet to register a query as a persistent running thing.** Roughly
-wave 7 of 10.
+A streaming SQL engine you can now *give a query to*: register it, subscribe to it, query it, watch
+it in a console, and drive all of that from Java, Python or a shell. Proven end to end against real
+Aerospike and real PostgreSQL.
+
+No clustering. No performance evidence. Roughly wave 7 of 10.

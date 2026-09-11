@@ -233,7 +233,7 @@ right numbers — which is how that distinction was discovered.
 | Range indexes, read replicas | ❌ |
 | gRPC/Avatica surface | ⛔ superseded by ADR-030: one Flight SQL surface replaces both |
 
-### Wave 7 (E6) — started
+### Wave 7 (E6) — complete; Gate P6 not passed
 
 | Piece | State |
 |---|---|
@@ -318,7 +318,8 @@ Aerospike, Cassandra and Redis remain Wave 5 and Wave 10 as planned.
   attribution anywhere — the history was rewritten once to remove it; do not reintroduce it.
 - **Waves:** `develop` moves continuously; `main` moves **once per wave**, at a gate, with an
   evidence pack and a retrospective. Never merge to `main` mid-wave.
-  **Suspended once, deliberately, for waves 5–7** — see [`docs/gates/wave-7`](gates/wave-7/). The
+  **Suspended for waves 3–7** — see [`docs/gates/wave-7`](gates/wave-7/), which is now Wave 7's gate
+  record rather than the interim merge note it started as. The
   gates it would have waited for are hardware-blocked rather than code-blocked, and holding `main`
   81 commits stale was protecting nothing. The debt is recorded there, not forgiven.
 
