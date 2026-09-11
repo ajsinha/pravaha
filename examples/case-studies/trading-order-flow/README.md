@@ -140,13 +140,26 @@ Pravaha has no `CASE`, so you register two queries. They have different plans, s
 computations with separate state — the engine will not accidentally share them. The cost is real:
 the stream is read once per registration. The benefit is that neither query hides work from you.
 
-Register both:
+Register both, through the SDK:
 
 ```java
-QueryRegistry registry = new QueryRegistry(views, orderSchema(), instrumentSchema());
-registry.register("order_rate",  Files.readString(Path.of("sql/01-continuous-new-order-rate.sql")), List.of(1), principal);
-registry.register("cancel_rate", Files.readString(Path.of("sql/02-continuous-cancel-rate.sql")), List.of(1), principal);
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090")) {
+    client.register("order_rate",  Files.readString(Path.of("sql/01-continuous-new-order-rate.sql")), List.of(1));
+    client.register("cancel_rate", Files.readString(Path.of("sql/02-continuous-cancel-rate.sql")), List.of(1));
+}
 ```
+
+Or from a shell:
+
+```bash
+pravaha register --name order_rate  --sql-file sql/01-continuous-new-order-rate.sql --keys 1
+pravaha register --name cancel_rate --sql-file sql/02-continuous-cancel-rate.sql --keys 1
+pravaha queries
+```
+
+They have different plans, so they are **two computations with two copies of state** — which
+`pravaha queries` shows as two different fingerprints. That is the cost of not having `CASE`, stated
+where you can see it rather than hidden.
 
 ## Step 4 — stream order events
 

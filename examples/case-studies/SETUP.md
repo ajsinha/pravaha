@@ -121,6 +121,19 @@ pip install -e '.[dev]'
 
 Every Python snippet in the case studies assumes that virtualenv is active.
 
+## The `pravaha` command line
+
+Built with the rest of the engine, and the quickest way to check any of this is working:
+
+```bash
+./mvnw -q -DskipTests install
+pravaha --help
+```
+
+Every case study can be driven entirely from it — register a continuous query, list what is running,
+ask a question with bound parameters, watch a stream, drop it again. The commands go through the same
+published SDK your application would use, so nothing works there that would not work in your code.
+
 ## A note on time
 
 Every case study is built on **event time** — the timestamp *in the data* — and not on when a row

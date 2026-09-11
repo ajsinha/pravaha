@@ -21,11 +21,28 @@ afternoon.
 
 ## What they have in common
 
-All four are the same three moves, which is the point of having four:
+Every one is driven through the **published SDK** — the same Java and Python clients an application
+uses — or from the `pravaha` command line. None of them reaches into the engine. That matters for a
+template: the client in these studies holds no schemas, no plugins and no engine, so copying one
+into your application does not drag the engine in with it.
+
+All of them are the same three moves, which is the point of having several:
 
 1. **Register a continuous query.** It runs until dropped, maintaining a named view.
 2. **Let data arrive.** The view stays current. There is no job, no cache and no second store.
-3. **Read the view with ordinary SQL**, binding parameters rather than building strings.
+3. **Read the view with ordinary SQL**, binding parameters rather than building strings — or
+   **subscribe** and have changes pushed as they are committed, filtered at the tap so rows you did
+   not ask for never cross the network.
+
+Each shows all three in Java, in Python, and from the shell:
+
+```bash
+pravaha register  --name card_velocity --sql-file sql/01-continuous-card-velocity.sql --keys 1
+pravaha queries
+pravaha query     --sql "SELECT card_id, auth_count FROM card_velocity WHERE card_id = ?" --params c-1002
+pravaha subscribe --view card_velocity --filter risk_band=HIGH
+pravaha drop      --name card_velocity
+```
 
 They also share a shape that is worth copying: a high-volume **stream**, a slow-moving **lookup
 table** joined with `FOR SYSTEM_TIME AS OF`, a **window** to bound the state, and a `WHERE` that gets

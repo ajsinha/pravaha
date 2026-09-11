@@ -12,77 +12,82 @@
  * written permission of the copyright holder.
  *
  * See the LICENSE file in the root of this repository for the full terms.
- */package examples;
+ */
+package examples;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-import com.ash.messaging.pravaha.api.data.StreamSchema;
-import com.ash.messaging.pravaha.api.data.Types;
-import com.ash.messaging.pravaha.registry.QueryRegistry;
-import com.ash.messaging.pravaha.registry.RegisteredQuery;
-import com.ash.messaging.pravaha.registry.Subscription;
-import com.ash.messaging.pravaha.registry.SubscriptionFilter;
-import com.ash.messaging.pravaha.registry.SubscriptionOptions;
-import com.ash.messaging.pravaha.security.Principal;
-import com.ash.messaging.pravaha.serving.ViewCatalog;
+import com.ash.messaging.pravaha.sdk.flight.ChangeBatch;
+import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;
+import com.ash.messaging.pravaha.sdk.flight.QueryResult;
+import com.ash.messaging.pravaha.sdk.flight.RegisteredQueryInfo;
+import com.ash.messaging.pravaha.sdk.flight.Row;
+import com.ash.messaging.pravaha.sdk.flight.Subscription;
 
 /**
- * One registration, two desks, two different filters.
+ * This case study, end to end, through the published SDK.
  *
- * <p>The point of the example is what is <em>not</em> here: there is no second query for the second
- * desk, and no second read of the store. Both subscriptions tap the same computation, because the
- * query aggregates nothing and therefore every column a desk might filter on survives into the view.
+ * <p>Everything here goes over the wire to a running server. That is the whole shape of the thing
+ * worth copying: <strong>the client holds no schemas and no engine</strong>. It sends SQL and reads
+ * answers. The stream definitions live on the server, where the data is, and a client that had to
+ * know them would be a client that has to be redeployed when a column is added.
+ *
+ * <p>Run a server first, then:
+ *
+ * <pre>
+ *   java TradeProcessingExample grpc://localhost:9090
+ * </pre>
  */
 public final class TradeProcessingExample {
 
+    private static final Path SQL = Path.of("..", "sql");
+
     private TradeProcessingExample() {}
 
-    /** The same fields as schema/streams.properties, which the build checks the SQL against. */
-    private static StreamSchema tradeSchema() {
-        return StreamSchema.builder("trade")
-                .field("trade_id", Types.string())
-                .field("product_type", Types.string())
-                .field("source_system", Types.string())
-                .field("trade_event_id", Types.int64())
-                .field("trade_time", Types.timestamp())
-                .field("trade_json", Types.string())
-                .build();
+    public static void main(String[] args) throws Exception {
+        String url = args.length > 0 ? args[0] : "grpc://localhost:9090";
+
+        try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
+
+            // 1. Register the continuous query. It runs until it is dropped, maintaining a view
+            //    named "trade_feed" that ordinary SQL can read. Registering the same question
+            //    again -- even worded differently -- returns the same computation rather than a
+            //    second one; the fingerprint is how you can tell.
+            RegisteredQueryInfo registered =
+                    client.register("trade_feed", read("01-continuous-trade-feed.sql"), List.of(1));
+            System.out.println("registered " + registered);
+
+            // 2. Ask it a question. The value is bound, never concatenated: a bound value is never
+            //    parsed as SQL, and the server plans the statement once however many you ask about.
+            // Two placeholders, two bound values, in order.
+            try (QueryResult result =
+                    client.query(read("02-read-by-product-and-source.sql"), "SWAP", "MUREX")) {
+                for (Row row : result) {
+                    System.out.println(row.columns() + " -> " + row.getString(0));
+                }
+            }
+
+            // 3. Watch it. The filter is applied at the tap -- the rates desk's slice: swaps from Murex and nothing else -- so rows this
+            //    consumer did not ask for never cross the network, and every other consumer is
+            //    reading the same computation with its own filter.
+            try (Subscription subscription = client.subscribe("trade_feed", Map.of("product_type", "SWAP", "source_system", "MUREX"), batch -> {
+                // One batch is one commit, never a partial window. Rows are flyweights over the
+                // Arrow buffer that carried them, so copy anything kept past this callback.
+                System.out.println("-- commit of " + batch.size() + " row(s)");
+                for (Row row : batch) {
+                    System.out.println("   " + row.getString(0));
+                }
+            })) {
+                System.out.println("watching trade_feed; Ctrl-C to stop");
+                subscription.run();
+            }
+        }
     }
 
-    public static void main(String[] args) throws Exception {
-        ViewCatalog views = new ViewCatalog();
-        QueryRegistry registry = new QueryRegistry(views, tradeSchema());
-
-        RegisteredQuery feed = registry.register(
-                "trade_feed",
-                Files.readString(Path.of("..", "sql", "01-continuous-trade-feed.sql")),
-                List.of(0), // keyed by trade_event_id: an amendment is a new event, not an overwrite
-                Principal.of("trade-processing"));
-
-        // The rates desk. Equality only -- this is a tap, not a query language.
-        SubscriptionFilter swapsFromMurex = SubscriptionFilter.matching(
-                feed.outputSchema(), Map.of("product_type", "SWAP", "source_system", "MUREX"));
-
-        // FAIL rather than CONFLATE: a settlement or reporting consumer should be told it fell
-        // behind, not quietly handed a feed with holes in it. CONFLATE is for dashboards.
-        try (Subscription rates = feed.subscribe(
-                        SubscriptionOptions.of(50_000, SubscriptionOptions.Overflow.FAIL),
-                        swapsFromMurex,
-                        changes -> changes.forEach(change -> System.out.println("rates  " + change.values()[5])));
-                Subscription equities = feed.subscribe(
-                        SubscriptionOptions.DEFAULT,
-                        SubscriptionFilter.matching(feed.outputSchema(), "product_type", "EQUITY"),
-                        changes -> changes.forEach(change -> System.out.println("equity " + change.values()[5])))) {
-
-            System.out.println("two desks, one computation: " + registry.size() + " registered query");
-
-            // Feed the query from your source plugin here. Each desk sees only its own trades.
-            Thread.currentThread().join();
-        } finally {
-            registry.close();
-        }
+    private static String read(String name) throws Exception {
+        return Files.readString(SQL.resolve(name)).strip();
     }
 }

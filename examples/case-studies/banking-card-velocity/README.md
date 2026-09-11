@@ -147,18 +147,38 @@ Reading it a line at a time:
 - **`COUNT(DISTINCT a.merchant_id)`** — four merchants in a minute is the signal. Distinct counting
   inside a window is bounded, because the window ends.
 
-Register it — Java:
+Register it through the SDK — Java:
 
 ```java
-QueryRegistry registry = new QueryRegistry(views, authSchema(), holderSchema());
-RegisteredQuery velocity = registry.register(
-        "card_velocity",                                  // the view your SQL will read
-        Files.readString(Path.of("sql/01-continuous-card-velocity.sql")),
-        List.of(1),                                       // key the view by card_id
-        principal);
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090")) {
+    RegisteredQueryInfo registered = client.register(
+            "card_velocity",                                    // the view your SQL will read
+            Files.readString(Path.of("sql/01-continuous-card-velocity.sql")),
+            List.of(1));                                        // key the view by card_id
+}
 ```
 
-The full runnable version is [`java/CardVelocityExample.java`](java/CardVelocityExample.java).
+Python:
+
+```python
+with connect("grpc://localhost:9090") as client:
+    client.register("card_velocity", open("sql/01-continuous-card-velocity.sql").read(), [1])
+```
+
+Or from a shell, with no code at all:
+
+```bash
+pravaha register --url grpc://localhost:9090 \
+  --name card_velocity --sql-file sql/01-continuous-card-velocity.sql --keys 1
+pravaha queries --url grpc://localhost:9090
+```
+
+> **Notice what the client does not have.** No schemas, no engine, no plugin configuration — it
+> sends SQL and reads answers. The stream definitions live on the server, where the data is. A client
+> that had to know them would be a client you redeploy when somebody adds a column.
+
+Runnable versions: [`java/CardVelocityExample.java`](java/CardVelocityExample.java) and
+[`python/run.py`](python/run.py).
 
 ## Step 4 — stream authorisations in
 

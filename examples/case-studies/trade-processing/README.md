@@ -110,12 +110,16 @@ No window. No `GROUP BY`. No join. It is a pass-through, and that is deliberate.
 Register it:
 
 ```java
-QueryRegistry registry = new QueryRegistry(views, tradeSchema());
-RegisteredQuery feed = registry.register(
-        "trade_feed",
-        Files.readString(Path.of("sql/01-continuous-trade-feed.sql")),
-        List.of(0),                       // key the view by trade_event_id
-        principal);
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090")) {
+    RegisteredQueryInfo feed = client.register(
+            "trade_feed",
+            Files.readString(Path.of("sql/01-continuous-trade-feed.sql")),
+            List.of(0));                  // key the view by trade_event_id
+}
+```
+
+```bash
+pravaha register --name trade_feed --sql-file sql/01-continuous-trade-feed.sql --keys 0
 ```
 
 > **Nothing aggregates these rows away, so the view would grow with the feed — and it does not,
@@ -234,11 +238,7 @@ Three things worth understanding before you copy this:
   should stay on `trade_feed` and not pay for lookups they do not use.
 
 ```java
-RegisteredQuery enriched = registry.register(
-        "enriched_trade",
-        Files.readString(Path.of("sql/05-continuous-enriched-trades.sql")),
-        List.of(0),
-        principal);
+client.register("enriched_trade", Files.readString(Path.of("sql/05-continuous-enriched-trades.sql")), List.of(0));
 ```
 
 ## Step 4 — stream, with your own filter
@@ -246,24 +246,32 @@ RegisteredQuery enriched = registry.register(
 This is the part the study exists for. The rates desk wants swaps from Murex and nothing else:
 
 ```java
-SubscriptionFilter swapsFromMurex = SubscriptionFilter.matching(
-        feed.outputSchema(),
-        Map.of("product_type", "SWAP", "source_system", "MUREX"));
-
-try (Subscription subscription = feed.subscribe(
-        SubscriptionOptions.DEFAULT,
-        swapsFromMurex,
-        changes -> changes.forEach(change ->
-                System.out.println(change.values()[5])))) {   // trade_json
-    // ... runs until closed
+try (Subscription rates = client.subscribe(
+        "trade_feed",
+        Map.of("product_type", "SWAP", "source_system", "MUREX"),
+        batch -> batch.forEach(row -> System.out.println(row.getString("trade_json"))))) {
+    rates.run();   // parks this thread until closed
 }
+```
+
+Python:
+
+```python
+for batch in client.subscribe("trade_feed", {"product_type": "SWAP", "source_system": "MUREX"}):
+    for row in batch:
+        handle(row["trade_json"])
+```
+
+Or watch it from a shell:
+
+```bash
+pravaha subscribe --view trade_feed --filter product_type=SWAP,source_system=MUREX
 ```
 
 The equities desk subscribes to the **same registration** with a different filter:
 
 ```java
-SubscriptionFilter equities = SubscriptionFilter.matching(
-        feed.outputSchema(), "product_type", "EQUITY");
+client.subscribe("trade_feed", Map.of("product_type", "EQUITY"), this::onTrade);
 ```
 
 Both see only their own trades. There is still one computation and one read of Aerospike.
@@ -271,8 +279,8 @@ Both see only their own trades. There is still one computation and one read of A
 A filter naming a column the view does not have is **refused**, not ignored:
 
 ```java
-SubscriptionFilter.matching(feed.outputSchema(), "prodcut_type", "SWAP");
-// PRV-5002: this view has no column 'prodcut_type' ...
+client.subscribe("trade_feed", Map.of("prodcut_type", "SWAP"), this::onTrade).run();
+// PRV-5002: this view has no column 'prodcut_type'. Its columns are [...]
 ```
 
 That refusal matters more than it looks. A typo that was quietly dropped would leave a desk receiving
@@ -286,11 +294,9 @@ therefore filterable at the tap**. The EMEA rates desk can ask for its own trade
 writing a query for it:
 
 ```java
-SubscriptionFilter emeaRates = SubscriptionFilter.matching(
-        enriched.outputSchema(), Map.of("desk", "RATES", "region", "EMEA"));
-
-try (Subscription desk = enriched.subscribe(SubscriptionOptions.DEFAULT, emeaRates, this::onTrade)) {
-    // ...
+try (Subscription desk = client.subscribe(
+        "enriched_trade", Map.of("desk", "RATES", "region", "EMEA"), this::onTrade)) {
+    desk.run();
 }
 ```
 
@@ -306,12 +312,11 @@ the column.
 
 A consumer that falls behind does not slow the feed down for anybody else:
 
-```java
-feed.subscribe(
-        SubscriptionOptions.of(50_000, SubscriptionOptions.Overflow.FAIL),
-        equities,
-        this::onTrade);
-```
+The server bounds every subscriber's buffer and decides what happens when it fills — conflate, drop
+the oldest, or fail. For a trade feed **fail is usually right**: conflation is built for a dashboard
+that wants the latest value per key, and a consumer that must see every event — settlement,
+reporting, an audit trail — should be told it fell behind rather than quietly handed a feed with
+holes in it.
 
 For a trade feed, **`FAIL` is usually the right choice.** `CONFLATE` is built for a dashboard that
 wants the latest value per key; a consumer that must see every event — settlement, reporting, an
