@@ -15,6 +15,9 @@
  */
 package com.ash.messaging.pravaha.serving;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.ash.messaging.pravaha.api.data.RowKind;
@@ -44,6 +47,12 @@ public final class ViewSink {
     private final AtomicLong frontier = new AtomicLong(Long.MIN_VALUE);
     private final AtomicLong rowsApplied = new AtomicLong();
 
+    // Changes staged since the last commit, and whoever wants to hear about them. Gathered rather
+    // than delivered per row because a subscriber must see whole batches: between commits the view
+    // holds a partly applied window, and a total read from it would be one nobody should act on.
+    private final List<ViewChange> pending = new ArrayList<>();
+    private final List<ViewChangeListener> listeners = new CopyOnWriteArrayList<>();
+
     public ViewSink(ServedView view, StreamSchema schema) {
         this.view = view;
         this.schema = schema;
@@ -63,6 +72,47 @@ public final class ViewSink {
      */
     public void commit(long committedFrontier) {
         view.commit(committedFrontier);
+        if (listeners.isEmpty()) {
+            // Still cleared: a sink with no subscribers must not accumulate a change log nobody
+            // will ever read, which is a leak that only appears in the deployments that never
+            // subscribe -- that is, most of them.
+            synchronized (pending) {
+                pending.clear();
+            }
+            return;
+        }
+        List<ViewChange> batch;
+        synchronized (pending) {
+            if (pending.isEmpty()) {
+                return;
+            }
+            batch = List.copyOf(pending);
+            pending.clear();
+        }
+        for (ViewChangeListener listener : listeners) {
+            listener.onCommit(batch, committedFrontier);
+        }
+    }
+
+    /**
+     * Registers a listener for committed changes.
+     *
+     * @return a handle that removes the listener. A subscriber that goes away without removing
+     *     itself would keep this sink assembling change batches for nobody
+     */
+    public AutoCloseable onCommit(ViewChangeListener listener) {
+        listeners.add(listener);
+        return () -> listeners.remove(listener);
+    }
+
+    /** How many listeners are attached. */
+    public int listenerCount() {
+        return listeners.size();
+    }
+
+    /** Whether anybody is listening, which is worth knowing before doing work for them. */
+    public boolean hasListeners() {
+        return !listeners.isEmpty();
     }
 
     public long rowsApplied() {
@@ -179,6 +229,11 @@ public final class ViewSink {
         @Override
         public int commit() {
             view.applyValues(values, weight, Math.max(eventTime, sequence));
+            if (!listeners.isEmpty()) {
+                synchronized (pending) {
+                    pending.add(new ViewChange(values, weight));
+                }
+            }
             frontier.accumulateAndGet(Math.max(eventTime, sequence), Math::max);
             rowsApplied.incrementAndGet();
             values = new Object[schema.fields().size()];

@@ -205,7 +205,7 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Join across lanes | ✅ `pumpPartitionedInto` hashes each row's join key and routes it to the lane that owns it, with the same hash the join looks it up with. A plain pump on a multi-lane join is refused, naming the right one |
 | Expressions in `WHERE` (`amount * 2 > 100`) | ✅ `Predicate.CompareExpressions` |
 | Aligned barriers across the exchange | ❌ — checkpointing is per-lane, which is sound only while lanes share no state; the limitation is written into `QueryExecution.checkpoint` |
-| Windowed / time-versioned joins | ❌ — the unwindowed join is bounded only by a row ceiling, which fails the query rather than the node |
+| Windowed / time-versioned joins | ⚠️ a default match window bounds join state in event time (`JoinOperator.DEFAULT_MATCH_WITHIN_NANOS`), which is what made the join survivable. A *stated* temporal predicate in SQL — `BETWEEN b.t - INTERVAL '1' HOUR AND b.t` — is still not parsed, so the window cannot yet be chosen per query. Previously: the unwindowed join was bounded only by a row ceiling, which fails the query rather than the node |
 | Outer joins | ❌ — refused with the reason: an unmatched row must be held for as long as a match could arrive |
 | Self-joins | ❌ — both sides would read one stream and a stream name cannot say which side a row is for. Refused when the pipeline is built, and the one refusal reachable from SQL that carries no `PRV-` code |
 | **The README's query runs against Aerospike, verbatim** | ✅ `AerospikeContinuousQueryIT` uses the README's own SQL — `SELECT STREAM`, `GROUP BY TUMBLE(...)`, `TUMBLE_END(...)`, the temporal `LEFT JOIN` — against a real Aerospike server, with the `WHERE` pushed into the store. Only the `CREATE CONTINUOUS QUERY ... SERVE AS VIEW ... EMIT CHANGES` wrapper is still unparsed; that is registration, not the query |
@@ -233,7 +233,7 @@ right numbers — which is how that distinction was discovered.
 | Range indexes, read replicas | ❌ |
 | gRPC/Avatica surface | ⛔ superseded by ADR-030: one Flight SQL surface replaces both |
 
-### Wave 7 (E6) — started
+### Wave 7 (E6) — complete; Gate P6 not passed
 
 | Piece | State |
 |---|---|
@@ -251,8 +251,13 @@ right numbers — which is how that distinction was discovered.
 | Flight status codes that clients act on | ✅ `FlightErrors.statusFor` — 7001 → UNAUTHENTICATED, 7002/7003 → UNAUTHORIZED, 4026/4027/4028 → RESOURCE_EXHAUSTED, 4029 → TIMED_OUT. Sending a full node's refusal as INVALID_ARGUMENT makes it look like a malformed query, and the client that should have backed off reports a bug |
 | Prepared statements, request/response (ADR-032) | ✅ bound at plan-build time, so a value is never parsed and compiles to the *same* predicate as a literal. **WHERE and HAVING only** — a parameter selects rows, and every other position is a different query. Stateless handles — Flight SQL lets the server hand back an updated handle when values are bound, so there is no session table. Plans cached, bounded, keyed on the catalogue generation |
 | Parameters in both SDKs | ✅ `query(sql, params)` in Java and Python alike, types taken from the server's parameter schema rather than guessed |
-| Parameters for continuous queries | ❌ — decided in ADR-032, not built: registration has no surface yet to classify against. The rule is ADR-031's soundness rule, because a security row filter and a query parameter turn out to be the same object |
-| Subscriptions over Flight | ❌ |
+| Parameters for continuous queries (ADR-032) | ✅ `ParameterPlacement` classifies each `?` as TAP or REGISTRATION by ADR-031's soundness rule, and registration reports it. `avoidableForks()` names the parameters that did not need to fork a computation — the expensive case is never the quiet one |
+| Query registration and lifecycle (ADR-025) | ✅ `pravaha-registry` — register, list, pause, resume, drop; sharing by fingerprint so the same question twice is one computation with two names, released on the *last* drop. The surface everything else was waiting on |
+| Subscriptions, engine side | ✅ `Subscription` on a registered query — per-commit batches, weights carried so a correction is a retraction plus an insert, bounded buffer with CONFLATE / DROP_OLDEST / FAIL. The engine is never blocked by a slow subscriber, and what is lost is counted |
+| Subscriptions over the Flight wire | ✅ a Flight ticket that holds a stream open; commits arrive as Arrow batches, so a batch boundary is a commit boundary. Tap filters travel in the ticket |
+| Register/subscribe in **both SDKs** | ✅ `register`, `queries`, `pause`, `resume`, `drop`, `subscribe(view, filters)` in Java and Python, same surface, tested against the real server |
+| Registry over the wire | ✅ Flight *actions* — `pravaha.register`, `.list`, `.pause`, `.resume`, `.drop`. Flight SQL has no vocabulary for standing up a computation, and actions are the extension it provides |
+| The console (ADR-024) | ✅ `console/` — a separate FastAPI process reaching the engine only through the published Python SDK. Server-rendered, no build step, ~400 lines. **Functional admin scope on purpose**, which the implementation plan names as a legitimate trade to make deliberately. Surfaces two things nothing else does: which computations are *shared*, and a live tail rather than a poll |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
 **`docs/SQL_SUPPORT.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
@@ -313,9 +318,37 @@ Aerospike, Cassandra and Redis remain Wave 5 and Wave 10 as planned.
   attribution anywhere — the history was rewritten once to remove it; do not reintroduce it.
 - **Waves:** `develop` moves continuously; `main` moves **once per wave**, at a gate, with an
   evidence pack and a retrospective. Never merge to `main` mid-wave.
-  **Suspended once, deliberately, for waves 5–7** — see [`docs/gates/wave-7`](gates/wave-7/). The
+  **Suspended for waves 3–7** — see [`docs/gates/wave-7`](gates/wave-7/), which is now Wave 7's gate
+  record rather than the interim merge note it started as. The
   gates it would have waited for are hardware-blocked rather than code-blocked, and holding `main`
   81 commits stale was protecting nothing. The debt is recorded there, not forgiven.
+
+### Disk and state growth — what bounds what, and what does not
+
+Worth having in one place, because the obvious mental model ("state is in RocksDB") is wrong for this
+codebase today.
+
+**There is no RocksDB.** Not a dependency, not a line of code. State is L0 — an off-heap
+open-addressed hash arena — plus checkpoints written as files. The RocksDB L1 spill tier is design
+decision D5 and is unbuilt. §G7 explains why it is a *tier* and not the whole stack: JNI costs 1–3 µs
+per operation, which is 10–30 % of a 10 µs/event budget.
+
+**The primary defence against unbounded state is refusal, not cleanup.** An unwindowed keyed
+`GROUP BY` is rejected at planning (`PRV-2050`) rather than accepted and spilled, because spilling
+converts a fast failure into a slow one and a slow failure arrives in production. Windows bound state
+by construction; outer joins between streams are refused for the same reason.
+
+**What is genuinely unbounded today:**
+
+| | |
+|---|---|
+| **Checkpoint files** | `FileCheckpointStore.prune(keep)` exists and **nothing in production code calls it** — only tests do. Checkpoints accumulate indefinitely. This is the real disk-growth path right now and wants an owner |
+| ~~Stream-to-stream join state~~ | **Fixed.** A join has a match window — an hour of event time by default — and releases rows older than `watermark − matchWithin`. Correct by definition rather than by luck: such a row cannot be part of any match the join promises, because a watermark says nothing earlier is coming. The row ceiling stays as a backstop and still fails loudly, because evicting *to fit* would lose matches the query did ask for |
+| ~~Views from a pass-through query~~ | **Fixed.** `Retention` evicts by event-time age and row count, and a default applies (a day, or a million rows) unless a registration chooses otherwise. A view is bounded only if its key space is bounded, and nothing can tell in advance whether it is, so `forever()` has to be asked for by name |
+
+None of these is a surprise waiting in the dark; each fails loudly at a ceiling. But "fails loudly at a
+ceiling" is not the same as "managed", and a disk quota, a spill policy and an automatic checkpoint
+retention policy all arrive with L1.
 
 ### A string in the build output that is trying to talk to you
 

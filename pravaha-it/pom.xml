@@ -36,6 +36,18 @@
     </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-registry</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-flight</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-serving</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
@@ -129,6 +141,14 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
         <configuration>
+          <!--
+            Arrow allocates off-heap through java.nio internals the module system closes by default.
+            Without these, a Flight server fails inside putNext with "Unexpected IO Exception" and
+            cancels the stream, so the client sees RST_STREAM and nothing explains why. pravaha-flight
+            sets the same flags for its own tests; an integration test that starts a Flight server
+            needs them just as much, and not having them cost an afternoon of looking at the client.
+          -->
+          <argLine>@{jacoco.surefire.argLine} -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED</argLine>
           <systemPropertyVariables>
             <!-- Testcontainers negotiates Docker API 1.32; Docker 25+ refuse below 1.40 and report
                  it as a missing daemon. 1.40 has been available since Docker 19.03. -->

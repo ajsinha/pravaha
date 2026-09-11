@@ -60,6 +60,7 @@ public final class PravahaFlightServer implements AutoCloseable {
     private SecurityPolicy policy = SecurityPolicy.PERMISSIVE;
     private AuditSink audit = AuditSink.NONE;
     private ReadAdmission admission = ReadAdmission.UNLIMITED;
+    private com.ash.messaging.pravaha.registry.QueryRegistry registry;
     private java.time.Duration readDeadline = java.time.Duration.ZERO;
     private final AtomicReference<FlightServer> server = new AtomicReference<>();
     private final boolean ownsAllocator;
@@ -130,6 +131,19 @@ public final class PravahaFlightServer implements AutoCloseable {
     }
 
     /**
+     * Hosts a registry, so clients can register, list, drop and subscribe to continuous queries.
+     *
+     * <p>Optional, and the two states are meant to be visible. A server without one serves views
+     * that something else maintains, and tells a client that asks to register so, rather than
+     * offering an operation that quietly does nothing.
+     */
+    public PravahaFlightServer hosting(com.ash.messaging.pravaha.registry.QueryRegistry registry) {
+        requireNotStarted("a registry");
+        this.registry = java.util.Objects.requireNonNull(registry, "registry");
+        return this;
+    }
+
+    /**
      * Binds and starts.
      *
      * @param port the port to listen on, or zero to let the operating system choose -- which is what
@@ -141,8 +155,8 @@ public final class PravahaFlightServer implements AutoCloseable {
             FlightServer.Builder builder = FlightServer.builder(
                     allocator,
                     requested,
-                    new PravahaFlightSqlProducer(
-                            catalog, allocator, requested, policy, audit, admission, readDeadline));
+                    new PravahaFlightSqlProducer(catalog, allocator, requested, policy, audit, admission, readDeadline)
+                            .withRegistry(registry));
             if (verifier != null) {
                 builder.middleware(PrincipalMiddleware.KEY, new PrincipalMiddleware.Factory(verifier));
             }

@@ -681,7 +681,7 @@ pravaha/                                    (pom — parent, pluginManagement, p
 │
 ├── sdk/                                    ← CLIENT SDKs. Thin: pravaha-api only, no engine.
 │   ├── pravaha-sdk-java/                   ← always built; produces the client jar
-│   ├── pravaha-sdk-python/                 ← built under -Ppython; wheel published to PyPI
+│   ├── python/                 ← built under -Ppython; wheel published to PyPI
 │   └── pravaha-sdk-go/                     ← Wave 7
 │
 ├── pravaha-testkit/                        ← deterministic harness, virtual clock, JUnit ext, plugin TCK

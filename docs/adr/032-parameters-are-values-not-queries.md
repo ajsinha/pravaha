@@ -183,7 +183,24 @@ The scope is settled, not partial: WHERE and HAVING take parameters, and nothing
 request to parameterise a select-list expression or a window is a request to reopen this ADR, which
 is the right amount of friction for a change that decides how many computations a deployment runs.
 
-The continuous-query half of this decision is recorded and not yet built. Registration does not exist
-as a surface, so there is nothing to classify against; when it arrives it uses the rule above and
-reports which classification it chose, because the one thing this ADR refuses is for the expensive
-case to be the quiet one.
+**The continuous-query half is now built** (`ParameterPlacement`). Registration classifies every
+`?` against the rule above and reports what it decided:
+
+| | |
+|---|---|
+| `TAP` | The view carries the column. One computation serves every binding; subscribe with the filter instead and it costs nothing |
+| `REGISTRATION` | The query aggregates the column away. Each distinct binding is a separate computation with its own state |
+
+Binding into the query is always *correct* — the bound values are in the plan and therefore in the
+fingerprint, so two bindings are honestly two computations. What the classification adds is that the
+expensive case is never the quiet one: `RegisteredQuery.avoidableForks()` names the parameters that
+did not need to fork anything, which is what an operator reads as "you are running N copies of
+something that could be one".
+
+The two cases are one word apart in the SQL, and that is the whole reason this is reported rather
+than inferred:
+
+```sql
+SELECT user_id, SUM(amount) ... GROUP BY user_id, TUMBLE(...)  WHERE user_id = ?   -- tap, free
+SELECT tier,    SUM(amount) ... GROUP BY tier,    TUMBLE(...)  WHERE user_id = ?   -- forks per user
+```

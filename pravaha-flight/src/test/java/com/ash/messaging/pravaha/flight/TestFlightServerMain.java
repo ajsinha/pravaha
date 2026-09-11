@@ -21,9 +21,11 @@ import java.util.Set;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.StaticTokenVerifier;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
@@ -78,8 +80,19 @@ public final class TestFlightServerMain {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 0;
         boolean authenticated = args.length > 1 && "--authenticated".equals(args[1]);
 
-        PravahaFlightServer configured =
-                new PravahaFlightServer(new ViewCatalog().register(view).register(readings));
+        ViewCatalog catalog = new ViewCatalog().register(view).register(readings);
+
+        // A registry, so a client in another language can register a continuous query and subscribe
+        // to it -- which is most of what an SDK has to be able to do and none of what a fixture
+        // serving two fixed views would exercise.
+        StreamSchema tradeSchema = StreamSchema.builder("trade")
+                .field("trade_id", Types.string())
+                .field("product_type", Types.string())
+                .field("trade_json", Types.string())
+                .build();
+        QueryRegistry registry = new QueryRegistry(catalog, SecurityPolicy.PERMISSIVE, AuditSink.NONE, tradeSchema);
+
+        PravahaFlightServer configured = new PravahaFlightServer(catalog).hosting(registry);
         if (authenticated) {
             // The same shape a deployment uses: a verifier that says who a credential belongs to,
             // and a policy that says what that principal may read. The tokens are fixed because a

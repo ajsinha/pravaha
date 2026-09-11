@@ -66,6 +66,14 @@ public final class PravahaCli {
                 case "validate" -> new ValidateCommand(out, err).run(rest);
                 case "explain" -> new ExplainCommand(out, err).run(rest);
                 case "run" -> new RunCommand(out, err).run(rest);
+                // Everything below talks to a running server, through the published SDK rather
+                // than reaching into the engine -- so the CLI is the client API's first consumer
+                // and its awkward corners show up here before a customer finds them.
+                case "query" -> new ServerCommand(out, err).query(rest);
+                case "register" -> new ServerCommand(out, err).register(rest);
+                case "queries" -> new ServerCommand(out, err).queries(rest);
+                case "drop", "pause", "resume" -> new ServerCommand(out, err).lifecycle(command, rest);
+                case "subscribe" -> new ServerCommand(out, err).subscribe(rest);
                 case "version" -> {
                     out.println("pravaha " + version());
                     yield EXIT_OK;
@@ -109,6 +117,21 @@ public final class PravahaCli {
         out.println(Ansi.bold("Commands:"));
         out.println("  validate  --sql <query> --schema <spec> [--stream <name>]");
         out.println("            Parse, validate and plan without running anything.");
+        out.println();
+        out.println("  query     --sql <query> [--params a,b] [--url grpc://host:9090] [--token t]");
+        out.println("            Ask a running server a question and print the rows.");
+        out.println();
+        out.println("  register  --name <view> --sql-file <path> [--keys 0,1] [--url ...]");
+        out.println("            Register a continuous query. It runs until it is dropped.");
+        out.println();
+        out.println("  queries   [--url ...]");
+        out.println("            List the continuous queries a server is running.");
+        out.println();
+        out.println("  subscribe --view <name> [--filter col=val,col2=val2] [--limit N] [--url ...]");
+        out.println("            Stream changes as they are committed. One blank-lined group per commit.");
+        out.println();
+        out.println("  pause | resume | drop   --name <view> [--url ...]");
+        out.println("            Lifecycle. A computation is released when its last name is dropped.");
         out.println();
         out.println("  explain   --sql <query> --schema <spec> [--level logical|physical|codegen|all]");
         out.println("            Show the plan the engine would execute.");

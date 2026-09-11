@@ -62,10 +62,29 @@ public final class ServedView {
     private final int maxKeys;
 
     /** Committed rows: what a CONSISTENT read sees. */
-    private final Map<Key, Object[]> visible = new HashMap<>();
+    // Access-ordered so eviction can take the least recently updated key without scanning, and
+    // insertion-ordered enough that "oldest first" means what a reader expects.
+    private final LinkedHashMap<Key, Object[]> visible = new LinkedHashMap<>();
+
+    /** The frontier each visible key was last written at, for age-based retention. */
+    private final Map<Key, Long> writtenAt = new HashMap<>();
+
+    private final Retention retention;
+
+    private long evicted;
 
     /** Rows applied since the last commit, in arrival order, not yet visible to a consistent read. */
     private final Map<Key, Object[]> pending = new LinkedHashMap<>();
+
+    /**
+     * The event time each pending row carried.
+     *
+     * <p>Staged per row rather than taken from the commit, because a commit covers a batch and the
+     * rows in it are not all the same age. Recording the commit frontier instead made every row in a
+     * batch look equally fresh, so a fifty-thousand-row batch evicted nothing -- a bug that hid
+     * completely from any test that committed after every row.
+     */
+    private final Map<Key, Long> pendingTime = new LinkedHashMap<>();
 
     private volatile long committedFrontier = Long.MIN_VALUE;
     private volatile long appliedFrontier = Long.MIN_VALUE;
@@ -73,7 +92,28 @@ public final class ServedView {
     private long removals;
     private long commits;
 
+    /** The output columns this view is keyed by, which is what a subscriber conflates on. */
+    public List<Integer> keyOrdinals() {
+        return java.util.Arrays.stream(keyOrdinals).boxed().toList();
+    }
+
     public ServedView(String name, StreamSchema schema, List<Integer> keyOrdinals, int maxKeys) {
+        this(name, schema, keyOrdinals, maxKeys, Retention.forever());
+    }
+
+    /**
+     * A view that forgets rows it no longer needs.
+     *
+     * <p>The ceiling and the retention are different things and both are wanted. Retention says what
+     * the view is <em>meant</em> to hold -- a session, a day -- and rows outside it are evicted
+     * quietly because that is the policy working. The ceiling is a backstop for a query whose key
+     * space was misjudged, and reaching it is a failure rather than a policy.
+     *
+     * <p>With a retention set, the ceiling should almost never be reached: eviction runs first, so a
+     * view only exceeds its ceiling when its retention window genuinely holds more rows than the
+     * ceiling allows, which means one of the two numbers is wrong and saying so is useful.
+     */
+    public ServedView(String name, StreamSchema schema, List<Integer> keyOrdinals, int maxKeys, Retention retention) {
         if (keyOrdinals.isEmpty()) {
             throw new IllegalArgumentException(
                     "a served view needs a key: without one there is nothing to look a row up by, and the view "
@@ -89,6 +129,7 @@ public final class ServedView {
         this.presented = presenting.build();
         this.keyOrdinals = keyOrdinals.stream().mapToInt(Integer::intValue).toArray();
         this.maxKeys = maxKeys;
+        this.retention = retention == null ? Retention.forever() : retention;
     }
 
     /**
@@ -108,6 +149,7 @@ public final class ServedView {
             removals++;
         } else {
             pending.put(key, valuesOf(row));
+            pendingTime.put(key, frontier);
             updates++;
         }
         appliedFrontier = Math.max(appliedFrontier, frontier);
@@ -130,6 +172,7 @@ public final class ServedView {
             removals++;
         } else {
             pending.put(key, values.clone());
+            pendingTime.put(key, frontier);
             updates++;
         }
         appliedFrontier = Math.max(appliedFrontier, frontier);
@@ -149,19 +192,37 @@ public final class ServedView {
         pending.forEach((key, values) -> {
             if (values == null) {
                 visible.remove(key);
+                writtenAt.remove(key);
             } else {
+                // Removed first so the re-insert puts this key at the back: "oldest" has to mean
+                // least recently written, or a hot key would be evicted while stale ones survived.
+                // Removed first so the re-insert puts this key at the back: "oldest" has to mean
+                // least recently written, or a hot key would age out while stale ones survived.
+                visible.remove(key);
                 visible.put(key, values);
+                // The row's own event time, not the commit's. A commit covers a batch and the rows
+                // in it are not all the same age.
+                writtenAt.put(key, pendingTime.getOrDefault(key, frontier));
             }
         });
         pending.clear();
+        pendingTime.clear();
+        committedFrontier = frontier;
+        evict();
         if (visible.size() > maxKeys) {
             throw new PravahaException(
                     ServingErrors.VIEW_TOO_LARGE,
                     "view '" + name + "' holds " + visible.size() + " keys, past its ceiling of " + maxKeys
-                            + ". A view keyed on something unbounded grows until the node dies; bound the key, "
-                            + "add a retention window, or raise the ceiling deliberately.");
+                            + ", with retention " + retention + " already applied. "
+                            + (retention.isForever()
+                                    ? "This view keeps everything, so a key space that keeps growing grows it "
+                                            + "until the node dies. Give it a Retention, bound the key, or raise "
+                                            + "the ceiling deliberately."
+                                    : "Retention says what this view means and the ceiling says what the node "
+                                            + "can afford, and right now the meaning does not fit: " + retention
+                                            + " of this data is more than " + maxKeys + " rows. Shorten the "
+                                            + "window, or provision for the volume."));
         }
-        committedFrontier = frontier;
         commits++;
     }
 
@@ -260,6 +321,48 @@ public final class ServedView {
     /** How far the view has been updated, committed or not. */
     public long appliedFrontier() {
         return appliedFrontier;
+    }
+
+    /**
+     * Forgets rows the retention policy no longer covers.
+     *
+     * <p>Runs at commit, after the batch is applied, so a row written and aged out in the same
+     * commit is never briefly visible. Eviction is silent to subscribers by design -- see
+     * {@link Retention} -- because an evicted row was not withdrawn, it aged out.
+     */
+    private void evict() {
+        if (retention.isForever()) {
+            return;
+        }
+        long horizon = retention.horizonFor(committedFrontier);
+        if (horizon > Long.MIN_VALUE) {
+            java.util.Iterator<Map.Entry<Key, Object[]>> entries =
+                    visible.entrySet().iterator();
+            while (entries.hasNext()) {
+                Key key = entries.next().getKey();
+                Long written = writtenAt.get(key);
+                if (written != null && written < horizon) {
+                    entries.remove();
+                    writtenAt.remove(key);
+                    evicted++;
+                }
+            }
+        }
+    }
+
+    /** What this view is meant to keep. */
+    public Retention retention() {
+        return retention;
+    }
+
+    /**
+     * Rows forgotten because they fell outside the retention policy.
+     *
+     * <p>Not an error count. It is how an operator sees the policy working, and how they notice a
+     * window that is shorter than the questions people are asking of it.
+     */
+    public long evicted() {
+        return evicted;
     }
 
     /** Keys committed and visible. */

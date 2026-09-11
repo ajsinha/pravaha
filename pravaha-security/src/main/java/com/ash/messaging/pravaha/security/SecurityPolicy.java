@@ -35,8 +35,27 @@ package com.ash.messaging.pravaha.security;
  */
 public interface SecurityPolicy {
 
-    /** Everyone sees everything. The default for a single-tenant deployment behind its own wall. */
-    SecurityPolicy PERMISSIVE = (principal, view) -> AccessDecision.allow();
+    /**
+     * Everyone sees everything, and everyone may register. The default for a single-tenant
+     * deployment behind its own wall.
+     *
+     * <p>Written out rather than as a lambda, and that is not style. A lambda implements only
+     * {@link #mayRead} and silently keeps the default {@link #mayRegisterQuery}, which refuses
+     * anonymous callers -- so a policy named PERMISSIVE would have permitted every read and then
+     * refused registration on an embedded server with no authentication at all. It said one thing
+     * and did another, which is the worst property a security default can have.
+     */
+    SecurityPolicy PERMISSIVE = new SecurityPolicy() {
+        @Override
+        public AccessDecision mayRead(Principal principal, String view) {
+            return AccessDecision.allow();
+        }
+
+        @Override
+        public AccessDecision mayRegisterQuery(Principal principal) {
+            return AccessDecision.allow();
+        }
+    };
 
     /**
      * May this principal read this view, and under what restriction?
@@ -51,6 +70,12 @@ public interface SecurityPolicy {
      * <p>Separate from reading because it is a different risk: registering costs the cluster state
      * and threads for as long as it runs, so it is the decision a resource quota hangs off (§21.4),
      * while reading costs one query.
+     *
+     * <p><strong>A lambda does not override this.</strong> {@code SecurityPolicy} is a functional
+     * interface on {@link #mayRead}, so {@code (principal, view) -> allow()} keeps the default below
+     * and refuses anonymous registration -- which is correct far more often than not, and surprising
+     * exactly when somebody meant to write a permissive policy for a development server. Implement
+     * the interface explicitly when you mean to change this.
      */
     default AccessDecision mayRegisterQuery(Principal principal) {
         return principal.isAnonymous()

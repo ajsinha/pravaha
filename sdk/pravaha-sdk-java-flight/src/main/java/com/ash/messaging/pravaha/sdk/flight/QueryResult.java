@@ -79,11 +79,23 @@ public final class QueryResult implements Iterable<Row>, AutoCloseable {
 
     @Override
     public void close() {
+        // Cancel first, then close, and both matter for the *server*. Closing a stream the server
+        // is still writing to leaves it writing: it finds out that nobody is listening from the
+        // cancellation, and until it does it holds Arrow buffers and, for a subscription, an
+        // attached listener on the query. Closing alone releases this side and leaves that behind.
+        try {
+            stream.cancel("client finished reading", null);
+        } catch (Exception e) {
+            // Already complete. A stream that was fully drained has nothing to cancel, and saying
+            // so is not an error worth propagating.
+        }
         try {
             stream.close();
         } catch (Exception e) {
-            throw new PravahaClientException(
-                    ClientErrors.READ_FAILED, "cannot close the result stream: " + e.getMessage(), false, e);
+            // Teardown noise is not a failure. A fully-read stream reports its own cancellation as
+            // RST_STREAM, and turning that into an exception meant a query that had already
+            // returned every row then failed on the way out -- indistinguishable, to a script, from
+            // the query itself failing.
         }
     }
 

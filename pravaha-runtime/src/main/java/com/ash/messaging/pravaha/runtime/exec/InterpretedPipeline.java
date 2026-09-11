@@ -208,6 +208,11 @@ public final class InterpretedPipeline implements AutoCloseable {
         finishers.forEach(Runnable::run);
     }
 
+    /** Rows this pipeline's joins have released for falling outside their match window. */
+    public long joinRowsEvicted() {
+        return joins.stream().mapToLong(SymmetricHashJoin::evicted).sum();
+    }
+
     /**
      * Distinct rows currently held by this pipeline's joins, both sides together.
      *
@@ -331,6 +336,11 @@ public final class InterpretedPipeline implements AutoCloseable {
         // flight when the watermark advanced and the query produced nothing at all.
         drainPending();
         windowed.forEach(aggregate -> aggregate.advanceWatermark(watermarkNanos));
+        // Joins too, and for the same reason windows need it: a watermark is what says a row can no
+        // longer be part of any match, which is the only thing that makes a stream-to-stream join
+        // survivable. Without this the join held every unmatched row until a size ceiling failed
+        // the query.
+        joins.forEach(join -> join.advanceWatermark(watermarkNanos));
     }
 
     /**

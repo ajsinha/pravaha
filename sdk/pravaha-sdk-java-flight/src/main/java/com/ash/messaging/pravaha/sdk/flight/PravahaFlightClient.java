@@ -15,18 +15,26 @@
  */
 package com.ash.messaging.pravaha.sdk.flight;
 
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+
+import org.apache.arrow.flight.Action;
 import org.apache.arrow.flight.CallOption;
 import org.apache.arrow.flight.FlightCallHeaders;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightRuntimeException;
+import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.flight.HeaderCallOption;
 import org.apache.arrow.flight.Location;
+import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.flight.sql.FlightSqlClient;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
+import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.sdk.ClientErrors;
 import com.ash.messaging.pravaha.sdk.ClientOptions;
 import com.ash.messaging.pravaha.sdk.Endpoint;
@@ -66,6 +74,15 @@ public final class PravahaFlightClient implements AutoCloseable {
     private final FlightSqlClient client;
 
     /**
+     * The transport underneath.
+     *
+     * <p>{@link FlightSqlClient} speaks Flight SQL and nothing else, and registering a continuous
+     * query is not Flight SQL -- it is a Flight action. Both are the same connection; this is the
+     * lower of the two views of it.
+     */
+    private final FlightClient transport;
+
+    /**
      * The credential, sent as a header on every call.
      *
      * <p>Held rather than sent once at connect time because Flight has no session: each call is
@@ -74,8 +91,24 @@ public final class PravahaFlightClient implements AutoCloseable {
      */
     private final CallOption[] callOptions;
 
+    /**
+     * Subscriptions this client opened and that nobody has closed.
+     *
+     * <p>Tracked so that closing the client releases the <em>server's</em> side of them. A
+     * subscription is a call that does not return: the server is parked holding Arrow buffers and a
+     * listener attached to the query, and it learns that nobody is listening from a cancellation.
+     * Dropping the transport without one leaves it attached, assembling batches for a client that
+     * has gone -- which is a leak on the wrong machine, and the hardest kind to attribute.
+     */
+    private final java.util.Set<Subscription> subscriptions = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     private PravahaFlightClient(
-            BufferAllocator allocator, boolean ownsAllocator, FlightSqlClient client, CallOption[] callOptions) {
+            BufferAllocator allocator,
+            boolean ownsAllocator,
+            FlightClient transport,
+            FlightSqlClient client,
+            CallOption[] callOptions) {
+        this.transport = transport;
         this.allocator = allocator;
         this.ownsAllocator = ownsAllocator;
         this.client = client;
@@ -109,12 +142,9 @@ public final class PravahaFlightClient implements AutoCloseable {
             Location location = options.endpoint().tls()
                     ? Location.forGrpcTls(node.host(), node.port())
                     : Location.forGrpcInsecure(node.host(), node.port());
+            FlightClient transport = FlightClient.builder(allocator, location).build();
             return new PravahaFlightClient(
-                    allocator,
-                    ownsAllocator,
-                    new FlightSqlClient(
-                            FlightClient.builder(allocator, location).build()),
-                    credentialsOf(options));
+                    allocator, ownsAllocator, transport, new FlightSqlClient(transport), credentialsOf(options));
         } catch (RuntimeException e) {
             if (ownsAllocator) {
                 allocator.close();
@@ -212,13 +242,147 @@ public final class PravahaFlightClient implements AutoCloseable {
         }
     }
 
+    // -------------------------------------------------------------------------------------
+    // Continuous queries: registering them, and subscribing to what they produce (ADR-025).
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * Registers a continuous query and returns what the server made of it.
+     *
+     * <p>A registration is not a request; it is a computation that keeps running and keeps a view
+     * current until somebody drops it. Registering the same question twice -- even worded
+     * differently -- gives one computation with two names, because the server matches on the
+     * normalised plan rather than the text. The returned fingerprint is how you can tell.
+     *
+     * @param name the view name this query will maintain, and what SQL will read
+     * @param keyColumns output column ordinals the view is keyed by
+     */
+    public RegisteredQueryInfo register(String name, String sql, List<Integer> keyColumns) {
+        String ordinals = keyColumns.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+        List<List<String>> results = act(ControlWire.REGISTER, name, sql, ordinals);
+        if (results.isEmpty()) {
+            throw new PravahaClientException(
+                    ClientErrors.QUERY_REFUSED,
+                    "the server accepted the registration but said nothing about it",
+                    false);
+        }
+        List<String> row = results.get(0);
+        return new RegisteredQueryInfo(field(row, 0), field(row, 1), sql, field(row, 2), 0);
+    }
+
+    /** Every continuous query this server is running. */
+    public List<RegisteredQueryInfo> queries() {
+        List<RegisteredQueryInfo> queries = new java.util.ArrayList<>();
+        for (List<String> row : act(ControlWire.LIST)) {
+            long rowsIn = 0;
+            try {
+                rowsIn = Long.parseLong(field(row, 4));
+            } catch (NumberFormatException e) {
+                // An older server that does not report it. Not worth failing a listing over.
+            }
+            queries.add(new RegisteredQueryInfo(field(row, 0), field(row, 1), field(row, 2), field(row, 3), rowsIn));
+        }
+        return queries;
+    }
+
+    /** Stops a query without releasing it; its view keeps answering at the frontier it reached. */
+    public void pause(String name) {
+        act(ControlWire.PAUSE, name);
+    }
+
+    public void resume(String name) {
+        act(ControlWire.RESUME, name);
+    }
+
+    /**
+     * Removes a name.
+     *
+     * <p>The computation goes when its <em>last</em> name goes. If somebody else registered the same
+     * question, dropping yours leaves theirs running -- which is the point: neither of you knows the
+     * other exists.
+     */
+    public void drop(String name) {
+        act(ControlWire.DROP, name);
+    }
+
+    /**
+     * Watches a registered query, receiving changes as they are committed.
+     *
+     * <p>Blocks the calling thread until the returned handle is closed or the query ends, so run it
+     * on a thread you are willing to park. Changes arrive per commit, never per row.
+     *
+     * <p><strong>Rows are valid only inside the callback.</strong> They are flyweights over the
+     * Arrow batch that carried them, and that batch is reused for the next commit. Copy anything you
+     * intend to keep -- the same rule as {@link QueryResult}, and the reason both are fast.
+     *
+     * @param filters column/value pairs applied at the tap, so rows you did not ask for never cross
+     *     the network. Equality only. A column the view does not have is refused rather than ignored
+     */
+    public Subscription subscribe(String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
+        List<String> pairs = new java.util.ArrayList<>();
+        filters.forEach((column, value) -> {
+            pairs.add(column);
+            pairs.add(value);
+        });
+        FlightStream stream = client.getStream(new Ticket(ControlWire.subscribeTicket(view, pairs)), callOptions);
+        Subscription subscription = new Subscription(stream, onBatch, subscriptions::remove);
+        subscriptions.add(subscription);
+        return subscription;
+    }
+
+    /** Watches every row a registered query produces. */
+    public Subscription subscribe(String view, Consumer<ChangeBatch> onBatch) {
+        return subscribe(view, Map.of(), onBatch);
+    }
+
+    private List<List<String>> act(String type, String... fields) {
+        List<List<String>> results = new java.util.ArrayList<>();
+        try {
+            transport
+                    .doAction(new Action(type, ControlWire.encode(fields)), callOptions)
+                    .forEachRemaining(result -> results.add(ControlWire.decode(result.getBody())));
+        } catch (FlightRuntimeException e) {
+            throw new PravahaClientException(
+                    ClientErrors.QUERY_REFUSED,
+                    e.status().description() == null
+                            ? e.getMessage()
+                            : e.status().description(),
+                    false,
+                    e);
+        }
+        return results;
+    }
+
+    private static String field(List<String> row, int index) {
+        return index < row.size() ? row.get(index) : "";
+    }
+
+    /**
+     * Closes the connection.
+     *
+     * <p>Teardown noise is not reported as failure. Closing a transport with a finished stream on
+     * it produces a cancellation -- {@code RST_STREAM ... CANCEL} -- from gRPC's point of view, and
+     * turning that into an exception meant a command that had already done its work and printed its
+     * answer then exited non-zero. A caller cannot act on it, and a script cannot tell it apart from
+     * the query having failed.
+     *
+     * <p>The allocator is closed either way, in a finally, because a leak there is a real problem
+     * and would otherwise be masked by whatever the transport said on the way out.
+     */
     @Override
     public void close() {
+        // Subscriptions first, and this ordering is the point. Each one is cancelled so the server
+        // detaches its listener and releases its buffers; dropping the transport underneath them
+        // instead leaves the server holding both.
+        for (Subscription subscription : java.util.List.copyOf(subscriptions)) {
+            subscription.close();
+        }
+        subscriptions.clear();
         try {
             client.close();
         } catch (Exception e) {
-            throw new PravahaClientException(
-                    ClientErrors.CLOSED, "cannot close the client: " + e.getMessage(), false, e);
+            // Deliberately not rethrown; see above. Anything genuinely wrong with this connection
+            // has already shown up as a failed call.
         } finally {
             if (ownsAllocator) {
                 allocator.close();

@@ -279,17 +279,142 @@ match could still arrive, which without a time bound is forever.
 | [`plugins/pravaha-plugin-jdbc`](../plugins/pravaha-plugin-jdbc) | Incremental-poll source and dimension table for any JDBC database. Keyset pagination, filter pushdown into `WHERE`, driver supplied by the deployment. |
 | [`plugins/pravaha-plugin-aerospike`](../plugins/pravaha-plugin-aerospike) | The primary target. Scan-based source with server-side filter pushdown, idempotent sink, and a lookup table. Tested against a real Aerospike server, not a mock. |
 | [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | Java client. Depends on `pravaha-api` alone. |
-| [`sdk/pravaha-sdk-python`](../sdk/pravaha-sdk-python) | Python client. The console is built on it. |
+| [`sdk/python`](../sdk/python) | Python client. The console is built on it. |
 
 | `pravaha-state` | Off-heap state: the L0 map, the block store joins hold rows in, and checkpoints. |
 | `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
 | `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
 | `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |
 | `pravaha-security` | Who is asking, what they may read, and a record of both (ADR-031). Three SPIs and no implementation of an identity provider: deployments already have one. |
+| `pravaha-registry` | Where SQL becomes a computation with a name, a state and an end (ADR-025). Sharing is by fingerprint, so the same question asked twice is one computation with two names. |
 | [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | The Java client's types and connection strings. Dependency-free by enforcer rule: it is embedded in somebody else's application. |
 | [`sdk/pravaha-sdk-java-flight`](../sdk/pravaha-sdk-java-flight) | The Java client's transport, kept separate so an application that only wants the types never sees Netty. |
 
 `pravaha-catalog` is still a placeholder.
+
+## Registering a query
+
+A registration turns SQL into a computation that keeps running and keeps a view current. It is the
+surface everything else hangs off: a subscription attaches to a registered query, the console lists
+them, a cluster assigns them to nodes, and a continuous query's parameters can only be classified
+against one.
+
+**Sharing is by fingerprint, never by name or by text** (ADR-025). The fingerprint is the normalised
+plan, so two people who type the same question differently — different aliases, different
+whitespace, operands of an `AND` in a different order — get one computation holding one copy of the
+state. That is the mechanism behind "ten analysts on one dashboard cost one query", and it is
+enforced in the registry rather than left to whoever writes the SQL.
+
+The fingerprint includes the **security predicates** applied to the plan, which is what makes
+implicit sharing safe rather than merely cheap: two principals with different entitlements produce
+different plans, so a shared computation can never serve one of them rows filtered for the other.
+Nobody has to remember the rule — it falls out of what is hashed.
+
+A computation may answer to several names and is released when the **last** one is dropped. Dropping
+on the first would take the answer away from everyone else who registered the same question and has
+no idea the others exist.
+
+Pausing is not dropping: a paused query stops advancing and its view keeps answering at the frontier
+it reached, which is a far better failure mode for a dashboard than answers that disappear. Rows
+arriving while paused are dropped rather than buffered — buffering would turn a pause into a memory
+commitment of unknown size, and the operator paused it precisely to stop it doing work.
+
+## Why a join has a clock
+
+A stream-to-stream join would, left alone, hold every unmatched row for as long as the process
+lives: a partner could arrive at any moment, so nothing is ever safe to forget. That is not a
+tuning problem, it is the shape of the operation.
+
+The engine's answer is that **the bound is part of what the join means**. With a match window of
+`T`, the join means "rows that match and whose event times are within `T` of each other", and a row
+older than `watermark − T` cannot be part of any match it promises — because a watermark is the
+statement that nothing earlier is still to come, so every partner yet to arrive is later than that.
+Releasing such a row is not losing data; it is the definition being honoured. An hour of event time
+is the default, because a join with no window at all is the thing that cannot be allowed.
+
+That is why eviction here is safe and a size-based eviction would not be. Dropping the oldest rows
+to stay under a ceiling would silently lose matches the query *did* ask for — so the row ceiling
+does not evict. It fails, loudly, and exists only as a backstop for a key space that is wrong rather
+than merely large. **A bound that changes the answer belongs in the query's meaning; a bound that
+protects the machine belongs in the configuration, and it should fail rather than quietly alter
+results.**
+
+## What a retention window is actually for
+
+Not primarily a memory knob. It is the statement that **a served view is a cache of a current
+answer, not a system of record.**
+
+That distinction is the whole point of the feature, and four things follow from it.
+
+**It keeps the view from quietly becoming a second copy of the database.** A view over a query that
+does not aggregate gains a row per event forever. Left alone it converges on holding the entire
+source dataset in memory — which is precisely the second system this engine exists to remove. The
+irony is worth naming: without retention, the serving layer reinvents the thing it replaced.
+
+**It turns an unbounded liability into a sized resource.** Without retention, a view's memory is a
+function of how many distinct keys the data produces over all time — a property of the world, not a
+number anyone chose. With it, memory is bounded by a figure in a config file, and capacity planning
+becomes arithmetic instead of hope.
+
+**It is expressed in event time, and only in event time.** A row count was tried and removed: "the
+last million rows" is four hours on a quiet day and twenty minutes on a busy one, so nobody can say
+what the view contains without also knowing the throughput — exactly the property event-time
+semantics exist to eliminate. Counting rows is still worth doing, but it is a *capacity ceiling*,
+not a retention policy, and the view already has one. Retention says what the view **means**; the
+ceiling says what the node can **afford**. When the ceiling is hit, the message says which of the two
+is wrong rather than blaming the data.
+
+**It states the relevance horizon of the question.** "Is this card running hot right now" is
+meaningless about a card that last transacted six months ago; "what is this desk's exposure today"
+is a question about today. A streaming answer has a useful lifetime, and retention is where that
+lifetime is written down. If the window is shorter than the questions people are actually asking,
+that is a design mismatch — and `evicted()` is how somebody notices it rather than discovering it
+through a support call about missing rows.
+
+**It draws the boundary with the store.** History lives where the data came from. A query about last
+month goes to Aerospike or the warehouse; the view answers about now. Retention is where that line
+is drawn explicitly rather than by whatever happens to still be in memory.
+
+### What it does not solve
+
+Worth being precise, because the name invites over-reading.
+
+Retention is on the **view** — the published answer. It does nothing for **operator state**: the
+accumulators inside the pipeline (`SlicedAggregateState`, `JoinSide`) are separate, and separately
+bounded. A window bounds an aggregate because the window closes. Nothing yet bounds a
+stream-to-stream join, and retention on its output view would not help — the join's liability is the
+unmatched rows it is holding *upstream*, waiting for partners that may never arrive.
+
+It is also not durability. A view is not checkpointed at all; it is rebuilt from the query. Retention
+decides what is kept hot, never what survives a restart.
+
+## Subscribing to a registered query
+
+A subscription is not the query (ADR-025). Many attach to one computation, they come and go without
+it noticing, and it outlives all of them — which is why a dashboard reconnecting costs nothing: the
+state is warm because it belongs to the query, not to whoever was watching.
+
+**Changes arrive per commit, never per row.** A commit is the point at which the engine says a prefix
+of the input is fully processed; between commits the view holds a half-applied batch, and a
+subscriber woken per row could act on a total still being assembled.
+
+They carry **weights**. `-1` withdraws a row, so a late-data correction reaches a consumer as a
+retraction followed by an insert — the same arithmetic as everything else in the engine rather than a
+message type every client has to recognise. A consumer that only wants current values can ignore
+negative weights and overwrite by key; one maintaining its own aggregate must apply them, or it
+drifts from the view the first time a window is corrected.
+
+What happens when a subscriber cannot keep up is the part that decides whether one slow consumer
+degrades everybody. **Blocking is not an option offered**: a subscriber that blocks applies
+backpressure to the *query*, so one slow dashboard would slow the computation for everyone keeping
+up. Instead the buffer is bounded and overflow is a declared choice — `CONFLATE` (replace the waiting
+change for a key; right for a dashboard, wrong for anything maintaining an aggregate from the
+weights), `DROP_OLDEST`, or `FAIL` (for a ledger, where finding out beats carrying on with a gap).
+Whatever is lost is **counted**, because a subscriber silently missing data is the failure the whole
+mechanism exists to make visible.
+
+A consumer that throws is detached rather than called again — otherwise one broken subscriber becomes
+a stream of exceptions on the engine's own thread.
 
 ## Who may read what
 

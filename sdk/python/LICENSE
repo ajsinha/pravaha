@@ -1,0 +1,100 @@
+PRAVAHA SOFTWARE LICENCE
+Proprietary and Confidential
+
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+All rights reserved.
+
+-------------------------------------------------------------------------------
+1. OWNERSHIP
+-------------------------------------------------------------------------------
+
+Project Pravaha, including without limitation its source code, object code,
+design documents, specifications, architecture, algorithms, data formats,
+documentation, brand marks, and all other materials contained in this
+repository (collectively, the "Software"), is the sole and exclusive property
+of Ashutosh Sinha (the "Owner").
+
+The Software is protected by copyright law and international treaties. All
+right, title and interest in and to the Software, including all intellectual
+property rights therein, are and shall remain vested exclusively in the Owner.
+
+No licence, right or interest in the Software is granted, whether by
+implication, estoppel or otherwise, except as expressly stated in a separate
+written agreement signed by the Owner.
+
+-------------------------------------------------------------------------------
+2. RESTRICTIONS
+-------------------------------------------------------------------------------
+
+Without the express prior written permission of the Owner, no person may:
+
+  (a) use, execute, or run the Software for any purpose;
+  (b) copy, reproduce, or create derivative works of the Software;
+  (c) modify, adapt, translate, or alter the Software;
+  (d) distribute, publish, sublicense, sell, rent, lease, lend, or otherwise
+      transfer the Software or any copy of it to any third party;
+  (e) disclose, publish, or otherwise make the Software available to any third
+      party, in whole or in part;
+  (f) reverse engineer, decompile, or disassemble the Software, or attempt to
+      derive its source code, structure, or organisation, except to the extent
+      such restriction is expressly prohibited by applicable law;
+  (g) remove, obscure, or alter any copyright, trademark, or other proprietary
+      notice contained in or on the Software.
+
+-------------------------------------------------------------------------------
+3. CONFIDENTIALITY
+-------------------------------------------------------------------------------
+
+The Software constitutes confidential information and trade secrets of the
+Owner. Any person who obtains access to the Software, whether authorised or
+not, shall:
+
+  (a) maintain the Software in strict confidence;
+  (b) not disclose the Software to any third party;
+  (c) take at least reasonable measures to prevent its unauthorised disclosure;
+  (d) immediately notify the Owner upon becoming aware of any unauthorised
+      access, use, or disclosure.
+
+These obligations survive termination of any access or agreement.
+
+-------------------------------------------------------------------------------
+4. NO WARRANTY
+-------------------------------------------------------------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+-------------------------------------------------------------------------------
+5. LIMITATION OF LIABILITY
+-------------------------------------------------------------------------------
+
+IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE, INCLUDING WITHOUT LIMITATION ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES, OR ANY LOSS OF PROFITS, REVENUE,
+DATA, OR BUSINESS INTERRUPTION.
+
+-------------------------------------------------------------------------------
+6. THIRD-PARTY COMPONENTS
+-------------------------------------------------------------------------------
+
+The Software incorporates or depends upon third-party components that are
+licensed separately by their respective owners. Those components remain subject
+to their own licence terms, which are reproduced or referenced in the file
+THIRD-PARTY-NOTICES.md. Nothing in this Licence limits any right granted to any
+person under those third-party licences with respect to those components.
+
+-------------------------------------------------------------------------------
+7. UNAUTHORISED ACCESS
+-------------------------------------------------------------------------------
+
+If you have received or obtained a copy of the Software without the express
+written authorisation of the Owner, you are not permitted to retain, use, copy,
+or disclose it. You must destroy all copies in your possession or control and
+notify the Owner at ajsinha@gmail.com.
+
+-------------------------------------------------------------------------------
+
+For licensing enquiries, contact: Ashutosh Sinha <ajsinha@gmail.com>

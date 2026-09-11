@@ -137,6 +137,60 @@ final class JoinSide implements AutoCloseable {
         distinctRows++;
     }
 
+    /**
+     * Forgets rows whose event time is before {@code horizon}, returning how many went.
+     *
+     * <p>This is what makes a stream-to-stream join survivable, and it is only correct because the
+     * horizon is derived from the join's <em>declared</em> match window. A row older than
+     * "watermark minus the match window" can no longer be part of any match this join promises to
+     * find: any partner still to arrive is, by the watermark's definition, later than that. So this
+     * is not discarding data that might have matched -- it is discarding data that is outside what
+     * the query asked for.
+     *
+     * <p>That distinction is the whole argument. Evicting on a size ceiling would silently lose
+     * matches the query did ask for, which is why the ceiling fails loudly instead.
+     */
+    long evictOlderThan(long horizon) {
+        if (horizon == Long.MIN_VALUE || buckets.isEmpty()) {
+            return 0;
+        }
+        long removed = 0;
+        java.util.Iterator<Map.Entry<Long, Long>> heads = buckets.entrySet().iterator();
+        while (heads.hasNext()) {
+            Map.Entry<Long, Long> bucket = heads.next();
+            long previous = ArenaHandle.NULL;
+            long entry = bucket.getValue();
+            while (entry != ArenaHandle.NULL) {
+                long next = nextOf(entry);
+                if (eventTimeOf(entry) < horizon) {
+                    long weight = weightOf(entry);
+                    if (previous == ArenaHandle.NULL) {
+                        bucket.setValue(next);
+                    } else {
+                        store.regionOf(previous).putLong(store.offsetOf(previous) + OFFSET_NEXT, next);
+                    }
+                    store.release(entry);
+                    rows -= weight;
+                    distinctRows--;
+                    removed++;
+                } else {
+                    previous = entry;
+                }
+                entry = next;
+            }
+            if (bucket.getValue() == ArenaHandle.NULL) {
+                heads.remove();
+            }
+        }
+        return removed;
+    }
+
+    /** The event time of a stored row, read back out of the row itself. */
+    private long eventTimeOf(long entry) {
+        return cursor.wrap(store.regionOf(entry), store.offsetOf(entry) + OFFSET_ROW)
+                .eventTimestampNanos();
+    }
+
     /** Calls back for every stored row whose key equals the probe's, with that row's weight. */
     void forEachMatch(RowView probe, int[] probeKeyOrdinals, StreamSchema probeSchema, MatchVisitor visitor) {
         if (!JoinKeys.isMatchable(probe, probeKeyOrdinals)) {

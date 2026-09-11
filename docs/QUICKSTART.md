@@ -185,6 +185,7 @@ with no Spring and no cluster, which is the property the whole competitive posit
 |---|---|
 | [Architecture in two pages](ARCHITECTURE.md) | The shape, before the long version |
 | [What SQL it runs](SQL_SUPPORT.md) | Every construct that works and every one that does not, and why |
+| [Case studies](../examples/case-studies/) | Four worked systems — banking, finance, trading, biology — with stores to stand up, data models, and code in Java and Python |
 | [Examples](../examples/) | Each one runnable and checked by the build |
 | [Decision records](adr/) | Why things are the way they are |
 | [System design](system_design.md) | Everything, in 33 sections |

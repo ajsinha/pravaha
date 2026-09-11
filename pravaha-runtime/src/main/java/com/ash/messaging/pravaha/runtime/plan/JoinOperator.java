@@ -29,8 +29,18 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  * <p><strong>The state is the whole design problem.</strong> Each side holds every row that could
  * still match, so an unbounded join over two unbounded streams grows until the node dies. Pravaha
  * refuses that at planning time rather than accepting it and failing at three in the morning: a
- * join needs a bound, and {@code maxRowsPerSide} is where the bound is enforced until windowed and
- * time-versioned joins land.
+ * <p><strong>A join is bounded in time, and that bound is part of what it means.</strong> Two
+ * streams joined on a key would, without one, have to hold every unmatched row for as long as the
+ * process lives: a partner could arrive at any moment, so nothing is ever safe to forget. With a
+ * match window of {@code T}, the join means "rows that match and whose event times are within
+ * {@code T} of each other", and a row older than the watermark minus {@code T} can no longer be part
+ * of any match it promises -- so releasing it is not losing data, it is the definition being
+ * honoured.
+ *
+ * <p>That distinction is why eviction here is safe and a size-based eviction would not be. Dropping
+ * the oldest rows to stay under a ceiling would silently lose matches the query <em>did</em> ask
+ * for; {@code maxRowsPerSide} therefore fails loudly instead, and exists only as a backstop for a
+ * key space that is wrong rather than merely large.
  *
  * <p>Output columns are the left's followed by the right's, which is what SQL says and what makes
  * the ordinal arithmetic downstream trivial: a right-side column {@code i} is output column
@@ -48,10 +58,36 @@ public record JoinOperator(
         List<Integer> leftKeys,
         List<Integer> rightKeys,
         StreamSchema outputSchema,
-        long maxRowsPerSide)
+        long maxRowsPerSide,
+        long matchWithinNanos)
         implements PhysicalOperator {
 
+    /**
+     * The match window a join gets when the query does not state one.
+     *
+     * <p>An hour of event time. Chosen to be generous enough that ordinary correlated streams match,
+     * and short enough that state is released while the process is still young. The number is
+     * arguable; having one is not, because the alternative is a join that holds every unmatched row
+     * for as long as the process lives.
+     */
+    public static final long DEFAULT_MATCH_WITHIN_NANOS = 3_600L * 1_000_000_000L;
+
+    /** A join with the default match window, which is what SQL without a temporal predicate gets. */
+    public JoinOperator(
+            PhysicalOperator left,
+            PhysicalOperator right,
+            List<Integer> leftKeys,
+            List<Integer> rightKeys,
+            StreamSchema outputSchema,
+            long maxRowsPerSide) {
+        this(left, right, leftKeys, rightKeys, outputSchema, maxRowsPerSide, DEFAULT_MATCH_WITHIN_NANOS);
+    }
+
     public JoinOperator {
+        if (matchWithinNanos <= 0) {
+            throw new IllegalArgumentException("a join's match window must be positive, got " + matchWithinNanos
+                    + ". A join with no time bound holds every unmatched row forever");
+        }
         leftKeys = List.copyOf(leftKeys);
         rightKeys = List.copyOf(rightKeys);
         if (leftKeys.isEmpty()) {
