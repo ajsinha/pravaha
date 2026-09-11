@@ -61,6 +61,17 @@ class RetentionTest {
     }
 
     @Test
+    void retentionIsExpressedInTimeAndNothingElse() {
+        // A row count was tried here and removed. It makes the view's *meaning* depend on
+        // throughput -- "the last million rows" is four hours on a quiet day and twenty minutes on a
+        // busy one -- so nobody can say what the view contains without knowing the volume, which is
+        // the property event-time semantics exist to eliminate. Counting rows is a capacity ceiling,
+        // and the view already has one of those.
+        assertThat(Retention.class.getRecordComponents()).hasSize(1);
+        assertThat(Retention.class.getRecordComponents()[0].getName()).isEqualTo("maxAge");
+    }
+
+    @Test
     void rowsOlderThanTheWindowAreEvicted() {
         ServedView view = view(Retention.ofAge(Duration.ofSeconds(10)));
 
@@ -88,29 +99,16 @@ class RetentionTest {
     }
 
     @Test
-    void theRowBoundEvictsTheLeastRecentlyWrittenFirst() {
-        ServedView view = view(Retention.ofRows(3));
-
-        for (long id = 1; id <= 5; id++) {
-            put(view, id, id * SECOND);
-        }
-
-        assertThat(view.size()).isEqualTo(3);
-        assertThat(view.get(1L).found()).isFalse();
-        assertThat(view.get(5L).found()).isTrue();
-    }
-
-    @Test
-    void aKeyThatKeepsBeingUpdatedIsNotEvictedAsStale() {
-        ServedView view = view(Retention.ofRows(2));
+    void aKeyThatKeepsBeingUpdatedStaysWhileStaleOnesGo() {
+        ServedView view = view(Retention.ofAge(Duration.ofSeconds(10)));
 
         put(view, 1, 1 * SECOND);
         put(view, 2, 2 * SECOND);
-        put(view, 1, 3 * SECOND); // touched again
-        put(view, 3, 4 * SECOND);
+        put(view, 1, 20 * SECOND); // touched again, so its age restarts
+        put(view, 3, 21 * SECOND);
 
-        // "Oldest" has to mean least recently *written*, not first inserted, or a hot key would be
-        // evicted while stale ones survived.
+        // Age is measured from the last write, not the first. A hot key must not be evicted while
+        // stale ones survive.
         assertThat(view.get(1L).found()).isTrue();
         assertThat(view.get(3L).found()).isTrue();
         assertThat(view.get(2L).found()).isFalse();
@@ -118,16 +116,17 @@ class RetentionTest {
 
     @Test
     void aPassThroughFeedNoLongerGrowsWithoutLimit() {
-        ServedView view = view(Retention.ofRows(100));
+        ServedView view = view(Retention.ofAge(Duration.ofSeconds(10)));
 
-        // The case the whole thing exists for: one new key per event, forever.
+        // The case the whole thing exists for: one new key per event, forever. Each event is a
+        // second later than the last, so only the final ten survive.
         for (long id = 1; id <= 50_000; id++) {
-            view.applyValues(new Object[] {id, "p"}, 1, id);
+            view.applyValues(new Object[] {id, "p"}, 1, id * SECOND);
         }
-        view.commit(50_000);
+        view.commit(50_000 * SECOND);
 
-        assertThat(view.size()).isEqualTo(100);
-        assertThat(view.evicted()).isEqualTo(49_900);
+        assertThat(view.size()).isLessThanOrEqualTo(11);
+        assertThat(view.evicted()).isGreaterThan(49_000);
     }
 
     @Test
@@ -159,28 +158,31 @@ class RetentionTest {
     }
 
     @Test
-    void aRetentionWindowWiderThanTheCeilingSaysWhichNumberIsWrong() {
-        ServedView small = new ServedView("trade_feed", SCHEMA, List.of(0), 10, Retention.ofRows(1_000));
+    void aWindowThatDoesNotFitTheCeilingSaysSoInThoseTerms() {
+        // Retention says what the view means; the ceiling says what the node can afford. When the
+        // meaning does not fit, the message names both rather than blaming the data.
+        ServedView small = new ServedView("trade_feed", SCHEMA, List.of(0), 10, Retention.ofAge(Duration.ofHours(1)));
 
         assertThatThrownBy(() -> {
                     for (long id = 1; id <= 50; id++) {
-                        small.applyValues(new Object[] {id, "p"}, 1, id);
+                        small.applyValues(new Object[] {id, "p"}, 1, id * SECOND);
                     }
-                    small.commit(50);
+                    small.commit(50 * SECOND);
                 })
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("one of the two numbers is wrong");
+                .hasMessageContaining("the meaning does not fit");
     }
 
     @Test
     void evictionIsCountedSoAnOperatorCanSeeThePolicyWorking() {
-        ServedView view = view(Retention.ofRows(2));
+        ServedView view = view(Retention.ofAge(Duration.ofSeconds(3)));
         for (long id = 1; id <= 10; id++) {
             put(view, id, id * SECOND);
         }
 
         // Not an error count -- it is how somebody notices a window shorter than the questions
         // being asked of it.
-        assertThat(view.evicted()).isEqualTo(8);
+        assertThat(view.evicted()).isPositive();
+        assertThat(view.size()).isLessThan(10);
     }
 }

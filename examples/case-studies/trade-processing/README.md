@@ -128,6 +128,11 @@ RegisteredQuery feed = registry.register(
 >
 > or change the default for every registration on this node with `registry.retaining(...)`.
 >
+> Retention is in event time and nothing else. "Keep the last million rows" would make this view mean
+> something different on a busy day than on a quiet one, and you could not say what it contained
+> without knowing the volume. The row bound that does exist is the view's *capacity ceiling* — what
+> the node can afford, not what the view means.
+>
 > **Eviction is forgetting, not retraction.** An evicted trade is not published to subscribers as a
 > `-1` — it was not cancelled, it aged out of a cache. A consumer keeping its own copy from the
 > change stream therefore keeps whatever *it* chose to keep and may legitimately hold more than the

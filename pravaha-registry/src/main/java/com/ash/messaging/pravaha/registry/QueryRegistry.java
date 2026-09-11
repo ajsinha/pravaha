@@ -92,6 +92,10 @@ public final class QueryRegistry implements AutoCloseable {
      * <p>Configurable because the right answer is a deployment's, not ours: an intraday trade feed
      * wants a day, a fraud view wants an hour, a reference-data mirror may genuinely want forever.
      * What is not configurable is that there <em>is</em> one -- see {@link Retention}.
+     *
+     * <p>Expressed in event time, because that is what a streaming answer is about. A row count
+     * would make the view's meaning depend on throughput; the row bound that does exist is the
+     * view's capacity ceiling, which is a different question with a different answer.
      */
     public QueryRegistry retaining(Retention retention) {
         this.defaultRetention = retention == null ? Retention.DEFAULT : retention;

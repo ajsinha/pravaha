@@ -18,24 +18,33 @@ package com.ash.messaging.pravaha.serving;
 import java.time.Duration;
 
 /**
- * How long a view keeps a row it is no longer being told about.
+ * How long a view keeps a row, in <strong>event time</strong>.
  *
- * <p><strong>A default applies unless a registration chooses otherwise</strong>
- * ({@link #DEFAULT} -- a day, or a million rows, whichever binds first). {@link #forever()} exists
- * and has to be asked for by name, because a view is bounded only if its <em>key space</em> is
- * bounded, and nothing can tell in advance whether it is. Keying a windowed aggregate on a customer
- * bounds it at the number of customers; keying a pass-through feed on an event id does not bound it
- * at all, and the two are one word apart in the SQL. Defaulting to forever would make every
- * registration a leak that nobody had decided to accept.
+ * <p>Time, and only time. A streaming answer is an answer about a period, and the period is the
+ * thing a retention policy exists to state: "the last hour", "today". A row-count bound was tried
+ * here and removed, because it makes the view's <em>meaning</em> depend on throughput -- "the last
+ * million rows" is four hours on a quiet day and twenty minutes on a busy one, so nobody can say
+ * what the view contains without also knowing the volume. That is exactly the property event-time
+ * semantics exist to eliminate.
  *
- * <p>Some views bound themselves. A windowed aggregate releases a window's state when the window
- * closes, so the view holds one row per live window and nothing accumulates. For those,
- * {@link #forever()} is right and the ceiling is a backstop against a query somebody got wrong.
+ * <p>Counting rows is still worth doing; it is just not a retention policy. It is a <em>capacity
+ * ceiling</em>, and the view already has one. The two answer different questions:
  *
- * <p>A view over a query that does not aggregate bounds nothing. Every event is a new key, so the
- * view grows with the feed for as long as it runs -- and "the node dies eventually" is not a design.
- * A feed has a useful lifetime, usually a session or a day, and after that the rows are history that
- * belongs in the store the data came from rather than in memory. Saying so is what retention is.
+ * <table border="1">
+ *   <caption>Two different bounds</caption>
+ *   <tr><th></th><th>Retention</th><th>Ceiling</th></tr>
+ *   <tr><td>Says</td><td>what the view means</td><td>what the node can afford</td></tr>
+ *   <tr><td>Measured in</td><td>event time</td><td>rows</td></tr>
+ *   <tr><td>When exceeded</td><td>the oldest rows are forgotten — the policy working</td>
+ *       <td>the view refuses — the capacity plan was wrong</td></tr>
+ * </table>
+ *
+ * <p><strong>A default applies unless a registration chooses otherwise</strong> ({@link #DEFAULT},
+ * a day). {@link #forever()} exists and has to be asked for by name, because a view is bounded only
+ * if its <em>key space</em> is bounded, and nothing can tell in advance whether it is. Keying a
+ * windowed aggregate on a customer bounds it at the number of customers; keying a pass-through feed
+ * on an event id does not bound it at all, and the two are one word apart in the SQL. Defaulting to
+ * forever would make every registration a leak nobody had decided to accept.
  *
  * <p><strong>Eviction is forgetting, not retraction.</strong> An evicted row is not published to
  * subscribers as a {@code -1}: the trade was not cancelled, it aged out of a cache. A consumer
@@ -43,20 +52,28 @@ import java.time.Duration;
  * legitimately hold more than the view does. Emitting retractions instead would tell every consumer
  * that data had been withdrawn, which would be a lie with consequences.
  */
-public record Retention(Duration maxAge, int maxRows) {
+public record Retention(Duration maxAge) {
 
-    private static final Retention FOREVER = new Retention(null, Integer.MAX_VALUE);
+    private static final Retention FOREVER = new Retention(null);
 
-    /** The default when a registration does not choose: a day, or a million rows, whichever binds. */
-    public static final Retention DEFAULT = new Retention(Duration.ofHours(24), 1_000_000);
+    /** The default when a registration does not choose: a day of event time. */
+    public static final Retention DEFAULT = new Retention(Duration.ofHours(24));
 
     public Retention {
         if (maxAge != null && (maxAge.isZero() || maxAge.isNegative())) {
             throw new IllegalArgumentException("a retention age must be positive, got " + maxAge);
         }
-        if (maxRows < 1) {
-            throw new IllegalArgumentException("a view must be allowed at least one row, got " + maxRows);
-        }
+    }
+
+    /**
+     * Keep rows whose event time is within {@code age} of the committed frontier.
+     *
+     * <p>Event time, not wall clock, so a replay of yesterday retains the rows yesterday retained. A
+     * policy that consulted the clock would make a reprocessed result differ from the original,
+     * which is the property the whole engine is built to avoid.
+     */
+    public static Retention ofAge(Duration age) {
+        return new Retention(age);
     }
 
     /**
@@ -64,36 +81,14 @@ public record Retention(Duration maxAge, int maxRows) {
      *
      * <p>Right when the key space is genuinely bounded and known -- a view keyed on branch, or on
      * instrument, where the ceiling is the number of branches. Asked for by name rather than
-     * arrived at by omission, so that a view which grows without limit is one somebody chose.
+     * arrived at by omission, so a view that grows without limit is one somebody chose.
      */
     public static Retention forever() {
         return FOREVER;
     }
 
-    /**
-     * Keep rows whose event time is within {@code age} of the committed frontier.
-     *
-     * <p>Measured in <em>event time</em>, not wall clock, so a replay of yesterday retains the same
-     * rows it would have retained yesterday. A retention policy that consulted the clock would make
-     * a reprocessed result differ from the original, which is the property the whole engine is built
-     * to avoid.
-     */
-    public static Retention ofAge(Duration age) {
-        return new Retention(age, Integer.MAX_VALUE);
-    }
-
-    /** Keep the most recently updated {@code rows} keys, evicting the oldest first. */
-    public static Retention ofRows(int rows) {
-        return new Retention(null, rows);
-    }
-
-    /** Both bounds; a row is evicted when it fails either. */
-    public static Retention of(Duration age, int rows) {
-        return new Retention(age, rows);
-    }
-
     public boolean isForever() {
-        return maxAge == null && maxRows == Integer.MAX_VALUE;
+        return maxAge == null;
     }
 
     /** The event-time frontier before which rows are no longer kept. */
@@ -109,16 +104,6 @@ public record Retention(Duration maxAge, int maxRows) {
 
     @Override
     public String toString() {
-        if (isForever()) {
-            return "forever";
-        }
-        StringBuilder text = new StringBuilder();
-        if (maxAge != null) {
-            text.append(maxAge);
-        }
-        if (maxRows != Integer.MAX_VALUE) {
-            text.append(text.isEmpty() ? "" : " or ").append(maxRows).append(" rows");
-        }
-        return text.toString();
+        return isForever() ? "forever" : maxAge.toString();
     }
 }

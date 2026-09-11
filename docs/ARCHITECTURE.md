@@ -336,6 +336,14 @@ function of how many distinct keys the data produces over all time — a propert
 number anyone chose. With it, memory is bounded by a figure in a config file, and capacity planning
 becomes arithmetic instead of hope.
 
+**It is expressed in event time, and only in event time.** A row count was tried and removed: "the
+last million rows" is four hours on a quiet day and twenty minutes on a busy one, so nobody can say
+what the view contains without also knowing the throughput — exactly the property event-time
+semantics exist to eliminate. Counting rows is still worth doing, but it is a *capacity ceiling*,
+not a retention policy, and the view already has one. Retention says what the view **means**; the
+ceiling says what the node can **afford**. When the ceiling is hit, the message says which of the two
+is wrong rather than blaming the data.
+
 **It states the relevance horizon of the question.** "Is this card running hot right now" is
 meaningless about a card that last transacted six months ago; "what is this desk's exposure today"
 is a question about today. A streaming answer has a useful lifetime, and retention is where that

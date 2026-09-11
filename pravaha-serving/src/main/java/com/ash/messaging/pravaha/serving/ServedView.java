@@ -76,6 +76,16 @@ public final class ServedView {
     /** Rows applied since the last commit, in arrival order, not yet visible to a consistent read. */
     private final Map<Key, Object[]> pending = new LinkedHashMap<>();
 
+    /**
+     * The event time each pending row carried.
+     *
+     * <p>Staged per row rather than taken from the commit, because a commit covers a batch and the
+     * rows in it are not all the same age. Recording the commit frontier instead made every row in a
+     * batch look equally fresh, so a fifty-thousand-row batch evicted nothing -- a bug that hid
+     * completely from any test that committed after every row.
+     */
+    private final Map<Key, Long> pendingTime = new LinkedHashMap<>();
+
     private volatile long committedFrontier = Long.MIN_VALUE;
     private volatile long appliedFrontier = Long.MIN_VALUE;
     private long updates;
@@ -139,6 +149,7 @@ public final class ServedView {
             removals++;
         } else {
             pending.put(key, valuesOf(row));
+            pendingTime.put(key, frontier);
             updates++;
         }
         appliedFrontier = Math.max(appliedFrontier, frontier);
@@ -161,6 +172,7 @@ public final class ServedView {
             removals++;
         } else {
             pending.put(key, values.clone());
+            pendingTime.put(key, frontier);
             updates++;
         }
         appliedFrontier = Math.max(appliedFrontier, frontier);
@@ -177,7 +189,6 @@ public final class ServedView {
         if (frontier < committedFrontier) {
             throw new IllegalArgumentException("frontier went backwards: " + frontier + " after " + committedFrontier);
         }
-        long frontierAtCommit = frontier;
         pending.forEach((key, values) -> {
             if (values == null) {
                 visible.remove(key);
@@ -185,12 +196,17 @@ public final class ServedView {
             } else {
                 // Removed first so the re-insert puts this key at the back: "oldest" has to mean
                 // least recently written, or a hot key would be evicted while stale ones survived.
+                // Removed first so the re-insert puts this key at the back: "oldest" has to mean
+                // least recently written, or a hot key would age out while stale ones survived.
                 visible.remove(key);
                 visible.put(key, values);
-                writtenAt.put(key, frontierAtCommit);
+                // The row's own event time, not the commit's. A commit covers a batch and the rows
+                // in it are not all the same age.
+                writtenAt.put(key, pendingTime.getOrDefault(key, frontier));
             }
         });
         pending.clear();
+        pendingTime.clear();
         committedFrontier = frontier;
         evict();
         if (visible.size() > maxKeys) {
@@ -202,9 +218,10 @@ public final class ServedView {
                                     ? "This view keeps everything, so a key space that keeps growing grows it "
                                             + "until the node dies. Give it a Retention, bound the key, or raise "
                                             + "the ceiling deliberately."
-                                    : "Its retention window genuinely holds more rows than the ceiling allows, "
-                                            + "so one of the two numbers is wrong -- shorten the window or raise "
-                                            + "the ceiling."));
+                                    : "Retention says what this view means and the ceiling says what the node "
+                                            + "can afford, and right now the meaning does not fit: " + retention
+                                            + " of this data is more than " + maxKeys + " rows. Shorten the "
+                                            + "window, or provision for the volume."));
         }
         commits++;
     }
@@ -330,15 +347,6 @@ public final class ServedView {
                     evicted++;
                 }
             }
-        }
-        // Then the row bound, oldest first. The map is maintained in least-recently-written order,
-        // so this is a walk from the front rather than a sort.
-        java.util.Iterator<Map.Entry<Key, Object[]>> oldest = visible.entrySet().iterator();
-        while (visible.size() > retention.maxRows() && oldest.hasNext()) {
-            Key key = oldest.next().getKey();
-            oldest.remove();
-            writtenAt.remove(key);
-            evicted++;
         }
     }
 
