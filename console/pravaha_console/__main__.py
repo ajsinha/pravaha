@@ -1,6 +1,6 @@
 """Run the console.
 
-    pravaha-console --engine grpc://localhost:9090 --port 8080
+    pravaha-console --engine grpc://localhost:9090 --port 8090
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", default="grpc://localhost:9090", help="the Pravaha server to talk to")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--port", type=int, default=8090)
     parser.add_argument("--token", default=None, help="bearer token, if the engine requires one")
     args = parser.parse_args()
 

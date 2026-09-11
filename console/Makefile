@@ -7,7 +7,7 @@
 
 help:
 	@echo "make install    create .venv and install the console with dev extras"
-	@echo "make run        start the console against grpc://localhost:9090"
+	@echo "make run        serve the console on :8090, against an engine on :9090"
 	@echo "make test       run the tests (needs the Java side built)"
 	@echo "make lint       ruff"
 	@echo "make typecheck  mypy"
@@ -21,7 +21,7 @@ install: .venv/bin/python
 	.venv/bin/python -m pip install --quiet -e '.[dev]'
 
 run: install
-	.venv/bin/python -m pravaha_console --engine grpc://localhost:9090 --port 8080
+	.venv/bin/python -m pravaha_console --engine grpc://localhost:9090 --port 8090
 
 test: install
 	.venv/bin/python -m pytest tests -q

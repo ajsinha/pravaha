@@ -134,12 +134,49 @@ pravaha subscribe --view user_volume --filter user_id=u1
 
 ## 7. Open the console
 
+The console is a **separate process** that talks to the engine over the published Python SDK
+(ADR-024) — the same client an integrator uses. So it needs the engine running first.
+
+**Prerequisites:** Python 3.11+, and an engine listening on `9090` (step 2 above, or
+`java -jar pravaha-server/target/pravaha-server-*.jar`).
+
 ```bash
-cd console && make install && make run
+cd console
+make install          # creates .venv, installs the console and the Pravaha Python SDK
+make run              # serves on :8090, talking to grpc://localhost:9090
 ```
 
-<http://127.0.0.1:8080> — what is registered, what state it is in, a live tail, and a place to ask
-questions. It is a *functional admin* console on purpose; see [its README](../console/README.md).
+Open **<http://127.0.0.1:8090>**.
+
+Ports: the console is on **8090**, the engine's Flight endpoint on **9090**, and the engine's own
+HTTP/actuator surface on **8080**. To point the console somewhere else:
+
+```bash
+.venv/bin/python -m pravaha_console --engine grpc://otherhost:9090 --port 8090 --token "$TOKEN"
+```
+
+**The engine does not have to be up.** The console starts anyway and says the engine is unreachable
+rather than failing to boot — an operator opening a console during an incident needs it to load and
+tell them what is wrong, which is exactly the moment a console that refuses to start is least
+useful. `/health` reports the same thing as JSON.
+
+### What you get
+
+| | |
+|---|---|
+| `/` | Registered queries, their state, row counts and watermark lag |
+| `/queries/{name}` | One query: its SQL, its view, what it is producing |
+| `/queries/{name}/tail` | A live tail of changes |
+| `/query` | Ask an ad-hoc question |
+| `/help` | Quick start, concepts, user guide, case studies — the `docs/` set, rendered |
+
+### What it is not
+
+It is a **functional admin console, on purpose**. Server-rendered HTML, no build step, no JavaScript
+framework, about four hundred lines. It does the operator's job and does not pretend to be the
+product surface design §23.20 describes — a full-featured UI is on the roadmap and is **not** this.
+The trade is recorded in [the console's README](../console/README.md) rather than left to be
+discovered.
 
 ## 8. Clean up
 

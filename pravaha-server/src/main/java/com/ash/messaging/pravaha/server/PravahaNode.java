@@ -90,7 +90,7 @@ public class PravahaNode implements SmartLifecycle {
             StreamCatalog streams,
             @Value("${pravaha.flight.enabled:true}") boolean flightEnabled,
             @Value("${pravaha.flight.host:0.0.0.0}") String flightHost,
-            @Value("${pravaha.flight.port:8815}") int flightPort,
+            @Value("${pravaha.flight.port:9090}") int flightPort,
             @Value("${pravaha.registry.journal:}") String journal,
             @Value("${pravaha.cluster.mode:SINGLE}") String clusterMode,
             @Value("${pravaha.cluster.mechanism:single}") String clusterMechanism,

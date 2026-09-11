@@ -35,10 +35,11 @@ by an integrator.
 ```bash
 cd console
 make install
-make run                     # or: pravaha-console --engine grpc://localhost:9090 --port 8080
+make run                     # or: pravaha-console --engine grpc://localhost:9090 --port 8090
 ```
 
-Then open <http://127.0.0.1:8080>.
+Then open <http://127.0.0.1:8090>. (Not 8080 — that is the engine's own HTTP port, and
+running both on one machine would collide.)
 
 > **Loopback by default, and that is a decision.** The console reaches a whole cluster's state and
 > has no authentication of its own. Making it reachable from elsewhere should be something somebody

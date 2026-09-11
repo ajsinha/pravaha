@@ -49,7 +49,11 @@ pravaha:
   flight:
     enabled: true
     host: 0.0.0.0
-    port: 8815
+    # 9090, because that is what the CLI, both SDKs, every case study and the console already
+    # default to. Arrow's registered port is 8815 and using it here would have been defensible in
+    # isolation -- and wrong, because a default that disagrees with every example in the repository
+    # costs each new user the same twenty minutes.
+    port: 9090
 
   registry:
     # Where registered continuous queries are written down. Unset means they live only in memory and
