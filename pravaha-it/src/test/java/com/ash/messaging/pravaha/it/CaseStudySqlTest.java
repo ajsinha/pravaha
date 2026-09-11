@@ -60,7 +60,8 @@ class CaseStudySqlTest {
             "banking-card-velocity", "card_velocity",
             "finance-counterparty-exposure", "counterparty_exposure",
             "trading-order-flow", "order_rate",
-            "biology-sequencing-qc", "coverage_qc");
+            "biology-sequencing-qc", "coverage_qc",
+            "trade-processing", "trade_feed");
 
     private static Path studies() {
         return repoRoot().resolve("examples/case-studies");
@@ -170,6 +171,9 @@ class CaseStudySqlTest {
                 if (!Files.exists(dir.resolve(required))) {
                     missing.add(study + "/" + required);
                 }
+            }
+            if (!Files.exists(dir.resolve("README.md"))) {
+                continue;
             }
             String readme = Files.readString(dir.resolve("README.md"));
             for (String referenced : referencedFiles(readme)) {

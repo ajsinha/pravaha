@@ -22,6 +22,7 @@ application code that reads it, go to [`case-studies/`](case-studies/):
 
 | Study | Domain | Store |
 |---|---|---|
+| [Trade processing](case-studies/trade-processing/) | Trading | Aerospike |
 | [Card authorisation velocity](case-studies/banking-card-velocity/) | Banking | Aerospike |
 | [Intraday counterparty exposure](case-studies/finance-counterparty-exposure/) | Finance | PostgreSQL |
 | [Order flow surveillance](case-studies/trading-order-flow/) | Trading | Aerospike |

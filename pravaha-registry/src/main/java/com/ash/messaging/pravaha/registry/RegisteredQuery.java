@@ -195,10 +195,31 @@ public final class RegisteredQuery implements AutoCloseable {
             throw new PravahaException(
                     RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state);
         }
+        return subscribe(options, SubscriptionFilter.none(), consumer);
+    }
+
+    /**
+     * Attaches a consumer that sees only the rows matching {@code filter}.
+     *
+     * <p>Applied at the tap, which costs nothing and shares everything: this computation is the same
+     * one every other subscriber is reading, however differently they filter. It is sound here
+     * because a filter may be applied at the tap exactly when the view carries the columns it names,
+     * and {@link SubscriptionFilter} refuses one that names a column this view does not have rather
+     * than ignoring it.
+     */
+    public Subscription subscribe(
+            SubscriptionOptions options,
+            SubscriptionFilter filter,
+            java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
+        if (state.isTerminal()) {
+            throw new PravahaException(
+                    RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state);
+        }
         return new Subscription(
                 anyName(),
                 view.keyOrdinals(),
                 options == null ? SubscriptionOptions.DEFAULT : options,
+                filter,
                 consumer,
                 subscription -> sink.onCommit(subscription::onCommit));
     }

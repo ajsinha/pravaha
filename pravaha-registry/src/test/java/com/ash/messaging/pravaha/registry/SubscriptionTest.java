@@ -260,6 +260,80 @@ class SubscriptionTest {
     }
 
     @Test
+    void aSubscriberSeesOnlyTheRowsItAskedFor() {
+        List<ViewChange> seen = new ArrayList<>();
+        StreamSchema schema = query.outputSchema();
+        try (Subscription subscription = query.subscribe(
+                SubscriptionOptions.DEFAULT, SubscriptionFilter.matching(schema, "user_id", "u2"), seen::addAll)) {
+            feed("u1", 10L);
+            feed("u2", 20L);
+            feed("u3", 30L);
+            query.commit();
+
+            assertThat(seen)
+                    .singleElement()
+                    .satisfies(change -> assertThat(change.values()[0]).isEqualTo("u2"));
+        }
+    }
+
+    @Test
+    void differentlyFilteredSubscribersShareOneComputation() {
+        List<ViewChange> first = new ArrayList<>();
+        List<ViewChange> second = new ArrayList<>();
+        StreamSchema schema = query.outputSchema();
+        try (Subscription a = query.subscribe(
+                        SubscriptionOptions.DEFAULT,
+                        SubscriptionFilter.matching(schema, "user_id", "u1"),
+                        first::addAll);
+                Subscription b = query.subscribe(
+                        SubscriptionOptions.DEFAULT,
+                        SubscriptionFilter.matching(schema, "user_id", "u2"),
+                        second::addAll)) {
+            feed("u1", 10L);
+            feed("u2", 20L);
+            query.commit();
+
+            // Two subscribers, two different slices, one read of the source and one copy of the
+            // state. This is the argument for separating registration from subscription.
+            assertThat(first).hasSize(1);
+            assertThat(second).hasSize(1);
+            assertThat(registry.size()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void filteredOutRowsDoNotConsumeTheSubscribersBuffer() {
+        List<ViewChange> seen = new ArrayList<>();
+        StreamSchema schema = query.outputSchema();
+        try (Subscription subscription = query.subscribe(
+                SubscriptionOptions.of(2, SubscriptionOptions.Overflow.DROP_OLDEST),
+                SubscriptionFilter.matching(schema, "user_id", "u1"),
+                seen::addAll)) {
+            feed("u1", 1L);
+            for (int i = 0; i < 50; i++) {
+                feed("other-" + i, i);
+            }
+            query.commit();
+
+            // Filtering happens before buffering. Otherwise a subscriber watching one key would
+            // have its own row pushed out by fifty rows it never asked for.
+            assertThat(seen).hasSize(1);
+            assertThat(subscription.dropped()).isZero();
+        }
+    }
+
+    @Test
+    void aFilterOnAColumnTheViewDoesNotHaveIsRefused() {
+        StreamSchema schema = query.outputSchema();
+
+        // Refused rather than ignored: a typo that is quietly dropped leaves a subscriber receiving
+        // everything while believing it asked for a slice.
+        assertThatThrownBy(() -> SubscriptionFilter.matching(schema, "prodcut_type", "SWAP"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("has no column");
+    }
+
+    @Test
     void subscribingToADroppedQueryIsRefused() {
         registry.drop("q");
 

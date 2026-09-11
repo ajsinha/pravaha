@@ -44,6 +44,7 @@ public final class Subscription implements AutoCloseable {
     private final String queryName;
     private final Consumer<List<ViewChange>> consumer;
     private final SubscriptionOptions options;
+    private final SubscriptionFilter filter;
     private final int[] keyOrdinals;
     private final AutoCloseable detach;
 
@@ -59,11 +60,13 @@ public final class Subscription implements AutoCloseable {
             String queryName,
             List<Integer> keyOrdinals,
             SubscriptionOptions options,
+            SubscriptionFilter filter,
             Consumer<List<ViewChange>> consumer,
             java.util.function.Function<Subscription, AutoCloseable> attach) {
         this.queryName = queryName;
         this.consumer = consumer;
         this.options = options;
+        this.filter = filter == null ? SubscriptionFilter.none() : filter;
         this.keyOrdinals = keyOrdinals.stream().mapToInt(Integer::intValue).toArray();
         this.detach = attach.apply(this);
     }
@@ -76,7 +79,12 @@ public final class Subscription implements AutoCloseable {
         List<ViewChange> batch;
         synchronized (buffer) {
             for (ViewChange change : changes) {
-                admit(change);
+                // Filtered before buffering, not after. A subscriber watching one product type
+                // should not have its buffer filled -- and its own rows conflated away -- by rows it
+                // never asked for.
+                if (filter.accepts(change)) {
+                    admit(change);
+                }
             }
             if (buffer.isEmpty()) {
                 return;
@@ -170,6 +178,11 @@ public final class Subscription implements AutoCloseable {
         return true;
     }
 
+    /** What this subscriber asked to see. */
+    public SubscriptionFilter filter() {
+        return filter;
+    }
+
     /** Changes handed to the consumer. */
     public long delivered() {
         return delivered.get();
@@ -210,7 +223,7 @@ public final class Subscription implements AutoCloseable {
 
     @Override
     public String toString() {
-        return "Subscription[" + queryName + ", delivered=" + delivered() + ", conflated=" + conflated() + ", dropped="
-                + dropped() + (closed.get() ? ", closed" : "") + "]";
+        return "Subscription[" + queryName + ", " + filter + ", delivered=" + delivered() + ", conflated=" + conflated()
+                + ", dropped=" + dropped() + (closed.get() ? ", closed" : "") + "]";
     }
 }
