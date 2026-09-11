@@ -105,6 +105,11 @@ public final class ViewSink {
         return () -> listeners.remove(listener);
     }
 
+    /** How many listeners are attached. */
+    public int listenerCount() {
+        return listeners.size();
+    }
+
     /** Whether anybody is listening, which is worth knowing before doing work for them. */
     public boolean hasListeners() {
         return !listeners.isEmpty();

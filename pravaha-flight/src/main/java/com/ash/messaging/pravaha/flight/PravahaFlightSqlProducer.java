@@ -16,11 +16,20 @@
 package com.ash.messaging.pravaha.flight;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
+import org.apache.arrow.flight.Action;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
@@ -37,8 +46,17 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.registry.QueryRegistry;
+import com.ash.messaging.pravaha.registry.RegisteredQuery;
+import com.ash.messaging.pravaha.registry.Subscription;
+import com.ash.messaging.pravaha.registry.SubscriptionFilter;
+import com.ash.messaging.pravaha.registry.SubscriptionOptions;
+import com.ash.messaging.pravaha.security.AccessDecision;
+import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ReadAdmission;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
@@ -73,8 +91,21 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      */
     private static final int BATCH_ROWS = 4096;
 
+    /**
+     * Committed batches that may wait for a subscriber's socket.
+     *
+     * <p>Small on purpose. This queue exists to decouple the engine's thread from the network, not
+     * to be a buffer -- {@link SubscriptionOptions} already decides how far behind a subscriber may
+     * fall, with a policy the subscriber chose. A deep queue here would silently override that
+     * choice with a different one.
+     */
+    private static final int SUBSCRIPTION_HANDOVER_BATCHES = 64;
+
     private final ViewCatalog catalog;
     private final ViewQuery queries;
+    private final SecurityPolicy policy;
+    private final AuditSink audit;
+    private QueryRegistry registry;
     private final BufferAllocator allocator;
     private final Location location;
 
@@ -99,6 +130,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             java.time.Duration readDeadline) {
         this.catalog = catalog;
         this.queries = new ViewQuery(catalog, policy, audit, admission, readDeadline);
+        this.policy = policy;
+        this.audit = audit;
         this.allocator = allocator;
         this.location = location;
     }
@@ -303,6 +336,235 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         .toRuntimeException());
             }
         };
+    }
+
+    /**
+     * Gives this producer a registry, enabling the register/list/drop actions and subscriptions.
+     *
+     * <p>Optional. A server that only serves views somebody else maintains has no registry, and its
+     * clients get a clear refusal rather than a method that silently does nothing.
+     */
+    PravahaFlightSqlProducer withRegistry(QueryRegistry registry) {
+        this.registry = registry;
+        return this;
+    }
+
+    @Override
+    public void doAction(CallContext context, Action action, StreamListener<Result> listener) {
+        // Pravaha's own actions first, Flight SQL's afterwards. Registration and subscription have
+        // no Flight SQL vocabulary -- the protocol was designed for asking questions, not for
+        // standing up computations -- and actions are the extension point it provides for exactly
+        // this, which keeps the transport one protocol rather than two.
+        String type = action.getType();
+        if (!type.startsWith("pravaha.")) {
+            super.doAction(context, action, listener);
+            return;
+        }
+        try {
+            Principal principal = principalOf(context);
+            QueryRegistry required = requireRegistry();
+            List<String> fields = PravahaWire.decode(action.getBody());
+            switch (type) {
+                case PravahaWire.REGISTER -> {
+                    if (fields.size() < 3) {
+                        throw new PravahaException(
+                                FlightErrors.BAD_HANDLE, "register needs a name, some SQL and key columns");
+                    }
+                    List<Integer> keys = new ArrayList<>();
+                    for (String ordinal : fields.get(2).split(",")) {
+                        if (!ordinal.isBlank()) {
+                            keys.add(Integer.parseInt(ordinal.strip()));
+                        }
+                    }
+                    RegisteredQuery query = required.register(fields.get(0), fields.get(1), keys, principal);
+                    listener.onNext(new Result(PravahaWire.encode(
+                            query.name(),
+                            query.state().name(),
+                            query.fingerprint().shortForm())));
+                }
+                case PravahaWire.DROP -> {
+                    required.drop(fields.get(0));
+                    listener.onNext(new Result(PravahaWire.encode(fields.get(0), "DROPPED")));
+                }
+                case PravahaWire.PAUSE -> {
+                    required.pause(fields.get(0));
+                    listener.onNext(new Result(PravahaWire.encode(fields.get(0), "PAUSED")));
+                }
+                case PravahaWire.RESUME -> {
+                    required.resume(fields.get(0));
+                    listener.onNext(new Result(PravahaWire.encode(fields.get(0), "RUNNING")));
+                }
+                case PravahaWire.LIST -> {
+                    for (String name : required.names()) {
+                        RegisteredQuery query = required.require(name);
+                        listener.onNext(new Result(PravahaWire.encode(
+                                name,
+                                query.state().name(),
+                                query.sql(),
+                                query.fingerprint().shortForm(),
+                                Long.toString(query.rowsIn()))));
+                    }
+                }
+                default ->
+                    throw new PravahaException(
+                            FlightErrors.UNSUPPORTED_REQUEST, "this server does not answer the action '" + type + "'");
+            }
+            listener.onCompleted();
+        } catch (PravahaException e) {
+            listener.onError(
+                    FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException());
+        } catch (RuntimeException e) {
+            listener.onError(CallStatus.INTERNAL
+                    .withDescription(String.valueOf(e.getMessage()))
+                    .toRuntimeException());
+        }
+    }
+
+    @Override
+    public void getStream(CallContext context, Ticket ticket, ServerStreamListener listener) {
+        // A subscription ticket is recognised by its magic rather than by trying to parse it as a
+        // Flight SQL protobuf and seeing what happens. Guessing is not telling.
+        if (PravahaWire.isOurs(ticket.getBytes())) {
+            streamSubscription(context, ticket, listener);
+            return;
+        }
+        super.getStream(context, ticket, listener);
+    }
+
+    /**
+     * Holds a stream open, writing changes as the query commits them.
+     *
+     * <p>The call does not complete until the client goes away or the query ends. Flight's cancel
+     * handler is how the server learns the client has gone -- without it a subscription would
+     * outlive its subscriber and the query would keep assembling batches for nobody.
+     */
+    private void streamSubscription(CallContext context, Ticket ticket, ServerStreamListener listener) {
+        try {
+            List<String> fields = PravahaWire.decode(ticket.getBytes());
+            if (fields.size() < 2 || !"subscribe".equals(fields.get(0))) {
+                throw new PravahaException(FlightErrors.BAD_HANDLE, "this is not a subscription ticket");
+            }
+            String viewName = fields.get(1);
+            Principal principal = principalOf(context);
+            QueryRegistry required = requireRegistry();
+            RegisteredQuery query = required.require(viewName);
+
+            AccessDecision decision = policy.mayRead(principal, viewName);
+            audit.record(AuditEvent.of(principal, "subscribe", viewName, decision, filterText(fields)));
+            if (!decision.allowed()) {
+                throw new PravahaException(
+                        SecurityErrors.FORBIDDEN,
+                        principal.id() + " may not subscribe to '" + viewName + "': " + decision.reason());
+            }
+
+            Map<String, Object> equals = new LinkedHashMap<>();
+            for (int i = 2; i + 1 < fields.size(); i += 2) {
+                equals.put(fields.get(i), fields.get(i + 1));
+            }
+            SubscriptionFilter filter = equals.isEmpty()
+                    ? SubscriptionFilter.none()
+                    : SubscriptionFilter.matching(query.outputSchema(), equals);
+
+            StreamSchema schema = query.outputSchema();
+            Schema arrow = ArrowSchemas.toArrow(schema);
+
+            // Committed batches are handed over through a queue, and every Arrow write happens on
+            // this call's own thread. Two reasons, and the second is the important one.
+            //
+            // Arrow's outbound listener is not built to be written from arbitrary threads. And more
+            // fundamentally, writing to a socket from the engine's commit thread would make the
+            // network part of the query's critical path: one subscriber on a slow link would slow
+            // the computation for everybody, which is exactly what Subscription's bounded buffer
+            // exists to prevent. The handover must not block, so it does not.
+            BlockingQueue<List<com.ash.messaging.pravaha.serving.ViewChange>> handover =
+                    new LinkedBlockingQueue<>(SUBSCRIPTION_HANDOVER_BATCHES);
+            AtomicLong droppedBatches = new AtomicLong();
+            CountDownLatch finished = new CountDownLatch(1);
+
+            try (VectorSchemaRoot root = VectorSchemaRoot.create(arrow, allocator)) {
+                System.out.println(
+                        "SRVDBG starting subscription on " + viewName + " identity=" + System.identityHashCode(query));
+                listener.start(root);
+                listener.setOnCancelHandler(finished::countDown);
+                try (Subscription subscription = query.subscribe(SubscriptionOptions.DEFAULT, filter, changes -> {
+                    // offer, never put. A full queue means this subscriber is slower than
+                    // the query, and the answer is to lose its batches rather than the
+                    // engine's pace.
+                    if (!handover.offer(changes)) {
+                        droppedBatches.incrementAndGet();
+                    }
+                })) {
+
+                    while (!listener.isCancelled()
+                            && finished.getCount() > 0
+                            && !subscription.isClosed()
+                            && !query.state().isTerminal()) {
+                        List<com.ash.messaging.pravaha.serving.ViewChange> batch =
+                                handover.poll(200, TimeUnit.MILLISECONDS);
+                        if (batch != null && !batch.isEmpty()) {
+                            System.out.println(
+                                    "SRVDBG " + System.currentTimeMillis() % 100000 + " writing " + batch.size());
+                            writeBatch(listener, root, schema, batch);
+                        }
+                    }
+                    // Whatever is still queued when the client goes is not worth sending, but it is
+                    // worth counting: a subscriber that lost batches should be able to find out.
+                    if (droppedBatches.get() > 0) {
+                        audit.record(AuditEvent.of(
+                                principal,
+                                "subscribe.dropped",
+                                viewName,
+                                decision,
+                                droppedBatches.get() + " batches dropped for a slow subscriber"));
+                    }
+                }
+            }
+            listener.completed();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            listener.error(CallStatus.CANCELLED
+                    .withDescription("subscription interrupted")
+                    .toRuntimeException());
+        } catch (PravahaException e) {
+            listener.error(
+                    FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException());
+        } catch (RuntimeException e) {
+            listener.error(CallStatus.INTERNAL
+                    .withDescription(String.valueOf(e.getMessage()))
+                    .toRuntimeException());
+        }
+    }
+
+    /** Writes one commit's changes as one Arrow batch, so a batch boundary is a commit boundary. */
+    private void writeBatch(
+            ServerStreamListener listener,
+            VectorSchemaRoot root,
+            StreamSchema schema,
+            List<com.ash.messaging.pravaha.serving.ViewChange> changes) {
+        if (listener.isCancelled()) {
+            return;
+        }
+        root.clear();
+        int index = 0;
+        for (com.ash.messaging.pravaha.serving.ViewChange change : changes) {
+            ArrowSchemas.write(root, index++, change.values(), schema);
+        }
+        root.setRowCount(index);
+        listener.putNext();
+    }
+
+    private static String filterText(List<String> fields) {
+        return fields.size() > 2 ? String.join("=", fields.subList(2, fields.size())) : "no filter";
+    }
+
+    private QueryRegistry requireRegistry() {
+        if (registry == null) {
+            throw new PravahaException(
+                    FlightErrors.UNSUPPORTED_REQUEST,
+                    "this server serves views but does not host a registry, so it cannot register, drop "
+                            + "or subscribe to queries. Start it with a QueryRegistry if it should");
+        }
+        return registry;
     }
 
     /** Plans without executing, which is how a schema is known before there are rows. */

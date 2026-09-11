@@ -230,6 +230,16 @@ public final class RegisteredQuery implements AutoCloseable {
         return subscribe(SubscriptionOptions.DEFAULT, consumer);
     }
 
+    /**
+     * How many consumers are attached.
+     *
+     * <p>Worth exposing rather than keeping private: it is what a console shows next to a query, and
+     * it is how anything waiting for a subscription to be live can know rather than guess.
+     */
+    public int subscriberCount() {
+        return sink.listenerCount();
+    }
+
     /** Publishes what has been applied so far, without claiming time has moved. */
     public void commit() {
         if (state == QueryState.RUNNING) {
@@ -245,6 +255,11 @@ public final class RegisteredQuery implements AutoCloseable {
     synchronized boolean removeName(String name) {
         names.remove(name);
         return names.isEmpty();
+    }
+
+    /** Any one of this computation's names, for a log line or a wire response. */
+    public synchronized String name() {
+        return anyName();
     }
 
     synchronized String anyName() {

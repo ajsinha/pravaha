@@ -254,7 +254,8 @@ right numbers — which is how that distinction was discovered.
 | Parameters for continuous queries | ❌ — decided in ADR-032, not built: registration has no surface yet to classify against. The rule is ADR-031's soundness rule, because a security row filter and a query parameter turn out to be the same object |
 | Query registration and lifecycle (ADR-025) | ✅ `pravaha-registry` — register, list, pause, resume, drop; sharing by fingerprint so the same question twice is one computation with two names, released on the *last* drop. The surface everything else was waiting on |
 | Subscriptions, engine side | ✅ `Subscription` on a registered query — per-commit batches, weights carried so a correction is a retraction plus an insert, bounded buffer with CONFLATE / DROP_OLDEST / FAIL. The engine is never blocked by a slow subscriber, and what is lost is counted |
-| Subscriptions over the Flight wire | ❌ — next: the engine side is done, the transport is not |
+| Subscriptions over the Flight wire | ✅ a Flight ticket that holds a stream open; commits arrive as Arrow batches, so a batch boundary is a commit boundary. Tap filters travel in the ticket |
+| Registry over the wire | ✅ Flight *actions* — `pravaha.register`, `.list`, `.pause`, `.resume`, `.drop`. Flight SQL has no vocabulary for standing up a computation, and actions are the extension it provides |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
 **`docs/SQL_SUPPORT.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
@@ -318,6 +319,33 @@ Aerospike, Cassandra and Redis remain Wave 5 and Wave 10 as planned.
   **Suspended once, deliberately, for waves 5–7** — see [`docs/gates/wave-7`](gates/wave-7/). The
   gates it would have waited for are hardware-blocked rather than code-blocked, and holding `main`
   81 commits stale was protecting nothing. The debt is recorded there, not forgiven.
+
+### Disk and state growth — what bounds what, and what does not
+
+Worth having in one place, because the obvious mental model ("state is in RocksDB") is wrong for this
+codebase today.
+
+**There is no RocksDB.** Not a dependency, not a line of code. State is L0 — an off-heap
+open-addressed hash arena — plus checkpoints written as files. The RocksDB L1 spill tier is design
+decision D5 and is unbuilt. §G7 explains why it is a *tier* and not the whole stack: JNI costs 1–3 µs
+per operation, which is 10–30 % of a 10 µs/event budget.
+
+**The primary defence against unbounded state is refusal, not cleanup.** An unwindowed keyed
+`GROUP BY` is rejected at planning (`PRV-2050`) rather than accepted and spilled, because spilling
+converts a fast failure into a slow one and a slow failure arrives in production. Windows bound state
+by construction; outer joins between streams are refused for the same reason.
+
+**What is genuinely unbounded today:**
+
+| | |
+|---|---|
+| **Checkpoint files** | `FileCheckpointStore.prune(keep)` exists and **nothing in production code calls it** — only tests do. Checkpoints accumulate indefinitely. This is the real disk-growth path right now and wants an owner |
+| Stream-to-stream join state | Bounded by a row ceiling (`MAX_JOIN_STATE_SLABS = 64`), not by time. Windowed/time-versioned joins are the fix and are not built |
+| Views from a pass-through query | Grow with the feed; nothing aggregates them away. `ServedView` takes a key ceiling and refuses, so it fails loudly, but sizing it is the operator's job — see the trade-processing case study |
+
+None of these is a surprise waiting in the dark; each fails loudly at a ceiling. But "fails loudly at a
+ceiling" is not the same as "managed", and a disk quota, a spill policy and an automatic checkpoint
+retention policy all arrive with L1.
 
 ### A string in the build output that is trying to talk to you
 
