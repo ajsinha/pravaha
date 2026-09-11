@@ -35,7 +35,29 @@ One Aerospike set. No reference table, no join.
 | `product_type` | string | `SWAP`, `EQUITY`, `FX`, `BOND` — **a filter column** |
 | `source_system` | string | `MUREX`, `CALYPSO`, `INHOUSE` — **a filter column** |
 | `trade_time` | integer | Event time, epoch nanoseconds |
+| `counterparty_id` | string | Who we traded with — **joins to `counterparty`** |
+| `book_id` | string | Which trading book — **joins to `book`** |
 | `trade_json` | string | The trade itself, as your source system emits it |
+
+### `counterparty` — reference data
+
+Slow-moving. One record per legal entity you trade with.
+
+| Bin | Type | Meaning |
+|---|---|---|
+| `counterparty_id` | string | Primary key |
+| `legal_name` | string | For screens and reports |
+| `country` | string | ISO country of incorporation |
+| `lei` | string | Legal Entity Identifier |
+
+### `book` — reference data
+
+| Bin | Type | Meaning |
+|---|---|---|
+| `book_id` | string | Primary key |
+| `desk` | string | `RATES`, `EQUITIES`, `FX` |
+| `region` | string | `EMEA`, `AMER`, `APAC` |
+| `cost_centre` | string | For allocation |
 
 > **Promote what you filter on; keep the rest as JSON.** `trade_json` is an opaque string to the
 > engine — there are no JSON functions, so you cannot filter on a field inside it. That is the single
@@ -121,6 +143,24 @@ INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_syste
 Event 4 amends trade `T-1001`. Both events are in the feed, which is the point of keying on the
 event.
 
+And the reference data the enriched feed joins to:
+
+```sql
+INSERT INTO test.counterparty (PK, counterparty_id, legal_name, country, lei)
+  VALUES ('cp-1', 'cp-1', 'ACME Clearing Ltd',    'GB', '213800AAAAAAAAAAAA01');
+INSERT INTO test.counterparty (PK, counterparty_id, legal_name, country, lei)
+  VALUES ('cp-2', 'cp-2', 'Borealis Bank NV',     'NL', '213800BBBBBBBBBBBB02');
+INSERT INTO test.counterparty (PK, counterparty_id, legal_name, country, lei)
+  VALUES ('cp-3', 'cp-3', 'Cygnus Securities SA', 'FR', '213800CCCCCCCCCCCC03');
+
+INSERT INTO test.book (PK, book_id, desk, region, cost_centre)
+  VALUES ('bk-1', 'bk-1', 'RATES',    'EMEA', 'CC-1100');
+INSERT INTO test.book (PK, book_id, desk, region, cost_centre)
+  VALUES ('bk-2', 'bk-2', 'EQUITIES', 'EMEA', 'CC-1200');
+INSERT INTO test.book (PK, book_id, desk, region, cost_centre)
+  VALUES ('bk-3', 'bk-3', 'FX',       'APAC', 'CC-1300');
+```
+
 For a continuous flow:
 
 ```bash
@@ -130,6 +170,58 @@ python3 data/generate_trades.py --seconds 120 --rate 5 | docker exec -i pravaha-
 > **No window here, so nothing is waiting on a watermark.** Unlike the other case studies, rows
 > appear as soon as they are committed. That is the other side of having no aggregation: nothing has
 > to wait to be sure it is complete.
+
+## Step 3b — the same feed, enriched
+
+A trade id and a book id are not what a person reads. The desk wants the desk name; a regulatory
+report wants the counterparty's legal name and country. Both live in reference tables, and joining
+them is a second registration over the same stream — from
+[`sql/05-continuous-enriched-trades.sql`](sql/05-continuous-enriched-trades.sql):
+
+```sql
+SELECT STREAM
+  t.trade_event_id,
+  t.trade_id,
+  t.product_type,
+  t.source_system,
+  c.legal_name,
+  c.country,
+  b.desk,
+  b.region,
+  t.trade_time,
+  t.trade_json
+FROM trade AS t
+LEFT JOIN counterparty FOR SYSTEM_TIME AS OF t.trade_time AS c
+       ON t.counterparty_id = c.counterparty_id
+LEFT JOIN book FOR SYSTEM_TIME AS OF t.trade_time AS b
+       ON t.book_id = b.book_id
+```
+
+Two lookups, chained. Each trade is enriched from both tables as it passes; nothing is buffered and
+no window is needed, because a lookup join asks a question of a table rather than waiting for a
+matching event to arrive.
+
+Three things worth understanding before you copy this:
+
+- **`LEFT`, not inner, and it matters here more than anywhere.** Reference data arrives late — a new
+  counterparty is often onboarded after its first trade. An inner join would make that trade
+  *disappear from the feed entirely*, and the trade nobody can find is the one the regulator asks
+  about. With `LEFT`, the trade flows through with `legal_name` and `country` null, which is
+  visible, alarming and correct.
+- **`FOR SYSTEM_TIME AS OF t.trade_time`** on both joins. The name and desk attached are the ones
+  that were true when the trade happened, not when you looked. Re-run today's feed tomorrow and you
+  get today's answer. A cached join would have rewritten history the moment somebody renamed a book.
+- **It is a second registration, not a replacement.** `trade_feed` and `enriched_trade` are separate
+  computations with separate state, because their plans differ. Consumers that only need the raw feed
+  should stay on `trade_feed` and not pay for lookups they do not use.
+
+```java
+RegisteredQuery enriched = registry.register(
+        "enriched_trade",
+        Files.readString(Path.of("sql/05-continuous-enriched-trades.sql")),
+        List.of(0),
+        principal);
+```
 
 ## Step 4 — stream, with your own filter
 
@@ -168,6 +260,29 @@ SubscriptionFilter.matching(feed.outputSchema(), "prodcut_type", "SWAP");
 That refusal matters more than it looks. A typo that was quietly dropped would leave a desk receiving
 **every** trade while believing it had asked for a slice — and nothing about the data would look
 wrong.
+
+### Filtering on a column that came from a join
+
+The enriched feed aggregates nothing either, so **every joined column survives into the view and is
+therefore filterable at the tap**. The EMEA rates desk can ask for its own trades without anyone
+writing a query for it:
+
+```java
+SubscriptionFilter emeaRates = SubscriptionFilter.matching(
+        enriched.outputSchema(), Map.of("desk", "RATES", "region", "EMEA"));
+
+try (Subscription desk = enriched.subscribe(SubscriptionOptions.DEFAULT, emeaRates, this::onTrade)) {
+    // ...
+}
+```
+
+`desk` and `region` are not in the trade record at all — they arrived from `book`. That they are
+filterable is a consequence of the join being a *projection* rather than an aggregation: nothing was
+collapsed, so nothing was lost.
+
+Change the enriched query to count trades per desk per minute and this stops being true for any
+column the `GROUP BY` drops. The rule does not change; what changes is whether the view still carries
+the column.
 
 ### Overflow
 
@@ -252,6 +367,49 @@ events = list(client.query(open("sql/04-read-one-trade.sql").read(), ["T-1001"])
 # two rows: the original and the amendment
 ```
 
+### Everything a desk did
+
+[`sql/06-read-enriched-by-desk.sql`](sql/06-read-enriched-by-desk.sql):
+
+```sql
+SELECT trade_id, product_type, legal_name, country, desk, trade_json
+FROM enriched_trade
+WHERE desk = ?
+```
+
+```python
+for row in client.query(open("sql/06-read-enriched-by-desk.sql").read(), ["RATES"]):
+    print(row["trade_id"], row["legal_name"], row["country"])
+```
+
+### A regulatory slice — one country, one product
+
+[`sql/07-read-enriched-by-country-and-product.sql`](sql/07-read-enriched-by-country-and-product.sql):
+
+```sql
+SELECT trade_id, legal_name, country, desk, region, trade_json
+FROM enriched_trade
+WHERE country = ? AND product_type = ?
+```
+
+```java
+try (QueryResult result = client.query(sql, "GB", "SWAP")) {
+    for (Row row : result) {
+        System.out.println(row.getString("legal_name") + " " + row.getString("trade_id"));
+    }
+}
+```
+
+### Where the volume is
+
+[`sql/08-read-desk-totals.sql`](sql/08-read-desk-totals.sql):
+
+```sql
+SELECT region, desk, product_type, COUNT(*) AS trades
+FROM enriched_trade
+GROUP BY region, desk, product_type
+```
+
 ### What is arriving, and from where
 
 [`sql/03-read-counts-by-product.sql`](sql/03-read-counts-by-product.sql):
@@ -273,6 +431,7 @@ view scans a finite set of rows and stops.
 | Only booked trades | Add `WHERE t.status = 'BOOKED'` — it gets pushed into Aerospike |
 | Per-desk feeds | One registration, one `SubscriptionFilter` per desk. Not one query per desk |
 | Counts per minute rather than totals | Add a `TUMBLE` window — and note that filters on columns it groups away stop being tap-applicable |
+| Another reference table | A third `LEFT JOIN … FOR SYSTEM_TIME AS OF`. They chain |
 | A different store | Change the plugin configuration. The SQL does not move |
 
 ## Limits you will meet
@@ -287,4 +446,10 @@ Full list: [`docs/SQL_SUPPORT.md`](../../../docs/SQL_SUPPORT.md).
   narrowed by a `WHERE`.
 - **The view grows with the feed.** Nothing aggregates, so nothing is released until the registration
   is dropped. Size the key ceiling for a day and drop at end of day.
+- **Only lookup joins and inner equi-joins.** `LEFT JOIN … FOR SYSTEM_TIME AS OF` is a lookup and is
+  what both joins here are. A `LEFT JOIN` between two *streams* is refused, because an unmatched row
+  would have to be held forever in case its partner turned up. So is a self-join.
+- **A lookup join costs a lookup per trade per table**, cached by the plugin. Two joins is two
+  caches. If a reference table is small and static, that is nothing; if it is large and changing, it
+  is the thing to measure first.
 - **No `CASE`**, no `LIKE`, no scalar functions in a projection.

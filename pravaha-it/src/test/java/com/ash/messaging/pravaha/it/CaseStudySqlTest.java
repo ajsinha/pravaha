@@ -55,13 +55,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class CaseStudySqlTest {
 
-    /** Each study, and the view its continuous query maintains. */
-    private static final Map<String, String> STUDY_VIEWS = Map.of(
-            "banking-card-velocity", "card_velocity",
-            "finance-counterparty-exposure", "counterparty_exposure",
-            "trading-order-flow", "order_rate",
-            "biology-sequencing-qc", "coverage_qc",
-            "trade-processing", "trade_feed");
+    /**
+     * The studies. Which views each maintains is declared in its {@code schema/views.properties},
+     * not listed here -- a study with two continuous queries (and two of them have) would otherwise
+     * have one of its views silently unchecked, which is how the trading study's cancel_rate went
+     * unverified until a study needed the same thing.
+     */
+    private static final List<String> STUDIES = List.of(
+            "banking-card-velocity",
+            "finance-counterparty-exposure",
+            "trading-order-flow",
+            "biology-sequencing-qc",
+            "trade-processing");
 
     private static Path studies() {
         return repoRoot().resolve("examples/case-studies");
@@ -77,18 +82,51 @@ class CaseStudySqlTest {
     }
 
     @Test
-    void everyCaseStudyDeclaresItsStreams() throws IOException {
-        for (String study : STUDY_VIEWS.keySet()) {
+    void everyCaseStudyDeclaresItsStreamsAndViews() throws IOException {
+        for (String study : STUDIES) {
             assertThat(studies().resolve(study).resolve("schema/streams.properties"))
                     .as("%s must declare its data model in a form the build can check", study)
                     .exists();
+            assertThat(studies().resolve(study).resolve("schema/views.properties"))
+                    .as("%s must say which continuous query maintains which view", study)
+                    .exists();
+            assertThat(viewsOf(study)).as("%s declares no views", study).isNotEmpty();
         }
+    }
+
+    /** view name to the continuous SQL file that maintains it. */
+    private static Map<String, String> viewsOf(String study) throws IOException {
+        Properties properties = new Properties();
+        try (var in = Files.newInputStream(studies().resolve(study).resolve("schema/views.properties"))) {
+            properties.load(in);
+        }
+        Map<String, String> views = new LinkedHashMap<>();
+        for (String key : properties.stringPropertyNames()) {
+            if (key.startsWith("view.") && key.indexOf('.', 5) < 0) {
+                views.put(key.substring(5), properties.getProperty(key).strip());
+            }
+        }
+        return views;
+    }
+
+    /** A catalog holding every view a study declares, as a deployment would have. */
+    private static ViewCatalog catalogOf(String study) throws IOException {
+        Schemas schemas = schemasOf(study);
+        ViewCatalog catalog = new ViewCatalog();
+        for (Map.Entry<String, String> view : viewsOf(study).entrySet()) {
+            PhysicalOperator plan = new PhysicalPlanBuilder()
+                    .build(SqlPlanner.withLookups(schemas.source(), schemas.lookups())
+                            .plan(read(studies().resolve(study).resolve("sql").resolve(view.getValue()))));
+            catalog.register(
+                    new ServedView(view.getKey(), rename(plan.outputSchema(), view.getKey()), List.of(0), 1_000));
+        }
+        return catalog;
     }
 
     @Test
     void everyContinuousQueryPlans() throws IOException {
         List<String> failures = new ArrayList<>();
-        for (String study : STUDY_VIEWS.keySet()) {
+        for (String study : STUDIES) {
             Schemas schemas = schemasOf(study);
             for (Path sql : sqlFiles(study, "continuous")) {
                 try {
@@ -107,23 +145,12 @@ class CaseStudySqlTest {
     }
 
     @Test
-    void everyReadQueryRunsAgainstTheViewItsStudyProduces() throws IOException {
+    void everyReadQueryRunsAgainstTheViewsItsStudyProduces() throws IOException {
         List<String> failures = new ArrayList<>();
-        for (Map.Entry<String, String> entry : STUDY_VIEWS.entrySet()) {
-            String study = entry.getKey();
-            Schemas schemas = schemasOf(study);
-
-            // The view a read query sees is the output of that study's continuous query, presented
-            // under the study's view name -- so these are planned against exactly what a deployment
-            // would have, not against an approximation written for the test.
-            PhysicalOperator continuous = new PhysicalPlanBuilder()
-                    .build(SqlPlanner.withLookups(schemas.source(), schemas.lookups())
-                            .plan(read(sqlFiles(study, "continuous").get(0))));
-            StreamSchema viewSchema = rename(continuous.outputSchema(), entry.getValue());
-            ViewCatalog catalog =
-                    new ViewCatalog().register(new ServedView(entry.getValue(), viewSchema, List.of(1), 1_000));
-            ViewQuery queries = new ViewQuery(catalog);
-
+        for (String study : STUDIES) {
+            // Every view the study declares, registered together -- so a read query may name any of
+            // them, exactly as it could in a deployment where all of them are running.
+            ViewQuery queries = new ViewQuery(catalogOf(study));
             for (Path sql : sqlFiles(study, "read")) {
                 try {
                     queries.prepare(read(sql), com.ash.messaging.pravaha.security.Principal.ANONYMOUS);
@@ -133,14 +160,14 @@ class CaseStudySqlTest {
             }
         }
         assertThat(failures)
-                .as("read queries in the case studies must plan against their own view")
+                .as("read queries must plan against the views their study produces")
                 .isEmpty();
     }
 
     @Test
     void everyReadmeContainsTheSqlItDocuments() throws IOException {
         List<String> failures = new ArrayList<>();
-        for (String study : STUDY_VIEWS.keySet()) {
+        for (String study : STUDIES) {
             Path readme = studies().resolve(study).resolve("README.md");
             if (!Files.exists(readme)) {
                 failures.add(study + ": no README.md");
@@ -163,7 +190,7 @@ class CaseStudySqlTest {
     @Test
     void everyCaseStudyShipsWhatItsReadmePromises() throws IOException {
         List<String> missing = new ArrayList<>();
-        for (String study : STUDY_VIEWS.keySet()) {
+        for (String study : STUDIES) {
             Path dir = studies().resolve(study);
             // A README that references a generator or an example nobody shipped wastes the reader's
             // time at exactly the point they had decided to try it.
@@ -204,20 +231,16 @@ class CaseStudySqlTest {
 
     @Test
     void everyParameterisedReadDeclaresItsParameters() throws IOException {
-        for (Map.Entry<String, String> entry : STUDY_VIEWS.entrySet()) {
-            Schemas schemas = schemasOf(entry.getKey());
-            PhysicalOperator continuous = new PhysicalPlanBuilder()
-                    .build(SqlPlanner.withLookups(schemas.source(), schemas.lookups())
-                            .plan(read(sqlFiles(entry.getKey(), "continuous").get(0))));
-            StreamSchema viewSchema = rename(continuous.outputSchema(), entry.getValue());
-
-            for (Path sql : sqlFiles(entry.getKey(), "read")) {
+        for (String study : STUDIES) {
+            ViewCatalog catalog = catalogOf(study);
+            StreamSchema[] viewSchemas = catalog.schemas().values().toArray(new StreamSchema[0]);
+            for (Path sql : sqlFiles(study, "read")) {
                 String body = read(sql);
                 if (!body.contains("?")) {
                     continue;
                 }
                 ParameterMetadata parameters =
-                        ParameterMetadata.of(SqlPlanner.withStreams(viewSchema).plan(body));
+                        ParameterMetadata.of(SqlPlanner.withStreams(viewSchemas).plan(body));
                 // A placeholder the engine cannot bind would be found by a reader, at runtime, in
                 // their own application.
                 assertThat(parameters.count())

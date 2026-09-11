@@ -18,6 +18,10 @@ NANOS = 1_000_000_000
 START_NANOS = 1767225600 * NANOS
 
 PRODUCTS = ["SWAP", "EQUITY", "FX", "BOND"]
+COUNTERPARTIES = ["cp-1", "cp-2", "cp-3"]
+# One book per desk, and a fourth id with no matching book record -- so the LEFT join has
+# something to leave null and you can see that such a trade still reaches the feed.
+BOOKS = ["bk-1", "bk-2", "bk-3", "bk-unknown"]
 SOURCES = ["MUREX", "CALYPSO", "INHOUSE"]
 CURRENCIES = ["GBP", "USD", "EUR", "JPY"]
 SYMBOLS = ["VOD.L", "AAPL", "BP.L", "MSFT"]
@@ -53,11 +57,14 @@ def main() -> None:
         source = random.choice(SOURCES)
         trade_number += 1
         trade_id = f"T-{1000 + trade_number}"
+        counterparty = random.choice(COUNTERPARTIES)
+        book = random.choice(BOOKS)
         event_id += 1
         print(
             "INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, "
-            f"trade_time, trade_json) VALUES ({event_id}, {event_id}, '{trade_id}', '{product}', "
-            f"'{source}', {START_NANOS + offset}, '{payload(product)}');"
+            "trade_time, counterparty_id, book_id, trade_json) VALUES "
+            f"({event_id}, {event_id}, '{trade_id}', '{product}', '{source}', {START_NANOS + offset}, "
+            f"'{counterparty}', '{book}', '{payload(product)}');"
         )
         if random.random() < args.amend_ratio:
             # An amendment is a new event for the same trade. Keying the view on trade_id would
@@ -65,8 +72,9 @@ def main() -> None:
             event_id += 1
             print(
                 "INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, "
-                f"trade_time, trade_json) VALUES ({event_id}, {event_id}, '{trade_id}', '{product}', "
-                f"'{source}', {START_NANOS + offset + 500_000_000}, '{payload(product)}');"
+                "trade_time, counterparty_id, book_id, trade_json) VALUES "
+                f"({event_id}, {event_id}, '{trade_id}', '{product}', '{source}', "
+                f"{START_NANOS + offset + 500_000_000}, '{counterparty}', '{book}', '{payload(product)}');"
             )
 
 
