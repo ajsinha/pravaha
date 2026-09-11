@@ -143,7 +143,7 @@ class JavaSdkRegistryTest {
     void droppingAnUnknownQueryIsRefused() {
         assertThatThrownBy(() -> client.drop("never-registered"))
                 .isInstanceOf(PravahaClientException.class)
-                .hasMessageContaining("PRV-5002");
+                .hasMessageContaining("PRV-8002");
     }
 
     @Test

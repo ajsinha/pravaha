@@ -150,7 +150,7 @@ class QueryRegistryTest {
 
         assertThatThrownBy(() -> registry.register("a", "SELECT amount FROM txn", List.of(0), DANA))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-5001");
+                .hasMessageContaining("PRV-8001");
     }
 
     @Test
@@ -180,8 +180,8 @@ class QueryRegistryTest {
         RegisteredQuery query = registry.require("q");
         registry.drop("q");
 
-        assertThatThrownBy(query::pause).isInstanceOf(PravahaException.class).hasMessageContaining("PRV-5003");
-        assertThatThrownBy(query::resume).isInstanceOf(PravahaException.class).hasMessageContaining("PRV-5003");
+        assertThatThrownBy(query::pause).isInstanceOf(PravahaException.class).hasMessageContaining("PRV-8003");
+        assertThatThrownBy(query::resume).isInstanceOf(PravahaException.class).hasMessageContaining("PRV-8003");
     }
 
     @Test
@@ -190,7 +190,7 @@ class QueryRegistryTest {
 
         assertThatThrownBy(() -> registry.require("nope"))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-5002")
+                .hasMessageContaining("PRV-8002")
                 .hasMessageContaining("q");
     }
 

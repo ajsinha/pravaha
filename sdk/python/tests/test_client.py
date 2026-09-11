@@ -274,7 +274,7 @@ def test_dropping_an_unknown_query_is_refused(client):
     with pytest.raises(QueryError) as refused:
         client.drop("py_never_registered")
 
-    assert "PRV-5002" in str(refused.value)
+    assert "PRV-8002" in str(refused.value)
 
 
 def test_registering_a_query_over_an_unknown_stream_is_refused(client):

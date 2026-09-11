@@ -29,8 +29,14 @@ public final class FlightErrors {
     /** A Flight SQL request this server does not implement. */
     public static final ErrorCode UNSUPPORTED_REQUEST = new ErrorCode(6101, "FLIGHT_UNSUPPORTED_REQUEST");
 
-    /** A prepared-statement handle this server cannot read. */
-    public static final ErrorCode BAD_HANDLE = new ErrorCode(6102, "FLIGHT_BAD_HANDLE");
+    /**
+     * A prepared-statement handle or control request this server cannot read.
+     *
+     * <p>Aliased to {@link ControlWire#BAD_REQUEST} rather than declared again. Both ends of the
+     * wire need this code and it was briefly defined in two places with the same number -- which is
+     * harmless right up until somebody changes one of them.
+     */
+    public static final ErrorCode BAD_HANDLE = ControlWire.BAD_REQUEST;
 
     /** More bound parameter bytes than a handle should carry. */
     public static final ErrorCode PARAMETERS_TOO_LARGE = new ErrorCode(6103, "FLIGHT_PARAMETERS_TOO_LARGE");

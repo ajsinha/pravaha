@@ -284,7 +284,7 @@ class FlightRegistryTest {
                     }
                 })
                 .isInstanceOf(FlightRuntimeException.class)
-                .hasMessageContaining("PRV-5002");
+                .hasMessageContaining("PRV-8002");
     }
 
     @Test

@@ -59,6 +59,21 @@ pravaha-console --engine grpc://pravaha:9090 --token "$PRAVAHA_TOKEN"
 | `/queries/{name}` | The SQL, the fingerprint, pause/resume, and a **live tail** of the view |
 | `/query` | Ask a question, with bound parameters |
 | `/health` | Whether the engine is reachable. Returns 200 even when it is not — see below |
+| `/help` | The project's guides, rendered in the console |
+| `/help/{page}` | One guide — quickstart, concepts, SQL support, troubleshooting, operations, security |
+
+**Help is in the console, not somewhere else.** Every page carries contextual cards — three short
+answers to the questions that page provokes — and each links into the full guide, rendered here. An
+operator reading a console is already where the question arose; sending them to a wiki or a search
+engine loses the thread and usually loses the question.
+
+The guides are rendered from the repository's own `docs/` rather than copied. A copy would drift, and
+the point of the build checking those files is that they can be trusted. A stale copy in a console
+would quietly undo that.
+
+Only an allow-list of pages is served. That is the security control rather than path arithmetic: a
+console that accepted a name and joined it to a directory would serve `../../etc/passwd` to anybody
+who asked, and normalising afterwards is never as reliable as not accepting the name.
 
 Two things it surfaces that nothing else does:
 
@@ -103,6 +118,8 @@ Stated so you do not find them in a demo:
 - **No authentication of its own.** It passes a token through to the engine; it does not have users.
   Put it behind something.
 - **One engine per process.** No cluster view, because there is no cluster yet (Wave 8).
+- **The help is the shipped documentation, not a tutorial.** It renders the guides; it does not
+  teach interactively.
 - **No EXPLAIN, no metrics charts, no time-travel.** `pravaha explain` covers the first; the rest
   arrive with Waves 9–10, and the debugger is planned as a CLI (`pravaha replay`) for the same
   staffing reason this console is plain.

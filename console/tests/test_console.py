@@ -167,3 +167,56 @@ def test_a_bad_query_shows_the_error_rather_than_a_stack_trace(client):
 
     assert "PRV-" in response.text
     assert "Traceback" not in response.text
+
+
+# --- Help and documentation in the UI -------------------------------------------------------
+
+def test_the_help_index_lists_the_guides(client):
+    page = client.get("/help").text
+
+    assert "Quickstart" in page
+    assert "Concepts" in page
+    assert "Troubleshooting" in page
+
+
+def test_a_guide_renders_from_the_repositorys_own_documentation(client):
+    page = client.get("/help/CONCEPTS.md").text
+
+    # Rendered, not linked away to: an operator reading a console is already where the
+    # question arose, and sending them elsewhere loses the thread.
+    assert "soundness rule" in page
+    assert "<table>" in page          # its tables survive
+    assert "<pre>" in page            # its code blocks survive
+
+
+def test_a_guide_links_to_other_guides_inside_the_console(client):
+    page = client.get("/help/QUICKSTART.md").text
+
+    # Cross-references stay in the console rather than pointing at files on disk.
+    assert "/help/CONCEPTS.md" in page
+
+
+def test_an_unknown_help_page_is_refused_rather_than_read_from_disk(client):
+    # The allow-list is the control. A console that joined a name to a directory would serve
+    # whatever was asked for, and normalising afterwards is never as reliable as not accepting
+    # the name at all.
+    for attempt in ["../../../etc/passwd", "..%2f..%2fetc%2fpasswd", "HANDOVER.md"]:
+        response = client.get(f"/help/{attempt}")
+        assert "no such page" in response.text or response.status_code == 404
+
+
+def test_every_page_offers_contextual_help(client):
+    client.post("/queries", data={"name": "helpful", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        for path in ["/", "/queries/helpful", "/query"]:
+            page = client.get(path).text
+            assert "helpcards" in page, f"{path} has no help card"
+            # Each card points at the document that says the rest.
+            assert "read more" in page
+    finally:
+        client.post("/queries/helpful/drop")
+
+
+def test_help_is_reachable_from_every_page(client):
+    for path in ["/", "/query", "/help"]:
+        assert "/help" in client.get(path).text

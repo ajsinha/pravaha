@@ -1,0 +1,233 @@
+# Troubleshooting
+
+Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
+**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+
+Every failure in Pravaha carries a `PRV-nnnn` code. The code is the stable part — the message may
+improve, the code does not change — so it is what belongs in a runbook, a log filter or a support
+ticket.
+
+**Read the message first.** Pravaha's errors are written to say what to do, not just what happened.
+This page is for when the message was not enough, or when you are searching for a code you found in
+a log.
+
+## The ranges
+
+| | |
+|---|---|
+| `PRV-1xxx` | Configuration |
+| `PRV-2xxx` | SQL — parsing, planning, what the engine will and will not run |
+| `PRV-3xxx` | Runtime and code generation |
+| `PRV-4xxx` | State, backfill and serving |
+| `PRV-5xxx` | Plugins |
+| `PRV-6xxx` | The Flight gateway |
+| `PRV-7xxx` | Security |
+| `PRV-8xxx` | The query registry |
+
+Codes are unique across the whole system and enforced by a test — `ErrorCodeUniquenessTest` fails the
+build if two failures ever answer to one number, which happened once and is how this section exists.
+
+---
+
+## The five you will actually meet
+
+### `PRV-2050` — "this GROUP BY has no bound on its key space"
+
+**The most common refusal, and it is the engine working.** `GROUP BY user_id` with no window keeps
+one accumulator per user *forever*. It does not fail on the day you deploy it; it fails months later,
+and the query looked innocent in the review that approved it.
+
+Add a window:
+
+```sql
+SELECT window_start, window_end, user_id, COUNT(*)
+FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' MINUTE))
+GROUP BY window_start, window_end, user_id
+```
+
+**Over a view it is allowed**, because a read of a view scans a finite set of rows and stops. The
+same SQL is refused against a stream and answered against a view; the difference is the input, not
+the query.
+
+### `PRV-2020` / `PRV-2021` — "not supported yet"
+
+A relational operator (`2020`) or an expression (`2021`) the engine will not run: `ORDER BY`, `LIMIT`,
+`UNION`, an outer join between streams, `CASE`, `LIKE`, a scalar function in a projection.
+
+The complete list, with what to do instead, is [`SQL_SUPPORT.md`](SQL_SUPPORT.md) — and it is checked
+by a test, so it is true rather than aspirational.
+
+### `PRV-4023` — "is not a registered view"
+
+The message names the views the server does serve. Usually one of: the registration was dropped, the
+name is misspelled, or you are pointed at a different server than you think.
+
+```bash
+pravaha queries --url grpc://localhost:9090
+```
+
+### `PRV-7001` vs `PRV-7002` — told apart deliberately
+
+| | | Your move |
+|---|---|---|
+| `PRV-7001` | Not authenticated | Present a credential, or a fresh one |
+| `PRV-7002` | Authenticated, not authorized | Ask for access — a new credential will not help |
+
+`7001`'s message says only that the credential was not accepted, never *why*: "expired" versus
+"unknown" versus "wrong signature" is three bits of an oracle for whoever is working through guesses.
+
+### `PRV-4026` / `PRV-4027` / `PRV-4028` — the node is busy
+
+Admission control, and the three are separate because the fix differs:
+
+| | | |
+|---|---|---|
+| `4026` | Full now, queue full, never waited | Retry with backoff |
+| `4027` | Waited its turn and gave up | The node is saturated for longer than your patience |
+| `4028` | Your tenant is over its share | Capacity may still be free — this protects the other tenants |
+
+All three arrive at a client as `RESOURCE_EXHAUSTED`, so a driver retries them and does not treat
+them as a malformed query.
+
+---
+
+## "Nothing is happening"
+
+By far the most common report, and usually not a fault.
+
+**Is it waiting on a watermark?** A window closes when data says the window is over, not when the
+clock does. Ten rows in, nothing out, is correct if nothing has yet told the engine that the window
+is complete. Send an event past the window's end.
+
+**Is the subscription attached?** A subscription starts from *now*, not from the beginning of time. A
+change committed before the subscriber attached was published to nobody. The console shows subscriber
+counts; `RegisteredQuery.subscriberCount()` is the same number in code.
+
+**Is the query paused?** A paused query keeps answering at the frontier it reached and stops
+advancing. Rows arriving while paused are dropped rather than buffered — a pause is meant to stop it
+doing work.
+
+```bash
+pravaha queries        # state column
+```
+
+**Did a filter silently match nothing?** `WHERE tier = ?` bound to `NULL` matches **no rows**, because
+`x = NULL` is UNKNOWN under SQL's three-valued logic. `IS NULL` is what finds the empty ones.
+
+## "The numbers are wrong"
+
+**Is it `AVG` over an integer?** SQL's `AVG` on an integer column is integer division: a mean depth of
+47.9 reads as `47`. Take `SUM` and `COUNT` and divide where you have floating point.
+
+**Are you ignoring weights?** A subscriber maintaining its own aggregate must apply the `-1`/`+1`
+weights, or it drifts from the view the first time late data corrects a window.
+
+**Did rows age out?** A view has a retention window — a day by default. `evicted()` counts what has
+been forgotten, and a window shorter than the questions being asked of it is exactly what that
+counter exists to reveal.
+
+**Are you summing across currencies?** Not an engine problem, but the one that gets shipped. The
+schema is where you stop yourself.
+
+## "It ran out of memory" / "the disk filled"
+
+| | |
+|---|---|
+| `PRV-4022` view too large | Retention is applied *before* this check, so hitting it means either the view keeps everything and should not, or the window genuinely holds more rows than the ceiling. The message says which |
+| `PRV-4001` state too large | An operator's state passed its ceiling |
+| `PRV-3001` arena exhausted | Off-heap arena full — usually a batch far larger than expected |
+| Disk growing | **Checkpoint files.** `FileCheckpointStore.prune(keep)` exists and nothing calls it automatically. This is the known disk-growth path; see [`OPERATIONS.md`](OPERATIONS.md) |
+
+## Connection problems
+
+**Aerospike connects and then hangs.** Run the container with `--network host`. A containerised node
+reports its *bridge* address to clients, so the client connects to the seed and is then redirected
+somewhere it cannot reach. The symptom is a hang rather than an error, which is why it costs people
+an afternoon. Port 3000 must be free.
+
+**`RST_STREAM ... CANCEL` from a Flight client, with nothing explaining why.** Almost always the JVM
+missing `--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED`.
+Arrow fails *inside the server* and cancels the stream; the client sees only the cancellation. On
+Java 24+ add `--sun-misc-unsafe-memory-access=allow` — it is **not** valid on 21 and the JVM refuses
+to start.
+
+**A client closed and the server still holds a subscription.** Fixed, but if you see it: the server
+learns nobody is listening from a *cancellation*, not from a dropped transport. The SDK cancels what
+it opened when you close it; a hand-rolled client must do the same.
+
+---
+
+## Every code
+
+| Code | Name | Range |
+|---|---|---|
+| `PRV-1001` | CONFIG_FILE_UNREADABLE | config |
+| `PRV-1002` | CONFIG_FILE_MALFORMED | config |
+| `PRV-1010` | CONFIG_UNRESOLVED_REFERENCE | config |
+| `PRV-1011` | CONFIG_CIRCULAR_REFERENCE | config |
+| `PRV-1020` | CONFIG_MISSING_REQUIRED | config |
+| `PRV-1021` | CONFIG_NOT_A_NUMBER | config |
+| `PRV-1022` | CONFIG_NOT_A_BOOLEAN | config |
+| `PRV-1023` | CONFIG_NOT_A_DURATION | config |
+| `PRV-1024` | CONFIG_NOT_A_DATA_SIZE | config |
+| `PRV-1025` | CONFIG_NOT_AN_ENUM | config |
+| `PRV-1026` | CONFIG_OUT_OF_RANGE | config |
+| `PRV-2001` | SQL_PARSE_FAILED | sql |
+| `PRV-2002` | SQL_VALIDATION_FAILED | sql |
+| `PRV-2003` | SQL_UNKNOWN_STREAM | sql |
+| `PRV-2010` | SQL_PLANNING_FAILED | sql |
+| `PRV-2020` | SQL_UNSUPPORTED_OPERATOR | sql |
+| `PRV-2021` | SQL_UNSUPPORTED_EXPRESSION | sql |
+| `PRV-2041` | SQL_EMIT_MODE_MISMATCH | sql |
+| `PRV-2050` | SQL_UNBOUNDED_STATE | sql |
+| `PRV-2060` | SQL_PARAMETER_NOT_BOUND | sql |
+| `PRV-2061` | SQL_PARAMETER_ARITY | sql |
+| `PRV-2062` | SQL_PARAMETER_TYPE | sql |
+| `PRV-2063` | SQL_PARAMETER_NOT_A_VALUE | sql |
+| `PRV-3001` | RUNTIME_ARENA_EXHAUSTED | runtime |
+| `PRV-3002` | RUNTIME_BACKPRESSURED | runtime |
+| `PRV-3010` | RUNTIME_LANE_FAILED | runtime |
+| `PRV-3020` | RUNTIME_UNSUPPORTED_AGGREGATE | runtime |
+| `PRV-3021` | RUNTIME_UNSUPPORTED_JOIN | runtime |
+| `PRV-3100` | CODEGEN_COMPILATION_FAILED | runtime |
+| `PRV-3101` | CODEGEN_UNSUPPORTED_OPERATOR | runtime |
+| `PRV-3102` | CODEGEN_STAGE_TOO_LARGE | runtime |
+| `PRV-4001` | STATE_TOO_LARGE | state/serving |
+| `PRV-4002` | STATE_UNREADABLE | state/serving |
+| `PRV-4010` | BACKFILL_BUFFER_FULL | state/serving |
+| `PRV-4011` | BACKFILL_MISSING_VERSION | state/serving |
+| `PRV-4012` | BACKFILL_UNSUPPORTED_KEY | state/serving |
+| `PRV-4013` | BACKFILL_MALFORMED_OFFSET | state/serving |
+| `PRV-4014` | BACKFILL_NOT_CAUGHT_UP | state/serving |
+| `PRV-4015` | BACKFILL_SEAM_WENT_BACKWARDS | state/serving |
+| `PRV-4020` | SERVING_NO_HISTORY | state/serving |
+| `PRV-4021` | SERVING_READ_TIMED_OUT | state/serving |
+| `PRV-4022` | SERVING_VIEW_TOO_LARGE | state/serving |
+| `PRV-4023` | SERVING_NO_SUCH_VIEW | state/serving |
+| `PRV-4024` | SERVING_RESULT_TOO_LARGE | state/serving |
+| `PRV-4025` | SERVING_UNSUPPORTED_QUERY | state/serving |
+| `PRV-4026` | SERVING_READ_REJECTED | state/serving |
+| `PRV-4027` | SERVING_READ_QUEUE_TIMED_OUT | state/serving |
+| `PRV-4028` | SERVING_TENANT_QUOTA_EXCEEDED | state/serving |
+| `PRV-4029` | SERVING_READ_DEADLINE_EXCEEDED | state/serving |
+| `PRV-5001` | PLUGIN_MISSING_SETTING | plugins |
+| `PRV-5010` | PLUGIN_NOT_FOUND | plugins |
+| `PRV-5011` | PLUGIN_INCOMPATIBLE_API | plugins |
+| `PRV-5012` | PLUGIN_LOAD_FAILED | plugins |
+| `PRV-5013` | PLUGIN_DUPLICATE_NAME | plugins |
+| `PRV-5020` | PLUGIN_CIRCUIT_OPEN | plugins |
+| `PRV-5030` | PLUGIN_CAPABILITY_MISMATCH | plugins |
+| `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
+| `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
+| `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |
+| `PRV-6103` | FLIGHT_PARAMETERS_TOO_LARGE | gateway |
+| `PRV-7001` | SECURITY_UNAUTHENTICATED | security |
+| `PRV-7002` | SECURITY_FORBIDDEN | security |
+| `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |
+| `PRV-8001` | REGISTRY_NAME_IN_USE | registry |
+| `PRV-8002` | REGISTRY_NO_SUCH_QUERY | registry |
+| `PRV-8003` | REGISTRY_ILLEGAL_TRANSITION | registry |
+| `PRV-8004` | REGISTRY_QUERY_FAILED | registry |
+
+Generated from the source, not from memory: every row above is an `ErrorCode` declared in a module's
+main sources. If a code is missing here it does not exist in the engine.

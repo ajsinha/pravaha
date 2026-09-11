@@ -24,7 +24,86 @@ from typing import Optional
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
+from pravaha_console import docs
 from pravaha_console.engine import Engine
+
+#: Contextual help, per page. Short enough to read without leaving the task, and each one links
+#: to the document that says the rest. An operator who has to go and find a wiki has already lost
+#: the thread, and usually the question.
+HELP_CARDS: dict[str, list[tuple[str, str, str]]] = {
+    "index": [
+        (
+            "A registration is a computation, not a request",
+            "It keeps running and keeps its view current until somebody drops it. Registering is the "
+            "expensive act; querying the view afterwards is a hash probe.",
+            "CONCEPTS.md",
+        ),
+        (
+            "Two names, one fingerprint, one copy of the state",
+            "The same question registered twice -- even worded differently -- is one computation. Rows "
+            "marked <em>shared</em> below are where that is happening.",
+            "CONCEPTS.md",
+        ),
+        (
+            "A view needs a key",
+            "Key columns are ordinals into the query's output. A view with no key is a log, and a point "
+            "read against it has nothing to look up.",
+            "USER_GUIDE.md",
+        ),
+    ],
+    "detail": [
+        (
+            "Nothing appearing is usually correct",
+            "A window closes when <em>data</em> says it is over, not when the clock does, and a "
+            "subscription starts from now rather than the beginning of time.",
+            "CONCEPTS.md",
+        ),
+        (
+            "Pausing is not stopping",
+            "A paused query keeps answering at the frontier it reached and stops advancing. Rows "
+            "arriving while paused are dropped, not buffered -- a pause is meant to stop it doing work.",
+            "USER_GUIDE.md",
+        ),
+        (
+            "Dropping removes a name, not always the computation",
+            "It is released when its <em>last</em> name goes. If somebody else registered the same "
+            "question, yours going leaves theirs running.",
+            "CONCEPTS.md",
+        ),
+    ],
+    "ask": [
+        (
+            "Bind values; never build the string",
+            "A bound value is never parsed as SQL -- by the time it reaches the server the statement is "
+            "already planned. The server also plans it once however many values you ask about.",
+            "USER_GUIDE.md",
+        ),
+        (
+            "Not every SQL construct runs here",
+            "No ORDER BY, LIMIT, CASE or LIKE; no outer or self joins between streams. The full list is "
+            "checked by a test rather than written from memory.",
+            "SQL_SUPPORT.md",
+        ),
+        (
+            "= NULL matches nothing",
+            "Three-valued logic: a comparison with NULL is UNKNOWN, so no row passes. IS NULL is what "
+            "finds the empty ones.",
+            "TROUBLESHOOTING.md",
+        ),
+    ],
+}
+
+
+def help_cards(page: str) -> str:
+    cards = HELP_CARDS.get(page, [])
+    if not cards:
+        return ""
+    items = "".join(
+        f"<details class='help'><summary>{html.escape(title)}</summary>"
+        f"<p>{body}</p><p><a href='/help/{doc}'>read more &rarr;</a></p></details>"
+        for title, body, doc in cards
+    )
+    return f"<section class='helpcards'><h3>Help</h3>{items}</section>"
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -47,9 +126,20 @@ PAGE = """<!doctype html>
  button {{ font: inherit; padding: .2rem .6rem; }}
  pre {{ background: #f7f7f7; padding: .6rem; overflow-x: auto; }}
  nav a {{ margin-right: 1rem; }}
+ .helpcards {{ margin-top: 2.5rem; border-top: 1px solid #e5e5e5; padding-top: .5rem; }}
+ .helpcards h3 {{ font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; color: #888; }}
+ details.help {{ border: 1px solid #e5e5e5; border-left: 3px solid #ccd; padding: .4rem .7rem;
+                 margin: .4rem 0; background: #fcfcfd; }}
+ details.help summary {{ cursor: pointer; font-weight: 600; }}
+ details.help p {{ margin: .5rem 0 0; color: #444; }}
+ .doc h2 {{ margin-top: 1.6rem; }}
+ .doc table {{ font-size: .95em; }}
+ .doc blockquote {{ border-left: 3px solid #ccd; margin: .8rem 0; padding: .2rem .9rem;
+                    background: #fafaff; color: #333; }}
+ .doc code {{ background: #f2f2f4; padding: 0 .2em; }}
 </style></head><body>
 <h1>Pravaha console <small>{engine}</small></h1>
-<nav><a href="/">queries</a><a href="/query">ask</a><a href="/health">health</a></nav>
+<nav><a href="/">queries</a><a href="/query">ask</a><a href="/help">help &amp; guides</a><a href="/health">health</a></nav>
 {body}
 </body></html>"""
 
@@ -112,6 +202,7 @@ def create_app(engine: Engine) -> FastAPI:
             "<p class='muted'>A registration runs until it is dropped. The same question registered "
             "twice is one computation with two names &mdash; the fingerprint column is how you see it.</p>"
         )
+        body.append(help_cards("index"))
         return render(engine.url, "".join(body))
 
     @app.post("/queries")
@@ -162,6 +253,7 @@ def create_app(engine: Engine) -> FastAPI:
             + html.escape(row.name)
             + "/resume' style='display:inline'><button>resume</button></form></p>",
         ]
+        body.append(help_cards("detail"))
         return render(engine.url, "".join(body))
 
     @app.get("/queries/{name}/tail")
@@ -175,6 +267,42 @@ def create_app(engine: Engine) -> FastAPI:
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
+    @app.get("/help", response_class=HTMLResponse)
+    def help_index() -> HTMLResponse:
+        pages = docs.available()
+        if not pages:
+            return render(
+                engine.url,
+                "<h2>help</h2><p class='muted'>The documentation is not next to this console. It ships "
+                "in the repository under <code>docs/</code>; an installed copy outside the repository "
+                "has no access to it.</p>",
+            )
+        rows = "".join(
+            f"<tr><td><a href='/help/{name}'>{html.escape(title)}</a></td>"
+            f"<td class='muted'>{html.escape(blurb)}</td></tr>"
+            for name, title, blurb in pages
+        )
+        return render(
+            engine.url,
+            "<h2>help &amp; guides</h2><table>" + rows + "</table>"
+            "<p class='muted'>Rendered from the repository's own documentation rather than a copy, so "
+            "it cannot drift from the pages the build checks.</p>",
+        )
+
+    @app.get("/help/{name}", response_class=HTMLResponse)
+    def help_page(name: str) -> HTMLResponse:
+        text = docs.load(name)
+        if text is None:
+            return render(
+                engine.url,
+                "<h2>help</h2><p class='bad'>no such page</p><p><a href='/help'>all guides</a></p>",
+            )
+        return render(
+            engine.url,
+            "<p class='muted'><a href='/help'>&larr; all guides</a></p>"
+            "<article class='doc'>" + docs.render_markdown(text) + "</article>",
+        )
+
     @app.get("/query", response_class=HTMLResponse)
     def ask_form() -> HTMLResponse:
         return render(
@@ -184,7 +312,8 @@ def create_app(engine: Engine) -> FastAPI:
             "<p><input type='text' name='params' placeholder='comma-separated values for ?' size='40'></p>"
             "<button>run</button></form>"
             "<p class='muted'>Values are bound, never pasted into the SQL. A bound value is never "
-            "parsed as SQL, and the server plans the statement once however many you ask about.</p>",
+            "parsed as SQL, and the server plans the statement once however many you ask about.</p>"
+            + help_cards("ask"),
         )
 
     @app.post("/query", response_class=HTMLResponse)

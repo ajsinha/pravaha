@@ -339,6 +339,6 @@ class SubscriptionTest {
 
         assertThatThrownBy(() -> query.subscribe(changes -> {}))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-5003");
+                .hasMessageContaining("PRV-8003");
     }
 }
