@@ -45,6 +45,44 @@ PAGES: list[tuple[str, str, str]] = [
 ]
 
 
+#: The worked systems, which are the most practical documentation there is. They live under
+#: examples/ rather than docs/, and are offered here because somebody deciding how to shape a
+#: query wants an example far more often than a specification.
+STUDIES: list[tuple[str, str, str]] = [
+    ("trade-processing", "Trade processing", "A feed with no aggregation: many filtered subscribers on one computation"),
+    ("banking-card-velocity", "Card velocity", "Tumbling windows, a temporal lookup join, filter pushdown"),
+    ("finance-counterparty-exposure", "Counterparty exposure", "A relational source; money as minor units; value time versus insert time"),
+    ("trading-order-flow", "Order flow surveillance", "Hopping windows, and what to do when you want CASE"),
+    ("biology-sequencing-qc", "Sequencing QC", "The same engine on a domain with no money in it"),
+]
+
+
+def studies_root() -> Optional[pathlib.Path]:
+    root = docs_root()
+    if root is None:
+        return None
+    candidate = root.parent / "examples" / "case-studies"
+    return candidate if candidate.exists() else None
+
+
+def available_studies() -> list[tuple[str, str, str]]:
+    root = studies_root()
+    if root is None:
+        return []
+    return [study for study in STUDIES if (root / study[0] / "README.md").exists()]
+
+
+def load_study(name: str) -> Optional[str]:
+    """Reads one case study, from the allow-list only -- same control as :func:`load`."""
+    if name not in {study[0] for study in STUDIES}:
+        return None
+    root = studies_root()
+    if root is None:
+        return None
+    path = root / name / "README.md"
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
 def available() -> list[tuple[str, str, str]]:
     root = docs_root()
     if root is None:
@@ -168,6 +206,10 @@ def _inline(text: str) -> str:
         page = target.split("/")[-1]
         if page in {name for name, _, _ in PAGES}:
             return f'<a href="/help/{page}">{label}</a>'
+        # A case study links to its neighbours by directory, e.g. ../trading-order-flow/
+        study = target.strip("/").split("/")[-1]
+        if study in {name for name, _, _ in STUDIES}:
+            return f'<a href="/help/study/{study}">{label}</a>'
         return label
 
     return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", link, escaped)

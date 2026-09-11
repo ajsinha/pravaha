@@ -61,6 +61,7 @@ pravaha-console --engine grpc://pravaha:9090 --token "$PRAVAHA_TOKEN"
 | `/health` | Whether the engine is reachable. Returns 200 even when it is not — see below |
 | `/help` | The project's guides, rendered in the console |
 | `/help/{page}` | One guide — quickstart, concepts, SQL support, troubleshooting, operations, security |
+| `/help/study/{name}` | One worked system, rendered in the console |
 
 **Help is in the console, not somewhere else.** Every page carries contextual cards — three short
 answers to the questions that page provokes — and each links into the full guide, rendered here. An
@@ -70,6 +71,9 @@ engine loses the thread and usually loses the question.
 The guides are rendered from the repository's own `docs/` rather than copied. A copy would drift, and
 the point of the build checking those files is that they can be trusted. A stale copy in a console
 would quietly undo that.
+
+The five case studies are offered alongside the guides, because somebody deciding how to shape a
+query wants a worked example far more often than a specification.
 
 Only an allow-list of pages is served. That is the security control rather than path arithmetic: a
 console that accepted a name and joined it to a directory would serve `../../etc/passwd` to anybody

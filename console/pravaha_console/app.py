@@ -282,11 +282,37 @@ def create_app(engine: Engine) -> FastAPI:
             f"<td class='muted'>{html.escape(blurb)}</td></tr>"
             for name, title, blurb in pages
         )
+        studies = "".join(
+            f"<tr><td><a href='/help/study/{name}'>{html.escape(title)}</a></td>"
+            f"<td class='muted'>{html.escape(blurb)}</td></tr>"
+            for name, title, blurb in docs.available_studies()
+        )
+        study_block = (
+            "<h3>worked systems</h3><table>" + studies + "</table>"
+            "<p class='muted'>Templates meant to be copied. Every SQL statement in them is planned and "
+            "run against the real engine by the build.</p>"
+            if studies
+            else ""
+        )
         return render(
             engine.url,
-            "<h2>help &amp; guides</h2><table>" + rows + "</table>"
-            "<p class='muted'>Rendered from the repository's own documentation rather than a copy, so "
+            "<h2>help &amp; guides</h2><h3>guides</h3><table>" + rows + "</table>" + study_block
+            + "<p class='muted'>Rendered from the repository's own documentation rather than a copy, so "
             "it cannot drift from the pages the build checks.</p>",
+        )
+
+    @app.get("/help/study/{name}", response_class=HTMLResponse)
+    def help_study(name: str) -> HTMLResponse:
+        text = docs.load_study(name)
+        if text is None:
+            return render(
+                engine.url,
+                "<h2>help</h2><p class='bad'>no such case study</p><p><a href='/help'>all guides</a></p>",
+            )
+        return render(
+            engine.url,
+            "<p class='muted'><a href='/help'>&larr; all guides</a></p>"
+            "<article class='doc'>" + docs.render_markdown(text) + "</article>",
         )
 
     @app.get("/help/{name}", response_class=HTMLResponse)

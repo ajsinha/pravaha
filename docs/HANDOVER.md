@@ -296,6 +296,33 @@ now run for real.
 `P1-11` Kafka plugin — still deferred, still for the same reason (ADR-028: breadth is not proof).
 Aerospike, Cassandra and Redis remain Wave 5 and Wave 10 as planned.
 
+## 3b. The documentation, and which parts the build checks
+
+Rewritten and extended in Wave 7. What exists now:
+
+| | |
+|---|---|
+| [`docs/README.md`](README.md) | The index: which page to read when |
+| [`CONCEPTS.md`](CONCEPTS.md) | **The highest-value page.** Eight ideas; most surprises are one of them working correctly |
+| [`QUICKSTART.md`](QUICKSTART.md) | Clone to a running continuous query |
+| [`USER_GUIDE.md`](USER_GUIDE.md) | The whole surface, task by task, three clients |
+| [`OPERATIONS.md`](OPERATIONS.md) | Bounds, what to watch, and what is not solved |
+| [`SECURITY.md`](SECURITY.md) | The three seams, row filters, the soundness rule |
+| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | Every `PRV-` code; table generated from the source |
+| [`SQL_SUPPORT.md`](SQL_SUPPORT.md) | Every construct, planned and compiled by a test |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Restructured around the life of a query |
+
+**Checked by the build, not by memory:** every SQL statement in `SQL_SUPPORT.md` and in the case
+studies is planned, built and compiled against the real engine; the error-code table is generated
+from `ErrorCode` declarations; `DocumentationFreshnessTest` verifies every module is described, every
+internal link resolves, and every decision a document cites has an ADR.
+
+**All of it is readable in the console**, with contextual help cards on each page and the five case
+studies alongside the guides. Rendered from `docs/` rather than copied, so it cannot drift.
+
+When you add a document, add it to `DocumentationFreshnessTest`'s list and to `docs/README.md`; when
+you add a page worth reading in the console, add it to `console/pravaha_console/docs.py`'s allow-list.
+
 ## 4. Things a fresh session will not guess
 
 ### Environment

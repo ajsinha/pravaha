@@ -220,3 +220,28 @@ def test_every_page_offers_contextual_help(client):
 def test_help_is_reachable_from_every_page(client):
     for path in ["/", "/query", "/help"]:
         assert "/help" in client.get(path).text
+
+
+def test_the_help_index_offers_the_worked_systems(client):
+    page = client.get("/help").text
+
+    # A developer deciding how to shape a query wants an example far more often than a
+    # specification, and the case studies are the most practical documentation there is.
+    assert "worked systems" in page
+    assert "Trade processing" in page
+
+
+def test_a_case_study_renders_in_the_console(client):
+    page = client.get("/help/study/trade-processing").text
+
+    assert "trade_event_id" in page
+    assert "<table>" in page
+
+
+def test_an_unknown_case_study_is_refused(client):
+    # Two layers refuse this and either is fine: the router normalises the path away before the
+    # handler sees it, and the handler's allow-list would refuse the name anyway. What matters is
+    # that nothing outside the five studies is ever read from disk.
+    for attempt in ["../../etc", "nonexistent", "HANDOVER"]:
+        response = client.get(f"/help/study/{attempt}")
+        assert response.status_code == 404 or "no such case study" in response.text
