@@ -43,3 +43,40 @@ springdoc:
 pravaha:
   node:
     id: pravaha-node-01
+
+  # The wire protocol the SDKs and the CLI speak (ADR-030). The HTTP surface above is for humans
+  # and operators; this is for clients.
+  flight:
+    enabled: true
+    host: 0.0.0.0
+    port: 8815
+
+  registry:
+    # Where registered continuous queries are written down. Unset means they live only in memory and
+    # a restart loses them -- which the node warns about at startup rather than leaving to be found
+    # out at the next restart. The file holds query text and bound parameter values (account numbers,
+    # customer ids), so permission it like data, not like configuration.
+    journal: ""
+
+  checkpoint:
+    interval: 1m
+    # Counted, not timed. A checkpoint is a fallback rather than data, and an idle system takes no
+    # new ones -- so an age rule would delete every checkpoint after a quiet night, precisely when
+    # recovery is most likely to be wanted. Served-view retention is time-based for the opposite
+    # reason.
+    keep: 3
+    timeout: 30s
+
+  cluster:
+    # What is being asked of the cluster (a correctness question).
+    #   SINGLE      one node
+    #   REPLICATED  several nodes, each holding the whole state
+    #   PARTITIONED partitions owned by particular nodes -- requires real consensus
+    mode: SINGLE
+    # Which coordinator provides it (an operational question).
+    #   single     no second node to disagree with
+    #   socket     static peers, no external service, CANNOT exclude split-brain
+    #   zookeeper  real consensus; needs plugins/pravaha-cluster-zookeeper on the classpath
+    # PARTITIONED on a mechanism without consensus is refused at startup (PRV-9002), not warned
+    # about: two nodes each believing they own a partition corrupt it silently and durably.
+    mechanism: single

@@ -186,6 +186,34 @@ three quarters, and it is a pure function of the membership: every node that agr
 cluster computes the same owners without asking. That is also *why* `PARTITIONED` needs consensus —
 nodes that disagree about membership confidently compute different owners.
 
+## Starting a node
+
+`pravaha-server` is the process. It brings up three things beyond the engine, in this order:
+
+1. **The cluster coordinator**, first — whether this node may own partitions at all is a question to
+   settle before it does any work, and the answer can be "no, refuse to start" (`PRV-9002`).
+2. **The registry**, recovered from its journal *before anything can reach it*. A client that
+   connected during recovery and was told "no such view" would re-register, and a duplicate
+   registration of a query that was about to come back is a second computation of the same thing.
+3. **Flight SQL**, last. Accepting connections is the final step, because a connection accepted
+   before the views exist gets a wrong answer rather than no answer.
+
+Shutdown reverses it: stop accepting, let go of the queries, then leave the cluster. A node that left
+the cluster first would have its partitions reassigned while it was still serving them.
+
+```yaml
+pravaha:
+  node:
+    id: pravaha-node-01
+  flight:
+    enabled: true       # the wire protocol the SDKs and CLI speak; HTTP above is for operators
+    host: 0.0.0.0
+    port: 8815
+```
+
+A node with no `registry.journal` starts and **says so** — a development run does not need
+durability, but the cost of finding out at the next restart is every client's registrations.
+
 ## Restarts: what survives
 
 Registered continuous queries are written to a journal, so a restart does not lose them:

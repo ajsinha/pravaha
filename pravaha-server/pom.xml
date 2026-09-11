@@ -15,6 +15,13 @@
     <jacoco.line.coverage>0.65</jacoco.line.coverage>
     <spring.boot.version>3.5.16</spring.boot.version>
     <springdoc.version>2.9.1</springdoc.version>
+    <!--
+      Spring Boot's BOM and Arrow Flight's gRPC stack each pin Netty, and they disagree. Flight is
+      the one that has to work: it is the wire protocol, and a Netty mismatch there shows up as a
+      connection that fails during the handshake rather than as a missing class at startup. Pinned
+      to the version Flight is built against.
+    -->
+    <netty.version>4.1.130.Final</netty.version>
   </properties>
 
   <dependencyManagement>
@@ -53,6 +60,31 @@
     <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-sql</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-flight</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-registry</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-serving</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-security</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-cluster</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
