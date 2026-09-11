@@ -38,8 +38,9 @@ import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewSink;
-import com.ash.messaging.pravaha.sql.SqlPlanner;
-import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
+import com.ash.messaging.pravaha.sql.plan.BoundParameters;
+import com.ash.messaging.pravaha.sql.plan.ParameterPlacement;
+import com.ash.messaging.pravaha.sql.plan.PreparedContinuousQuery;
 
 /**
  * Where a piece of SQL becomes a computation with a name, a state and an end (ADR-025).
@@ -119,9 +120,51 @@ public final class QueryRegistry implements AutoCloseable {
         return register(name, sql, keyColumns, principal, defaultRetention);
     }
 
+    /**
+     * Says where each of a query's {@code ?} parameters would have to be applied, and what it costs
+     * (ADR-032).
+     *
+     * <p>Worth asking before registering a parameterised continuous query, because the answer
+     * decides how many computations a deployment runs. A parameter the view carries is free: one
+     * computation, and every subscriber filters at its own tap. A parameter the query aggregates
+     * away needs a computation per distinct value.
+     */
+    public synchronized List<ParameterPlacement> classify(String sql) {
+        return PreparedContinuousQuery.classify(sql, streams);
+    }
+
+    /**
+     * Registers a parameterised continuous query with values bound into it.
+     *
+     * <p>Binding into the query is always <em>correct</em> and is sometimes wasteful: each distinct
+     * binding is a separate computation with its own state, because the bound values are part of the
+     * plan and therefore part of the fingerprint. When the view carries the parameter's column the
+     * same effect is available for nothing -- register once, and let each subscriber filter at its
+     * tap -- so this reports which parameters were in that position rather than leaving the cost to
+     * be found later.
+     *
+     * @return the registration, whose {@link RegisteredQuery#parameterPlacements()} says what was
+     *     decided and why
+     */
+    public synchronized RegisteredQuery register(
+            String name, String sql, List<Integer> keyColumns, Principal principal, BoundParameters parameters) {
+        return register(name, sql, keyColumns, principal, defaultRetention, parameters);
+    }
+
     /** Registers with an explicit retention, overriding this registry's default. */
     public synchronized RegisteredQuery register(
             String name, String sql, List<Integer> keyColumns, Principal principal, Retention retention) {
+        return register(name, sql, keyColumns, principal, retention, BoundParameters.none());
+    }
+
+    /** Registers with both an explicit retention and bound parameters. */
+    public synchronized RegisteredQuery register(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            Retention retention,
+            BoundParameters parameters) {
         requireName(name);
         if (keyColumns == null || keyColumns.isEmpty()) {
             throw new IllegalArgumentException(
@@ -129,8 +172,13 @@ public final class QueryRegistry implements AutoCloseable {
                             + "point read against it has nothing to look up");
         }
 
-        PhysicalOperator plan =
-                new PhysicalPlanBuilder().build(SqlPlanner.withStreams(streams).plan(sql));
+        PreparedContinuousQuery prepared = PreparedContinuousQuery.of(sql, parameters, streams);
+        List<ParameterPlacement> placements = prepared.placements();
+        PhysicalOperator plan = prepared.plan();
+
+        // Bound values are in the plan, so they are in the fingerprint: two bindings of the same SQL
+        // are two computations. That is the truth rather than a policy, and it is precisely why a
+        // parameter the view carries should be a tap filter instead -- same answer, one computation.
         QueryFingerprint fingerprint = QueryFingerprint.of(plan);
 
         AccessDecision decision = policy.mayRegisterQuery(principal);
@@ -148,7 +196,7 @@ public final class QueryRegistry implements AutoCloseable {
             return existing;
         }
 
-        RegisteredQuery query = start(name, sql, plan, keyColumns, fingerprint, retention);
+        RegisteredQuery query = start(name, sql, plan, keyColumns, fingerprint, retention, placements);
         byName.put(name, query);
         byFingerprint.put(fingerprint, query);
         views.register(query.view());
@@ -161,7 +209,8 @@ public final class QueryRegistry implements AutoCloseable {
             PhysicalOperator plan,
             List<Integer> keyColumns,
             QueryFingerprint fingerprint,
-            Retention retention) {
+            Retention retention,
+            List<ParameterPlacement> placements) {
         StreamSchema schema = plan.outputSchema();
         for (int ordinal : keyColumns) {
             if (ordinal < 0 || ordinal >= schema.fieldCount()) {
@@ -174,7 +223,7 @@ public final class QueryRegistry implements AutoCloseable {
         ServedView view = new ServedView(name, schema, keyColumns, DEFAULT_MAX_KEYS, retention);
         ViewSink sink = new ViewSink(view, schema);
         InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, (RowOutput) sink::begin);
-        return new RegisteredQuery(fingerprint, sql, name, view, sink, pipeline, Instant.now());
+        return new RegisteredQuery(fingerprint, sql, name, view, sink, pipeline, Instant.now(), placements);
     }
 
     /** The query answering to {@code name}. */

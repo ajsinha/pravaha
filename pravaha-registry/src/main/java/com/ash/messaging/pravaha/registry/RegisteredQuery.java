@@ -55,6 +55,7 @@ public final class RegisteredQuery implements AutoCloseable {
     private final ViewSink sink;
     private final InterpretedPipeline pipeline;
     private final Instant registeredAt;
+    private final java.util.List<com.ash.messaging.pravaha.sql.plan.ParameterPlacement> placements;
 
     private final AtomicLong rowsIn = new AtomicLong();
     private final AtomicLong watermarkNanos = new AtomicLong(Long.MIN_VALUE);
@@ -69,13 +70,15 @@ public final class RegisteredQuery implements AutoCloseable {
             ServedView view,
             ViewSink sink,
             InterpretedPipeline pipeline,
-            Instant registeredAt) {
+            Instant registeredAt,
+            java.util.List<com.ash.messaging.pravaha.sql.plan.ParameterPlacement> placements) {
         this.fingerprint = fingerprint;
         this.sql = sql;
         this.view = view;
         this.sink = sink;
         this.pipeline = pipeline;
         this.registeredAt = registeredAt;
+        this.placements = java.util.List.copyOf(placements);
         this.names.add(name);
     }
 
@@ -108,6 +111,30 @@ public final class RegisteredQuery implements AutoCloseable {
 
     public Instant registeredAt() {
         return registeredAt;
+    }
+
+    /**
+     * Where each of this query's parameters had to be applied, and what that cost (ADR-032).
+     *
+     * <p>Empty for a query with no parameters. A {@code REGISTRATION} placement means this
+     * computation exists per distinct binding; a {@code TAP} placement means the same filtering is
+     * available for nothing by subscribing with it instead.
+     */
+    public java.util.List<com.ash.messaging.pravaha.sql.plan.ParameterPlacement> parameterPlacements() {
+        return placements;
+    }
+
+    /**
+     * Parameters that did not need to fork this computation.
+     *
+     * <p>What a console shows as a suggestion and an operator reads as "you are running N copies of
+     * something that could be one".
+     */
+    public java.util.List<com.ash.messaging.pravaha.sql.plan.ParameterPlacement> avoidableForks() {
+        return placements.stream()
+                .filter(placement ->
+                        placement.placement() == com.ash.messaging.pravaha.sql.plan.ParameterPlacement.Placement.TAP)
+                .toList();
     }
 
     /** Rows accepted since registration. */
