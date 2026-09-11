@@ -39,6 +39,13 @@ Homepage = "https://github.com/ajsinha/pravaha"
 [tool.hatch.build.targets.wheel]
 packages = ["pravaha"]
 
+# PEP 561. Without this marker every integrator who runs mypy gets "module is installed but
+# missing library stubs" for our own SDK and has to silence it -- which is the published
+# client telling its users that its type hints are decoration. The hints were already here;
+# this is what makes them usable.
+[tool.setuptools.package-data]
+pravaha = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

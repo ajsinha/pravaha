@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import threading
-from typing import Iterator, Optional, Sequence
+from collections.abc import Iterator, Sequence
 
 from pravaha import connect
 from pravaha.client import QueryError
@@ -48,7 +48,7 @@ class Engine:
     needs at this scale.
     """
 
-    def __init__(self, url: str, token: Optional[str] = None) -> None:
+    def __init__(self, url: str, token: str | None = None) -> None:
         self._url = url
         self._token = token
         self._lock = threading.Lock()
@@ -74,7 +74,7 @@ class Engine:
             with self._client() as client:
                 queries = client.queries()
             return {"reachable": True, "url": self._url, "queries": len(queries)}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- deliberate: see below
             # Reported rather than raised: a console whose own page 500s when the engine is
             # down is a console that cannot tell you the engine is down.
             return {"reachable": False, "url": self._url, "error": str(exc)}
@@ -123,13 +123,13 @@ class Engine:
             else:
                 raise QueryError(f"unknown action '{action}'")
 
-    def query(self, sql: str, parameters: Optional[Sequence[object]] = None) -> tuple[list[str], list[list]]:
+    def query(self, sql: str, parameters: Sequence[object] | None = None) -> tuple[list[str], list[list]]:
         with self._client() as client:
             result = client.query(sql, list(parameters) if parameters else None)
             rows = [[row[name] for name in result.columns] for row in result]
             return list(result.columns), rows
 
-    def tail(self, view: str, filters: Optional[dict] = None) -> Iterator[dict]:
+    def tail(self, view: str, filters: dict | None = None) -> Iterator[dict]:
         """Yields one dict per changed row, for as long as the caller keeps reading.
 
         Held open deliberately: a console that polled would show an operator a number that

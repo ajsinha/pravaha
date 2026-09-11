@@ -41,3 +41,4 @@ decision that was later reversed is usually the most useful thing here.
 | [030](030-flight-sql-as-the-client-protocol.md) | Arrow Flight SQL is the one client protocol for subscriptions and request/response alike; amends ADR-007, drops Avatica |
 | [031](031-authorization-at-the-pravaha-layer.md) | Authentication and authorization are enforced by Pravaha on every read, never delegated to the store; a row filter is sound only if the view carries its columns |
 | [032](032-parameters-are-values-not-queries.md) | Prepared statements bind at plan-build time so a value is never parsed; a `?` may stand where a value goes and nowhere else |
+| [033](033-the-ui-ships-as-its-own-artefact.md) | The UI ships as one self-contained artefact, reaches the engine only through the public API, and puts a stateless service layer between the browser and the SDK |

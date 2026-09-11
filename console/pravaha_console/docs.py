@@ -14,7 +14,6 @@ from __future__ import annotations
 import html
 import pathlib
 import re
-from typing import Optional
 
 # Walk up until the repository root: the console lives two levels below it, but an installed
 # copy may not sit inside the repository at all, in which case there are simply no docs and
@@ -22,7 +21,7 @@ from typing import Optional
 _HERE = pathlib.Path(__file__).resolve()
 
 
-def docs_root() -> Optional[pathlib.Path]:
+def docs_root() -> pathlib.Path | None:
     for parent in _HERE.parents:
         candidate = parent / "docs"
         if (candidate / "README.md").exists() and (candidate / "adr").exists():
@@ -57,7 +56,7 @@ STUDIES: list[tuple[str, str, str]] = [
 ]
 
 
-def studies_root() -> Optional[pathlib.Path]:
+def studies_root() -> pathlib.Path | None:
     root = docs_root()
     if root is None:
         return None
@@ -72,7 +71,7 @@ def available_studies() -> list[tuple[str, str, str]]:
     return [study for study in STUDIES if (root / study[0] / "README.md").exists()]
 
 
-def load_study(name: str) -> Optional[str]:
+def load_study(name: str) -> str | None:
     """Reads one case study, from the allow-list only -- same control as :func:`load`."""
     if name not in {study[0] for study in STUDIES}:
         return None
@@ -90,7 +89,7 @@ def available() -> list[tuple[str, str, str]]:
     return [page for page in PAGES if (root / page[0]).exists()]
 
 
-def load(name: str) -> Optional[str]:
+def load(name: str) -> str | None:
     """Reads one documentation page, refusing anything that is not one of ours.
 
     The allow-list is the security control, not the path arithmetic. A console that

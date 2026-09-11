@@ -14,7 +14,7 @@ import pytest
 pytest.importorskip("pyarrow", reason="the console needs the SDK's flight extra")
 fastapi_testclient = pytest.importorskip("fastapi.testclient")
 
-from pravaha_console import Engine, create_app  # noqa: E402
+from pravaha_console import Engine, create_app
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 FLIGHT_CLASSES = REPO_ROOT / "pravaha-flight" / "target" / "test-classes"
@@ -62,7 +62,21 @@ def engine_url():
             break
     if port is None:
         process.kill()
-        pytest.skip("the Pravaha server did not start")
+        tail = ""
+        try:
+            tail = (process.stdout.read() or "")[-400:]
+        except Exception:  # noqa: BLE001, S110 -- the output is a nicety; the skip is the point
+            pass
+        # Says why. This used to skip with no reason, and the commonest cause is JAVA_HOME
+        # being unset in the shell running pytest -- at which point nineteen tests quietly
+        # vanish and the suite still reports success, which is the worst way for a test to
+        # fail.
+        pytest.skip(
+            "the Pravaha server did not start using java at '"
+            + java_bin
+            + "' (set JAVA_HOME, or put java 21 on PATH). Output: "
+            + (tail or "none")
+        )
 
     yield f"grpc://localhost:{port}"
     process.kill()
@@ -245,3 +259,88 @@ def test_an_unknown_case_study_is_refused(client):
     for attempt in ["../../etc", "nonexistent", "HANDOVER"]:
         response = client.get(f"/help/study/{attempt}")
         assert response.status_code == 404 or "no such case study" in response.text
+
+
+# --- The service layer and its API (ADR-033) --------------------------------------------
+
+def test_the_api_lists_queries_as_json(client):
+    client.post("/queries", data={"name": "api_a", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        body = client.get("/api/v1/queries").json()
+
+        assert body["total"] >= 1
+        assert any(item["name"] == "api_a" for item in body["items"])
+        # The browser gets paging context, not just rows: "20 of 847" and "20 of 3" mean
+        # different things to a reader and only the second means the filter worked.
+        assert {"items", "total", "offset", "limit"} <= set(body)
+    finally:
+        client.post("/queries/api_a/drop")
+
+
+def test_the_api_filters_and_the_filter_is_the_url(client):
+    client.post("/queries", data={"name": "findme", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        assert client.get("/api/v1/queries?search=findme").json()["total"] == 1
+        # Filtered to nothing is a state, not an error: there are queries, just not these.
+        assert client.get("/api/v1/queries?search=nothing_like_this").json()["total"] == 0
+    finally:
+        client.post("/queries/findme/drop")
+
+
+def test_an_api_error_carries_the_engines_code(client):
+    body = client.post("/api/v1/query", json={"sql": "SELECT * FROM nowhere"}).json()
+
+    # The PRV code travels so the UI can link straight to the entry in TROUBLESHOOTING
+    # instead of leaving the reader to search for the useful part of a long message.
+    assert "error" in body
+    assert body.get("code", "").startswith("PRV-")
+
+
+def test_one_engine_subscription_serves_every_browser(engine_url):
+    # The product's claim is that ten analysts asking one question cost one computation. A
+    # console that opened a subscription per tab would quietly contradict it.
+    from pravaha_console.services import Services
+
+    services = Services(Engine(engine_url))
+    first = services.feeds.subscribe("user_volume")
+    second = services.feeds.subscribe("user_volume")
+    try:
+        assert services.feeds.live_feeds() == 1
+    finally:
+        first.close()
+        assert services.feeds.live_feeds() == 1, "the last subscriber has not left yet"
+        second.close()
+
+    # And it is released when the last one goes. Before this was ref-counted, a closed tab
+    # left its engine subscription open for the life of the process.
+    assert services.feeds.live_feeds() == 0
+
+
+def test_a_slow_browser_loses_its_oldest_rows_rather_than_blocking(engine_url):
+    from pravaha_console.services import Broadcaster, Services
+
+    services = Services(Engine(engine_url))
+    subscriber = services.feeds.subscribe("user_volume")
+    try:
+        for i in range(Broadcaster.BUFFER + 25):
+            subscriber.offer({"n": i})
+
+        # Dropped, and counted. Blocking here would push back on the engine's own
+        # subscriber, which would make one slow browser everybody's problem.
+        assert subscriber.dropped == 25
+        newest = subscriber.drain(limit=Broadcaster.BUFFER + 50)
+        assert newest[-1]["n"] == Broadcaster.BUFFER + 24
+    finally:
+        subscriber.close()
+
+
+def test_every_screen_renders_before_its_javascript_does(client):
+    client.post("/queries", data={"name": "norender", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        # The data is in the server's HTML, not fetched afterwards. A console that is blank
+        # until a module loads is blank exactly when somebody is looking at it because
+        # something is not loading.
+        assert "norender" in client.get("/queries").text
+        assert "SELECT trade_id" in client.get("/queries/norender").text
+    finally:
+        client.post("/queries/norender/drop")

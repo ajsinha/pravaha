@@ -164,19 +164,35 @@ useful. `/health` reports the same thing as JSON.
 
 | | |
 |---|---|
-| `/` | Registered queries, their state, row counts and watermark lag |
-| `/queries/{name}` | One query: its SQL, its view, what it is producing |
-| `/queries/{name}/tail` | A live tail of changes |
-| `/query` | Ask an ad-hoc question |
+| `/` | Overview: what is registered, how much is shared, live feed count |
+| `/queries` | The list — filter, sort and page, **with every filter in the URL** so a view can be pasted into a ticket |
+| `/queries/{name}` | One query: its SQL, its fingerprint, its siblings, a live tail, and the pause/resume/drop controls |
+| `/workbench` | Ask a question, with parameters, and register it if it is worth keeping |
 | `/help` | Quick start, concepts, user guide, case studies — the `docs/` set, rendered |
+| `/api/v1/...` | The JSON services the screens are built on ([ADR-033](adr/033-the-ui-ships-as-its-own-artefact.md)) |
 
-### What it is not
+Keyboard: `/` focuses the filter, `t` toggles light/dark, `d` toggles density, `?` opens help.
 
-It is a **functional admin console, on purpose**. Server-rendered HTML, no build step, no JavaScript
-framework, about four hundred lines. It does the operator's job and does not pretend to be the
-product surface design §23.20 describes — a full-featured UI is on the roadmap and is **not** this.
-The trade is recorded in [the console's README](../console/README.md) rather than left to be
-discovered.
+### How it is put together
+
+Three layers, and the split is [ADR-033](adr/033-the-ui-ships-as-its-own-artefact.md):
+
+- **Services** — typed calls over the SDK. Stateless, so the console scales sideways.
+- **`/api/v1`** — versioned JSON. Everything a screen can do goes through it.
+- **Screens** — server-rendered first, then made live. **The page works before its JavaScript
+  does**, which matters most when somebody is looking at the console precisely because something
+  is not loading.
+
+One engine subscription serves every browser watching the same view. Ten analysts on one dashboard
+are ten browser connections and **one** subscriber on the engine — the same claim the engine makes
+about queries, kept by the UI rather than quietly broken by it.
+
+### What is still missing
+
+The screens above are real and tested. The §23.20 release gate is **not** met: no Monaco editor, no
+plan DAG, no time-travel debugger, no Storybook, no visual-regression baseline, and no WCAG 2.2 AA
+audit. Light/dark, density, keyboard paths, deep links and the eight states of §23.12 are
+implemented; they are not yet *audited*.
 
 ## 8. Clean up
 

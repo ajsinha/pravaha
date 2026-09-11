@@ -5,7 +5,7 @@ console and the engine cannot be violated: a boundary enforced by a test can be 
 and a boundary enforced by a process cannot.
 """
 
-__all__ = ["create_app", "Engine"]
+__all__ = ["Engine", "create_app"]
 
 from pravaha_console.app import create_app
 from pravaha_console.engine import Engine

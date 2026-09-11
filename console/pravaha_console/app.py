@@ -1,374 +1,245 @@
-"""The console: a FastAPI process that talks to Pravaha through the published SDK.
+"""The console application: the shell, the screens, and the services under them.
 
-**This is a functional admin console, on purpose.** The implementation plan is explicit
-that without a dedicated frontend engineer the console degrades to exactly that, and
-says so is a legitimate trade to make deliberately rather than by accident. So: server-
-rendered HTML, no build step, no framework, no design system. It shows what an operator
-needs to see and lets them do what an operator needs to do.
+Three layers, and the separation is ADR-033 rather than taste.
 
-What it deliberately does surface, because nothing else does:
+* ``services`` — typed calls, no HTTP, no HTML. Stateless, so the console scales sideways.
+* ``api`` — versioned JSON at ``/api/v1``. Everything the browser can do goes through it.
+* ``ui`` — the server-rendered shell, made live by ``static/app.js`` against that API.
 
-* which registrations are **shared** -- two names on one fingerprint are one computation
-  with one copy of the state, and "ten analysts on one dashboard cost one query" is a
-  claim worth being able to watch holding;
-* a **live tail** of a view rather than a poll, because the product's whole argument is
-  that the answer does not have to be a little out of date.
+The help pages are the fourth thing and sit slightly apart: they render the repository's
+own ``docs/`` set, so the quick start and the case studies are reachable from the console
+rather than living only in a checkout somebody may not have.
 """
 from __future__ import annotations
 
-import argparse
 import html
-import json
-from typing import Optional
+from pathlib import Path
 
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Form
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
-from pravaha_console import docs
+from pravaha_console import docs, ui
+from pravaha_console.api import api_router
 from pravaha_console.engine import Engine
+from pravaha_console.services import ServiceError, Services
 
-#: Contextual help, per page. Short enough to read without leaving the task, and each one links
-#: to the document that says the rest. An operator who has to go and find a wiki has already lost
-#: the thread, and usually the question.
-HELP_CARDS: dict[str, list[tuple[str, str, str]]] = {
-    "index": [
-        (
-            "A registration is a computation, not a request",
-            "It keeps running and keeps its view current until somebody drops it. Registering is the "
-            "expensive act; querying the view afterwards is a hash probe.",
-            "CONCEPTS.md",
-        ),
-        (
-            "Two names, one fingerprint, one copy of the state",
-            "The same question registered twice -- even worded differently -- is one computation. Rows "
-            "marked <em>shared</em> below are where that is happening.",
-            "CONCEPTS.md",
-        ),
-        (
-            "A view needs a key",
-            "Key columns are ordinals into the query's output. A view with no key is a log, and a point "
-            "read against it has nothing to look up.",
-            "USER_GUIDE.md",
-        ),
-    ],
-    "detail": [
-        (
-            "Nothing appearing is usually correct",
-            "A window closes when <em>data</em> says it is over, not when the clock does, and a "
-            "subscription starts from now rather than the beginning of time.",
-            "CONCEPTS.md",
-        ),
-        (
-            "Pausing is not stopping",
-            "A paused query keeps answering at the frontier it reached and stops advancing. Rows "
-            "arriving while paused are dropped, not buffered -- a pause is meant to stop it doing work.",
-            "USER_GUIDE.md",
-        ),
-        (
-            "Dropping removes a name, not always the computation",
-            "It is released when its <em>last</em> name goes. If somebody else registered the same "
-            "question, yours going leaves theirs running.",
-            "CONCEPTS.md",
-        ),
-    ],
-    "ask": [
-        (
-            "Bind values; never build the string",
-            "A bound value is never parsed as SQL -- by the time it reaches the server the statement is "
-            "already planned. The server also plans it once however many values you ask about.",
-            "USER_GUIDE.md",
-        ),
-        (
-            "Not every SQL construct runs here",
-            "No ORDER BY, LIMIT, CASE or LIKE; no outer or self joins between streams. The full list is "
-            "checked by a test rather than written from memory.",
-            "SQL_SUPPORT.md",
-        ),
-        (
-            "= NULL matches nothing",
-            "Three-valued logic: a comparison with NULL is UNKNOWN, so no row passes. IS NULL is what "
-            "finds the empty ones.",
-            "TROUBLESHOOTING.md",
-        ),
-    ],
-}
+STATIC = Path(__file__).parent / "static"
 
 
-def help_cards(page: str) -> str:
-    cards = HELP_CARDS.get(page, [])
-    if not cards:
-        return ""
-    items = "".join(
-        f"<details class='help'><summary>{html.escape(title)}</summary>"
-        f"<p>{body}</p><p><a href='/help/{doc}'>read more &rarr;</a></p></details>"
-        for title, body, doc in cards
-    )
-    return f"<section class='helpcards'><h3>Help</h3>{items}</section>"
+def _coerce(value: str) -> object:
+    """Turns a typed parameter into the value it obviously is.
 
-PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<title>Pravaha console</title>
-<style>
- body {{ font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 2rem; max-width: 70rem;
-        color: #111; background: #fff; }}
- h1 {{ font-size: 1.1rem; letter-spacing: .02em; }}
- h1 small {{ font-weight: normal; color: #666; }}
- table {{ border-collapse: collapse; width: 100%; margin: 1rem 0; }}
- th, td {{ text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #e5e5e5; vertical-align: top; }}
- th {{ color: #666; font-weight: 600; border-bottom: 1px solid #bbb; }}
- .muted {{ color: #777; }}
- .bad {{ color: #a00; }}
- .ok {{ color: #060; }}
- .pill {{ background: #eef; border: 1px solid #ccd; border-radius: 10px; padding: 0 .4rem; font-size: .85em; }}
- form {{ margin: 1rem 0; }}
- textarea {{ width: 100%; height: 7rem; font: inherit; }}
- input[type=text] {{ font: inherit; padding: .2rem; }}
- button {{ font: inherit; padding: .2rem .6rem; }}
- pre {{ background: #f7f7f7; padding: .6rem; overflow-x: auto; }}
- nav a {{ margin-right: 1rem; }}
- .helpcards {{ margin-top: 2.5rem; border-top: 1px solid #e5e5e5; padding-top: .5rem; }}
- .helpcards h3 {{ font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; color: #888; }}
- details.help {{ border: 1px solid #e5e5e5; border-left: 3px solid #ccd; padding: .4rem .7rem;
-                 margin: .4rem 0; background: #fcfcfd; }}
- details.help summary {{ cursor: pointer; font-weight: 600; }}
- details.help p {{ margin: .5rem 0 0; color: #444; }}
- .doc h2 {{ margin-top: 1.6rem; }}
- .doc table {{ font-size: .95em; }}
- .doc blockquote {{ border-left: 3px solid #ccd; margin: .8rem 0; padding: .2rem .9rem;
-                    background: #fafaff; color: #333; }}
- .doc code {{ background: #f2f2f4; padding: 0 .2em; }}
-</style></head><body>
-<h1>Pravaha console <small>{engine}</small></h1>
-<nav><a href="/">queries</a><a href="/query">ask</a><a href="/help">help &amp; guides</a><a href="/health">health</a></nav>
-{body}
-</body></html>"""
-
-
-def render(engine_url: str, body: str) -> HTMLResponse:
-    return HTMLResponse(PAGE.format(engine=html.escape(engine_url), body=body))
+    Only the unambiguous cases. Anything else stays a string, because guessing wrongly here
+    turns a comparison that would have failed loudly into one that quietly matches nothing.
+    """
+    for cast in (int, float):
+        try:
+            return cast(value)
+        except ValueError:
+            continue
+    return value
 
 
 def create_app(engine: Engine) -> FastAPI:
+    services = Services(engine)
     app = FastAPI(title="Pravaha console", docs_url="/api/docs")
+    app.include_router(api_router(services))
+    app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
+
+    def health_now():
+        return services.health.health()
 
     @app.get("/health")
     def health() -> JSONResponse:
-        state = engine.health()
-        # 200 when the console is up and the engine is not, because the console's own health
-        # is the question this endpoint answers. The payload says what it found.
-        return JSONResponse(state)
+        # 200 even when the engine is down. This endpoint answers "is the console up", and
+        # a 503 here would have a monitoring system report the console as broken when it is
+        # working correctly and reporting accurately that something else is not.
+        return JSONResponse(health_now().as_dict())
+
+    def _queries_or_empty(**kwargs):
+        """The current list, or nothing if the engine will not answer.
+
+        Unreachable is a state the page renders, not an exception it raises: the banner in
+        the shell already says the engine is down, and a 500 here would replace that with a
+        stack trace that says less.
+        """
+        try:
+            return services.queries.find(**kwargs).items
+        except ServiceError:
+            return []
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
-        state = engine.health()
-        if not state["reachable"]:
-            return render(
-                engine.url,
-                "<p class='bad'>the engine is not reachable</p><pre>{}</pre>"
-                "<p class='muted'>The console is running; the engine it was pointed at is not "
-                "answering. Nothing below would be true, so nothing is shown.</p>".format(
-                    html.escape(str(state.get("error", "")))
-                ),
-            )
+        state = health_now()
+        rows = _queries_or_empty(limit=8, sort="-rows_in") if state.reachable else []
+        body = ui.overview(state, rows) + ui.help_cards("/")
+        return ui.shell(body, title="Overview", current="/", health=state)
 
-        rows = engine.queries()
-        if rows:
-            body = ["<table><tr><th>name</th><th>state</th><th>rows in</th><th>computation</th><th></th></tr>"]
-            for row in rows:
-                shared = (
-                    f"<span class='pill' title='another name shares this computation'>"
-                    f"shared {html.escape(row.fingerprint)}</span>"
-                    if row.shared
-                    else f"<span class='muted'>{html.escape(row.fingerprint)}</span>"
-                )
-                state_class = "ok" if row.state == "RUNNING" else "bad" if row.state == "FAILED" else "muted"
-                body.append(
-                    f"<tr><td><a href='/queries/{html.escape(row.name)}'>{html.escape(row.name)}</a></td>"
-                    f"<td class='{state_class}'>{html.escape(row.state)}</td>"
-                    f"<td>{row.rows_in}</td><td>{shared}</td>"
-                    f"<td><form method='post' action='/queries/{html.escape(row.name)}/drop' "
-                    f"style='margin:0'><button>drop</button></form></td></tr>"
-                )
-            body.append("</table>")
-        else:
-            body = ["<p class='muted'>no continuous queries are registered</p>"]
-
-        body.append(
-            "<h2>register</h2><form method='post' action='/queries'>"
-            "<p><input type='text' name='name' placeholder='view name' required> "
-            "<input type='text' name='keys' value='0' size='6' title='key column ordinals'></p>"
-            "<p><textarea name='sql' placeholder='SELECT ... FROM ...' required></textarea></p>"
-            "<button>register</button></form>"
-            "<p class='muted'>A registration runs until it is dropped. The same question registered "
-            "twice is one computation with two names &mdash; the fingerprint column is how you see it.</p>"
-        )
-        body.append(help_cards("index"))
-        return render(engine.url, "".join(body))
-
-    @app.post("/queries")
-    def register(name: str = Form(...), sql: str = Form(...), keys: str = Form("0")):
-        try:
-            ordinals = [int(part.strip()) for part in keys.split(",") if part.strip()]
-            engine.register(name, sql, ordinals)
-        except Exception as exc:
-            return render(engine.url, f"<p class='bad'>{html.escape(str(exc))}</p><p><a href='/'>back</a></p>")
-        return RedirectResponse("/", status_code=303)
-
-    @app.post("/queries/{name}/{action}")
-    def lifecycle(name: str, action: str):
-        try:
-            engine.lifecycle(action, name)
-        except Exception as exc:
-            return render(engine.url, f"<p class='bad'>{html.escape(str(exc))}</p><p><a href='/'>back</a></p>")
-        return RedirectResponse("/", status_code=303)
+    @app.get("/queries", response_class=HTMLResponse)
+    def queries() -> HTMLResponse:
+        state = health_now()
+        body = ui.queries_screen(_queries_or_empty(limit=25)) + ui.help_cards("/queries")
+        return ui.shell(body, title="Queries", current="/queries", health=state)
 
     @app.get("/queries/{name}", response_class=HTMLResponse)
-    def detail(name: str) -> HTMLResponse:
-        rows = [row for row in engine.queries() if row.name == name]
-        if not rows:
-            return render(engine.url, f"<p class='bad'>no query named {html.escape(name)}</p>")
-        row = rows[0]
-        body = [
-            f"<h2>{html.escape(row.name)} <span class='muted'>{html.escape(row.state)}</span></h2>",
-            f"<pre>{html.escape(row.sql)}</pre>",
-            f"<p class='muted'>fingerprint {html.escape(row.fingerprint)} &middot; {row.rows_in} rows in"
-            + (" &middot; <span class='pill'>shared with another name</span>" if row.shared else "")
-            + "</p>",
-            "<h3>live</h3>",
-            f"<pre id='tail' class='muted'>waiting for the next commit&hellip;</pre>",
-            # A tail rather than a poll: the product's argument is that the answer does not
-            # have to be out of date, and a console that polled would undercut it on its own
-            # front page.
-            "<script>"
-            f"const s = new EventSource('/queries/{html.escape(row.name)}/tail');"
-            "const p = document.getElementById('tail'); let n = 0;"
-            "s.onmessage = e => { if (n++ === 0) p.textContent = ''; "
-            "p.textContent = e.data + '\\n' + p.textContent; p.className = ''; };"
-            "s.onerror = () => { p.className = 'bad'; };"
-            "</script>",
-            "<p><form method='post' action='/queries/"
-            + html.escape(row.name)
-            + "/pause' style='display:inline'><button>pause</button></form> "
-            "<form method='post' action='/queries/"
-            + html.escape(row.name)
-            + "/resume' style='display:inline'><button>resume</button></form></p>",
-        ]
-        body.append(help_cards("detail"))
-        return render(engine.url, "".join(body))
+    def query_detail(name: str) -> HTMLResponse:
+        state = health_now()
+        try:
+            query = services.queries.get(name)
+            siblings = services.queries.siblings(name)
+            error = None
+        except ServiceError as exc:
+            query, siblings, error = None, [], str(exc)
+        body = ui.query_detail(name, query, siblings, error) + ui.help_cards("/queries")
+        return ui.shell(body, title=name, current="/queries", health=state)
 
-    @app.get("/queries/{name}/tail")
-    def tail(name: str) -> StreamingResponse:
-        def events():
-            try:
-                for row in engine.tail(name):
-                    yield f"data: {json.dumps(row, default=str)}\n\n"
-            except Exception as exc:
-                yield f"event: error\ndata: {json.dumps(str(exc))}\n\n"
+    @app.get("/workbench", response_class=HTMLResponse)
+    def workbench() -> HTMLResponse:
+        body = ui.workbench() + ui.help_cards("/workbench")
+        return ui.shell(body, title="Workbench", current="/workbench", health=health_now())
 
-        return StreamingResponse(events(), media_type="text/event-stream")
+    # ---- The same actions, as ordinary form posts ---------------------------------------
+    #
+    # The module intercepts these so the page does not reload, but they work without it.
+    # "Every workflow completable by keyboard alone" is a design 23.20 requirement, and a
+    # control that only exists once a script has run is not a control an operator can rely
+    # on when something on the page has thrown.
+
+    @app.post("/queries")
+    def register_form(name: str = Form(...), sql: str = Form(...), keys: str = Form("0")):
+        ordinals = [int(part.strip()) for part in keys.split(",") if part.strip()]
+        try:
+            services.queries.register(name, sql, ordinals)
+        except ServiceError as exc:
+            body = (
+                f'<h1>Register</h1><div class="banner error" role="alert"><div class="body">'
+                f'<div class="title">{html.escape(str(exc))}</div>'
+                f'<div><a href="/workbench">Back to the workbench</a></div></div></div>'
+            )
+            return ui.shell(body, title="Register", current="/workbench", health=health_now())
+        return RedirectResponse(f"/queries/{name}", status_code=303)
+
+    @app.post("/queries/{name}/{action}")
+    def act_form(name: str, action: str):
+        try:
+            services.queries.act(name, action)
+        except ServiceError as exc:
+            body = (
+                f'<h1>{html.escape(name)}</h1><div class="banner error" role="alert"><div class="body">'
+                f'<div class="title">{html.escape(str(exc))}</div>'
+                f'<div><a href="/queries">All queries</a></div></div></div>'
+            )
+            return ui.shell(body, title=name, current="/queries", health=health_now())
+        # Drop removes the thing this page was about, so it returns to the list; the others
+        # come back here, which is the POST-redirect-GET that stops a refresh repeating it.
+        return RedirectResponse("/queries" if action == "drop" else f"/queries/{name}", status_code=303)
+
+    # ---- Help: the repository's documentation, rendered ---------------------------------
 
     @app.get("/help", response_class=HTMLResponse)
     def help_index() -> HTMLResponse:
         pages = docs.available()
+        studies = docs.available_studies()
         if not pages:
-            return render(
-                engine.url,
-                "<h2>help</h2><p class='muted'>The documentation is not next to this console. It ships "
-                "in the repository under <code>docs/</code>; an installed copy outside the repository "
-                "has no access to it.</p>",
-            )
-        rows = "".join(
-            f"<tr><td><a href='/help/{name}'>{html.escape(title)}</a></td>"
-            f"<td class='muted'>{html.escape(blurb)}</td></tr>"
+            body = """<h1>Help</h1>
+              <div class="banner warn"><div class="body">
+              <div class="title">The documentation is not next to this console</div>
+              <div>It ships in the repository under <code>docs/</code>. An installed copy
+              outside the repository will not find it, which is this.</div></div></div>"""
+            return ui.shell(body, title="Help", current="/help", health=health_now())
+
+        guides = "".join(
+            f'<tr><td><a href="/help/{name}">{html.escape(title)}</a></td>'
+            f'<td class="subtitle" style="margin:0">{html.escape(blurb)}</td></tr>'
             for name, title, blurb in pages
         )
-        studies = "".join(
-            f"<tr><td><a href='/help/study/{name}'>{html.escape(title)}</a></td>"
-            f"<td class='muted'>{html.escape(blurb)}</td></tr>"
-            for name, title, blurb in docs.available_studies()
+        cases = "".join(
+            f'<tr><td><a href="/help/study/{name}">{html.escape(title)}</a></td>'
+            f'<td class="subtitle" style="margin:0">{html.escape(blurb)}</td></tr>'
+            for name, title, blurb in studies
         )
-        study_block = (
-            "<h3>worked systems</h3><table>" + studies + "</table>"
-            "<p class='muted'>Templates meant to be copied. Every SQL statement in them is planned and "
-            "run against the real engine by the build.</p>"
-            if studies
-            else ""
-        )
-        return render(
-            engine.url,
-            "<h2>help &amp; guides</h2><h3>guides</h3><table>" + rows + "</table>" + study_block
-            + "<p class='muted'>Rendered from the repository's own documentation rather than a copy, so "
-            "it cannot drift from the pages the build checks.</p>",
-        )
+        body = f"""<h1>Help</h1>
+          <p class="subtitle">The documentation that ships with this engine, rendered here so it
+          is reachable from the console rather than only from a checkout.</p>
+          <h2>Guides</h2>
+          <div class="card"><table><tbody>{guides}</tbody></table></div>
+          {'<h2>Case studies — worked systems</h2><div class="card"><table><tbody>' + cases + '</tbody></table></div>' if cases else ''}"""
+        return ui.shell(body, title="Help", current="/help", health=health_now())
 
     @app.get("/help/study/{name}", response_class=HTMLResponse)
     def help_study(name: str) -> HTMLResponse:
         text = docs.load_study(name)
         if text is None:
-            return render(
-                engine.url,
-                "<h2>help</h2><p class='bad'>no such case study</p><p><a href='/help'>all guides</a></p>",
+            # A 404, not a 200 with an apology in it. The allow-list refused the name, and
+            # saying "not found" is both true and what a client can act on.
+            page = ui.shell(
+                '<h1>Help</h1><div class="banner error"><div class="body">'
+                '<div class="title">There is no such case study</div>'
+                '<div><a href="/help">All guides</a></div></div></div>',
+                title="Help",
+                current="/help",
+                health=health_now(),
             )
-        return render(
-            engine.url,
-            "<p class='muted'><a href='/help'>&larr; all guides</a></p>"
-            "<article class='doc'>" + docs.render_markdown(text) + "</article>",
-        )
+            return HTMLResponse(page.body, status_code=404)
+        body = ('<p class="subtitle"><a href="/help">&larr; All guides</a></p>'
+                '<article class="card"><div class="card-body">' + docs.render_markdown(text) + "</div></article>")
+        return ui.shell(body, title=name, current="/help", health=health_now())
 
     @app.get("/help/{name}", response_class=HTMLResponse)
     def help_page(name: str) -> HTMLResponse:
         text = docs.load(name)
         if text is None:
-            return render(
-                engine.url,
-                "<h2>help</h2><p class='bad'>no such page</p><p><a href='/help'>all guides</a></p>",
+            page = ui.shell(
+                '<h1>Help</h1><div class="banner error"><div class="body">'
+                '<div class="title">There is no such page</div>'
+                '<div><a href="/help">All guides</a></div></div></div>',
+                title="Help",
+                current="/help",
+                health=health_now(),
             )
-        return render(
-            engine.url,
-            "<p class='muted'><a href='/help'>&larr; all guides</a></p>"
-            "<article class='doc'>" + docs.render_markdown(text) + "</article>",
-        )
+            return HTMLResponse(page.body, status_code=404)
+        body = ('<p class="subtitle"><a href="/help">&larr; All guides</a></p>'
+                '<article class="card"><div class="card-body">' + docs.render_markdown(text) + "</div></article>")
+        return ui.shell(body, title=name, current="/help", health=health_now())
 
-    @app.get("/query", response_class=HTMLResponse)
-    def ask_form() -> HTMLResponse:
-        return render(
-            engine.url,
-            "<h2>ask</h2><form method='post' action='/query'>"
-            "<p><textarea name='sql' placeholder='SELECT ... FROM view WHERE col = ?'></textarea></p>"
-            "<p><input type='text' name='params' placeholder='comma-separated values for ?' size='40'></p>"
-            "<button>run</button></form>"
-            "<p class='muted'>Values are bound, never pasted into the SQL. A bound value is never "
-            "parsed as SQL, and the server plans the statement once however many you ask about.</p>"
-            + help_cards("ask"),
-        )
+    # ---- Compatibility -------------------------------------------------------------------
+
+    @app.get("/query")
+    def query_redirect() -> RedirectResponse:
+        # The ad-hoc page moved into the workbench, which does the same and more. Redirected
+        # rather than removed: somebody has this bookmarked.
+        return RedirectResponse("/workbench", status_code=307)
 
     @app.post("/query", response_class=HTMLResponse)
-    def ask(sql: str = Form(...), params: str = Form("")) -> HTMLResponse:
-        values = [coerce(part.strip()) for part in params.split(",") if part.strip()]
+    def run_form(sql: str = Form(...), params: str = Form("")):
+        """The workbench's run, as an ordinary form post.
+
+        Values are coerced the same way the browser coerces them: a parameter is a value,
+        and sending "40" where the column is an integer compares a string to a number and
+        silently matches nothing (ADR-032).
+        """
+        values = [_coerce(part.strip()) for part in params.split(",") if part.strip()]
         try:
-            columns, rows = engine.query(sql, values)
-        except Exception as exc:
-            return render(engine.url, f"<p class='bad'>{html.escape(str(exc))}</p><p><a href='/query'>back</a></p>")
-        head = "".join(f"<th>{html.escape(str(c))}</th>" for c in columns)
-        body = "".join(
-            "<tr>" + "".join(f"<td>{html.escape(str(v))}</td>" for v in row) + "</tr>" for row in rows
+            result = services.adhoc.run(sql, values or None)
+        except ServiceError as exc:
+            body = (
+                '<h1>Workbench</h1><div class="banner error" role="alert"><div class="body">'
+                f'<div class="title">{html.escape(str(exc))}</div>'
+                '<div><a href="/workbench">Back to the workbench</a></div></div></div>'
+            ) + ui.help_cards("/workbench")
+            return ui.shell(body, title="Workbench", current="/workbench", health=health_now())
+
+        head = "".join(f"<th>{html.escape(c)}</th>" for c in result["columns"])
+        rows = "".join(
+            "<tr>" + "".join(f"<td>{html.escape(str(v))}</td>" for v in row) + "</tr>"
+            for row in result["rows"]
         )
-        return render(
-            engine.url,
-            f"<h2>ask</h2><pre>{html.escape(sql)}</pre>"
-            f"<table><tr>{head}</tr>{body}</table>"
-            f"<p class='muted'>{len(rows)} row(s)</p><p><a href='/query'>another</a></p>",
-        )
+        body = (
+            f'<h1>Workbench</h1><p class="subtitle">{result["returned"]} rows in '
+            f'{result["took_ms"]}ms. <a href="/workbench">Ask another</a></p>'
+            f'<div class="card"><table><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table></div>'
+        ) + ui.help_cards("/workbench")
+        return ui.shell(body, title="Workbench", current="/workbench", health=health_now())
 
     return app
-
-
-def coerce(value: str) -> object:
-    """A parameter is a number when it looks like one, and text otherwise."""
-    try:
-        return int(value)
-    except ValueError:
-        try:
-            return float(value)
-        except ValueError:
-            return value

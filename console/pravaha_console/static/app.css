@@ -1,0 +1,356 @@
+/*
+ * Pravaha console design system.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+ * Proprietary and confidential.
+ *
+ * Tokens first, components second. Every colour, space and radius is a variable, because
+ * a second theme is only cheap if nothing hard-codes a colour -- and design 23.20 requires
+ * light and dark both designed rather than one being the other with the colours flipped.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #fbfbfd;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f2f3f7;
+  --bg-hover: #eceef4;
+  --border: #dfe2ea;
+  --border-strong: #c3c8d4;
+
+  --text: #15171c;
+  --text-muted: #5c6272;
+  --text-faint: #878ea0;
+
+  --accent: #1f5fd0;
+  --accent-hover: #1a51b3;
+  --accent-fg: #ffffff;
+  --accent-wash: #e8f0fd;
+
+  --good: #1a7f4b;
+  --good-wash: #e6f4ec;
+  --warn: #9a6400;
+  --warn-wash: #fdf3e0;
+  --bad: #b3261e;
+  --bad-wash: #fcebea;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius: 8px;
+  --radius-sm: 5px;
+  --row-height: 40px;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --shadow: 0 1px 2px rgba(16, 20, 30, .06), 0 4px 12px rgba(16, 20, 30, .06);
+}
+
+/* Dark is designed, not inverted: the greys are cooler and the accents lightened so they
+   still pass contrast against a dark ground rather than merely being legible.
+
+   Two blocks, deliberately. The media query covers a reader whose system is dark and who
+   has expressed no preference here; the attribute block below covers an explicit choice
+   and must win in both directions, including choosing light on a dark system. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115;
+    --bg-raised: #171a21;
+    --bg-sunken: #0b0d11;
+    --bg-hover: #1e222b;
+    --border: #262b35;
+    --border-strong: #39404d;
+    --text: #e8eaf0;
+    --text-muted: #a0a7b8;
+    --text-faint: #737b8d;
+    --accent: #6ea3ff;
+    --accent-hover: #8ab6ff;
+    --accent-fg: #0b1220;
+    --accent-wash: #16233a;
+    --good: #4cc38a;
+    --good-wash: #12261c;
+    --warn: #e0a458;
+    --warn-wash: #2a2012;
+    --bad: #ff6b63;
+    --bad-wash: #2b1412;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 6px 18px rgba(0, 0, 0, .45);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --bg-raised: #171a21;
+  --bg-sunken: #0b0d11;
+  --bg-hover: #1e222b;
+  --border: #262b35;
+  --border-strong: #39404d;
+  --text: #e8eaf0;
+  --text-muted: #a0a7b8;
+  --text-faint: #737b8d;
+  --accent: #6ea3ff;
+  --accent-hover: #8ab6ff;
+  --accent-fg: #0b1220;
+  --accent-wash: #16233a;
+  --good: #4cc38a;
+  --good-wash: #12261c;
+  --warn: #e0a458;
+  --warn-wash: #2a2012;
+  --bad: #ff6b63;
+  --bad-wash: #2b1412;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 6px 18px rgba(0, 0, 0, .45);
+}
+
+/* Compact density, because an operator watching forty queries wants forty rows on one
+   screen and a demo wants room to read. Both are designed rather than one being a zoom. */
+:root[data-density="compact"] { --row-height: 30px; --space-4: 11px; --space-5: 16px; }
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* A visible focus ring everywhere, because design 23.20 requires every workflow to be
+   completable by keyboard alone and an invisible focus makes that technically true and
+   practically impossible. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: var(--space-2);
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  z-index: 100;
+}
+.skip-link:focus { left: var(--space-2); }
+
+header.app {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand { font-weight: 650; letter-spacing: -.01em; display: flex; align-items: center; gap: var(--space-2); }
+.brand .mark { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), #8b5cf6); }
+.brand small { color: var(--text-faint); font-weight: 400; }
+
+nav.app { display: flex; gap: var(--space-1); margin-left: var(--space-4); }
+nav.app a {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+nav.app a:hover { background: var(--bg-hover); text-decoration: none; color: var(--text); }
+nav.app a[aria-current="page"] { background: var(--accent-wash); color: var(--accent); }
+
+.spacer { flex: 1; }
+
+main { padding: var(--space-5); max-width: 1440px; margin: 0 auto; }
+
+h1 { font-size: 20px; margin: 0 0 var(--space-1); letter-spacing: -.01em; }
+h2 { font-size: 15px; margin: var(--space-5) 0 var(--space-3); }
+.subtitle { color: var(--text-muted); margin: 0 0 var(--space-5); }
+
+.card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.card > .card-head {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-weight: 600;
+}
+.card > .card-body { padding: var(--space-4); }
+
+.grid { display: grid; gap: var(--space-4); }
+.grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+
+.stat { padding: var(--space-4); }
+.stat .label { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+.stat .value { font-size: 26px; font-weight: 640; margin-top: var(--space-1); font-variant-numeric: tabular-nums; }
+.stat .note { color: var(--text-faint); font-size: 12px; }
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+th a { color: inherit; }
+td {
+  padding: 0 var(--space-3);
+  height: var(--row-height);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+tbody tr:hover { background: var(--bg-hover); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+pre {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  margin: 0;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+.pill.good { background: var(--good-wash); color: var(--good); }
+.pill.warn { background: var(--warn-wash); color: var(--warn); }
+.pill.bad  { background: var(--bad-wash);  color: var(--bad); }
+.pill.mute { background: var(--bg-sunken); color: var(--text-muted); border-color: var(--border); }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+button, .button {
+  font: inherit;
+  font-weight: 550;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--bg-hover); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+button.danger { color: var(--bad); border-color: var(--bad); }
+/* Disabled with a reason in the title, never a button that fails on click (23.12). */
+button:disabled { opacity: .5; cursor: not-allowed; }
+
+input, textarea, select {
+  font: inherit;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text);
+  width: 100%;
+}
+textarea { font-family: var(--mono); font-size: 13px; resize: vertical; min-height: 110px; }
+label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: var(--space-1); }
+.field { margin-bottom: var(--space-3); }
+.row { display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap; }
+
+/* ---- The eight states of design 23.12 ------------------------------------------------ */
+
+/* Loading, first: a skeleton shaped like the thing, never a spinner on a blank page. */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-sunken) 25%, var(--bg-hover) 50%, var(--bg-sunken) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: var(--radius-sm);
+  height: 12px;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+/* Loading, refresh: data stays put and the freshness marker moves. Never blank-then-refill. */
+.freshness { color: var(--text-faint); font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+.freshness .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+.freshness[data-state="refreshing"] .dot { background: var(--warn); }
+.freshness[data-state="stale"] .dot { background: var(--bad); }
+
+.state {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--text-muted);
+}
+.state h3 { margin: 0 0 var(--space-2); color: var(--text); font-size: 15px; }
+.state p { margin: 0 auto var(--space-4); max-width: 46ch; }
+
+.banner {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  margin-bottom: var(--space-4);
+}
+.banner.error { background: var(--bad-wash); border-color: var(--bad); color: var(--bad); }
+.banner.warn { background: var(--warn-wash); border-color: var(--warn); color: var(--warn); }
+.banner.info { background: var(--accent-wash); border-color: var(--accent); color: var(--accent); }
+.banner .body { flex: 1; color: var(--text); }
+.banner .title { font-weight: 650; }
+.banner .correlation { font-family: var(--mono); font-size: 11.5px; color: var(--text-muted); }
+
+/* Stale: dimmed, and never presented as if it were live. */
+.stale { opacity: .55; filter: saturate(.5); transition: opacity .2s; }
+
+.tail {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  height: 340px;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+.tail div { padding: 1px var(--space-1); border-bottom: 1px solid transparent; }
+.tail div:nth-child(odd) { background: rgba(127, 127, 127, .05); }
+.tail div.new { animation: flash .6s; }
+@keyframes flash { from { background: var(--accent-wash); } }
+@media (prefers-reduced-motion: reduce) { .tail div.new { animation: none; } }
+
+.toolbar { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-4); }
+.toolbar input[type="search"] { max-width: 320px; }
+.toolbar select { width: auto; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+footer.app { padding: var(--space-5); color: var(--text-faint); font-size: 12px; text-align: center; }
