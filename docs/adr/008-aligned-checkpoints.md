@@ -30,3 +30,23 @@ document is authoritative for how the decision is applied.
 ADRs are amended, never rewritten. If this decision is superseded, the file keeps its number
 and gains a `Superseded by ADR-NNN` line at the top rather than being deleted -- the reasoning
 behind a decision that was later reversed is usually the most useful thing in the directory.
+
+## Implementation status — as of 2026-09-11
+
+**Not built.** Checkpointing is **per-lane**: each lane snapshots its own state on its own thread,
+independently and not simultaneously. That is sound only while lanes share no state and each lane's
+sources are partitioned to it — which is true of every query the engine currently accepts, and stops
+being true the moment rows cross the exchange, because a row in flight belongs to neither lane's
+snapshot. The limitation is written into `QueryExecution.checkpoint`'s javadoc.
+
+Two further gaps follow from this:
+
+* **Registered continuous queries are not checkpointed at all.** The registry runs pipelines
+  directly and never constructs a `QueryExecution`, so the machinery above does not apply to
+  anything the server maintains. Recovery is a warm-up from the stream.
+* **`DeduplicatingSink` is not wired into the checkpoint path**, so effectively-once output is
+  available as a class and not as a guarantee.
+
+**Until aligned barriers exist, do not claim exactly-once state.** The honest shipped guarantee is
+at-least-once, and ADR-029 independently caps anything sourced from Aerospike at at-least-once
+regardless of what the engine does.

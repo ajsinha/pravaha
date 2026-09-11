@@ -142,9 +142,9 @@ Full competitive analysis, including the ten measurable claims this has to satis
 | **Language** | Java 21 LTS, single language. Calcite plans; generated fused operators execute. [Why not Scala →](docs/system_design.md#4-language-decision-java-vs-scala) |
 | **Execution** | Whole-stage code generation (Janino) over binary flyweight rows in off-heap arenas. No `Map<String,Object>`, no boxing, no allocation on the hot path. |
 | **Concurrency** | Partitioned lanes, single-writer principle. One thread, one ring buffer, one state slice, one timer wheel per lane. No locks in steady state. |
-| **State** | Tiered — off-heap hash arena → RocksDB → durable checkpoint store. RocksDB is a tier, not the whole stack. |
-| **Correctness** | Exactly-once state via aligned checkpoints; effectively-once output via idempotent sinks. The engine computes and reports the **weakest link** per query rather than over-promising. |
-| **Operations** | Adaptive batching, automatic per-key skew remediation, elastic rescaling, blue/green query updates, and a **time-travel debugger** that turns a production incident into a JUnit fixture. |
+| **State** | Off-heap hash arena, plus checkpoint files. **Designed** as three tiers with RocksDB as L1 (D5); the RocksDB tier is *not built* and is not a dependency. The defence against unbounded state today is refusal at plan time, not spill. |
+| **Correctness** | **Designed** for exactly-once state via aligned checkpoint barriers; *aligned barriers are not built*. Checkpointing today is per-lane, which is sound only while lanes share no state. `DeduplicatingSink` exists and is not yet wired. Treat the shipped guarantee as at-least-once. |
+| **Operations** | *All designed, none built:* adaptive batching, skew remediation, elastic rescaling, blue/green updates, and the time-travel debugger. What runs today is a single node with a registry, metrics and a console. |
 
 ## Shape
 

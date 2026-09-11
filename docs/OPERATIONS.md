@@ -272,19 +272,27 @@ tail. Compaction rewrites the journal with only what is live, via an atomic move
 The journal holds **query text and bound parameter values** — account numbers, customer ids,
 whatever clients filtered on. Permission it like data, not like configuration.
 
-Checkpoints are separate and retained **by count** (default: newest 3), not by age. That is
-deliberate and differs from view retention, which is time-based: a view holds data, and streaming
-data is about what is true now; a checkpoint holds a *fallback*, and the question is how many
-chances you have to recover. An idle system takes no new checkpoints, so an age rule would delete
-every one you had after a quiet night — precisely when recovery is most likely to be wanted.
+### Checkpoints: what is actually true
 
-```yaml
-pravaha:
-  checkpoint:
-    interval: 1m
-    keep: 3
-    timeout: 30s
-```
+**Registered continuous queries are not checkpointed.** The registry runs pipelines directly and
+never constructs a `QueryExecution`, which is what owns checkpointing — so for every query the
+server maintains, state lives only in memory and is rebuilt from the stream after a restart. That is
+the same warm-up the journal section describes, and it is the whole recovery story today.
+
+`PeriodicCheckpointer` exists, takes checkpoints on a schedule and prunes to a count — and **nothing
+in production constructs it.** It is reachable only by an embedder driving a `QueryExecution`
+directly. There is deliberately no `pravaha.checkpoint.*` block in `application.yaml`, because
+configuration that looks live and does nothing is worse than an absent feature: it invites an
+operator to tune a number that has no effect.
+
+Retention here would be counted rather than timed, and the reasoning is worth keeping for when it is
+wired: a view holds data and streaming data is about what is true now, so age is the right unit
+there; a checkpoint holds a *fallback*, and an idle system takes no new ones — so an age rule would
+delete every checkpoint after a quiet night, precisely when recovery is most likely to be wanted.
+
+**What this means for you.** Plan restarts as warm-ups, not as resumptions. A windowed query's first
+window or two after a restart are partial. There is no RocksDB tier and no disk-based state — the
+failure mode under pressure is memory, and the defence is plan-time refusal (`PRV-2050`), not spill.
 
 ## Deployment shapes
 

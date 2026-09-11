@@ -62,14 +62,12 @@ pravaha:
     # customer ids), so permission it like data, not like configuration.
     journal: ""
 
-  checkpoint:
-    interval: 1m
-    # Counted, not timed. A checkpoint is a fallback rather than data, and an idle system takes no
-    # new ones -- so an age rule would delete every checkpoint after a quiet night, precisely when
-    # recovery is most likely to be wanted. Served-view retention is time-based for the opposite
-    # reason.
-    keep: 3
-    timeout: 30s
+
+  # No checkpoint block, deliberately. PeriodicCheckpointer reads pravaha.checkpoint.*, and nothing
+  # in the server constructs it -- the registry runs pipelines directly and never builds a
+  # QueryExecution, so registered queries are not checkpointed at all. Configuration that looks live
+  # and does nothing is worse than an absent feature: it invites somebody to tune a number that has
+  # no effect and to believe recovery is covered. See docs/OPERATIONS.md.
 
   cluster:
     # What is being asked of the cluster (a correctness question).
