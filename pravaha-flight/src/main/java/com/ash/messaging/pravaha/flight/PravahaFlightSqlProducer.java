@@ -47,6 +47,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.registry.Subscription;
@@ -363,9 +364,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         try {
             Principal principal = principalOf(context);
             QueryRegistry required = requireRegistry();
-            List<String> fields = PravahaWire.decode(action.getBody());
+            List<String> fields = ControlWire.decode(action.getBody());
             switch (type) {
-                case PravahaWire.REGISTER -> {
+                case ControlWire.REGISTER -> {
                     if (fields.size() < 3) {
                         throw new PravahaException(
                                 FlightErrors.BAD_HANDLE, "register needs a name, some SQL and key columns");
@@ -377,27 +378,27 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         }
                     }
                     RegisteredQuery query = required.register(fields.get(0), fields.get(1), keys, principal);
-                    listener.onNext(new Result(PravahaWire.encode(
+                    listener.onNext(new Result(ControlWire.encode(
                             query.name(),
                             query.state().name(),
                             query.fingerprint().shortForm())));
                 }
-                case PravahaWire.DROP -> {
+                case ControlWire.DROP -> {
                     required.drop(fields.get(0));
-                    listener.onNext(new Result(PravahaWire.encode(fields.get(0), "DROPPED")));
+                    listener.onNext(new Result(ControlWire.encode(fields.get(0), "DROPPED")));
                 }
-                case PravahaWire.PAUSE -> {
+                case ControlWire.PAUSE -> {
                     required.pause(fields.get(0));
-                    listener.onNext(new Result(PravahaWire.encode(fields.get(0), "PAUSED")));
+                    listener.onNext(new Result(ControlWire.encode(fields.get(0), "PAUSED")));
                 }
-                case PravahaWire.RESUME -> {
+                case ControlWire.RESUME -> {
                     required.resume(fields.get(0));
-                    listener.onNext(new Result(PravahaWire.encode(fields.get(0), "RUNNING")));
+                    listener.onNext(new Result(ControlWire.encode(fields.get(0), "RUNNING")));
                 }
-                case PravahaWire.LIST -> {
+                case ControlWire.LIST -> {
                     for (String name : required.names()) {
                         RegisteredQuery query = required.require(name);
-                        listener.onNext(new Result(PravahaWire.encode(
+                        listener.onNext(new Result(ControlWire.encode(
                                 name,
                                 query.state().name(),
                                 query.sql(),
@@ -424,7 +425,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     public void getStream(CallContext context, Ticket ticket, ServerStreamListener listener) {
         // A subscription ticket is recognised by its magic rather than by trying to parse it as a
         // Flight SQL protobuf and seeing what happens. Guessing is not telling.
-        if (PravahaWire.isOurs(ticket.getBytes())) {
+        if (ControlWire.isOurs(ticket.getBytes())) {
             streamSubscription(context, ticket, listener);
             return;
         }
@@ -440,7 +441,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      */
     private void streamSubscription(CallContext context, Ticket ticket, ServerStreamListener listener) {
         try {
-            List<String> fields = PravahaWire.decode(ticket.getBytes());
+            List<String> fields = ControlWire.decode(ticket.getBytes());
             if (fields.size() < 2 || !"subscribe".equals(fields.get(0))) {
                 throw new PravahaException(FlightErrors.BAD_HANDLE, "this is not a subscription ticket");
             }

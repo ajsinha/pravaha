@@ -255,6 +255,7 @@ right numbers — which is how that distinction was discovered.
 | Query registration and lifecycle (ADR-025) | ✅ `pravaha-registry` — register, list, pause, resume, drop; sharing by fingerprint so the same question twice is one computation with two names, released on the *last* drop. The surface everything else was waiting on |
 | Subscriptions, engine side | ✅ `Subscription` on a registered query — per-commit batches, weights carried so a correction is a retraction plus an insert, bounded buffer with CONFLATE / DROP_OLDEST / FAIL. The engine is never blocked by a slow subscriber, and what is lost is counted |
 | Subscriptions over the Flight wire | ✅ a Flight ticket that holds a stream open; commits arrive as Arrow batches, so a batch boundary is a commit boundary. Tap filters travel in the ticket |
+| Register/subscribe in **both SDKs** | ✅ `register`, `queries`, `pause`, `resume`, `drop`, `subscribe(view, filters)` in Java and Python, same surface, tested against the real server |
 | Registry over the wire | ✅ Flight *actions* — `pravaha.register`, `.list`, `.pause`, `.resume`, `.drop`. Flight SQL has no vocabulary for standing up a computation, and actions are the extension it provides |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 

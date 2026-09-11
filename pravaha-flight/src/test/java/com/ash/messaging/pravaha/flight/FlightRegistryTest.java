@@ -38,6 +38,7 @@ import org.junit.jupiter.api.Timeout;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
@@ -111,8 +112,8 @@ class FlightRegistryTest {
 
     private List<List<String>> act(String type, String... fields) {
         List<List<String>> results = new ArrayList<>();
-        client.doAction(new Action(type, PravahaWire.encode(fields)))
-                .forEachRemaining(result -> results.add(PravahaWire.decode(result.getBody())));
+        client.doAction(new Action(type, ControlWire.encode(fields)))
+                .forEachRemaining(result -> results.add(ControlWire.decode(result.getBody())));
         return results;
     }
 
@@ -136,7 +137,7 @@ class FlightRegistryTest {
     @Test
     void aQueryCanBeRegisteredOverTheWire() {
         List<List<String>> results =
-                act(PravahaWire.REGISTER, "trade_feed", "SELECT trade_id, product_type FROM trade", "0");
+                act(ControlWire.REGISTER, "trade_feed", "SELECT trade_id, product_type FROM trade", "0");
 
         assertThat(results).singleElement().satisfies(row -> {
             assertThat(row.get(0)).isEqualTo("trade_feed");
@@ -147,17 +148,17 @@ class FlightRegistryTest {
 
     @Test
     void registeredQueriesCanBeListedPausedResumedAndDropped() {
-        act(PravahaWire.REGISTER, "trade_feed", "SELECT trade_id, product_type FROM trade", "0");
+        act(ControlWire.REGISTER, "trade_feed", "SELECT trade_id, product_type FROM trade", "0");
 
-        assertThat(act(PravahaWire.LIST)).singleElement().satisfies(row -> {
+        assertThat(act(ControlWire.LIST)).singleElement().satisfies(row -> {
             assertThat(row.get(0)).isEqualTo("trade_feed");
             assertThat(row.get(1)).isEqualTo("RUNNING");
             assertThat(row.get(2)).contains("SELECT");
         });
 
-        assertThat(act(PravahaWire.PAUSE, "trade_feed").get(0).get(1)).isEqualTo("PAUSED");
-        assertThat(act(PravahaWire.RESUME, "trade_feed").get(0).get(1)).isEqualTo("RUNNING");
-        assertThat(act(PravahaWire.DROP, "trade_feed").get(0).get(1)).isEqualTo("DROPPED");
+        assertThat(act(ControlWire.PAUSE, "trade_feed").get(0).get(1)).isEqualTo("PAUSED");
+        assertThat(act(ControlWire.RESUME, "trade_feed").get(0).get(1)).isEqualTo("RUNNING");
+        assertThat(act(ControlWire.DROP, "trade_feed").get(0).get(1)).isEqualTo("DROPPED");
         assertThat(registry.names()).isEmpty();
     }
 
@@ -172,7 +173,7 @@ class FlightRegistryTest {
         Reader(String view, List<String> filters, int expect) {
             this.got = new CountDownLatch(expect);
             this.thread = Thread.ofVirtual().start(() -> {
-                try (FlightStream stream = client.getStream(new Ticket(PravahaWire.subscribeTicket(view, filters)))) {
+                try (FlightStream stream = client.getStream(new Ticket(ControlWire.subscribeTicket(view, filters)))) {
                     open.set(stream);
                     while (stream.next()) {
                         System.out.println(
@@ -247,7 +248,7 @@ class FlightRegistryTest {
 
     @Test
     void aSubscriberReceivesChangesAsTheyAreCommitted() throws Exception {
-        act(PravahaWire.REGISTER, "trade_feed", "SELECT trade_id, product_type FROM trade", "0");
+        act(ControlWire.REGISTER, "trade_feed", "SELECT trade_id, product_type FROM trade", "0");
 
         try (Reader reader = new Reader("trade_feed", List.of(), 2)) {
             reader.awaitAttached();
@@ -261,7 +262,7 @@ class FlightRegistryTest {
 
     @Test
     void aSubscriberCanFilterAtTheTap() throws Exception {
-        act(PravahaWire.REGISTER, "trade_feed", "SELECT trade_id, product_type FROM trade", "0");
+        act(ControlWire.REGISTER, "trade_feed", "SELECT trade_id, product_type FROM trade", "0");
 
         try (Reader reader = new Reader("trade_feed", List.of("product_type", "SWAP"), 1)) {
             reader.awaitAttached();
@@ -278,7 +279,7 @@ class FlightRegistryTest {
     void subscribingToSomethingUnregisteredIsRefused() {
         assertThatThrownBy(() -> {
                     try (FlightStream stream =
-                            client.getStream(new Ticket(PravahaWire.subscribeTicket("nope", List.of())))) {
+                            client.getStream(new Ticket(ControlWire.subscribeTicket("nope", List.of())))) {
                         stream.next();
                     }
                 })
@@ -306,7 +307,7 @@ class FlightRegistryTest {
             // different risks: a read costs a scan and ends, a registration commits the node to
             // memory and a share of every lane for as long as it exists.
             assertThatThrownBy(() -> other.doAction(new Action(
-                                    PravahaWire.REGISTER, PravahaWire.encode("t", "SELECT trade_id FROM trade", "0")))
+                                    ControlWire.REGISTER, ControlWire.encode("t", "SELECT trade_id FROM trade", "0")))
                             .forEachRemaining(result -> {}))
                     .isInstanceOf(FlightRuntimeException.class)
                     .hasMessageContaining("PRV-7002");
@@ -321,7 +322,7 @@ class FlightRegistryTest {
                         .build()) {
 
             assertThatThrownBy(() -> other.doAction(
-                                    new Action(PravahaWire.REGISTER, PravahaWire.encode("a", "SELECT 1", "0")))
+                                    new Action(ControlWire.REGISTER, ControlWire.encode("a", "SELECT 1", "0")))
                             .forEachRemaining(result -> {}))
                     .isInstanceOf(FlightRuntimeException.class)
                     .hasMessageContaining("does not host a registry");

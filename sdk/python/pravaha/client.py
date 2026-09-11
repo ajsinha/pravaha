@@ -25,6 +25,7 @@ bare ImportError from three frames down.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Iterator, Optional, Sequence
 
 from pravaha.endpoint import Endpoint
@@ -306,6 +307,135 @@ class Client:
             # propagate would replace a good result with an error about tidying up.
             pass
 
+    # ---------------------------------------------------------------------------------
+    # Continuous queries: registering them, and subscribing to what they produce.
+    # ---------------------------------------------------------------------------------
+
+    def register(self, name: str, sql: str, key_columns: Sequence[int]) -> "RegisteredQuery":
+        """Registers a continuous query and returns what the server made of it.
+
+        A registration is not a request -- it is a computation that keeps running and
+        keeps a view current until somebody drops it::
+
+            client.register("trade_feed", open("sql/01-continuous-trade-feed.sql").read(), [0])
+
+        Registering the same question twice, even worded differently, gives one
+        computation with two names: the server matches on the normalised plan rather
+        than the text. The returned fingerprint is how you can tell.
+        """
+        ordinals = ",".join(str(int(c)) for c in key_columns)
+        rows = self._act(_ACTION_REGISTER, [name, sql, ordinals])
+        if not rows:
+            raise QueryError("the server accepted the registration but said nothing about it")
+        row = rows[0]
+        return RegisteredQuery(
+            name=_at(row, 0), state=_at(row, 1), sql=sql, fingerprint=_at(row, 2), rows_in=0
+        )
+
+    def queries(self) -> "list[RegisteredQuery]":
+        """Every continuous query this server is running."""
+        out = []
+        for row in self._act(_ACTION_LIST, []):
+            try:
+                rows_in = int(_at(row, 4) or 0)
+            except ValueError:
+                rows_in = 0
+            out.append(
+                RegisteredQuery(
+                    name=_at(row, 0),
+                    state=_at(row, 1),
+                    sql=_at(row, 2),
+                    fingerprint=_at(row, 3),
+                    rows_in=rows_in,
+                )
+            )
+        return out
+
+    def pause(self, name: str) -> None:
+        """Stops a query without releasing it; its view keeps answering where it reached."""
+        self._act(_ACTION_PAUSE, [name])
+
+    def resume(self, name: str) -> None:
+        self._act(_ACTION_RESUME, [name])
+
+    def drop(self, name: str) -> None:
+        """Removes a name.
+
+        The computation goes when its *last* name goes. If somebody else registered the
+        same question, dropping yours leaves theirs running -- which is the point:
+        neither of you knows the other exists.
+        """
+        self._act(_ACTION_DROP, [name])
+
+    def subscribe(
+        self,
+        view: str,
+        filters: Optional[dict] = None,
+        *,
+        batch_size_hint: Optional[int] = None,
+    ) -> Iterator["list[Row]"]:
+        """Yields one list of rows per commit, for as long as you keep iterating.
+
+            for batch in client.subscribe("trade_feed", {"product_type": "SWAP"}):
+                for row in batch:
+                    handle(row["trade_json"])
+
+        A batch is a **commit**, not an arbitrary chunk. Between commits the view holds a
+        half-applied window, so a consumer woken per row could act on a total that was
+        still being assembled.
+
+        ``filters`` are applied at the tap, so rows you did not ask for never cross the
+        network. Equality only, and a column the view does not have is refused rather
+        than ignored -- a filter quietly dropped would leave you receiving everything
+        while believing you had asked for a slice.
+
+        This is a generator and it does not end on its own: stop iterating, or close the
+        client, when you have had enough.
+        """
+        pairs: list = []
+        for column, value in (filters or {}).items():
+            pairs.append(str(column))
+            pairs.append(str(value))
+        ticket = _flight.Ticket(_subscribe_ticket(view, pairs))
+        try:
+            reader = self._client.do_get(ticket, self._call_options)
+        except Exception as exc:
+            # A refused subscription -- an unknown view, a filter naming a column the view does
+            # not have -- surfaces here, before a single batch. Converted like every other
+            # failure so callers catch one exception type rather than pyarrow's several.
+            raise QueryError(_message_of(exc)) from exc
+        try:
+            for chunk in reader:
+                table = chunk.data
+                columns = table.schema.names
+                rows = [
+                    Row(columns, [table.column(i)[r].as_py() for i in range(table.num_columns)])
+                    for r in range(table.num_rows)
+                ]
+                if rows:
+                    yield rows
+        except (KeyboardInterrupt, GeneratorExit):
+            raise
+        except QueryError:
+            raise
+        except Exception as exc:
+            raise QueryError(_message_of(exc)) from exc
+
+    def _act(self, action: str, fields: Sequence[str]) -> "list[list[str]]":
+        try:
+            results = self._client.do_action(
+                _flight.Action(action, _wire_encode(fields)), self._call_options
+            )
+            return [_wire_decode(bytes(r.body)) for r in results]
+        except QueryError:
+            raise
+        except Exception as exc:
+            # Every failure becomes a QueryError carrying the server's own message, PRV code and
+            # all. pyarrow maps Flight statuses onto several of its own exception classes --
+            # ArrowInvalid for INVALID_ARGUMENT, FlightError for others -- and which one a caller
+            # sees should not depend on which status the server happened to choose.
+            raise QueryError(_message_of(exc)) from exc
+
     def close(self) -> None:
         self._client.close()
 
@@ -345,6 +475,79 @@ def _statement_command(sql: str) -> bytes:
     query = _proto_field(1, sql.encode("utf-8"))
     type_url = _proto_field(1, b"type.googleapis.com/arrow.flight.protocol.sql.CommandStatementQuery")
     return type_url + _proto_field(2, query)
+
+
+# Pravaha's own control protocol. Flight SQL has no vocabulary for "register a continuous
+# query" or "subscribe to one", so both travel as Flight actions and a Flight ticket -- the
+# extension points the protocol provides. The framing is a magic number, a version and a list
+# of length-prefixed UTF-8 strings, which is four lines to write in either language and keeps
+# this SDK free of a protobuf runtime.
+_WIRE_MAGIC = 0x50525648
+_WIRE_VERSION = 1
+
+_ACTION_REGISTER = "pravaha.register"
+_ACTION_DROP = "pravaha.drop"
+_ACTION_LIST = "pravaha.list"
+_ACTION_PAUSE = "pravaha.pause"
+_ACTION_RESUME = "pravaha.resume"
+
+
+def _wire_encode(fields: Sequence[str]) -> bytes:
+    out = bytearray()
+    out += _WIRE_MAGIC.to_bytes(4, "big")
+    out.append(_WIRE_VERSION)
+    out += len(fields).to_bytes(4, "big")
+    for field in fields:
+        encoded = (field or "").encode("utf-8")
+        out += len(encoded).to_bytes(4, "big")
+        out += encoded
+    return bytes(out)
+
+
+def _wire_decode(payload: bytes) -> "list[str]":
+    if len(payload) < 9 or int.from_bytes(payload[0:4], "big") != _WIRE_MAGIC:
+        raise QueryError("this is not a Pravaha response")
+    if payload[4] != _WIRE_VERSION:
+        raise QueryError("this response was built by a different version of the server")
+    count = int.from_bytes(payload[5:9], "big")
+    fields = []
+    index = 9
+    for _ in range(count):
+        if index + 4 > len(payload):
+            raise QueryError("this Pravaha response is malformed")
+        length = int.from_bytes(payload[index : index + 4], "big")
+        index += 4
+        if length < 0 or index + length > len(payload):
+            raise QueryError("this Pravaha response is malformed")
+        fields.append(payload[index : index + length].decode("utf-8"))
+        index += length
+    return fields
+
+
+def _subscribe_ticket(view: str, filter_pairs: Sequence[str]) -> bytes:
+    return _wire_encode(["subscribe", view, *filter_pairs])
+
+
+def _at(row: Sequence[str], index: int) -> str:
+    return row[index] if index < len(row) else ""
+
+
+@dataclass(frozen=True)
+class RegisteredQuery:
+    """What a server says about one registered continuous query."""
+
+    name: str
+    state: str
+    sql: str
+    fingerprint: str
+    rows_in: int
+
+    @property
+    def is_running(self) -> bool:
+        return self.state == "RUNNING"
+
+    def __str__(self) -> str:
+        return f"{self.name} [{self.state}, {self.fingerprint}, {self.rows_in} rows]"
 
 
 def _create_prepared_request(sql: str) -> bytes:

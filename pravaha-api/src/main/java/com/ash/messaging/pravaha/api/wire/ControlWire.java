@@ -13,13 +13,14 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
-package com.ash.messaging.pravaha.flight;
+package com.ash.messaging.pravaha.api.wire;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -38,29 +39,36 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * <p>The magic matters for a second reason: {@code getStream} has to tell a Pravaha subscription
  * ticket from a Flight SQL one, and guessing by trying to parse it as protobuf and seeing what
  * happens is not telling.
+ *
+ * <p>It lives in the API module because both ends of the wire need it and neither owns it. The
+ * server cannot depend on the client and the client must not depend on the server, so a format they
+ * both speak belongs with the contract rather than in either implementation.
  */
-final class PravahaWire {
+public final class ControlWire {
+
+    /** A request this server cannot read. Its own code, because both ends of the wire need it. */
+    public static final ErrorCode BAD_REQUEST = new ErrorCode(6102, "FLIGHT_BAD_HANDLE");
 
     /** "PRVH" -- lets getStream recognise our tickets without parsing them as something else. */
-    static final int MAGIC = 0x50525648;
+    public static final int MAGIC = 0x50525648;
 
     static final byte VERSION = 1;
 
     /** Actions this server answers beyond Flight SQL's own. */
-    static final String REGISTER = "pravaha.register";
+    public static final String REGISTER = "pravaha.register";
 
-    static final String DROP = "pravaha.drop";
+    public static final String DROP = "pravaha.drop";
 
-    static final String LIST = "pravaha.list";
+    public static final String LIST = "pravaha.list";
 
-    static final String PAUSE = "pravaha.pause";
+    public static final String PAUSE = "pravaha.pause";
 
-    static final String RESUME = "pravaha.resume";
+    public static final String RESUME = "pravaha.resume";
 
-    private PravahaWire() {}
+    private ControlWire() {}
 
     /** Encodes a list of strings. Nulls are encoded as absent and decode as empty. */
-    static byte[] encode(List<String> fields) {
+    public static byte[] encode(List<String> fields) {
         int size = 4 + 1 + 4;
         List<byte[]> encoded = new ArrayList<>(fields.size());
         for (String field : fields) {
@@ -79,12 +87,12 @@ final class PravahaWire {
         return buffer.array();
     }
 
-    static byte[] encode(String... fields) {
+    public static byte[] encode(String... fields) {
         return encode(List.of(fields));
     }
 
     /** True if these bytes are ours, without attempting to parse them as anything else. */
-    static boolean isOurs(byte[] bytes) {
+    public static boolean isOurs(byte[] bytes) {
         return bytes != null && bytes.length >= 5 && ByteBuffer.wrap(bytes).getInt() == MAGIC;
     }
 
@@ -95,27 +103,27 @@ final class PravahaWire {
      * upgrade. A malformed payload is a refusal with a code, never an exception with an array index
      * in it.
      */
-    static List<String> decode(byte[] bytes) {
+    public static List<String> decode(byte[] bytes) {
         try {
             ByteBuffer buffer = ByteBuffer.wrap(bytes);
             if (buffer.remaining() < 9 || buffer.getInt() != MAGIC) {
-                throw new PravahaException(FlightErrors.BAD_HANDLE, "this is not a Pravaha request");
+                throw new PravahaException(BAD_REQUEST, "this is not a Pravaha request");
             }
             byte version = buffer.get();
             if (version != VERSION) {
                 throw new PravahaException(
-                        FlightErrors.BAD_HANDLE,
+                        BAD_REQUEST,
                         "this request was built by a different version of the client; upgrade one of them");
             }
             int count = buffer.getInt();
             if (count < 0 || count > 1024) {
-                throw new PravahaException(FlightErrors.BAD_HANDLE, "this Pravaha request is malformed");
+                throw new PravahaException(BAD_REQUEST, "this Pravaha request is malformed");
             }
             List<String> fields = new ArrayList<>(count);
             for (int i = 0; i < count; i++) {
                 int length = buffer.getInt();
                 if (length < 0 || length > buffer.remaining()) {
-                    throw new PravahaException(FlightErrors.BAD_HANDLE, "this Pravaha request is malformed");
+                    throw new PravahaException(BAD_REQUEST, "this Pravaha request is malformed");
                 }
                 byte[] field = new byte[length];
                 buffer.get(field);
@@ -125,12 +133,12 @@ final class PravahaWire {
         } catch (PravahaException e) {
             throw e;
         } catch (RuntimeException e) {
-            throw new PravahaException(FlightErrors.BAD_HANDLE, "this Pravaha request is malformed", e);
+            throw new PravahaException(BAD_REQUEST, "this Pravaha request is malformed", e);
         }
     }
 
     /** The ticket a subscriber returns with: a view name, then alternating filter column and value. */
-    static byte[] subscribeTicket(String view, List<String> filterPairs) {
+    public static byte[] subscribeTicket(String view, List<String> filterPairs) {
         List<String> fields = new ArrayList<>();
         fields.add("subscribe");
         fields.add(view);

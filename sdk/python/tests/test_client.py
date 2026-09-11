@@ -225,3 +225,96 @@ def test_a_value_of_the_wrong_type_names_the_placeholder(client):
         client.query("SELECT user_id FROM user_volume WHERE total > ?", ["not a number"])
 
     assert "?1" in str(refused.value)
+
+
+# --- Continuous queries: registering them, and subscribing to what they produce -----------
+
+TRADE_SQL = "SELECT trade_id, product_type, trade_json FROM trade"
+
+
+def test_a_continuous_query_can_be_registered_and_listed(client):
+    registered = client.register("py_feed", TRADE_SQL, [0])
+    try:
+        assert registered.name == "py_feed"
+        assert registered.is_running
+        # The fingerprint identifies the computation, not the name. Two names sharing one is
+        # one copy of the state, which is the whole reason it is reported.
+        assert registered.fingerprint
+
+        names = [q.name for q in client.queries()]
+        assert "py_feed" in names
+    finally:
+        client.drop("py_feed")
+
+
+def test_the_same_question_registered_twice_is_one_computation(client):
+    first = client.register("py_a", TRADE_SQL, [0])
+    # Different text, same normalised plan.
+    second = client.register("py_b", "SELECT t.trade_id, t.product_type, t.trade_json FROM trade AS t", [0])
+    try:
+        assert first.fingerprint == second.fingerprint
+    finally:
+        client.drop("py_a")
+        client.drop("py_b")
+
+
+def test_a_query_can_be_paused_resumed_and_dropped(client):
+    client.register("py_life", TRADE_SQL, [0])
+    client.pause("py_life")
+    assert [q.state for q in client.queries() if q.name == "py_life"] == ["PAUSED"]
+
+    client.resume("py_life")
+    assert [q.state for q in client.queries() if q.name == "py_life"] == ["RUNNING"]
+
+    client.drop("py_life")
+    assert "py_life" not in [q.name for q in client.queries()]
+
+
+def test_dropping_an_unknown_query_is_refused(client):
+    with pytest.raises(QueryError) as refused:
+        client.drop("py_never_registered")
+
+    assert "PRV-5002" in str(refused.value)
+
+
+def test_registering_a_query_over_an_unknown_stream_is_refused(client):
+    with pytest.raises(QueryError) as refused:
+        client.register("py_bad", "SELECT nope FROM nosuchstream", [0])
+
+    # PRV-2003: the stream is not registered. Caught at registration rather than at the
+    # first row, which is the point of planning up front.
+    assert "PRV-" in str(refused.value)
+
+
+def test_a_subscription_can_be_opened_and_filtered(client):
+    """The subscription surface, exercised for shape rather than for delivery.
+
+    Nothing feeds the `trade` stream in this fixture, so no batch ever arrives -- and
+    that is the honest thing to assert here. What *is* worth proving from Python is
+    that the ticket is built correctly, the server accepts it, a bad filter is refused
+    rather than ignored, and the generator does not blow up. Delivery over the wire is
+    proven in FlightRegistryTest, which has an engine to feed.
+    """
+    client.register("py_sub", TRADE_SQL, [0])
+    try:
+        stream = client.subscribe("py_sub", {"product_type": "SWAP"})
+        # A generator: nothing happens until it is iterated, and iterating would park
+        # forever on a stream with no data. Closing it is what a consumer that has had
+        # enough does, and it must not raise.
+        stream.close()
+    finally:
+        client.drop("py_sub")
+
+
+def test_a_filter_naming_an_unknown_column_is_refused(client):
+    client.register("py_filter", TRADE_SQL, [0])
+    try:
+        with pytest.raises(QueryError) as refused:
+            # Consumed, because the refusal comes from the server when the stream opens.
+            next(iter(client.subscribe("py_filter", {"prodcut_type": "SWAP"})))
+
+        # Refused, not ignored. A typo quietly dropped would leave a consumer receiving
+        # everything while believing it had asked for a slice.
+        assert "has no column" in str(refused.value)
+    finally:
+        client.drop("py_filter")

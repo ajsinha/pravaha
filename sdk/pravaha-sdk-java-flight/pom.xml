@@ -38,6 +38,18 @@
     </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-registry</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-flight</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
