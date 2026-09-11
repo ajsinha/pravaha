@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import helpcards %}
+{% from "_queries_table.html" import rows %}
+{% block title %}Overview — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">OVERVIEW</p>
+<h1>This engine</h1>
+<div class="rule"></div>
+<p class="text-muted">One engine, at <span class="mono">{{ engine_url }}</span>.
+  <span class="freshness ms-2" id="freshness"></span></p>
+
+{% if not engine_up %}
+<div class="alert alert-danger" role="alert">
+  <div class="fw-semibold">The engine is not answering</div>
+  <pre class="small mt-2 mb-2">{{ engine_error }}</pre>
+  <div class="small">This console is running and this page is current — it is the engine at
+    <span class="mono">{{ engine_url }}</span> that cannot be reached. Check that it is started and
+    that its Flight port matches.</div>
+  <button type="button" class="btn btn-sm btn-primary mt-2" onclick="location.reload()">Try again</button>
+</div>
+{% endif %}
+
+<div class="row g-3" id="stats">
+  {% for label, note in [
+      ('Registered', 'continuous queries'),
+      ('Running', 'maintaining a view'),
+      ('Shared', 'names on a shared computation'),
+      ('Live feeds', 'engine subscriptions, however many tabs')] %}
+  <div class="col-6 col-lg-3"><div class="card stat"><div class="card-body">
+    <div class="label">{{ label }}</div>
+    <div class="value"><div class="skeleton" style="height:26px;width:3rem"></div></div>
+    <div class="note">{{ note }}</div>
+  </div></div></div>
+  {% endfor %}
+</div>
+
+<h2>Busiest queries</h2>
+<div class="card"><div class="table-responsive"><table class="table mb-0" id="recent">
+  <thead><tr><th>Name</th><th>State</th><th class="num">Rows in</th><th>Shared</th></tr></thead>
+  <tbody>{{ rows(queries, wide=False) }}</tbody>
+</table></div></div>
+{{ helpcards([   ('quickstart', 'Quick start', 'From nothing to a maintained view, with the refusals included.'),   ('concepts', 'Concepts', 'Deltas, event time, watermarks, and why a view is already correct.'),   ('operations', 'Operations', 'What to watch, what survives a restart, and what a cluster promises.'), ]) }}
+{% endblock %}
+{% block scripts %}<script src="/static/js/overview.js"></script>{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}About — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">ABOUT</p>
+<h1>What {{ app_name }} is</h1>
+<div class="rule"></div>
+<p class="text-muted" style="max-width:46rem;line-height:1.65">
+  {{ principle }} A streaming SQL engine that maintains the answer to a question for as long as the
+  question is registered — and refuses, at plan time and with a reason, anything it cannot keep
+  bounded.</p>
+
+{% if topics %}
+<div class="row g-3 mt-2">
+  {% for t in topics %}
+  <div class="col-md-6 col-lg-4">
+    <a class="card h-100 text-decoration-none" href="/about#{{ t.slug }}">
+      <div class="card-body">
+        <i class="bi bi-{{ t.icon }}" style="color:var(--flow)"></i>
+        <div class="serif fw-semibold mt-1">{{ t.title }}</div>
+        <div class="small text-muted">{{ t.summary }}</div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% for t in topics %}
+<div class="card mt-4" id="{{ t.slug }}"><div class="card-body doc">{{ t.html|safe }}</div></div>
+{% endfor %}
+{% else %}
+<div class="card"><div class="card-body text-muted small">
+  No about content found. Expected markdown files under
+  <span class="mono">content/about/</span>.</div></div>
+{% endif %}
+
+<div class="card mt-4"><div class="card-body py-3 d-flex flex-wrap align-items-center gap-3">
+  <div class="flex-grow-1" style="min-width:18rem">
+    <div class="serif fw-semibold">Documentation</div>
+    <div class="text-muted small">Concepts, guides and troubleshooting, rendered from the
+      repository's own <span class="mono">docs/</span>.</div>
+  </div>
+  <a class="btn btn-sm btn-primary py-1 px-3" href="/help">Open help</a>
+</div></div>
+{% endblock %}

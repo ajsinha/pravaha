@@ -31,7 +31,7 @@ import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
-from pravaha_console.engine import Engine, QueryRow
+from core.engine import Engine, QueryRow
 
 
 @dataclasses.dataclass(frozen=True)

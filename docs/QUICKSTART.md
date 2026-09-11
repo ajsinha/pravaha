@@ -135,64 +135,58 @@ pravaha subscribe --view user_volume --filter user_id=u1
 ## 7. Open the console
 
 The console is a **separate process** that talks to the engine over the published Python SDK
-(ADR-024) — the same client an integrator uses. So it needs the engine running first.
+(ADR-024), and ships as its own artefact (ADR-033). So it needs the engine running first.
 
-**Prerequisites:** Python 3.11+, and an engine listening on `9090` (step 2 above, or
-`java -jar pravaha-server/target/pravaha-server-*.jar`).
+**Prerequisites:** Python 3.11+, and an engine listening on `9090` (step 2 above).
 
 ```bash
 cd console
-make install          # creates .venv, installs the console and the Pravaha Python SDK
-make run              # serves on :8090, talking to grpc://localhost:9090
+make install          # .venv, the Pravaha Python SDK, and the console
+make run              # http://127.0.0.1:8090, engine at grpc://localhost:9090
 ```
 
-Open **<http://127.0.0.1:8090>**.
-
-Ports: the console is on **8090**, the engine's Flight endpoint on **9090**, and the engine's own
-HTTP/actuator surface on **8080**. To point the console somewhere else:
+Any setting can be overridden on the command line, so a second instance needs no file of its own:
 
 ```bash
-.venv/bin/python -m pravaha_console --engine grpc://otherhost:9090 --port 8090 --token "$TOKEN"
+python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:9090
 ```
 
-**The engine does not have to be up.** The console starts anyway and says the engine is unreachable
-rather than failing to boot — an operator opening a console during an incident needs it to load and
-tell them what is wrong, which is exactly the moment a console that refuses to start is least
-useful. `/health` reports the same thing as JSON.
+**Three ports.** Console **8090**, the engine's Flight endpoint **9090**, the engine's own
+HTTP/actuator surface **8080**. Confusing them is the commonest way a first run fails.
 
-### What you get
+### What is there
 
 | | |
 |---|---|
-| `/` | Overview: what is registered, how much is shared, live feed count |
-| `/queries` | The list — filter, sort and page, **with every filter in the URL** so a view can be pasted into a ticket |
-| `/queries/{name}` | One query: its SQL, its fingerprint, its siblings, a live tail, and the pause/resume/drop controls |
-| `/workbench` | Ask a question, with parameters, and register it if it is worth keeping |
-| `/help` | Quick start, concepts, user guide, case studies — the `docs/` set, rendered |
-| `/api/v1/...` | The JSON services the screens are built on ([ADR-033](adr/033-the-ui-ships-as-its-own-artefact.md)) |
+| `/` | What this is — the landing page, which answers without an engine |
+| `/overview` | Is it up, what is registered, how much is shared, how many live feeds |
+| `/queries` | The list — filter, sort and page, **every filter in the URL** |
+| `/queries/{name}` | One query: SQL, fingerprint, siblings, a live tail, pause/resume/drop |
+| `/workbench` | Ask once with parameters, or register it |
+| `/help` | Quick start, concepts, the user guide, SQL support, operations, security, troubleshooting |
+| `/tutorials` | The five worked systems, rendered from `examples/case-studies/` |
+| `/about` | What Pravaha is, what the name means, and how the console is built |
+| `/api/v1/...` | The JSON services the screens are built on |
 
-Keyboard: `/` focuses the filter, `t` toggles light/dark, `d` toggles density, `?` opens help.
+Keyboard: `/` focuses the filter, `t` cycles the theme, `d` toggles density, `?` opens help.
 
-### How it is put together
+**The engine does not have to be up.** The console starts anyway and says so on every page rather
+than only the one that failed — an operator opening a console during an incident needs it to load
+and tell them what is wrong.
 
-Three layers, and the split is [ADR-033](adr/033-the-ui-ships-as-its-own-artefact.md):
+**Everything is vendored.** No CDN, so it renders in an air-gapped deployment, which is where a
+streaming engine usually lives.
 
-- **Services** — typed calls over the SDK. Stateless, so the console scales sideways.
-- **`/api/v1`** — versioned JSON. Everything a screen can do goes through it.
-- **Screens** — server-rendered first, then made live. **The page works before its JavaScript
-  does**, which matters most when somebody is looking at the console precisely because something
-  is not loading.
+**The documentation is included, not copied.** A help topic is front matter plus
+`include: docs/CONCEPTS.md`, so what you read here is the file in this repository — one source of
+truth, and cross-references repointed at console routes when rendered.
 
-One engine subscription serves every browser watching the same view. Ten analysts on one dashboard
-are ten browser connections and **one** subscriber on the engine — the same claim the engine makes
-about queries, kept by the UI rather than quietly broken by it.
+### What is deliberately not there
 
-### What is still missing
-
-The screens above are real and tested. The §23.20 release gate is **not** met: no Monaco editor, no
-plan DAG, no time-travel debugger, no Storybook, no visual-regression baseline, and no WCAG 2.2 AA
-audit. Light/dark, density, keyboard paths, deep links and the eight states of §23.12 are
-implemented; they are not yet *audited*.
+A **functional admin console**: server-rendered HTML, no build step, no JavaScript framework. It is
+not the product surface design §23.20 describes — no Monaco, no plan DAG, no time-travel debugger,
+no Storybook, no visual-regression baseline, no WCAG 2.2 AA audit. Light/dark/terminal, density,
+keyboard paths, deep links and the eight states of §23.12 are *implemented*, not yet *audited*.
 
 ## 8. Clean up
 

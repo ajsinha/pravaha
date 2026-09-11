@@ -1,0 +1,64 @@
+# ==========================================================================
+# Pravaha console
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# ==========================================================================
+# ${VAR} and ${VAR:default} substitution resolves against other keys in this
+# file, environment variables, and command-line --key=value overrides.
+# Values are read as strings and coerced on access (get_int / get_bool /
+# get_list), so `port: 8090` and `port: "${PORT:8090}"` behave identically.
+#
+# Secrets do NOT belong here: this file is tracked. Put them in
+# config/application.local.yaml, a git-ignored overlay loaded straight after
+# this file, which sets only the keys it names.
+# ==========================================================================
+
+app:
+  name: Pravaha
+  tagline: Ask once. Answer always.
+  slogan: One question, one computation.
+  # The claim the whole engine makes, carried in the footer of every page.
+  # Held here rather than typed into a template, because it is already quoted
+  # in the README and the design document, and a sentence kept in three places
+  # is a sentence that ends up saying three things.
+  principle: A view is a question you asked once and never have to ask again.
+  version: "0.1.0"
+  author:
+    name: Ashutosh Sinha
+    email: ajsinha@gmail.com
+  copyright:
+    years: "2026"
+    holder: Ashutosh Sinha
+
+server:
+  host: "${CONSOLE_HOST:127.0.0.1}"
+  port: "${CONSOLE_PORT:8090}"
+  reload: false
+
+# The engine this console is pointed at. One engine, deliberately: the console
+# is an operator tool with one server in view, and a pool would add a failure
+# mode nobody is watching for concurrency nobody needs at this scale.
+engine:
+  url: "${PRAVAHA_ENGINE:grpc://localhost:9090}"
+  # A bearer token, if the engine requires one. Belongs in the .local overlay
+  # or the environment, never here.
+  token: "${PRAVAHA_TOKEN:}"
+  # How long a health answer is reused. The overview polls it, and every browser
+  # asking the engine directly would make the health check a load source of its
+  # own -- which is the failure where monitoring takes down what it monitors.
+  health_cache_seconds: 1
+
+ui:
+  # Rows buffered per browser on a live tail before the oldest are dropped. A
+  # live view is about what is true now, so the row a reader has not caught up
+  # to matters less than the one that just arrived.
+  tail_buffer: 256
+  # Rows a one-off query may return to a browser. A query matching a million
+  # rows should not be able to make the console the reason a tab dies.
+  query_row_limit: 500
+  page_size: 25
+
+api:
+  prefix: "/api/v1"
+
+logging:
+  level: "${LOG_LEVEL:INFO}"

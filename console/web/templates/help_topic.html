@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ topic.title }} — {{ app_name }}{% endblock %}
+{% block head %}<style>
+.doc h1{font-size:1.5rem;margin-bottom:.6rem}
+.doc h2{font-size:1.12rem;margin:1.7rem 0 .6rem;padding-top:.3rem}
+.doc h3{font-size:.98rem;margin:1.2rem 0 .4rem}
+.doc p,.doc li{line-height:1.68;color:var(--slate)}
+.doc table{width:100%;margin:1rem 0}
+.doc pre{margin:.8rem 0}
+.doc blockquote{border-left:3px solid var(--flow);padding-left:.9rem;color:var(--muted);margin:1rem 0}
+.toc a{display:block;padding:.18rem 0;font-size:.82rem;color:var(--muted);text-decoration:none}
+.toc a:hover{color:var(--flow)}
+</style>{% endblock %}
+{% block content %}
+<p class="text-muted small"><a href="{{ area_path }}">&larr; {{ area_title }}</a></p>
+<div class="row g-4">
+  <div class="col-lg-9">
+    <article class="card"><div class="card-body doc">{{ topic.html|safe }}</div></article>
+  </div>
+  <div class="col-lg-3">
+    {% if topic.anchors %}
+    <div class="section-label mt-0">On this page</div>
+    <nav class="toc">
+      {% for h in topic.anchors %}<a href="#{{ h.id }}">{{ h.text }}</a>{% endfor %}
+    </nav>
+    {% endif %}
+    {% if related|length > 1 %}
+    <div class="section-label">{{ topic.section }}</div>
+    <nav class="toc">
+      {% for t in related %}{% if t.slug != topic.slug %}
+      <a href="{{ area_path }}/{{ t.slug }}">{{ t.title }}</a>{% endif %}{% endfor %}
+    </nav>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

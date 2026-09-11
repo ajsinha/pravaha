@@ -7,6 +7,7 @@ would prove the fake works.
 import os
 import pathlib
 import subprocess
+import sys
 import time
 
 import pytest
@@ -14,7 +15,12 @@ import pytest
 pytest.importorskip("pyarrow", reason="the console needs the SDK's flight extra")
 fastapi_testclient = pytest.importorskip("fastapi.testclient")
 
-from pravaha_console import Engine, create_app
+CONSOLE_ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(CONSOLE_ROOT))
+
+from core.config.properties_configurator import PropertiesConfigurator
+from core.engine import Engine
+from run_pravaha_web import create_app
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 FLIGHT_CLASSES = REPO_ROOT / "pravaha-flight" / "target" / "test-classes"
@@ -85,34 +91,63 @@ def engine_url():
 
 @pytest.fixture
 def client(engine_url):
-    return fastapi_testclient.TestClient(create_app(Engine(engine_url)))
+    """The real application, built the way `run_pravaha_web.py` builds it.
+
+    Through the configurator rather than by constructing services directly, so
+    the tests exercise the wiring an operator actually gets -- including which
+    templates exist and which routes are registered.
+    """
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("engine.url", engine_url)
+    return fastapi_testclient.TestClient(create_app(config))
 
 
 def test_health_reports_a_reachable_engine(client):
     body = client.get("/health").json()
 
-    assert body["reachable"] is True
-    assert "queries" in body
+    # The console's own health at the top, what it can see of the engine nested
+    # under it. Conflating the two is how a monitor ends up reporting the console
+    # as down when the console is fine and saying so.
+    assert body["status"] == "healthy"
+    assert body["engine"]["reachable"] is True
+    assert "queries" in body["engine"]
 
 
 def test_health_reports_an_unreachable_engine_rather_than_failing():
     # A console whose own health endpoint 500s when the engine is down cannot tell you the
     # engine is down, which is the one thing you need it for at that moment.
-    offline = fastapi_testclient.TestClient(create_app(Engine("grpc://localhost:1")))
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("engine.url", "grpc://localhost:1")
+    offline = fastapi_testclient.TestClient(create_app(config))
     response = offline.get("/health")
 
     assert response.status_code == 200
-    assert response.json()["reachable"] is False
+    assert response.json()["engine"]["reachable"] is False
 
 
-def test_the_index_lists_registered_queries(client):
+def test_the_overview_lists_registered_queries(client):
     client.post("/queries", data={"name": "console_a", "sql": TRADE_SQL, "keys": "0"})
     try:
-        page = client.get("/").text
+        page = client.get("/overview").text
         assert "console_a" in page
         assert "RUNNING" in page
     finally:
         client.post("/queries/console_a/drop")
+
+
+def test_the_landing_page_says_what_this_is_without_an_engine():
+    # `/` answers "what is this server", not "what is it doing". Somebody arriving
+    # at a bare host name is at least as likely to be asking the first, and it must
+    # answer even when the engine is down -- which is when it is most likely to be
+    # the page somebody lands on.
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("engine.url", "grpc://localhost:1")
+    offline = fastapi_testclient.TestClient(create_app(config))
+    page = offline.get("/")
+
+    assert page.status_code == 200
+    assert "Ask once" in page.text
+    assert "engine unreachable" in page.text
 
 
 def test_the_index_shows_when_a_computation_is_shared(client):
@@ -124,7 +159,7 @@ def test_the_index_shows_when_a_computation_is_shared(client):
         data={"name": "share_b", "sql": "SELECT t.trade_id, t.product_type, t.trade_json FROM trade AS t", "keys": "0"},
     )
     try:
-        page = client.get("/").text
+        page = client.get("/overview").text
         assert "shared" in page
     finally:
         client.post("/queries/share_a/drop")
@@ -163,12 +198,18 @@ def test_the_detail_page_shows_the_sql_and_fingerprint(client):
 
 
 def test_an_unknown_query_says_so(client):
-    assert "no query named" in client.get("/queries/never_registered").text
+    response = client.get("/queries/never_registered")
+
+    # A 404, not a 200 with an apology in it: nothing is registered under that
+    # name, and "not found" is both true and what a client can act on.
+    assert response.status_code == 404
+    assert "never_registered" in response.text
+    assert "no such query" in response.text.lower()
 
 
-def test_the_ask_page_runs_a_parameterised_query(client):
+def test_the_workbench_runs_a_parameterised_query(client):
     response = client.post(
-        "/query",
+        "/workbench",
         data={"sql": "SELECT user_id, total FROM user_volume WHERE total > ?", "params": "40"},
     )
 
@@ -177,7 +218,7 @@ def test_the_ask_page_runs_a_parameterised_query(client):
 
 
 def test_a_bad_query_shows_the_error_rather_than_a_stack_trace(client):
-    response = client.post("/query", data={"sql": "SELECT * FROM nowhere", "params": ""})
+    response = client.post("/workbench", data={"sql": "SELECT * FROM nowhere", "params": ""})
 
     assert "PRV-" in response.text
     assert "Traceback" not in response.text
@@ -188,13 +229,13 @@ def test_a_bad_query_shows_the_error_rather_than_a_stack_trace(client):
 def test_the_help_index_lists_the_guides(client):
     page = client.get("/help").text
 
-    assert "Quickstart" in page
+    assert "Quick start" in page
     assert "Concepts" in page
     assert "Troubleshooting" in page
 
 
 def test_a_guide_renders_from_the_repositorys_own_documentation(client):
-    page = client.get("/help/CONCEPTS.md").text
+    page = client.get("/help/concepts").text
 
     # Rendered, not linked away to: an operator reading a console is already where the
     # question arose, and sending them elsewhere loses the thread.
@@ -204,10 +245,13 @@ def test_a_guide_renders_from_the_repositorys_own_documentation(client):
 
 
 def test_a_guide_links_to_other_guides_inside_the_console(client):
-    page = client.get("/help/QUICKSTART.md").text
+    page = client.get("/help/quickstart").text
 
     # Cross-references stay in the console rather than pointing at files on disk.
-    assert "/help/CONCEPTS.md" in page
+    # The documents link to each other as `CONCEPTS.md`, which is right in a
+    # checkout and a dead link here, so the renderer repoints them.
+    assert "/help/concepts" in page
+    assert "CONCEPTS.md" not in page
 
 
 def test_an_unknown_help_page_is_refused_rather_than_read_from_disk(client):
@@ -222,7 +266,7 @@ def test_an_unknown_help_page_is_refused_rather_than_read_from_disk(client):
 def test_every_page_offers_contextual_help(client):
     client.post("/queries", data={"name": "helpful", "sql": TRADE_SQL, "keys": "0"})
     try:
-        for path in ["/", "/queries/helpful", "/query"]:
+        for path in ["/overview", "/queries", "/queries/helpful", "/workbench"]:
             page = client.get(path).text
             assert "helpcards" in page, f"{path} has no help card"
             # Each card points at the document that says the rest.
@@ -232,7 +276,7 @@ def test_every_page_offers_contextual_help(client):
 
 
 def test_help_is_reachable_from_every_page(client):
-    for path in ["/", "/query", "/help"]:
+    for path in ["/", "/overview", "/queries", "/workbench", "/help", "/about"]:
         assert "/help" in client.get(path).text
 
 
@@ -240,16 +284,16 @@ def test_the_help_index_offers_the_worked_systems(client):
     page = client.get("/help").text
 
     # A developer deciding how to shape a query wants an example far more often than a
-    # specification, and the case studies are the most practical documentation there is.
-    assert "worked systems" in page
-    assert "Trade processing" in page
+    # specification, and the worked systems are the most practical documentation there is.
+    assert "Tutorials" in page
+    assert "Working through Pravaha" in client.get("/tutorials").text
 
 
 def test_a_case_study_renders_in_the_console(client):
-    page = client.get("/help/study/trade-processing").text
+    page = client.get("/tutorials/trade-processing").text
 
     assert "trade_event_id" in page
-    assert "<table>" in page
+    assert "<table" in page
 
 
 def test_an_unknown_case_study_is_refused(client):
@@ -257,8 +301,8 @@ def test_an_unknown_case_study_is_refused(client):
     # handler sees it, and the handler's allow-list would refuse the name anyway. What matters is
     # that nothing outside the five studies is ever read from disk.
     for attempt in ["../../etc", "nonexistent", "HANDOVER"]:
-        response = client.get(f"/help/study/{attempt}")
-        assert response.status_code == 404 or "no such case study" in response.text
+        response = client.get(f"/tutorials/{attempt}")
+        assert response.status_code == 404
 
 
 # --- The service layer and its API (ADR-033) --------------------------------------------
@@ -299,7 +343,7 @@ def test_an_api_error_carries_the_engines_code(client):
 def test_one_engine_subscription_serves_every_browser(engine_url):
     # The product's claim is that ten analysts asking one question cost one computation. A
     # console that opened a subscription per tab would quietly contradict it.
-    from pravaha_console.services import Services
+    from core.services import Services
 
     services = Services(Engine(engine_url))
     first = services.feeds.subscribe("user_volume")
@@ -317,7 +361,7 @@ def test_one_engine_subscription_serves_every_browser(engine_url):
 
 
 def test_a_slow_browser_loses_its_oldest_rows_rather_than_blocking(engine_url):
-    from pravaha_console.services import Broadcaster, Services
+    from core.services import Broadcaster, Services
 
     services = Services(Engine(engine_url))
     subscriber = services.feeds.subscribe("user_volume")

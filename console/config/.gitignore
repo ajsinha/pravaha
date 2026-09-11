@@ -1,0 +1,2 @@
+# The overlay is where secrets go. Tracked configuration is public configuration.
+application.local.yaml

@@ -13,10 +13,13 @@ authors = [{ name = "Ashutosh Sinha", email = "ajsinha@gmail.com" }]
 # The console is the first real consumer of the Python SDK, which is the second reason ADR-024
 # chose Python for it: an integrator's experience of the client is our experience of it.
 dependencies = [
+  "pyyaml>=6",
+  "jinja2>=3.1",
+  "markdown>=3.5",
+  "pygments>=2.17",
   "pravaha[flight]",
   "fastapi>=0.110",
   "uvicorn>=0.27",
-  "jinja2>=3.1",
   # FastAPI parses HTML form posts through this. Without it every form in the console fails
   # at request time with an import error, which is a dependency mistake that only shows up
   # when somebody presses a button.
@@ -27,10 +30,14 @@ dependencies = [
 dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4", "mypy>=1.8"]
 
 [project.scripts]
-pravaha-console = "pravaha_console.__main__:main"
+pravaha-console = "run_pravaha_web:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["pravaha_console"]
+packages = ["core", "routes"]
+# The templates, the vendored assets and the content ship inside the artefact.
+# ADR-033: running the console is one command against one artefact, and a wheel
+# that leaves the stylesheet behind is not that.
+artifacts = ["web/**", "content/**", "config/**", "run_pravaha_web.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

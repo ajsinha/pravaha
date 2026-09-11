@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ app_name }}{% endblock %}</title>
+<link rel="icon" href="/static/img/pravaha-mark.svg">
+<!-- Vendored locally: no CDN, so the console renders in an air-gapped deployment.
+     A streaming engine is deployed inside networks that do not reach the internet
+     far more often than not, and an operator console that needs jsdelivr to draw a
+     table is a console that is blank in exactly those places. -->
+<link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+<link href="/static/vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
+<script>
+/* Inline and first: `data-theme` has to be on <html> before the stylesheet
+   paints, or somebody who chose dark sees a white flash on every navigation.
+   The full picker is /static/js/theme.js; this is only the part that cannot
+   wait for it. */
+(function(){try{var t=localStorage.getItem("pravaha.theme");
+if(t==="light"||t==="dark"||t==="terminal"){document.documentElement.setAttribute("data-theme",t);}
+var d=localStorage.getItem("pravaha.density");
+if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d);}
+}catch(e){}}());
+</script>
+<link href="/static/vendor/fonts/fonts.css" rel="stylesheet">
+<style>
+/* ------------------------------------------------------------------ tokens
+   Every colour on every screen resolves through one of these, so a theme is a
+   redefinition of this block and nothing else. Hardcoded hex is the thing that
+   stops a theme from existing: the same grey written three ways, each one
+   invisible to a switch.
+
+   `--surface` and `--raised` are separated on purpose. A card on a page needs
+   to sit ON something; in light that is white on a cool off-white, in dark it
+   is a lighter panel on a darker ground, and one "background" cannot be both. */
+:root{
+  /* The ACCENT. Pravaha is a river: the product's blue, dark enough to carry
+     text on white at 4.5:1 -- a brand blue taken straight from a palette is
+     usually around 3.4 and fails as body text, which is the standard trap. */
+  --flow:#1B5FA8; --flow-d:#12447A; --flow-l:#2E7FD0;
+  --on-bar:#fff; --on-bar-dim:rgba(255,255,255,.82);
+  --on-flow:#fff; --on-flow-dim:rgba(255,255,255,.86);
+
+  /* ground and text */
+  --canvas:#F9FAFC; --surface:#fff; --raised:#fff; --stripe:#F3F5F9;
+  --ink:#15181D; --slate:#464C57; --muted:#646B78;
+  --rule:#D9DEE6; --edge:#8B93A0; --hairline:#EBEEF3;
+
+  /* semantic -- deliberately NOT the accent. Blue means "this product"; these
+     mean "running / watch this / wrong", and one colour cannot carry both jobs
+     without the reader learning nothing from either. */
+  --on-accent:#fff;
+  --ok:#1B6B3A; --ok-soft:#E6F2EA;
+  --warn:#8A5A12; --warn-soft:#F8F0E2;
+  --bad:#A82121; --bad-soft:#F9E8E8;
+  --info:#274B6D; --info-soft:#E8EDF3;
+
+  /* depth. Two levels and no more: a page where everything floats has no
+     hierarchy, it just has shadows. */
+  --lift:0 1px 2px rgba(21,24,29,.06), 0 1px 3px rgba(21,24,29,.04);
+  --lift-2:0 2px 6px rgba(21,24,29,.08), 0 4px 14px rgba(21,24,29,.06);
+
+  --bar:linear-gradient(180deg, #216DBC 0%, var(--flow) 55%, #164E8C 100%);
+  --tint:linear-gradient(180deg, rgba(27,95,168,.045) 0%, rgba(27,95,168,0) 100%);
+  --focus-glow:rgba(27,95,168,.16);
+
+  --sans:"Source Sans 3",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --code:"Source Code Pro",Consolas,"SF Mono",Menlo,monospace;
+
+  --row-h:38px;
+}
+
+/* Dark. Not an inversion -- an inverted blue is a mustard nobody chose, and
+   pure white on pure black shimmers. The accent lightens just enough to hold
+   4.5:1 on the dark ground, and the ground keeps a trace of the cool hue so
+   the two themes read as one product. */
+:root[data-theme="dark"]{
+  --flow:#79B2F2; --flow-d:#5893D4; --flow-l:#9CC8F8;
+  --on-bar:#E6EEF8; --on-bar-dim:rgba(230,238,248,.72);
+  --on-flow:#0B1220; --on-flow-dim:rgba(11,18,32,.78);
+
+  --canvas:#0F1216; --surface:#171B21; --raised:#1D222A; --stripe:#1D222A;
+  --ink:#E7EAF0; --slate:#B4BCC8; --muted:#98A1AF;
+  --rule:#2A313B; --edge:#646D7B; --hairline:#232932;
+
+  --on-accent:#0B1220;
+  --ok:#6FC28C; --ok-soft:#14241A;
+  --warn:#DDA75F; --warn-soft:#291F12;
+  --bad:#EC7B78; --bad-soft:#2A1618;
+  --info:#8FB2DA; --info-soft:#151E28;
+
+  --lift:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
+  --lift-2:0 2px 8px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4);
+
+  --bar:linear-gradient(180deg, #1B2735 0%, #16202C 60%, #121A24 100%);
+  --tint:linear-gradient(180deg, rgba(121,178,242,.06) 0%, rgba(121,178,242,0) 100%);
+  --focus-glow:rgba(121,178,242,.22);
+}
+
+/* ── TERMINAL ──────────────────────────────────────────────────────────────
+   Near-black ground, amber text, cyan for anything that is data rather than
+   prose. A named palette, not a hue swap: every token the other themes declare
+   is redeclared, because a theme that inherits half of them is the "light
+   island" bug -- the missing half falls back to `:root` and a black page
+   renders white chips on it.
+
+   It is the one theme where the ACCENT carries text on the bar rather than
+   white doing so, because a black bar with white text is not the thing being
+   imitated. `--on-flow` inverts to near-black, since amber is a light fill and
+   white on amber is 1.9:1 -- unreadable, and the sort of thing that only shows
+   up when somebody looks at a filled chip. */
+:root[data-theme="terminal"]{
+  --flow:#FFA92B; --flow-d:#D68A1E; --flow-l:#FFC56B;
+  --on-bar:#FFBC49; --on-bar-dim:rgba(255,188,73,.74);
+  --on-flow:#120C04; --on-flow-dim:rgba(18,12,4,.80);
+
+  --canvas:#080A0A; --surface:#121311; --raised:#191A16; --stripe:#151610;
+  --ink:#FFBC49; --slate:#D6A857; --muted:#A89165;
+  --rule:#2F2E20; --edge:#786A46; --hairline:#201F18;
+
+  --on-accent:#120C04;
+  --ok:#4FD08A; --ok-soft:#0F241A;
+  --warn:#FFC24D; --warn-soft:#2A2110;
+  --bad:#FF6B6B; --bad-soft:#2A1414;
+  --info:#3FD0FF; --info-soft:#0D2029;
+
+  --lift:0 1px 2px rgba(0,0,0,.7), 0 1px 3px rgba(0,0,0,.5);
+  --lift-2:0 2px 8px rgba(0,0,0,.75), 0 6px 18px rgba(0,0,0,.6);
+
+  --bar:linear-gradient(180deg, #151610 0%, #0F100C 60%, #080A0A 100%);
+  --tint:linear-gradient(180deg, rgba(255,169,43,.055) 0%, rgba(255,169,43,0) 100%);
+  --focus-glow:rgba(255,169,43,.22);
+}
+
+/* And for anybody who has never touched the picker: follow the machine. The
+   toggle writes `data-theme`, which wins over this in both directions. */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]):not([data-theme="terminal"]){
+    --flow:#79B2F2; --flow-d:#5893D4; --flow-l:#9CC8F8;
+    --on-bar:#E6EEF8; --on-bar-dim:rgba(230,238,248,.72);
+    --on-flow:#0B1220; --on-flow-dim:rgba(11,18,32,.78);
+    --canvas:#0F1216; --surface:#171B21; --raised:#1D222A; --stripe:#1D222A;
+    --ink:#E7EAF0; --slate:#B4BCC8; --muted:#98A1AF;
+    --rule:#2A313B; --edge:#646D7B; --hairline:#232932;
+    --on-accent:#0B1220;
+    --ok:#6FC28C; --ok-soft:#14241A;
+    --warn:#DDA75F; --warn-soft:#291F12;
+    --bad:#EC7B78; --bad-soft:#2A1618;
+    --info:#8FB2DA; --info-soft:#151E28;
+    --lift:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
+    --lift-2:0 2px 8px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4);
+    --bar:linear-gradient(180deg, #1B2735 0%, #16202C 60%, #121A24 100%);
+    --focus-glow:rgba(121,178,242,.22);
+  }
+}
+
+/* Density. An operator watching forty queries wants forty rows on a screen; a
+   demonstration wants room to read. Both designed, rather than one being a
+   browser zoom of the other -- zoom scales the layout, this scales the rows. */
+:root[data-density="compact"]{ --row-h:28px; }
+
+/* ---------------------------------------------------------------- bootstrap
+   Bootstrap's own variables repointed at the tokens, so a theme switch moves
+   the framework's components too. Without this the cards and tables stay light
+   on a dark page, which is the half-themed look that reads as broken. */
+:root{
+  --bs-body-bg:var(--canvas); --bs-body-color:var(--ink);
+  --bs-border-color:var(--rule); --bs-secondary-color:var(--muted);
+  --bs-emphasis-color:var(--ink); --bs-link-color:var(--flow);
+  --bs-link-hover-color:var(--flow-d); --bs-code-color:var(--flow-d);
+  --bs-font-sans-serif:var(--sans); --bs-body-font-family:var(--sans);
+  --bs-navbar-color:var(--on-bar-dim); --bs-navbar-hover-color:var(--on-bar);
+  --bs-navbar-active-color:var(--on-bar); --bs-navbar-brand-color:var(--on-bar);
+}
+
+body{background:var(--canvas);color:var(--ink);font-family:var(--sans);}
+h1,h2,h3,.serif{font-family:var(--serif);letter-spacing:-.01em;}
+h1{font-size:1.5rem;font-weight:600;}
+h2{font-size:1.05rem;font-weight:600;margin:1.6rem 0 .6rem;}
+.mono,code,pre{font-family:var(--code);font-size:.82rem;}
+
+.navbar{background:var(--bar)!important;box-shadow:var(--lift);}
+.navbar-brand{font-family:var(--serif);letter-spacing:.04em;font-weight:600;}
+.navbar .slogan{color:var(--on-bar-dim);font-style:italic;font-size:.82rem;}
+.navbar a,.navbar .navbar-brand{color:var(--on-bar);}
+.navbar .nav-link{color:var(--on-bar)!important;font-size:.88rem;}
+.navbar .nav-link:hover,.navbar .nav-link:focus{color:var(--on-bar-dim)!important;}
+.navbar .nav-link.active{color:var(--on-bar)!important;font-weight:600;
+  box-shadow:inset 0 -2px 0 var(--on-bar);}
+.navbar .btn-outline-light{color:var(--on-bar);border-color:var(--on-bar-dim);}
+.navbar .btn-outline-light:hover{background:var(--on-bar);color:var(--flow-d);}
+
+.card{background:var(--raised);border:1px solid var(--rule);box-shadow:var(--lift);
+  border-radius:6px;}
+.card-header{background:var(--stripe);border-bottom:1px solid var(--rule);
+  font-weight:600;font-size:.9rem;}
+
+/* The thin accent rule above a page title, and the hairline under it. Cheap,
+   and it is most of what makes a page look composed rather than assembled. */
+.accent{height:3px;width:44px;background:var(--flow);border-radius:2px;}
+.rule{height:1px;background:var(--hairline);margin:.6rem 0 1rem;}
+.kicker{font-family:var(--serif);font-size:.74rem;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--muted);}
+.section-label{font-family:var(--serif);font-size:.8rem;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);margin:1.4rem 0 .5rem;}
+
+table{--bs-table-bg:transparent;--bs-table-color:var(--ink);}
+thead th{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--muted);font-weight:600;border-bottom:1px solid var(--rule)!important;
+  white-space:nowrap;}
+tbody td{height:var(--row-h);vertical-align:middle;border-color:var(--hairline)!important;
+  font-size:.86rem;}
+tbody tr:hover{background:var(--stripe);}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+
+.chip{display:inline-flex;align-items:center;gap:.28rem;padding:.05rem .45rem;
+  border-radius:10px;font-size:.7rem;font-weight:600;border:1px solid transparent;}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.chip.ok{background:var(--ok-soft);color:var(--ok);}
+.chip.warn{background:var(--warn-soft);color:var(--warn);}
+.chip.bad{background:var(--bad-soft);color:var(--bad);}
+.chip.info{background:var(--info-soft);color:var(--info);}
+.chip.mute{background:var(--stripe);color:var(--muted);border-color:var(--rule);}
+
+.stat .label{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);}
+.stat .value{font-size:1.6rem;font-weight:650;font-variant-numeric:tabular-nums;
+  font-family:var(--serif);}
+.stat .note{font-size:.74rem;color:var(--muted);}
+
+pre{background:var(--stripe);border:1px solid var(--rule);border-radius:4px;
+  padding:.6rem .7rem;margin:0;overflow-x:auto;color:var(--ink);}
+.form-control,.form-select{background:var(--surface);color:var(--ink);
+  border-color:var(--edge);}
+.form-control:focus,.form-select:focus{border-color:var(--flow);
+  box-shadow:0 0 0 .2rem var(--focus-glow);}
+.btn-primary{background:var(--flow);border-color:var(--flow);color:var(--on-accent);}
+.btn-primary:hover{background:var(--flow-d);border-color:var(--flow-d);color:var(--on-accent);}
+.btn-outline-secondary{color:var(--slate);border-color:var(--edge);}
+
+/* A live tail. Monospace, striped, and it grows downward -- reading a stream
+   that grows upward means the newest row is where your eye is not. */
+.tail{font-family:var(--code);font-size:.76rem;background:var(--stripe);
+  border:1px solid var(--rule);border-radius:4px;height:330px;overflow-y:auto;padding:.3rem;}
+.tail div{padding:1px .3rem;}
+.tail div:nth-child(odd){background:rgba(127,127,127,.05);}
+.tail div.new{animation:flash .6s;}
+@keyframes flash{from{background:var(--info-soft);}}
+
+/* The eight states (design 23.12). A skeleton the shape of the answer, never a
+   spinner on a blank page. */
+.skeleton{background:linear-gradient(90deg,var(--stripe) 25%,var(--hairline) 50%,var(--stripe) 75%);
+  background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:3px;height:11px;}
+@keyframes shimmer{to{background-position:-200% 0;}}
+.freshness{font-size:.74rem;color:var(--muted);display:inline-flex;align-items:center;gap:.3rem;}
+.freshness .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);}
+.freshness[data-state="refreshing"] .dot{background:var(--warn);}
+.freshness[data-state="stale"] .dot{background:var(--bad);}
+/* Stale data dims and says how old it is. It is never shown as if it were live. */
+.stale{opacity:.55;filter:saturate(.5);}
+.state{padding:2.2rem 1rem;text-align:center;color:var(--muted);}
+.state h3{font-size:.98rem;color:var(--ink);margin-bottom:.4rem;}
+.state p{max-width:46ch;margin:0 auto .9rem;font-size:.86rem;}
+
+@media (prefers-reduced-motion: reduce){
+  .skeleton,.tail div.new{animation:none;}
+}
+
+.skip-link{position:absolute;left:-9999px;top:.4rem;background:var(--flow);
+  color:var(--on-accent);padding:.4rem .8rem;border-radius:4px;z-index:1080;}
+.skip-link:focus{left:.4rem;}
+a:focus-visible,button:focus-visible,.form-control:focus-visible,
+.navbar a:focus-visible{outline:2px solid var(--flow);outline-offset:2px;}
+.navbar a:focus-visible{outline-color:var(--on-bar);}
+
+footer{border-top:1px solid var(--hairline);margin-top:2.4rem;padding:1.2rem 0;
+  color:var(--muted);font-size:.78rem;}
+footer .principle{font-family:var(--serif);font-style:italic;}
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<nav class="navbar navbar-expand-lg navbar-dark mb-4">
+  <div class="container">
+    <a class="navbar-brand d-flex align-items-center gap-2" href="/">
+      <img src="/static/img/pravaha-mark.svg" alt="" width="24" height="24">{{ app_name }}
+    </a>
+    <span class="slogan d-none d-xl-inline">{{ slogan }}</span>
+    <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse"
+            data-bs-target="#pravaha-nav" aria-controls="pravaha-nav"
+            aria-expanded="false" aria-label="Menu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="pravaha-nav">
+      <ul class="navbar-nav ms-auto align-items-lg-center">
+        {# Four sections and no more. Eleven links across a bar means the reader
+           has to read all eleven to find one. #}
+        {# Named `nav_sections`, not `sections`. A `{% set %}` here is in scope for
+           every block a child fills in, so calling it `sections` shadowed the help
+           index's own `sections` and the page failed with "too many values to
+           unpack" -- a 3-tuple nav entry being read as a 2-tuple section. The
+           brand-key collision check in Routes.page cannot see this one, because a
+           template-local set is not a context key. #}
+        {% set nav_sections = [
+          ("/", "Overview", "is it up, and what is it doing"),
+          ("/queries", "Queries", "what is registered, and what it costs"),
+          ("/workbench", "Workbench", "ask once, or register it"),
+          ("/help", "Help", "the documentation that ships with the engine")
+        ] %}
+        {% for path, label, gloss in nav_sections %}
+        <li class="nav-item">
+          <a class="nav-link{{ ' active' if path == current else '' }}"
+             href="{{ path }}" title="{{ gloss }}"
+             {% if path == current %}aria-current="page"{% endif %}>{{ label }}</a>
+        </li>
+        {% endfor %}
+        <li class="nav-item ms-lg-3 d-flex align-items-center gap-2">
+          {# The engine's reachability on every page, not only the one that
+             failed: an operator who navigates away must not lose the single
+             fact that explains why the next screen is empty. #}
+          {% if engine_up %}
+            <span class="chip ok" title="{{ engine_url }}"><span class="dot"></span>engine up</span>
+          {% else %}
+            <span class="chip bad" title="{{ engine_error }}"><span class="dot"></span>engine unreachable</span>
+          {% endif %}
+          <button type="button" class="btn btn-sm btn-outline-light" id="theme-toggle"
+                  title="Theme (t)" aria-label="Change theme"><i class="bi bi-circle-half"></i></button>
+          <button type="button" class="btn btn-sm btn-outline-light" id="density-toggle"
+                  title="Density (d)" aria-label="Change density"><i class="bi bi-list"></i></button>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+<main class="container" id="main" tabindex="-1">{% block content %}{% endblock %}</main>
+<footer><div class="container d-flex flex-wrap gap-3 justify-content-between">
+  <span class="principle">{{ principle }}</span>
+  <span>{{ app_name }} {{ version }} — engine at <span class="mono">{{ engine_url }}</span></span>
+</div></footer>
+<script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/states.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

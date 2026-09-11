@@ -1,0 +1,23 @@
+{# The help relevant to THIS screen, on this screen.
+
+   A new user should reach a running query in under five minutes (design 23.20),
+   and the documentation is no use to them if finding it is a separate act of
+   navigation from the thing they are stuck on. The bar carries Help; these carry
+   the two or three topics that answer the question this page provokes. #}
+{% macro helpcards(cards) -%}
+<div class="card mt-4 helpcards"><div class="card-body py-3">
+  <div class="section-label mt-0 mb-2">Help</div>
+  <div class="row g-2">
+    {% for slug, title, why in cards %}
+    <div class="col-md-4">
+      <a class="d-block text-decoration-none border rounded p-2 h-100"
+         style="border-color:var(--rule)!important" href="/help/{{ slug }}">
+        <div class="serif fw-semibold small">{{ title }}</div>
+        <div class="small text-muted">{{ why }}</div>
+        <div class="small mt-1" style="color:var(--flow)">read more &rarr;</div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</div></div>
+{%- endmacro %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Not found — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">NOT FOUND</p>
+<h1>There is no such {{ what }}</h1>
+<div class="rule"></div>
+<p class="text-muted">Nothing is registered or filed as
+  <span class="mono">{{ identifier }}</span>. It may have been dropped, or the name may be
+  misspelt.</p>
+{% if detail %}<pre class="small">{{ detail }}</pre>{% endif %}
+<a class="btn btn-sm btn-primary" href="{{ back_href }}">{{ back_label }}</a>
+{% endblock %}

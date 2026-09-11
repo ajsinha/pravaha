@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import helpcards %}
+{% block title %}{{ query.name }} — {{ app_name }}{% endblock %}
+{% block content %}
+<p class="text-muted small"><a href="/queries">&larr; All queries</a></p>
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">QUERY</p>
+<h1>{{ query.name }}</h1>
+<div class="rule"></div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header">Definition</div>
+      <div class="card-body">
+        <pre id="sql">{{ query.sql }}</pre>
+        <div class="mt-3 d-flex flex-wrap gap-2" id="meta">
+          <span class="chip {{ 'ok' if query.state == 'RUNNING' else 'bad' if query.state == 'FAILED' else 'mute' }}">{{ query.state }}</span>
+          <span class="chip mute">{{ "{:,}".format(query.rows_in) }} rows in</span>
+          <span class="chip info" title="The canonical plan this name resolves to. Two names with the same fingerprint are one computation.">fingerprint {{ query.fingerprint[:12] }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header">Controls</div>
+      <div class="card-body">
+        <div class="d-flex gap-2">
+          {# Real forms, so the controls work with scripting off; the module
+             intercepts them to avoid a full page load when it is on. #}
+          <form method="post" action="/queries/{{ query.name }}/pause">
+            <button class="btn btn-sm btn-outline-secondary" id="pause" type="submit"
+                    {{ 'disabled' if query.state != 'RUNNING' else '' }}
+                    title="{{ 'Only a running query can be paused' if query.state != 'RUNNING' else 'Stop the work, keep the state' }}">Pause</button>
+          </form>
+          <form method="post" action="/queries/{{ query.name }}/resume">
+            <button class="btn btn-sm btn-outline-secondary" id="resume" type="submit"
+                    {{ 'disabled' if query.state == 'RUNNING' else '' }}
+                    title="{{ 'Already running' if query.state == 'RUNNING' else 'Carry on from the frontier it reached' }}">Resume</button>
+          </form>
+          <form method="post" action="/queries/{{ query.name }}/drop"
+                onsubmit="return confirm('Drop the name {{ query.name }}? If it is the last name on this computation, the state goes with it.')">
+            <button class="btn btn-sm btn-outline-danger" id="drop" type="submit">Drop</button>
+          </form>
+        </div>
+        <p class="small text-muted mt-3 mb-0">Pausing keeps the state and stops the work; the view
+          keeps answering at the frontier it reached. Dropping a name releases the computation only
+          when it is the <strong>last</strong> name on it.</p>
+        {% if siblings %}
+        <div class="alert alert-info mt-3 mb-0 py-2">
+          <div class="fw-semibold small">Shared computation</div>
+          <div class="small">{{ siblings|length }} other name(s) resolve to the same plan:
+            {% for s in siblings %}<a href="/queries/{{ s }}">{{ s }}</a>{{ ", " if not loop.last }}{% endfor %}.
+            Dropping this name will not stop the computation.</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>Live tail <span class="freshness ms-2" id="tail-state"></span></h2>
+<div class="tail" id="tail" role="log" aria-live="polite" aria-label="Live changes"
+     data-view="{{ query.name }}"></div>
+<p class="small text-muted mt-2">One engine subscription serves every browser watching this view.
+  Ten tabs are ten connections here and one subscriber on the engine.</p>
+{{ helpcards([   ('user-guide', 'Subscriptions', 'Tap filters, bounded buffers, and what a dropped row means.'),   ('concepts', 'Watermarks', 'Why a window closes on data rather than on the clock.'),   ('operations', 'Retention', 'What a view forgets, when, and how to tell if it is not.'), ]) }}
+{% endblock %}
+{% block scripts %}<script src="/static/js/query-detail.js"></script>{% endblock %}

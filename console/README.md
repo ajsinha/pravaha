@@ -3,130 +3,104 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`LICENSE`](LICENSE).
 
-An operator console for a running Pravaha server: what is registered, what state it is in, what it
-is producing right now, and the controls to change it.
+An operator console for a running Pravaha engine: what is registered, what state it is in, what it
+is producing right now, and the controls to change it. Plus the documentation the engine ships
+with, rendered in place.
 
-## What this is, and what it is not
-
-**It is a functional admin console, deliberately.** The implementation plan says plainly that without
-a dedicated frontend engineer the console degrades to exactly that, that design §23.20's checklist
-will not be met, and that this is a legitimate trade to make *on purpose* rather than by accident.
-This is that trade, taken on purpose.
-
-So: server-rendered HTML, no build step, no JavaScript framework, no design system. About four
-hundred lines. It does the operator's job and does not pretend to be the product surface §23.20
-describes.
-
-## Why it is a separate process
-
-ADR-024. The console reaches the engine **only through the published Python SDK** — the same client
-an integrator uses.
-
-A boundary enforced by a test can be waived by whoever is under deadline pressure that week. A
-boundary enforced by a process cannot: this is Python, the engine is Java, and there is no way to
-reach past the API even carelessly.
-
-The second benefit is that the console is the SDK's first serious consumer. An awkward corner of the
-client API becomes an awkward corner of the console, where somebody notices, instead of being found
-by an integrator.
-
-## Run it
+## Running it
 
 ```bash
-cd console
-make install
-make run                     # or: pravaha-console --engine grpc://localhost:9090 --port 8090
+make install          # .venv, the Pravaha Python SDK, and this
+make run              # http://127.0.0.1:8090, engine at grpc://localhost:9090
 ```
 
-Then open <http://127.0.0.1:8090>. (Not 8080 — that is the engine's own HTTP port, and
-running both on one machine would collide.)
-
-> **Loopback by default, and that is a decision.** The console reaches a whole cluster's state and
-> has no authentication of its own. Making it reachable from elsewhere should be something somebody
-> does deliberately, with something in front of it. Pass `--host 0.0.0.0` if you mean it, and put a
-> reverse proxy and an identity provider in front when you do.
-
-Against a server that requires a credential:
+Any configuration key can be overridden on the command line, so a second instance pointed somewhere
+else needs no file of its own:
 
 ```bash
-pravaha-console --engine grpc://pravaha:9090 --token "$PRAVAHA_TOKEN"
+python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:9090
 ```
 
-## What it shows
+**Three ports, and confusing them is the commonest way a first run fails.** The console is on
+**8090**, the engine's Flight endpoint on **9090**, and the engine's own HTTP/actuator surface on
+**8080**.
 
-| Page | |
-|---|---|
-| `/` | Every registered query: name, state, rows in, and **whether its computation is shared** |
-| `/queries/{name}` | The SQL, the fingerprint, pause/resume, and a **live tail** of the view |
-| `/query` | Ask a question, with bound parameters |
-| `/health` | Whether the engine is reachable. Returns 200 even when it is not — see below |
-| `/help` | The project's guides, rendered in the console |
-| `/help/{page}` | One guide — quickstart, concepts, SQL support, troubleshooting, operations, security |
-| `/help/study/{name}` | One worked system, rendered in the console |
+**The engine does not have to be up.** The console starts anyway and says the engine is
+unreachable, on every page rather than only the one that failed. An operator opening a console
+during an incident needs it to load and tell them what is wrong, which is exactly the moment a
+console that refuses to start is least useful.
 
-**Help is in the console, not somewhere else.** Every page carries contextual cards — three short
-answers to the questions that page provokes — and each links into the full guide, rendered here. An
-operator reading a console is already where the question arose; sending them to a wiki or a search
-engine loses the thread and usually loses the question.
+## How it is laid out
 
-The guides are rendered from the repository's own `docs/` rather than copied. A copy would drift, and
-the point of the build checking those files is that they can be trusted. A stale copy in a console
-would quietly undo that.
-
-The five case studies are offered alongside the guides, because somebody deciding how to shape a
-query wants a worked example far more often than a specification.
-
-Only an allow-list of pages is served. That is the security control rather than path arithmetic: a
-console that accepted a name and joined it to a directory would serve `../../etc/passwd` to anybody
-who asked, and normalising afterwards is never as reliable as not accepting the name.
-
-Two things it surfaces that nothing else does:
-
-**Shared computations.** Two names on one fingerprint are one computation holding one copy of the
-state. "Ten analysts on one dashboard cost one query" is the central claim about how this engine
-scales, and the index marks the rows where it is holding, so it can be watched rather than believed.
-
-**A live tail, not a poll.** The detail page holds a subscription open over server-sent events.
-Polling would show an operator a number that is always slightly out of date, which would undercut the
-product's whole argument on its own front page.
-
-## `/health` returns 200 when the engine is down
-
-Deliberately. This endpoint answers *"is the console up"*, and the payload says what it found:
-
-```json
-{"reachable": false, "url": "grpc://localhost:9090", "error": "..."}
+```
+run_pravaha_web.py     entry point: config, services, routes, serve
+config/application.yaml  every setting, with ${VAR:default} and a git-ignored .local overlay
+core/
+  config/              the properties configurator (YAML, env, CLI, documented precedence)
+  engine.py            the ONLY thing that touches the SDK (ADR-024)
+  services.py          typed calls, the subscription broadcaster, no HTTP and no HTML
+  content/             markdown topics, rendered at request time
+routes/
+  base.py              Routes, the brand context, the refusal mapping, the page renderer
+  public_routes.py     landing, about, help, tutorials, health probes
+  api_routes.py        /api/v1 — everything a screen can do
+  ui_routes.py         overview, queries, detail, workbench
+web/
+  templates/           Jinja2; base.html holds the tokens and the chrome
+  static/js/           one file per screen, plus theme, api, states, tail
+  static/vendor/       Bootstrap, Bootstrap Icons, the fonts — vendored, no CDN
+content/
+  help/ tutorials/ about/   front matter plus, usually, an `include:` of a repository document
 ```
 
-A console whose own health check fails when the engine fails cannot tell you the engine has failed,
-which is the one moment you needed it. Point your liveness probe here and your alerting at
-`reachable`.
+Reading order, because the layering is the point: `engine.py` → `services.py` → `routes/` →
+`templates/`. Each knows only the one below it. A template does not know the SDK exists; a service
+does not know a browser does.
+
+## Decisions worth knowing before changing it
+
+**Every asset is vendored.** No CDN, so the console renders in an air-gapped deployment — which is
+where a streaming engine usually lives. Adding a `<script src>` that points at the internet breaks
+that, and it breaks it only for the customers who cannot tell you.
+
+**Every page is rendered by the server first.** The JavaScript makes it live; it does not make it
+work. A page that is blank until a module loads is blank exactly when somebody is looking at it
+because something is not loading. Every control is a real form for the same reason.
+
+**The documentation is included, not copied.** A help topic is front matter plus
+`include: docs/CONCEPTS.md`. One source of truth: copying a document here to give it a card would
+create a second copy that drifts from the first, and both would render while only one was right.
+Cross-references are repointed at console routes when rendered, because `CONCEPTS.md` is the right
+link in a checkout and a dead one here.
+
+**One engine subscription serves every browser.** Ten analysts on one dashboard are ten browser
+connections and one subscriber on the engine, ref-counted so the upstream is released when the last
+watcher leaves. The engine's claim is that one question costs one computation; a console that
+multiplied it by open tabs would be quietly contradicting the thing it exists to demonstrate.
+
+**A theme is a redefinition of one block of tokens.** Light, dark and terminal, plus "system" as a
+position rather than the absence of one. Hard-coded colour is what stops a theme from existing, so
+there is none.
+
+## What is deliberately not here
+
+This is a **functional admin console**. Server-rendered HTML, no build step, no JavaScript
+framework. It does the operator's job and does not pretend to be the product surface design §23.20
+describes: no Monaco editor, no plan DAG, no time-travel debugger, no Storybook, no
+visual-regression baseline, and no WCAG 2.2 AA audit. Light and dark, density, keyboard paths, deep
+links and the eight states of §23.12 are *implemented*; they are not yet *audited*.
+
+That trade is recorded rather than accidental — see the implementation plan, which says plainly
+that without a dedicated frontend engineer the console degrades to exactly this, and that it is a
+legitimate trade to make on purpose.
 
 ## Tests
 
 ```bash
-make test
+JAVA_HOME=/path/to/jdk21 make test
 ```
 
-They run against **the real Java server**, started from the classpath the Maven build writes — the
-same fixture the Python SDK's tests use. A console tested against a fake engine would prove the fake
-works. Build the Java side first:
-
-```bash
-cd .. && ./mvnw -q -pl pravaha-flight -am test-compile -DskipTests
-```
-
-## Known limits
-
-Stated so you do not find them in a demo:
-
-- **No authentication of its own.** It passes a token through to the engine; it does not have users.
-  Put it behind something.
-- **One engine per process.** No cluster view, because there is no cluster yet (Wave 8).
-- **The help is the shipped documentation, not a tutorial.** It renders the guides; it does not
-  teach interactively.
-- **No EXPLAIN, no metrics charts, no time-travel.** `pravaha explain` covers the first; the rest
-  arrive with Waves 9–10, and the debugger is planned as a CLI (`pravaha replay`) for the same
-  staffing reason this console is plain.
-- **The live tail starts from now.** A subscription is not a replay: it shows what is committed from
-  the moment you open the page.
+They start a real Pravaha server from the Maven build and drive the console against it. A console
+tested against a fake engine would prove the fake works. If `JAVA_HOME` is unset the suite skips
+and says so — it used to skip silently, which meant nineteen tests could vanish while the run still
+reported success.
