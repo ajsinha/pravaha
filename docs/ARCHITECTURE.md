@@ -319,6 +319,47 @@ it reached, which is a far better failure mode for a dashboard than answers that
 arriving while paused are dropped rather than buffered — buffering would turn a pause into a memory
 commitment of unknown size, and the operator paused it precisely to stop it doing work.
 
+## What a retention window is actually for
+
+Not primarily a memory knob. It is the statement that **a served view is a cache of a current
+answer, not a system of record.**
+
+That distinction is the whole point of the feature, and four things follow from it.
+
+**It keeps the view from quietly becoming a second copy of the database.** A view over a query that
+does not aggregate gains a row per event forever. Left alone it converges on holding the entire
+source dataset in memory — which is precisely the second system this engine exists to remove. The
+irony is worth naming: without retention, the serving layer reinvents the thing it replaced.
+
+**It turns an unbounded liability into a sized resource.** Without retention, a view's memory is a
+function of how many distinct keys the data produces over all time — a property of the world, not a
+number anyone chose. With it, memory is bounded by a figure in a config file, and capacity planning
+becomes arithmetic instead of hope.
+
+**It states the relevance horizon of the question.** "Is this card running hot right now" is
+meaningless about a card that last transacted six months ago; "what is this desk's exposure today"
+is a question about today. A streaming answer has a useful lifetime, and retention is where that
+lifetime is written down. If the window is shorter than the questions people are actually asking,
+that is a design mismatch — and `evicted()` is how somebody notices it rather than discovering it
+through a support call about missing rows.
+
+**It draws the boundary with the store.** History lives where the data came from. A query about last
+month goes to Aerospike or the warehouse; the view answers about now. Retention is where that line
+is drawn explicitly rather than by whatever happens to still be in memory.
+
+### What it does not solve
+
+Worth being precise, because the name invites over-reading.
+
+Retention is on the **view** — the published answer. It does nothing for **operator state**: the
+accumulators inside the pipeline (`SlicedAggregateState`, `JoinSide`) are separate, and separately
+bounded. A window bounds an aggregate because the window closes. Nothing yet bounds a
+stream-to-stream join, and retention on its output view would not help — the join's liability is the
+unmatched rows it is holding *upstream*, waiting for partners that may never arrive.
+
+It is also not durability. A view is not checkpointed at all; it is rebuilt from the query. Retention
+decides what is kept hot, never what survives a restart.
+
 ## Subscribing to a registered query
 
 A subscription is not the query (ADR-025). Many attach to one computation, they come and go without
