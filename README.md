@@ -43,9 +43,13 @@
 > landed. The README's query runs verbatim against a real Aerospike, and there is a test that proves
 > it rather than a claim that asserts it.
 >
-> **What is not built, stated plainly:** there is no way yet to register a query as a persistent
-> running thing, no subscriptions, **no user interface** (three ADRs, no code), and no clustering.
-> That is roughly wave 7 of 10. The Aerospike edition question in
+> A query can now be **registered** — given a name, a state and an end — and consumers can
+> **subscribe** to one and receive changes per commit, with weights, so a late-data correction
+> arrives as a retraction and an insert.
+>
+> **What is not built, stated plainly:** subscriptions do not yet cross the wire (the engine side
+> works; the Flight transport does not), there is **no user interface** (three ADRs, no code), no
+> clustering, and no Spring Boot starter. That is roughly wave 7 of 10. The Aerospike edition question in
 > [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
 > is worth settling early.
 
@@ -108,9 +112,9 @@ nor incremental maintenance.
 |  | What it means |
 |---|---|
 | **Embeddable** | A library in your Spring Boot service, or a clustered server. Same engine, same code paths. |
-| **Store-native** | Filters, projections and partial aggregates are pushed *into* Aerospike and Cassandra. Move 10× fewer bytes. |
+| **Store-native** | **Filters** are pushed *into* the store — working today against Aerospike and any JDBC source, so filtered rows never cross the network. Projection and partial-aggregate pushdown, and a Cassandra plugin, are designed and not yet built. |
 | **Incremental** | Z-sets and DBSP-derived operators: work is proportional to what changed, not to how much data exists. Recursive SQL becomes expressible. |
-| **Serving** | The maintained view *is* an indexed table in memory. Point lookups in ~10–50 µs, with declared consistency and reported staleness. |
+| **Serving** | The maintained view *is* an indexed table in memory, with declared consistency and reported staleness. Built and working; the µs-latency target is a design goal that needs the reference hardware to measure honestly. |
 
 Full competitive analysis, including the ten measurable claims this has to satisfy:
 [design §2](docs/system_design.md#2-competitive-landscape--winning-strategy).
@@ -137,6 +141,9 @@ Two processes, on purpose.
    when the console is down
 ```
 
+**The console is designed and not built — three ADRs, no code.** What follows is the decision, not a
+description of something you can run.
+
 The console is a **separate runtime** so the API boundary cannot be violated: a test enforcing
 "the console may only use the public API" can be waived under deadline pressure, and a Python
 process simply cannot reach into a Java engine. It also makes the console the first real consumer of
@@ -147,7 +154,7 @@ The engine itself also embeds. One core, several ways to run it:
 | Mode | Artifact | Spring | Use |
 |---|---|---|---|
 | **A** Plain embedded | `pravaha-embedded` | none | Any Java app; unit tests; the CLI |
-| **B** Spring-embedded | `pravaha-spring-boot-starter` | auto-config into *your* app | Add continuous SQL to a service you already run |
+| **B** Spring-embedded | `pravaha-spring-boot-starter` — **not built yet** (ADR-020) | auto-config into *your* app | Add continuous SQL to a service you already run |
 | **C** Server | `pravaha-server` | it *is* a Spring Boot app | Standard production deployment |
 
 ```java
@@ -235,11 +242,16 @@ and the SDKs in [`sdk/pravaha-sdk-java`](sdk/pravaha-sdk-java) and
 |---|---|---|---|
 | 1 | 1–2 | Foundations; deterministic harness | ✅ `M1` |
 | 2 | 3–5 | Vertical slice; **go/no-go on the incremental core** | ✅ `M2` |
-| 3 | 6–11 | Codegen, lanes, exchange — Profile A ≥ 1.2 M rec/s/lane | in progress |
-| 4–5 | 12–25 | Windows, tiered state, Aerospike, joins, exactly-once checkpointing | |
-| 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | |
-| 7–8 | 33–45 | Gateways, SDKs, console, cluster and HA | |
-| 9–10 | 46–62 | Time-travel debugger, Nexmark published head-to-head, **GA** | |
+| 3 | 6–11 | Codegen, lanes, exchange — Profile A ≥ 1.2 M rec/s/lane | ✅ built · gate P2 needs hardware |
+| 4 | 12–18 | Windows, watermarks, late data, tiered state | ✅ built · gate P3 needs hardware |
+| 5 | 19–25 | Joins, Aerospike, checkpointing and recovery | ✅ built |
+| 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built |
+| 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | 🔨 in progress · no console |
+| 8 | 39–45 | Cluster and HA | ▫️ not started |
+| 9–10 | 46–62 | Time-travel debugger, Nexmark published head-to-head, **GA** | ▫️ not started |
+
+Waves 1–7 are merged to `main` at tag `M7`. "Built" means the code is there and tested; it does not
+mean a performance gate passed, and [`docs/gates`](docs/gates/) says which ones did not and why.
 
 [Full roadmap with acceptance gates →](docs/system_design.md#31-delivery-roadmap)
 
