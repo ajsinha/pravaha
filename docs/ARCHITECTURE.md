@@ -319,6 +319,34 @@ it reached, which is a far better failure mode for a dashboard than answers that
 arriving while paused are dropped rather than buffered — buffering would turn a pause into a memory
 commitment of unknown size, and the operator paused it precisely to stop it doing work.
 
+## Subscribing to a registered query
+
+A subscription is not the query (ADR-025). Many attach to one computation, they come and go without
+it noticing, and it outlives all of them — which is why a dashboard reconnecting costs nothing: the
+state is warm because it belongs to the query, not to whoever was watching.
+
+**Changes arrive per commit, never per row.** A commit is the point at which the engine says a prefix
+of the input is fully processed; between commits the view holds a half-applied batch, and a
+subscriber woken per row could act on a total still being assembled.
+
+They carry **weights**. `-1` withdraws a row, so a late-data correction reaches a consumer as a
+retraction followed by an insert — the same arithmetic as everything else in the engine rather than a
+message type every client has to recognise. A consumer that only wants current values can ignore
+negative weights and overwrite by key; one maintaining its own aggregate must apply them, or it
+drifts from the view the first time a window is corrected.
+
+What happens when a subscriber cannot keep up is the part that decides whether one slow consumer
+degrades everybody. **Blocking is not an option offered**: a subscriber that blocks applies
+backpressure to the *query*, so one slow dashboard would slow the computation for everyone keeping
+up. Instead the buffer is bounded and overflow is a declared choice — `CONFLATE` (replace the waiting
+change for a key; right for a dashboard, wrong for anything maintaining an aggregate from the
+weights), `DROP_OLDEST`, or `FAIL` (for a ledger, where finding out beats carrying on with a gap).
+Whatever is lost is **counted**, because a subscriber silently missing data is the failure the whole
+mechanism exists to make visible.
+
+A consumer that throws is detached rather than called again — otherwise one broken subscriber becomes
+a stream of exceptions on the engine's own thread.
+
 ## Who may read what
 
 Enforced here, not in the store the data came from, and the reason is structural rather than a

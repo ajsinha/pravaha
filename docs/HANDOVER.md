@@ -253,7 +253,8 @@ right numbers — which is how that distinction was discovered.
 | Parameters in both SDKs | ✅ `query(sql, params)` in Java and Python alike, types taken from the server's parameter schema rather than guessed |
 | Parameters for continuous queries | ❌ — decided in ADR-032, not built: registration has no surface yet to classify against. The rule is ADR-031's soundness rule, because a security row filter and a query parameter turn out to be the same object |
 | Query registration and lifecycle (ADR-025) | ✅ `pravaha-registry` — register, list, pause, resume, drop; sharing by fingerprint so the same question twice is one computation with two names, released on the *last* drop. The surface everything else was waiting on |
-| Subscriptions over Flight | ❌ — next |
+| Subscriptions, engine side | ✅ `Subscription` on a registered query — per-commit batches, weights carried so a correction is a retraction plus an insert, bounded buffer with CONFLATE / DROP_OLDEST / FAIL. The engine is never blocked by a slow subscriber, and what is lost is counted |
+| Subscriptions over the Flight wire | ❌ — next: the engine side is done, the transport is not |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
 **`docs/SQL_SUPPORT.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that

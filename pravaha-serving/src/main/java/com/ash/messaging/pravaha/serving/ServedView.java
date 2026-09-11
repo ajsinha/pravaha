@@ -73,6 +73,11 @@ public final class ServedView {
     private long removals;
     private long commits;
 
+    /** The output columns this view is keyed by, which is what a subscriber conflates on. */
+    public List<Integer> keyOrdinals() {
+        return java.util.Arrays.stream(keyOrdinals).boxed().toList();
+    }
+
     public ServedView(String name, StreamSchema schema, List<Integer> keyOrdinals, int maxKeys) {
         if (keyOrdinals.isEmpty()) {
             throw new IllegalArgumentException(

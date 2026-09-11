@@ -177,6 +177,38 @@ public final class RegisteredQuery implements AutoCloseable {
         }
     }
 
+    /**
+     * Attaches a consumer to this computation (ADR-025).
+     *
+     * <p>Subscriptions come and go without the computation noticing, and it outlives all of them.
+     * That separation is why a dashboard reconnecting costs nothing: the state is warm because it
+     * belongs to the query, not to whoever was watching.
+     *
+     * <p>Changes arrive per commit, never per row, so a subscriber never sees a half-applied window.
+     * They carry weights: {@code -1} withdraws a row, which is how a late-data correction reaches a
+     * consumer rather than as a special message type it has to recognise.
+     */
+    public Subscription subscribe(
+            SubscriptionOptions options,
+            java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
+        if (state.isTerminal()) {
+            throw new PravahaException(
+                    RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state);
+        }
+        return new Subscription(
+                anyName(),
+                view.keyOrdinals(),
+                options == null ? SubscriptionOptions.DEFAULT : options,
+                consumer,
+                subscription -> sink.onCommit(subscription::onCommit));
+    }
+
+    /** Subscribes with the default buffer and conflation. */
+    public Subscription subscribe(
+            java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
+        return subscribe(SubscriptionOptions.DEFAULT, consumer);
+    }
+
     /** Publishes what has been applied so far, without claiming time has moved. */
     public void commit() {
         if (state == QueryState.RUNNING) {
