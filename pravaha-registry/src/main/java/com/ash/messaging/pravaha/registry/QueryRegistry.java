@@ -74,6 +74,7 @@ public final class QueryRegistry implements AutoCloseable {
     // Insertion-ordered so that listing a registry is stable, which matters for a console that
     // renders the list and for a test that asserts on it.
     private final Map<String, RegisteredQuery> byName = new LinkedHashMap<>();
+    private RegistryJournal journal;
     private final Map<QueryFingerprint, RegisteredQuery> byFingerprint = new LinkedHashMap<>();
 
     public QueryRegistry(ViewCatalog views, StreamSchema... streams) {
@@ -200,7 +201,51 @@ public final class QueryRegistry implements AutoCloseable {
         byName.put(name, query);
         byFingerprint.put(fingerprint, query);
         views.register(query.view());
+        journalRegistration(name, sql, keyColumns, principal, retention, parameters);
         return query;
+    }
+
+    /**
+     * Writes the registration down before it is acknowledged.
+     *
+     * <p>Ordering matters here and is the opposite of what it looks like. The journal append happens
+     * after the query is running, so a query that cannot start is not recorded as if it had. But it
+     * happens before {@code register} returns, so a client never gets an acknowledgement for a
+     * registration that would vanish at the next restart. If the append fails the registration fails
+     * with it, loudly, rather than succeeding in a way that will be silently undone later.
+     */
+    private void journalRegistration(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            Retention retention,
+            BoundParameters parameters) {
+        if (journal == null) {
+            return;
+        }
+        List<String> encoded = new ArrayList<>();
+        for (int index = 0; index < parameters.size(); index++) {
+            encoded.add(RegistryJournal.encodeParameter(parameters.at(index)));
+        }
+        journal.recordRegistration(name, sql, keyColumns, principal.id(), retention, encoded);
+    }
+
+    /** Registration during recovery: the journal is being read, so nothing is written back to it. */
+    private RegisteredQuery registerWithoutJournalling(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            Retention retention,
+            BoundParameters parameters) {
+        RegistryJournal suspended = journal;
+        journal = null;
+        try {
+            return register(name, sql, keyColumns, principal, retention, parameters);
+        } finally {
+            journal = suspended;
+        }
     }
 
     private RegisteredQuery start(
@@ -224,6 +269,97 @@ public final class QueryRegistry implements AutoCloseable {
         ViewSink sink = new ViewSink(view, schema);
         InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, (RowOutput) sink::begin);
         return new RegisteredQuery(fingerprint, sql, name, view, sink, pipeline, Instant.now(), placements);
+    }
+
+    /**
+     * Writes registrations to {@code journal} so they survive a restart.
+     *
+     * <p>Without this a registry is entirely in memory: restart the server and every continuous
+     * query a client registered is gone, with no error and nothing to look at. The client finds out
+     * at its next subscribe, as "no such view", and the only fix is for every client to know to
+     * register again.
+     *
+     * <p>What is journalled is the <em>registration</em> -- name, SQL, key columns, owner, retention,
+     * bound values -- and not the state. The registration is small, rarely changes, and cannot be
+     * recomputed because it came from a client that may never speak again. State is large, changes
+     * constantly, and can be rebuilt by reading the stream. So a restart costs a warm-up rather than
+     * an outage: the views are there immediately and fill as data arrives, and a windowed query's
+     * first window or two are partial.
+     */
+    public synchronized QueryRegistry journalTo(RegistryJournal journal) {
+        this.journal = journal;
+        return this;
+    }
+
+    /**
+     * Re-registers everything the journal remembers.
+     *
+     * <p>Authorization is checked again, for each entry, against the policy as it is now. A
+     * registration is not a standing permission: if the principal who registered a query has since
+     * lost access, the query does not quietly come back. Replaying blindly would make the journal a
+     * way to keep an entitlement after it was revoked, by having registered before it was.
+     *
+     * @param principals resolves a recorded owner id back to a principal. Recovery needs the identity
+     *     the registration was made under, and only the deployment knows how to look one up
+     * @return what was recovered, and what was refused and why. Both matter: a query that did not
+     *     come back is a view some client is about to ask for
+     */
+    public synchronized Recovery recover(java.util.function.Function<String, Optional<Principal>> principals) {
+        if (journal == null) {
+            return new Recovery(List.of(), List.of());
+        }
+        List<String> recovered = new ArrayList<>();
+        List<String> refused = new ArrayList<>();
+        for (RegistryJournal.Entry entry : journal.replay()) {
+            Optional<Principal> owner = principals.apply(entry.owner());
+            if (owner.isEmpty()) {
+                refused.add(entry.name() + ": its owner '" + entry.owner()
+                        + "' is not a principal this deployment knows, so there is nobody to authorize it as");
+                continue;
+            }
+            try {
+                List<Object> values = entry.parameters().stream()
+                        .map(RegistryJournal::decodeParameter)
+                        .toList();
+                registerWithoutJournalling(
+                        entry.name(),
+                        entry.sql(),
+                        entry.keyColumns(),
+                        owner.get(),
+                        entry.retention(),
+                        values.isEmpty() ? BoundParameters.none() : BoundParameters.of(values));
+                recovered.add(entry.name());
+            } catch (RuntimeException failure) {
+                // One bad entry must not stop the rest. A deployment recovering forty queries should
+                // not lose thirty-nine because the fortieth names a stream that has since been removed.
+                refused.add(entry.name() + ": " + failure.getMessage());
+            }
+        }
+        return new Recovery(recovered, refused);
+    }
+
+    /**
+     * What a {@link #recover} put back, and what it would not.
+     *
+     * @param recovered names that are registered again
+     * @param refused names that are not, each with the reason. These are views clients expect to
+     *     exist, so this belongs in a log an operator reads, not in a return value nobody looks at
+     */
+    public record Recovery(List<String> recovered, List<String> refused) {
+
+        public Recovery {
+            recovered = List.copyOf(recovered);
+            refused = List.copyOf(refused);
+        }
+
+        public boolean complete() {
+            return refused.isEmpty();
+        }
+
+        @Override
+        public String toString() {
+            return "Recovery[" + recovered.size() + " recovered, " + refused.size() + " refused]";
+        }
     }
 
     /** The query answering to {@code name}. */
@@ -274,6 +410,11 @@ public final class QueryRegistry implements AutoCloseable {
         if (query.removeName(name)) {
             byFingerprint.remove(query.fingerprint());
             query.close();
+        }
+        if (journal != null) {
+            // Recorded even when other names still hold the computation open: the journal is about
+            // names, and this name is gone whatever happens to the computation behind it.
+            journal.recordDrop(name);
         }
     }
 

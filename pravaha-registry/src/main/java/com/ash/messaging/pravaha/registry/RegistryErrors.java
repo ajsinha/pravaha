@@ -39,5 +39,30 @@ public final class RegistryErrors {
     /** The query failed while running; its recorded cause says how. */
     public static final ErrorCode QUERY_FAILED = new ErrorCode(8004, "REGISTRY_QUERY_FAILED");
 
+    /**
+     * A record in the registry journal cannot be read.
+     *
+     * <p>Refused rather than skipped. A skipped registration is a view a client expects to find and
+     * will not, and it would fail at subscribe time with "no such view" -- a long way from the
+     * unreadable byte that caused it.
+     */
+    public static final ErrorCode JOURNAL_UNREADABLE = new ErrorCode(8005, "REGISTRY_JOURNAL_UNREADABLE");
+
+    /**
+     * The registry journal cannot be written.
+     *
+     * <p>The registration is refused. Acknowledging one that will not survive a restart tells the
+     * client something that is not true, and nothing will correct it later.
+     */
+    public static final ErrorCode JOURNAL_UNWRITABLE = new ErrorCode(8006, "REGISTRY_JOURNAL_UNWRITABLE");
+
+    /**
+     * A journalled registration was replayed for a principal who may no longer have it.
+     *
+     * <p>A registration is not a standing permission. Replaying blindly would be a way to keep an
+     * entitlement after it was revoked, by having registered before it was.
+     */
+    public static final ErrorCode REPLAY_UNAUTHORIZED = new ErrorCode(8007, "REGISTRY_REPLAY_UNAUTHORIZED");
+
     private RegistryErrors() {}
 }

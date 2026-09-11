@@ -186,6 +186,57 @@ three quarters, and it is a pure function of the membership: every node that agr
 cluster computes the same owners without asking. That is also *why* `PARTITIONED` needs consensus —
 nodes that disagree about membership confidently compute different owners.
 
+## Restarts: what survives
+
+Registered continuous queries are written to a journal, so a restart does not lose them:
+
+```yaml
+pravaha:
+  registry:
+    journal: /var/lib/pravaha/registry.journal
+```
+
+**What is written down is the registration, not the state.** A registration — name, SQL, key
+columns, owner, retention, bound values — is small, changes rarely, and *cannot be recomputed*,
+because it came from a client that may never connect again. State is large, changes constantly, and
+can be rebuilt by reading the stream.
+
+So a restart costs a **warm-up, not an outage**: views exist immediately and fill as data arrives. A
+windowed query's first window or two are partial. Plan restarts accordingly — this is the honest
+cost, and it is not hidden.
+
+**Owners are re-checked on replay.** A registration is not a standing permission. If the principal
+who registered a query has since lost access, the query does not quietly come back — replay refuses
+it and names it. Recovery reports both lists, and *the refused list is the one to read*: each entry
+is a view some client expects to find and will not.
+
+| You see | It means |
+|---|---|
+| `PRV-8005 ... this version does not understand` | A journal record from a newer version. Refused, not skipped — skipping would silently drop a registration |
+| `PRV-8006` on register | The journal could not be written. The registration is **refused**, because acknowledging one that will not survive a restart tells the client something untrue |
+| `refused: ... contract ended` | The owner lost the permission they registered under. Working as intended |
+| `refused: ... not a principal this deployment knows` | The owner no longer resolves. Recovering it as nobody would run a query under an authority it was never granted |
+
+A crash mid-append leaves a truncated final record; replay keeps everything before it and ignores the
+tail. Compaction rewrites the journal with only what is live, via an atomic move.
+
+The journal holds **query text and bound parameter values** — account numbers, customer ids,
+whatever clients filtered on. Permission it like data, not like configuration.
+
+Checkpoints are separate and retained **by count** (default: newest 3), not by age. That is
+deliberate and differs from view retention, which is time-based: a view holds data, and streaming
+data is about what is true now; a checkpoint holds a *fallback*, and the question is how many
+chances you have to recover. An idle system takes no new checkpoints, so an age rule would delete
+every one you had after a quiet night — precisely when recovery is most likely to be wanted.
+
+```yaml
+pravaha:
+  checkpoint:
+    interval: 1m
+    keep: 3
+    timeout: 30s
+```
+
 ## Deployment shapes
 
 | Mode | Artefact | Use |
