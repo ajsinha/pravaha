@@ -87,6 +87,57 @@ permit, and what the other tenants report is "Pravaha is down".
 Refusals reach clients as `RESOURCE_EXHAUSTED`, which drivers retry with backoff — not as
 `INVALID_ARGUMENT`, which they give up on.
 
+## Clustering: choosing a coordinator
+
+Pluggable, selected in configuration — and the mechanisms are **not interchangeable**, which is why
+the deployment declares two separate things:
+
+```yaml
+pravaha:
+  cluster:
+    mode: REPLICATED        # what you are asking of the cluster  (a correctness question)
+    mechanism: socket       # which coordinator to use            (an operational one)
+    socket:
+      peers: "a=host1:9070,b=host2:9070,c=host3:9070"
+      heartbeat.millis: 1000
+      timeout.millis: 5000
+```
+
+| Mechanism | Excludes split-brain | External service | For |
+|---|---|---|---|
+| `single` | ✅ (there is no second node) | no | One node. The default, and what embedded always is |
+| `socket` | ❌ | no | Development, and `REPLICATED` where a split brain costs duplicated work |
+| `zookeeper` | ✅ | yes | Production `PARTITIONED`. Needs `plugins/pravaha-cluster-zookeeper` on the classpath |
+
+| Mode | Means | Needs consensus |
+|---|---|---|
+| `SINGLE` | One node | no |
+| `REPLICATED` | Several nodes, each holding the whole state | no |
+| `PARTITIONED` | Partitions owned by particular nodes | **yes** |
+
+**`PARTITIONED` on a coordinator without consensus is refused at startup** (`PRV-9002`), not warned
+about. Two nodes each believing they own a partition means two nodes writing the same aggregate, and
+the damage is silent, durable, and found later by whoever reconciles the numbers. §21.2 rejected a
+store-backed CAS lease for exactly this reason.
+
+The socket coordinator elects "the lowest id among peers I can reach", which each side of a partition
+computes for itself — so a partition produces two leaders, each correct from where it is standing.
+That is survivable when leadership only decides who does redundant work. It is not survivable when it
+decides who owns state.
+
+The startup log says what was chosen and what it promises:
+
+```
+cluster mode REPLICATED on socket (NO consensus — cannot exclude split-brain), self-contained, development only
+```
+
+A deployment that runs etcd or Consul can supply its own coordinator through `CoordinatorProvider`
+and `ServiceLoader`, without the engine knowing about it.
+
+**Raft is not implemented.** §21.2 and ADR-009 choose embedded Raft (Ratis) as the eventual default —
+consensus without a mandatory external service. Until it exists, production `PARTITIONED` means
+ZooKeeper.
+
 ## Deployment shapes
 
 | Mode | Artefact | Use |
@@ -95,8 +146,12 @@ Refusals reach clients as `RESOURCE_EXHAUSTED`, which drivers retry with backoff
 | Server | `pravaha-server` + `pravaha-flight` | Standard deployment |
 | Console | `console/`, separate process | Operator UI, talks only to the public API |
 
-There is **no Spring Boot starter** (ADR-020 planned one; it does not exist) and **no clustering**
-(Wave 8). A deployment today is a single node.
+There is **no Spring Boot starter** (ADR-020 planned one; it does not exist).
+
+Clustering has its coordination layer — membership, leadership, and the guarantee rule above — and
+**not yet the parts that use it**: partition assignment, state handoff, rebalancing and the
+checkpoint coordinator remain Wave 8. A deployment today is a single node, and the coordinator SPI is
+what the rest will be built on.
 
 ## JVM flags
 

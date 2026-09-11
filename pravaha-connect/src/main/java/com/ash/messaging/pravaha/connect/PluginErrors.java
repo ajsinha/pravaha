@@ -20,7 +20,13 @@ import com.ash.messaging.pravaha.api.ErrorCode;
 /** Plugin subsystem error codes. Stable and never renumbered. */
 public final class PluginErrors {
 
-    public static final ErrorCode MISSING_SETTING = new ErrorCode(5001, "PLUGIN_MISSING_SETTING");
+    /**
+     * Aliased to {@link com.ash.messaging.pravaha.api.plugin.PluginContext#MISSING_SETTING} rather
+     * than declared again. Two declarations of one code are harmless right up until somebody changes
+     * one of them, and a code is what goes in a runbook.
+     */
+    public static final ErrorCode MISSING_SETTING = com.ash.messaging.pravaha.api.plugin.PluginContext.MISSING_SETTING;
+
     public static final ErrorCode NOT_FOUND = new ErrorCode(5010, "PLUGIN_NOT_FOUND");
     public static final ErrorCode INCOMPATIBLE_API = new ErrorCode(5011, "PLUGIN_INCOMPATIBLE_API");
     public static final ErrorCode LOAD_FAILED = new ErrorCode(5012, "PLUGIN_LOAD_FAILED");

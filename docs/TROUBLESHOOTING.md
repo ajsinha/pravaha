@@ -217,6 +217,29 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-5013` | PLUGIN_DUPLICATE_NAME | plugins |
 | `PRV-5020` | PLUGIN_CIRCUIT_OPEN | plugins |
 | `PRV-5030` | PLUGIN_CAPABILITY_MISMATCH | plugins |
+| `PRV-5040` | FILESYSTEM_DECODE_FAILED | plugins |
+| `PRV-5050` | DELTA_TABLE_UNREADABLE | plugins |
+| `PRV-5051` | DELTA_UNSUPPORTED_TYPE | plugins |
+| `PRV-5052` | DELTA_MALFORMED_OFFSET | plugins |
+| `PRV-5053` | DELTA_FILE_VACUUMED | plugins |
+| `PRV-5054` | DELTA_READ_FAILED | plugins |
+| `PRV-5055` | DELTA_UNSUPPORTED_FEATURE | plugins |
+| `PRV-5060` | FEEDFILE_DIRECTORY_UNREADABLE | plugins |
+| `PRV-5061` | FEEDFILE_BAD_SCHEMA | plugins |
+| `PRV-5062` | FEEDFILE_DECODE_FAILED | plugins |
+| `PRV-5063` | FEEDFILE_MALFORMED_OFFSET | plugins |
+| `PRV-5064` | FEEDFILE_FILE_GONE | plugins |
+| `PRV-5065` | FEEDFILE_BAD_CONFIGURATION | plugins |
+| `PRV-5070` | JDBC_CONNECT_FAILED | plugins |
+| `PRV-5071` | JDBC_QUERY_FAILED | plugins |
+| `PRV-5072` | JDBC_UNSUPPORTED_TYPE | plugins |
+| `PRV-5073` | JDBC_MALFORMED_OFFSET | plugins |
+| `PRV-5074` | JDBC_BAD_CONFIGURATION | plugins |
+| `PRV-5080` | AEROSPIKE_CONNECT_FAILED | plugins |
+| `PRV-5081` | AEROSPIKE_OPERATION_FAILED | plugins |
+| `PRV-5082` | AEROSPIKE_UNSUPPORTED_TYPE | plugins |
+| `PRV-5083` | AEROSPIKE_BAD_CONFIGURATION | plugins |
+| `PRV-5084` | AEROSPIKE_MALFORMED_OFFSET | plugins |
 | `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |
@@ -228,6 +251,11 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-8002` | REGISTRY_NO_SUCH_QUERY | registry |
 | `PRV-8003` | REGISTRY_ILLEGAL_TRANSITION | registry |
 | `PRV-8004` | REGISTRY_QUERY_FAILED | registry |
+| `PRV-9001` | CLUSTER_UNKNOWN_MECHANISM | cluster |
+| `PRV-9002` | CLUSTER_INSUFFICIENT_GUARANTEE | cluster |
+| `PRV-9003` | CLUSTER_COORDINATOR_UNAVAILABLE | cluster |
+| `PRV-9004` | CLUSTER_NOT_LEADER | cluster |
+| `PRV-9005` | CLUSTER_BAD_MEMBERSHIP | cluster |
 
 Generated from the source, not from memory: every row above is an `ErrorCode` declared in a module's
 main sources. If a code is missing here it does not exist in the engine.

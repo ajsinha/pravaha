@@ -55,7 +55,8 @@ class ErrorCodeUniquenessTest {
             5, "plugins",
             6, "the Flight gateway",
             7, "security",
-            8, "the query registry");
+            8, "the query registry",
+            9, "cluster coordination");
 
     @Test
     void noTwoFailuresShareACode() throws IOException {

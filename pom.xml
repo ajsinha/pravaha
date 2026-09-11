@@ -32,6 +32,7 @@
     <module>pravaha-backfill</module>
     <module>pravaha-security</module>
     <module>pravaha-serving</module>
+    <module>pravaha-cluster</module>
     <module>pravaha-registry</module>
     <module>pravaha-flight</module>
     <module>pravaha-connect</module>
@@ -43,6 +44,7 @@
     <module>plugins/pravaha-plugin-feedfile</module>
     <module>plugins/pravaha-plugin-jdbc</module>
     <module>plugins/pravaha-plugin-aerospike</module>
+    <module>plugins/pravaha-cluster-zookeeper</module>
     <module>pravaha-embedded</module>
     <module>pravaha-cli</module>
     <module>pravaha-server</module>
@@ -95,6 +97,7 @@
     <console.executable>python3</console.executable>
     <!-- Python tests are off unless -Ppython asks for them; a Java-only build needs no interpreter. -->
     <pravaha.python.tests.skip>true</pravaha.python.tests.skip>
+    <curator.version>5.7.1</curator.version>
     <exec.maven.plugin.version>3.6.3</exec.maven.plugin.version>
     <maven.dependency.plugin.version>3.8.1</maven.dependency.plugin.version>
     <maven.jar.plugin.version>3.5.1</maven.jar.plugin.version>

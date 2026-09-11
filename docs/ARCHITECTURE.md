@@ -539,6 +539,8 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 | [`plugins/pravaha-plugin-jdbc`](../plugins/pravaha-plugin-jdbc) | Incremental-poll source and dimension table for any JDBC database. Keyset pagination, filter pushdown into `WHERE`, driver supplied by the deployment. |
 | [`plugins/pravaha-plugin-aerospike`](../plugins/pravaha-plugin-aerospike) | The primary target. Scan-based source with server-side filter pushdown, idempotent sink, and a lookup table. Tested against a real Aerospike server, not a mock. |
 | [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | Java client. Depends on `pravaha-api` alone. |
+| `pravaha-cluster` | Membership, leadership and assignment behind an SPI, so a deployment uses the mechanism it already runs. Each implementation **declares what it guarantees**, and the engine refuses the work a coordinator cannot safely do. |
+| [`plugins/pravaha-cluster-zookeeper`](../plugins/pravaha-cluster-zookeeper) | A ZooKeeper-backed coordinator. Its own artefact, so a deployment using sockets or a single node carries no ZooKeeper client. |
 | [`sdk/python`](../sdk/python) | Python client. The console is built on it. |
 
 | `pravaha-state` | Off-heap state: the L0 map, the block store joins hold rows in, and checkpoints. |
