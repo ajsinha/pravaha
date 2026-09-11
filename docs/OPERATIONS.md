@@ -138,6 +138,54 @@ and `ServiceLoader`, without the engine knowing about it.
 consensus without a mandatory external service. Until it exists, production `PARTITIONED` means
 ZooKeeper.
 
+## Rebalancing: what happens when the membership changes
+
+A node joins or leaves, the assignment is recomputed, and the partitions whose owner changed are
+handed over one at a time. Each handoff runs a fixed sequence, and the sequence *is* the correctness
+argument:
+
+```
+source pauses -> source snapshots (state + offsets) -> target restores
+              -> ownership flips -> target resumes -> source releases
+```
+
+Two windows are worth understanding, because one is acceptable and the other never is.
+
+**Between the pause and the resume, nobody is processing that partition.** Those keys are
+unavailable — queries touching them wait — and the budget is 5 s (NFR-6). Input is not lost: it
+accumulates at the source and is read from the handed-over offsets. Everything else in the query
+carries on.
+
+**At no point are both nodes processing it.** Starting the target before stopping the source would
+shorten the pause and mean two nodes updating one aggregate. The pause is a cost you can measure;
+double ownership is a corruption you find later.
+
+Handoffs run **one at a time**. Ten in parallel makes ten slices of the key space unavailable
+together, on a node that has just lost a peer and is already the busiest it has been all day. Serial
+handoff turns a cliff into a ramp.
+
+The first failure **stops the run**. A rolled-back handoff leaves the partition with its original
+owner, which is a fine place for it to be; the next membership change decides afresh. Grinding on
+after the first failure turns one problem into N.
+
+| You see | It means |
+|---|---|
+| `rolled back, a still owns it` | Safe. The source kept state and offsets. Retried on the next change |
+| `PRV-9006 ... must not be handed back` | Failed *past* the flip. That partition needs checkpoint recovery — do not move it back |
+| `PRV-9006 ... is not being served` | Rollback itself failed. A partition is paused with no owner serving it. Investigate now |
+| `PRV-9007 ... flapping` | Cooldown (default 1 min). A node is appearing and disappearing; fix that before rebalancing |
+| `over the 5000ms budget` | The handoff completed but ran long. Those keys were unavailable for that long |
+
+To see what *would* happen before doing it, the plan is inspectable: which partitions move, and to
+which node.
+
+Partition count is fixed at registration (default 1024) and immutable for the query's life —
+changing it would rehash every key, which is what virtual partitions exist to avoid. Assignment uses
+rendezvous hashing, so adding a fourth node to three moves about a quarter of the state rather than
+three quarters, and it is a pure function of the membership: every node that agrees on who is in the
+cluster computes the same owners without asking. That is also *why* `PARTITIONED` needs consensus —
+nodes that disagree about membership confidently compute different owners.
+
 ## Deployment shapes
 
 | Mode | Artefact | Use |
@@ -148,10 +196,11 @@ ZooKeeper.
 
 There is **no Spring Boot starter** (ADR-020 planned one; it does not exist).
 
-Clustering has its coordination layer — membership, leadership, and the guarantee rule above — and
-**not yet the parts that use it**: partition assignment, state handoff, rebalancing and the
-checkpoint coordinator remain Wave 8. A deployment today is a single node, and the coordinator SPI is
-what the rest will be built on.
+Clustering has its coordination layer — membership, leadership, the guarantee rule above — and its
+assignment, handoff and rebalancing machinery, all tested. What it does **not** yet have is the
+engine wiring: nothing implements `PartitionOwner` against real lane state, and no checkpoint
+coordinator cuts aligned barriers across nodes. A deployment today is still a single node. The
+machinery is the part that is hard to get right; the wiring is the part that is left.
 
 ## JVM flags
 

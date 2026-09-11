@@ -40,5 +40,17 @@ public final class ClusterErrors {
     /** The configuration names peers that cannot form a cluster. */
     public static final ErrorCode BAD_MEMBERSHIP = new ErrorCode(9005, "CLUSTER_BAD_MEMBERSHIP");
 
+    /**
+     * A partition handoff did not complete.
+     *
+     * <p>The message distinguishes the two cases that matter: rolled back (the source still owns it,
+     * retry later) and failed past the point of rollback (the partition needs checkpoint recovery
+     * and must not be moved back).
+     */
+    public static final ErrorCode HANDOFF_FAILED = new ErrorCode(9006, "CLUSTER_HANDOFF_FAILED");
+
+    /** A rebalance was asked for while one was running, or too soon after one finished. */
+    public static final ErrorCode REBALANCE_REFUSED = new ErrorCode(9007, "CLUSTER_REBALANCE_REFUSED");
+
     private ClusterErrors() {}
 }

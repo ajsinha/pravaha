@@ -256,6 +256,8 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-9003` | CLUSTER_COORDINATOR_UNAVAILABLE | cluster |
 | `PRV-9004` | CLUSTER_NOT_LEADER | cluster |
 | `PRV-9005` | CLUSTER_BAD_MEMBERSHIP | cluster |
+| `PRV-9006` | CLUSTER_HANDOFF_FAILED | cluster |
+| `PRV-9007` | CLUSTER_REBALANCE_REFUSED | cluster |
 
 Generated from the source, not from memory: every row above is an `ErrorCode` declared in a module's
 main sources. If a code is missing here it does not exist in the engine.
