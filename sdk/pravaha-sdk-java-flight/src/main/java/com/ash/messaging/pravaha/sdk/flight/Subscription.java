@@ -36,14 +36,17 @@ public final class Subscription implements AutoCloseable {
 
     private final FlightStream stream;
     private final Consumer<ChangeBatch> onBatch;
+    private final Consumer<Subscription> onClosed;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean streamClosed = new AtomicBoolean();
+    private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicLong batches = new AtomicLong();
     private final AtomicLong rows = new AtomicLong();
 
-    Subscription(FlightStream stream, Consumer<ChangeBatch> onBatch) {
+    Subscription(FlightStream stream, Consumer<ChangeBatch> onBatch, Consumer<Subscription> onClosed) {
         this.stream = stream;
         this.onBatch = onBatch;
+        this.onClosed = onClosed;
     }
 
     /**
@@ -53,6 +56,7 @@ public final class Subscription implements AutoCloseable {
      * them and are reused for the next commit, so anything kept past the callback must be copied.
      */
     public void run() {
+        running.set(true);
         try {
             while (!closed.get() && stream.next()) {
                 VectorSchemaRoot root = stream.getRoot();
@@ -105,7 +109,15 @@ public final class Subscription implements AutoCloseable {
             } catch (RuntimeException e) {
                 // Already gone. Cancelling something twice is not a failure.
             }
-            closeStream();
+            onClosed.accept(this);
+            if (!running.get()) {
+                // Nobody is reading, so nobody else will close it. When run() *is* active the
+                // cancellation unblocks it and it closes the stream on its own way out -- on the
+                // thread that owns it. Closing a stream from a second thread while the first is
+                // inside next() leaves a buffer unreleased, which Arrow reports as a leak when the
+                // allocator shuts down, and it is right to.
+                closeStream();
+            }
         }
     }
 

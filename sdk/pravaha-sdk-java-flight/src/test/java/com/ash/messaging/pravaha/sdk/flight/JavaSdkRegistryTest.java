@@ -219,6 +219,28 @@ class JavaSdkRegistryTest {
         subscription.close();
     }
 
+    @Test
+    void closingTheClientReleasesTheServersSideOfASubscription() throws Exception {
+        client.register("feed", SQL, List.of(0));
+
+        Subscription subscription = client.subscribe("feed", batch -> {});
+        Thread reader = Thread.ofVirtual().start(subscription::run);
+        awaitAttached("feed");
+        assertThat(registry.require("feed").subscriberCount()).isEqualTo(1);
+
+        // Closing the *client* outright, without closing the subscription first -- which is what a
+        // process exiting looks like from the server's side.
+        client.close();
+        client = null;
+
+        awaitDetached("feed");
+        assertThat(registry.require("feed").subscriberCount())
+                .as("a client going away must not leave a listener attached to the query, or the "
+                        + "engine keeps assembling batches for nobody")
+                .isZero();
+        reader.join(5_000);
+    }
+
     private String stateOf(String name) {
         return client.queries().stream()
                 .filter(q -> q.name().equals(name))

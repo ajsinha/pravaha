@@ -91,6 +91,17 @@ public final class PravahaFlightClient implements AutoCloseable {
      */
     private final CallOption[] callOptions;
 
+    /**
+     * Subscriptions this client opened and that nobody has closed.
+     *
+     * <p>Tracked so that closing the client releases the <em>server's</em> side of them. A
+     * subscription is a call that does not return: the server is parked holding Arrow buffers and a
+     * listener attached to the query, and it learns that nobody is listening from a cancellation.
+     * Dropping the transport without one leaves it attached, assembling batches for a client that
+     * has gone -- which is a leak on the wrong machine, and the hardest kind to attribute.
+     */
+    private final java.util.Set<Subscription> subscriptions = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     private PravahaFlightClient(
             BufferAllocator allocator,
             boolean ownsAllocator,
@@ -314,7 +325,9 @@ public final class PravahaFlightClient implements AutoCloseable {
             pairs.add(value);
         });
         FlightStream stream = client.getStream(new Ticket(ControlWire.subscribeTicket(view, pairs)), callOptions);
-        return new Subscription(stream, onBatch);
+        Subscription subscription = new Subscription(stream, onBatch, subscriptions::remove);
+        subscriptions.add(subscription);
+        return subscription;
     }
 
     /** Watches every row a registered query produces. */
@@ -344,13 +357,32 @@ public final class PravahaFlightClient implements AutoCloseable {
         return index < row.size() ? row.get(index) : "";
     }
 
+    /**
+     * Closes the connection.
+     *
+     * <p>Teardown noise is not reported as failure. Closing a transport with a finished stream on
+     * it produces a cancellation -- {@code RST_STREAM ... CANCEL} -- from gRPC's point of view, and
+     * turning that into an exception meant a command that had already done its work and printed its
+     * answer then exited non-zero. A caller cannot act on it, and a script cannot tell it apart from
+     * the query having failed.
+     *
+     * <p>The allocator is closed either way, in a finally, because a leak there is a real problem
+     * and would otherwise be masked by whatever the transport said on the way out.
+     */
     @Override
     public void close() {
+        // Subscriptions first, and this ordering is the point. Each one is cancelled so the server
+        // detaches its listener and releases its buffers; dropping the transport underneath them
+        // instead leaves the server holding both.
+        for (Subscription subscription : java.util.List.copyOf(subscriptions)) {
+            subscription.close();
+        }
+        subscriptions.clear();
         try {
             client.close();
         } catch (Exception e) {
-            throw new PravahaClientException(
-                    ClientErrors.CLOSED, "cannot close the client: " + e.getMessage(), false, e);
+            // Deliberately not rethrown; see above. Anything genuinely wrong with this connection
+            // has already shown up as a failed call.
         } finally {
             if (ownsAllocator) {
                 allocator.close();
