@@ -214,6 +214,27 @@ pravaha:
 A node with no `registry.journal` starts and **says so** — a development run does not need
 durability, but the cost of finding out at the next restart is every client's registrations.
 
+## Watching a running node
+
+Prometheus metrics are at `/actuator/prometheus`. Per continuous query:
+
+| Metric | Question it answers |
+|---|---|
+| `pravaha_query_running{query=}` | Is it alive — 1 running, 0 terminal |
+| `pravaha_query_rows_in{query=}` | Is anything arriving |
+| `pravaha_query_view_size{query=}` | How many keys the view holds |
+| `pravaha_query_view_evicted{query=}` | What retention has removed. **Flat at zero on a long-running query** means either nothing is old enough yet or retention is longer than anyone intended |
+| `pravaha_query_view_updates` / `_removals` | Corrections and retractions applied |
+| `pravaha_query_watermark_lag_seconds{query=}` | How far behind **event time** it is |
+
+Lag is event-time lag, not processing latency: a query can be fast and still far behind, because
+this measures the data rather than the engine. A query that has never seen a row reports `NaN`, not
+zero — zero would show it as perfectly up to date.
+
+Meters are removed when a query is dropped. That matters more than it sounds: a gauge registered per
+query and never removed leaks the meter *and* the query state its reference keeps alive, and nothing
+in Micrometer would complain.
+
 ## Restarts: what survives
 
 Registered continuous queries are written to a journal, so a restart does not lose them:
