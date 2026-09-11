@@ -138,6 +138,55 @@
   <build>
     <plugins>
       <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>${exec.maven.plugin.version}</version>
+        <executions>
+          <execution>
+            <!--
+              The Python SDK's tests, and the console's. Here, in the last module of the reactor,
+              because they start the real Java server from this build's classes: bound to the
+              aggregator they would run before any of it was compiled, against stale artefacts.
+              Skipped unless -Ppython, which sets pravaha.python.tests.
+            -->
+            <id>python-sdk-test</id>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <phase>verify</phase>
+            <configuration>
+              <skip>${pravaha.python.tests.skip}</skip>
+              <executable>${python.executable}</executable>
+              <workingDirectory>${project.basedir}/../sdk/python</workingDirectory>
+              <arguments>
+                <argument>-m</argument>
+                <argument>pytest</argument>
+                <argument>tests</argument>
+                <argument>-q</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>console-test</id>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <phase>verify</phase>
+            <configuration>
+              <skip>${pravaha.python.tests.skip}</skip>
+              <executable>${console.executable}</executable>
+              <workingDirectory>${project.basedir}/../console</workingDirectory>
+              <arguments>
+                <argument>-m</argument>
+                <argument>pytest</argument>
+                <argument>tests</argument>
+                <argument>-q</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
         <configuration>

@@ -93,6 +93,8 @@
     -->
     <python.executable>python3</python.executable>
     <console.executable>python3</console.executable>
+    <!-- Python tests are off unless -Ppython asks for them; a Java-only build needs no interpreter. -->
+    <pravaha.python.tests.skip>true</pravaha.python.tests.skip>
     <exec.maven.plugin.version>3.6.3</exec.maven.plugin.version>
     <maven.dependency.plugin.version>3.8.1</maven.dependency.plugin.version>
     <maven.jar.plugin.version>3.5.1</maven.jar.plugin.version>
@@ -452,91 +454,28 @@
       </build>
     </profile>
 
-    <profile>
-      <id>python-venv</id>
-      <activation>
-        <file>
-          <exists>${project.basedir}/sdk/python/.venv/bin/python</exists>
-        </file>
-      </activation>
-      <properties>
-        <python.executable>${project.basedir}/sdk/python/.venv/bin/python</python.executable>
-      </properties>
-    </profile>
+    <!-- The Python SDK and the console. Behind a profile so a Python toolchain is not required to
+         build the engine; the Java SDK is always built, because its jar is a deliverable.
 
-    <profile>
-      <id>console-venv</id>
-      <activation>
-        <file>
-          <exists>${project.basedir}/console/.venv/bin/python</exists>
-        </file>
-      </activation>
-      <properties>
-        <console.executable>${project.basedir}/console/.venv/bin/python</console.executable>
-      </properties>
-    </profile>
-
-    <!-- The Python SDK. Behind a profile so a Python toolchain is not required to build the
-         engine; the Java SDK is always built, because its jar is a deliverable. -->
+         The executions live in pravaha-it rather than here. A parent's phases run before its
+         children in the reactor, so binding them to this pom ran the Python tests against whatever
+         Java classes were left over from a previous build — which hid a renumbered error code for
+         a whole build and would hide anything else the same way. -->
     <profile>
       <id>python</id>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.codehaus.mojo</groupId>
-            <artifactId>exec-maven-plugin</artifactId>
-            <version>${exec.maven.plugin.version}</version>
-            <!--
-              Once, on the aggregator, not once per module. Plugins declared here are inherited by
-              every child, and there is one Python SDK rather than twenty-eight of them.
-            -->
-            <inherited>false</inherited>
-            <executions>
-              <execution>
-                <!--
-                  The Python SDK is a Python project, not a Maven module: it has a pyproject.toml
-                  and no pom, because a pom in a Python source tree is a lie about what builds it.
-                  Maven still runs its tests, because a cross-language test that is not in the
-                  build is a test nobody notices has stopped working, which had already happened
-                  once here, silently, to sixteen of them.
-                -->
-                <id>python-test</id>
-                <goals>
-                  <goal>exec</goal>
-                </goals>
-                <phase>test</phase>
-                <configuration>
-                  <executable>${python.executable}</executable>
-                  <workingDirectory>${project.basedir}/sdk/python</workingDirectory>
-                  <arguments>
-                    <argument>-m</argument>
-                    <argument>pytest</argument>
-                    <argument>tests</argument>
-                    <argument>-q</argument>
-                  </arguments>
-                </configuration>
-              </execution>
-              <execution>
-                <id>python-wheel</id>
-                <goals>
-                  <goal>exec</goal>
-                </goals>
-                <phase>package</phase>
-                <configuration>
-                  <executable>${python.executable}</executable>
-                  <workingDirectory>${project.basedir}/sdk/python</workingDirectory>
-                  <arguments>
-                    <argument>-m</argument>
-                    <argument>build</argument>
-                    <argument>--outdir</argument>
-                    <argument>${project.build.directory}/python</argument>
-                  </arguments>
-                </configuration>
-              </execution>
-            </executions>
-          </plugin>
-        </plugins>
-      </build>
+      <properties>
+        <pravaha.python.tests.skip>false</pravaha.python.tests.skip>
+        <!--
+          The virtualenvs the two READMEs tell you to create. Set here rather than by profile
+          activation, because activation does not interpolate this property and a profile that
+          silently never fires is worse than one that is explicit.
+
+          Requires `make install` in sdk/python and in console first. Override with
+          -Dpython.executable=... to use an interpreter of your own.
+        -->
+        <python.executable>${maven.multiModuleProjectDirectory}/sdk/python/.venv/bin/python</python.executable>
+        <console.executable>${maven.multiModuleProjectDirectory}/console/.venv/bin/python</console.executable>
+      </properties>
     </profile>
 
     <!-- JMH benchmarks. -->

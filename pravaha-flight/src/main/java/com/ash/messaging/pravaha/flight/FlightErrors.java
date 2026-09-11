@@ -19,6 +19,7 @@ import org.apache.arrow.flight.CallStatus;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.wire.ControlWire;
 
 /** Flight gateway error codes, PRV-8nnn. */
 public final class FlightErrors {

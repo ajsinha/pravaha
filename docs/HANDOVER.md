@@ -350,6 +350,25 @@ None of these is a surprise waiting in the dark; each fails loudly at a ceiling.
 ceiling" is not the same as "managed", and a disk quota, a spill policy and an automatic checkpoint
 retention policy all arrive with L1.
 
+### Running the Python tests from Maven
+
+`./mvnw -Ppython verify` runs the SDK's tests and the console's. Two things about how it is wired,
+because both were got wrong first:
+
+**The executions live in `pravaha-it`, not the aggregator.** A parent's phases run *before* its
+children in the reactor, so binding them to the root pom ran the Python tests against whatever Java
+classes were lying around from a previous build. That hid a renumbered error code for a whole build
+and would hide anything else the same way.
+
+**The interpreter is named explicitly, not detected.** Profile activation does not interpolate
+`${maven.multiModuleProjectDirectory}`, so a `<file><exists>` activation looking for the venv
+silently never fired — and a profile that never fires is worse than one that is explicit. `-Ppython`
+therefore requires `make install` in `sdk/python` and in `console` first, and
+`-Dpython.executable=…` overrides it.
+
+A Java-only `./mvnw verify` needs no interpreter at all: the executions are skipped unless the
+profile turns them on.
+
 ### A string in the build output that is trying to talk to you
 
 `jqwik-engine` 1.10.1 prints this on every test run, from
