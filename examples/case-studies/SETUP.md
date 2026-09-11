@@ -113,7 +113,7 @@ docker rm -f pravaha-postgres
 Once per machine:
 
 ```bash
-cd sdk/pravaha-sdk-python
+cd sdk/python
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'

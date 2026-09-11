@@ -1,0 +1,11 @@
+# Python build and tooling artefacts. The Java side ignores target/ at the repository root;
+# this is the same idea in Python's vocabulary.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/

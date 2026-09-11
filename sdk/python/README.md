@@ -59,17 +59,43 @@ pip install 'pravaha[grpc]'    # with the transport, from Wave 7
 ## Develop
 
 ```bash
-cd sdk/pravaha-sdk-python
-python -m venv .venv && . .venv/bin/activate
+cd sdk/python
+make install     # creates .venv and installs with dev extras
+make test
+```
+
+Or without `make`, which does the same three things:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'
 pytest
 ```
 
-Or from the repository root, as part of the Maven build:
+**This is a Python project, not a Maven module** — there is no `pom.xml` here, because a pom in a
+Python source tree is a lie about what builds it. The repository's Maven build still *runs* these
+tests, from the root:
 
 ```bash
 ./mvnw -Ppython verify
 ```
+
+It invokes the same `pytest` in this directory, preferring `.venv` when one exists. A cross-language
+test that is not in the build is a test nobody notices has stopped working — which had already
+happened here once, silently, to sixteen of them.
+
+## Layout
+
+```
+sdk/python/
+├── pyproject.toml      the build and the dependencies
+├── Makefile            install, test, lint, typecheck, build
+├── pravaha/            the package
+└── tests/
+```
+
+Flat, with the package in the project root rather than under `src/`. No `pom.xml`: this is built by
+`pip`, and a pom here would be a lie about what builds it.
 
 ## Design notes
 

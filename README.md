@@ -234,7 +234,7 @@ Modules currently built: `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pr
 `pravaha-codegen`, `pravaha-sql`, `pravaha-connect`, `pravaha-embedded`, `pravaha-server`,
 `pravaha-cli`, `pravaha-testkit`, plus [`plugins/pravaha-plugin-filesystem`](plugins/pravaha-plugin-filesystem)
 and the SDKs in [`sdk/pravaha-sdk-java`](sdk/pravaha-sdk-java) and
-[`sdk/pravaha-sdk-python`](sdk/pravaha-sdk-python).
+[`sdk/python`](sdk/python).
 
 ## Roadmap
 

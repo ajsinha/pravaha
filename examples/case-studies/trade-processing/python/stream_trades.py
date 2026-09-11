@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Query the trade feed with filters, and show the shape a streaming consumer uses.
 
-    . ../../../sdk/pravaha-sdk-python/.venv/bin/activate
+    . ../../../sdk/python/.venv/bin/activate
     python3 stream_trades.py --product SWAP --source MUREX
 
 Filters are bound, never concatenated into the SQL. A bound value cannot be read as

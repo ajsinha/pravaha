@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read the 'counterparty_exposure' view this case study maintains.
 
-    . ../../../sdk/pravaha-sdk-python/.venv/bin/activate
+    . ../../../sdk/python/.venv/bin/activate
     python3 read_view.py --card-id c-1002        # or whatever this study's key is called
 
 Every value is bound, never interpolated. A bound value cannot be read as SQL -- by the
