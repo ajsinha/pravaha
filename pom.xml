@@ -92,6 +92,7 @@
       the tests pass under by hand.
     -->
     <python.executable>python3</python.executable>
+    <console.executable>python3</console.executable>
     <exec.maven.plugin.version>3.6.3</exec.maven.plugin.version>
     <maven.dependency.plugin.version>3.8.1</maven.dependency.plugin.version>
     <maven.jar.plugin.version>3.5.1</maven.jar.plugin.version>
@@ -460,6 +461,18 @@
       </activation>
       <properties>
         <python.executable>${project.basedir}/sdk/python/.venv/bin/python</python.executable>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>console-venv</id>
+      <activation>
+        <file>
+          <exists>${project.basedir}/console/.venv/bin/python</exists>
+        </file>
+      </activation>
+      <properties>
+        <console.executable>${project.basedir}/console/.venv/bin/python</console.executable>
       </properties>
     </profile>
 

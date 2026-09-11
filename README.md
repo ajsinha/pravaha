@@ -47,9 +47,9 @@
 > **subscribe** to one and receive changes per commit, with weights, so a late-data correction
 > arrives as a retraction and an insert.
 >
-> **What is not built, stated plainly:** subscriptions do not yet cross the wire (the engine side
-> works; the Flight transport does not), there is **no user interface** (three ADRs, no code), no
-> clustering, and no Spring Boot starter. That is roughly wave 7 of 10. The Aerospike edition question in
+> **What is not built, stated plainly:** no clustering, and no Spring Boot starter. The console
+> exists and is a *functional admin* console on purpose — it manages queries and tails a view; it is
+> not the design-system product surface §23.20 describes. That is roughly wave 7 of 10. The Aerospike edition question in
 > [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
 > is worth settling early.
 

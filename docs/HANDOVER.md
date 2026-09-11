@@ -257,6 +257,7 @@ right numbers — which is how that distinction was discovered.
 | Subscriptions over the Flight wire | ✅ a Flight ticket that holds a stream open; commits arrive as Arrow batches, so a batch boundary is a commit boundary. Tap filters travel in the ticket |
 | Register/subscribe in **both SDKs** | ✅ `register`, `queries`, `pause`, `resume`, `drop`, `subscribe(view, filters)` in Java and Python, same surface, tested against the real server |
 | Registry over the wire | ✅ Flight *actions* — `pravaha.register`, `.list`, `.pause`, `.resume`, `.drop`. Flight SQL has no vocabulary for standing up a computation, and actions are the extension it provides |
+| The console (ADR-024) | ✅ `console/` — a separate FastAPI process reaching the engine only through the published Python SDK. Server-rendered, no build step, ~400 lines. **Functional admin scope on purpose**, which the implementation plan names as a legitimate trade to make deliberately. Surfaces two things nothing else does: which computations are *shared*, and a live tail rather than a poll |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
 **`docs/SQL_SUPPORT.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
