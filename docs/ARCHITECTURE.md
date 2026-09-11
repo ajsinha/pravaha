@@ -542,6 +542,7 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 | `pravaha-cluster` | Membership, leadership and assignment behind an SPI, so a deployment uses the mechanism it already runs. Each implementation **declares what it guarantees**, and the engine refuses the work a coordinator cannot safely do. |
 | [`plugins/pravaha-cluster-zookeeper`](../plugins/pravaha-cluster-zookeeper) | A ZooKeeper-backed coordinator. Its own artefact, so a deployment using sockets or a single node carries no ZooKeeper client. |
 | [`sdk/python`](../sdk/python) | Python client. The console is built on it. |
+| [`console`](../console) | The operator console: a separate Python process, its own artefact (ADR-033). `core/` holds configuration, the engine adapter and the services; `routes/` defines the pages and `/api/v1`; `web/` holds the Jinja templates and the vendored assets; `content/` holds help topics that **include** this documentation rather than copying it. |
 
 | `pravaha-state` | Off-heap state: the L0 map, the block store joins hold rows in, and checkpoints. |
 | `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |

@@ -321,7 +321,9 @@ internal link resolves, and every decision a document cites has an ADR.
 studies alongside the guides. Rendered from `docs/` rather than copied, so it cannot drift.
 
 When you add a document, add it to `DocumentationFreshnessTest`'s list and to `docs/README.md`; when
-you add a page worth reading in the console, add it to `console/pravaha_console/docs.py`'s allow-list.
+you add a page worth reading in the console, add a topic under `console/content/help/` carrying
+`include: docs/YOUR_DOC.md` — the console renders the repository's file rather than a copy of it, so
+there is nothing to keep in step.
 
 ## 4. Things a fresh session will not guess
 

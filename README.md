@@ -47,8 +47,9 @@
 > **subscribe** to one and receive changes per commit, with weights, so a late-data correction
 > arrives as a retraction and an insert.
 >
-> **What is not built, stated plainly:** no clustering, and no Spring Boot starter. The console
-> exists and is a *functional admin* console on purpose — it manages queries and tails a view; it is
+> **What is not built, stated plainly:** no Spring Boot starter, and clustering has its
+> coordination layer without the engine wiring behind it. The console exists and is a *functional
+> admin* console on purpose — it manages queries, tails a view and renders the documentation; it is
 > not the design-system product surface §23.20 describes. That is roughly wave 7 of 10. The Aerospike edition question in
 > [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
 > is worth settling early.
@@ -156,13 +157,11 @@ Two processes, on purpose.
    when the console is down
 ```
 
-**The console is designed and not built — three ADRs, no code.** What follows is the decision, not a
-description of something you can run.
-
 The console is a **separate runtime** so the API boundary cannot be violated: a test enforcing
 "the console may only use the public API" can be waived under deadline pressure, and a Python
 process simply cannot reach into a Java engine. It also makes the console the first real consumer of
-the published SDK — a proof of the integration story rather than an assertion (ADR-024).
+the published SDK — a proof of the integration story rather than an assertion (ADR-024), and its own
+artefact rather than a source tree to install (ADR-033).
 
 The engine itself also embeds. One core, several ways to run it:
 
@@ -189,18 +188,35 @@ embedding Pravaha never dictates your Spring version.
 
 ## The console
 
-A full web application, not an admin page: an IDE-grade SQL workbench with catalog-aware completion
-and sub-50 ms validation, a live plan DAG with per-operator telemetry, backfill and blue/green
-cutover control, and a time-travel debugger that rewinds a running query and steps it forward under
-inspection.
+A **Python FastAPI application on the published SDK**, server-rendered, with everything vendored —
+no CDN, because air-gapped deployment is a precondition rather than a nicety.
 
-Built as a **Python FastAPI application on the published SDK**, with server-rendered templates for
-the shell and public pages, and interactive islands for the workbench and debugger. Everything
-vendored — no CDN, because air-gapped deployment is a precondition, not a nicety. WCAG 2.2 AA, with
-performance budgets gated in CI.
+```bash
+cd console && make install && make run     # :8090, engine at :9090
+```
 
-Architecturally out of the data path and experientially the centre of the product.
-[Specification →](docs/system_design.md#23-the-pravaha-console--web-ui)
+| | |
+|---|---|
+| `/` `/about` | What this is. Both answer with the engine down |
+| `/overview` | What is registered, how much is shared, how many live feeds |
+| `/queries` | Filter, sort and page — every filter in the URL, so a view is shareable |
+| `/queries/{name}` | SQL, fingerprint, siblings, a live tail, and pause/resume/drop |
+| `/workbench` | Ask once with parameters, or register it |
+| `/help` `/tutorials` | The `docs/` set and the five worked systems, rendered in place |
+| `/api/v1/...` | The JSON services the screens are built on |
+
+One engine subscription serves every browser watching a view, ref-counted: ten analysts on one
+dashboard are ten connections and **one** subscriber on the engine. Every page renders before its
+JavaScript does, and every control is a real form, so the console works when a script does not.
+
+**What it is not.** A functional admin console, on purpose. The IDE-grade workbench, the live plan
+DAG and the time-travel debugger that §23 specifies are **not built**, and neither is the §23.20
+release gate — no Storybook, no visual-regression baseline, no WCAG 2.2 AA audit. Light/dark/
+terminal, density, keyboard paths, deep links and the eight states of §23.12 are implemented; they
+are not audited.
+
+[Specification →](docs/system_design.md#23-the-pravaha-console--web-ui) ·
+[How it is built →](console/README.md)
 
 ## Documentation
 
