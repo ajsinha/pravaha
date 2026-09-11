@@ -166,7 +166,9 @@ meaningful, but an answer that shuffles is one somebody wastes an afternoon on.
 | Three-way and deeper | ✅ | Between *distinct* streams |
 | Self join — one stream on both sides | ❌ | Rows enter a join by stream name, which cannot say which side a row is for |
 | Lookup join against a dimension table | ✅ | Async, on virtual threads, ordered output |
-| `LEFT` / `RIGHT` / `FULL OUTER` | ❌ | `PRV-2020` |
+| `LEFT JOIN` **with a time bound** | ✅ | The null-padded row is emitted when the watermark passes the window, once, never retracted |
+| `LEFT JOIN` without a time bound | ❌ | `PRV-2020` — there is no moment at which an unmatched row can be declared unmatched, so every one is held for the life of the process |
+| `RIGHT` / `FULL OUTER` | ❌ | `PRV-2020` — swap the inputs and use `LEFT` |
 | `CROSS JOIN` | ❌ | `PRV-2020` |
 | Non-equi join — `ON a.x > b.x` | ❌ | `PRV-2020`. An inequality between *timestamp* columns is a time bound and is supported; between anything else it is a cross product |
 

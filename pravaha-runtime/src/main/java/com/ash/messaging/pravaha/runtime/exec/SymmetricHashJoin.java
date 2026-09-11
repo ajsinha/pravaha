@@ -62,6 +62,7 @@ final class SymmetricHashJoin implements AutoCloseable {
     private final JoinOperator plan;
 
     private long outsideWindow;
+    private long unmatchedEmitted;
 
     /** Rows released because they fell outside the join's match window. Not an error count. */
     private long evicted;
@@ -116,16 +117,30 @@ final class SymmetricHashJoin implements AutoCloseable {
 
     private void acceptLeft(RowView row) {
         long weight = row.weight();
-        rightState.forEachMatch(
-                row, leftKeys, leftSchema, (stored, storedWeight) -> emit(row, stored, weight * storedWeight));
-        leftState.add(row, weight);
+        boolean[] matched = new boolean[1];
+        rightState.forEachMatch(row, leftKeys, leftSchema, (stored, storedWeight) -> {
+            if (emit(row, stored, weight * storedWeight)) {
+                matched[0] = true;
+            }
+        });
+        long entry = leftState.add(row, weight);
+        if (matched[0] && entry != ArenaHandle.NULL) {
+            // Recorded on the row itself, so that when it is eventually evicted the join knows
+            // whether it ever found a partner without having to keep a second index of what did.
+            leftState.markMatched(row);
+        }
         checkCeiling(leftState, "left");
     }
 
     private void acceptRight(RowView row) {
         long weight = row.weight();
-        leftState.forEachMatch(
-                row, rightKeys, rightSchema, (stored, storedWeight) -> emit(stored, row, storedWeight * weight));
+        leftState.forEachMatch(row, rightKeys, rightSchema, (stored, storedWeight) -> {
+            if (emit(stored, row, storedWeight * weight)) {
+                // The left row that matched is the one already in state, and marking it is what
+                // stops an outer join emitting a null-padded duplicate of a row that did match.
+                leftState.markMatched(stored);
+            }
+        });
         rightState.add(row, weight);
         checkCeiling(rightState, "right");
     }
@@ -136,9 +151,9 @@ final class SymmetricHashJoin implements AutoCloseable {
      * <p>The event time is the later of the two, because a pair is not complete until both halves
      * have arrived and claiming otherwise would let a window close over a row it had not yet seen.
      */
-    private void emit(RowView left, RowView right, long weight) {
+    private boolean emit(RowView left, RowView right, long weight) {
         if (weight == 0) {
-            return;
+            return false;
         }
         // The temporal predicate decides which pairs are in the answer, not merely how long state is
         // kept. Using it only for eviction would return every pair still in state -- correct pairs
@@ -146,7 +161,7 @@ final class SymmetricHashJoin implements AutoCloseable {
         // within five minutes would get matches within an hour and no indication of it.
         if (!plan.matchesInTime(left.eventTimestampNanos(), right.eventTimestampNanos())) {
             outsideWindow++;
-            return;
+            return false;
         }
         long handle = arena.allocate(outputLayout.rowSize(1024));
         if (handle == ArenaHandle.NULL) {
@@ -169,6 +184,46 @@ final class SymmetricHashJoin implements AutoCloseable {
         arena.trimTo(handle, writer.sizeSoFar());
         pairsEmitted++;
         downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+        return true;
+    }
+
+    /**
+     * Writes a left row with nulls where the right row's columns would be.
+     *
+     * <p>Emitted once, when the left row is evicted having never matched, and never retracted. That
+     * is sound only because eviction happens after the watermark has passed the point where a match
+     * could still arrive: at that moment "has not matched" and "will not match" are the same
+     * statement. Emitting eagerly and retracting later -- which is what an unwindowed outer join
+     * would have to do -- means every unmatched row produces two output rows and is held until it
+     * does.
+     */
+    private void emitNullPadded(RowView left) {
+        long handle = arena.allocate(outputLayout.rowSize(1024));
+        if (handle == ArenaHandle.NULL) {
+            throw new PravahaException(
+                    RuntimeErrors.ARENA_EXHAUSTED,
+                    "the join's output arena is full while emitting an unmatched row; raise arena.slab.size");
+        }
+        writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+        int width = plan.leftWidth();
+        for (int i = 0; i < width; i++) {
+            InterpretedPipeline.copyField(left, i, writer, i, plan.outputSchema());
+        }
+        for (int i = 0; i < rightSchema.fields().size(); i++) {
+            writer.setNull(width + i);
+        }
+        writer.weight(1L)
+                .eventTimestampNanos(left.eventTimestampNanos())
+                .sequence(left.sequence())
+                .commit();
+        arena.trimTo(handle, writer.sizeSoFar());
+        unmatchedEmitted++;
+        downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+    }
+
+    /** Left rows emitted with nulls because they never found a match. */
+    long unmatchedEmitted() {
+        return unmatchedEmitted;
     }
 
     private void checkCeiling(JoinSide side, String which) {
@@ -259,7 +314,9 @@ final class SymmetricHashJoin implements AutoCloseable {
         if (horizon > watermarkNanos) {
             return;
         }
-        evicted += leftState.evictOlderThan(horizon);
+        // An outer join's null-padded rows are emitted here, at the one moment when "has not matched"
+        // and "will not match" mean the same thing.
+        evicted += leftState.evictOlderThan(horizon, plan.leftOuter() ? this::emitNullPadded : null);
         evicted += rightState.evictOlderThan(horizon);
     }
 

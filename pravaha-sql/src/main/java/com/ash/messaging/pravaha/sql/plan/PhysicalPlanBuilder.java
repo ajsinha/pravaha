@@ -133,13 +133,14 @@ public final class PhysicalPlanBuilder {
      * asks when it will be, and a user who reads why it cannot be bounded rewrites the query.
      */
     private PhysicalOperator buildJoin(org.apache.calcite.rel.core.Join join) {
-        if (join.getJoinType() != org.apache.calcite.rel.core.JoinRelType.INNER) {
+        org.apache.calcite.rel.core.JoinRelType joinType = join.getJoinType();
+        if (joinType != org.apache.calcite.rel.core.JoinRelType.INNER
+                && joinType != org.apache.calcite.rel.core.JoinRelType.LEFT) {
             throw new PravahaException(
                     SqlErrors.UNSUPPORTED_OPERATOR,
-                    "a " + join.getJoinType() + " join between streams is not supported yet. An outer join must "
-                            + "hold every unmatched row for as long as a match could still arrive, which without "
-                            + "a time bound on the join is forever. Use an inner join, or wait for windowed "
-                            + "joins.");
+                    "a " + joinType + " join between streams is not supported. A LEFT join is, when the "
+                            + "condition states a time bound; RIGHT and FULL would need the same treatment on "
+                            + "the other side and are not built. Swap the inputs and use LEFT.");
         }
 
         PhysicalOperator left = build(join.getLeft());
@@ -153,6 +154,19 @@ public final class PhysicalPlanBuilder {
 
         StreamSchema output = schemaOf(
                 join, left.outputSchema().name() + "_" + right.outputSchema().name());
+        if (joinType == org.apache.calcite.rel.core.JoinRelType.LEFT && !bounds.stated()) {
+            // This is the refusal that used to apply to every outer join, and it is still the right
+            // one without a window. An outer join has to decide when to give up on an unmatched left
+            // row, and with no time bound the honest answer is never: the row is held for the life
+            // of the process in case a match arrives.
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "a LEFT join between streams needs a time bound in its ON condition. Without one there "
+                            + "is no moment at which an unmatched left row can be declared unmatched, so every "
+                            + "one is held for as long as the process lives. Add a bound such as "
+                            + "AND l.event_time BETWEEN r.event_time - INTERVAL '5' MINUTE AND r.event_time, "
+                            + "which is also the point at which the null-padded row is emitted.");
+        }
         if (leftKeys.isEmpty()) {
             // A time bound narrows which pairs count; it does not give the join anything to index by.
             // Without an equality every row of one side is still a candidate for every row of the
@@ -168,8 +182,9 @@ public final class PhysicalPlanBuilder {
         if (!bounds.stated()) {
             return new JoinOperator(left, right, leftKeys, rightKeys, output, MAX_JOIN_ROWS_PER_SIDE);
         }
-        return JoinOperator.withinRange(
+        JoinOperator joined = JoinOperator.withinRange(
                 left, right, leftKeys, rightKeys, output, MAX_JOIN_ROWS_PER_SIDE, bounds.lower(), bounds.upper());
+        return joinType == org.apache.calcite.rel.core.JoinRelType.LEFT ? joined.asLeftOuter() : joined;
     }
 
     /**

@@ -190,8 +190,14 @@ class SqlSupportMatrixTest {
             Case.lookupOk(
                     "lookup join against a dimension",
                     "SELECT t.txn_id, d.tier FROM txn t JOIN dim d ON t.user_id = d.user_id"),
+            Case.ok(
+                    "LEFT join with a time bound",
+                    "SELECT t.txn_id FROM txn t LEFT JOIN other o ON t.user_id = o.user_id "
+                            + "AND o.event_time BETWEEN t.event_time AND t.event_time + INTERVAL '5' MINUTE"),
             Case.refused(
-                    "LEFT join", "SELECT t.txn_id FROM txn t LEFT JOIN other o ON t.user_id = o.user_id", "PRV-2020"),
+                    "LEFT join with no time bound",
+                    "SELECT t.txn_id FROM txn t LEFT JOIN other o ON t.user_id = o.user_id",
+                    "PRV-2020"),
             Case.refused(
                     "RIGHT join", "SELECT t.txn_id FROM txn t RIGHT JOIN other o ON t.user_id = o.user_id", "PRV-2020"),
             Case.refused(

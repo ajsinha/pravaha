@@ -275,12 +275,16 @@ class StreamJoinTest {
     }
 
     @Test
-    void anOuterJoinIsRefusedWithTheReasonRatherThanJustUnsupported() {
+    void anOuterJoinWithNoTimeBoundIsRefusedWithTheReason() {
+        // LEFT joins are supported now, but only with a time bound, and the reason is the same one
+        // that used to refuse them outright: without a window there is no moment at which an
+        // unmatched left row can be declared unmatched, so every one is held for the life of the
+        // process. See OuterJoinTest for the supported form.
         assertThatThrownBy(() -> plan(
                         "SELECT o.order_id, u.country FROM orders o " + "LEFT JOIN users u ON o.user_id = u.user_id"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2020")
-                .hasMessageContaining("as long as a match could still arrive");
+                .hasMessageContaining("needs a time bound");
     }
 
     @Test

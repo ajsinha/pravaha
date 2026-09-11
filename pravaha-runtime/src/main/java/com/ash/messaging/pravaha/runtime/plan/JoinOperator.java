@@ -61,7 +61,8 @@ public record JoinOperator(
         long maxRowsPerSide,
         long matchWithinNanos,
         long matchLowerNanos,
-        long matchUpperNanos)
+        long matchUpperNanos,
+        boolean leftOuter)
         implements PhysicalOperator {
 
     /**
@@ -103,7 +104,8 @@ public record JoinOperator(
                 maxRowsPerSide,
                 matchWithinNanos,
                 -matchWithinNanos,
-                matchWithinNanos);
+                matchWithinNanos,
+                false);
     }
 
     /**
@@ -142,7 +144,32 @@ public record JoinOperator(
                 maxRowsPerSide,
                 span == 0 ? 1 : span,
                 lowerNanos,
-                upperNanos);
+                upperNanos,
+                false);
+    }
+
+    /**
+     * The same join, emitting a null-padded row for every left row that never found a match.
+     *
+     * <p>Only available with a stated time bound, and that is the whole reason outer joins were
+     * refused before there was one. An outer join has to decide when to give up on a left row, and
+     * "never" is the only honest answer without a window: the row is held for the life of the
+     * process in case a match arrives. With a window, the moment is exact -- when the watermark
+     * passes the point where a match could still arrive, the row has definitively not matched, and
+     * the null-padded row is emitted then and never retracted.
+     */
+    public JoinOperator asLeftOuter() {
+        return new JoinOperator(
+                left,
+                right,
+                leftKeys,
+                rightKeys,
+                outputSchema,
+                maxRowsPerSide,
+                matchWithinNanos,
+                matchLowerNanos,
+                matchUpperNanos,
+                true);
     }
 
     /** True if a pair whose event times differ by {@code deltaNanos} is inside the stated window. */

@@ -50,6 +50,17 @@ final class JoinSide implements AutoCloseable {
     private static final int OFFSET_NEXT = 0;
     private static final int OFFSET_WEIGHT = 8;
     private static final int OFFSET_ROW_LENGTH = 16;
+
+    /**
+     * Whether this row has ever taken part in a match.
+     *
+     * <p>Bytes 20 to 23 were already padding between the four-byte length and the eight-byte-aligned
+     * row, so this costs nothing per row. An outer join needs it: a row that is evicted having never
+     * matched is precisely the row that has to be emitted null-padded, and by eviction time there is
+     * nothing else left to ask.
+     */
+    private static final int OFFSET_MATCHED = 20;
+
     private static final int OFFSET_ROW = 24;
 
     private final RowStore store;
@@ -110,9 +121,9 @@ final class JoinSide implements AutoCloseable {
      * when an existing entry cancels. Rows whose key contains a null are not stored at all: they can
      * never match, so holding them is a leak with no possible benefit.
      */
-    void add(RowView row, long weight) {
+    long add(RowView row, long weight) {
         if (weight == 0 || !JoinKeys.isMatchable(row, keyOrdinals)) {
-            return;
+            return ArenaHandle.NULL;
         }
         long hash = JoinKeys.hash(row, keyOrdinals, schema);
         long head = buckets.getOrDefault(hash, ArenaHandle.NULL);
@@ -123,18 +134,37 @@ final class JoinSide implements AutoCloseable {
                 long updated = weightOf(entry) + weight;
                 if (updated == 0) {
                     unlink(hash, previous, entry);
-                } else {
-                    store.regionOf(entry).putLong(store.offsetOf(entry) + OFFSET_WEIGHT, updated);
+                    rows += weight;
+                    return ArenaHandle.NULL;
                 }
+                store.regionOf(entry).putLong(store.offsetOf(entry) + OFFSET_WEIGHT, updated);
                 rows += weight;
-                return;
+                return entry;
             }
             previous = entry;
         }
 
-        buckets.put(hash, insert(row, weight, head));
+        long entry = insert(row, weight, head);
+        buckets.put(hash, entry);
         rows += weight;
         distinctRows++;
+        return entry;
+    }
+
+    /** Marks a row this side holds as having matched. Safe to call with {@link ArenaHandle#NULL}. */
+    void markMatched(RowView row) {
+        if (!JoinKeys.isMatchable(row, keyOrdinals)) {
+            return;
+        }
+        long hash = JoinKeys.hash(row, keyOrdinals, schema);
+        for (long entry = buckets.getOrDefault(hash, ArenaHandle.NULL);
+                entry != ArenaHandle.NULL;
+                entry = nextOf(entry)) {
+            if (sameRow(entry, row)) {
+                markMatched(entry);
+                return;
+            }
+        }
     }
 
     /**
@@ -151,6 +181,18 @@ final class JoinSide implements AutoCloseable {
      * matches the query did ask for, which is why the ceiling fails loudly instead.
      */
     long evictOlderThan(long horizon) {
+        return evictOlderThan(horizon, null);
+    }
+
+    /**
+     * Evicts, telling {@code unmatched} about every row that is leaving having never matched.
+     *
+     * <p>That callback is how an outer join emits its null-padded rows. Eviction is the right moment
+     * and the only one: before it, a match could still arrive; after it, the row is gone. The
+     * callback sees the row while it is still readable, because a moment later the block is
+     * released and reused.
+     */
+    long evictOlderThan(long horizon, java.util.function.Consumer<RowView> unmatched) {
         if (horizon == Long.MIN_VALUE || buckets.isEmpty()) {
             return 0;
         }
@@ -164,6 +206,9 @@ final class JoinSide implements AutoCloseable {
                 long next = nextOf(entry);
                 if (eventTimeOf(entry) < horizon) {
                     long weight = weightOf(entry);
+                    if (unmatched != null && weight > 0 && !matchedOf(entry)) {
+                        unmatched.accept(cursor.wrap(store.regionOf(entry), store.offsetOf(entry) + OFFSET_ROW));
+                    }
                     if (previous == ArenaHandle.NULL) {
                         bucket.setValue(next);
                     } else {
@@ -183,6 +228,15 @@ final class JoinSide implements AutoCloseable {
             }
         }
         return removed;
+    }
+
+    /** Records that a stored row has matched, so eviction knows not to emit it null-padded. */
+    private void markMatched(long entry) {
+        store.regionOf(entry).putInt(store.offsetOf(entry) + OFFSET_MATCHED, 1);
+    }
+
+    private boolean matchedOf(long entry) {
+        return store.regionOf(entry).getInt(store.offsetOf(entry) + OFFSET_MATCHED) != 0;
     }
 
     /** The event time of a stored row, read back out of the row itself. */
@@ -247,6 +301,7 @@ final class JoinSide implements AutoCloseable {
                 }
                 store.regionOf(entry).getBytes(store.offsetOf(entry) + OFFSET_ROW, scratch, 0, length);
                 out.writeLong(weightOf(entry));
+                out.writeBoolean(matchedOf(entry));
                 out.writeInt(length);
                 out.write(scratch, 0, length);
             }
@@ -265,6 +320,7 @@ final class JoinSide implements AutoCloseable {
         byte[] bytes = new byte[0];
         for (int i = 0; i < count; i++) {
             long weight = in.readLong();
+            boolean matched = in.readBoolean();
             int length = in.readInt();
             if (bytes.length < length) {
                 bytes = new byte[length];
@@ -272,7 +328,13 @@ final class JoinSide implements AutoCloseable {
             in.readFully(bytes, 0, length);
             ensureScratch(length);
             scratch.putBytes(0, bytes, 0, length);
-            add(restoreView.wrap(scratch, 0), weight);
+            long entry = add(restoreView.wrap(scratch, 0), weight);
+            if (matched && entry != ArenaHandle.NULL) {
+                // Carried through the checkpoint, or a left row that had already matched and been
+                // emitted would be emitted a second time, null-padded, when it aged out after the
+                // restore.
+                markMatched(entry);
+            }
         }
     }
 
@@ -293,6 +355,10 @@ final class JoinSide implements AutoCloseable {
         region.putLong(base + OFFSET_NEXT, nextHandle);
         region.putLong(base + OFFSET_WEIGHT, weight);
         region.putInt(base + OFFSET_ROW_LENGTH, length);
+        // Explicit rather than relying on fresh memory being zero: a released entry is reused, and
+        // an inherited flag would suppress an outer join's null-padded row for a row that never
+        // matched.
+        region.putInt(base + OFFSET_MATCHED, 0);
         copyRow(row, region, base + OFFSET_ROW, length);
         return entry;
     }

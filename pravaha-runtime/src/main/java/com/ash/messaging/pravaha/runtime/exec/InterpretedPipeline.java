@@ -361,9 +361,30 @@ public final class InterpretedPipeline implements AutoCloseable {
      * for the same reason a lane's arena is not shared: reading state from elsewhere while the lane
      * mutates it produces a snapshot of no moment in particular.
      */
+    /**
+     * Identifies a snapshot as ours.
+     *
+     * <p>Without it, bytes that were not a snapshot at all would be read as row counts and lengths,
+     * and the engine would resume from whatever that produced. A checkpoint the engine believes is
+     * worse than one it refuses, which is the same reasoning {@code CheckpointStore} uses about
+     * half-written files.
+     */
+    private static final int SNAPSHOT_MAGIC = 0x50565354;
+
+    /**
+     * The operator snapshot layout.
+     *
+     * <p>Bumped when any operator's serialised form changes. Version 2 added the per-row matched flag
+     * that outer joins need. An older snapshot is refused rather than read: the fields would parse,
+     * in the wrong places, and the query would resume from state that is wrong without looking wrong.
+     */
+    private static final int SNAPSHOT_VERSION = 2;
+
     public byte[] snapshotState() {
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
         try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {
+            out.writeInt(SNAPSHOT_MAGIC);
+            out.writeInt(SNAPSHOT_VERSION);
             out.writeInt(windowed.size());
             for (WindowedAggregate aggregate : windowed) {
                 aggregate.writeTo(out);
@@ -387,6 +408,23 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     public void restoreState(byte[] snapshot) {
         try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(snapshot))) {
+            int magic = in.readInt();
+            if (magic != SNAPSHOT_MAGIC) {
+                throw new PravahaException(
+                        RuntimeErrors.LANE_FAILED,
+                        "this is not a Pravaha operator snapshot. Restoring it would read whatever bytes "
+                                + "these are as rows and weights, and the result would be believed rather "
+                                + "than rejected.");
+            }
+            int version = in.readInt();
+            if (version != SNAPSHOT_VERSION) {
+                throw new PravahaException(
+                        RuntimeErrors.LANE_FAILED,
+                        "this snapshot is version " + version + " and this engine writes version " + SNAPSHOT_VERSION
+                                + ". The layouts differ, so restoring it would parse one field as another and "
+                                + "resume from state that is wrong without being obviously wrong. Replay the "
+                                + "stream from a source offset instead.");
+            }
             int operators = in.readInt();
             if (operators != windowed.size()) {
                 throw new PravahaException(
