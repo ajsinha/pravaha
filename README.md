@@ -10,7 +10,7 @@
 
 *Pravaha* (Sanskrit: *continuous, uninterrupted flow*) · pronounced *pruh-VAA-huh*
 
-[![Status](https://img.shields.io/badge/status-design%20phase-blue)](docs/system_design.md)
+[![Status](https://img.shields.io/badge/status-wave%207%20of%2010-blue)](docs/HANDOVER.md)
 [![Java](https://img.shields.io/badge/Java-21%20LTS-orange)](docs/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/implementation_plan.md)
 [![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
@@ -52,6 +52,21 @@
 > not the design-system product surface §23.20 describes. That is roughly wave 7 of 10. The Aerospike edition question in
 > [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
 > is worth settling early.
+
+---
+
+## Try it
+
+```bash
+./mvnw -q -DskipTests install
+
+pravaha register  --name user_volume --sql-file velocity.sql --keys 1
+pravaha query     --sql "SELECT total FROM user_volume WHERE user_id = ?" --params u1
+pravaha subscribe --view user_volume --filter user_id=u1
+```
+
+Register a continuous query, ask the view a question, then watch it update. Ten minutes end to end:
+[**Quickstart**](docs/QUICKSTART.md).
 
 ---
 
@@ -189,25 +204,42 @@ Architecturally out of the data path and experientially the centre of the produc
 
 ## Documentation
 
-| Document | What's in it |
+**Start here:**
+
+| | |
 |---|---|
-| **[Quickstart](docs/QUICKSTART.md)** | Build it and run a query. Ten minutes. |
-| **[Architecture](docs/ARCHITECTURE.md)** | The shape in two pages, before the 3 000-line version |
-| **[What SQL it runs](docs/SQL_SUPPORT.md)** | Every construct that works and every one that does not, with the reason. Checked by a test, so it cannot rot |
-| **[Case studies](examples/case-studies/)** | Four worked systems — banking, finance, trading, biology. A store to stand up, a data model, a continuous query and the app code, in Java and Python |
-| **[System Design](docs/system_design.md)** | Full architecture and competitive position, 33 sections |
-| **[Implementation Plan](docs/implementation_plan.md)** | Waves, epics, staffing, risks, descope ladder |
+| **[Quickstart](docs/QUICKSTART.md)** | Clone to a running continuous query. Ten minutes |
+| **[Concepts](docs/CONCEPTS.md)** | The eight ideas everything follows from. Most surprises are one of these working correctly |
+| **[User guide](docs/USER_GUIDE.md)** | The whole surface, task by task, in Java, Python and the shell |
+| **[Case studies](examples/case-studies/)** | Five worked systems — trade processing, banking, finance, trading, biology. A store to stand up, a data model, a continuous query and the app code |
+
+**Reference:**
+
+| | |
+|---|---|
+| [What SQL it runs](docs/SQL_SUPPORT.md) | Every construct that works and every one that does not — checked by a test, so it cannot rot |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Every `PRV-` code, and the five you will actually meet |
+| [Operations](docs/OPERATIONS.md) | Memory, disk, admission, what to watch, and what is honestly not solved |
+| [Security](docs/SECURITY.md) | Authentication, authorization, row filters, audit |
+
+**How and why:**
+
+| | |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | How it is put together, and why each part is shaped that way |
+| [System design](docs/system_design.md) | The full specification, 33 sections |
 | [Decision records](docs/adr/) | Every architectural decision and why, including the ones later reversed |
-| [Examples](examples/) | Runnable, and executed by the build so they cannot rot |
-| [Handover](docs/HANDOVER.md) | Current state, working practices, and what to pick up next |
-| [Original SRS](docs/initial_req.md) | The 1.0-DRAFT this design supersedes. Kept for provenance. |
+| [Implementation plan](docs/implementation_plan.md) | Waves, epics, staffing, risks, descope ladder |
+| [Handover](docs/HANDOVER.md) | Current state and what to pick up next |
+| [Gate records](docs/gates/) | Evidence packs. The retrospectives are the honest part |
+| [Original SRS](docs/initial_req.md) | The 1.0-DRAFT this design supersedes. Kept for provenance |
 
-Good entry points:
+Several of these are **verified by the build** rather than maintained by memory: every SQL statement
+in `SQL_SUPPORT.md` and in the case studies is planned and run against the real engine, the error-code
+table is generated from the source, and a freshness test checks that every module is described, every
+internal link resolves and every decision a document cites has an ADR.
 
-- **What is this and why would I use it?** — design [§1](docs/system_design.md#1-executive-summary--key-recommendations), [§2](docs/system_design.md#2-competitive-landscape--winning-strategy)
-- **Is the engineering sound?** — design [§3 (gap analysis)](docs/system_design.md#3-gap-analysis-of-the-10-draft), [§9 (incremental core)](docs/system_design.md#9-the-incremental-computation-core), [§29 (performance budget)](docs/system_design.md#29-performance-budget-analysis)
-- **What does it cost to run?** — design [§30](docs/system_design.md#30-cost--tco-model)
-- **When can I have it?** — [implementation plan §13](docs/implementation_plan.md)
+All of them are also readable **inside the console**, with contextual help cards on each page.
 
 ## Project coordinates
 

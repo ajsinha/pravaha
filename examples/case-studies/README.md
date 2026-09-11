@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
-Four worked systems, each one a template you can copy into a real application. Every study has a
+Five worked systems, each one a template you can copy into a real application. Every study has a
 business problem, a data model, the commands to stand up its store, data to load, the continuous
 query, and the SQL an application uses to read the answers — in **both Java and Python**.
 

@@ -1,10 +1,16 @@
-# Pravaha — architecture at a glance
+# Architecture
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-Proprietary and confidential; see [`LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
 
-The short version. The full treatment is [`system_design.md`](system_design.md); this page exists so
-someone can hold the shape in their head before reading 3 000 lines.
+How Pravaha is put together, and why each part is shaped the way it is.
+
+This is the engineering view. If you want the *ideas* rather than the machinery, read
+[`CONCEPTS.md`](CONCEPTS.md) first — it is shorter and it is what most questions turn out to be
+about. The full specification is [`system_design.md`](system_design.md); every decision has an
+[ADR](adr/).
+
+---
 
 ## Two processes
 
@@ -49,6 +55,33 @@ The cost is two runtimes to deploy, stated plainly in design §23.2a rather than
 Calcite is a **compiler, not a runtime** (ADR-002). The 1.0 draft executed through Calcite's
 `Enumerable` convention — pull-based and row-at-a-time — and could not have met its own throughput
 targets. Everything expensive happens once at registration; the steady state allocates nothing.
+
+## The life of a query
+
+One path, end to end. Everything else in this document is a detail of one of these steps.
+
+```
+  SQL ──► SqlPlanner ──► PhysicalPlanBuilder ──► InterpretedPipeline ──► ServedView
+        (Calcite)        (Pravaha's plan IR)      (lanes, operators)     (the answer)
+                                                          │                   │
+                                                          │                   ├──► query  (Flight SQL)
+                                                          └──► subscribers ───┘    (SQL, bound params)
+```
+
+1. **Register.** SQL is parsed, validated and planned once. The normalised plan becomes a
+   **fingerprint**; if a computation with that fingerprint already exists, the new name joins it
+   rather than starting a second one.
+2. **Run.** Rows arrive from a source plugin, through an ingest pump, into a lane's off-heap inbox,
+   through the operator pipeline.
+3. **Maintain.** Output lands in a **served view** — committed and pending kept apart, so a
+   consistent read never sees half a batch.
+4. **Serve.** Reads are answered from the view by the *same* planner and operators a continuous
+   query uses, so a `WHERE` means exactly what it means in a continuous query rather than nearly.
+5. **Push.** Subscribers attached to the query receive each commit as a batch of weighted changes.
+
+The two things worth noticing: **planning happens once** and is reused, and **registration and
+subscription are separate objects** — many consumers share one computation, and it outlives all of
+them.
 
 ## What a lane is
 
@@ -209,6 +242,61 @@ Also open at 10 000: per-query quotas so one hot query cannot starve the ~300 sh
 (FR-9, design §21.4), and a metaspace measurement with 10 000 queries *live* — the existing leak test covers
 10 000 register/drop **cycles**, which is a different question and a much easier one.
 
+## Registering a query
+
+A registration turns SQL into a computation that keeps running and keeps a view current. It is the
+surface everything else hangs off: a subscription attaches to a registered query, the console lists
+them, a cluster assigns them to nodes, and a continuous query's parameters can only be classified
+against one.
+
+**Sharing is by fingerprint, never by name or by text** (ADR-025). The fingerprint is the normalised
+plan, so two people who type the same question differently — different aliases, different
+whitespace, operands of an `AND` in a different order — get one computation holding one copy of the
+state. That is the mechanism behind "ten analysts on one dashboard cost one query", and it is
+enforced in the registry rather than left to whoever writes the SQL.
+
+The fingerprint includes the **security predicates** applied to the plan, which is what makes
+implicit sharing safe rather than merely cheap: two principals with different entitlements produce
+different plans, so a shared computation can never serve one of them rows filtered for the other.
+Nobody has to remember the rule — it falls out of what is hashed.
+
+A computation may answer to several names and is released when the **last** one is dropped. Dropping
+on the first would take the answer away from everyone else who registered the same question and has
+no idea the others exist.
+
+Pausing is not dropping: a paused query stops advancing and its view keeps answering at the frontier
+it reached, which is a far better failure mode for a dashboard than answers that disappear. Rows
+arriving while paused are dropped rather than buffered — buffering would turn a pause into a memory
+commitment of unknown size, and the operator paused it precisely to stop it doing work.
+
+## Subscribing to a registered query
+
+A subscription is not the query (ADR-025). Many attach to one computation, they come and go without
+it noticing, and it outlives all of them — which is why a dashboard reconnecting costs nothing: the
+state is warm because it belongs to the query, not to whoever was watching.
+
+**Changes arrive per commit, never per row.** A commit is the point at which the engine says a prefix
+of the input is fully processed; between commits the view holds a half-applied batch, and a
+subscriber woken per row could act on a total still being assembled.
+
+They carry **weights**. `-1` withdraws a row, so a late-data correction reaches a consumer as a
+retraction followed by an insert — the same arithmetic as everything else in the engine rather than a
+message type every client has to recognise. A consumer that only wants current values can ignore
+negative weights and overwrite by key; one maintaining its own aggregate must apply them, or it
+drifts from the view the first time a window is corrected.
+
+What happens when a subscriber cannot keep up is the part that decides whether one slow consumer
+degrades everybody. **Blocking is not an option offered**: a subscriber that blocks applies
+backpressure to the *query*, so one slow dashboard would slow the computation for everyone keeping
+up. Instead the buffer is bounded and overflow is a declared choice — `CONFLATE` (replace the waiting
+change for a key; right for a dashboard, wrong for anything maintaining an aggregate from the
+weights), `DROP_OLDEST`, or `FAIL` (for a ledger, where finding out beats carrying on with a gap).
+Whatever is lost is **counted**, because a subscriber silently missing data is the failure the whole
+mechanism exists to make visible.
+
+A consumer that throws is detached rather than called again — otherwise one broken subscriber becomes
+a stream of exceptions on the engine's own thread.
+
 ## How a join stays incremental
 
 A stream-to-stream join is where an incremental engine either earns its keep or falls over, so it is
@@ -248,96 +336,23 @@ count and what to do about it, rather than letting the node die with nothing to 
 joins are refused for the same reason -- an unmatched row would have to be held for as long as a
 match could still arrive, which without a time bound is forever.
 
-## The five ideas everything else follows from
+## Bounds: the principle
 
-| | |
-|---|---|
-| **Z-sets** | A relation and a changelog are the same object: a multiset with signed integer weights. An update is `−1` of the old row and `+1` of the new, so insert, update and delete stop being three cases an operator author must handle and become arithmetic. Design §9. |
-| **Binary rows in arenas** | Rows are flyweights over off-heap memory; field access is a constant offset. A batch is processed and the arena rewound in one assignment. No `Map<String,Object>`, no boxing, no per-row allocation. Design §8. |
-| **Single-writer lanes** | Concurrency comes from partitioning, not sharing. One thread, one ring, one state slice, one timer wheel per lane — no locks in steady state. Design §13. |
-| **Capability declaration** | A source declares whether it can rewind, sees deletes, carries a before-image; a sink declares which changelog modes it accepts. The engine computes the *weakest link* and reports that, rather than promising exactly-once the plumbing cannot deliver. Design §10. |
-| **Refuse rather than guess** | An unbounded `GROUP BY` is rejected at planning with a message saying what to do about it. Unbounded integration is how incremental engines die in production, and refusing is the only intervention that reliably works. Design §9.6. |
+Three mechanisms, one rule:
 
-## Modules
+> **A bound that changes the answer belongs in the query's meaning. A bound that protects the machine
+> belongs in configuration, and should fail rather than quietly alter results.**
 
-| Module | What it is |
-|---|---|
-| `pravaha-api` | The public SPI. Zero third-party dependencies, Java 17 bytecode. |
-| `pravaha-common` | Memory access, arenas, rings, row layout, configuration. |
-| `pravaha-algebra` | Z-sets, frontiers, the incremental lift and its property oracle. |
-| `pravaha-runtime` | The plan IR and interpreted execution. **No Calcite.** |
-| `pravaha-codegen` | Whole-stage generation, compiled with Janino. |
-| `pravaha-sql` | Calcite integration. The only module that imports it. |
-| `pravaha-connect` | Plugin discovery, classloader isolation, registry. |
-| `pravaha-embedded` | In-process engine. No Spring. |
-| `pravaha-server` | Spring Boot node: public REST API and the plain `/status` page. |
-| `pravaha-cli` | The `pravaha` command. |
-| `pravaha-testkit` | Virtual clock, deterministic scheduler, plugin TCK. |
-| [`plugins/pravaha-plugin-filesystem`](../plugins/pravaha-plugin-filesystem) | The reference source and sink. Delimited files, no external dependency. |
-| [`plugins/pravaha-plugin-delta`](../plugins/pravaha-plugin-delta) | Delta Lake source, on Delta Kernel rather than Spark. Version diffs become Z-set weights. |
-| [`plugins/pravaha-plugin-feedfile`](../plugins/pravaha-plugin-feedfile) | Drop-directory feeds. CSV and Parquet, completion detection, per-file replayable offsets. |
-| [`plugins/pravaha-plugin-jdbc`](../plugins/pravaha-plugin-jdbc) | Incremental-poll source and dimension table for any JDBC database. Keyset pagination, filter pushdown into `WHERE`, driver supplied by the deployment. |
-| [`plugins/pravaha-plugin-aerospike`](../plugins/pravaha-plugin-aerospike) | The primary target. Scan-based source with server-side filter pushdown, idempotent sink, and a lookup table. Tested against a real Aerospike server, not a mock. |
-| [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | Java client. Depends on `pravaha-api` alone. |
-| [`sdk/python`](../sdk/python) | Python client. The console is built on it. |
+| | Kind | On exceeding |
+|---|---|---|
+| A view's **retention** | meaning | forgets the oldest rows |
+| A join's **match window** | meaning | releases rows that can no longer match |
+| `maxKeys`, `maxRowsPerSide`, admission limits | machine | **refuses**, loudly |
 
-| `pravaha-state` | Off-heap state: the L0 map, the block store joins hold rows in, and checkpoints. |
-| `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
-| `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
-| `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |
-| `pravaha-security` | Who is asking, what they may read, and a record of both (ADR-031). Three SPIs and no implementation of an identity provider: deployments already have one. |
-| `pravaha-registry` | Where SQL becomes a computation with a name, a state and an end (ADR-025). Sharing is by fingerprint, so the same question asked twice is one computation with two names. |
-| [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | The Java client's types and connection strings. Dependency-free by enforcer rule: it is embedded in somebody else's application. |
-| [`sdk/pravaha-sdk-java-flight`](../sdk/pravaha-sdk-java-flight) | The Java client's transport, kept separate so an application that only wants the types never sees Netty. |
+And where the engine cannot bound something at all it refuses the *query* — an unwindowed keyed
+`GROUP BY` is rejected at planning rather than deployed to fail months later.
 
-`pravaha-catalog` is still a placeholder.
-
-## Registering a query
-
-A registration turns SQL into a computation that keeps running and keeps a view current. It is the
-surface everything else hangs off: a subscription attaches to a registered query, the console lists
-them, a cluster assigns them to nodes, and a continuous query's parameters can only be classified
-against one.
-
-**Sharing is by fingerprint, never by name or by text** (ADR-025). The fingerprint is the normalised
-plan, so two people who type the same question differently — different aliases, different
-whitespace, operands of an `AND` in a different order — get one computation holding one copy of the
-state. That is the mechanism behind "ten analysts on one dashboard cost one query", and it is
-enforced in the registry rather than left to whoever writes the SQL.
-
-The fingerprint includes the **security predicates** applied to the plan, which is what makes
-implicit sharing safe rather than merely cheap: two principals with different entitlements produce
-different plans, so a shared computation can never serve one of them rows filtered for the other.
-Nobody has to remember the rule — it falls out of what is hashed.
-
-A computation may answer to several names and is released when the **last** one is dropped. Dropping
-on the first would take the answer away from everyone else who registered the same question and has
-no idea the others exist.
-
-Pausing is not dropping: a paused query stops advancing and its view keeps answering at the frontier
-it reached, which is a far better failure mode for a dashboard than answers that disappear. Rows
-arriving while paused are dropped rather than buffered — buffering would turn a pause into a memory
-commitment of unknown size, and the operator paused it precisely to stop it doing work.
-
-## Why a join has a clock
-
-A stream-to-stream join would, left alone, hold every unmatched row for as long as the process
-lives: a partner could arrive at any moment, so nothing is ever safe to forget. That is not a
-tuning problem, it is the shape of the operation.
-
-The engine's answer is that **the bound is part of what the join means**. With a match window of
-`T`, the join means "rows that match and whose event times are within `T` of each other", and a row
-older than `watermark − T` cannot be part of any match it promises — because a watermark is the
-statement that nothing earlier is still to come, so every partner yet to arrive is later than that.
-Releasing such a row is not losing data; it is the definition being honoured. An hour of event time
-is the default, because a join with no window at all is the thing that cannot be allowed.
-
-That is why eviction here is safe and a size-based eviction would not be. Dropping the oldest rows
-to stay under a ceiling would silently lose matches the query *did* ask for — so the row ceiling
-does not evict. It fails, loudly, and exists only as a backstop for a key space that is wrong rather
-than merely large. **A bound that changes the answer belongs in the query's meaning; a bound that
-protects the machine belongs in the configuration, and it should fail rather than quietly alter
-results.**
+The three sections that follow are this principle applied.
 
 ## What a retention window is actually for
 
@@ -388,33 +403,49 @@ unmatched rows it is holding *upstream*, waiting for partners that may never arr
 It is also not durability. A view is not checkpointed at all; it is rebuilt from the query. Retention
 decides what is kept hot, never what survives a restart.
 
-## Subscribing to a registered query
+## Why a join has a clock
 
-A subscription is not the query (ADR-025). Many attach to one computation, they come and go without
-it noticing, and it outlives all of them — which is why a dashboard reconnecting costs nothing: the
-state is warm because it belongs to the query, not to whoever was watching.
+A stream-to-stream join would, left alone, hold every unmatched row for as long as the process
+lives: a partner could arrive at any moment, so nothing is ever safe to forget. That is not a
+tuning problem, it is the shape of the operation.
 
-**Changes arrive per commit, never per row.** A commit is the point at which the engine says a prefix
-of the input is fully processed; between commits the view holds a half-applied batch, and a
-subscriber woken per row could act on a total still being assembled.
+The engine's answer is that **the bound is part of what the join means**. With a match window of
+`T`, the join means "rows that match and whose event times are within `T` of each other", and a row
+older than `watermark − T` cannot be part of any match it promises — because a watermark is the
+statement that nothing earlier is still to come, so every partner yet to arrive is later than that.
+Releasing such a row is not losing data; it is the definition being honoured. An hour of event time
+is the default, because a join with no window at all is the thing that cannot be allowed.
 
-They carry **weights**. `-1` withdraws a row, so a late-data correction reaches a consumer as a
-retraction followed by an insert — the same arithmetic as everything else in the engine rather than a
-message type every client has to recognise. A consumer that only wants current values can ignore
-negative weights and overwrite by key; one maintaining its own aggregate must apply them, or it
-drifts from the view the first time a window is corrected.
+That is why eviction here is safe and a size-based eviction would not be. Dropping the oldest rows
+to stay under a ceiling would silently lose matches the query *did* ask for — so the row ceiling
+does not evict. It fails, loudly, and exists only as a backstop for a key space that is wrong rather
+than merely large. **A bound that changes the answer belongs in the query's meaning; a bound that
+protects the machine belongs in the configuration, and it should fail rather than quietly alter
+results.**
 
-What happens when a subscriber cannot keep up is the part that decides whether one slow consumer
-degrades everybody. **Blocking is not an option offered**: a subscriber that blocks applies
-backpressure to the *query*, so one slow dashboard would slow the computation for everyone keeping
-up. Instead the buffer is bounded and overflow is a declared choice — `CONFLATE` (replace the waiting
-change for a key; right for a dashboard, wrong for anything maintaining an aggregate from the
-weights), `DROP_OLDEST`, or `FAIL` (for a ledger, where finding out beats carrying on with a gap).
-Whatever is lost is **counted**, because a subscriber silently missing data is the failure the whole
-mechanism exists to make visible.
+## How many reads at once
 
-A consumer that throws is detached rather than called again — otherwise one broken subscriber becomes
-a stream of exceptions on the engine's own thread.
+ADR-030 put continuous queries and request/response on the same engine, which makes an unbounded
+read path a way for a client with a loop to stop a continuous query from keeping up with its input.
+The continuous query is the one with a service level; the read is the one that can be told to come
+back. `ReadAdmission` bounds three things separately, because they fail differently:
+
+- **concurrency** — the work happening at once. Reads run on the calling thread, never on lane
+  threads, so this bounds memory and CPU contention rather than lanes;
+- **queue depth** — the work *waiting*. A queue longer than the client's timeout is work nobody is
+  waiting for any more, which the server will nevertheless do, at the expense of work somebody is;
+- **per-tenant share** — any one tenant's use of the first two. Without it the fairest possible
+  global limit still lets one tenant hold every permit, and what the other tenants report is
+  "Pravaha is down".
+
+Refusal is the feature. Queueing without limit turns a load problem into a latency problem and then
+into a memory problem; refusing gives the client something to retry or shed and the operator a
+number that rises before anything breaks. Metadata calls are admitted too — a client asking only for
+schemas, in a loop, uses the same planner and the same CPU, and an unmetered path is an unmetered
+path.
+
+The refusal reaches the client as `RESOURCE_EXHAUSTED`, not `INVALID_ARGUMENT`, because that is the
+difference between a driver that backs off and retries and one that reports a bug.
 
 ## Who may read what
 
@@ -487,29 +518,39 @@ accept a statement the engine cannot run.
 Types are inferred rather than declared: the planner works them out from the columns and sends the
 parameter schema when a statement is prepared, so neither SDK guesses.
 
-## How many reads at once
+## Modules
 
-ADR-030 put continuous queries and request/response on the same engine, which makes an unbounded
-read path a way for a client with a loop to stop a continuous query from keeping up with its input.
-The continuous query is the one with a service level; the read is the one that can be told to come
-back. `ReadAdmission` bounds three things separately, because they fail differently:
+| Module | What it is |
+|---|---|
+| `pravaha-api` | The public SPI. Zero third-party dependencies, Java 17 bytecode. |
+| `pravaha-common` | Memory access, arenas, rings, row layout, configuration. |
+| `pravaha-algebra` | Z-sets, frontiers, the incremental lift and its property oracle. |
+| `pravaha-runtime` | The plan IR and interpreted execution. **No Calcite.** |
+| `pravaha-codegen` | Whole-stage generation, compiled with Janino. |
+| `pravaha-sql` | Calcite integration. The only module that imports it. |
+| `pravaha-connect` | Plugin discovery, classloader isolation, registry. |
+| `pravaha-embedded` | In-process engine. No Spring. |
+| `pravaha-server` | Spring Boot node: public REST API and the plain `/status` page. |
+| `pravaha-cli` | The `pravaha` command. |
+| `pravaha-testkit` | Virtual clock, deterministic scheduler, plugin TCK. |
+| [`plugins/pravaha-plugin-filesystem`](../plugins/pravaha-plugin-filesystem) | The reference source and sink. Delimited files, no external dependency. |
+| [`plugins/pravaha-plugin-delta`](../plugins/pravaha-plugin-delta) | Delta Lake source, on Delta Kernel rather than Spark. Version diffs become Z-set weights. |
+| [`plugins/pravaha-plugin-feedfile`](../plugins/pravaha-plugin-feedfile) | Drop-directory feeds. CSV and Parquet, completion detection, per-file replayable offsets. |
+| [`plugins/pravaha-plugin-jdbc`](../plugins/pravaha-plugin-jdbc) | Incremental-poll source and dimension table for any JDBC database. Keyset pagination, filter pushdown into `WHERE`, driver supplied by the deployment. |
+| [`plugins/pravaha-plugin-aerospike`](../plugins/pravaha-plugin-aerospike) | The primary target. Scan-based source with server-side filter pushdown, idempotent sink, and a lookup table. Tested against a real Aerospike server, not a mock. |
+| [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | Java client. Depends on `pravaha-api` alone. |
+| [`sdk/python`](../sdk/python) | Python client. The console is built on it. |
 
-- **concurrency** — the work happening at once. Reads run on the calling thread, never on lane
-  threads, so this bounds memory and CPU contention rather than lanes;
-- **queue depth** — the work *waiting*. A queue longer than the client's timeout is work nobody is
-  waiting for any more, which the server will nevertheless do, at the expense of work somebody is;
-- **per-tenant share** — any one tenant's use of the first two. Without it the fairest possible
-  global limit still lets one tenant hold every permit, and what the other tenants report is
-  "Pravaha is down".
+| `pravaha-state` | Off-heap state: the L0 map, the block store joins hold rows in, and checkpoints. |
+| `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
+| `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
+| `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |
+| `pravaha-security` | Who is asking, what they may read, and a record of both (ADR-031). Three SPIs and no implementation of an identity provider: deployments already have one. |
+| `pravaha-registry` | Where SQL becomes a computation with a name, a state and an end (ADR-025). Sharing is by fingerprint, so the same question asked twice is one computation with two names. |
+| [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | The Java client's types and connection strings. Dependency-free by enforcer rule: it is embedded in somebody else's application. |
+| [`sdk/pravaha-sdk-java-flight`](../sdk/pravaha-sdk-java-flight) | The Java client's transport, kept separate so an application that only wants the types never sees Netty. |
 
-Refusal is the feature. Queueing without limit turns a load problem into a latency problem and then
-into a memory problem; refusing gives the client something to retry or shed and the operator a
-number that rises before anything breaks. Metadata calls are admitted too — a client asking only for
-schemas, in a loop, uses the same planner and the same CPU, and an unmetered path is an unmetered
-path.
-
-The refusal reaches the client as `RESOURCE_EXHAUSTED`, not `INVALID_ARGUMENT`, because that is the
-difference between a driver that backs off and retries and one that reports a bug.
+`pravaha-catalog` is still a placeholder.
 
 ## Rules the build enforces
 
@@ -529,14 +570,11 @@ Not conventions — tests. Each one exists because the failure it prevents is si
 
 ## Where to go next
 
-- **Why does this exist?** — design [§1](system_design.md), [§2](system_design.md)
-- **Is the engineering sound?** — design [§3](system_design.md), [§9](system_design.md), [§29](system_design.md)
-- **What SQL can I write?** — [`SQL_SUPPORT.md`](SQL_SUPPORT.md), every construct with a test behind it
-- **How do I run it?** — [`QUICKSTART.md`](QUICKSTART.md)
-- **What was decided and why?** — [`adr/`](adr/)
-- **When does it ship?** — [implementation plan](implementation_plan.md)
-
----
-
-<sub>**Project Pravaha (प्रवाह)** — *Ask once. Answer always.*<br>
-Copyright © 2026 Ashutosh Sinha &lt;ajsinha@gmail.com&gt;. All rights reserved. **Proprietary and confidential.**</sub>
+| | |
+|---|---|
+| **What are the ideas?** — [`CONCEPTS.md`](CONCEPTS.md), the eight this is all built on |
+| **How do I use it?** — [`USER_GUIDE.md`](USER_GUIDE.md), task by task |
+| **How do I run it?** — [`OPERATIONS.md`](OPERATIONS.md) |
+| **What SQL can I write?** — [`SQL_SUPPORT.md`](SQL_SUPPORT.md), every construct with a test behind it |
+| **Why is it like this?** — [`adr/`](adr/), every decision with its alternatives |
+| **The whole specification** — [`system_design.md`](system_design.md) |
