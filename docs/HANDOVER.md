@@ -205,7 +205,7 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Join across lanes | ✅ `pumpPartitionedInto` hashes each row's join key and routes it to the lane that owns it, with the same hash the join looks it up with. A plain pump on a multi-lane join is refused, naming the right one |
 | Expressions in `WHERE` (`amount * 2 > 100`) | ✅ `Predicate.CompareExpressions` |
 | Aligned barriers across the exchange | ❌ — checkpointing is per-lane, which is sound only while lanes share no state; the limitation is written into `QueryExecution.checkpoint` |
-| Windowed / time-versioned joins | ❌ — the unwindowed join is bounded only by a row ceiling, which fails the query rather than the node |
+| Windowed / time-versioned joins | ⚠️ a default match window bounds join state in event time (`JoinOperator.DEFAULT_MATCH_WITHIN_NANOS`), which is what made the join survivable. A *stated* temporal predicate in SQL — `BETWEEN b.t - INTERVAL '1' HOUR AND b.t` — is still not parsed, so the window cannot yet be chosen per query. Previously: the unwindowed join was bounded only by a row ceiling, which fails the query rather than the node |
 | Outer joins | ❌ — refused with the reason: an unmatched row must be held for as long as a match could arrive |
 | Self-joins | ❌ — both sides would read one stream and a stream name cannot say which side a row is for. Refused when the pipeline is built, and the one refusal reachable from SQL that carries no `PRV-` code |
 | **The README's query runs against Aerospike, verbatim** | ✅ `AerospikeContinuousQueryIT` uses the README's own SQL — `SELECT STREAM`, `GROUP BY TUMBLE(...)`, `TUMBLE_END(...)`, the temporal `LEFT JOIN` — against a real Aerospike server, with the `WHERE` pushed into the store. Only the `CREATE CONTINUOUS QUERY ... SERVE AS VIEW ... EMIT CHANGES` wrapper is still unparsed; that is registration, not the query |
@@ -341,7 +341,7 @@ by construction; outer joins between streams are refused for the same reason.
 | | |
 |---|---|
 | **Checkpoint files** | `FileCheckpointStore.prune(keep)` exists and **nothing in production code calls it** — only tests do. Checkpoints accumulate indefinitely. This is the real disk-growth path right now and wants an owner |
-| Stream-to-stream join state | Bounded by a row ceiling (`MAX_JOIN_STATE_SLABS = 64`), not by time, and reaching it **fails the query**. Still wrong: the fix is a time bound in the query's own semantics — a windowed join — so that eviction is correct by definition rather than a silent loss of matches. Not built |
+| ~~Stream-to-stream join state~~ | **Fixed.** A join has a match window — an hour of event time by default — and releases rows older than `watermark − matchWithin`. Correct by definition rather than by luck: such a row cannot be part of any match the join promises, because a watermark says nothing earlier is coming. The row ceiling stays as a backstop and still fails loudly, because evicting *to fit* would lose matches the query did ask for |
 | ~~Views from a pass-through query~~ | **Fixed.** `Retention` evicts by event-time age and row count, and a default applies (a day, or a million rows) unless a registration chooses otherwise. A view is bounded only if its key space is bounded, and nothing can tell in advance whether it is, so `forever()` has to be asked for by name |
 
 None of these is a surprise waiting in the dark; each fails loudly at a ceiling. But "fails loudly at a

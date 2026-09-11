@@ -319,6 +319,26 @@ it reached, which is a far better failure mode for a dashboard than answers that
 arriving while paused are dropped rather than buffered — buffering would turn a pause into a memory
 commitment of unknown size, and the operator paused it precisely to stop it doing work.
 
+## Why a join has a clock
+
+A stream-to-stream join would, left alone, hold every unmatched row for as long as the process
+lives: a partner could arrive at any moment, so nothing is ever safe to forget. That is not a
+tuning problem, it is the shape of the operation.
+
+The engine's answer is that **the bound is part of what the join means**. With a match window of
+`T`, the join means "rows that match and whose event times are within `T` of each other", and a row
+older than `watermark − T` cannot be part of any match it promises — because a watermark is the
+statement that nothing earlier is still to come, so every partner yet to arrive is later than that.
+Releasing such a row is not losing data; it is the definition being honoured. An hour of event time
+is the default, because a join with no window at all is the thing that cannot be allowed.
+
+That is why eviction here is safe and a size-based eviction would not be. Dropping the oldest rows
+to stay under a ceiling would silently lose matches the query *did* ask for — so the row ceiling
+does not evict. It fails, loudly, and exists only as a backstop for a key space that is wrong rather
+than merely large. **A bound that changes the answer belongs in the query's meaning; a bound that
+protects the machine belongs in the configuration, and it should fail rather than quietly alter
+results.**
+
 ## What a retention window is actually for
 
 Not primarily a memory knob. It is the statement that **a served view is a cache of a current

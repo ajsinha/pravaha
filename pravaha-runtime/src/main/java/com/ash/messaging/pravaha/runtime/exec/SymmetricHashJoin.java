@@ -60,6 +60,10 @@ final class SymmetricHashJoin implements AutoCloseable {
     private static final int STATE_SLAB_BYTES = 1 << 20;
 
     private final JoinOperator plan;
+
+    /** Rows released because they fell outside the join's match window. Not an error count. */
+    private long evicted;
+
     private final RowStore store;
     private final JoinSide leftState;
     private final JoinSide rightState;
@@ -219,5 +223,38 @@ final class SymmetricHashJoin implements AutoCloseable {
         leftState.close();
         rightState.close();
         store.close();
+    }
+
+    /**
+     * Releases state that can no longer match, given how far event time has advanced.
+     *
+     * <p>The horizon is {@code watermark - matchWithin}. A row older than that cannot be part of any
+     * match this join promises: a watermark is the statement that nothing earlier is still to come,
+     * so every partner still to arrive is later than the horizon, and a pair spanning more than the
+     * match window is outside what the query asked for. Releasing it honours the definition rather
+     * than losing data.
+     *
+     * <p>This is the difference between a bound that is <em>semantic</em> and one that is merely
+     * operational. Evicting to stay under a row ceiling would drop rows the query did ask about, so
+     * that ceiling fails loudly instead.
+     */
+    void advanceWatermark(long watermarkNanos) {
+        if (watermarkNanos == Long.MIN_VALUE) {
+            return;
+        }
+        long window = plan.matchWithinNanos();
+        // Saturating: a watermark near the bottom of the range must not wrap into the future and
+        // evict everything.
+        long horizon = watermarkNanos - window;
+        if (horizon > watermarkNanos) {
+            return;
+        }
+        evicted += leftState.evictOlderThan(horizon);
+        evicted += rightState.evictOlderThan(horizon);
+    }
+
+    /** Rows released because they aged past the match window. */
+    long evicted() {
+        return evicted;
     }
 }
