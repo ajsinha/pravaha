@@ -59,7 +59,9 @@ public record JoinOperator(
         List<Integer> rightKeys,
         StreamSchema outputSchema,
         long maxRowsPerSide,
-        long matchWithinNanos)
+        long matchWithinNanos,
+        long matchLowerNanos,
+        long matchUpperNanos)
         implements PhysicalOperator {
 
     /**
@@ -81,6 +83,72 @@ public record JoinOperator(
             StreamSchema outputSchema,
             long maxRowsPerSide) {
         this(left, right, leftKeys, rightKeys, outputSchema, maxRowsPerSide, DEFAULT_MATCH_WITHIN_NANOS);
+    }
+
+    /** A join with a symmetric window and no stated direction: the default shape. */
+    public JoinOperator(
+            PhysicalOperator left,
+            PhysicalOperator right,
+            List<Integer> leftKeys,
+            List<Integer> rightKeys,
+            StreamSchema outputSchema,
+            long maxRowsPerSide,
+            long matchWithinNanos) {
+        this(
+                left,
+                right,
+                leftKeys,
+                rightKeys,
+                outputSchema,
+                maxRowsPerSide,
+                matchWithinNanos,
+                -matchWithinNanos,
+                matchWithinNanos);
+    }
+
+    /**
+     * Builds a join from a temporal predicate the query stated.
+     *
+     * <p>The bounds are on {@code left.time - right.time}, in the order the predicate was written.
+     * {@code l.t BETWEEN r.t - INTERVAL '5' MINUTE AND r.t} is {@code [-5 minutes, 0]}: a left row
+     * may be up to five minutes older than its match and never newer.
+     *
+     * <p>Direction is kept rather than collapsed to a width because it is part of the answer. "The
+     * payment came after the order" and "the two were within five minutes" are different questions,
+     * and a join that treats them alike answers the wrong one silently.
+     */
+    public static JoinOperator withinRange(
+            PhysicalOperator left,
+            PhysicalOperator right,
+            List<Integer> leftKeys,
+            List<Integer> rightKeys,
+            StreamSchema outputSchema,
+            long maxRowsPerSide,
+            long lowerNanos,
+            long upperNanos) {
+        if (upperNanos < lowerNanos) {
+            throw new IllegalArgumentException("a join's time bounds are inverted: lower " + lowerNanos
+                    + "ns is above upper " + upperNanos + "ns, so no pair of rows can satisfy them and the "
+                    + "join can only ever return nothing");
+        }
+        // State has to be kept for the longer of the two directions, whichever way the window leans.
+        long span = Math.max(Math.abs(lowerNanos), Math.abs(upperNanos));
+        return new JoinOperator(
+                left,
+                right,
+                leftKeys,
+                rightKeys,
+                outputSchema,
+                maxRowsPerSide,
+                span == 0 ? 1 : span,
+                lowerNanos,
+                upperNanos);
+    }
+
+    /** True if a pair whose event times differ by {@code deltaNanos} is inside the stated window. */
+    public boolean matchesInTime(long leftNanos, long rightNanos) {
+        long delta = leftNanos - rightNanos;
+        return delta >= matchLowerNanos && delta <= matchUpperNanos;
     }
 
     public JoinOperator {

@@ -61,6 +61,8 @@ final class SymmetricHashJoin implements AutoCloseable {
 
     private final JoinOperator plan;
 
+    private long outsideWindow;
+
     /** Rows released because they fell outside the join's match window. Not an error count. */
     private long evicted;
 
@@ -136,6 +138,14 @@ final class SymmetricHashJoin implements AutoCloseable {
      */
     private void emit(RowView left, RowView right, long weight) {
         if (weight == 0) {
+            return;
+        }
+        // The temporal predicate decides which pairs are in the answer, not merely how long state is
+        // kept. Using it only for eviction would return every pair still in state -- correct pairs
+        // plus whatever the retention horizon happened to allow -- so a query asking for matches
+        // within five minutes would get matches within an hour and no indication of it.
+        if (!plan.matchesInTime(left.eventTimestampNanos(), right.eventTimestampNanos())) {
+            outsideWindow++;
             return;
         }
         long handle = arena.allocate(outputLayout.rowSize(1024));
@@ -251,6 +261,17 @@ final class SymmetricHashJoin implements AutoCloseable {
         }
         evicted += leftState.evictOlderThan(horizon);
         evicted += rightState.evictOlderThan(horizon);
+    }
+
+    /**
+     * Pairs that matched on the key but fell outside the query's time bounds.
+     *
+     * <p>Worth watching. A join whose matches are almost all rejected here is one whose temporal
+     * predicate does not describe the data -- clocks disagreeing between two producers is the usual
+     * cause -- and the symptom is an empty result that looks exactly like no data.
+     */
+    long outsideWindow() {
+        return outsideWindow;
     }
 
     /** Rows released because they aged past the match window. */

@@ -148,11 +148,28 @@ public final class PhysicalPlanBuilder {
 
         List<Integer> leftKeys = new ArrayList<>();
         List<Integer> rightKeys = new ArrayList<>();
-        collectEquiKeys(join.getCondition(), leftWidth, leftKeys, rightKeys, join);
+        TimeBounds bounds = new TimeBounds();
+        collectEquiKeys(join.getCondition(), leftWidth, leftKeys, rightKeys, join, bounds);
 
         StreamSchema output = schemaOf(
                 join, left.outputSchema().name() + "_" + right.outputSchema().name());
-        return new JoinOperator(left, right, leftKeys, rightKeys, output, MAX_JOIN_ROWS_PER_SIDE);
+        if (leftKeys.isEmpty()) {
+            // A time bound narrows which pairs count; it does not give the join anything to index by.
+            // Without an equality every row of one side is still a candidate for every row of the
+            // other within the window, which is a cross product with a filter on it.
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_OPERATOR,
+                    "the join condition states a time bound but no equality, so there is no join key to "
+                            + "index either side by. A window narrows which pairs count; it does not stop every "
+                            + "row being a candidate for every other inside it, which is a cross product with a "
+                            + "filter and has no incremental execution. Add the equality the two streams "
+                            + "correlate on.");
+        }
+        if (!bounds.stated()) {
+            return new JoinOperator(left, right, leftKeys, rightKeys, output, MAX_JOIN_ROWS_PER_SIDE);
+        }
+        return JoinOperator.withinRange(
+                left, right, leftKeys, rightKeys, output, MAX_JOIN_ROWS_PER_SIDE, bounds.lower(), bounds.upper());
     }
 
     /**
@@ -168,11 +185,15 @@ public final class PhysicalPlanBuilder {
             int leftWidth,
             List<Integer> leftKeys,
             List<Integer> rightKeys,
-            org.apache.calcite.rel.core.Join join) {
+            org.apache.calcite.rel.core.Join join,
+            TimeBounds bounds) {
         if (condition.getKind() == SqlKind.AND) {
             ((RexCall) condition)
                     .getOperands()
-                    .forEach(part -> collectEquiKeys(part, leftWidth, leftKeys, rightKeys, join));
+                    .forEach(part -> collectEquiKeys(part, leftWidth, leftKeys, rightKeys, join, bounds));
+            return;
+        }
+        if (collectTimeBound(condition, leftWidth, bounds)) {
             return;
         }
         if (condition.getKind() == SqlKind.EQUALS
@@ -194,11 +215,151 @@ public final class PhysicalPlanBuilder {
         }
         throw new PravahaException(
                 SqlErrors.UNSUPPORTED_OPERATOR,
-                "the join condition '" + condition + "' is not an equality between one column of each side. "
-                        + "Pravaha indexes both sides by the join key; a condition with no such key makes every "
-                        + "row a candidate for every other, which is a cross product with a filter and has no "
-                        + "incremental execution. Rewrite the condition as an equality, or move the rest of it "
-                        + "into a WHERE clause.");
+                "the join condition '" + condition + "' is neither an equality between one column of each side "
+                        + "nor a time bound between them. Pravaha indexes both sides by the join key; a condition "
+                        + "with no such key makes every row a candidate for every other, which is a cross product "
+                        + "with a filter and has no incremental execution. Write the equality, optionally with a "
+                        + "bound such as l.event_time BETWEEN r.event_time - INTERVAL '5' MINUTE AND r.event_time, "
+                        + "and move anything else into a WHERE clause.");
+    }
+
+    /**
+     * Collects {@code l.t >= r.t - INTERVAL 'x' UNIT} and its relatives into the join's time bounds.
+     *
+     * <p>Without this a temporal predicate was refused outright, and the bound that actually governed
+     * the join was an hour, chosen in the engine and invisible in the query. That is the wrong place
+     * for it by the project's own rule: a bound that changes the answer belongs in the query's
+     * meaning, and only a bound that protects the machine belongs in configuration. Which rows match
+     * is unarguably the answer.
+     *
+     * <p>Calcite has already expanded {@code BETWEEN} into two comparisons and normalised the
+     * literal to milliseconds by the time this sees it.
+     *
+     * @return true if the conjunct was a time bound and has been recorded
+     */
+    private boolean collectTimeBound(RexNode condition, int leftWidth, TimeBounds bounds) {
+        SqlKind kind = condition.getKind();
+        if (kind != SqlKind.GREATER_THAN
+                && kind != SqlKind.GREATER_THAN_OR_EQUAL
+                && kind != SqlKind.LESS_THAN
+                && kind != SqlKind.LESS_THAN_OR_EQUAL) {
+            return false;
+        }
+        RexCall comparison = (RexCall) condition;
+        RexNode first = comparison.getOperands().get(0);
+        RexNode second = comparison.getOperands().get(1);
+
+        Offset near = asOffset(first, leftWidth);
+        Offset far = asOffset(second, leftWidth);
+        if (near == null || far == null || near.fromLeft() == far.fromLeft()) {
+            // Both sides of the comparison must name a column, and they must be opposite inputs.
+            // A bound against a constant is a filter, not a join condition, and belongs in WHERE.
+            return false;
+        }
+
+        // Normalise to left - right, whichever order it was written in.
+        long delta;
+        boolean lower;
+        if (near.fromLeft()) {
+            // left + nearOffset OP right + farOffset  ->  left - right OP farOffset - nearOffset
+            delta = far.nanos() - near.nanos();
+            lower = kind == SqlKind.GREATER_THAN || kind == SqlKind.GREATER_THAN_OR_EQUAL;
+        } else {
+            // right + nearOffset OP left + farOffset  ->  left - right (reversed) ...
+            delta = near.nanos() - far.nanos();
+            lower = kind == SqlKind.LESS_THAN || kind == SqlKind.LESS_THAN_OR_EQUAL;
+        }
+        if (lower) {
+            bounds.atLeast(delta);
+        } else {
+            bounds.atMost(delta);
+        }
+        return true;
+    }
+
+    /** A time column on one side, optionally shifted by an interval literal. */
+    private record Offset(boolean fromLeft, long nanos) {}
+
+    private Offset asOffset(RexNode node, int leftWidth) {
+        if (node instanceof RexInputRef ref) {
+            return isTimestamp(ref) ? new Offset(ref.getIndex() < leftWidth, 0) : null;
+        }
+        if (node instanceof RexCall call
+                && (call.getKind() == SqlKind.PLUS || call.getKind() == SqlKind.MINUS)
+                && call.getOperands().size() == 2
+                && call.getOperands().get(0) instanceof RexInputRef ref
+                && call.getOperands().get(1) instanceof org.apache.calcite.rex.RexLiteral literal) {
+            if (!isTimestamp(ref)) {
+                return null;
+            }
+            Long millis = intervalMillis(literal);
+            if (millis == null) {
+                return null;
+            }
+            long nanos = millis * 1_000_000L;
+            return new Offset(ref.getIndex() < leftWidth, call.getKind() == SqlKind.MINUS ? -nanos : nanos);
+        }
+        return null;
+    }
+
+    /**
+     * True if this column is a timestamp.
+     *
+     * <p>Checked, and the reason is a bug this caught. Without it, {@code o.user_id > u.user_id} --
+     * two integer columns, an ordinary non-equi join -- was read as a time bound, accepted, and
+     * planned as a join with no equality at all. It would have run, held both sides entirely, and
+     * returned a cross product filtered by an inequality. The refusal it used to get was correct and
+     * this restores it.
+     */
+    private boolean isTimestamp(RexInputRef ref) {
+        org.apache.calcite.sql.type.SqlTypeName type = ref.getType().getSqlTypeName();
+        return type == org.apache.calcite.sql.type.SqlTypeName.TIMESTAMP
+                || type == org.apache.calcite.sql.type.SqlTypeName.TIMESTAMP_WITH_LOCAL_TIME_ZONE;
+    }
+
+    private Long intervalMillis(org.apache.calcite.rex.RexLiteral literal) {
+        if (!(literal.getType().getSqlTypeName().getFamily()
+                == org.apache.calcite.sql.type.SqlTypeFamily.INTERVAL_DAY_TIME)) {
+            // Months and years have no fixed length, so they cannot become a number of nanoseconds
+            // without knowing which month. A join window measured in months is not a thing anybody
+            // needs, and guessing thirty days would be wrong twice a year.
+            return null;
+        }
+        java.math.BigDecimal value = literal.getValueAs(java.math.BigDecimal.class);
+        return value == null ? null : value.longValue();
+    }
+
+    /**
+     * The bounds on {@code left.time - right.time} gathered from a join condition.
+     *
+     * <p>Both sides start unstated rather than at infinity, so "the query said nothing" and "the
+     * query said something unbounded" stay distinguishable -- the first gets the default window, and
+     * the second cannot be written.
+     */
+    private static final class TimeBounds {
+        private Long lower;
+        private Long upper;
+
+        void atLeast(long nanos) {
+            lower = lower == null ? nanos : Math.max(lower, nanos);
+        }
+
+        void atMost(long nanos) {
+            upper = upper == null ? nanos : Math.min(upper, nanos);
+        }
+
+        boolean stated() {
+            return lower != null || upper != null;
+        }
+
+        /** A one-sided bound is closed on the other side at zero: the unstated side is "no shift". */
+        long lower() {
+            return lower != null ? lower : Math.min(0, upper);
+        }
+
+        long upper() {
+            return upper != null ? upper : Math.max(0, lower);
+        }
     }
 
     /**

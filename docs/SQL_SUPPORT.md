@@ -159,12 +159,16 @@ meaningful, but an answer that shuffles is one somebody wastes an afternoon on.
 |---|---|---|
 | `INNER JOIN` on an equality | ✅ | Symmetric hash join, incremental both ways |
 | Multi-column equi-join | ✅ | `ON a.x = b.x AND a.y = b.y` |
+| Equi-join with a time bound | ✅ | `AND a.t BETWEEN b.t - INTERVAL '5' MINUTE AND b.t`. Decides which pairs match **and** how long state is kept |
+| One-sided time bound | ✅ | `AND a.t >= b.t - INTERVAL '30' SECOND`. The unstated side closes at zero |
+| Time bound with no equality | ❌ | `PRV-2020` — a window narrows which pairs count but still leaves every row a candidate for every other inside it |
+| Time bound in months or years | ❌ | A month has no fixed length; guessing 30 days is wrong twice a year |
 | Three-way and deeper | ✅ | Between *distinct* streams |
 | Self join — one stream on both sides | ❌ | Rows enter a join by stream name, which cannot say which side a row is for |
 | Lookup join against a dimension table | ✅ | Async, on virtual threads, ordered output |
 | `LEFT` / `RIGHT` / `FULL OUTER` | ❌ | `PRV-2020` |
 | `CROSS JOIN` | ❌ | `PRV-2020` |
-| Non-equi join — `ON a.x > b.x` | ❌ | `PRV-2020` |
+| Non-equi join — `ON a.x > b.x` | ❌ | `PRV-2020`. An inequality between *timestamp* columns is a time bound and is supported; between anything else it is a cross product |
 
 An outer join between streams has to hold every unmatched row indefinitely, in case its partner
 arrives later — the same unbounded-state problem as an unwindowed `GROUP BY`, which is why it is

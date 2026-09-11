@@ -165,6 +165,19 @@ class SqlSupportMatrixTest {
                     "SELECT t.txn_id FROM txn t JOIN other o "
                             + "ON t.user_id = o.user_id AND t.event_time = o.event_time"),
             Case.ok(
+                    "equi-join with a time bound",
+                    "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id = o.user_id "
+                            + "AND t.event_time BETWEEN o.event_time - INTERVAL '5' MINUTE AND o.event_time"),
+            Case.ok(
+                    "equi-join with a one-sided time bound",
+                    "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id = o.user_id "
+                            + "AND t.event_time >= o.event_time - INTERVAL '30' SECOND"),
+            Case.refused(
+                    "time bound with no equality",
+                    "SELECT t.txn_id FROM txn t JOIN other o "
+                            + "ON t.event_time BETWEEN o.event_time - INTERVAL '5' MINUTE AND o.event_time",
+                    "PRV-2020"),
+            Case.ok(
                     "three-way join, three distinct streams",
                     "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id = o.user_id "
                             + "JOIN third d ON t.user_id = d.user_id"),
