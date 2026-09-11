@@ -34,6 +34,7 @@ import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewSink;
@@ -67,6 +68,7 @@ public final class QueryRegistry implements AutoCloseable {
     private final SecurityPolicy policy;
     private final AuditSink audit;
     private final StreamSchema[] streams;
+    private Retention defaultRetention = Retention.DEFAULT;
 
     // Insertion-ordered so that listing a registry is stable, which matters for a console that
     // renders the list and for a test that asserts on it.
@@ -85,6 +87,23 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /**
+     * Sets the retention every subsequent registration gets unless it chooses its own.
+     *
+     * <p>Configurable because the right answer is a deployment's, not ours: an intraday trade feed
+     * wants a day, a fraud view wants an hour, a reference-data mirror may genuinely want forever.
+     * What is not configurable is that there <em>is</em> one -- see {@link Retention}.
+     */
+    public QueryRegistry retaining(Retention retention) {
+        this.defaultRetention = retention == null ? Retention.DEFAULT : retention;
+        return this;
+    }
+
+    /** The retention a registration gets when it does not ask for one. */
+    public Retention defaultRetention() {
+        return defaultRetention;
+    }
+
+    /**
      * Registers {@code sql} under {@code name}, or attaches the name to the computation that already
      * answers it.
      *
@@ -93,6 +112,12 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public synchronized RegisteredQuery register(
             String name, String sql, List<Integer> keyColumns, Principal principal) {
+        return register(name, sql, keyColumns, principal, defaultRetention);
+    }
+
+    /** Registers with an explicit retention, overriding this registry's default. */
+    public synchronized RegisteredQuery register(
+            String name, String sql, List<Integer> keyColumns, Principal principal, Retention retention) {
         requireName(name);
         if (keyColumns == null || keyColumns.isEmpty()) {
             throw new IllegalArgumentException(
@@ -119,7 +144,7 @@ public final class QueryRegistry implements AutoCloseable {
             return existing;
         }
 
-        RegisteredQuery query = start(name, sql, plan, keyColumns, fingerprint);
+        RegisteredQuery query = start(name, sql, plan, keyColumns, fingerprint, retention);
         byName.put(name, query);
         byFingerprint.put(fingerprint, query);
         views.register(query.view());
@@ -127,7 +152,12 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     private RegisteredQuery start(
-            String name, String sql, PhysicalOperator plan, List<Integer> keyColumns, QueryFingerprint fingerprint) {
+            String name,
+            String sql,
+            PhysicalOperator plan,
+            List<Integer> keyColumns,
+            QueryFingerprint fingerprint,
+            Retention retention) {
         StreamSchema schema = plan.outputSchema();
         for (int ordinal : keyColumns) {
             if (ordinal < 0 || ordinal >= schema.fieldCount()) {
@@ -137,7 +167,7 @@ public final class QueryRegistry implements AutoCloseable {
         }
         // The view carries the registration's name, because that is what a reader will write in a
         // FROM clause. The fingerprint names the computation; the name names the answer.
-        ServedView view = new ServedView(name, schema, keyColumns, DEFAULT_MAX_KEYS);
+        ServedView view = new ServedView(name, schema, keyColumns, DEFAULT_MAX_KEYS, retention);
         ViewSink sink = new ViewSink(view, schema);
         InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, (RowOutput) sink::begin);
         return new RegisteredQuery(fingerprint, sql, name, view, sink, pipeline, Instant.now());

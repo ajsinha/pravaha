@@ -118,11 +118,24 @@ RegisteredQuery feed = registry.register(
         principal);
 ```
 
-> **This view grows with the number of trades**, because nothing aggregates them away. That is fine
-> for an intraday feed and is not fine forever. `ServedView` takes a key ceiling and refuses rather
-> than exhausting memory; size it for a day's events and drop the registration at end of day. A view
-> that grows without a bound is the one mistake this engine refuses to let you make quietly, and a
-> pass-through query is where you have to make that decision yourself.
+> **Nothing aggregates these rows away, so the view would grow with the feed — and it does not,
+> because a retention policy applies whether or not you ask for one.** The default keeps a day, or a
+> million rows, whichever binds first. Override it per registration:
+>
+> ```java
+> registry.register("trade_feed", sql, List.of(0), principal, Retention.ofAge(Duration.ofHours(8)));
+> ```
+>
+> or change the default for every registration on this node with `registry.retaining(...)`.
+>
+> **Eviction is forgetting, not retraction.** An evicted trade is not published to subscribers as a
+> `-1` — it was not cancelled, it aged out of a cache. A consumer keeping its own copy from the
+> change stream therefore keeps whatever *it* chose to keep and may legitimately hold more than the
+> view does. Emitting retractions instead would tell every consumer the trade had been withdrawn,
+> which would be a lie with consequences in this domain particularly.
+>
+> `view.evicted()` counts what has been forgotten. It is not an error count; it is how you notice a
+> window shorter than the questions people are asking of it.
 
 ## Step 3 — load some trades
 
@@ -444,8 +457,8 @@ Full list: [`docs/SQL_SUPPORT.md`](../../../docs/SQL_SUPPORT.md).
   the planner can see the cost. `SubscriptionFilter` is a tap, not a query language.
 - **No `ORDER BY` or `LIMIT`.** "The last fifty trades" is sorted by your application over a result
   narrowed by a `WHERE`.
-- **The view grows with the feed.** Nothing aggregates, so nothing is released until the registration
-  is dropped. Size the key ceiling for a day and drop at end of day.
+- **Retention is a cache policy, not an archive.** The view keeps a day by default; the store the
+  trades came from is where history lives. A query for last month goes to Aerospike, not here.
 - **Only lookup joins and inner equi-joins.** `LEFT JOIN … FOR SYSTEM_TIME AS OF` is a lookup and is
   what both joins here are. A `LEFT JOIN` between two *streams* is refused, because an unmatched row
   would have to be held forever in case its partner turned up. So is a self-join.

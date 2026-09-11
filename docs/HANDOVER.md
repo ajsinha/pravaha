@@ -340,8 +340,8 @@ by construction; outer joins between streams are refused for the same reason.
 | | |
 |---|---|
 | **Checkpoint files** | `FileCheckpointStore.prune(keep)` exists and **nothing in production code calls it** — only tests do. Checkpoints accumulate indefinitely. This is the real disk-growth path right now and wants an owner |
-| Stream-to-stream join state | Bounded by a row ceiling (`MAX_JOIN_STATE_SLABS = 64`), not by time. Windowed/time-versioned joins are the fix and are not built |
-| Views from a pass-through query | Grow with the feed; nothing aggregates them away. `ServedView` takes a key ceiling and refuses, so it fails loudly, but sizing it is the operator's job — see the trade-processing case study |
+| Stream-to-stream join state | Bounded by a row ceiling (`MAX_JOIN_STATE_SLABS = 64`), not by time, and reaching it **fails the query**. Still wrong: the fix is a time bound in the query's own semantics — a windowed join — so that eviction is correct by definition rather than a silent loss of matches. Not built |
+| ~~Views from a pass-through query~~ | **Fixed.** `Retention` evicts by event-time age and row count, and a default applies (a day, or a million rows) unless a registration chooses otherwise. A view is bounded only if its key space is bounded, and nothing can tell in advance whether it is, so `forever()` has to be asked for by name |
 
 None of these is a surprise waiting in the dark; each fails loudly at a ceiling. But "fails loudly at a
 ceiling" is not the same as "managed", and a disk quota, a spill policy and an automatic checkpoint
