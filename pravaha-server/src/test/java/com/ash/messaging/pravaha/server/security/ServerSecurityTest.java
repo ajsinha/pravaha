@@ -26,6 +26,7 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.server.PravahaNode;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
+import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 
@@ -131,10 +132,25 @@ class ServerSecurityTest {
                 .hasMessageContaining("authenticatd");
     }
 
+    @Test
+    void checkpointSettingsReachTheEngineInAFormItCanParse() {
+        // Spring parses "2s" into a Duration whose toString is ISO-8601 "PT2S", and the engine's own
+        // parser rejects that. The two formats met in the middle and neither was wrong on its own:
+        // the node started cleanly with checkpointing configured and then failed every registration
+        // with "expected a number with a unit". Only running it found this.
+        com.ash.messaging.pravaha.server.state.PersistenceProperties persistence =
+                new com.ash.messaging.pravaha.server.state.PersistenceProperties();
+        persistence.getCheckpoint().setInterval(java.time.Duration.ofSeconds(2));
+
+        assertThat(persistence.checkpointConfiguration().getDuration("pravaha.checkpoint.interval"))
+                .contains(java.time.Duration.ofSeconds(2));
+    }
+
     private static PravahaNode node(SecurityProperties security) {
         return new PravahaNode(
                 new StreamCatalog(),
                 new SourceBindingProperties(),
+                new StreamDeclarationProperties(),
                 security,
                 null,
                 null,

@@ -67,9 +67,15 @@ class PluginSourceFeedsTest {
             RegisteredQuery query =
                     registry.register("by_user", "SELECT user_id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
 
-            // The assertion the whole blocker comes down to: rows arrive without anybody pushing.
+            // Rows arrive without anybody pushing.
             awaitRows(query, 3);
             assertThat(query.feed().describe()).contains("txn").contains("1 partition");
+
+            // And they are visible. This is the assertion the blocker actually comes down to, and
+            // the first version of this test did not make it -- it checked rowsIn and stopped, so
+            // it passed while an end-to-end run reported five thousand rows in and zero rows out.
+            // A served view shows its committed frontier, and nothing on the ingest path moved it.
+            awaitView(views, "SELECT user_id, amount FROM by_user", 2);
         }
     }
 
@@ -205,6 +211,26 @@ class PluginSourceFeedsTest {
                     .as("a running query must actually write checkpoints, not merely be configured to")
                     .isFalse();
         }
+    }
+
+    /** Waits for a view to hold {@code expected} rows, or fails saying what it held. */
+    private static void awaitView(ViewCatalog views, String sql, int expected) throws InterruptedException {
+        com.ash.messaging.pravaha.serving.ViewQuery reader = new com.ash.messaging.pravaha.serving.ViewQuery(views);
+        long deadline = System.nanoTime() + Duration.ofSeconds(15).toNanos();
+        int size = -1;
+        while (System.nanoTime() < deadline) {
+            size = reader.execute(sql).size();
+            if (size >= expected) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        assertThat(size)
+                .as(
+                        "the view held %d rows after fifteen seconds; %d were expected. Rows reaching the "
+                                + "engine is not the same as rows being readable",
+                        size, expected)
+                .isGreaterThanOrEqualTo(expected);
     }
 
     private static boolean isEmpty(Path directory) throws java.io.IOException {

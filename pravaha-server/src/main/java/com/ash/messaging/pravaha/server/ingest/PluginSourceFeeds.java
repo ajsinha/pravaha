@@ -86,7 +86,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     }
 
     @Override
-    public SourceFeed open(String queryName, QueryExecution execution, List<String> sourceStreams) {
+    public SourceFeed open(
+            String queryName, QueryExecution execution, List<String> sourceStreams, Runnable afterDelivery) {
         // Distinct, because a self-join names one stream twice and opening two feeds for it would
         // deliver every row twice to a query that asked for it once.
         List<String> bound =
@@ -123,7 +124,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             throw e;
         }
 
-        PumpingFeed feed = new PumpingFeed(queryName, pumps, resources, describe(partitionCounts));
+        PumpingFeed feed = new PumpingFeed(queryName, pumps, resources, describe(partitionCounts), afterDelivery);
         feed.start();
         return feed;
     }

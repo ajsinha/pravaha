@@ -34,6 +34,7 @@ import com.ash.messaging.pravaha.cluster.ClusterCoordinator;
 import com.ash.messaging.pravaha.cluster.CoordinatorFactory;
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.flight.PravahaFlightServer;
+import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.security.AuditSink;
@@ -42,12 +43,14 @@ import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
+import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
 import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
+import com.ash.messaging.pravaha.sql.SqlErrors;
 
 /**
  * The parts that make this process a server rather than a library: the Flight endpoint clients
@@ -93,6 +96,7 @@ public class PravahaNode implements SmartLifecycle {
     private volatile QueryRegistry registry;
     private volatile PravahaFlightServer flight;
     private final SourceBindingProperties sources;
+    private final StreamDeclarationProperties declaredStreams;
     private final SecurityProperties security;
     private final File tlsCertificate;
     private final File tlsKey;
@@ -105,6 +109,7 @@ public class PravahaNode implements SmartLifecycle {
     public PravahaNode(
             StreamCatalog streams,
             SourceBindingProperties sources,
+            StreamDeclarationProperties declaredStreams,
             SecurityProperties security,
             @Value("${pravaha.flight.tls.certificate:}") String tlsCertificate,
             @Value("${pravaha.flight.tls.key:}") String tlsKey,
@@ -117,6 +122,7 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.node.id:pravaha-node-01}") String nodeId) {
         this.streams = streams;
         this.sources = sources;
+        this.declaredStreams = declaredStreams;
         this.security = security;
         this.tlsCertificate = tlsCertificate == null || tlsCertificate.isBlank() ? null : new File(tlsCertificate);
         this.tlsKey = tlsKey == null || tlsKey.isBlank() ? null : new File(tlsKey);
@@ -165,6 +171,31 @@ public class PravahaNode implements SmartLifecycle {
             log.warn("authentication is on and Flight is serving plaintext, so credentials travel in the "
                     + "clear; set pravaha.flight.tls.certificate and .key unless something in front of "
                     + "this node is terminating TLS");
+        }
+    }
+
+    /**
+     * Puts configured stream schemas in the catalog, before the registry is built from it.
+     *
+     * <p>The registry takes a snapshot of the catalog's schemas when it is constructed, so a stream
+     * declared after that point is not one any query can plan against. Registering here is the
+     * difference between a node a file can describe and one that needs an HTTP call after every
+     * restart before it will answer anything.
+     */
+    private void registerDeclaredStreams() {
+        declaredStreams.getStreams().forEach((name, declaration) -> {
+            if (declaration.getSchema() == null || declaration.getSchema().isBlank()) {
+                throw new PravahaException(
+                        SqlErrors.VALIDATION_FAILED,
+                        "stream '" + name + "' is declared under pravaha.streams with no schema. A stream "
+                                + "is a name and a shape; the name alone cannot be planned against.");
+            }
+            streams.register(FilesystemSourcePlugin.parseSchema(name, declaration.getSchema()));
+        });
+        if (!declaredStreams.getStreams().isEmpty()) {
+            log.info(
+                    "streams declared in configuration: {}",
+                    declaredStreams.getStreams().keySet());
         }
     }
 
@@ -223,6 +254,7 @@ public class PravahaNode implements SmartLifecycle {
         log.info("{}", CoordinatorFactory.describe(clusterConfiguration, coordinator));
 
         refuseAccidentalOpenServer();
+        registerDeclaredStreams();
 
         views = new ViewCatalog();
         SecurityPolicy policy = securityPolicy();

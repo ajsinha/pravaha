@@ -29,14 +29,18 @@ import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 public interface SourceFeedFactory {
 
     /** A factory that attaches nothing, which is the default and correct for an embedded engine. */
-    SourceFeedFactory NONE = (queryName, execution, sourceStreams) -> SourceFeed.NONE;
+    SourceFeedFactory NONE = (queryName, execution, sourceStreams, afterDelivery) -> SourceFeed.NONE;
 
     /**
      * Attaches data to this execution's inputs.
      *
      * @param sourceStreams the streams the query reads, in plan order
+     * @param afterDelivery run after rows have been handed over, to publish what the query has
+     *     applied. Without it the rows arrive, the lanes process them, and every reader sees an
+     *     empty view: a served view shows its committed frontier, and nothing on the ingest path
+     *     moves that frontier. An end-to-end run reported five thousand rows in and zero rows out
      * @return a feed, or {@link SourceFeed#NONE} when nothing is bound to any of them. Never null:
      *     a registry that had to null-check every feed would eventually forget to
      */
-    SourceFeed open(String queryName, QueryExecution execution, List<String> sourceStreams);
+    SourceFeed open(String queryName, QueryExecution execution, List<String> sourceStreams, Runnable afterDelivery);
 }

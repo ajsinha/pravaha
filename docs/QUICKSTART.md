@@ -112,18 +112,36 @@ pravaha:
     tls: { certificate: /etc/pravaha/tls.crt, key: /etc/pravaha/tls.key }
 ```
 
-**Where rows come from.** A registered query receives nothing until a stream is bound to a source.
-Bind one under `pravaha.sources`:
+**Declaring a stream, and where its rows come from.** Two separate things, and a query needs both.
+`pravaha.streams` puts the schema in the catalog so a query can be planned against it;
+`pravaha.sources` says what feeds it. A stream can be declared with nothing attached — that is what
+a query written ahead of its source needs — so they are separate blocks:
 
 ```yaml
 pravaha:
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"
   sources:
     txn:
       plugin: filesystem            # filesystem, feedfile, jdbc or delta
       options:
         path: /var/lib/pravaha/incoming/txn.csv
-        schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"
 ```
+
+With that file, the whole loop works from the command line:
+
+```bash
+pravaha-server --spring.config.additional-location=file:./application.yaml &
+pravaha register --name by_user \
+        --sql "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED'" --keys 0
+pravaha query --sql "SELECT * FROM by_user"
+```
+
+A query naming a stream that is not declared is refused with `Object 'txn' not found. Known streams:
+[]` — accurate, and confusing beside a configuration file that clearly mentions `txn`, so check the
+`streams` block first.
 
 Without a binding the query still registers and runs — an application pushing its own rows through
 the SDK is a supported way to work — and the node logs that nothing is attached, because "zero rows"

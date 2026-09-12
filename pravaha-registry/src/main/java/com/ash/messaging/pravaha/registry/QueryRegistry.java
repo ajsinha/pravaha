@@ -453,7 +453,7 @@ public final class QueryRegistry implements AutoCloseable {
             // is being checkpointed. Started after the execution exists and before anything can
             // write to it is the only window where neither ordering is wrong.
             startCheckpointing(name, execution, query);
-            query.feedFrom(feeds.open(name, execution, sourceStreams(plan)));
+            query.feedFrom(feeds.open(name, execution, sourceStreams(plan), query::commit));
         } catch (RuntimeException e) {
             // A feed that cannot open must not leave a half-started query behind holding a lane
             // thread and an arena. Fail the registration instead, with the execution released.

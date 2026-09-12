@@ -61,6 +61,17 @@ pravaha:
     # costs each new user the same twenty minutes.
     port: 9090
 
+  # The streams this node knows about. Until these are in the catalog nothing can be planned
+  # against them, and a query naming one is refused with "Object 'txn' not found. Known streams: []"
+  # -- accurate, and baffling next to a configuration file that clearly mentions txn.
+  #
+  # Declaring them here is what lets a node be described by a file. The alternative, and for a long
+  # time the only way, is POST /api/v1/streams after every restart.
+  #
+  # streams:
+  #   txn:
+  #     schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"
+
   # Who may connect, and what they may see.
   #
   # Every mechanism below was built and tested long before it was reachable: mayRead on each view,

@@ -28,6 +28,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
+import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
@@ -63,6 +64,7 @@ class PravahaMetricsTest {
         node = new PravahaNode(
                 catalog,
                 new SourceBindingProperties(),
+                new StreamDeclarationProperties(),
                 openServer(),
                 null,
                 null,

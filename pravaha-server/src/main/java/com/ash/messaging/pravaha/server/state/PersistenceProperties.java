@@ -63,10 +63,18 @@ public class PersistenceProperties {
         return pathOf(checkpoint.directory);
     }
 
-    /** The checkpointer's own settings, in the engine's configuration type. */
+    /**
+     * The checkpointer's own settings, in the engine's configuration type.
+     *
+     * <p>Nanoseconds, and not {@code Duration.toString()}. Spring parses {@code 2s} into a {@code
+     * Duration} and {@code toString} renders it back as ISO-8601 {@code PT2S}, which the engine's
+     * own parser rejects -- so a node with checkpointing configured started cleanly and then failed
+     * every registration with "expected a number with a unit". Two duration formats met in the
+     * middle and neither was wrong on its own.
+     */
     public Configuration checkpointConfiguration() {
         return Configuration.builder()
-                .set("pravaha.checkpoint.interval", checkpoint.interval.toString())
+                .set("pravaha.checkpoint.interval", checkpoint.interval.toNanos() + "ns")
                 .set("pravaha.checkpoint.keep", String.valueOf(checkpoint.keep))
                 .build();
     }

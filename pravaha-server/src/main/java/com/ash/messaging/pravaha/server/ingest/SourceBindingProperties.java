@@ -41,20 +41,28 @@ import org.springframework.stereotype.Component;
  * so binding is its own decision and its own block.
  */
 @Component
-@ConfigurationProperties(prefix = "pravaha.sources")
+@ConfigurationProperties(prefix = "pravaha")
 public class SourceBindingProperties {
 
-    private final Map<String, Spec> bindings = new LinkedHashMap<>();
+    private final Map<String, Spec> sources = new LinkedHashMap<>();
 
-    /** Spring binds into this map; the key is the stream name. */
-    public Map<String, Spec> getBindings() {
-        return bindings;
+    /**
+     * Spring binds into this map; the key is the stream name.
+     *
+     * <p>The prefix is {@code pravaha} and the property is {@code sources} rather than the other way
+     * round. With {@code prefix = "pravaha.sources"} Spring binds {@code pravaha.sources.<field>},
+     * so a map called {@code bindings} would be filled from {@code pravaha.sources.bindings.txn} --
+     * and the configuration documented everywhere, {@code pravaha.sources.txn}, would bind nothing
+     * at all and start a server that silently read no rows. Found by running one.
+     */
+    public Map<String, Spec> getSources() {
+        return sources;
     }
 
     /** The configured bindings, validated. */
     public List<SourceBinding> toBindings() {
         List<SourceBinding> configured = new ArrayList<>();
-        bindings.forEach((stream, spec) -> configured.add(new SourceBinding(stream, spec.plugin, spec.options)));
+        sources.forEach((stream, spec) -> configured.add(new SourceBinding(stream, spec.plugin, spec.options)));
         return configured;
     }
 
