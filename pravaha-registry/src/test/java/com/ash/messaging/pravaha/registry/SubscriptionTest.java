@@ -86,6 +86,10 @@ class SubscriptionTest {
         writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
         arena.trimTo(handle, writer.sizeSoFar());
         query.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+        // The engine applies rows on the lane's thread, so a test that fed and then read would be
+        // racing it rather than testing it. Live ingest needs none of this; a definite answer at a
+        // definite moment does.
+        query.awaitApplied(java.time.Duration.ofSeconds(10));
     }
 
     @Test

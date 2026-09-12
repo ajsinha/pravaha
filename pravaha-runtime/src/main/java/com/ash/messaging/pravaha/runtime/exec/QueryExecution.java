@@ -205,6 +205,21 @@ public final class QueryExecution implements AutoCloseable {
      *     decides whether to retry, drop or slow down, because only it knows which its source
      *     permits
      */
+    /**
+     * Hands one row to a query that reads exactly one stream.
+     *
+     * <p>Refused when there are several, because a row arriving with no stream named is a row whose
+     * side of a join nobody knows, and guessing produces a query quietly short of output rather
+     * than an error.
+     */
+    public boolean accept(RowView row) {
+        if (streams.size() != 1) {
+            throw new IllegalStateException(
+                    "this query reads " + streams + "; use accept(streamName, row) to say which side a row arrived on");
+        }
+        return accept(streams.get(0), row);
+    }
+
     public boolean accept(String streamName, RowView row) {
         int input = streams.indexOf(streamName);
         if (input < 0) {

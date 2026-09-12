@@ -274,27 +274,31 @@ watermark shows up as growing memory, not as a stopped query.
 **Without this, state is unbounded.** Windows then close only when the input ends, joins never
 evict, and views never forget. Correct over a file; fatal over a stream.
 
-## The server does not ingest anything yet
+## One engine, and what the server still lacks
 
-**A continuous query registered against the server never receives a row.** Nothing in
-`pravaha-server` or `pravaha-flight` calls `RegisteredQuery.accept`, and nothing calls
-`advanceWatermark`. The only callers of either are four test classes. `PravahaNode` builds the
-registry and the Flight endpoint and wires no source, no pump and no ingestion; `StreamController`
-registers a stream's *schema* and does not read from it.
+A registered continuous query now runs on the engine proper: its own lane and thread, an off-heap
+arena, backpressure, and watermarks when the registry is asked for them.
 
-The visible symptom is that `rows_in` stays at zero for every registered query, for ever. Because
-event time never advances, nothing downstream of it happens either: no window closes, no join
-evicts, no `LEFT JOIN` emits its unmatched row, and no subscription ever delivers. A live tail on
-the console will sit empty and look like a quiet stream rather than a disconnected one.
+```java
+new QueryRegistry(views, streams).generatingWatermarks();
+```
 
-**What does work.** The engine itself processes data properly through `QueryExecution` — lanes,
-pumps, arenas, watermarks, checkpoints — and that path is what the CLI uses (`pravaha run`) and what
-the integration tests exercise. Embedded use through `pravaha-embedded` drives the same path. So the
-engine is real; it is the *server* that is not connected to a source.
+Until this, the registry compiled a pipeline of its own and drove it on the caller's thread — so
+everything the runtime offered belonged to the *other* path and the server ran this one. Registered
+queries had no lane, no arena, no checkpointing and no watermarks.
 
-Until that is wired, treat `pravaha-server` as a registry and a query endpoint, not as a stream
-processor. This is the single largest gap between what the documentation describes and what a
-deployment does.
+**Rows are applied on the lane's thread.** `accept` copies into the inbox and returns, and returns
+`false` when that inbox is full, which is backpressure rather than an error. Anything needing a row
+reflected in the view before it reads waits with `awaitApplied`.
+
+**One lane per query, so one thread per query.** Fine at tens of queries. Keyed aggregates are
+single-lane anyway (ADR-034), and ADR-027's plan for a lane to multiplex several queries is what
+this wants before it reaches hundreds.
+
+**What is still missing: nothing feeds it.** No source plugin is connected to a registered query, so
+rows arrive only from whatever calls `accept` — an embedder, or a test. Connecting a source to a
+registration is the remaining half of making the server a stream processor, and it is now a small
+job rather than a structural one, because the engine underneath is the same engine the CLI uses.
 
 ## Starting a node
 

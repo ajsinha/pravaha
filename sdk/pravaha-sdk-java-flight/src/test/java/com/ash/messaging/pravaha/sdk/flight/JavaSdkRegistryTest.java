@@ -102,6 +102,9 @@ class JavaSdkRegistryTest {
         writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
         arena.trimTo(handle, writer.sizeSoFar());
         query.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+        // The lane applies the row on its own thread, so committing first would publish a frontier
+        // the row had not reached and tell a subscriber about a change it cannot see.
+        query.awaitApplied(java.time.Duration.ofSeconds(10));
         query.commit();
     }
 

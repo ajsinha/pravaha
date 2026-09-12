@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
-import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
+import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewSink;
 
@@ -53,7 +53,7 @@ public final class RegisteredQuery implements AutoCloseable {
     private final Set<String> names = new LinkedHashSet<>();
     private final ServedView view;
     private final ViewSink sink;
-    private final InterpretedPipeline pipeline;
+    private final QueryExecution execution;
     private final Instant registeredAt;
     private final java.util.List<com.ash.messaging.pravaha.sql.plan.ParameterPlacement> placements;
 
@@ -69,14 +69,14 @@ public final class RegisteredQuery implements AutoCloseable {
             String name,
             ServedView view,
             ViewSink sink,
-            InterpretedPipeline pipeline,
+            QueryExecution execution,
             Instant registeredAt,
             java.util.List<com.ash.messaging.pravaha.sql.plan.ParameterPlacement> placements) {
         this.fingerprint = fingerprint;
         this.sql = sql;
         this.view = view;
         this.sink = sink;
-        this.pipeline = pipeline;
+        this.execution = execution;
         this.registeredAt = registeredAt;
         this.placements = java.util.List.copyOf(placements);
         this.names.add(name);
@@ -162,12 +162,20 @@ public final class RegisteredQuery implements AutoCloseable {
      * that nothing is missed -- and saying so plainly is better than a queue that silently decides
      * how much of the stream a pause is worth.
      */
-    public void accept(RowView row) {
+    public boolean accept(RowView row) {
         if (state != QueryState.RUNNING) {
-            return;
+            return false;
         }
         try {
-            pipeline.accept(row);
+            // Handed to the lane, which applies it on its own thread. A caller that must see the
+            // row reflected in the view waits with awaitQuiescent; one that is feeding a stream
+            // does not care, because the next read is later anyway.
+            if (!execution.accept(row)) {
+                // The inbox is full. Backpressure, not failure -- the caller decides whether its
+                // source can be slowed, and saying so is more useful than blocking its thread
+                // inside a registry.
+                return false;
+            }
             rowsIn.incrementAndGet();
         } catch (PravahaException e) {
             fail(e);
@@ -180,6 +188,18 @@ public final class RegisteredQuery implements AutoCloseable {
             fail(wrapped);
             throw wrapped;
         }
+        return true;
+    }
+
+    /**
+     * Waits until everything handed to {@link #accept} has been applied.
+     *
+     * <p>Here because the engine applies rows on the lane's thread, so a caller that feeds rows and
+     * then reads the view is otherwise racing it. Feeding a live stream needs none of this; a test,
+     * or anything that wants a definite answer at a definite moment, does.
+     */
+    public boolean awaitApplied(java.time.Duration timeout) {
+        return execution.awaitQuiescent(timeout);
     }
 
     /**
@@ -195,7 +215,7 @@ public final class RegisteredQuery implements AutoCloseable {
             return;
         }
         try {
-            pipeline.advanceWatermark(nanos);
+            execution.advanceWatermark(nanos);
             watermarkNanos.accumulateAndGet(nanos, Math::max);
             sink.commit(sink.appliedFrontier());
         } catch (PravahaException e) {
@@ -326,7 +346,7 @@ public final class RegisteredQuery implements AutoCloseable {
     public void close() {
         if (state != QueryState.DROPPED) {
             state = QueryState.DROPPED;
-            pipeline.close();
+            execution.close();
         }
     }
 

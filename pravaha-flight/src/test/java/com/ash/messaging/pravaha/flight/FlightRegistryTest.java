@@ -129,9 +129,11 @@ class FlightRegistryTest {
         writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
         arena.trimTo(handle, writer.sizeSoFar());
         query.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+        // Applied on the lane's thread now, so the commit has to wait for it: committing first
+        // would publish a frontier the row had not reached yet, and the subscriber would be told
+        // about a change it cannot see.
+        query.awaitApplied(java.time.Duration.ofSeconds(10));
         query.commit();
-        System.out.println(
-                "TSTDBG fed " + tradeId + " rowsIn=" + query.rowsIn() + " identity=" + System.identityHashCode(query));
     }
 
     @Test

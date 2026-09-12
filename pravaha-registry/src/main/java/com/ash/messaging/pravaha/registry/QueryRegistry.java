@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.registry;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -26,8 +27,10 @@ import java.util.Set;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
-import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
+import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
+import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 import com.ash.messaging.pravaha.security.AccessDecision;
@@ -77,6 +80,10 @@ public final class QueryRegistry implements AutoCloseable {
     // renders the list and for a test that asserts on it.
     private final Map<String, RegisteredQuery> byName = new LinkedHashMap<>();
     private RegistryJournal journal;
+    private LaneConfig laneConfig = LaneConfig.defaults().withThreads("pravaha-query", true);
+    private MemoryAccess access = MemoryAccess.best();
+    private Duration watermarkIdleAfter;
+    private Duration watermarkTick;
     private final Map<QueryFingerprint, RegisteredQuery> byFingerprint = new LinkedHashMap<>();
 
     public QueryRegistry(ViewCatalog views, StreamSchema... streams) {
@@ -88,6 +95,42 @@ public final class QueryRegistry implements AutoCloseable {
         this.policy = policy;
         this.audit = audit;
         this.streams = streams.clone();
+    }
+
+    /**
+     * How each registered query's execution is built.
+     *
+     * <p>Defaulted so an embedder does not have to care, and overridable because a deployment might:
+     * a registry holding forty queries and one holding four want different arena sizes, and only the
+     * deployment knows which it is.
+     *
+     * <p>One lane per query. Keyed aggregates are refused on more than one lane (ADR-034) because
+     * nothing routes a row to the lane that owns its group, and a query per lane means a thread per
+     * query -- fine at tens, and the reason ADR-027 wants a lane to multiplex several queries before
+     * this reaches hundreds.
+     */
+    public QueryRegistry executingWith(LaneConfig laneConfig, MemoryAccess access) {
+        this.laneConfig = laneConfig;
+        this.access = access;
+        return this;
+    }
+
+    /**
+     * Derives watermarks for every query registered after this call.
+     *
+     * <p>Without it a registered query's windows close only when its input ends, which on a
+     * continuous query is never -- so joins never evict and views never forget. See ADR-034 and
+     * CONCEPTS section 3.
+     */
+    public QueryRegistry generatingWatermarks(Duration idleAfter, Duration tick) {
+        this.watermarkIdleAfter = idleAfter;
+        this.watermarkTick = tick;
+        return this;
+    }
+
+    /** With the engine's defaults: a thirty-second idle timeout and a one-second tick. */
+    public QueryRegistry generatingWatermarks() {
+        return generatingWatermarks(QueryExecution.DEFAULT_IDLE_AFTER, QueryExecution.DEFAULT_TICK);
     }
 
     /**
@@ -321,8 +364,16 @@ public final class QueryRegistry implements AutoCloseable {
         // FROM clause. The fingerprint names the computation; the name names the answer.
         ServedView view = new ServedView(name, schema, keyColumns, DEFAULT_MAX_KEYS, retention);
         ViewSink sink = new ViewSink(view, schema);
-        InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, (RowOutput) sink::begin);
-        return new RegisteredQuery(fingerprint, sql, name, view, sink, pipeline, Instant.now(), placements);
+
+        // The engine, not a pipeline of our own. Until now the registry compiled an
+        // InterpretedPipeline and drove it on the caller's thread, which is why a registered query
+        // had no lane, no arena, no checkpointing and no watermarks: everything the runtime offers
+        // belonged to the other path, and the server ran this one.
+        QueryExecution execution = QueryExecution.start(plan, 1, laneConfig, access, () -> (RowOutput) sink::begin);
+        if (watermarkIdleAfter != null) {
+            execution.generatingWatermarks(null, watermarkIdleAfter, watermarkTick);
+        }
+        return new RegisteredQuery(fingerprint, sql, name, view, sink, execution, Instant.now(), placements);
     }
 
     /**
