@@ -208,6 +208,35 @@ at `WARNING` rather than failing the write, because refusing to run there would 
 confidentiality problem for an availability one. **Nothing is encrypted at rest**; if that is
 required, put the directory on an encrypted volume.
 
+## Running against a source that does not end
+
+Event time has to be generated, and the engine does not assume it for you:
+
+```java
+execution.generatingWatermarks(
+        () -> WatermarkGenerator.boundedOutOfOrderness(Duration.ofSeconds(5)),
+        Duration.ofSeconds(30),   // a partition may be quiet this long before it stops counting
+        Duration.ofSeconds(1));   // how often event time advances
+```
+
+**Two settings, and both bound memory rather than taste.**
+
+*Out-of-orderness* is how late a row may be and still be counted. Larger tolerates messier sources
+and holds every window open longer, so state is larger. Smaller closes sooner and drops more as
+late.
+
+*Idle timeout* is how long a partition may produce nothing before it stops holding the watermark
+back. Too long and one quiet partition freezes every window in the query — the commonest streaming
+incident there is, and it looks like a hang rather than an error. Too short and a genuinely slow
+partition gets excluded while it still had rows coming, which closes windows early.
+
+Watch `pravaha_query_watermark_lag_seconds`. Lag that climbs without bound means event time is not
+keeping up with arrival, and every bound downstream is measured against event time — so a stuck
+watermark shows up as growing memory, not as a stopped query.
+
+**Without this, state is unbounded.** Windows then close only when the input ends, joins never
+evict, and views never forget. Correct over a file; fatal over a stream.
+
 ## The server does not ingest anything yet
 
 **A continuous query registered against the server never receives a row.** Nothing in

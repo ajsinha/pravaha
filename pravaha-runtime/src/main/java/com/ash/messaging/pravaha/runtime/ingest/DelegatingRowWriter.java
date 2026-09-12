@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.ingest;
 
+import java.util.function.LongConsumer;
+
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
@@ -31,7 +33,13 @@ import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
  * directly -- a test feeding a source into a pipeline, a tool draining one to a file -- needs the
  * same adapter, and a third and fourth copy would drift from these two.
  */
-public record DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit) implements RowWriter {
+public record DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit, LongConsumer onEventTime)
+        implements RowWriter {
+
+    /** Without an observer: the row is written and nothing watches its event time. */
+    public DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit) {
+        this(delegate, onCommit, nanos -> {});
+    }
 
     @Override
     public StreamSchema schema() {
@@ -112,6 +120,10 @@ public record DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit) i
 
     @Override
     public RowWriter eventTimestampNanos(long nanos) {
+        // Where ingest learns what time it is. The plugin sets the event time as it writes each
+        // row, so this is the one place every row's timestamp passes through on its way in --
+        // before the row is published, and without the pump having to decode it back out again.
+        onEventTime.accept(nanos);
         delegate.eventTimestampNanos(nanos);
         return this;
     }

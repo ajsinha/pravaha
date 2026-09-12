@@ -50,16 +50,23 @@ Watermarks are what close windows, what release join state, and what make "the a
 to here" a statement anyone can act on. Almost everything time-shaped in Pravaha is downstream of
 this one idea.
 
-> **What actually happens today.** Nothing in the engine *generates* a watermark. No source plugin,
-> no ingest pump and no server path advances event time — `advanceWatermark` is called by the
-> embedding application and by tests, and by nothing else. What closes a window in practice is
-> `finish()`, which the engine calls when the **input ends**.
+> **Where watermarks come from.** Ask for them:
 >
-> So on a bounded source — a file, a table scan, a replay — the answers are correct and complete,
-> because the end of input fires everything still open. On a genuinely unbounded stream, no window
-> would close and no join would release state, because nothing would ever say "nothing earlier is
-> coming". An embedder can supply watermarks itself and get the full behaviour; the engine does not
-> supply them for you. Treat this as the central limitation to plan around.
+> ```java
+> execution.generatingWatermarks(() -> WatermarkGenerator.boundedOutOfOrderness(Duration.ofSeconds(5)));
+> ```
+>
+> Each source partition then contributes its own watermark, the query takes the **minimum across
+> them**, and a partition that has gone quiet is **excluded** rather than left holding everybody
+> back — the failure that stops every window in a query and presents as a hang rather than an error.
+> Event time advances on a timer, which is also what makes idleness detectable at all: a watermark
+> derived only from arriving rows cannot notice that rows have stopped arriving.
+>
+> Without it, event time never advances: windows close only from `finish()` when the input ends,
+> which is right for a file and never happens on a source that does not stop. **That is not merely
+> "no output" — it is unbounded state**, because joins evict at `watermark − matchWithin` and views
+> forget past the committed frontier, and neither moves. Every bound in this engine is armed by
+> event time.
 
 ## 4. Changes carry weights, and a correction is a retraction plus an insert
 

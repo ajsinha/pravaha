@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.runtime.ingest;
 
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongConsumer;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -55,6 +56,15 @@ public final class IngestPump implements AutoCloseable {
     private final BackpressurePolicy policy;
     private final RowLayout layout;
     private final BinaryRowWriter writer;
+
+    /**
+     * Told the event time of every row this pump writes.
+     *
+     * <p>Set by {@link QueryExecution} when it owns a watermark tracker. A pump on its own does not
+     * know what partition it is, or what else is feeding the same query, so it reports rather than
+     * decides.
+     */
+    private LongConsumer eventTimeObserver = nanos -> {};
 
     private final AtomicLong rowsPumped = new AtomicLong();
     private final AtomicLong pauses = new AtomicLong();
@@ -158,7 +168,20 @@ public final class IngestPump implements AutoCloseable {
                             + "path does not allow, or the free-cell calculation is wrong.");
         }
         writer.begin(lane.inboxRegion(input), lane.cellOffset(input, claimed));
-        return new DelegatingRowWriter(writer, () -> lane.publish(input, claimed));
+        return new DelegatingRowWriter(writer, () -> lane.publish(input, claimed), eventTimeObserver);
+    }
+
+    /**
+     * Reports each row's event time to {@code observer} as it is written.
+     *
+     * <p>Set once, at wiring time, before the pump is first polled. A pump whose observer changed
+     * mid-stream would hand two watermark calculations half of one partition's history each, and
+     * both would be wrong in the direction that closes windows too early. Public because
+     * {@code QueryExecution} lives in another package; the constraint is stated rather than
+     * enforced by visibility.
+     */
+    public void observeEventTimeWith(LongConsumer observer) {
+        this.eventTimeObserver = observer == null ? nanos -> {} : observer;
     }
 
     /** Where the reader is, for the checkpoint. */

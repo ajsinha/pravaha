@@ -17,8 +17,13 @@ package com.ash.messaging.pravaha.runtime.exec;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -36,6 +41,8 @@ import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.lane.LaneGroup;
 import com.ash.messaging.pravaha.runtime.lane.LaneMetrics;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
+import com.ash.messaging.pravaha.runtime.time.WatermarkGenerator;
+import com.ash.messaging.pravaha.runtime.time.WatermarkTracker;
 
 /**
  * A plan, running on lanes.
@@ -60,11 +67,32 @@ import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
  */
 public final class QueryExecution implements AutoCloseable {
 
+    private static final System.Logger LOG = System.getLogger(QueryExecution.class.getName());
+
     private final LaneGroup lanes;
     private final List<InterpretedPipeline> pipelines;
     private final StreamSchema inputSchema;
     private final List<String> streams;
     private final List<IngestPump> pumps = new ArrayList<>();
+
+    /**
+     * Event time, derived from the rows going past.
+     *
+     * <p>This is what turns a bounded run into a stream. Without it a window closes only when the
+     * input ends, which is correct over a file and never happens on a source that does not stop --
+     * so joins never evict, views never forget, and state grows until the process dies.
+     *
+     * <p>Null until {@link #generatingWatermarks} is called. A caller that supplies watermarks
+     * itself, or that is reading a bounded source and relying on {@code finish()}, keeps the old
+     * behaviour and pays nothing.
+     */
+    private WatermarkTracker watermarks;
+
+    private Supplier<WatermarkGenerator> generator;
+
+    private final Map<String, AtomicLong> partitionHighWater = new LinkedHashMap<>();
+
+    private ScheduledExecutorService watermarkClock;
     private final List<PartitionedIngestPump> partitionedPumps = new ArrayList<>();
     private final PhysicalOperator plan;
     private final MemoryAccess access;
@@ -174,8 +202,103 @@ public final class QueryExecution implements AutoCloseable {
         }
         IngestPump pump = new IngestPump(
                 reader, lanes.lane(laneIndex), input, pipelines.get(laneIndex).inputSchema(streamName), policy);
+        if (watermarks != null) {
+            // One partition per pump, named so an idle one can be identified and excluded rather
+            // than left holding the whole query's watermark down.
+            String partition = streamName + "#" + laneIndex + "/" + pumps.size();
+            watermarks.addPartition(partition, generator.get(), System.nanoTime());
+
+            // The pump stores its highest event time and nothing more; the tracker is read and
+            // written only by the watermark thread.
+            //
+            // WatermarkTracker documents itself as owned by one lane and confined to its thread,
+            // and calling observe() from each pump while the timer called advance() broke that
+            // immediately -- a ConcurrentModificationException on the first tick. A lock would
+            // have fixed it and put a lock on the per-row path, which is the one path in this
+            // engine that must not have one. An atomic maximum costs a compare-and-set per row
+            // and gives the timer the same number: the highest event time this partition has seen
+            // is all boundedOutOfOrderness needs.
+            AtomicLong highest = new AtomicLong(Long.MIN_VALUE);
+            partitionHighWater.put(partition, highest);
+            pump.observeEventTimeWith(nanos -> highest.accumulateAndGet(nanos, Math::max));
+        }
         pumps.add(pump);
         return pump;
+    }
+
+    /**
+     * Derives watermarks from the rows arriving, and advances event time on a timer.
+     *
+     * <p>Call this before {@code pumpInto} to run against a source that does not end. Each pump
+     * becomes a partition of the query's watermark; the tracker takes the minimum across them and
+     * excludes any that have gone quiet, and the result is pushed into every lane on a fixed tick.
+     *
+     * <p><strong>The tick is not decoration.</strong> A watermark derived only from arriving rows
+     * cannot notice that a partition has stopped arriving, so without a clock a quiet source pins
+     * event time and every window stops firing -- the failure that looks like a hang rather than a
+     * bug. The timer is what lets idleness be detected at all.
+     *
+     * @param generator supplies a per-partition strategy, usually {@link
+     *     WatermarkGenerator#boundedOutOfOrderness} with however late this source's rows really are
+     * @param idleAfter how long a partition may produce nothing before it stops holding the
+     *     watermark back
+     * @param tick how often event time is advanced. Shorter closes windows sooner and costs a pass
+     *     over the lanes; the default in {@link #generatingWatermarks(Supplier)} is a second
+     */
+    public QueryExecution generatingWatermarks(
+            Supplier<WatermarkGenerator> generator, Duration idleAfter, Duration tick) {
+        if (watermarks != null) {
+            throw new IllegalStateException("this execution already derives watermarks");
+        }
+        if (!pumps.isEmpty()) {
+            throw new IllegalStateException(
+                    "call generatingWatermarks before pumpInto: a pump created earlier would not be a "
+                            + "partition of the watermark, and its stream would advance event time for "
+                            + "everybody else while contributing nothing of its own");
+        }
+        this.generator = generator;
+        this.watermarks = new WatermarkTracker(idleAfter.toNanos());
+        this.watermarkClock = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "pravaha-watermark");
+            thread.setDaemon(true);
+            return thread;
+        });
+        long period = Math.max(1, tick.toMillis());
+        watermarkClock.scheduleWithFixedDelay(this::advanceWatermarkQuietly, period, period, TimeUnit.MILLISECONDS);
+        return this;
+    }
+
+    /** With a one-second tick and a thirty-second idle timeout. */
+    public QueryExecution generatingWatermarks(Supplier<WatermarkGenerator> generator) {
+        return generatingWatermarks(generator, Duration.ofSeconds(30), Duration.ofSeconds(1));
+    }
+
+    private void advanceWatermarkQuietly() {
+        try {
+            long now = System.nanoTime();
+            // Feed the tracker what each partition has seen since the last tick, on this thread.
+            // A partition that produced nothing contributes nothing and, after the idle timeout,
+            // stops holding the watermark back.
+            partitionHighWater.forEach((partition, highest) -> {
+                long seen = highest.get();
+                if (seen != Long.MIN_VALUE) {
+                    watermarks.observe(partition, seen, now);
+                }
+            });
+            long watermark = watermarks.advance(now);
+            if (watermark != Long.MIN_VALUE) {
+                advanceWatermark(watermark);
+            }
+        } catch (RuntimeException failure) {
+            // Never let the clock die: a watermark that stops advancing stops every window in the
+            // query, and it does it silently.
+            LOG.log(System.Logger.Level.WARNING, "could not advance the watermark: " + failure);
+        }
+    }
+
+    /** The watermark this execution has reached, or empty when it derives none. */
+    public java.util.OptionalLong watermarkNanos() {
+        return watermarks == null ? java.util.OptionalLong.empty() : java.util.OptionalLong.of(watermarks.watermark());
     }
 
     /**
@@ -439,6 +562,10 @@ public final class QueryExecution implements AutoCloseable {
 
     @Override
     public void close() {
+        if (watermarkClock != null) {
+            // Before the lanes stop, so a tick cannot arrive at a closed pipeline.
+            watermarkClock.shutdownNow();
+        }
         pumps.forEach(IngestPump::close);
         partitionedPumps.forEach(PartitionedIngestPump::close);
         // Closing the group stops each lane, and each lane closes its processor on its own thread --
