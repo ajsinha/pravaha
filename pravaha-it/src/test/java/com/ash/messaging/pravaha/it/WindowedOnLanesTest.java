@@ -20,13 +20,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
+import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.queue.WaitStrategy;
+import com.ash.messaging.pravaha.common.row.BinaryRowView;
+import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
+import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
@@ -149,6 +154,74 @@ class WindowedOnLanesTest {
                     .hasMessageContaining("PRV-3020")
                     .hasMessageContaining("nothing routes a row to the lane that owns its group")
                     .hasMessageContaining("run this query on one lane");
+        }
+    }
+
+    @Test
+    @Timeout(60)
+    void aRowCanBeHandedStraightToTheEngine() throws Exception {
+        // The seam the registry needs. It has a row and no source plugin, and today it bypasses
+        // QueryExecution entirely and drives an InterpretedPipeline of its own -- which is why
+        // registered queries get no lanes, no checkpointing and no watermarks. This is the way in.
+        List<CapturingRowWriter.Captured> out = java.util.Collections.synchronizedList(new ArrayList<>());
+        PhysicalOperator plan =
+                new PhysicalPlanBuilder().build(SqlPlanner.withStreams(schema()).plan(SQL));
+
+        try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
+                QueryExecution execution = QueryExecution.start(plan, 1, config(), MemoryAccess.best(), () ->
+                        (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), out::add))) {
+
+            RowLayout layout = RowLayout.of(schema());
+            BinaryRowWriter writer = new BinaryRowWriter(layout);
+            BinaryRowView view = new BinaryRowView(layout);
+            for (int i = 0; i < 12; i++) {
+                long at = (i / 4) * 10 * SECOND;
+                long handle = arena.allocate(layout.rowSize(64));
+                writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+                writer.setLong(0, i % 4).setLong(1, 1).setLong(2, at);
+                writer.weight(1L).eventTimestampNanos(at).sequence(i).commit();
+                arena.trimTo(handle, writer.sizeSoFar());
+
+                boolean taken = execution.accept("txn", view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+                assertThat(taken).as("the inbox has room for twelve rows").isTrue();
+            }
+            execution.awaitQuiescent(java.time.Duration.ofSeconds(20));
+        }
+
+        // Four users across three windows. The rows were applied on the lane's thread, which is
+        // why awaitQuiescent is here and not decoration: reading straight after accept would race
+        // the engine rather than test it.
+        assertThat(out).hasSize(12);
+        assertThat(out).allSatisfy(row -> assertThat(row.isNull(0)).isFalse());
+    }
+
+    @Test
+    @Timeout(60)
+    void aRowForAStreamTheQueryDoesNotReadIsRefused() {
+        PhysicalOperator plan =
+                new PhysicalPlanBuilder().build(SqlPlanner.withStreams(schema()).plan(SQL));
+
+        try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 18, 4);
+                QueryExecution execution = QueryExecution.start(plan, 1, config(), MemoryAccess.best(), () ->
+                        (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), row -> {}))) {
+
+            RowLayout layout = RowLayout.of(schema());
+            BinaryRowWriter writer = new BinaryRowWriter(layout);
+            BinaryRowView view = new BinaryRowView(layout);
+            long handle = arena.allocate(layout.rowSize(64));
+            writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+            writer.setLong(0, 1)
+                    .setLong(1, 1)
+                    .setLong(2, 0)
+                    .weight(1L)
+                    .eventTimestampNanos(0)
+                    .sequence(0)
+                    .commit();
+            RowView row = view.wrap(arena.regionOf(handle), arena.offsetOf(handle));
+
+            assertThatThrownBy(() -> execution.accept("nowhere", row))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("is not an input of this query");
         }
     }
 

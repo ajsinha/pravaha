@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.common.config.Configuration;
@@ -185,6 +186,42 @@ public final class QueryExecution implements AutoCloseable {
                     + "; name the stream a reader feeds, because a join cannot guess which side a partition is");
         }
         return pumpInto(laneIndex, streams.get(0), reader, policy);
+    }
+
+    /**
+     * Hands one row to the query, by stream name.
+     *
+     * <p>The seam a caller needs when it already has a row and no source plugin: a registry fed by
+     * something else, an embedder pushing from its own loop, a test. A pump is the right shape when
+     * there is a source to poll; this is the right shape when the rows arrive by other means.
+     *
+     * <p>Copies into the lane's inbox and returns. <strong>The row is processed on the lane's
+     * thread, not this one</strong>, so a caller that reads the view immediately afterwards may see
+     * the state before this row. That is the engine being what it is rather than a wart: work is
+     * done by the thread that owns the state, which is what removes the locks. {@link
+     * #awaitQuiescent} is how a caller that needs the row applied waits for it.
+     *
+     * @return false if the lane's inbox is full, which is backpressure and not an error. The caller
+     *     decides whether to retry, drop or slow down, because only it knows which its source
+     *     permits
+     */
+    public boolean accept(String streamName, RowView row) {
+        int input = streams.indexOf(streamName);
+        if (input < 0) {
+            throw new IllegalArgumentException(
+                    "'" + streamName + "' is not an input of this query; it reads " + streams);
+        }
+        if (!(row instanceof BinaryRowView binary)) {
+            throw new IllegalArgumentException("this engine moves rows as binary frames, and was handed a "
+                    + row.getClass().getSimpleName() + ". Write through a RowWriter rather than implementing "
+                    + "RowView, or the bytes have no layout to copy.");
+        }
+        // One lane, chosen by the row's key where the query needs that and zero otherwise. Keyed
+        // aggregates are refused on more than one lane (see refuseUnpartitionedAggregate), so
+        // anything reaching here with several lanes is a join, which is fed through a partitioned
+        // pump rather than through this method.
+        Lane lane = lanes.lane(0);
+        return lane.offer(input, binary.region(), binary.offset(), binary.length());
     }
 
     /**
