@@ -44,7 +44,7 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   /* ground and text */
   --canvas:#F9FAFC; --surface:#fff; --raised:#fff; --stripe:#F3F5F9;
   --ink:#15181D; --slate:#464C57; --muted:#646B78;
-  --rule:#D9DEE6; --edge:#8B93A0; --hairline:#EBEEF3;
+  --rule:#D9DEE6; --edge:#767E8C; --hairline:#EBEEF3;
 
   /* semantic -- deliberately NOT the accent. Blue means "this product"; these
      mean "running / watch this / wrong", and one colour cannot carry both jobs
@@ -281,6 +281,10 @@ footer .principle{font-family:var(--serif);font-style:italic;}
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
+<!-- The one announcer, present from the first byte. It used to be created lazily by theme.js, so
+     every screen's async updates -- a filter applied, a query paused, a failed run -- were silent to
+     a screen reader unless somebody had happened to toggle the theme first. -->
+<div id="live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
 <nav class="navbar navbar-expand-lg navbar-dark mb-4">
   <div class="container">
     <a class="navbar-brand d-flex align-items-center gap-2" href="/">
