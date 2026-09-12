@@ -196,6 +196,7 @@ public final class QueryExecution implements AutoCloseable {
      */
     public IngestPump pumpInto(int laneIndex, String streamName, PartitionReader reader, BackpressurePolicy policy) {
         refuseUnpartitionedJoin();
+        refuseUnpartitionedAggregate();
         int input = streams.indexOf(streamName);
         if (input < 0) {
             throw new IllegalArgumentException(
@@ -383,6 +384,48 @@ public final class QueryExecution implements AutoCloseable {
                             + "was given, which would leave most pairs unformed and the query quietly short of "
                             + "output. Use pumpPartitionedInto, which routes by the join key.");
         }
+    }
+
+    /**
+     * Refuses a keyed aggregate spread across lanes with nothing routing its key.
+     *
+     * <p>The same hazard as the join guard above and a worse failure, because a join short of pairs
+     * produces too little and this produces too much: a key that lands on two lanes is kept twice,
+     * each lane holding a partial sum, and both are emitted. Eighteen keys come out as thirty-six
+     * rows of half-answers, and nothing errors -- a consumer reading one row per key silently gets
+     * half of it.
+     *
+     * <p>There is no {@code pumpPartitionedInto} for an aggregate to point at, because partitioning
+     * by a grouping key is not built: that pump routes by <em>join</em> keys and refuses a query
+     * without a join. So this refuses the combination rather than suggesting a fix that does not
+     * exist, and says plainly that the parallel form is unbuilt. A keyed aggregate is single-lane
+     * until it is.
+     */
+    private void refuseUnpartitionedAggregate() {
+        if (laneCount() > 1 && containsKeyedAggregate(plan)) {
+            throw new PravahaException(
+                    RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                    "this query groups by a key and runs on " + laneCount() + " lanes, and nothing routes a "
+                            + "row to the lane that owns its group. Every lane would keep its own partial "
+                            + "total for a key it happens to see, and emit it -- so one group comes out as "
+                            + "several rows of partial answers, with no error to say so. Partitioning by a "
+                            + "grouping key is not built (pumpPartitionedInto routes by join keys and needs a "
+                            + "join), so run this query on one lane.");
+        }
+    }
+
+    private static boolean containsKeyedAggregate(PhysicalOperator operator) {
+        // Both shapes. A windowed aggregate keyed only by the window boundaries is still safe on
+        // one lane and unsafe on several, because two lanes both holding the same window each keep
+        // their own running total for it.
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.WindowedAggregateOperator) {
+            return true;
+        }
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.AggregateOperator aggregate
+                && !aggregate.groupKeyOrdinals().isEmpty()) {
+            return true;
+        }
+        return operator.inputs().stream().anyMatch(QueryExecution::containsKeyedAggregate);
     }
 
     private static boolean containsJoin(PhysicalOperator operator) {
