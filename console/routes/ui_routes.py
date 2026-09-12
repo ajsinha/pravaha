@@ -21,6 +21,7 @@ from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.services import ServiceError
+from routes.auth_routes import current_user, login_required
 from routes.base import Routes
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,11 @@ class UIRoutes(Routes):
         # on when something on the page has already thrown.
         @self.app.post("/queries/{name}/{action}", tags=["ui"])
         def act(request: Request, name: str, action: str):
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            # Named, and at INFO, because "who dropped it" is the question asked after a
+            # query disappears and there was previously nothing that could answer it.
+            logger.info("%s requested %s on '%s'", current_user(request), action, name)
             try:
                 services.queries.act(name, action)
             except ServiceError as exc:
@@ -122,6 +128,11 @@ class UIRoutes(Routes):
 
         @self.app.post("/workbench", response_class=HTMLResponse, tags=["ui"])
         def run(request: Request, sql: str = Form(...), params: str = Form("")):
+            # A read, but it reaches the engine as this deployment's principal, so it is
+            # gated too. An unauthenticated visitor should not be able to use the console
+            # as a free query endpoint against data they cannot otherwise reach.
+            if (refusal := login_required(request)) is not None:
+                return refusal
             values = [_typed(part) for part in params.split(",") if part.strip()]
             try:
                 result = services.adhoc.run(sql, values or None)
@@ -135,6 +146,9 @@ class UIRoutes(Routes):
         @self.app.post("/queries", tags=["ui"])
         def register_query(request: Request, name: str = Form(...), sql: str = Form(...),
                            keys: str = Form("0")):
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            logger.info("%s registered '%s'", current_user(request), name)
             ordinals = [int(part.strip()) for part in keys.split(",") if part.strip()]
             try:
                 services.queries.register(name, sql, ordinals)

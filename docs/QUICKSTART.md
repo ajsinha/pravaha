@@ -139,6 +139,18 @@ The console is a **separate process** that talks to the engine over the publishe
 
 **Prerequisites:** Python 3.11+, and an engine listening on `9090` (step 2 above).
 
+**Set a console password first**, or nobody can sign in — which is the safe failure, because the
+console can drop queries and a default password is a public one:
+
+```bash
+export CONSOLE_PASSWORD='something only you know'
+```
+
+Reading stays open without it: the landing page, the documentation and the health probes are
+deliberately ungated, because an operator opening the console during an incident needs it to load
+and say what is wrong before they find a password. Registering, pausing, dropping and running
+queries all require a session.
+
 ```bash
 cd console
 make install          # .venv, the Pravaha Python SDK, and the console

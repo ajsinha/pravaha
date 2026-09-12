@@ -328,6 +328,11 @@ footer .principle{font-family:var(--serif);font-style:italic;}
           {% else %}
             <span class="chip bad" title="{{ engine_error }}"><span class="dot"></span>engine unreachable</span>
           {% endif %}
+          {% if signed_in %}
+            <a class="btn btn-sm btn-outline-light" href="/logout" title="End this session">Sign out</a>
+          {% else %}
+            <a class="btn btn-sm btn-outline-light" href="/login" title="Sign in to act">Sign in</a>
+          {% endif %}
           <button type="button" class="btn btn-sm btn-outline-light" id="theme-toggle"
                   title="Theme (t)" aria-label="Change theme"><i class="bi bi-circle-half"></i></button>
           <button type="button" class="btn btn-sm btn-outline-light" id="density-toggle"

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Sign in — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">CONSOLE</p>
+    <h1>Sign in</h1>
+    <div class="rule"></div>
+
+    {% if not configured %}
+    <div class="alert alert-danger" role="alert">
+      <div class="fw-semibold">No console password is set</div>
+      <div class="small">Nobody can sign in, and that is the safe failure. Set
+        <code>console.password</code> — in <code>config/application.local.yaml</code> or the
+        <code>CONSOLE_PASSWORD</code> environment variable — and restart.</div>
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="alert alert-danger py-2" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/login" class="card"><div class="card-body">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="mb-3">
+        <label class="form-label small text-muted mb-1" for="password">Console password</label>
+        <input class="form-control" type="password" id="password" name="password"
+               autocomplete="current-password" autofocus required>
+      </div>
+      <button class="btn btn-primary w-100" type="submit" {{ 'disabled' if not configured }}>Sign in</button>
+    </div></form>
+
+    <p class="small text-muted mt-3">This gate protects the console's own controls. It is not the
+      engine's identity model — the engine authenticates its clients through the deployment's own
+      provider, and a second, weaker account system beside it would be worse than an honest
+      lock.</p>
+  </div>
+</div>
+{% endblock %}

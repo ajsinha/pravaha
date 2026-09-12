@@ -148,3 +148,28 @@ mTLS between nodes is in the design (§25) and not implemented, because there ar
 - **mTLS between nodes**, certificate rotation — Wave 8, with clustering
 - **Secret management integration** (`SecretProvider` SPI in the design) — not built
 - **Security review and SBOM** — Wave 10
+
+## The console's own gate
+
+The console authenticates with a **single shared secret** (`console.password`), held in a signed
+session cookie. Unset by default, and unset means nobody can sign in.
+
+**This is not the engine's identity model, and is not meant to become one.** The engine
+authenticates its clients through the deployment's identity provider via `TokenVerifier`, and a
+second, weaker account system beside it would be worse than an honest lock. What this gate does is
+stop an unauthenticated visitor acting, and record who acted.
+
+| Surface | Gated |
+|---|---|
+| Landing, about, help, tutorials, health probes | No — an operator needs the console to load during an incident |
+| Overview, query list and detail | No — reading only |
+| Register, pause, resume, drop | **Yes** |
+| Ad-hoc query (`/workbench`, `/api/v1/query`) | **Yes** — it reaches the engine as this deployment's principal |
+| `/api/v1` mutations | **Yes**, answering `401` rather than redirecting, so a `fetch` gets a status it can act on |
+
+Every state-changing action is logged with the session's identity, which is the question — *who
+dropped it* — that nothing could previously answer.
+
+**What this does not do.** It is one identity, so it distinguishes signed-in from anonymous and
+nothing finer; there are no roles and no per-user attribution beyond `operator`. A deployment
+needing that should put the console behind its own SSO proxy.

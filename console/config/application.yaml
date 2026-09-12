@@ -29,6 +29,19 @@ app:
     years: "2026"
     holder: Ashutosh Sinha
 
+# The console's own gate. It protects the console's controls -- registering, pausing and
+# dropping queries -- and is NOT the engine's identity model: the engine authenticates its
+# clients through the deployment's own provider (TokenVerifier).
+#
+# Empty by default, and an empty password means nobody can sign in. That is the safe
+# failure: a default password is a public password, and this console can destroy state.
+console:
+  password: "${CONSOLE_PASSWORD:}"
+  # Signs the session cookie. Empty means one is generated at startup, which is fine for a
+  # single instance and logs everybody out on restart; set it to share sessions across
+  # instances or to survive a restart.
+  session_secret: "${CONSOLE_SESSION_SECRET:}"
+
 server:
   host: "${CONSOLE_HOST:127.0.0.1}"
   port: "${CONSOLE_PORT:8090}"

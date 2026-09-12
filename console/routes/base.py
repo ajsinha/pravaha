@@ -25,6 +25,20 @@ from core.services import ServiceError
 
 logger = logging.getLogger(__name__)
 
+
+def _signed_in(request: Request | None) -> bool:
+    """Whether this request carries a console session.
+
+    Defensive about the session being absent entirely, because the middleware is
+    configured in the entry point and a test may build an app without it.
+    """
+    if request is None:
+        return False
+    try:
+        return request.session.get("user") is not None
+    except Exception:  # noqa: BLE001 -- no session middleware on this app
+        return False
+
 #: Where the JSON API lives. One constant, because the browser modules build
 #: their URLs from what the template tells them rather than from a string
 #: repeated in eleven files.
@@ -131,6 +145,9 @@ class Routes:
             "engine_url": health.url,
             "engine_up": health.reachable,
             "engine_error": health.error or "",
+            # On every page, because a control that is present but refuses is worse than
+            # one whose absence is explained.
+            "signed_in": _signed_in(request),
         }
 
     def page(self, request: Request, template: str, *, http_status: int = 200,
@@ -153,5 +170,11 @@ class Routes:
                 f"holds -- `query_version` rather than `version` -- because "
                 f"whichever wins, one of the two readers is getting the other's "
                 f"value.")
+        if self.templates is None:
+            # Constructed without a template environment -- an API-only assembly. Better to
+            # say so than to fail inside Jinja with a null dereference two frames down.
+            raise RuntimeError(
+                template + " was requested, but this Routes was built without a Jinja "
+                + "environment. Pass one to the constructor, or use the JSON API.")
         return self.templates.TemplateResponse(
             request, template, {**brand, **context}, status_code=http_status)

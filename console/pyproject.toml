@@ -24,10 +24,15 @@ dependencies = [
   # at request time with an import error, which is a dependency mistake that only shows up
   # when somebody presses a button.
   "python-multipart>=0.0.9",
+  # Signs the session cookie the console's sign-in writes into.
+  "itsdangerous>=2.2",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4", "mypy>=1.8"]
+dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4", "mypy>=1.8",
+       # Stubs, so the type check covers the config loader and the content library
+       # rather than skipping them for want of a declaration.
+       "types-PyYAML", "types-Markdown"]
 
 [project.scripts]
 pravaha-console = "run_pravaha_web:main"

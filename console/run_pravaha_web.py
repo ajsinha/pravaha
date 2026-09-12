@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import secrets
 import sys
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -71,6 +73,12 @@ def create_app(config: PropertiesConfigurator) -> FastAPI:
     app = FastAPI(title=config.get("app.name", "Pravaha") + " console",
                   version=config.get("app.version", "0.1.0"),
                   docs_url="/api/docs")
+
+    # The session the sign-in writes into. A generated secret when none is configured: it
+    # means sessions do not survive a restart, which is the right default for one instance
+    # and a worse one for several -- so it is configurable rather than assumed.
+    secret = config.get("console.session_secret") or secrets.token_urlsafe(32)
+    app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax", https_only=False)
 
     # Vendored assets only: the console renders with no external network. A
     # streaming engine is deployed inside networks that do not reach the

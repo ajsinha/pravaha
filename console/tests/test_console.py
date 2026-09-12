@@ -99,6 +99,26 @@ def client(engine_url):
     """
     config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
     config.set("engine.url", engine_url)
+    config.set("console.password", CONSOLE_PASSWORD)
+    config.set("console.session_secret", "test-only-secret")
+    client = fastapi_testclient.TestClient(create_app(config))
+    # Signed in, because every state-changing route is gated now. A fixture that did not
+    # would exercise the login redirect instead of the thing each test is about -- and the
+    # gate itself is tested directly, below.
+    client.post("/login", data={"password": CONSOLE_PASSWORD, "next": "/overview"})
+    return client
+
+
+CONSOLE_PASSWORD = "test-console-password"
+
+
+@pytest.fixture
+def anonymous(engine_url):
+    """A client that has not signed in."""
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("engine.url", engine_url)
+    config.set("console.password", CONSOLE_PASSWORD)
+    config.set("console.session_secret", "test-only-secret")
     return fastapi_testclient.TestClient(create_app(config))
 
 
@@ -392,3 +412,59 @@ def test_every_screen_renders_before_its_javascript_does(client):
         assert "SELECT trade_id" in client.get("/queries/norender").text
     finally:
         client.post("/queries/norender/drop")
+
+
+# --- The console's own gate ---------------------------------------------------------------
+
+def test_an_anonymous_visitor_cannot_drop_a_query(anonymous, client):
+    client.post("/queries", data={"name": "guarded", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        # Before this gate existed, the console held one engine token and acted as it for
+        # everyone: anyone who could reach the port could destroy production state, and
+        # nothing recorded who did.
+        refused = anonymous.post("/queries/guarded/drop", follow_redirects=False)
+
+        assert refused.status_code == 303
+        assert "/login" in refused.headers["location"]
+        assert "guarded" in client.get("/queries").text, "the query must still be there"
+    finally:
+        client.post("/queries/guarded/drop")
+
+
+def test_the_api_refuses_an_anonymous_mutation_with_401_not_a_redirect(anonymous):
+    # A fetch that received a login page as data would report a parse error rather than a
+    # permission problem, so the API answers with a status a client can act on.
+    response = anonymous.post("/api/v1/queries", json={"name": "x", "sql": TRADE_SQL, "keys": [0]})
+
+    assert response.status_code == 401
+    assert "sign in" in response.json()["error"]
+
+
+def test_reading_stays_open_to_an_anonymous_visitor(anonymous):
+    # The landing page, the documentation and the health probes are deliberately not gated:
+    # an operator opening the console during an incident needs it to load and say what is
+    # wrong before they find their password.
+    assert anonymous.get("/").status_code == 200
+    assert anonymous.get("/help").status_code == 200
+    assert anonymous.get("/health").status_code == 200
+
+
+def test_a_wrong_password_is_refused(anonymous):
+    response = anonymous.post("/login", data={"password": "not it", "next": "/overview"})
+
+    assert response.status_code == 401
+    assert "not the console password" in response.text
+
+
+def test_with_no_password_configured_nobody_can_sign_in(engine_url):
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("engine.url", engine_url)
+    config.set("console.password", "")
+    config.set("console.session_secret", "test-only-secret")
+    unconfigured = fastapi_testclient.TestClient(create_app(config))
+
+    # The safe failure. A default password is a public password, and this console can drop
+    # queries -- so an unset one locks the controls rather than opening them.
+    page = unconfigured.get("/login")
+    assert "No console password is set" in page.text
+    assert unconfigured.post("/login", data={"password": "", "next": "/"}).status_code == 401

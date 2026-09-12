@@ -19,6 +19,7 @@ import anyio
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from routes.auth_routes import current_user
 from routes.base import Routes
 
 
@@ -30,6 +31,19 @@ class ApiRoutes(Routes):
     def register(self) -> None:
         services = self.ctx["services"]
         api = self.api
+
+
+        def _signed_in(request: Request):
+            """A JSON refusal for an anonymous caller, or None.
+
+            The API carries the same power as the screens -- register, pause, drop -- so it
+            is gated the same way. It answers 401 rather than redirecting, because a fetch
+            handling a login page as data is a worse failure than an honest status.
+            """
+            if current_user(request) is None:
+                return JSONResponse(
+                    {"error": "sign in to the console first", "status": 401}, status_code=401)
+            return None
 
         @self.app.get(f"{api}/health", tags=["api"])
         def health():
@@ -51,6 +65,8 @@ class ApiRoutes(Routes):
 
         @self.app.post(f"{api}/queries", tags=["api"], status_code=201)
         async def register(request: Request):
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
             body = await request.json()
             keys = body.get("keys") or []
             if isinstance(keys, str):
@@ -59,7 +75,10 @@ class ApiRoutes(Routes):
                 str(body.get("name", "")), str(body.get("sql", "")), list(keys)).as_dict())
 
         @self.app.post(f"{api}/queries/{{name}}/{{action}}", tags=["api"])
-        def act(name: str, action: str):
+        def act(request: Request, name: str, action: str):
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+
             def run():
                 services.queries.act(name, action)
                 return {"name": name, "action": action, "ok": True}
@@ -67,6 +86,8 @@ class ApiRoutes(Routes):
 
         @self.app.post(f"{api}/query", tags=["api"])
         async def run_query(request: Request):
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
             body = await request.json()
             return self.json_guard(
                 lambda: services.adhoc.run(str(body.get("sql", "")), body.get("parameters")))
