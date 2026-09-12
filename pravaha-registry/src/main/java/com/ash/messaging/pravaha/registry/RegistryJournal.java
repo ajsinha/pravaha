@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -67,6 +68,8 @@ import com.ash.messaging.pravaha.serving.Retention;
  * data, not like configuration.
  */
 public final class RegistryJournal {
+
+    private static final System.Logger LOG = System.getLogger(RegistryJournal.class.getName());
 
     private static final String REGISTER = "R";
     private static final String DROP = "D";
@@ -209,6 +212,11 @@ public final class RegistryJournal {
             if (parent != null) {
                 Files.createDirectories(parent);
             }
+            // Owner-only, before the first write. The javadoc above has always said this file holds
+            // account numbers and customer ids and should be permissioned like data -- and then the
+            // code created it at whatever the umask happened to be, which on most systems is
+            // world-readable. An instruction to the operator is not a control; this is.
+            restrictToOwner(file);
             try (FileChannel channel = FileChannel.open(
                     file, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
                 while (buffer.hasRemaining()) {
@@ -224,6 +232,30 @@ public final class RegistryJournal {
                             + ". The registration would be lost at the next restart, so it is refused now "
                             + "rather than acknowledged and forgotten",
                     failure);
+        }
+    }
+
+    /**
+     * Narrows a file to its owner, where the filesystem supports it.
+     *
+     * <p>Best effort on purpose. A POSIX permission cannot be set on every filesystem -- Windows,
+     * and some network mounts -- and refusing to journal at all on those would trade a
+     * confidentiality gap for an availability one. Where it cannot be applied it is reported, so the
+     * gap is visible rather than assumed closed.
+     */
+    private static void restrictToOwner(Path target) {
+        try {
+            if (!Files.exists(target)) {
+                Files.createFile(target);
+            }
+            if (target.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+                Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rw-------"));
+            }
+        } catch (IOException | UnsupportedOperationException cannot) {
+            LOG.log(
+                    System.Logger.Level.WARNING,
+                    "could not restrict permissions on " + target + " (" + cannot
+                            + "); it holds query text and bound parameter values, so check them by hand");
         }
     }
 

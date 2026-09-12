@@ -44,7 +44,10 @@ to fit would silently lose matches the query asked for, and a wrong answer is wo
 | Shared fingerprints | `pravaha queries`, console | The sharing claim holding — or not |
 | `subscriberCount()` | `RegisteredQuery` | Consumers attached. Zero on a query somebody expects to be watched is a clue |
 
-There is **no Prometheus endpoint yet**. These are on the objects and through the SDK; wiring them to
+These are on the objects and through the SDK. They are **also** published to Prometheus by the
+server — see *Watching a running node* below, which is the part that was added later and left this
+sentence contradicting it. What is still absent is engine-internal metrics (lane throughput,
+backpressure); wiring those to
 Micrometer is Wave 9 work. Saying so beats implying a dashboard exists.
 
 ## Disk

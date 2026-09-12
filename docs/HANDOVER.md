@@ -20,7 +20,7 @@ otherwise have to rediscover the hard way.
 | Java tests | **1101** — 14 of them against real Aerospike and PostgreSQL servers in Docker |
 | Python tests | **39**, including the client driving a real Java Flight SQL server |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **30** |
+| ADRs | **33** |
 
 **Session of 2026-09-09/10 — what changed.** Waves 3 and 4 are **complete** in scope, Wave 5 (E4) is
 complete except for what needs hardware or a cluster, and **Wave 6 (E5) has started**.

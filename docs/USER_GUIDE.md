@@ -245,7 +245,8 @@ running N copies of something that could be one".
 cd console && make install && make run
 ```
 
-Then <http://127.0.0.1:8080>. It is a *functional admin* console on purpose — see
+Then <http://127.0.0.1:8090>. (Not 8080 — that is the engine's own actuator port, and
+following this line to 8080 lands you on the wrong process.) It is a *functional admin* console on purpose — see
 [its README](../console/README.md) for what that means and what it does not do.
 
 ---

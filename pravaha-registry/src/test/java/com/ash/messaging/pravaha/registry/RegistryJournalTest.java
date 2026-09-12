@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.registry;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,7 @@ import com.ash.messaging.pravaha.sql.plan.BoundParameters;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Registrations survive a restart.
@@ -73,6 +75,30 @@ class RegistryJournalTest {
     private static QueryRegistry registry(Path journalFile, SecurityPolicy policy) {
         return new QueryRegistry(new ViewCatalog(), policy, AuditSink.NONE, TXN)
                 .journalTo(new RegistryJournal(journalFile));
+    }
+
+    @Test
+    void theJournalIsReadableOnlyByItsOwner(@TempDir Path directory) throws Exception {
+        Path journal = directory.resolve("registry.journal");
+
+        try (QueryRegistry registry = registry(journal, SecurityPolicy.PERMISSIVE)) {
+            registry.register(
+                    "sensitive",
+                    "SELECT user_id, amount FROM txn WHERE user_id = ?",
+                    List.of(0),
+                    DANA,
+                    BoundParameters.of("4111111111111111"));
+        }
+
+        // The file holds query text and the values clients filtered on -- account numbers, customer
+        // ids. It used to be created at whatever the umask was, which on most systems is
+        // world-readable, while the javadoc instructed the operator to permission it like data. An
+        // instruction is not a control.
+        assumeTrue(
+                journal.getFileSystem().supportedFileAttributeViews().contains("posix"),
+                "POSIX permissions are not supported on this filesystem");
+        assertThat(Files.getPosixFilePermissions(journal))
+                .containsExactlyInAnyOrder(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
     }
 
     @Test

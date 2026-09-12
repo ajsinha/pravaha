@@ -44,7 +44,7 @@ tests and sidecar-terminated TLS.
 The tests here run against the **actual Java server**, started by the test fixture, rather than a
 Python imitation of it — so what passes here is what an application sees.
 
-Subscriptions are not implemented yet; `query` is request/response.
+`query` is request/response; `subscribe` opens a live feed of changes to a view.
 
 The surface deliberately mirrors the Java SDK: same concepts, same names, same defaults, so a
 team running both does not have to hold two mental models.
