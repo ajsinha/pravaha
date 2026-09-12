@@ -288,7 +288,10 @@ class StreamingWatermarkTest {
         // The failure this guards is the one the tracker's own javadoc calls the most common
         // streaming incident: a partition goes quiet, holds the watermark at whatever it last saw,
         // every window stops firing, and it presents as a hang rather than an error.
-        WatermarkTracker tracker = new WatermarkTracker(Duration.ofSeconds(1).toNanos());
+        // Two seconds: a value somebody might actually configure, and clear of the one-second
+        // minimum rather than sitting on it. A test pinned to the exact boundary passes for the
+        // wrong reason and breaks the day the boundary moves.
+        WatermarkTracker tracker = new WatermarkTracker(Duration.ofSeconds(2).toNanos());
         long start = System.nanoTime();
         tracker.addPartition("busy", WatermarkGenerator.boundedOutOfOrderness(0), start);
         tracker.addPartition("quiet", WatermarkGenerator.boundedOutOfOrderness(0), start);
@@ -299,13 +302,13 @@ class StreamingWatermarkTest {
         // Both live: the minimum wins, and the quiet one is holding everybody at 1s.
         assertThat(tracker.advance(start)).isEqualTo(1 * SECOND);
 
-        tracker.observe("busy", 20 * SECOND, start + Duration.ofMillis(500).toNanos());
-        assertThat(tracker.advance(start + Duration.ofMillis(500).toNanos()))
+        tracker.observe("busy", 20 * SECOND, start + Duration.ofSeconds(1).toNanos());
+        assertThat(tracker.advance(start + Duration.ofSeconds(1).toNanos()))
                 .as("still inside the idle timeout, so the quiet partition still counts")
                 .isEqualTo(1 * SECOND);
 
         // Past the timeout the quiet partition stops counting, and time moves again.
-        long later = start + Duration.ofMillis(1500).toNanos();
+        long later = start + Duration.ofMillis(2500).toNanos();
         tracker.observe("busy", 30 * SECOND, later);
         assertThat(tracker.advance(later))
                 .as("an idle partition must be excluded, not allowed to stop the query")
@@ -313,7 +316,7 @@ class StreamingWatermarkTest {
         assertThat(tracker.isIdle("quiet")).isTrue();
 
         // And it rejoins the moment it speaks again, rather than being gone for good.
-        long back = later + Duration.ofMillis(50).toNanos();
+        long back = later + Duration.ofMillis(100).toNanos();
         tracker.observe("quiet", 25 * SECOND, back);
         assertThat(tracker.isIdle("quiet")).isFalse();
         assertThat(tracker.advance(back))
