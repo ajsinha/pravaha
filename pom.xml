@@ -128,6 +128,83 @@
 
   <dependencyManagement>
     <dependencies>
+      <!--
+        Pinned up, not down. Calcite reaches commons-logging twice: 1.1.3 through
+        aggdesigner-algorithm and 1.2 through commons-dbcp2. Maven's nearest-wins picked the
+        older of the two, so the classpath carried 1.1.3 while something in the tree was built
+        against 1.2, which is which is the shape of failure that appears as a NoSuchMethodError under a
+        code path nobody exercised before production.
+
+        Found by requireUpperBoundDeps, which is why that rule is on.
+      -->
+      <!--
+        Guava and its annotation companion are reached at several versions across Calcite, Hadoop
+        and Arrow, and nearest-wins was picking an older one than parts of the tree were built
+        against. Pinned to the highest any path asks for, which is what requireUpperBoundDeps is
+        checking: a caller compiled against a newer API must not find an older class.
+
+        33.5.0-android appears in the tree and is deliberately not the pin. The android flavour
+        drops the Java 8+ types the jre flavour has, so choosing it by version number alone would
+        satisfy the rule and break the classpath.
+      -->
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>33.7.1-jre</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.errorprone</groupId>
+        <artifactId>error_prone_annotations</artifactId>
+        <version>2.50.0</version>
+      </dependency>
+      <!--
+        Jackson arrives through Arrow, Spring Boot and Hadoop, which disagree; commons-codec
+        through Hadoop and the HTTP clients. Each was resolving to the lowest version any path
+        asked for, so the classpath carried an older Jackson than parts of the tree were compiled
+        against. Pinned to the highest demanded, together, because the Jackson artifacts must move
+        as a set: databind against a different core is its own failure.
+      -->
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>2.22.1</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>2.22.1</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>2.22</version>
+      </dependency>
+      <dependency>
+        <groupId>commons-codec</groupId>
+        <artifactId>commons-codec</artifactId>
+        <version>1.21.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.xerial.snappy</groupId>
+        <artifactId>snappy-java</artifactId>
+        <version>1.1.10.4</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.datatype</groupId>
+        <artifactId>jackson-datatype-jsr310</artifactId>
+        <version>2.22.1</version>
+      </dependency>
+      <dependency>
+        <groupId>org.yaml</groupId>
+        <artifactId>snakeyaml</artifactId>
+        <version>2.6</version>
+      </dependency>
+      <dependency>
+        <groupId>commons-logging</groupId>
+        <artifactId>commons-logging</artifactId>
+        <version>1.2</version>
+      </dependency>
+
       <dependency>
         <groupId>org.junit</groupId>
         <artifactId>junit-bom</artifactId>
@@ -321,6 +398,23 @@
             </goals>
             <configuration>
               <rules>
+                <!--
+                  Four libraries (gRPC, protobuf, Jackson and Guava) arrive only transitively,
+                  through three BOMs that do not agree: Arrow's, Spring Boot's and Hadoop's. Their
+                  versions were therefore decided by Maven's nearest-wins rule, which is to say by
+                  the shape of the dependency tree rather than by anybody. That is how the Netty
+                  conflict happened, and Netty was pinned by hand after it bit.
+
+                  requireUpperBoundDeps rather than dependencyConvergence, deliberately. Convergence
+                  fails when an artifact is reached by two paths at all, including two paths to the
+                  SAME version differing only in scope, of which this build has three and none is a
+                  conflict. A rule that cries wolf earns a fail=false and is then ignored.
+
+                  This one fails only when something asks for a NEWER version than the one resolved,
+                  which is the case that actually breaks at runtime: a library compiled against an
+                  API the version on the classpath does not have.
+                -->
+                <requireUpperBoundDeps />
                 <requireMavenVersion>
                   <version>[3.9,)</version>
                 </requireMavenVersion>

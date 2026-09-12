@@ -189,6 +189,25 @@ three quarters, and it is a pure function of the membership: every node that agr
 cluster computes the same owners without asking. That is also *why* `PARTITIONED` needs consensus —
 nodes that disagree about membership confidently compute different owners.
 
+## Files that hold data
+
+Three files hold what a customer would call their data, and all three are now created **owner-only**
+(`rw-------`), in a directory narrowed the same way, before the first byte is written:
+
+| File | Holds |
+|---|---|
+| The registry journal | Query text and the values clients filtered on — account numbers, customer ids |
+| Checkpoints | Serialised operator state, which is the aggregated data itself |
+| The dead-letter queue | The raw bytes of every record that failed |
+
+Two of the three previously carried a comment telling the operator to permission them like data.
+An instruction to somebody who may never read it is not a control.
+
+Best effort where POSIX permissions are unsupported — Windows, some network mounts — and it says so
+at `WARNING` rather than failing the write, because refusing to run there would trade a
+confidentiality problem for an availability one. **Nothing is encrypted at rest**; if that is
+required, put the directory on an encrypted volume.
+
 ## The server does not ingest anything yet
 
 **A continuous query registered against the server never receives a row.** Nothing in

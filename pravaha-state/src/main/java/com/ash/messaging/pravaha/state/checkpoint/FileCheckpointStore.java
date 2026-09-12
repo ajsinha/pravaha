@@ -30,6 +30,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import com.ash.messaging.pravaha.common.io.SensitiveFiles;
+
 /**
  * Checkpoints in a directory, one file each, published by atomic rename.
  *
@@ -67,6 +69,9 @@ public final class FileCheckpointStore implements CheckpointStore {
         Path target = directory.resolve(PREFIX + checkpoint.id() + SUFFIX);
         Path temporary = directory.resolve(PREFIX + checkpoint.id() + ".tmp");
         try {
+            // Serialised operator state is the aggregated data itself, so the file is created
+            // owner-only before anything is written into it.
+            SensitiveFiles.createOwnerOnly(temporary);
             try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(temporary))) {
                 out.writeInt(MAGIC);
                 out.writeInt(FORMAT_VERSION);

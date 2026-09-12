@@ -23,6 +23,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Base64;
 
+import com.ash.messaging.pravaha.common.io.SensitiveFiles;
+
 /**
  * The default dead-letter queue: one JSON object per line, appended to a file.
  *
@@ -53,6 +55,10 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
         if (parent != null) {
             Files.createDirectories(parent);
         }
+        // Every rejected record's raw bytes land here: a copy of production data, created at
+        // the process umask -- and unlike the journal this file carried no warning at all
+        // that it is data-classified.
+        SensitiveFiles.createOwnerOnly(file);
         this.writer = Files.newBufferedWriter(
                 file, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }

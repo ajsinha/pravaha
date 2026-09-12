@@ -19,11 +19,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -33,6 +31,7 @@ import java.util.Map;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
+import com.ash.messaging.pravaha.common.io.SensitiveFiles;
 import com.ash.messaging.pravaha.serving.Retention;
 
 /**
@@ -216,7 +215,7 @@ public final class RegistryJournal {
             // account numbers and customer ids and should be permissioned like data -- and then the
             // code created it at whatever the umask happened to be, which on most systems is
             // world-readable. An instruction to the operator is not a control; this is.
-            restrictToOwner(file);
+            SensitiveFiles.createOwnerOnly(file);
             try (FileChannel channel = FileChannel.open(
                     file, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
                 while (buffer.hasRemaining()) {
@@ -232,30 +231,6 @@ public final class RegistryJournal {
                             + ". The registration would be lost at the next restart, so it is refused now "
                             + "rather than acknowledged and forgotten",
                     failure);
-        }
-    }
-
-    /**
-     * Narrows a file to its owner, where the filesystem supports it.
-     *
-     * <p>Best effort on purpose. A POSIX permission cannot be set on every filesystem -- Windows,
-     * and some network mounts -- and refusing to journal at all on those would trade a
-     * confidentiality gap for an availability one. Where it cannot be applied it is reported, so the
-     * gap is visible rather than assumed closed.
-     */
-    private static void restrictToOwner(Path target) {
-        try {
-            if (!Files.exists(target)) {
-                Files.createFile(target);
-            }
-            if (target.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-                Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rw-------"));
-            }
-        } catch (IOException | UnsupportedOperationException cannot) {
-            LOG.log(
-                    System.Logger.Level.WARNING,
-                    "could not restrict permissions on " + target + " (" + cannot
-                            + "); it holds query text and bound parameter values, so check them by hand");
         }
     }
 
@@ -281,7 +256,22 @@ public final class RegistryJournal {
                     file,
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING,
                     java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            // The rename is atomic for a reader and not durable until the directory entry is on
+            // disk. Without this a compaction can survive as content with no name pointing at it.
+            Path parent = file.getParent();
+            if (parent != null) {
+                SensitiveFiles.syncDirectory(parent);
+            }
         } catch (IOException failure) {
+            // A half-written rewrite left behind would be replayed as if it were the journal.
+            try {
+                Files.deleteIfExists(temporary);
+            } catch (IOException ignored) {
+                LOG.log(
+                        System.Logger.Level.WARNING,
+                        "compaction failed and " + temporary + " could not be removed; delete it by hand "
+                                + "before restarting, or it will be mistaken for the journal");
+            }
             throw new PravahaException(
                     RegistryErrors.JOURNAL_UNWRITABLE, "cannot compact the registry journal at " + file, failure);
         }
@@ -366,9 +356,5 @@ public final class RegistryJournal {
             case 'b' -> Base64.getDecoder().decode(body);
             default -> body;
         };
-    }
-
-    private static String utf8(byte[] bytes) {
-        return new String(bytes, StandardCharsets.UTF_8);
     }
 }

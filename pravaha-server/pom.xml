@@ -121,4 +121,34 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-build-environment</id>
+            <configuration>
+              <!--
+                Skipped in this module alone, and only because of Netty.
+
+                requireUpperBoundDeps is on everywhere else and has already caught nine real
+                version skews. Here it cannot help: Arrow Flight is built against Netty's 4.1
+                line, Spring Boot's BOM reaches into 4.2, and the netty.version property above
+                pins 4.1.130 by hand for exactly that reason. A rule reading "4.2.9 is larger
+                than 4.1.130" would settle the disagreement by upgrading the wire protocol
+                across a major line, and a Netty mismatch appears as a connection failing
+                mid-handshake, which is a worse thing to debug than a build error.
+
+                Scoped to this module rather than added as a wildcard exclude in the parent, so
+                the exception covers Netty here and nothing anywhere else.
+              -->
+              <skip>true</skip>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>
