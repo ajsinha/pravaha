@@ -26,6 +26,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
+import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,7 +52,16 @@ class PravahaNodeTest {
 
     private static PravahaNode node(String journal) {
         // Port zero: the operating system picks, so tests do not fight over a fixed one.
-        return new PravahaNode(catalog(), true, "127.0.0.1", 0, journal, "SINGLE", "single", "test-node");
+        return new PravahaNode(
+                catalog(),
+                new SourceBindingProperties(),
+                true,
+                "127.0.0.1",
+                0,
+                journal,
+                "SINGLE",
+                "single",
+                "test-node");
     }
 
     @Test
@@ -116,7 +126,16 @@ class PravahaNodeTest {
 
     @Test
     void partitionedModeWithoutConsensusRefusesToStart() {
-        PravahaNode node = new PravahaNode(catalog(), false, "127.0.0.1", 0, "", "PARTITIONED", "socket", "test-node");
+        PravahaNode node = new PravahaNode(
+                catalog(),
+                new SourceBindingProperties(),
+                false,
+                "127.0.0.1",
+                0,
+                "",
+                "PARTITIONED",
+                "socket",
+                "test-node");
 
         // Two nodes each believing they own a partition write the same aggregate twice, and the
         // damage is silent, durable, and found later by whoever reconciles the numbers. Refusing to
@@ -127,7 +146,8 @@ class PravahaNodeTest {
 
     @Test
     void flightCanBeTurnedOffForAnHttpOnlyNode() {
-        PravahaNode node = new PravahaNode(catalog(), false, "127.0.0.1", 0, "", "SINGLE", "single", "test-node");
+        PravahaNode node = new PravahaNode(
+                catalog(), new SourceBindingProperties(), false, "127.0.0.1", 0, "", "SINGLE", "single", "test-node");
         try {
             node.start();
 

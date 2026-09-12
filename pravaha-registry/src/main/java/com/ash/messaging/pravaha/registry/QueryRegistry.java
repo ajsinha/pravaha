@@ -86,6 +86,9 @@ public final class QueryRegistry implements AutoCloseable {
     private Duration watermarkTick;
     private final Map<QueryFingerprint, RegisteredQuery> byFingerprint = new LinkedHashMap<>();
 
+    /** Attaches data to a query's inputs. Nothing, until a deployment says otherwise. */
+    private SourceFeedFactory feeds = SourceFeedFactory.NONE;
+
     public QueryRegistry(ViewCatalog views, StreamSchema... streams) {
         this(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, streams);
     }
@@ -122,6 +125,19 @@ public final class QueryRegistry implements AutoCloseable {
      * continuous query is never -- so joins never evict and views never forget. See ADR-034 and
      * CONCEPTS section 3.
      */
+    /**
+     * Attaches a source of rows to registered queries.
+     *
+     * <p>Without this a registration builds an execution with lanes, arenas and watermarks and then
+     * waits forever, because nothing hands it a row. That is correct for an engine embedded in a
+     * process that pushes its own rows through {@link RegisteredQuery#accept}, and it is why a
+     * server needs to say so explicitly rather than inherit a default that reads files.
+     */
+    public QueryRegistry feedingFrom(SourceFeedFactory factory) {
+        this.feeds = factory == null ? SourceFeedFactory.NONE : factory;
+        return this;
+    }
+
     public QueryRegistry generatingWatermarks(Duration idleAfter, Duration tick) {
         this.watermarkIdleAfter = idleAfter;
         this.watermarkTick = tick;
@@ -373,7 +389,26 @@ public final class QueryRegistry implements AutoCloseable {
         if (watermarkIdleAfter != null) {
             execution.generatingWatermarks(null, watermarkIdleAfter, watermarkTick);
         }
-        return new RegisteredQuery(fingerprint, sql, name, view, sink, execution, Instant.now(), placements);
+        RegisteredQuery query =
+                new RegisteredQuery(fingerprint, sql, name, view, sink, execution, Instant.now(), placements);
+
+        // Last, and after the watermark generator: a feed may deliver its first row on the way out
+        // of open(), and a row that arrives before the watermark partitions exist is a row whose
+        // event time nothing is tracking.
+        //
+        // Opened per computation rather than per name. A query registered twice under two names is
+        // one execution behind one fingerprint, and the second registration returns early above
+        // without reaching here -- which is what stops a shared computation being fed twice and
+        // double-counting every row.
+        try {
+            query.feedFrom(feeds.open(name, execution, sourceStreams(plan)));
+        } catch (RuntimeException e) {
+            // A feed that cannot open must not leave a half-started query behind holding a lane
+            // thread and an arena. Fail the registration instead, with the execution released.
+            execution.close();
+            throw e;
+        }
+        return query;
     }
 
     /**

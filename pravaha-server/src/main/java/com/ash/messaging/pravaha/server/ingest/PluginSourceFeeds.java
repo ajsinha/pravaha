@@ -1,0 +1,214 @@
+/*
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL.
+ *
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
+ *
+ * See the LICENSE file in the root of this repository for the full terms.
+ */
+package com.ash.messaging.pravaha.server.ingest;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.ServiceLoader;
+import java.util.concurrent.ConcurrentHashMap;
+
+import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.plugin.PartitionReader;
+import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.api.plugin.SourceOffset;
+import com.ash.messaging.pravaha.api.plugin.SourcePartition;
+import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
+import com.ash.messaging.pravaha.registry.SourceFeed;
+import com.ash.messaging.pravaha.registry.SourceFeedFactory;
+import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
+import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
+import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
+
+/**
+ * Turns configured {@link SourceBinding}s into rows arriving at a registered query.
+ *
+ * <p>This is the piece that makes a Pravaha server a server. Everything below it existed and was
+ * tested -- four source plugins, the pump, backpressure, watermark partitions -- and nothing above
+ * it ever called down: the only production code that drove a pump was the CLI's one-shot {@code
+ * run}, so a query registered on a server sat at zero rows indefinitely.
+ *
+ * <p><strong>Plugins are discovered, not compiled in.</strong> A binding names a plugin the way the
+ * plugin names itself, and {@link ServiceLoader} finds it on the classpath -- so adding Delta or
+ * JDBC to a deployment is dropping a jar in, not rebuilding the server. The alternative, a compile
+ * time dependency per plugin, would drag Hadoop and Parquet into every server that only ever reads
+ * a directory.
+ *
+ * <p><strong>A stream with no binding is not an error.</strong> Plenty of queries are fed by an
+ * embedder pushing rows through {@code accept}, and a server that refused to register a query
+ * because it could not find a file to read would break every one of them. The query registers, runs,
+ * and reports through {@link SourceFeed#describe()} that nothing is attached -- which is the
+ * difference between a silent query an operator can diagnose and one they cannot.
+ */
+public final class PluginSourceFeeds implements SourceFeedFactory {
+
+    private final Map<String, SourceBinding> bindings = new ConcurrentHashMap<>();
+    private final BackpressurePolicy policy;
+
+    public PluginSourceFeeds() {
+        this(BackpressurePolicy.defaults());
+    }
+
+    public PluginSourceFeeds(BackpressurePolicy policy) {
+        this.policy = policy == null ? BackpressurePolicy.defaults() : policy;
+    }
+
+    /**
+     * Binds a stream to a source, replacing any previous binding.
+     *
+     * <p>Takes effect for queries registered afterwards. A query already running keeps the feed it
+     * opened with, because swapping a source under a live computation would change what its state
+     * was accumulated from without changing the state -- and the view would then be a mixture of two
+     * sources that nothing records.
+     */
+    public PluginSourceFeeds bind(SourceBinding binding) {
+        bindings.put(binding.streamName(), binding);
+        return this;
+    }
+
+    /** The bindings in force, by stream name. */
+    public Map<String, SourceBinding> bindings() {
+        return Map.copyOf(bindings);
+    }
+
+    @Override
+    public SourceFeed open(String queryName, QueryExecution execution, List<String> sourceStreams) {
+        // Distinct, because a self-join names one stream twice and opening two feeds for it would
+        // deliver every row twice to a query that asked for it once.
+        List<String> bound =
+                sourceStreams.stream().distinct().filter(bindings::containsKey).toList();
+        if (bound.isEmpty()) {
+            return SourceFeed.NONE;
+        }
+
+        List<IngestPump> pumps = new ArrayList<>();
+        List<AutoCloseable> resources = new ArrayList<>();
+        Map<String, Integer> partitionCounts = new LinkedHashMap<>();
+        try {
+            for (String stream : bound) {
+                SourceBinding binding = bindings.get(stream);
+                StreamSourcePlugin plugin = openPlugin(binding);
+                resources.add(plugin);
+
+                List<SourcePartition> partitions = plugin.partitions(stream);
+                partitionCounts.put(stream, partitions.size());
+                for (SourcePartition partition : partitions) {
+                    PartitionReader reader = plugin.createReader(partition, SourceOffset.BEGINNING);
+                    resources.add(reader);
+                    // Lane 0: a registered query is compiled onto one lane today. When that
+                    // changes, the partition index is what chooses the lane -- it is already the
+                    // unit the source split itself into.
+                    pumps.add(execution.pumpInto(0, stream, reader, policy));
+                }
+            }
+        } catch (RuntimeException e) {
+            // Nothing half-open survives a failed binding. Without this, a query that failed to
+            // register would leave a plugin holding a file handle or a connection for the lifetime
+            // of the process.
+            closeQuietly(resources);
+            throw e;
+        }
+
+        PumpingFeed feed = new PumpingFeed(queryName, pumps, resources, describe(partitionCounts));
+        feed.start();
+        return feed;
+    }
+
+    private StreamSourcePlugin openPlugin(SourceBinding binding) {
+        StreamSourcePlugin plugin = discover(binding);
+        try {
+            plugin.configure(new BindingContext(binding));
+            plugin.open();
+            return plugin;
+        } catch (RuntimeException e) {
+            closeQuietly(List.of(plugin));
+            throw new PravahaException(
+                    IngestErrors.BINDING_FAILED,
+                    "the '" + binding.plugin() + "' plugin could not be opened for stream '" + binding.streamName()
+                            + "': " + e,
+                    e);
+        } catch (Exception e) {
+            closeQuietly(List.of(plugin));
+            throw new PravahaException(
+                    IngestErrors.BINDING_FAILED,
+                    "the '" + binding.plugin() + "' plugin refused its configuration for stream '"
+                            + binding.streamName() + "': " + e,
+                    e);
+        }
+    }
+
+    /**
+     * Finds the named plugin on the classpath.
+     *
+     * <p>A fresh instance per binding rather than one shared: two streams reading different
+     * directories are two configurations of one plugin class, and {@code configure} is called once
+     * per instance.
+     */
+    private StreamSourcePlugin discover(SourceBinding binding) {
+        List<String> available = new ArrayList<>();
+        for (StreamSourcePlugin candidate : ServiceLoader.load(StreamSourcePlugin.class)) {
+            if (candidate.name().equalsIgnoreCase(binding.plugin())) {
+                return candidate;
+            }
+            available.add(candidate.name());
+            closeQuietly(List.of(candidate));
+        }
+        throw new PravahaException(
+                IngestErrors.NO_SUCH_PLUGIN,
+                "no source plugin named '" + binding.plugin() + "' is on the classpath, so stream '"
+                        + binding.streamName() + "' cannot be fed. Available: "
+                        + (available.isEmpty() ? "none -- no source plugin jar is on the classpath" : available));
+    }
+
+    private static String describe(Map<String, Integer> partitionCounts) {
+        StringBuilder text = new StringBuilder("reading ");
+        partitionCounts.forEach((stream, count) -> text.append(stream)
+                .append(" (")
+                .append(count)
+                .append(count == 1 ? " partition" : " partitions")
+                .append("), "));
+        text.setLength(text.length() - 2);
+        return text.toString();
+    }
+
+    private static void closeQuietly(List<? extends AutoCloseable> resources) {
+        for (AutoCloseable resource : resources) {
+            try {
+                resource.close();
+            } catch (Exception e) {
+                // Already unwinding. Reporting this would replace the failure that caused the
+                // unwind with a failure to tidy up after it, which is the less useful of the two.
+            }
+        }
+    }
+
+    /** A plugin's view of its binding. */
+    private record BindingContext(SourceBinding binding) implements PluginContext {
+
+        @Override
+        public Map<String, String> config() {
+            return binding.options();
+        }
+
+        @Override
+        public String instanceName() {
+            // The stream, not the plugin: two streams read by one plugin are two instances, and the
+            // stream name is what tells them apart in a log line.
+            return binding.streamName();
+        }
+    }
+}

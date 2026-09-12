@@ -55,6 +55,21 @@ pravaha:
     # costs each new user the same twenty minutes.
     port: 9090
 
+  # Where each stream's rows come from. Without a binding a registered query runs and receives
+  # nothing -- correct for an engine an application pushes rows into, and a silent surprise for a
+  # server, which is why the node logs which streams are bound at startup.
+  #
+  # The plugin name is the one the plugin reports for itself, found on the classpath by
+  # ServiceLoader: filesystem, feedfile, jdbc and delta ship in this repository. Options are passed
+  # to the plugin untouched.
+  #
+  # sources:
+  #   txn:
+  #     plugin: filesystem
+  #     options:
+  #       path: /var/lib/pravaha/incoming/txn.csv
+  #       schema: "id:INT64,user_id:STRING,amount:INT64"
+
   registry:
     # Where registered continuous queries are written down. Unset means they live only in memory and
     # a restart loses them -- which the node warns about at startup rather than leaving to be found

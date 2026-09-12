@@ -54,6 +54,7 @@ public final class RegisteredQuery implements AutoCloseable {
     private final ServedView view;
     private final ViewSink sink;
     private final QueryExecution execution;
+    private volatile SourceFeed feed = SourceFeed.NONE;
     private final Instant registeredAt;
     private final java.util.List<com.ash.messaging.pravaha.sql.plan.ParameterPlacement> placements;
 
@@ -139,7 +140,11 @@ public final class RegisteredQuery implements AutoCloseable {
 
     /** Rows accepted since registration. */
     public long rowsIn() {
-        return rowsIn.get();
+        // Both halves, because rows arrive by two routes and an operator counting them does not
+        // care which. accept() is the push path -- an embedder with its own loop, a test; the feed
+        // is the pull path and writes into the lane's inbox without passing through accept() at
+        // all, so counting only the first reports zero for every query a source is driving.
+        return rowsIn.get() + feed.rowsFed();
     }
 
     /** The watermark reached, or empty if none has been declared. */
@@ -316,6 +321,9 @@ public final class RegisteredQuery implements AutoCloseable {
     void pause() {
         requireLive("pause");
         state = QueryState.PAUSED;
+        // A feed writes into the lane's inbox without passing through accept(), so a pause that
+        // stopped only at accept() would not stop anything a source was pushing.
+        feed.pause();
     }
 
     void resume() {
@@ -327,6 +335,7 @@ public final class RegisteredQuery implements AutoCloseable {
                             + "and restarting over it hides the cause");
         }
         state = QueryState.RUNNING;
+        feed.resume();
     }
 
     private void requireLive(String action) {
@@ -346,8 +355,22 @@ public final class RegisteredQuery implements AutoCloseable {
     public void close() {
         if (state != QueryState.DROPPED) {
             state = QueryState.DROPPED;
+            // The feed first, and the order is the whole point: closing the execution while a pump
+            // is mid-write leaves it writing into a lane that has gone. Stop the rows, then stop
+            // the thing they were going to.
+            feed.close();
             execution.close();
         }
+    }
+
+    /** Attaches the feed opened for this computation. Called once, by the registry that started it. */
+    void feedFrom(SourceFeed source) {
+        this.feed = source == null ? SourceFeed.NONE : source;
+    }
+
+    /** What is attached to this query's inputs. */
+    public SourceFeed feed() {
+        return feed;
     }
 
     @Override

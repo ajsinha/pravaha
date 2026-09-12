@@ -38,6 +38,8 @@ import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
+import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
+import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 /**
@@ -83,11 +85,14 @@ public class PravahaNode implements SmartLifecycle {
     private volatile ViewCatalog views;
     private volatile QueryRegistry registry;
     private volatile PravahaFlightServer flight;
+    private final SourceBindingProperties sources;
+    private volatile PluginSourceFeeds feeds;
     private volatile ClusterCoordinator coordinator;
     private volatile boolean running;
 
     public PravahaNode(
             StreamCatalog streams,
+            SourceBindingProperties sources,
             @Value("${pravaha.flight.enabled:true}") boolean flightEnabled,
             @Value("${pravaha.flight.host:0.0.0.0}") String flightHost,
             @Value("${pravaha.flight.port:9090}") int flightPort,
@@ -96,6 +101,7 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.cluster.mechanism:single}") String clusterMechanism,
             @Value("${pravaha.node.id:pravaha-node-01}") String nodeId) {
         this.streams = streams;
+        this.sources = sources;
         this.nodeId = nodeId;
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
@@ -128,6 +134,21 @@ public class PravahaNode implements SmartLifecycle {
         views = new ViewCatalog();
         registry = new QueryRegistry(
                 views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, streams.all().toArray(new StreamSchema[0]));
+
+        // Before recovery, and that ordering is the point: a recovered query is registered the same
+        // way a fresh one is, so a factory attached afterwards would feed everything registered
+        // from now on and nothing the journal brought back -- queries that look identical in every
+        // listing and differ only in whether rows arrive.
+        feeds = new PluginSourceFeeds();
+        sources.toBindings().forEach(feeds::bind);
+        registry.feedingFrom(feeds);
+        if (feeds.bindings().isEmpty()) {
+            log.info("no sources are bound, so registered queries receive rows only from clients that push "
+                    + "them; bind one under pravaha.sources.<stream>");
+        } else {
+            log.info("sources bound: {}", feeds.bindings().values());
+        }
+
         journalPath.ifPresent(path -> {
             registry.journalTo(new RegistryJournal(path));
             QueryRegistry.Recovery recovery = registry.recover(PravahaNode::principalNamed);

@@ -28,6 +28,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
+import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -57,7 +58,8 @@ class PravahaMetricsTest {
                 .field("user_id", Types.string())
                 .field("amount", Types.int64())
                 .build());
-        node = new PravahaNode(catalog, false, "127.0.0.1", 0, "", "SINGLE", "single", "metrics-node");
+        node = new PravahaNode(
+                catalog, new SourceBindingProperties(), false, "127.0.0.1", 0, "", "SINGLE", "single", "metrics-node");
         node.start();
         meters = new SimpleMeterRegistry();
         metrics = new PravahaMetrics(meters, node);
