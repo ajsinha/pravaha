@@ -152,10 +152,18 @@ class PhysicalPlanBuilderTest {
 
     @Test
     void anExpressionPravahaCannotEvaluateIsStillRefusedByName() {
-        assertThatThrownBy(() -> plan("SELECT ABS(amount) FROM txn"))
+        // ABS was the example until it was implemented. The point of the test is unchanged: a
+        // function the engine cannot evaluate is refused by name at plan time, rather than
+        // accepted and found to be missing when a row arrives.
+        //
+        // Note which name comes back. The query says SQRT and the refusal says POWER, because
+        // Calcite rewrites SQRT(x) to POWER(x, 0.5) before the planner sees it. The message is
+        // accurate about what could not be evaluated and does not match what the author typed,
+        // which is worth knowing before somebody searches their SQL for a word that is not in it.
+        assertThatThrownBy(() -> plan("SELECT SQRT(amount) FROM txn"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2021")
-                .hasMessageContaining("ABS");
+                .hasMessageContaining("POWER");
     }
 
     @Test

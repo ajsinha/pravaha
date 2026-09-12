@@ -82,6 +82,85 @@ class ComputedProjectionTest {
     }
 
     @Test
+    void caseWhenChoosesPerRow() {
+        List<CapturingRowWriter.Captured> out = run(
+                "SELECT CASE WHEN amount > 100 THEN 1 ELSE 0 END FROM txn",
+                List.of(new Row(1, 150, 1.0, null), new Row(2, 50, 1.0, null)));
+
+        assertThat(out.get(0).asLong(0)).isEqualTo(1);
+        assertThat(out.get(1).asLong(0)).isEqualTo(0);
+    }
+
+    @Test
+    void caseWhenFallsThroughSeveralBranches() {
+        List<CapturingRowWriter.Captured> out = run(
+                "SELECT CASE WHEN amount > 100 THEN 2 WHEN amount > 10 THEN 1 ELSE 0 END FROM txn",
+                List.of(new Row(1, 150, 1.0, null), new Row(2, 50, 1.0, null), new Row(3, 5, 1.0, null)));
+
+        assertThat(out.get(0).asLong(0)).isEqualTo(2);
+        assertThat(out.get(1).asLong(0)).isEqualTo(1);
+        assertThat(out.get(2).asLong(0)).isEqualTo(0);
+    }
+
+    @Test
+    void aCaseWithNoElseIsNullWhenNothingMatches() {
+        // SQL's rule, and the reason the type check has to let a null branch take the other's type:
+        // the ELSE Calcite supplies here is a null of whatever type it chose, not of the column's.
+        List<CapturingRowWriter.Captured> out = run(
+                "SELECT CASE WHEN amount > 100 THEN 1 END FROM txn",
+                List.of(new Row(1, 150, 1.0, null), new Row(2, 50, 1.0, null)));
+
+        assertThat(out.get(0).asLong(0)).isEqualTo(1);
+        assertThat(out.get(1).isNull(0))
+                .as("no branch matched, so the answer is unknown")
+                .isTrue();
+    }
+
+    @Test
+    void theUntakenBranchIsNotEvaluated() {
+        // Not an optimisation. A reader is entitled to assume a guard guards, and evaluating both
+        // arms would divide by zero on the row the guard exists for.
+        List<CapturingRowWriter.Captured> out = run(
+                "SELECT CASE WHEN amount = 0 THEN 0 ELSE 100 / amount END FROM txn",
+                List.of(new Row(1, 0, 1.0, null), new Row(2, 4, 1.0, null)));
+
+        assertThat(out.get(0).asLong(0)).isEqualTo(0);
+        assertThat(out.get(1).asLong(0)).isEqualTo(25);
+    }
+
+    @Test
+    void absFloorCeilAndRound() {
+        List<CapturingRowWriter.Captured> out = run("SELECT ABS(amount) FROM txn", List.of(new Row(1, -42, 1.0, null)));
+        assertThat(out.get(0).asLong(0)).isEqualTo(42);
+
+        List<CapturingRowWriter.Captured> floors =
+                run("SELECT FLOOR(rate), CEIL(rate), ROUND(rate) FROM txn", List.of(new Row(1, 0, 2.4, null)));
+        assertThat((Double) floors.get(0).values()[0]).isEqualTo(2.0);
+        assertThat((Double) floors.get(0).values()[1]).isEqualTo(3.0);
+        assertThat((Double) floors.get(0).values()[2]).isEqualTo(2.0);
+    }
+
+    @Test
+    void aFunctionOfNullIsNullRatherThanZero() {
+        // ABS(NULL) is NULL. Zero would be an answer, and "we do not know" is not one.
+        List<CapturingRowWriter.Captured> out =
+                run("SELECT ABS(bonus) FROM txn", List.of(new Row(1, 0, 0, null), new Row(2, 0, 0, -7L)));
+
+        assertThat(out.get(0).isNull(0)).isTrue();
+        assertThat(out.get(1).asLong(0)).isEqualTo(7);
+    }
+
+    @Test
+    void anIntegerKeepsItsPrecisionThroughFloor() {
+        // FLOOR of a whole number is that number, returned without a trip through a double --
+        // which above 2^53 would come back as a different id than it went in as.
+        long big = 9007199254740993L;
+        List<CapturingRowWriter.Captured> out = run("SELECT FLOOR(amount) FROM txn", List.of(new Row(1, big, 0, null)));
+
+        assertThat(out.get(0).asLong(0)).isEqualTo(big);
+    }
+
+    @Test
     void floatingPointArithmeticStaysFloatingPoint() {
         List<CapturingRowWriter.Captured> out = run("SELECT rate * 2.5 FROM txn", List.of(new Row(1, 0, 4.0, null)));
 
@@ -197,9 +276,13 @@ class ComputedProjectionTest {
 
     @Test
     void anUnsupportedFunctionSaysWhatIsSupported() {
-        assertThatThrownBy(() -> plan("SELECT ABS(amount) FROM txn"))
+        // ABS used to be the example here and is now supported, so the refusal needs a function
+        // that still is not. The message names what the engine does have rather than only what it
+        // lacks, because "unsupported" without a list sends the reader to the source.
+        assertThatThrownBy(() -> plan("SELECT SQRT(rate) FROM txn"))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("not supported in a projection yet");
+                .hasMessageContaining("not supported in a projection")
+                .hasMessageContaining("ABS, FLOOR, CEIL, ROUND, and CASE WHEN");
     }
 
     /** Plans, runs, and copies the output rows out. */

@@ -50,8 +50,9 @@ costs whatever was decided on the strength of it.
 | Integer and floating arithmetic — `amount * 2 + 1`, `price / 2` | ✅ | |
 | `CAST(x AS DOUBLE)` | ✅ | Between numeric types |
 | Literals — `SELECT 1` | ✅ | |
-| `CASE WHEN … THEN … END` | ❌ | `PRV-2021` |
-| Scalar functions — `ABS`, `ROUND`, `FLOOR` | ❌ | `PRV-2021` |
+| `CASE WHEN … THEN … END` | ✅ | Any number of branches, with or without `ELSE`. Only the branch taken is evaluated, so `CASE WHEN n = 0 THEN 0 ELSE t / n END` does not divide by zero |
+| Scalar functions — `ABS`, `FLOOR`, `CEIL`, `ROUND` | ✅ | One argument. `ROUND(x, 2)` is refused: rounding to decimal places is not built |
+| Numeric functions beyond those four | ❌ | `PRV-2021` |
 | String functions — `UPPER`, `SUBSTRING` | ❌ | `PRV-2021` |
 | String concatenation — `a \|\| b` | ❌ | `PRV-2021` |
 | `SELECT DISTINCT` | ❌ | `PRV-2050` — it is a `GROUP BY` over an unbounded key space; see below |

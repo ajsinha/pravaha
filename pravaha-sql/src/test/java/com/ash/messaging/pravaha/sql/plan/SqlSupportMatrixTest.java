@@ -105,8 +105,6 @@ class SqlSupportMatrixTest {
             Case.ok("floating arithmetic", "SELECT price / 2 FROM txn"),
             Case.ok("CAST", "SELECT CAST(amount AS DOUBLE) FROM txn"),
             Case.ok("literal", "SELECT 1 FROM txn"),
-            Case.refused("CASE", "SELECT CASE WHEN amount > 1 THEN 1 ELSE 0 END FROM txn", "PRV-2021"),
-            Case.refused("scalar function", "SELECT ABS(amount) FROM txn", "PRV-2021"),
             Case.refused("string function", "SELECT UPPER(user_id) FROM txn", "PRV-2021"),
             Case.refused("string concatenation", "SELECT user_id || 'x' FROM txn", "PRV-2021"),
             Case.refused("SELECT DISTINCT (over a stream)", "SELECT DISTINCT user_id FROM txn", "PRV-2050"),
@@ -159,6 +157,21 @@ class SqlSupportMatrixTest {
                     "PRV-2020"),
 
             // --- Joins ------------------------------------------------------------------------
+            // --- Expressions -----------------------------------------------------------------
+            Case.ok("CASE WHEN", "SELECT CASE WHEN amount > 100 THEN 1 ELSE 0 END FROM txn"),
+            Case.ok(
+                    "CASE with several branches",
+                    "SELECT CASE WHEN amount > 100 THEN 2 WHEN amount > 10 THEN 1 ELSE 0 END FROM txn"),
+            Case.ok("CASE with no ELSE", "SELECT CASE WHEN amount > 100 THEN 1 END FROM txn"),
+            Case.ok("ABS", "SELECT ABS(amount) FROM txn"),
+            Case.ok("FLOOR and CEIL", "SELECT FLOOR(amount), CEIL(amount) FROM txn"),
+            Case.ok("ROUND", "SELECT ROUND(amount) FROM txn"),
+            Case.ok("a function inside arithmetic", "SELECT ABS(amount) * 2 + 1 FROM txn"),
+            Case.ok(
+                    "a function inside a CASE",
+                    "SELECT CASE WHEN ABS(amount) > 5 THEN ABS(amount) ELSE 0 END FROM txn"),
+            Case.refused("UPPER", "SELECT UPPER(user_id) FROM txn", "PRV-2021"),
+            Case.refused("ROUND to decimal places", "SELECT ROUND(amount, 2) FROM txn", "PRV-2021"),
             Case.ok("inner equi-join", "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id = o.user_id"),
             Case.ok(
                     "multi-column equi-join",

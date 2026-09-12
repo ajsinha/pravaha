@@ -52,7 +52,11 @@ the query.
 ### `PRV-2020` / `PRV-2021` — "not supported yet"
 
 A relational operator (`2020`) or an expression (`2021`) the engine will not run: `ORDER BY`, `LIMIT`,
-`UNION`, an outer join between streams, `CASE`, `LIKE`, a scalar function in a projection.
+`UNION`, an outer join between streams, `LIKE`, a string function in a projection.
+
+The name in a `2021` message is the function the *planner* saw, which is not always the one you
+typed — Calcite rewrites `SQRT(x)` to `POWER(x, 0.5)` before the engine reads the query, so a
+refusal can name a function your SQL does not contain.
 
 The complete list, with what to do instead, is [`SQL_SUPPORT.md`](SQL_SUPPORT.md) — and it is checked
 by a test, so it is true rather than aspirational.

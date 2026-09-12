@@ -27,6 +27,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.runtime.plan.Expression;
+import com.ash.messaging.pravaha.runtime.plan.Predicate;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 
 /**
@@ -110,6 +111,20 @@ final class ExpressionCompiler {
         if (call.getKind() == org.apache.calcite.sql.SqlKind.CAST) {
             return cast(call);
         }
+        if (call.getKind() == org.apache.calcite.sql.SqlKind.CASE) {
+            return caseWhen(call, 0);
+        }
+        Expression.Function function = unaryFunction(call.getOperator().getName());
+        if (function != null) {
+            if (call.getOperands().size() != 1) {
+                throw new PravahaException(
+                        SqlErrors.UNSUPPORTED_EXPRESSION,
+                        call.getOperator().getName() + " is supported with one argument and was given "
+                                + call.getOperands().size() + ". ROUND to a number of decimal places is not "
+                                + "built; round the value and scale it, or cast it.");
+            }
+            return new Expression.Unary(function, compile(call.getOperands().get(0)));
+        }
         Expression.Operator operator =
                 switch (call.getOperator().getName().toUpperCase(java.util.Locale.ROOT)) {
                     case "+" -> Expression.Operator.ADD;
@@ -121,7 +136,11 @@ final class ExpressionCompiler {
                         throw new PravahaException(
                                 SqlErrors.UNSUPPORTED_EXPRESSION,
                                 "function '" + call.getOperator().getName() + "' in '" + call
-                                        + "' is not supported in a projection yet. Supported: + - * / %.");
+                                        + "' is not supported in a projection. Supported: + - * / %, "
+                                        + "ABS, FLOOR, CEIL, ROUND, and CASE WHEN. String functions are not: "
+                                        + "expressions in this engine evaluate to numbers, and giving them "
+                                        + "string values is a change to the row model rather than a function "
+                                        + "to add.");
                 };
         if (call.getOperands().size() != 2) {
             throw new PravahaException(
@@ -145,6 +164,40 @@ final class ExpressionCompiler {
      * <p>Accepted only between numbers. A cast to or from text, or anything else, is refused by name
      * rather than evaluated as whatever the underlying long happens to be.
      */
+    /**
+     * {@code CASE WHEN a THEN x WHEN b THEN y ELSE z END}.
+     *
+     * <p>Calcite flattens the chain into one call: condition, value, condition, value, …, else. It
+     * is rebuilt here as nested two-way choices, which evaluates identically and keeps each node a
+     * shape with one meaning.
+     */
+    private Expression caseWhen(RexCall call, int from) {
+        java.util.List<RexNode> operands = call.getOperands();
+        if (from == operands.size() - 1) {
+            return compile(operands.get(from));
+        }
+        if (from >= operands.size()) {
+            // Calcite always supplies an ELSE, adding a null one where the SQL omitted it, so
+            // reaching here means the shape is not what this understands rather than that the
+            // query was missing a branch.
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "this CASE has no ELSE branch and no value to fall through to: " + call);
+        }
+        Predicate when = new PredicateCompiler(inputSchema).compile(operands.get(from));
+        return new Expression.Case(when, compile(operands.get(from + 1)), caseWhen(call, from + 2));
+    }
+
+    private static Expression.Function unaryFunction(String name) {
+        return switch (name.toUpperCase(java.util.Locale.ROOT)) {
+            case "ABS" -> Expression.Function.ABS;
+            case "FLOOR" -> Expression.Function.FLOOR;
+            case "CEIL", "CEILING" -> Expression.Function.CEIL;
+            case "ROUND" -> Expression.Function.ROUND;
+            default -> null;
+        };
+    }
+
     private Expression cast(RexCall call) {
         Expression source = compile(call.getOperands().get(0));
         TypeName target = typeOf(call.getType().getSqlTypeName(), call.toString());

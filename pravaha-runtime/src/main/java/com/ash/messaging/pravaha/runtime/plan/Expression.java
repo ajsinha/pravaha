@@ -168,6 +168,121 @@ public sealed interface Expression {
     }
 
     /** Arithmetic. */
+    /**
+     * {@code CASE WHEN … THEN … ELSE … END}.
+     *
+     * <p>Two branches rather than a list, because Calcite hands over a chain and a chain of two-way
+     * choices evaluates identically while staying a shape with one obvious meaning. {@code CASE WHEN
+     * a THEN 1 WHEN b THEN 2 ELSE 3 END} becomes {@code Case(a, 1, Case(b, 2, 3))}.
+     *
+     * <p>Only the branch that is taken is evaluated, which is not an optimisation: {@code CASE WHEN
+     * n = 0 THEN 0 ELSE total / n END} divides by zero if both arms are evaluated, and a reader is
+     * entitled to assume the guard guards.
+     */
+    record Case(Predicate when, Expression then, Expression otherwise) implements Expression {
+
+        public Case {
+            // A null branch takes the other's type. `CASE WHEN x THEN 1 END` has no ELSE in the
+            // SQL, and Calcite supplies a null one typed however it likes -- so comparing types
+            // strictly would refuse the commonest CASE there is. A null is a null of whatever the
+            // column holds.
+            if (isNullLiteral(otherwise)) {
+                otherwise = Literal.ofNull(then.type());
+            } else if (isNullLiteral(then)) {
+                then = Literal.ofNull(otherwise.type());
+            }
+            if (then.type() != otherwise.type()) {
+                throw new IllegalArgumentException("a CASE must produce one type, and this one produces "
+                        + then.type() + " on the THEN branch and " + otherwise.type() + " on the ELSE. A row "
+                        + "whose type depends on its own values has no schema.");
+            }
+        }
+
+        private static boolean isNullLiteral(Expression expression) {
+            return expression instanceof Literal literal && literal.isNull();
+        }
+
+        @Override
+        public TypeName type() {
+            return then.type();
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            return when.test(row) ? then.evaluateLong(row) : otherwise.evaluateLong(row);
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            return when.test(row) ? then.evaluateDouble(row) : otherwise.evaluateDouble(row);
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return when.test(row) ? then.isNull(row) : otherwise.isNull(row);
+        }
+
+        @Override
+        public String describe() {
+            return "CASE WHEN " + when.describe() + " THEN " + then.describe() + " ELSE " + otherwise.describe()
+                    + " END";
+        }
+    }
+
+    /** A one-argument numeric function. */
+    record Unary(Function function, Expression argument) implements Expression {
+
+        @Override
+        public TypeName type() {
+            // The argument's type, unchanged. FLOOR of an integer is that integer and of a double
+            // is a double; ABS likewise. Widening here would silently change a column's type on
+            // the way through a function that was asked to do arithmetic, not conversion.
+            return argument.type();
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            long value = argument.evaluateLong(row);
+            return switch (function) {
+                case ABS -> Math.abs(value);
+                // Already whole. Returning it unchanged rather than round-tripping through a double,
+                // which loses precision above 2^53 and would make FLOOR of a large id a different id.
+                case FLOOR, CEIL, ROUND -> value;
+            };
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            double value = argument.evaluateDouble(row);
+            return switch (function) {
+                case ABS -> Math.abs(value);
+                case FLOOR -> Math.floor(value);
+                case CEIL -> Math.ceil(value);
+                case ROUND -> Math.rint(value);
+            };
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            // Null in, null out. ABS(NULL) is NULL and not zero, which is the difference between
+            // "we do not know" and "it is nothing".
+            return argument.isNull(row);
+        }
+
+        @Override
+        public String describe() {
+            return function.name() + "(" + argument.describe() + ")";
+        }
+    }
+
+    /** The one-argument numeric functions this engine evaluates. */
+    enum Function {
+        ABS,
+        FLOOR,
+        CEIL,
+        ROUND
+    }
+
     enum Operator {
         ADD("+"),
         SUBTRACT("-"),

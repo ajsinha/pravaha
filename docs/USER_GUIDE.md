@@ -206,7 +206,8 @@ Filter, enrich from a dimension table, window, aggregate. That covers nearly eve
 
 **The four refusals worth knowing before you start:**
 
-- No `CASE` — conditional aggregation is two registrations
+- No string expressions — `UPPER`, `SUBSTRING`, `LIKE`, `||`. Expressions in this engine evaluate to
+  numbers; `CASE WHEN` and the numeric functions (`ABS`, `FLOOR`, `CEIL`, `ROUND`) do work
 - No `ORDER BY` / `LIMIT` — sort in your application over a result a `WHERE` already narrowed
 - No outer or self joins between *streams* — a lookup join (`LEFT JOIN … FOR SYSTEM_TIME AS OF`) is
   supported and is what the shape above uses
