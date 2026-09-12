@@ -77,6 +77,20 @@ and one arena per lane, fed through the ingest pump from plugin readers — `Que
 query across four lanes and checks every row arrives and every lane does some of the work. Before
 that, the lane runtime and the SQL path both worked and neither was the engine.
 
+**The expression layer is complete as of 2026-09-12.** A projection could previously do arithmetic
+and nothing else, which is below the floor for production SQL. It now has `CASE WHEN`, the numeric
+functions (`ABS`, `FLOOR`, `CEIL`, `ROUND`), text — `UPPER`, `LOWER`, `TRIM`, `SUBSTRING`, `||`,
+string literals and `CASE` over strings — and `LIKE`/`NOT LIKE` in `WHERE`. What is still refused is
+listed in `docs/SQL_SUPPORT.md`, and that list is enforced by `SqlSupportMatrixTest` rather than
+maintained by hand.
+
+Two things about it a fresh session should not have to rediscover. Evaluating text allocates a
+`String` where the numeric path does not, so a text projection is not where the hottest query
+belongs — the zero-copy UTF-8 path exists but only the code generator uses it. And the generator
+**refuses** `LIKE` on purpose: its advantage on text is comparing bytes against a pre-encoded
+literal without building a `String`, and a `Matcher` needs one, so emitting it would be slower than
+the interpreted fallback.
+
 ---
 
 ## 2. Working practices — please keep these
