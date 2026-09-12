@@ -415,10 +415,15 @@ failure mode under pressure is memory, and the defence is plan-time refusal (`PR
 There is **no Spring Boot starter** (ADR-020 planned one; it does not exist).
 
 Clustering has its coordination layer — membership, leadership, the guarantee rule above — and its
-assignment, handoff and rebalancing machinery, all tested. What it does **not** yet have is the
-engine wiring: nothing implements `PartitionOwner` against real lane state, and no checkpoint
-coordinator cuts aligned barriers across nodes. A deployment today is still a single node. The
-machinery is the part that is hard to get right; the wiring is the part that is left.
+assignment, handoff and rebalancing machinery, all tested against mocks. It has no engine wiring:
+nothing implements `PartitionOwner` against real lane state.
+
+**Multi-node execution is deferred** ([ADR-034](adr/034-distribution-deferred.md)), and not because
+the wiring is hard. The rung below it is missing: keyed aggregates are single-lane, because nothing
+routes a row to the lane owning its group. Distribution would build a multi-node story on top of a
+single-node one that is not finished. The engine targets **one node, scaled to its cores**, and the
+coordination code is carried unused because the protocol layer would survive a data-plane rewrite
+and re-deriving it later would cost more than keeping it.
 
 ## JVM flags
 

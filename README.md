@@ -55,8 +55,9 @@
 > **subscribe** to one and receive changes per commit, with weights, so a late-data correction
 > arrives as a retraction and an insert.
 >
-> **What is not built, stated plainly:** no Spring Boot starter, and clustering has its
-> coordination layer without the engine wiring behind it. The console exists and is a *functional
+> **What is not built, stated plainly:** no Spring Boot starter. **Multi-node execution is
+> deferred** (ADR-034) — the engine targets one node scaled to its cores, and the clustering
+> coordination code is carried unused. The console exists and is a *functional
 > admin* console on purpose — it manages queries, tails a view and renders the documentation; it is
 > not the design-system product surface §23.20 describes. That is roughly wave 7 of 10. The Aerospike edition question in
 > [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
