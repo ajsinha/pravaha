@@ -315,6 +315,59 @@ class FlightRegistryTest {
     }
 
     @Test
+    void aConditionalEntitlementCannotBeSubscribedTo() throws Exception {
+        ViewCatalog views = new ViewCatalog();
+        // A policy that grants access *conditionally* -- the principal may read this view, but only
+        // the rows matching a predicate. This is the shape ADR-031 calls a row filter, and it is how
+        // a real deployment expresses "this desk sees its own region".
+        com.ash.messaging.pravaha.security.SecurityPolicy conditional =
+                new com.ash.messaging.pravaha.security.SecurityPolicy() {
+                    @Override
+                    public com.ash.messaging.pravaha.security.AccessDecision mayRead(
+                            com.ash.messaging.pravaha.security.Principal principal, String view) {
+                        return com.ash.messaging.pravaha.security.AccessDecision.allowWithRowFilter(
+                                "product_type = 'SWAP'");
+                    }
+
+                    @Override
+                    public com.ash.messaging.pravaha.security.AccessDecision mayRegisterQuery(
+                            com.ash.messaging.pravaha.security.Principal principal) {
+                        return com.ash.messaging.pravaha.security.AccessDecision.allow();
+                    }
+                };
+
+        try (QueryRegistry filtered = new QueryRegistry(
+                        views, conditional, com.ash.messaging.pravaha.security.AuditSink.NONE, TRADE);
+                PravahaFlightServer guarded = new PravahaFlightServer(views)
+                        // The server carries its OWN policy, separate from the registry's. Passing
+                        // it to only one of the two is how a read ends up authorized by a different
+                        // rule than a registration -- worth knowing when writing a deployment.
+                        .authorizedBy(conditional, com.ash.messaging.pravaha.security.AuditSink.NONE)
+                        .hosting(filtered)
+                        .start("localhost", 0);
+                FlightClient client = FlightClient.builder(
+                                allocator, Location.forGrpcInsecure("localhost", guarded.port()))
+                        .build()) {
+
+            client.doAction(new Action(
+                            ControlWire.REGISTER,
+                            ControlWire.encode("conditional", "SELECT trade_id, product_type FROM trade", "0")))
+                    .forEachRemaining(result -> {});
+
+            // The leak this closes: the subscribe path read the AccessDecision, checked `allowed()`,
+            // and threw the row filter away -- so a principal entitled to swaps received every
+            // trade. A subscription has no plan to AND a predicate into; it delivers each change as
+            // the view commits it. So it fails closed and says why, rather than over-serving in
+            // silence. Reading the same view still works, with the predicate applied.
+            assertThatThrownBy(() -> client.getStream(new org.apache.arrow.flight.Ticket(
+                                    ControlWire.subscribeTicket("conditional", List.of())))
+                            .next())
+                    .hasMessageContaining("PRV-7002")
+                    .hasMessageContaining("cannot enforce a filter");
+        }
+    }
+
+    @Test
     void aServerWithoutARegistrySaysSoRatherThanDoingNothing() throws Exception {
         try (PravahaFlightServer plain = new PravahaFlightServer(new ViewCatalog()).start("localhost", 0);
                 FlightClient other = FlightClient.builder(

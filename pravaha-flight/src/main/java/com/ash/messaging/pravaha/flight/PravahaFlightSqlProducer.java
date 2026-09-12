@@ -457,6 +457,30 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         SecurityErrors.FORBIDDEN,
                         principal.id() + " may not subscribe to '" + viewName + "': " + decision.reason());
             }
+            if (decision.rowFilter().isPresent()) {
+                // Refused, because this path cannot enforce it, and an entitlement that is silently
+                // discarded is worse than one that is refused.
+                //
+                // A read through ViewQuery ANDs the policy's predicate into the plan and checks the
+                // soundness rule -- the filter may be applied only to a view carrying every column it
+                // names. A subscription has no plan to AND into: changes are handed to the subscriber
+                // as the view commits them, and the only filter this path can express is equality on
+                // a column (SubscriptionFilter). So a principal whose entitlement is
+                // "region = 'EU'" would have received every region.
+                //
+                // Until the predicate can be evaluated per change, this fails closed. A subscriber
+                // whose access is unconditional is unaffected; one whose access is conditional is
+                // told why rather than quietly over-served.
+                throw new PravahaException(
+                        SecurityErrors.FORBIDDEN,
+                        principal.id() + " may not subscribe to '" + viewName + "' because their access to it "
+                                + "is conditional on the row filter '"
+                                + decision.rowFilter().get()
+                                + "', and a subscription cannot enforce a filter -- it delivers every change the "
+                                + "view commits. Read the view instead, where the predicate is applied to the "
+                                + "plan, or have the policy grant unconditional access to a view that already "
+                                + "carries only the rows this principal may see.");
+            }
 
             Map<String, Object> equals = new LinkedHashMap<>();
             for (int i = 2; i + 1 < fields.size(); i += 2) {
