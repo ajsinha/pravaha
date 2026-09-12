@@ -41,6 +41,7 @@ import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * A stream that does not end, in memory that does not grow.
@@ -189,6 +190,55 @@ class StreamingWatermarkTest {
             assertThat(out).isEmpty();
             assertThat(execution.watermarkNanos()).isEmpty();
         }
+    }
+
+    @Test
+    void aStreamDeclaresItsOwnLateness() {
+        // Lateness belongs to the source. A topic fed by mobile clients over a flaky network and a
+        // scan of data already at rest have nothing in common here, so one engine-wide number has
+        // to be wrong for one of them.
+        StreamSchema tolerant = StreamSchema.builder("mobile")
+                .field("user_id", Types.int64())
+                .field("event_time", Types.timestamp())
+                .eventTime("event_time")
+                .outOfOrderness(Duration.ofMinutes(2))
+                .build();
+
+        assertThat(tolerant.outOfOrderness()).isEqualTo(Duration.ofMinutes(2));
+        // And a stream that says nothing gets the default rather than zero, because zero is a
+        // claim of strict ordering that the engine would then hold the source to.
+        assertThat(schema().outOfOrderness()).isEqualTo(StreamSchema.DEFAULT_OUT_OF_ORDERNESS);
+        assertThat(StreamSchema.DEFAULT_OUT_OF_ORDERNESS).isEqualTo(Duration.ofSeconds(10));
+    }
+
+    @Test
+    void aDeclaredLatenessHoldsTheWatermarkBack() {
+        // The point of declaring it: a tolerant stream waits longer before calling a window
+        // complete, which is what stops a late row being dropped rather than corrected.
+        long generous = Duration.ofSeconds(30).toNanos();
+        long strict = Duration.ofSeconds(1).toNanos();
+
+        WatermarkGenerator patient = WatermarkGenerator.boundedOutOfOrderness(generous);
+        WatermarkGenerator hasty = WatermarkGenerator.boundedOutOfOrderness(strict);
+        patient.observe(100 * SECOND);
+        hasty.observe(100 * SECOND);
+
+        assertThat(patient.watermark()).isEqualTo(100 * SECOND - generous);
+        assertThat(hasty.watermark()).isEqualTo(100 * SECOND - strict);
+        assertThat(patient.watermark())
+                .as("the tolerant stream is still waiting for rows the strict one has given up on")
+                .isLessThan(hasty.watermark());
+    }
+
+    @Test
+    void aNegativeLatenessIsRefused() {
+        assertThatThrownBy(() -> StreamSchema.builder("bad")
+                        .field("event_time", Types.timestamp())
+                        .eventTime("event_time")
+                        .outOfOrderness(Duration.ofSeconds(-1))
+                        .build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must not be negative");
     }
 
     @Test

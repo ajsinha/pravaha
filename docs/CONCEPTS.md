@@ -50,10 +50,29 @@ Watermarks are what close windows, what release join state, and what make "the a
 to here" a statement anyone can act on. Almost everything time-shaped in Pravaha is downstream of
 this one idea.
 
+> **How late is late** is declared by the stream, beside the column that carries its time:
+>
+> ```java
+> StreamSchema.builder("orders")
+>     .field("placed_at", Types.timestamp())
+>     .eventTime("placed_at")
+>     .outOfOrderness(Duration.ofSeconds(2))   // this source is quick and tidy
+>     .build();
+> ```
+>
+> Lateness belongs to the **source**, not the engine: a topic fed by mobile clients over a flaky
+> network and a scan of data already at rest have nothing in common, and one engine-wide number has
+> to be wrong for one of them. A stream that says nothing gets **10 seconds**, which a deployment
+> moves with `pravaha.watermark.out-of-orderness`.
+>
+> Note what this is *not*. It decides how long the engine waits before calling a window complete. A
+> row arriving after that is still applied — as a retraction and a correction — which is what the
+> weights are for.
+>
 > **Where watermarks come from.** Ask for them:
 >
 > ```java
-> execution.generatingWatermarks(() -> WatermarkGenerator.boundedOutOfOrderness(Duration.ofSeconds(5)));
+> execution.generatingWatermarks();   // every stream uses the lateness it declared
 > ```
 >
 > Each source partition then contributes its own watermark, the query takes the **minimum across

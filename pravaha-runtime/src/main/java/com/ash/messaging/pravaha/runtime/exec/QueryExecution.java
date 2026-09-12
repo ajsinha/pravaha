@@ -206,7 +206,14 @@ public final class QueryExecution implements AutoCloseable {
             // One partition per pump, named so an idle one can be identified and excluded rather
             // than left holding the whole query's watermark down.
             String partition = streamName + "#" + laneIndex + "/" + pumps.size();
-            watermarks.addPartition(partition, generator.get(), System.nanoTime());
+            // The stream's own lateness, not one number for the whole engine. A topic fed by
+            // mobile clients and a scan of data already at rest have nothing in common here, and
+            // whichever single value were chosen would be wrong for one of them.
+            Duration lateness = pipelines.get(laneIndex).inputSchema(streamName).outOfOrderness();
+            watermarks.addPartition(
+                    partition,
+                    generator == null ? WatermarkGenerator.boundedOutOfOrderness(lateness.toNanos()) : generator.get(),
+                    System.nanoTime());
 
             // The pump stores its highest event time and nothing more; the tracker is read and
             // written only by the watermark thread.
@@ -271,6 +278,20 @@ public final class QueryExecution implements AutoCloseable {
     /** With a one-second tick and a thirty-second idle timeout. */
     public QueryExecution generatingWatermarks(Supplier<WatermarkGenerator> generator) {
         return generatingWatermarks(generator, Duration.ofSeconds(30), Duration.ofSeconds(1));
+    }
+
+    /**
+     * Derives watermarks, taking each stream's own declared lateness.
+     *
+     * <p>The form to reach for. {@code StreamSchema.outOfOrderness()} is where a source says how
+     * out of order it is, defaulting to ten seconds, so a query over three streams gets three
+     * different tolerances without the caller having to know any of them.
+     *
+     * <p>Pass an explicit generator instead only to override every stream at once, or to use a
+     * strategy other than bounded out-of-orderness.
+     */
+    public QueryExecution generatingWatermarks() {
+        return generatingWatermarks(null, Duration.ofSeconds(30), Duration.ofSeconds(1));
     }
 
     private void advanceWatermarkQuietly() {

@@ -69,6 +69,28 @@ pravaha:
   # and does nothing is worse than an absent feature: it invites somebody to tune a number that has
   # no effect and to believe recovery is covered. See docs/OPERATIONS.md.
 
+  # Event time. Every bound in the engine is armed by it: a join evicts at the watermark minus
+  # its match window, a view forgets past the committed frontier, a window closes when the
+  # watermark passes its end. A watermark that does not advance is not a quiet query, it is
+  # unbounded state.
+  watermark:
+    # How late a row may be before the engine stops waiting for it. This is the DEFAULT; a stream
+    # that knows better overrides it at creation with StreamSchema.outOfOrderness, because
+    # lateness belongs to the source and not to the engine.
+    #
+    # Ten seconds is generous for a well-behaved source and mean for a bad one, which is the right
+    # way round: too small silently drops rows as late, too large only costs memory, and the
+    # second failure is visible while the first is not.
+    out-of-orderness: 10s
+    # How long a partition may produce nothing before it stops holding the watermark back. Too
+    # long and one quiet partition freezes every window in the query, which presents as a hang
+    # rather than an error; too short and a merely slow partition is excluded while it still had
+    # rows coming, closing windows early.
+    idle-after: 30s
+    # How often event time advances. This is also what makes idleness detectable at all: a
+    # watermark derived only from arriving rows cannot notice that rows have stopped arriving.
+    tick: 1s
+
   cluster:
     # What is being asked of the cluster (a correctness question).
     #   SINGLE      one node

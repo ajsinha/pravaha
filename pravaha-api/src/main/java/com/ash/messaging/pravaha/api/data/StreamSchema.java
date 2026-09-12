@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.api.data;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,9 +37,30 @@ public final class StreamSchema {
     private final Map<String, Field> byName;
     private final int version;
     private final int eventTimeOrdinal;
+    private final Duration outOfOrderness;
     private final List<String> primaryKey;
 
-    private StreamSchema(String name, List<Field> fields, int version, int eventTimeOrdinal, List<String> primaryKey) {
+    /**
+     * How late this stream's rows arrive, at worst.
+     *
+     * <p>The default when a stream does not say. Ten seconds is generous for a well-behaved source
+     * and mean for a bad one, which is the right way round for a default: too small silently drops
+     * data as late, too large only costs memory, and the second failure is visible while the first
+     * is not.
+     *
+     * <p>A deployment moves this with {@code pravaha.watermark.out-of-orderness}; a stream that
+     * knows its own source overrides both with {@link Builder#outOfOrderness}.
+     */
+    public static final Duration DEFAULT_OUT_OF_ORDERNESS = Duration.ofSeconds(10);
+
+    private StreamSchema(
+            String name,
+            List<Field> fields,
+            int version,
+            int eventTimeOrdinal,
+            List<String> primaryKey,
+            Duration outOfOrderness) {
+        this.outOfOrderness = outOfOrderness == null ? DEFAULT_OUT_OF_ORDERNESS : outOfOrderness;
         this.name = name;
         this.fields = fields;
         this.version = version;
@@ -73,6 +95,22 @@ public final class StreamSchema {
     }
 
     /** Ordinal of the event-time field, or empty when the stream has no declared event time. */
+    /**
+     * How far behind the highest event time seen this stream's watermark should sit.
+     *
+     * <p>Declared on the stream because lateness is a property of the source, not of the query. A
+     * topic fed by mobile clients over a flaky network and a table scan of data already at rest have
+     * nothing in common here, and a single engine-wide number has to be wrong for one of them.
+     *
+     * <p>This is <em>out-of-orderness</em>, not allowed lateness. It decides how long the engine
+     * waits before declaring a window complete. It does not decide what happens to a row that turns
+     * up after that: such a row is still applied, as a retraction and a correction, which is what
+     * Z-set weights are for.
+     */
+    public Duration outOfOrderness() {
+        return outOfOrderness;
+    }
+
     public OptionalInt eventTimeOrdinal() {
         return eventTimeOrdinal < 0 ? OptionalInt.empty() : OptionalInt.of(eventTimeOrdinal);
     }
@@ -111,6 +149,7 @@ public final class StreamSchema {
         newFields.forEach(f -> b.field(f.name(), f.type()));
         if (eventTimeOrdinal >= 0 && eventTimeOrdinal < newFields.size()) {
             b.eventTime(newFields.get(eventTimeOrdinal).name());
+            b.outOfOrderness(outOfOrderness);
         }
         primaryKey.forEach(b::primaryKeyField);
         return b.build();
@@ -126,6 +165,7 @@ public final class StreamSchema {
         }
         return version == other.version
                 && eventTimeOrdinal == other.eventTimeOrdinal
+                && outOfOrderness.equals(other.outOfOrderness)
                 && name.equals(other.name)
                 && fields.equals(other.fields)
                 && primaryKey.equals(other.primaryKey);
@@ -133,7 +173,7 @@ public final class StreamSchema {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, fields, version, eventTimeOrdinal, primaryKey);
+        return Objects.hash(name, fields, version, eventTimeOrdinal, primaryKey, outOfOrderness);
     }
 
     @Override
@@ -157,6 +197,7 @@ public final class StreamSchema {
         private final List<String> primaryKey = new ArrayList<>();
         private int version = 1;
         private String eventTimeField;
+        private Duration outOfOrderness;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "name");
@@ -183,6 +224,22 @@ public final class StreamSchema {
             return this;
         }
 
+        /**
+         * How late this stream's rows may be before the engine stops waiting for them.
+         *
+         * <p>Set it beside {@code eventTime}, because the two answer one question together: which
+         * column carries time, and how much it can be trusted to be in order.
+         */
+        public Builder outOfOrderness(Duration lateness) {
+            if (lateness == null || lateness.isNegative()) {
+                throw new IllegalArgumentException("out-of-orderness must not be negative, got " + lateness
+                        + ". Zero means the source is strictly ordered, which is a claim the "
+                        + "engine will hold you to: a row behind the watermark arrives late.");
+            }
+            this.outOfOrderness = lateness;
+            return this;
+        }
+
         public Builder primaryKeyField(String fieldName) {
             primaryKey.add(fieldName);
             return this;
@@ -202,7 +259,7 @@ public final class StreamSchema {
             for (String pk : primaryKey) {
                 ordinalOf(frozen, pk, "primary-key field");
             }
-            return new StreamSchema(name, frozen, version, etOrdinal, List.copyOf(primaryKey));
+            return new StreamSchema(name, frozen, version, etOrdinal, List.copyOf(primaryKey), outOfOrderness);
         }
 
         private static int ordinalOf(List<Field> fs, String fieldName, String what) {

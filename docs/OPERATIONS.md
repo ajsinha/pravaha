@@ -213,17 +213,26 @@ required, put the directory on an encrypted volume.
 Event time has to be generated, and the engine does not assume it for you:
 
 ```java
-execution.generatingWatermarks(
-        () -> WatermarkGenerator.boundedOutOfOrderness(Duration.ofSeconds(5)),
-        Duration.ofSeconds(30),   // a partition may be quiet this long before it stops counting
-        Duration.ofSeconds(1));   // how often event time advances
+execution.generatingWatermarks();   // each stream uses the lateness it declared
+```
+
+```yaml
+pravaha:
+  watermark:
+    out-of-orderness: 10s   # the default; a stream overrides it at creation
+    idle-after: 30s
+    tick: 1s
 ```
 
 **Two settings, and both bound memory rather than taste.**
 
-*Out-of-orderness* is how late a row may be and still be counted. Larger tolerates messier sources
-and holds every window open longer, so state is larger. Smaller closes sooner and drops more as
-late.
+*Out-of-orderness* is how late a row may be and still be waited for. Larger tolerates messier
+sources and holds every window open longer, so state is larger. Smaller closes sooner and treats
+more rows as late corrections.
+
+Set it **per stream**, at creation, with `StreamSchema.outOfOrderness` — lateness is a property of
+the source, and a query reading three streams should get three tolerances rather than the worst of
+them. The configuration key is the default for streams that do not say.
 
 *Idle timeout* is how long a partition may produce nothing before it stops holding the watermark
 back. Too long and one quiet partition freezes every window in the query — the commonest streaming
