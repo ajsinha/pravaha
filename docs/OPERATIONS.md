@@ -388,16 +388,32 @@ whatever clients filtered on. Permission it like data, not like configuration.
 
 ### Checkpoints: what is actually true
 
-**Registered continuous queries are not checkpointed.** The registry runs pipelines directly and
-never constructs a `QueryExecution`, which is what owns checkpointing — so for every query the
-server maintains, state lives only in memory and is rebuilt from the stream after a restart. That is
-the same warm-up the journal section describes, and it is the whole recovery story today.
+**Registered continuous queries are checkpointed when `pravaha.checkpoint.directory` is set, and
+not otherwise.** Unset is the default, and the node says so at startup rather than leaving it to be
+found during a recovery:
 
-`PeriodicCheckpointer` exists, takes checkpoints on a schedule and prunes to a count — and **nothing
-in production constructs it.** It is reachable only by an embedder driving a `QueryExecution`
-directly. There is deliberately no `pravaha.checkpoint.*` block in `application.yaml`, because
-configuration that looks live and does nothing is worse than an absent feature: it invites an
-operator to tune a number that has no effect.
+```yaml
+pravaha:
+  checkpoint:
+    directory: /var/lib/pravaha/checkpoints
+    interval: 1m
+    keep: 3
+```
+
+Two different durability questions, easy to confuse. The **journal** remembers which queries exist;
+replaying it re-registers them and re-authorizes each against the policy as it is now.
+**Checkpoints** remember what those queries had accumulated. A node with a journal and no checkpoint
+directory comes back knowing every question and none of the answers.
+
+Each query checkpoints into its own directory beneath that root. One shared store would make pruning
+global — the newest three across the node rather than the newest three of each query — so a busy
+query would evict a quiet one's only fallback.
+
+Retention is **counted, not timed**, and that is deliberate. An age rule would delete the last
+fallback precisely when nothing is happening: an idle system takes no new checkpoints, so after a
+quiet night every checkpoint is old and a time rule removes them all. More than one is kept because
+the newest is the likeliest to be unreadable — it is the one that was being written when the process
+died.
 
 Retention here would be counted rather than timed, and the reasoning is worth keeping for when it is
 wired: a view holds data and streaming data is about what is true now, so age is the right unit

@@ -55,6 +55,7 @@ public final class RegisteredQuery implements AutoCloseable {
     private final ViewSink sink;
     private final QueryExecution execution;
     private volatile SourceFeed feed = SourceFeed.NONE;
+    private volatile AutoCloseable checkpointer;
     private final Instant registeredAt;
     private final java.util.List<com.ash.messaging.pravaha.sql.plan.ParameterPlacement> placements;
 
@@ -359,8 +360,24 @@ public final class RegisteredQuery implements AutoCloseable {
             // is mid-write leaves it writing into a lane that has gone. Stop the rows, then stop
             // the thing they were going to.
             feed.close();
+            // Before the execution, and for the same reason the feed is: a checkpoint taken while
+            // the lanes are closing reads state that is half gone, and writes it down as if it were
+            // whole. A bad checkpoint is worse than a missing one, because recovery trusts it.
+            if (checkpointer != null) {
+                try {
+                    checkpointer.close();
+                } catch (Exception e) {
+                    // Its scheduler is a daemon, so a checkpointer that will not close cannot keep
+                    // the JVM alive, and the execution below must be released either way.
+                }
+            }
             execution.close();
         }
+    }
+
+    /** Attaches the checkpointer for this computation. Called once, by the registry that started it. */
+    void checkpointWith(AutoCloseable periodic) {
+        this.checkpointer = periodic;
     }
 
     /** Attaches the feed opened for this computation. Called once, by the registry that started it. */

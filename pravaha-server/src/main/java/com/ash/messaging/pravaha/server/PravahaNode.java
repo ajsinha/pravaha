@@ -46,6 +46,7 @@ import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
+import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 /**
@@ -96,6 +97,8 @@ public class PravahaNode implements SmartLifecycle {
     private final File tlsCertificate;
     private final File tlsKey;
     private volatile PluginSourceFeeds feeds;
+    private final Optional<Path> checkpointPath;
+    private final Configuration checkpointConfiguration;
     private volatile ClusterCoordinator coordinator;
     private volatile boolean running;
 
@@ -108,7 +111,7 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.flight.enabled:true}") boolean flightEnabled,
             @Value("${pravaha.flight.host:0.0.0.0}") String flightHost,
             @Value("${pravaha.flight.port:9090}") int flightPort,
-            @Value("${pravaha.registry.journal:}") String journal,
+            PersistenceProperties persistence,
             @Value("${pravaha.cluster.mode:SINGLE}") String clusterMode,
             @Value("${pravaha.cluster.mechanism:single}") String clusterMechanism,
             @Value("${pravaha.node.id:pravaha-node-01}") String nodeId) {
@@ -121,7 +124,9 @@ public class PravahaNode implements SmartLifecycle {
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
         this.flightPort = flightPort;
-        this.journalPath = journal == null || journal.isBlank() ? Optional.empty() : Optional.of(Path.of(journal));
+        this.journalPath = persistence.journalPath();
+        this.checkpointPath = persistence.checkpointPath();
+        this.checkpointConfiguration = persistence.checkpointConfiguration();
         this.clusterConfiguration = Configuration.builder()
                 .set("pravaha.cluster.mode", clusterMode)
                 .set("pravaha.cluster.mechanism", clusterMechanism)
@@ -237,6 +242,17 @@ public class PravahaNode implements SmartLifecycle {
         // way a fresh one is, so a factory attached afterwards would feed everything registered
         // from now on and nothing the journal brought back -- queries that look identical in every
         // listing and differ only in whether rows arrive.
+        // Before the feed factory, so that a query is checkpointed from its first row rather than
+        // from whenever the next interval happens to land.
+        checkpointPath.ifPresentOrElse(
+                path -> {
+                    registry.checkpointingTo(path, checkpointConfiguration);
+                    log.info("checkpointing registered queries under {}", path);
+                },
+                () -> log.warn("pravaha.checkpoint.directory is not set, so registered queries keep no "
+                        + "checkpoints: a restart recovers their definitions from the journal and none of "
+                        + "their accumulated state"));
+
         feeds = new PluginSourceFeeds();
         sources.toBindings().forEach(feeds::bind);
         registry.feedingFrom(feeds);

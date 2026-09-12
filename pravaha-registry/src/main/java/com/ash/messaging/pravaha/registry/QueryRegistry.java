@@ -89,6 +89,11 @@ public final class QueryRegistry implements AutoCloseable {
     /** Attaches data to a query's inputs. Nothing, until a deployment says otherwise. */
     private SourceFeedFactory feeds = SourceFeedFactory.NONE;
 
+    /** Where checkpoints are written, and how often. Null when nothing is checkpointed. */
+    private java.nio.file.Path checkpointRoot;
+
+    private com.ash.messaging.pravaha.common.config.Configuration checkpointConfiguration;
+
     public QueryRegistry(ViewCatalog views, StreamSchema... streams) {
         this(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, streams);
     }
@@ -135,6 +140,29 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public QueryRegistry feedingFrom(SourceFeedFactory factory) {
         this.feeds = factory == null ? SourceFeedFactory.NONE : factory;
+        return this;
+    }
+
+    /**
+     * Checkpoints every registered query into its own directory under {@code root}.
+     *
+     * <p>{@link com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer} and {@code
+     * FileCheckpointStore} were both built and tested and neither was ever constructed outside a
+     * test, so a registered query kept no checkpoints at all. The journal brought query
+     * <em>definitions</em> back after a restart -- with re-authorization, which is the right design
+     * -- and their aggregates, join state and open windows came back empty.
+     *
+     * <p>A directory per query, named by the registration. Sharing one store between queries would
+     * make pruning global: the newest three checkpoints across a node rather than the newest three
+     * of each query, so a busy query would evict a quiet one's only fallback.
+     */
+    public QueryRegistry checkpointingTo(
+            java.nio.file.Path root, com.ash.messaging.pravaha.common.config.Configuration configuration) {
+        this.checkpointRoot = root;
+        this.checkpointConfiguration = configuration == null
+                ? com.ash.messaging.pravaha.common.config.Configuration.builder()
+                        .build()
+                : configuration;
         return this;
     }
 
@@ -348,6 +376,26 @@ public final class QueryRegistry implements AutoCloseable {
      * planner optimised away and can omit one a view expanded into. What the plan scans is what the
      * query will actually read.
      */
+    private void startCheckpointing(String name, QueryExecution execution, RegisteredQuery query) {
+        if (checkpointRoot == null) {
+            return;
+        }
+        // The registration's name reaches the filesystem here, so it is sanitised rather than
+        // trusted. requireName already refuses the obvious, but a directory is a different alphabet
+        // from an identifier and "../" in a view name should not be able to choose where a
+        // checkpoint lands.
+        String directory = name.replaceAll("[^A-Za-z0-9_.-]", "_");
+        com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer checkpointer =
+                com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer.from(
+                        execution,
+                        new com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore(
+                                checkpointRoot.resolve(directory)),
+                        checkpointConfiguration,
+                        message -> {});
+        checkpointer.start();
+        query.checkpointWith(checkpointer);
+    }
+
     private static List<String> sourceStreams(PhysicalOperator plan) {
         List<String> found = new ArrayList<>();
         collectSources(plan, found);
@@ -401,6 +449,10 @@ public final class QueryRegistry implements AutoCloseable {
         // without reaching here -- which is what stops a shared computation being fed twice and
         // double-counting every row.
         try {
+            // Before the feed, so the first rows a source delivers are already inside a query that
+            // is being checkpointed. Started after the execution exists and before anything can
+            // write to it is the only window where neither ordering is wrong.
+            startCheckpointing(name, execution, query);
             query.feedFrom(feeds.open(name, execution, sourceStreams(plan)));
         } catch (RuntimeException e) {
             // A feed that cannot open must not leave a half-started query behind holding a lane

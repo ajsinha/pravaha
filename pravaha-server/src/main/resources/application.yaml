@@ -121,11 +121,25 @@ pravaha:
     journal: ""
 
 
-  # No checkpoint block, deliberately. PeriodicCheckpointer reads pravaha.checkpoint.*, and nothing
-  # in the server constructs it -- the registry runs pipelines directly and never builds a
-  # QueryExecution, so registered queries are not checkpointed at all. Configuration that looks live
-  # and does nothing is worse than an absent feature: it invites somebody to tune a number that has
-  # no effect and to believe recovery is covered. See docs/OPERATIONS.md.
+  # What a query had accumulated, so a restart recovers answers and not only questions.
+  #
+  # The journal above remembers which queries exist; this remembers what they had computed. A node
+  # with a journal and no checkpoint directory comes back knowing every question and none of the
+  # answers -- which is what this server did, because nothing ever constructed a checkpointer.
+  #
+  # Unset means no checkpoints, and the node says so at startup rather than leaving it to be
+  # discovered during a recovery. Each query checkpoints into its own directory beneath this one:
+  # one shared store would make pruning global, so a busy query would evict a quiet one's only
+  # fallback.
+  checkpoint:
+    directory: ""
+    interval: 1m
+    # Counted, not timed, and deliberately. An age rule would delete the last fallback precisely
+    # when nothing is happening: an idle system takes no new checkpoints, so after a quiet night
+    # every checkpoint is old and a time rule would remove them all. More than one is kept because
+    # the newest is the likeliest to be unreadable -- it is the one being written when a process
+    # died.
+    keep: 3
 
   # Event time. Every bound in the engine is armed by it: a join evicts at the watermark minus
   # its match window, a view forgets past the committed frontier, a window closes when the

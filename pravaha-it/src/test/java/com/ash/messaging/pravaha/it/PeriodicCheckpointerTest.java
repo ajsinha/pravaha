@@ -159,6 +159,12 @@ class PeriodicCheckpointerTest {
 
             // Six taken, three kept. The directory settles rather than growing, which is the whole
             // point: before this, a query checkpointing every minute left a file per minute for ever.
+            //
+            // Waited for rather than asserted the instant the sixth is stored. Storing and pruning
+            // are two steps, so between them four exist -- correctly and briefly. Sampling in that
+            // window passed on an idle machine and failed under a loaded parallel build, which is
+            // the least useful moment to learn about a race in a test.
+            awaitUntil(() -> store.availableIds().size() == 3, "the store to settle at three");
             assertThat(store.availableIds()).hasSize(3);
             assertThat(store.pruneCalls).isNotEmpty().allMatch(keep -> keep == 3);
         }

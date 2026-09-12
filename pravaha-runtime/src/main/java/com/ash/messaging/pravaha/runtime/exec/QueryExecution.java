@@ -256,35 +256,54 @@ public final class QueryExecution implements AutoCloseable {
         }
         IngestPump pump = new IngestPump(
                 reader, lanes.lane(laneIndex), input, pipelines.get(laneIndex).inputSchema(streamName), policy);
-        if (watermarks != null) {
-            // One partition per pump, named so an idle one can be identified and excluded rather
-            // than left holding the whole query's watermark down.
-            String partition = streamName + "#" + laneIndex + "/" + pumps.size();
-            // The stream's own lateness, not one number for the whole engine. A topic fed by
-            // mobile clients and a scan of data already at rest have nothing in common here, and
-            // whichever single value were chosen would be wrong for one of them.
-            Duration lateness = pipelines.get(laneIndex).inputSchema(streamName).outOfOrderness();
-            watermarks.addPartition(
-                    partition,
-                    generator == null ? WatermarkGenerator.boundedOutOfOrderness(lateness.toNanos()) : generator.get(),
-                    System.nanoTime());
-
-            // The pump stores its highest event time and nothing more; the tracker is read and
-            // written only by the watermark thread.
-            //
-            // WatermarkTracker documents itself as owned by one lane and confined to its thread,
-            // and calling observe() from each pump while the timer called advance() broke that
-            // immediately -- a ConcurrentModificationException on the first tick. A lock would
-            // have fixed it and put a lock on the per-row path, which is the one path in this
-            // engine that must not have one. An atomic maximum costs a compare-and-set per row
-            // and gives the timer the same number: the highest event time this partition has seen
-            // is all boundedOutOfOrderness needs.
-            AtomicLong highest = new AtomicLong(Long.MIN_VALUE);
-            partitionHighWater.put(partition, highest);
-            pump.observeEventTimeWith(nanos -> highest.accumulateAndGet(nanos, Math::max));
-        }
+        trackEventTimeOf(streamName, laneIndex, pump::observeEventTimeWith);
         pumps.add(pump);
         return pump;
+    }
+
+    /**
+     * Registers one source partition with the watermark tracker and wires its event-time observer.
+     *
+     * <p>Extracted so that both pumps use it. It lived inline in {@code pumpInto} and {@code
+     * pumpPartitionedInto} never had it, which is an asymmetry neither class could show you: event
+     * time did not advance from a partitioned source, so windows never closed and join state never
+     * evicted -- and because no partition was registered, the source was not in the minimum either,
+     * so a query mixing the two advanced its watermark without accounting for the partitioned side
+     * and could drop its rows as late. Sharing the code is the fix that also stops it recurring.
+     *
+     * @param observes accepts the observer to install -- a method reference to the pump's own
+     *     {@code observeEventTimeWith}, since the two pump types share no supertype
+     */
+    private void trackEventTimeOf(
+            String streamName, int laneIndex, java.util.function.Consumer<java.util.function.LongConsumer> observes) {
+        if (watermarks == null) {
+            return;
+        }
+        // One partition per pump, named so an idle one can be identified and excluded rather
+        // than left holding the whole query's watermark down.
+        String partition = streamName + "#" + laneIndex + "/" + pumps.size() + partitionedPumps.size();
+        // The stream's own lateness, not one number for the whole engine. A topic fed by
+        // mobile clients and a scan of data already at rest have nothing in common here, and
+        // whichever single value were chosen would be wrong for one of them.
+        Duration lateness = pipelines.get(laneIndex).inputSchema(streamName).outOfOrderness();
+        watermarks.addPartition(
+                partition,
+                generator == null ? WatermarkGenerator.boundedOutOfOrderness(lateness.toNanos()) : generator.get(),
+                System.nanoTime());
+
+        // The pump stores its highest event time and nothing more; the tracker is read and
+        // written only by the watermark thread.
+        //
+        // WatermarkTracker documents itself as owned by one lane and confined to its thread,
+        // and calling observe() from each pump while the timer called advance() broke that
+        // immediately -- a ConcurrentModificationException on the first tick. A lock would
+        // have fixed it and put a lock on the per-row path, which is the one path in this
+        // engine that must not have one. An atomic maximum costs a compare-and-set per row
+        // and gives the timer the same number: the highest event time this partition has seen
+        // is all boundedOutOfOrderness needs.
+        AtomicLong highest = new AtomicLong(Long.MIN_VALUE);
+        partitionHighWater.put(partition, highest);
+        observes.accept(nanos -> highest.accumulateAndGet(nanos, Math::max));
     }
 
     /**
@@ -517,6 +536,10 @@ public final class QueryExecution implements AutoCloseable {
                 keyOrdinals,
                 policy,
                 access);
+        // Lane 0 names the partition and reads the schema; a partitioned pump feeds every lane, and
+        // every lane's pipeline was compiled from the same plan, so any of them gives the same
+        // lateness. What matters is that the partition is registered at all.
+        trackEventTimeOf(streamName, 0, pump::observeEventTimeWith);
         partitionedPumps.add(pump);
         return pump;
     }

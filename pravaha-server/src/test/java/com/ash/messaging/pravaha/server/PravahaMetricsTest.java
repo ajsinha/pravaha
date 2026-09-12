@@ -30,6 +30,7 @@ import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
+import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -68,7 +69,7 @@ class PravahaMetricsTest {
                 false,
                 "127.0.0.1",
                 0,
-                "",
+                persistence(""),
                 "SINGLE",
                 "single",
                 "metrics-node");
@@ -173,5 +174,12 @@ class PravahaMetricsTest {
         SecurityProperties security = new SecurityProperties();
         security.setAllowAnonymous(true);
         return security;
+    }
+
+    /** Journal where the caller asked for one, and no checkpoint directory. */
+    private static PersistenceProperties persistence(String journal) {
+        PersistenceProperties persistence = new PersistenceProperties();
+        persistence.getRegistry().setJournal(journal == null ? "" : journal);
+        return persistence;
     }
 }

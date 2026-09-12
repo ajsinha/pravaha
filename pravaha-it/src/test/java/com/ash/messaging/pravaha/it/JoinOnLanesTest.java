@@ -42,6 +42,7 @@ import com.ash.messaging.pravaha.runtime.ingest.PartitionedIngestPump;
 import com.ash.messaging.pravaha.runtime.lane.Lane;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
+import com.ash.messaging.pravaha.runtime.time.WatermarkGenerator;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
@@ -262,6 +263,62 @@ class JoinOnLanesTest {
                         .as("the right side was refused because the left side is full")
                         .isTrue();
             }
+        }
+    }
+
+    @Test
+    void aPartitionedPumpAdvancesEventTimeLikeAnUnpartitionedOne() {
+        // The asymmetry that made this a bug neither class could show you. pumpInto registered a
+        // watermark partition and observed each row's event time; pumpPartitionedInto did neither,
+        // so on the multi-lane path event time never moved. Windows never closed and join state
+        // never evicted -- unbounded growth on exactly the path watermarks exist to bound.
+        //
+        // The second failure is worse than the first. With no partition registered, this source was
+        // not in the minimum the tracker takes: a query mixing a partitioned source with a
+        // single-lane one advanced its watermark WITHOUT accounting for this one, so rows from it
+        // could be judged late and dropped. A wrong answer that looks complete.
+        PhysicalOperator plan = plan();
+        ConcurrentLinkedQueue<CapturingRowWriter.Captured> results = new ConcurrentLinkedQueue<>();
+
+        try (QueryExecution execution = QueryExecution.start(plan, 2, config(), MemoryAccess.best(), () ->
+                (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add))) {
+
+            execution.generatingWatermarks(
+                    () -> WatermarkGenerator.boundedOutOfOrderness(0), Duration.ofSeconds(5), Duration.ofMillis(50));
+
+            PartitionedIngestPump users =
+                    execution.pumpPartitionedInto("users", new FiniteReader(8, 2, 8), BackpressurePolicy.defaults());
+            PartitionedIngestPump orders =
+                    execution.pumpPartitionedInto("orders", new FiniteReader(200, 3, 8), BackpressurePolicy.defaults());
+
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while (users.rowsPumped() + orders.rowsPumped() < 208 && System.nanoTime() < deadline) {
+                users.pumpOnce(64);
+                orders.pumpOnce(64);
+                execution.checkHealth();
+            }
+
+            // Wait for the value this test asserts, not merely for one to exist. The first row's
+            // event time is zero and the tick is every 50ms, so a tick landing between the first
+            // row and the second makes the watermark present and zero -- which passed alone and
+            // failed under a loaded parallel build, the least useful way to find out.
+            while (execution.watermarkNanos().orElse(0L) <= 0 && System.nanoTime() < deadline) {
+                execution.checkHealth();
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+
+            assertThat(execution.watermarkNanos())
+                    .as("a partitioned source must advance event time; without this, windows never close "
+                            + "and join state never evicts")
+                    .isPresent();
+            assertThat(execution.watermarkNanos().orElseThrow())
+                    .as("the watermark must reflect the rows this pump delivered")
+                    .isGreaterThan(0);
         }
     }
 

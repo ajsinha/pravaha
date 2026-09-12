@@ -167,6 +167,52 @@ class PluginSourceFeedsTest {
         }
     }
 
+    @Test
+    void aRegisteredQueryIsCheckpointedWhenADirectoryIsConfigured(@TempDir Path dir) throws Exception {
+        // PeriodicCheckpointer and FileCheckpointStore were both built and tested, and neither was
+        // ever constructed outside a test -- so a registered query kept no checkpoints at all. The
+        // journal brought definitions back after a restart and their accumulated state came back
+        // empty. The ingestion gap hid it: with no rows arriving there was no state to lose.
+        Path data = dir.resolve("txn.csv");
+        Files.writeString(data, "1,ann,100\n2,bob,250\n3,ann,50\n");
+        Path checkpoints = dir.resolve("checkpoints");
+
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding("txn", "filesystem", Map.of("path", data.toString(), "schema", SCHEMA_SPEC)));
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, TXN)
+                .feedingFrom(feeds)
+                .checkpointingTo(
+                        checkpoints,
+                        com.ash.messaging.pravaha.common.config.Configuration.builder()
+                                // A second, not the one-minute default: this test is about whether
+                                // anything checkpoints at all, and waiting a minute to find out
+                                // would make it a test nobody runs.
+                                .set("pravaha.checkpoint.interval", "1s")
+                                .build())) {
+            RegisteredQuery query = registry.register(
+                    "checkpointed", "SELECT user_id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
+            awaitRows(query, 3);
+
+            Path own = checkpoints.resolve("checkpointed");
+            long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+            while (System.nanoTime() < deadline && !(Files.isDirectory(own) && !isEmpty(own))) {
+                Thread.sleep(50);
+            }
+            assertThat(own).as("each query checkpoints into its own directory").isDirectory();
+            assertThat(isEmpty(own))
+                    .as("a running query must actually write checkpoints, not merely be configured to")
+                    .isFalse();
+        }
+    }
+
+    private static boolean isEmpty(Path directory) throws java.io.IOException {
+        try (var entries = Files.list(directory)) {
+            return entries.findAny().isEmpty();
+        }
+    }
+
     /**
      * Waits for the feed to deliver, or fails saying what it managed.
      *

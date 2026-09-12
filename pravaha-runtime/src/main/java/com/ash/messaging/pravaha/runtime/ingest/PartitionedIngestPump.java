@@ -72,6 +72,7 @@ public final class PartitionedIngestPump implements AutoCloseable {
     private final long[] rowsPerLane;
 
     private volatile boolean paused;
+    private java.util.function.LongConsumer eventTimeObserver = nanos -> {};
 
     /** Maps a key hash to a lane index, which is the lane group's virtual-partition assignment. */
     public interface LaneChooser {
@@ -132,10 +133,29 @@ public final class PartitionedIngestPump implements AutoCloseable {
 
     private RowWriter beginRow() {
         writer.begin(staging, 0);
-        return new DelegatingRowWriter(writer, this::route);
+        return new DelegatingRowWriter(writer, this::route, eventTimeObserver);
     }
 
     /** Hashes the staged row's key and hands it to the lane that owns it. */
+    /**
+     * Reports each row's event time to {@code observer} as it is written.
+     *
+     * <p>This pump did not do it, and {@link IngestPump} did. The asymmetry was not visible from
+     * either class and was serious in both directions. Event time never advanced from a partitioned
+     * source, so on the multi-lane path windows never closed and join state never evicted --
+     * unbounded growth on precisely the path watermarks exist to bound. Worse, because the pump
+     * registered no watermark partition either, it was not in the minimum: mixed with a single-lane
+     * source, the watermark advanced <em>without accounting for this one</em>, and its own rows
+     * could then be judged late and dropped. A wrong answer that looks complete.
+     *
+     * <p>One observer for the pump rather than one per lane, because the pump reads one source
+     * partition: which lane a row is routed to is a function of its key and says nothing about when
+     * the row happened. Watermarks track sources, not lanes.
+     */
+    public void observeEventTimeWith(java.util.function.LongConsumer observer) {
+        this.eventTimeObserver = observer == null ? nanos -> {} : observer;
+    }
+
     private void route() {
         int length = writer.sizeSoFar();
         long hash = JoinKeys.hash(view.wrap(staging, 0), keyOrdinals, schema);
