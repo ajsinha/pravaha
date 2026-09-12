@@ -37,8 +37,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Through the full HTTP stack rather than by calling controllers directly, because the things
  * that break a client are serialisation, status codes and error shape -- none of which a direct
  * method call exercises.
+ *
+ * <p>Anonymous access is switched on explicitly, because the node otherwise refuses to start a
+ * server that serves everything to unauthenticated callers. These tests are about the API's shape,
+ * not its security model -- and saying so here means that if the refusal is ever weakened, this
+ * property stops being necessary rather than these tests quietly covering a different configuration.
+ * {@code ApiSecurityTest} is where authentication itself is pinned.
  */
-@SpringBootTest
+@SpringBootTest(properties = "pravaha.security.allow-anonymous=true")
 @AutoConfigureMockMvc
 class ApiIntegrationTest {
 

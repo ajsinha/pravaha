@@ -1,0 +1,10 @@
+# Local development: open, and saying so.
+#
+# Activate with --spring.profiles.active=dev. This is the acknowledgement the node demands before it
+# will serve every view to unauthenticated callers -- made a profile rather than the default so that
+# running without a security model is a thing somebody switched on, and so that a production
+# deployment that copied application.yaml does not inherit it.
+
+pravaha:
+  security:
+    allow-anonymous: true

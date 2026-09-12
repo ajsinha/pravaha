@@ -62,6 +62,8 @@ public final class PravahaFlightServer implements AutoCloseable {
     private AuditSink audit = AuditSink.NONE;
     private ReadAdmission admission = ReadAdmission.UNLIMITED;
     private com.ash.messaging.pravaha.registry.QueryRegistry registry;
+    private java.io.File certificateChain;
+    private java.io.File privateKey;
     private java.time.Duration readDeadline = java.time.Duration.ZERO;
     private final AtomicReference<FlightServer> server = new AtomicReference<>();
     private final boolean ownsAllocator;
@@ -98,6 +100,39 @@ public final class PravahaFlightServer implements AutoCloseable {
         requireNotStarted("authentication");
         this.verifier = java.util.Objects.requireNonNull(verifier, "verifier");
         return this;
+    }
+
+    /**
+     * Serves over TLS, using a PEM certificate chain and its private key.
+     *
+     * <p>Without this the transport is {@code grpc+tcp} and every row, every credential and every
+     * query travels in clear text. That is defensible on a loopback socket and nowhere else --
+     * authentication over an unencrypted channel hands the bearer token to anyone on the path,
+     * which makes the token a formality rather than a control.
+     *
+     * <p>Must be called before {@link #start}, because the transport is chosen when the server is
+     * built and cannot be upgraded under a listening socket.
+     */
+    public PravahaFlightServer encryptedWith(java.io.File certificateChain, java.io.File privateKey) {
+        requireNotStarted("TLS");
+        if (!certificateChain.isFile()) {
+            throw new PravahaException(
+                    FlightErrors.TLS_UNREADABLE,
+                    "the TLS certificate " + certificateChain.getAbsolutePath() + " is not a readable file");
+        }
+        if (!privateKey.isFile()) {
+            throw new PravahaException(
+                    FlightErrors.TLS_UNREADABLE,
+                    "the TLS private key " + privateKey.getAbsolutePath() + " is not a readable file");
+        }
+        this.certificateChain = certificateChain;
+        this.privateKey = privateKey;
+        return this;
+    }
+
+    /** Whether this server is serving over TLS. */
+    public boolean isEncrypted() {
+        return certificateChain != null;
     }
 
     /** Enforces {@code policy} on every read, recording each decision in {@code audit}. */
@@ -180,7 +215,8 @@ public final class PravahaFlightServer implements AutoCloseable {
      *     a test wants, and the reason {@link #port()} exists
      */
     public PravahaFlightServer start(String host, int port) {
-        Location requested = Location.forGrpcInsecure(host, port);
+        Location requested =
+                certificateChain == null ? Location.forGrpcInsecure(host, port) : Location.forGrpcTls(host, port);
         try {
             FlightServer.Builder builder = FlightServer.builder(
                     allocator,
@@ -189,6 +225,9 @@ public final class PravahaFlightServer implements AutoCloseable {
                             .withRegistry(registry));
             if (verifier != null) {
                 builder.middleware(PrincipalMiddleware.KEY, new PrincipalMiddleware.Factory(verifier));
+            }
+            if (certificateChain != null) {
+                builder.useTls(certificateChain, privateKey);
             }
             FlightServer started = builder.build().start();
             server.set(started);

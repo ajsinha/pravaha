@@ -43,6 +43,14 @@ public final class FlightErrors {
     public static final ErrorCode PARAMETERS_TOO_LARGE = new ErrorCode(6103, "FLIGHT_PARAMETERS_TOO_LARGE");
 
     /**
+     * A TLS certificate or key was configured and cannot be read.
+     *
+     * <p>Refused at startup rather than warned about and skipped. Falling back to plaintext because
+     * a certificate was missing is how a deployment believes it is encrypted for months.
+     */
+    public static final ErrorCode TLS_UNREADABLE = new ErrorCode(6104, "FLIGHT_TLS_UNREADABLE");
+
+    /**
      * The Flight status a Pravaha failure should arrive as.
      *
      * <p>The message always carries the engine's own PRV code and diagnosis, but the status code is

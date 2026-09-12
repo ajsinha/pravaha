@@ -29,6 +29,7 @@ import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
+import com.ash.messaging.pravaha.server.security.SecurityProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -59,7 +60,18 @@ class PravahaMetricsTest {
                 .field("amount", Types.int64())
                 .build());
         node = new PravahaNode(
-                catalog, new SourceBindingProperties(), false, "127.0.0.1", 0, "", "SINGLE", "single", "metrics-node");
+                catalog,
+                new SourceBindingProperties(),
+                openServer(),
+                null,
+                null,
+                false,
+                "127.0.0.1",
+                0,
+                "",
+                "SINGLE",
+                "single",
+                "metrics-node");
         node.start();
         meters = new SimpleMeterRegistry();
         metrics = new PravahaMetrics(meters, node);
@@ -147,5 +159,19 @@ class PravahaMetricsTest {
 
         assertThat(metrics.published()).isEmpty();
         assertThat(meters.find("pravaha.query.rows.in").gauges()).isEmpty();
+    }
+
+    /**
+     * A node that serves everything to everybody, said out loud.
+     *
+     * <p>These tests exercise the lifecycle rather than the security model, and the node now refuses
+     * to start open unless a deployment states that it means to. Stating it here keeps the refusal
+     * honest: if the guard is ever removed, these tests do not quietly start covering a different
+     * configuration from the one they name.
+     */
+    private static SecurityProperties openServer() {
+        SecurityProperties security = new SecurityProperties();
+        security.setAllowAnonymous(true);
+        return security;
     }
 }

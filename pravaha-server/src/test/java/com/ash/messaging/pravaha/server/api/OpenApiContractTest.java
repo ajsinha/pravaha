@@ -52,7 +52,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  *
  * <p>Regenerate deliberately with {@code -Dpravaha.openapi.update=true}, and read the diff.
  */
-@SpringBootTest
+@SpringBootTest(properties = "pravaha.security.allow-anonymous=true")
 @AutoConfigureMockMvc
 class OpenApiContractTest {
 

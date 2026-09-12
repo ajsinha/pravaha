@@ -55,6 +55,31 @@ public class PravahaServerApplication {
     }
 
     /**
+     * Authenticates the HTTP surface, when the deployment asked for authentication.
+     *
+     * <p>Registered only when there is a verifier. A filter that let every request through because
+     * authentication was off would still be on the stack, one misread condition away from doing
+     * nothing at all -- and "is this server authenticating?" should be answerable by whether the
+     * filter is registered rather than by reading its body.
+     */
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<
+                    com.ash.messaging.pravaha.server.security.BearerTokenFilter>
+            pravahaAuthentication(com.ash.messaging.pravaha.server.security.SecurityProperties security) {
+        var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<
+                com.ash.messaging.pravaha.server.security.BearerTokenFilter>();
+        com.ash.messaging.pravaha.security.TokenVerifier verifier = security.verifier();
+        if (verifier == null) {
+            registration.setEnabled(false);
+            return registration;
+        }
+        registration.setFilter(new com.ash.messaging.pravaha.server.security.BearerTokenFilter(verifier));
+        registration.addUrlPatterns("/*");
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
+        return registration;
+    }
+
+    /**
      * Starts the engine after the web layer can serve health, and stops it before the web layer
      * goes away.
      *

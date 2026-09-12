@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.server;
 
+import java.io.File;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -27,6 +28,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.cluster.ClusterCoordinator;
 import com.ash.messaging.pravaha.cluster.CoordinatorFactory;
@@ -36,10 +38,14 @@ import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
+import com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy;
+import com.ash.messaging.pravaha.server.security.SecurityProperties;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 /**
@@ -86,6 +92,9 @@ public class PravahaNode implements SmartLifecycle {
     private volatile QueryRegistry registry;
     private volatile PravahaFlightServer flight;
     private final SourceBindingProperties sources;
+    private final SecurityProperties security;
+    private final File tlsCertificate;
+    private final File tlsKey;
     private volatile PluginSourceFeeds feeds;
     private volatile ClusterCoordinator coordinator;
     private volatile boolean running;
@@ -93,6 +102,9 @@ public class PravahaNode implements SmartLifecycle {
     public PravahaNode(
             StreamCatalog streams,
             SourceBindingProperties sources,
+            SecurityProperties security,
+            @Value("${pravaha.flight.tls.certificate:}") String tlsCertificate,
+            @Value("${pravaha.flight.tls.key:}") String tlsKey,
             @Value("${pravaha.flight.enabled:true}") boolean flightEnabled,
             @Value("${pravaha.flight.host:0.0.0.0}") String flightHost,
             @Value("${pravaha.flight.port:9090}") int flightPort,
@@ -102,6 +114,9 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.node.id:pravaha-node-01}") String nodeId) {
         this.streams = streams;
         this.sources = sources;
+        this.security = security;
+        this.tlsCertificate = tlsCertificate == null || tlsCertificate.isBlank() ? null : new File(tlsCertificate);
+        this.tlsKey = tlsKey == null || tlsKey.isBlank() ? null : new File(tlsKey);
         this.nodeId = nodeId;
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
@@ -112,6 +127,77 @@ public class PravahaNode implements SmartLifecycle {
                 .set("pravaha.cluster.mechanism", clusterMechanism)
                 .build();
     }
+
+    /**
+     * Refuses to start a server that serves everything to everybody unless somebody said so.
+     *
+     * <p>This is the guard that would have caught the state this node shipped in: no
+     * authentication, {@code PERMISSIVE}, no audit, no TLS, and nothing anywhere saying that was the
+     * intent. The failure has to be at startup. A warning in a log is read by whoever is watching
+     * the log on the day, and an open server outlives that person's attention.
+     *
+     * <p>Not a refusal to run open at all -- plenty of deployments sit behind something that has
+     * already authenticated the caller, and that is the embedded case this engine is built for. The
+     * refusal is of running open <em>by default</em>, which is the only version of it nobody chose.
+     */
+    private void refuseAccidentalOpenServer() {
+        boolean open = !security.authenticates() && !(securityPolicy() instanceof AuthenticatedOnlyPolicy);
+        if (open && !security.isAllowAnonymous()) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN,
+                    "this node is configured to accept unauthenticated callers and serve them every view "
+                            + "(pravaha.security.authentication=none, policy=" + security.getPolicy() + "). That "
+                            + "is a reasonable way to run an engine behind a boundary that has already "
+                            + "authenticated the caller, and a bad way to run one on a network. Set "
+                            + "pravaha.security.authentication=token with pravaha.security.tokens.*, or set "
+                            + "pravaha.security.policy=authenticated, or -- if open really is what you want -- "
+                            + "set pravaha.security.allow-anonymous=true to say so on purpose.");
+        }
+        if (security.authenticates() && tlsCertificate == null) {
+            // Not fatal: a sidecar or a service mesh may be terminating TLS in front of this. It is
+            // logged at warn because a bearer token on a plaintext socket is handed to anyone on
+            // the path, which makes the token a formality rather than a control.
+            log.warn("authentication is on and Flight is serving plaintext, so credentials travel in the "
+                    + "clear; set pravaha.flight.tls.certificate and .key unless something in front of "
+                    + "this node is terminating TLS");
+        }
+    }
+
+    private SecurityPolicy securityPolicy() {
+        String configured = security.getPolicy() == null
+                ? "permissive"
+                : security.getPolicy().trim();
+        return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
+            case "permissive" -> SecurityPolicy.PERMISSIVE;
+            case "authenticated", "authenticated-only" -> new AuthenticatedOnlyPolicy();
+            default ->
+                throw new PravahaException(
+                        SecurityErrors.FORBIDDEN,
+                        "pravaha.security.policy is '" + configured + "', which is not a policy this node "
+                                + "knows. Use 'permissive' or 'authenticated', or implement SecurityPolicy "
+                                + "for rules of your own.");
+        };
+    }
+
+    /** The policy the registry was actually built with, so the two halves cannot disagree. */
+    private static SecurityPolicy securityPolicyOf(QueryRegistry registry) {
+        return registry.policy();
+    }
+
+    private AuditSink auditSink() {
+        String configured =
+                security.getAudit() == null ? "none" : security.getAudit().trim();
+        return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
+            case "none" -> AuditSink.NONE;
+            case "memory" -> audit == null ? (audit = new AuditSink.InMemory()) : audit;
+            default ->
+                throw new PravahaException(
+                        SecurityErrors.FORBIDDEN,
+                        "pravaha.security.audit is '" + configured + "'; use 'none' or 'memory'.");
+        };
+    }
+
+    private AuditSink.InMemory audit;
 
     @Override
     public int getPhase() {
@@ -131,9 +217,18 @@ public class PravahaNode implements SmartLifecycle {
         coordinator.start(new com.ash.messaging.pravaha.cluster.Member(nodeId, flightHost, flightPort));
         log.info("{}", CoordinatorFactory.describe(clusterConfiguration, coordinator));
 
+        refuseAccidentalOpenServer();
+
         views = new ViewCatalog();
-        registry = new QueryRegistry(
-                views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, streams.all().toArray(new StreamSchema[0]));
+        SecurityPolicy policy = securityPolicy();
+        AuditSink audit = auditSink();
+        registry = new QueryRegistry(views, policy, audit, streams.all().toArray(new StreamSchema[0]));
+        log.info(
+                "security: authentication={}, policy={}, audit={}, flight transport={}",
+                security.authenticates() ? "token" : "none",
+                policy,
+                security.getAudit(),
+                tlsCertificate == null ? "PLAINTEXT" : "TLS");
 
         // Before recovery, and that ordering is the point: a recovered query is registered the same
         // way a fresh one is, so a factory attached afterwards would feed everything registered
@@ -167,7 +262,20 @@ public class PravahaNode implements SmartLifecycle {
         }
 
         if (flightEnabled) {
-            flight = new PravahaFlightServer(views).hosting(registry).start(flightHost, flightPort);
+            PravahaFlightServer server = new PravahaFlightServer(views)
+                    .hosting(registry)
+                    // The same policy object the registry authorizes against. The Flight server
+                    // refuses a mismatch rather than letting two halves of one deployment disagree
+                    // about who may read what.
+                    .authorizedBy(securityPolicyOf(registry), auditSink());
+            TokenVerifier verifier = security.verifier();
+            if (verifier != null) {
+                server.authenticatedBy(verifier);
+            }
+            if (tlsCertificate != null) {
+                server.encryptedWith(tlsCertificate, tlsKey);
+            }
+            flight = server.start(flightHost, flightPort);
             log.info("Flight SQL listening on {}:{}", flightHost, flight.port());
         } else {
             log.info("Flight SQL disabled (pravaha.flight.enabled=false); this node serves HTTP only");

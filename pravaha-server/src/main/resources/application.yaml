@@ -49,11 +49,54 @@ pravaha:
   flight:
     enabled: true
     host: 0.0.0.0
+    # Without these the transport is grpc+tcp and every row, credential and query travels in clear
+    # text. Defensible on a loopback socket and nowhere else: authentication over an unencrypted
+    # channel hands the bearer token to anyone on the path. PEM certificate chain and private key.
+    tls:
+      certificate: ""
+      key: ""
     # 9090, because that is what the CLI, both SDKs, every case study and the console already
     # default to. Arrow's registered port is 8815 and using it here would have been defensible in
     # isolation -- and wrong, because a default that disagrees with every example in the repository
     # costs each new user the same twenty minutes.
     port: 9090
+
+  # Who may connect, and what they may see.
+  #
+  # Every mechanism below was built and tested long before it was reachable: mayRead on each view,
+  # row filters honoured on subscribe, per-source checks at registration, principals from verified
+  # tokens, re-authorization when the journal is replayed. The node used to construct PERMISSIVE
+  # and AuditSink.NONE in its own constructor and never call authenticatedBy at all -- the lock was
+  # built and the door was propped open.
+  #
+  # THE DEFAULTS BELOW REFUSE TO START. That is deliberate. A server that serves every view to
+  # every unauthenticated caller is a legitimate way to run an engine behind a boundary that has
+  # already authenticated somebody -- and it is not something anybody should get by not reading
+  # this file. Pick one of the three:
+  #
+  #   authentication: token    + tokens below      real credentials
+  #   policy: authenticated                        anonymous callers get nothing
+  #   allow-anonymous: true                        open, on purpose, written down
+  #
+  # For a local first run, start with --spring.profiles.active=dev, which is the last of these.
+  security:
+    # none | token
+    authentication: none
+    # permissive (everyone sees everything) | authenticated (only verified callers see anything)
+    policy: permissive
+    # none | memory
+    audit: none
+    # Acknowledges an open server. Deliberately awkward to set by accident.
+    allow-anonymous: false
+    # Static credentials, for a development server and a test -- the type is named
+    # StaticTokenVerifier so that nobody mistakes it for an identity system. A real deployment
+    # implements TokenVerifier against whatever issues its credentials.
+    #
+    # tokens:
+    #   "a-long-random-string":
+    #     id: ann
+    #     tenant: acme
+    #     roles: [reader]
 
   # Where each stream's rows come from. Without a binding a registered query runs and receives
   # nothing -- correct for an engine an application pushes rows into, and a silent surprise for a
