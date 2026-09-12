@@ -71,6 +71,7 @@ public final class PredicateCompiler {
                 comparison((RexCall) node, false);
             case IS_NULL -> nullCheck((RexCall) node, true);
             case IS_NOT_NULL -> nullCheck((RexCall) node, false);
+            case LIKE -> like((RexCall) node, false);
             case LITERAL ->
                 Boolean.TRUE.equals(((RexLiteral) node).getValueAs(Boolean.class))
                         ? new Predicate.True()
@@ -108,6 +109,9 @@ public final class PredicateCompiler {
             // A null check is total: it is never UNKNOWN, so its negation is the other one.
             case IS_NULL -> nullCheck((RexCall) node, false);
             case IS_NOT_NULL -> nullCheck((RexCall) node, true);
+            // NOT LIKE is TRUE only where the column is present and does not match. Compiled as a
+            // flag rather than wrapped, so the null row is dropped by both forms.
+            case LIKE -> like((RexCall) node, true);
             case LITERAL ->
                 Boolean.TRUE.equals(((RexLiteral) node).getValueAs(Boolean.class))
                         ? new Predicate.False()
@@ -274,11 +278,43 @@ public final class PredicateCompiler {
         };
     }
 
+    /**
+     * {@code column LIKE 'pattern'}, where the pattern is a literal.
+     *
+     * <p>A pattern that is itself an expression is refused. Supporting it would mean compiling a
+     * regex per row, which is the difference between a filter and a performance incident, and a
+     * per-row pattern is vanishingly rare in the queries this engine is for.
+     */
+    private Predicate like(RexCall call, boolean negated) {
+        List<RexNode> operands = call.getOperands();
+        if (operands.size() != 2) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' uses LIKE with an ESCAPE clause, which is not built. Without ESCAPE, "
+                            + "% and _ are always wildcards and there is no way to match them literally.");
+        }
+        if (!(operands.get(0) instanceof RexInputRef ref)) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' matches something other than a column. LIKE is supported as "
+                            + "column LIKE 'pattern'.");
+        }
+        if (!(operands.get(1) instanceof RexLiteral literal)) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' uses a pattern that is not a literal. The pattern is compiled once "
+                            + "when the query is registered; one that varies per row would be compiled "
+                            + "per row.");
+        }
+        return new Predicate.Like(
+                ref.getIndex(), columnName(ref.getIndex()), String.valueOf(literal.getValue2()), negated);
+    }
+
     private static PravahaException unsupported(RexNode node) {
         return new PravahaException(
                 SqlErrors.UNSUPPORTED_EXPRESSION,
                 "cannot compile the expression '" + node + "' (" + node.getKind() + ") yet. "
                         + "Supported: AND, OR, NOT, comparisons against a literal, IS [NOT] NULL, "
-                        + "and boolean columns.");
+                        + "LIKE against a literal pattern, and boolean columns.");
     }
 }

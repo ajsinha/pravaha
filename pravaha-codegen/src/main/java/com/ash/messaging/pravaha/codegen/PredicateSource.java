@@ -74,6 +74,17 @@ final class PredicateSource {
             case Predicate.CompareString c ->
                 comparison(rowVar, c.ordinal(), c.op() == Predicate.Op.EQ ? "=" : "!=", c.value());
             case Predicate.CompareBoolean c -> comparison(rowVar, c.ordinal(), "=", c.value());
+            case Predicate.Like like ->
+                // Refused for a structural reason rather than an unfinished one. This generator's
+                // whole advantage on text is that it compares UTF-8 bytes against a pre-encoded
+                // literal and never materialises a String; a regex needs one. Emitting LIKE here
+                // would decode every row into a String to hand to a Matcher, which is slower than
+                // the interpreted path it was meant to beat.
+                throw new PravahaException(
+                        CodegenErrors.UNSUPPORTED,
+                        "predicate '" + like.describe() + "' is a LIKE, which the generator does not emit: "
+                                + "matching a pattern needs a String and this stage exists to avoid making "
+                                + "one. The interpreted path evaluates it correctly.");
             case Predicate.CompareExpressions c ->
                 // Refused rather than generated. Generating arithmetic is the natural next step and
                 // is not free: null propagation, overflow checks and integer-versus-floating-point

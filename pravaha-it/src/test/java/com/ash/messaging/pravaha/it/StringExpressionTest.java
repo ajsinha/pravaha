@@ -194,6 +194,67 @@ class StringExpressionTest {
                 .contains("UPPER(first) || '-'");
     }
 
+    @Test
+    void likeMatchesWildcards() {
+        assertThat(matches("WHERE first LIKE 'an%'", "annabel")).isTrue();
+        assertThat(matches("WHERE first LIKE 'an%'", "brian")).isFalse();
+        assertThat(matches("WHERE first LIKE '%an%'", "brian")).isTrue();
+        assertThat(matches("WHERE first LIKE 'a__'", "ann")).isTrue();
+        assertThat(matches("WHERE first LIKE 'a__'", "anna")).isFalse();
+    }
+
+    @Test
+    void likeMatchesTheWholeValueRatherThanPartOfIt() {
+        // SQL LIKE is anchored at both ends; a regex find() is not. Getting this wrong makes
+        // `LIKE 'ann'` match 'annabel', which is a filter that silently returns too many rows.
+        assertThat(matches("WHERE first LIKE 'ann'", "annabel")).isFalse();
+    }
+
+    @Test
+    void aRegexMetacharacterInThePatternIsALiteral() {
+        // The pattern is translated to a regex, so a user writing LIKE '%.com' would get a dot that
+        // matches any character if the literal parts were not quoted -- and '%xcom' would match.
+        assertThat(matches("WHERE first LIKE '%.com'", "mail.com")).isTrue();
+        assertThat(matches("WHERE first LIKE '%.com'", "mailxcom")).isFalse();
+    }
+
+    @Test
+    void aNullIsDroppedByLikeAndByNotLikeAlike() {
+        // LIKE over a null is UNKNOWN, and UNKNOWN drops the row under both forms. Implementing NOT
+        // LIKE as a Java ! around the result keeps the null row instead, which is how a query that
+        // looks like a complement ends up returning rows its opposite also returned.
+        assertThat(matchesOnLast("WHERE last LIKE 'a%'", null)).isFalse();
+        assertThat(matchesOnLast("WHERE last NOT LIKE 'a%'", null)).isFalse();
+        assertThat(matchesOnLast("WHERE last NOT LIKE 'a%'", "bob")).isTrue();
+    }
+
+    @Test
+    void twoRegistrationsOfTheSameLikeAreEqual() {
+        // The compiled Pattern cannot be a component: it inherits identity equality, and two
+        // registrations of one query would then be given separate computations -- exactly the
+        // sharing this engine exists to do.
+        assertThat(new com.ash.messaging.pravaha.runtime.plan.Predicate.Like(1, "first", "a%", false))
+                .isEqualTo(new com.ash.messaging.pravaha.runtime.plan.Predicate.Like(1, "first", "a%", false))
+                .hasSameHashCodeAs(new com.ash.messaging.pravaha.runtime.plan.Predicate.Like(1, "first", "a%", false))
+                .isNotEqualTo(new com.ash.messaging.pravaha.runtime.plan.Predicate.Like(1, "first", "b%", false))
+                .isNotEqualTo(new com.ash.messaging.pravaha.runtime.plan.Predicate.Like(1, "first", "a%", true));
+    }
+
+    @Test
+    void likeIsReadableInThePlan() {
+        assertThat(PhysicalPlanBuilder.explain(plan("SELECT id FROM person WHERE first NOT LIKE 'a%'")))
+                .contains("first NOT LIKE 'a%'");
+    }
+
+    /** Whether one row with this {@code first} survives the clause. */
+    private static boolean matches(String whereClause, String first) {
+        return !run("SELECT id FROM person " + whereClause, first, "lee").isEmpty();
+    }
+
+    private static boolean matchesOnLast(String whereClause, String last) {
+        return !run("SELECT id FROM person " + whereClause, "ann", last).isEmpty();
+    }
+
     private static PhysicalOperator plan(String sql) {
         return new PhysicalPlanBuilder().build(SqlPlanner.withStreams(SCHEMA).plan(sql));
     }

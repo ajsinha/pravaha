@@ -184,6 +184,122 @@ public sealed interface Predicate {
         }
     }
 
+    /**
+     * {@code LIKE} and {@code NOT LIKE}, against a pattern fixed at plan time.
+     *
+     * <p><strong>A class rather than a record</strong>, which is the exception in this file and
+     * needs its reason stated. The pattern has to be translated to a regex and compiled once per
+     * query instead of once per row, and a record cannot hold a derived field. Making the compiled
+     * {@link java.util.regex.Pattern} a component instead would be worse than ugly: {@code Pattern}
+     * inherits identity equality, so two registrations of the same query would compare unequal and
+     * be given separate computations -- the exact sharing this engine exists to do. Equality is
+     * defined on the SQL pattern text, where it belongs.
+     *
+     * <p>{@code negated} is resolved here rather than wrapped in a NOT for the reason the whole
+     * predicate IR is two-valued (see {@code PredicateCompiler.negate}): a null column makes {@code
+     * LIKE} UNKNOWN, and UNKNOWN drops the row under both {@code LIKE} and {@code NOT LIKE}. A Java
+     * {@code !} around the result would keep it.
+     */
+    final class Like implements Predicate {
+
+        private final int ordinal;
+        private final String columnName;
+        private final String pattern;
+        private final boolean negated;
+        private final java.util.regex.Pattern compiled;
+
+        public Like(int ordinal, String columnName, String pattern, boolean negated) {
+            this.ordinal = ordinal;
+            this.columnName = columnName;
+            this.pattern = pattern;
+            this.negated = negated;
+            this.compiled = java.util.regex.Pattern.compile(toRegex(pattern), java.util.regex.Pattern.DOTALL);
+        }
+
+        /**
+         * Translates a SQL {@code LIKE} pattern to a regex.
+         *
+         * <p>Everything that is not {@code %} or {@code _} is quoted, so a pattern containing {@code
+         * .} or {@code *} matches those characters rather than behaving as a regex -- a user writing
+         * {@code LIKE '%.com'} means a dot. {@code DOTALL} is set because SQL's {@code _} matches
+         * any character, and a regex {@code .} does not match a newline by default.
+         *
+         * <p>No escape character: standard {@code LIKE} has none unless {@code ESCAPE} is given, and
+         * that form is refused at compile time rather than half-supported here.
+         */
+        private static String toRegex(String pattern) {
+            StringBuilder regex = new StringBuilder(pattern.length() + 8);
+            StringBuilder literal = new StringBuilder();
+            for (int i = 0; i < pattern.length(); i++) {
+                char c = pattern.charAt(i);
+                if (c != '%' && c != '_') {
+                    literal.append(c);
+                    continue;
+                }
+                if (!literal.isEmpty()) {
+                    regex.append(java.util.regex.Pattern.quote(literal.toString()));
+                    literal.setLength(0);
+                }
+                regex.append(c == '%' ? ".*" : ".");
+            }
+            if (!literal.isEmpty()) {
+                regex.append(java.util.regex.Pattern.quote(literal.toString()));
+            }
+            return regex.toString();
+        }
+
+        @Override
+        public boolean test(RowView row) {
+            if (row.isNull(ordinal)) {
+                return false;
+            }
+            return negated != compiled.matcher(row.getString(ordinal)).matches();
+        }
+
+        public int ordinal() {
+            return ordinal;
+        }
+
+        public String columnName() {
+            return columnName;
+        }
+
+        public String pattern() {
+            return pattern;
+        }
+
+        public boolean negated() {
+            return negated;
+        }
+
+        @Override
+        public String describe() {
+            return columnName + (negated ? " NOT LIKE '" : " LIKE '") + pattern + "'";
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Like like
+                    && ordinal == like.ordinal
+                    && negated == like.negated
+                    && columnName.equals(like.columnName)
+                    && pattern.equals(like.pattern);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(ordinal, columnName, pattern, negated);
+        }
+
+        @Override
+        public String toString() {
+            // Named components, matching what a record would print, because the query fingerprint
+            // is a hash of the plan's toString and a bare pattern would collide across columns.
+            return "Like[ordinal=" + ordinal + ", columnName=" + columnName + ", pattern=" + pattern + ", negated="
+                    + negated + "]";
+        }
+    }
+
     record CompareBoolean(int ordinal, String columnName, boolean value) implements Predicate {
         @Override
         public boolean test(RowView row) {

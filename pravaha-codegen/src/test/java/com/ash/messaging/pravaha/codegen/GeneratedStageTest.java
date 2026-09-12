@@ -235,6 +235,22 @@ class GeneratedStageTest {
                 .hasMessageContaining("interpreted path");
     }
 
+    @Test
+    void aLikeIsRefusedByTheGeneratorRatherThanDecodedPerRow() {
+        // Not an unfinished case. This stage beats the interpreter on text precisely because it
+        // compares UTF-8 bytes against a pre-encoded literal and never builds a String; a Matcher
+        // needs one. Emitting LIKE here would be slower than the path it falls back to, so the
+        // refusal is the optimisation.
+        PhysicalOperator filtered = new com.ash.messaging.pravaha.runtime.plan.FilterOperator(
+                ScanOperator.of("txn", inputSchema()),
+                new com.ash.messaging.pravaha.runtime.plan.Predicate.Like(5, "status", "a%", false));
+
+        assertThatThrownBy(() -> new FilterProjectGenerator().generate(filtered, "LikeStage"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-3101")
+                .hasMessageContaining("interpreted path");
+    }
+
     // ------------------------------------------------------------------ harness
 
     private static final int ROWS = 64;

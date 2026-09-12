@@ -94,7 +94,8 @@ column keeps its bare name: `SELECT t.amount` produces a column called `amount`,
 | A bare boolean column — `WHERE flagged` | ✅ | |
 | Column against column — `WHERE a > b` | ✅ | Both numeric |
 | `HAVING` | ✅ | A filter above the aggregate |
-| `LIKE` | ❌ | `PRV-2021` |
+| `LIKE`, `NOT LIKE` | ✅ | Against a literal pattern. The pattern is compiled once when the query is registered, not once per row — so `LIKE status` is refused |
+| `LIKE … ESCAPE` | ❌ | `PRV-2021`. Without it, `%` and `_` are always wildcards and cannot be matched literally |
 | Text ordering — `WHERE status > user_id` | ❌ | `PRV-2021`. `>` on text needs a collation, and assuming one gives wrong answers that look right. `=` and `<>` on text do work |
 | Comparing text to a number | ❌ | `PRV-2021` |
 

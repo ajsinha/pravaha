@@ -132,7 +132,13 @@ class SqlSupportMatrixTest {
             Case.ok("IS NULL", "SELECT txn_id FROM txn WHERE status IS NULL"),
             Case.ok("arithmetic in a predicate", "SELECT txn_id FROM txn WHERE amount * 2 > 100"),
             Case.ok("boolean column", "SELECT txn_id FROM txn WHERE flagged"),
-            Case.refused("LIKE", "SELECT txn_id FROM txn WHERE user_id LIKE 'u%'", "PRV-2021"),
+            Case.ok("LIKE", "SELECT txn_id FROM txn WHERE user_id LIKE 'u%'"),
+            Case.ok("NOT LIKE", "SELECT txn_id FROM txn WHERE user_id NOT LIKE 'u%'"),
+            Case.refused("LIKE with ESCAPE", "SELECT txn_id FROM txn WHERE user_id LIKE 'u!%' ESCAPE '!'", "PRV-2021"),
+            Case.refused(
+                    "LIKE against a pattern that is not a literal",
+                    "SELECT txn_id FROM txn WHERE user_id LIKE status",
+                    "PRV-2021"),
             Case.refused("text inequality", "SELECT txn_id FROM txn WHERE status > user_id", "PRV-2021"),
             Case.refused("comparing text to a number", "SELECT txn_id FROM txn WHERE amount > txn_id", "PRV-2021"),
 
