@@ -53,12 +53,23 @@ costs whatever was decided on the strength of it.
 | `CASE WHEN … THEN … END` | ✅ | Any number of branches, with or without `ELSE`. Only the branch taken is evaluated, so `CASE WHEN n = 0 THEN 0 ELSE t / n END` does not divide by zero |
 | Scalar functions — `ABS`, `FLOOR`, `CEIL`, `ROUND` | ✅ | One argument. `ROUND(x, 2)` is refused: rounding to decimal places is not built |
 | Numeric functions beyond those four | ❌ | `PRV-2021` |
-| String functions — `UPPER`, `SUBSTRING` | ❌ | `PRV-2021` |
-| String concatenation — `a \|\| b` | ❌ | `PRV-2021` |
+| String literals — `SELECT 'flagged'` | ✅ | |
+| `UPPER`, `LOWER` | ✅ | Converted in the root locale, so the answer does not depend on the machine the lane runs on |
+| `TRIM(x)` | ✅ | Strips spaces from both ends. `TRIM(LEADING …)` and a trim character other than a space are refused |
+| String concatenation — `a \|\| b` | ✅ | Any length of chain. **Null concatenated with anything is null**, not an empty string |
+| `SUBSTRING(s FROM start)`, `… FOR length` | ✅ | Positions are 1-based and counted in code points, so a substring never splits an emoji in half |
+| Other string functions — `REPLACE`, `POSITION`, `LPAD` | ❌ | `PRV-2021` |
 | `SELECT DISTINCT` | ❌ | `PRV-2050` — it is a `GROUP BY` over an unbounded key space; see below |
 
-The expression compiler evaluates to a number. Text is carried through a projection unchanged but
-never computed with, which is why `UPPER` and `||` are refused rather than half-working.
+A `CASE` may produce text as readily as a number, but every branch must produce the *same* type —
+with one exception that surprises people: `CASE WHEN … THEN 'big' ELSE 0 END` is accepted, because
+Calcite's validator coerces the `0` to the string `'0'` before Pravaha sees the query. The column is
+text. A `SUM` over it will not plan.
+
+Evaluating a string allocates one, where the numeric path does not. The zero-copy comparison the
+engine uses elsewhere works on UTF-8 slices, and the interpreted pipeline already materialises
+strings to compare them — so this costs what the engine already spends, rather than adding a new
+cost. It is the reason a text projection is not the place to put your hottest query.
 
 **Table aliases behave as SQL says.** An alias may be used with or without `AS`; columns may be
 written qualified or bare while an alias is in scope; and an alias may shadow the name of a different

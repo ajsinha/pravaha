@@ -52,7 +52,7 @@ the query.
 ### `PRV-2020` / `PRV-2021` — "not supported yet"
 
 A relational operator (`2020`) or an expression (`2021`) the engine will not run: `ORDER BY`, `LIMIT`,
-`UNION`, an outer join between streams, `LIKE`, a string function in a projection.
+`UNION`, an outer join between streams, `LIKE`, a function the engine does not have.
 
 The name in a `2021` message is the function the *planner* saw, which is not always the one you
 typed — Calcite rewrites `SQRT(x)` to `POWER(x, 0.5)` before the engine reads the query, so a

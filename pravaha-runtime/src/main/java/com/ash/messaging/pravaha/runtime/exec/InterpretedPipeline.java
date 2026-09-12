@@ -666,12 +666,13 @@ public final class InterpretedPipeline implements AutoCloseable {
         /**
          * Writes one computed column.
          *
-         * <p>A plain column reference is copied rather than evaluated, and that is not an
-         * optimisation. The expression tree evaluates to a long or a double, so a projection that
-         * mixes {@code ts + INTERVAL '10' SECOND} with a text column beside it has one column the
-         * tree can produce and one it cannot -- and the text one needs no evaluation at all, only a
-         * copy. Without this, any computed projection alongside a string column writes the string's
-         * bytes as a long and fails at the writer, which is where the README's own query landed.
+         * <p>A plain column reference is copied rather than evaluated. It began as a correctness
+         * fix -- the expression tree could produce only numbers, so a projection mixing {@code ts +
+         * INTERVAL '10' SECOND} with a text column beside it wrote the string's bytes as a long and
+         * failed at the writer, which is where the README's own query landed. The tree can evaluate
+         * text now, so the short-circuit is what its name says instead: {@link
+         * InterpretedPipeline#copyField} moves the bytes across, where evaluating the column would
+         * decode them into a {@code String} and immediately encode them back.
          */
         private static void writeComputed(
                 RowWriter writer, int ordinal, Expression expression, RowView row, StreamSchema schema) {
@@ -686,6 +687,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                 case INT32, DATE -> writer.setInt(ordinal, (int) expression.evaluateLong(row));
                 case FLOAT32 -> writer.setFloat(ordinal, (float) expression.evaluateDouble(row));
                 case FLOAT64 -> writer.setDouble(ordinal, expression.evaluateDouble(row));
+                case STRING -> writer.setString(ordinal, expression.evaluateString(row));
                 default -> writer.setLong(ordinal, expression.evaluateLong(row));
             }
         }

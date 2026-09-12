@@ -77,7 +77,6 @@ final class ExpressionCompiler {
             return Expression.Literal.ofNull(typeOf(literal.getType().getSqlTypeName(), literal.toString()));
         }
         SqlTypeName sqlType = literal.getType().getSqlTypeName();
-        BigDecimal value = (BigDecimal) literal.getValue4();
 
         // An interval literal is a duration, and Calcite carries day-time ones in milliseconds while
         // this engine works in nanoseconds throughout (ADR-012). Left unconverted, `ts + INTERVAL
@@ -91,8 +90,15 @@ final class ExpressionCompiler {
                                 + "a month is 28 to 31 days. Use a day-time interval, or do the calendar "
                                 + "arithmetic where a calendar is available.");
             }
-            return Expression.Literal.ofLong(value.longValue() * 1_000_000L);
+            return Expression.Literal.ofLong(((BigDecimal) literal.getValue4()).longValue() * 1_000_000L);
         }
+        if (sqlType == SqlTypeName.CHAR || sqlType == SqlTypeName.VARCHAR) {
+            // getValue2 rather than getValue: the latter hands back an NlsString carrying charset
+            // and collation, whose toString is the SQL rendering -- quotes included -- and would
+            // put a literal pair of apostrophes inside the row.
+            return Expression.Literal.ofText(String.valueOf(literal.getValue2()));
+        }
+        BigDecimal value = (BigDecimal) literal.getValue4();
         return switch (sqlType) {
             case DOUBLE, FLOAT, REAL -> Expression.Literal.ofDouble(value.doubleValue());
             // A literal written as 2.5 arrives as DECIMAL(2,1) regardless of what it multiplies,
@@ -125,6 +131,10 @@ final class ExpressionCompiler {
             }
             return new Expression.Unary(function, compile(call.getOperands().get(0)));
         }
+        Expression text = textCall(call);
+        if (text != null) {
+            return text;
+        }
         Expression.Operator operator =
                 switch (call.getOperator().getName().toUpperCase(java.util.Locale.ROOT)) {
                     case "+" -> Expression.Operator.ADD;
@@ -137,10 +147,8 @@ final class ExpressionCompiler {
                                 SqlErrors.UNSUPPORTED_EXPRESSION,
                                 "function '" + call.getOperator().getName() + "' in '" + call
                                         + "' is not supported in a projection. Supported: + - * / %, "
-                                        + "ABS, FLOOR, CEIL, ROUND, and CASE WHEN. String functions are not: "
-                                        + "expressions in this engine evaluate to numbers, and giving them "
-                                        + "string values is a change to the row model rather than a function "
-                                        + "to add.");
+                                        + "ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, TRIM, "
+                                        + "SUBSTRING and || .");
                 };
         if (call.getOperands().size() != 2) {
             throw new PravahaException(
@@ -186,6 +194,76 @@ final class ExpressionCompiler {
         }
         Predicate when = new PredicateCompiler(inputSchema).compile(operands.get(from));
         return new Expression.Case(when, compile(operands.get(from + 1)), caseWhen(call, from + 2));
+    }
+
+    /**
+     * Translates the text functions, or returns {@code null} if this call is not one.
+     *
+     * <p>Null rather than an exception for "not mine", because the caller tries arithmetic next and
+     * a refusal raised here would pre-empt it with the wrong message.
+     */
+    private Expression textCall(RexCall call) {
+        String name = call.getOperator().getName().toUpperCase(java.util.Locale.ROOT);
+        java.util.List<RexNode> operands = call.getOperands();
+        return switch (name) {
+            case "UPPER" -> new Expression.TextFunction(Expression.TextOp.UPPER, compile(operands.get(0)));
+            case "LOWER" -> new Expression.TextFunction(Expression.TextOp.LOWER, compile(operands.get(0)));
+            case "TRIM" -> trim(call, operands);
+            case "||", "CONCAT" -> concat(operands);
+            case "SUBSTRING" -> substring(call, operands);
+            default -> null;
+        };
+    }
+
+    /**
+     * {@code TRIM(BOTH ' ' FROM s)} only.
+     *
+     * <p>Calcite normalises every {@code TRIM} to the three-operand form, so the flag and the trim
+     * character are always present and always checkable. A query asking to strip a different
+     * character, or from one end only, is refused by name rather than silently given the default --
+     * which would return the input unchanged for anything that has no leading spaces, and look like
+     * it worked.
+     */
+    private Expression trim(RexCall call, java.util.List<RexNode> operands) {
+        boolean bothEnds =
+                operands.get(0).toString().toUpperCase(java.util.Locale.ROOT).contains("BOTH");
+        boolean spaces = operands.get(1) instanceof RexLiteral literal && " ".equals(literal.getValue2());
+        if (!bothEnds || !spaces) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' is not supported: TRIM strips spaces from both ends, and LEADING, "
+                            + "TRAILING and a trim character other than a space are not built.");
+        }
+        return new Expression.TextFunction(Expression.TextOp.TRIM, compile(operands.get(2)));
+    }
+
+    private Expression concat(java.util.List<RexNode> operands) {
+        // Flattened here rather than in the runtime record: `a || b || c` arrives as nested pairs,
+        // and joining three strings in one pass beats building an intermediate for the inner pair.
+        java.util.List<Expression> parts = new java.util.ArrayList<>();
+        for (RexNode operand : operands) {
+            Expression compiled = compile(operand);
+            if (compiled instanceof Expression.Concat nested) {
+                parts.addAll(nested.parts());
+            } else {
+                parts.add(compiled);
+            }
+        }
+        return new Expression.Concat(parts);
+    }
+
+    private Expression substring(RexCall call, java.util.List<RexNode> operands) {
+        if (operands.size() == 2) {
+            return Expression.Substring.toEnd(compile(operands.get(0)), compile(operands.get(1)));
+        }
+        if (operands.size() == 3) {
+            return new Expression.Substring(
+                    compile(operands.get(0)), compile(operands.get(1)), compile(operands.get(2)));
+        }
+        throw new PravahaException(
+                SqlErrors.UNSUPPORTED_EXPRESSION,
+                "'" + call + "' has " + operands.size() + " arguments; SUBSTRING takes the string with "
+                        + "FROM start, optionally FOR length.");
     }
 
     private static Expression.Function unaryFunction(String name) {

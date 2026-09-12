@@ -206,8 +206,9 @@ Filter, enrich from a dimension table, window, aggregate. That covers nearly eve
 
 **The four refusals worth knowing before you start:**
 
-- No string expressions — `UPPER`, `SUBSTRING`, `LIKE`, `||`. Expressions in this engine evaluate to
-  numbers; `CASE WHEN` and the numeric functions (`ABS`, `FLOOR`, `CEIL`, `ROUND`) do work
+- No `LIKE`. `WHERE` compares text for equality and for membership with `IN`; pattern matching is
+  not built. Computing with text in a projection does work — `UPPER`, `LOWER`, `TRIM`, `SUBSTRING`,
+  `||` and `CASE` over strings
 - No `ORDER BY` / `LIMIT` — sort in your application over a result a `WHERE` already narrowed
 - No outer or self joins between *streams* — a lookup join (`LEFT JOIN … FOR SYSTEM_TIME AS OF`) is
   supported and is what the shape above uses

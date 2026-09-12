@@ -105,8 +105,23 @@ class SqlSupportMatrixTest {
             Case.ok("floating arithmetic", "SELECT price / 2 FROM txn"),
             Case.ok("CAST", "SELECT CAST(amount AS DOUBLE) FROM txn"),
             Case.ok("literal", "SELECT 1 FROM txn"),
-            Case.refused("string function", "SELECT UPPER(user_id) FROM txn", "PRV-2021"),
-            Case.refused("string concatenation", "SELECT user_id || 'x' FROM txn", "PRV-2021"),
+            Case.ok("string literal", "SELECT 'flagged' FROM txn"),
+            Case.ok("UPPER", "SELECT UPPER(user_id) FROM txn"),
+            Case.ok("LOWER", "SELECT LOWER(user_id) FROM txn"),
+            Case.ok("TRIM", "SELECT TRIM(user_id) FROM txn"),
+            Case.refused(
+                    "TRIM of a character other than a space", "SELECT TRIM('x' FROM user_id) FROM txn", "PRV-2021"),
+            Case.refused("TRIM from one end", "SELECT TRIM(LEADING ' ' FROM user_id) FROM txn", "PRV-2021"),
+            Case.ok("string concatenation", "SELECT user_id || 'x' FROM txn"),
+            Case.ok("a chain of concatenations", "SELECT user_id || '-' || user_id FROM txn"),
+            Case.ok("SUBSTRING with a length", "SELECT SUBSTRING(user_id FROM 1 FOR 3) FROM txn"),
+            Case.ok("SUBSTRING to the end", "SELECT SUBSTRING(user_id FROM 2) FROM txn"),
+            Case.ok("a text CASE", "SELECT CASE WHEN amount > 5 THEN 'big' ELSE 'small' END FROM txn"),
+            Case.ok("text functions nested", "SELECT UPPER(TRIM(user_id)) || '!' FROM txn"),
+            // Accepted, and worth knowing why it is not refused: Calcite's validator coerces the 0
+            // to the string '0' before Pravaha sees the query, so the branches do agree on a type by
+            // the time they arrive. The result is text -- a downstream SUM of it will not plan.
+            Case.ok("a CASE mixing text and a number", "SELECT CASE WHEN amount > 5 THEN 'big' ELSE 0 END FROM txn"),
             Case.refused("SELECT DISTINCT (over a stream)", "SELECT DISTINCT user_id FROM txn", "PRV-2050"),
 
             // --- WHERE ------------------------------------------------------------------------
@@ -170,7 +185,6 @@ class SqlSupportMatrixTest {
             Case.ok(
                     "a function inside a CASE",
                     "SELECT CASE WHEN ABS(amount) > 5 THEN ABS(amount) ELSE 0 END FROM txn"),
-            Case.refused("UPPER", "SELECT UPPER(user_id) FROM txn", "PRV-2021"),
             Case.refused("ROUND to decimal places", "SELECT ROUND(amount, 2) FROM txn", "PRV-2021"),
             Case.ok("inner equi-join", "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id = o.user_id"),
             Case.ok(
@@ -281,6 +295,11 @@ class SqlSupportMatrixTest {
                 continue;
             }
             String message = messageOf(testCase);
+            assertThat(message)
+                    .as(
+                            "%s is in the matrix as refused with %s, and was accepted",
+                            testCase.label(), testCase.expected())
+                    .isNotNull();
             if (!message.startsWith("PRV-")) {
                 // One refusal has no PRV code: the self-join check lives in the pipeline builder and
                 // throws UnsupportedOperationException. That is a gap worth naming rather than

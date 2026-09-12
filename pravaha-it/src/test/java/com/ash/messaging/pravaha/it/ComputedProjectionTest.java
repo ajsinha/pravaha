@@ -200,10 +200,11 @@ class ComputedProjectionTest {
 
     @Test
     void aComputedColumnCanSitBesideATextColumn() {
-        // The expression tree evaluates to a long or a double, so a text column beside a computed
-        // one is a column the tree cannot produce -- and does not need to, because a plain column
-        // reference is a copy rather than a calculation. Without that, the string's bytes were
-        // written as a long and the writer refused them. Found by the README's own query.
+        // Found by the README's own query, back when the expression tree evaluated to a long or a
+        // double and the string's bytes were written as a long for the writer to refuse. The tree
+        // can produce text now, so what this pins is the other half of the fix: a plain column
+        // reference is copied rather than evaluated, which for text is bytes moved across instead
+        // of decoded to a String and immediately encoded back.
         StreamSchema mixed = StreamSchema.builder("txn")
                 .field("id", Types.int64())
                 .field("name", Types.string())
@@ -282,7 +283,7 @@ class ComputedProjectionTest {
         assertThatThrownBy(() -> plan("SELECT SQRT(rate) FROM txn"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("not supported in a projection")
-                .hasMessageContaining("ABS, FLOOR, CEIL, ROUND, and CASE WHEN");
+                .hasMessageContaining("ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, TRIM, SUBSTRING");
     }
 
     /** Plans, runs, and copies the output rows out. */

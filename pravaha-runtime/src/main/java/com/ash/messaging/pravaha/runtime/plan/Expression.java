@@ -47,6 +47,26 @@ public sealed interface Expression {
     /** Evaluates over a row, for the floating-point types. */
     double evaluateDouble(RowView row);
 
+    /**
+     * Evaluates over a row, for {@code STRING}.
+     *
+     * <p>A default that throws rather than a method every implementation must write, because most
+     * expressions genuinely have no text value and an {@code ABS} that returned {@code "0"} to
+     * satisfy an interface would be worse than one that refuses. Reaching this is a bug in the
+     * compiler, not a bad query: an expression whose {@link #type()} is not {@code STRING} should
+     * never be asked for its text, and the planner is what guarantees that.
+     *
+     * <p>Unlike the numeric evaluators this one allocates. The zero-copy path in {@link RowView} is
+     * {@code getBytes}, and using it here would mean writing every function against UTF-8 slices
+     * with a scratch buffer to build results in. That is the right destination and this is not it:
+     * the interpreted pipeline already materialises strings to compare them, so this matches what
+     * the engine does today rather than adding a new cost.
+     */
+    default String evaluateString(RowView row) {
+        throw new IllegalStateException(
+                describe() + " produces " + type() + ", not text, and nothing should be asking it for a string");
+    }
+
     /** Whether this expression is null for the given row. */
     boolean isNull(RowView row);
 
@@ -80,6 +100,11 @@ public sealed interface Expression {
                 case FLOAT64 -> row.getDouble(ordinal);
                 default -> evaluateLong(row);
             };
+        }
+
+        @Override
+        public String evaluateString(RowView row) {
+            return row.getString(ordinal);
         }
 
         @Override
@@ -130,18 +155,28 @@ public sealed interface Expression {
     }
 
     /** A constant. */
-    record Literal(long longValue, double doubleValue, TypeName type, boolean isNull) implements Expression {
+    record Literal(long longValue, double doubleValue, String textValue, TypeName type, boolean isNull)
+            implements Expression {
 
         public static Literal ofLong(long value) {
-            return new Literal(value, value, TypeName.INT64, false);
+            return new Literal(value, value, null, TypeName.INT64, false);
         }
 
         public static Literal ofDouble(double value) {
-            return new Literal((long) value, value, TypeName.FLOAT64, false);
+            return new Literal((long) value, value, null, TypeName.FLOAT64, false);
+        }
+
+        public static Literal ofText(String value) {
+            return new Literal(0, 0, value, TypeName.STRING, false);
         }
 
         public static Literal ofNull(TypeName type) {
-            return new Literal(0, 0, type, true);
+            return new Literal(0, 0, null, type, true);
+        }
+
+        @Override
+        public String evaluateString(RowView row) {
+            return textValue;
         }
 
         @Override
@@ -161,13 +196,19 @@ public sealed interface Expression {
 
         @Override
         public String describe() {
-            return isNull
-                    ? "NULL"
-                    : (type == TypeName.FLOAT64 ? String.valueOf(doubleValue) : String.valueOf(longValue));
+            if (isNull) {
+                return "NULL";
+            }
+            return switch (type) {
+                // Quoted, so an EXPLAIN of `name = 'FLAGGED'` does not read as a column called
+                // FLAGGED that nobody can find in the schema.
+                case STRING -> "'" + textValue + "'";
+                case FLOAT64 -> String.valueOf(doubleValue);
+                default -> String.valueOf(longValue);
+            };
         }
     }
 
-    /** Arithmetic. */
     /**
      * {@code CASE WHEN … THEN … ELSE … END}.
      *
@@ -218,6 +259,11 @@ public sealed interface Expression {
         }
 
         @Override
+        public String evaluateString(RowView row) {
+            return when.test(row) ? then.evaluateString(row) : otherwise.evaluateString(row);
+        }
+
+        @Override
         public boolean isNull(RowView row) {
             return when.test(row) ? then.isNull(row) : otherwise.isNull(row);
         }
@@ -226,6 +272,228 @@ public sealed interface Expression {
         public String describe() {
             return "CASE WHEN " + when.describe() + " THEN " + then.describe() + " ELSE " + otherwise.describe()
                     + " END";
+        }
+    }
+
+    /**
+     * {@code UPPER}, {@code LOWER}, {@code TRIM}: one string in, one string out.
+     *
+     * <p>{@code TRIM} removes spaces and only spaces. SQL's default trim character is {@code ' '},
+     * not "whitespace" -- Java's {@code strip()} would also take tabs and newlines, which is a
+     * different function wearing the same name. A query that means to strip tabs can say so once
+     * the {@code TRIM(… FROM …)} form is supported; it is refused today rather than approximated.
+     *
+     * <p>Case conversion uses the JVM's default locale deliberately left alone: {@link
+     * String#toUpperCase()} is locale-sensitive, and in a Turkish locale {@code UPPER('i')} is
+     * {@code 'İ'} rather than {@code 'I'}. That is correct for text and wrong for an engine whose
+     * answer must not depend on which machine a lane happens to run on, so both use {@link
+     * java.util.Locale#ROOT}.
+     */
+    record TextFunction(TextOp operation, Expression argument) implements Expression {
+
+        public TextFunction {
+            if (argument.type() != TypeName.STRING) {
+                throw new IllegalArgumentException(
+                        operation + " takes text, and this argument produces " + argument.type());
+            }
+        }
+
+        @Override
+        public TypeName type() {
+            return TypeName.STRING;
+        }
+
+        @Override
+        public String evaluateString(RowView row) {
+            String value = argument.evaluateString(row);
+            return switch (operation) {
+                case UPPER -> value.toUpperCase(java.util.Locale.ROOT);
+                case LOWER -> value.toLowerCase(java.util.Locale.ROOT);
+                case TRIM -> trimSpaces(value);
+            };
+        }
+
+        private static String trimSpaces(String value) {
+            int start = 0;
+            int end = value.length();
+            while (start < end && value.charAt(start) == ' ') {
+                start++;
+            }
+            while (end > start && value.charAt(end - 1) == ' ') {
+                end--;
+            }
+            return value.substring(start, end);
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw numeric();
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw numeric();
+        }
+
+        private IllegalStateException numeric() {
+            return new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return argument.isNull(row);
+        }
+
+        @Override
+        public String describe() {
+            return operation + "(" + argument.describe() + ")";
+        }
+    }
+
+    /** The text functions taking exactly one argument. */
+    enum TextOp {
+        UPPER,
+        LOWER,
+        TRIM
+    }
+
+    /**
+     * {@code ||}, and {@code CONCAT} which Calcite rewrites into it.
+     *
+     * <p>A list rather than a pair, because {@code a || b || c} arrives as a chain and flattening it
+     * builds the result in one pass through one buffer instead of allocating an intermediate string
+     * per operator.
+     *
+     * <p><strong>Null concatenated with anything is null</strong>, which surprises people who expect
+     * it to behave like an empty string. It is the SQL standard's rule and the reason {@code
+     * first_name || ' ' || last_name} produces null for a row with no last name rather than a name
+     * with a trailing space. Use {@code CASE WHEN last_name IS NULL THEN … END} to choose otherwise.
+     */
+    record Concat(java.util.List<Expression> parts) implements Expression {
+
+        public Concat {
+            if (parts.size() < 2) {
+                throw new IllegalArgumentException("a concatenation needs at least two parts");
+            }
+            for (Expression part : parts) {
+                if (part.type() != TypeName.STRING) {
+                    throw new IllegalArgumentException("|| joins text, and one side produces " + part.type()
+                            + ". Wrap it in CAST(… AS VARCHAR) if that is what you meant");
+                }
+            }
+            parts = java.util.List.copyOf(parts);
+        }
+
+        @Override
+        public TypeName type() {
+            return TypeName.STRING;
+        }
+
+        @Override
+        public String evaluateString(RowView row) {
+            StringBuilder joined = new StringBuilder();
+            for (Expression part : parts) {
+                joined.append(part.evaluateString(row));
+            }
+            return joined.toString();
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            for (Expression part : parts) {
+                if (part.isNull(row)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public String describe() {
+            return parts.stream().map(Expression::describe).collect(java.util.stream.Collectors.joining(" || "));
+        }
+    }
+
+    /**
+     * {@code SUBSTRING(s FROM start)} and {@code SUBSTRING(s FROM start FOR length)}.
+     *
+     * <p>Positions are 1-based and counted in <em>code points</em>, not in Java {@code char}s.
+     * Counting chars is the one-line version and it cuts a surrogate pair in half: {@code
+     * SUBSTRING(emoji FROM 1 FOR 1)} would return half of an emoji, which is not a string at all.
+     * The cost is an {@code offsetByCodePoints} rather than an index, paid only by this function.
+     *
+     * <p>A start below 1 is not an error. The standard defines the result as the characters between
+     * {@code start} and {@code start + length} that actually exist, so {@code SUBSTRING(s FROM -1
+     * FOR 4)} returns the first two characters: positions -1 and 0 contribute nothing. Clamping
+     * start to 1 instead -- the obvious-looking fix -- would return four characters and quietly
+     * disagree with every other database.
+     */
+    record Substring(Expression source, Expression start, Expression length) implements Expression {
+
+        public Substring {
+            if (source.type() != TypeName.STRING) {
+                throw new IllegalArgumentException("SUBSTRING takes text, and this argument produces " + source.type());
+            }
+        }
+
+        /** The {@code FROM start} form, running to the end of the string. */
+        public static Substring toEnd(Expression source, Expression start) {
+            return new Substring(source, start, null);
+        }
+
+        @Override
+        public TypeName type() {
+            return TypeName.STRING;
+        }
+
+        @Override
+        public String evaluateString(RowView row) {
+            String value = source.evaluateString(row);
+            int total = value.codePointCount(0, value.length());
+            long from = start.evaluateLong(row);
+            // The window in 1-based positions, half-open: [from, until). Computed in long so that
+            // a huge length cannot overflow into a negative and turn a valid query into an empty
+            // string.
+            long until = length == null ? total + 1L : from + Math.max(0L, length.evaluateLong(row));
+            long firstPosition = Math.max(1L, from);
+            long lastPosition = Math.min(total + 1L, until);
+            if (firstPosition >= lastPosition) {
+                return "";
+            }
+            int begin = value.offsetByCodePoints(0, (int) (firstPosition - 1));
+            int end = value.offsetByCodePoints(0, (int) (lastPosition - 1));
+            return value.substring(begin, end);
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return source.isNull(row) || start.isNull(row) || (length != null && length.isNull(row));
+        }
+
+        @Override
+        public String describe() {
+            return "SUBSTRING(" + source.describe() + " FROM " + start.describe()
+                    + (length == null ? "" : " FOR " + length.describe()) + ")";
         }
     }
 
