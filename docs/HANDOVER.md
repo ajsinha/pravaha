@@ -77,6 +77,26 @@ and one arena per lane, fed through the ingest pump from plugin readers — `Que
 query across four lanes and checks every row arrives and every lane does some of the work. Before
 that, the lane runtime and the SQL path both worked and neither was the engine.
 
+**The server became a server on 2026-09-12.** Before that date a registered query could never
+receive a row — the only production code that drove a pump was the CLI's one-shot `run` — the node
+hard-coded `SecurityPolicy.PERMISSIVE` with no authentication and no TLS, and the build produced no
+artefact anybody could install. All three are closed, and the whole loop is verified end to end:
+declare a stream and bind it under `pravaha.streams` / `pravaha.sources`, start
+`bin/pravaha-server`, `pravaha register`, `pravaha query`, read rows back.
+
+Four things a fresh session should know about that work, because each cost a debugging round:
+
+- **A served view shows its *committed* frontier.** Rows arriving and rows being readable are
+  different events. The feed commits on a timer of its own, not the pump's — committing right after
+  a poll publishes a frontier from before the lane applied those rows, and committing on the edge
+  into idle misses the lane applying after the last edge.
+- **Declaring a stream and binding a source are separate.** A stream can be declared with nothing
+  attached; that is what a query written ahead of its source needs.
+- **The node refuses to start open.** No authentication plus a permissive policy requires
+  `pravaha.security.allow-anonymous=true`, or the `dev` profile, which is that acknowledgement.
+- **Spring `Duration`s and the engine's config parser disagree.** `Duration.toString()` is ISO-8601
+  `PT2S`; the engine wants `2s`. Convert explicitly when crossing that boundary.
+
 **The expression layer is complete as of 2026-09-12.** A projection could previously do arithmetic
 and nothing else, which is below the floor for production SQL. It now has `CASE WHEN`, the numeric
 functions (`ABS`, `FLOOR`, `CEIL`, `ROUND`), text — `UPPER`, `LOWER`, `TRIM`, `SUBSTRING`, `||`,
