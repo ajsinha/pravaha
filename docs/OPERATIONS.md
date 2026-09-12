@@ -234,10 +234,38 @@ Set it **per stream**, at creation, with `StreamSchema.outOfOrderness` — laten
 the source, and a query reading three streams should get three tolerances rather than the worst of
 them. The configuration key is the default for streams that do not say.
 
-*Idle timeout* is how long a partition may produce nothing before it stops holding the watermark
-back. Too long and one quiet partition freezes every window in the query — the commonest streaming
-incident there is, and it looks like a hang rather than an error. Too short and a genuinely slow
-partition gets excluded while it still had rows coming, which closes windows early.
+### Idle timeout: how long a partition may say nothing
+
+A query's watermark is the **minimum across its partitions** — necessary, because if one is behind,
+the query cannot claim completeness past it. The failure is that a partition producing *nothing*
+keeps its last watermark forever, so the minimum stays pinned to it and every window in the query
+stops closing. Nothing errors. It presents as a hang.
+
+Idle exclusion drops a silent partition out of the minimum, and lets it rejoin the moment it speaks.
+
+| Getting it wrong | What happens |
+|---|---|
+| **Too long** | A desk that trades 09:00–17:00 goes quiet at 17:00 and the watermark freezes until 09:00. Sixteen hours of growing state and no output — from the *whole query*, not just that region |
+| **Too short** | A source that batches every 60s, or a consumer pausing 20s to rebalance, is excluded while it still had rows coming. The watermark jumps, its rows land behind it, and **on-time data becomes a late correction** — right, but bought for nothing |
+
+**The rule:** comfortably longer than the longest normal gap on your quietest partition, and
+comfortably shorter than how long you can afford windows not to close. If you cannot say what the
+longest normal gap is, that is the number to go and measure.
+
+```yaml
+pravaha:
+  watermark:
+    idle-after: 30s     # default. Minimum 1s, maximum 10m, both enforced
+```
+
+The bounds are **refused, not clamped** — a value quietly changed to something you did not ask for
+is how a tuned number becomes a mystery six months later. Below a second, ordinary jitter excludes
+partitions that were merely slow. Above ten minutes, a broken partition is indistinguishable from a
+quiet one for longer than anyone can operate, and state grows throughout; a source whose normal gap
+exceeds that is a batch, and a batch should not be holding a stream's watermark.
+
+The **tick must be finer than the idle timeout**, and a configuration where it is not is refused:
+idleness is detected on the tick, so a coarser one could not notice until long after the fact.
 
 Watch `pravaha_query_watermark_lag_seconds`. Lag that climbs without bound means event time is not
 keeping up with arrival, and every bound downstream is measured against event time — so a stuck

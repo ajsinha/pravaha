@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.runtime.time;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -64,9 +65,47 @@ public final class WatermarkTracker {
     private long regressions;
     private long idleExclusions;
 
+    /**
+     * The shortest idle timeout that is not a mistake.
+     *
+     * <p>Below a second, ordinary jitter excludes partitions: a consumer rebalancing, a GC pause, a
+     * source that polls on a timer. Each exclusion jumps the watermark forward, and the rows that
+     * were already on their way then arrive behind it and count as late. The data is still correct
+     * -- it arrives as a retraction and a correction -- but it is work and latency bought for
+     * nothing, and the cause is invisible from the outside.
+     */
+    public static final Duration MINIMUM_IDLE_TIMEOUT = Duration.ofSeconds(1);
+
+    /**
+     * The longest idle timeout this engine will accept.
+     *
+     * <p>The whole point of excluding an idle partition is that a quiet one must not stop the
+     * query. A timeout of hours preserves the letter of that and loses the substance: state grows
+     * for the whole period, and a genuinely broken partition is indistinguishable from a merely
+     * quiet one for far too long to be operable.
+     *
+     * <p>Ten minutes is past any reasonable polling interval and well short of the point where
+     * memory is the thing that notices first. A source with a longer natural gap than this is a
+     * batch, and a batch should not be holding a stream's watermark.
+     */
+    public static final Duration MAXIMUM_IDLE_TIMEOUT = Duration.ofMinutes(10);
+
     public WatermarkTracker(long idleTimeoutNanos) {
-        if (idleTimeoutNanos <= 0) {
-            throw new IllegalArgumentException("idle timeout must be positive, got " + idleTimeoutNanos);
+        if (idleTimeoutNanos < MINIMUM_IDLE_TIMEOUT.toNanos()) {
+            throw new IllegalArgumentException("an idle timeout of " + Duration.ofNanos(idleTimeoutNanos)
+                    + " is below the minimum of " + MINIMUM_IDLE_TIMEOUT
+                    + ". Below a second, ordinary jitter -- a rebalance, a GC pause, a source that polls "
+                    + "on a timer -- excludes a partition that was merely slow, and the rows already on "
+                    + "their way then arrive behind the watermark and count as late.");
+        }
+        if (idleTimeoutNanos > MAXIMUM_IDLE_TIMEOUT.toNanos()) {
+            throw new IllegalArgumentException("an idle timeout of " + Duration.ofNanos(idleTimeoutNanos)
+                    + " is above the maximum of " + MAXIMUM_IDLE_TIMEOUT
+                    + ". Excluding an idle partition exists so a quiet one cannot stop the query; a "
+                    + "timeout this long keeps the letter of that and loses the substance, because state "
+                    + "grows for the whole period and a broken partition looks exactly like a quiet one "
+                    + "until it expires. A source whose normal gap is longer than this is a batch, and a "
+                    + "batch should not be holding a stream's watermark.");
         }
         this.idleTimeoutNanos = idleTimeoutNanos;
     }

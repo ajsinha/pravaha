@@ -242,6 +242,42 @@ class StreamingWatermarkTest {
     }
 
     @Test
+    void anIdleTimeoutBelowTheMinimumIsRefused() {
+        // Below a second, ordinary jitter excludes a partition that was merely slow: a rebalance, a
+        // GC pause, a source polling on a timer. The watermark jumps, the rows already in flight
+        // land behind it, and on-time data becomes a late correction -- correct, but bought for
+        // nothing, and invisible from outside.
+        assertThatThrownBy(() -> new WatermarkTracker(Duration.ofMillis(200).toNanos()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("below the minimum")
+                .hasMessageContaining("merely slow");
+    }
+
+    @Test
+    void anIdleTimeoutAboveTheMaximumIsRefused() {
+        // Excluding an idle partition exists so a quiet one cannot stop the query. An hour keeps
+        // the letter of that and loses the substance: state grows the whole time, and a broken
+        // partition is indistinguishable from a quiet one until it expires.
+        assertThatThrownBy(() -> new WatermarkTracker(Duration.ofHours(1).toNanos()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("above the maximum")
+                .hasMessageContaining("should not be holding a stream's watermark");
+    }
+
+    @Test
+    void theBoundsThemselvesAreAccepted() {
+        // The edges are usable, not merely described: a source that genuinely speaks every nine
+        // minutes should be configurable without argument.
+        assertThat(new WatermarkTracker(WatermarkTracker.MINIMUM_IDLE_TIMEOUT.toNanos()))
+                .isNotNull();
+        assertThat(new WatermarkTracker(WatermarkTracker.MAXIMUM_IDLE_TIMEOUT.toNanos()))
+                .isNotNull();
+        assertThat(WatermarkTracker.MINIMUM_IDLE_TIMEOUT).isEqualTo(Duration.ofSeconds(1));
+        assertThat(WatermarkTracker.MAXIMUM_IDLE_TIMEOUT).isEqualTo(Duration.ofMinutes(10));
+        assertThat(QueryExecution.DEFAULT_IDLE_AFTER).isEqualTo(Duration.ofSeconds(30));
+    }
+
+    @Test
     void anIdlePartitionDoesNotPinEventTime() {
         // Tested at the tracker rather than through a running query, deliberately. The property is
         // the tracker's, and driving it through two lanes turned up an unrelated defect in
@@ -252,7 +288,7 @@ class StreamingWatermarkTest {
         // The failure this guards is the one the tracker's own javadoc calls the most common
         // streaming incident: a partition goes quiet, holds the watermark at whatever it last saw,
         // every window stops firing, and it presents as a hang rather than an error.
-        WatermarkTracker tracker = new WatermarkTracker(Duration.ofMillis(200).toNanos());
+        WatermarkTracker tracker = new WatermarkTracker(Duration.ofSeconds(1).toNanos());
         long start = System.nanoTime();
         tracker.addPartition("busy", WatermarkGenerator.boundedOutOfOrderness(0), start);
         tracker.addPartition("quiet", WatermarkGenerator.boundedOutOfOrderness(0), start);
@@ -263,13 +299,13 @@ class StreamingWatermarkTest {
         // Both live: the minimum wins, and the quiet one is holding everybody at 1s.
         assertThat(tracker.advance(start)).isEqualTo(1 * SECOND);
 
-        tracker.observe("busy", 20 * SECOND, start + Duration.ofMillis(100).toNanos());
-        assertThat(tracker.advance(start + Duration.ofMillis(100).toNanos()))
+        tracker.observe("busy", 20 * SECOND, start + Duration.ofMillis(500).toNanos());
+        assertThat(tracker.advance(start + Duration.ofMillis(500).toNanos()))
                 .as("still inside the idle timeout, so the quiet partition still counts")
                 .isEqualTo(1 * SECOND);
 
         // Past the timeout the quiet partition stops counting, and time moves again.
-        long later = start + Duration.ofMillis(500).toNanos();
+        long later = start + Duration.ofMillis(1500).toNanos();
         tracker.observe("busy", 30 * SECOND, later);
         assertThat(tracker.advance(later))
                 .as("an idle partition must be excluded, not allowed to stop the query")

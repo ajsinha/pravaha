@@ -29,6 +29,7 @@ import java.util.function.Supplier;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
+import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.RowLayout;
@@ -263,7 +264,14 @@ public final class QueryExecution implements AutoCloseable {
                             + "partition of the watermark, and its stream would advance event time for "
                             + "everybody else while contributing nothing of its own");
         }
+        if (tick.compareTo(idleAfter) > 0) {
+            throw new IllegalArgumentException("the watermark tick (" + tick + ") is longer than the idle "
+                    + "timeout (" + idleAfter + "), so a partition could not be noticed idle until long "
+                    + "after it was. Idleness is detected on the tick; the tick has to be the finer of the two.");
+        }
         this.generator = generator;
+        // Bounds are the tracker's, and it refuses rather than clamps: a timeout quietly changed to
+        // something the operator did not ask for is how a tuned value becomes a mystery later.
         this.watermarks = new WatermarkTracker(idleAfter.toNanos());
         this.watermarkClock = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "pravaha-watermark");
@@ -275,9 +283,40 @@ public final class QueryExecution implements AutoCloseable {
         return this;
     }
 
+    /**
+     * How long a partition may produce nothing before it stops holding the watermark back.
+     *
+     * <p>Thirty seconds suits a source that speaks at least every few seconds, which is most of
+     * them. A quieter one -- a desk that trades in business hours, a key range written once a day
+     * -- needs this raised, and the rule is that it should sit comfortably above the longest normal
+     * gap on the quietest partition and comfortably below how long windows may go without closing.
+     */
+    public static final Duration DEFAULT_IDLE_AFTER = Duration.ofSeconds(30);
+
+    /** How often event time advances, which is also what makes idleness detectable. */
+    public static final Duration DEFAULT_TICK = Duration.ofSeconds(1);
+
     /** With a one-second tick and a thirty-second idle timeout. */
     public QueryExecution generatingWatermarks(Supplier<WatermarkGenerator> generator) {
-        return generatingWatermarks(generator, Duration.ofSeconds(30), Duration.ofSeconds(1));
+        return generatingWatermarks(generator, DEFAULT_IDLE_AFTER, DEFAULT_TICK);
+    }
+
+    /**
+     * Derives watermarks with everything read from configuration.
+     *
+     * <p>Reads {@code pravaha.watermark.idle-after} and {@code pravaha.watermark.tick}. Lateness is
+     * not read here, because it belongs to each stream rather than to the deployment; the
+     * configuration key of the same name is only the default a stream falls back to.
+     *
+     * @throws IllegalArgumentException if the configured idle timeout is outside {@link
+     *     WatermarkTracker#MINIMUM_IDLE_TIMEOUT} and {@link WatermarkTracker#MAXIMUM_IDLE_TIMEOUT},
+     *     because a value outside those does harm rather than merely being unusual
+     */
+    public QueryExecution generatingWatermarks(Configuration configuration) {
+        return generatingWatermarks(
+                null,
+                configuration.getDuration("pravaha.watermark.idle-after").orElse(DEFAULT_IDLE_AFTER),
+                configuration.getDuration("pravaha.watermark.tick").orElse(DEFAULT_TICK));
     }
 
     /**
@@ -291,7 +330,7 @@ public final class QueryExecution implements AutoCloseable {
      * strategy other than bounded out-of-orderness.
      */
     public QueryExecution generatingWatermarks() {
-        return generatingWatermarks(null, Duration.ofSeconds(30), Duration.ofSeconds(1));
+        return generatingWatermarks(null, DEFAULT_IDLE_AFTER, DEFAULT_TICK);
     }
 
     private void advanceWatermarkQuietly() {
