@@ -69,11 +69,13 @@ public class PravahaServerApplication {
         var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<
                 com.ash.messaging.pravaha.server.security.BearerTokenFilter>();
         com.ash.messaging.pravaha.security.TokenVerifier verifier = security.verifier();
-        if (verifier == null) {
-            registration.setEnabled(false);
-            return registration;
-        }
-        registration.setFilter(new com.ash.messaging.pravaha.server.security.BearerTokenFilter(verifier));
+        // Disabled rather than absent, and with a filter instance either way: a
+        // FilterRegistrationBean holding no filter fails the servlet container at context refresh
+        // with "'filter' must not be null", which MockMvc never reaches because it does not start
+        // one. That bug shipped as far as the first run of the executable jar.
+        registration.setFilter(new com.ash.messaging.pravaha.server.security.BearerTokenFilter(
+                verifier == null ? com.ash.messaging.pravaha.security.TokenVerifier.rejectAll() : verifier));
+        registration.setEnabled(verifier != null);
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
         return registration;

@@ -95,6 +95,57 @@
           <argLine>@{jacoco.surefire.argLine} -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED</argLine>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>${maven.shade.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <phase>package</phase>
+            <configuration>
+              <!--
+                One jar that runs, because the documentation has been telling readers to type
+                `pravaha` since the first quickstart and the build produced a plain jar with no
+                main class and no dependencies. Every example in the repository assumed a binary
+                that did not exist.
+
+                shade rather than Spring Boot's repackage: this module has no Spring, and a
+                shaded jar can be launched by `java -jar` or wrapped in a two-line script without
+                a custom class loader in the way.
+              -->
+              <shadedArtifactAttached>true</shadedArtifactAttached>
+              <shadedClassifierName>cli</shadedClassifierName>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>com.ash.messaging.pravaha.cli.PravahaCli</mainClass>
+                </transformer>
+                <!--
+                  Arrow and the plugin layer both ship META-INF/services entries, and a plain
+                  overwrite keeps whichever jar happened to be last. That is how source plugin
+                  discovery silently stops finding half its plugins.
+                -->
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+              </transformers>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <!-- Signature files from signed dependencies; kept, they fail verification. -->
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

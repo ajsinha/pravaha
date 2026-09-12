@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The engine node. HTTP on 8080, Flight SQL on 9090.
+#
+# This server refuses to start if it would serve every view to unauthenticated callers without
+# anybody having said so. For a local first run:
+#
+#     bin/pravaha-server --spring.profiles.active=dev
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+jar="${PRAVAHA_SERVER_JAR:-}"
+
+if [[ -z "$jar" ]]; then
+  for candidate in "$here/../lib/pravaha-server.jar" "$here/../pravaha-server/target/"pravaha-server-*-app.jar; do
+    if [[ -f "$candidate" ]]; then jar="$candidate"; break; fi
+  done
+fi
+
+if [[ -z "$jar" || ! -f "$jar" ]]; then
+  echo "pravaha-server: cannot find the server jar." >&2
+  echo "  Build it with:  ./mvnw -pl pravaha-server -am install -DskipTests" >&2
+  echo "  Or point at it: PRAVAHA_SERVER_JAR=/path/to/pravaha-server-<version>-app.jar" >&2
+  exit 2
+fi
+
+exec "${JAVA_HOME:+$JAVA_HOME/bin/}java" \
+  --add-opens=java.base/java.nio=ALL-UNNAMED \
+  --add-opens=java.base/java.lang=ALL-UNNAMED \
+  ${PRAVAHA_JAVA_OPTS:-} \
+  -jar "$jar" "$@"

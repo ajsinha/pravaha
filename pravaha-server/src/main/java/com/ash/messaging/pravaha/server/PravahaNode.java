@@ -226,7 +226,10 @@ public class PravahaNode implements SmartLifecycle {
         log.info(
                 "security: authentication={}, policy={}, audit={}, flight transport={}",
                 security.authenticates() ? "token" : "none",
-                policy,
+                // The configured name, not the object: SecurityPolicy.PERMISSIVE is an anonymous
+                // class, and "SecurityPolicy$1@7657d90b" in the one line an operator reads to check
+                // how a node is secured is worse than not logging it.
+                security.getPolicy(),
                 security.getAudit(),
                 tlsCertificate == null ? "PLAINTEXT" : "TLS");
 

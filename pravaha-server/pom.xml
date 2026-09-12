@@ -149,6 +149,36 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring.boot.version}</version>
+        <executions>
+          <execution>
+            <id>executable-jar</id>
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+            <configuration>
+              <!--
+                An executable jar, because until now there was none.
+
+                The quickstart told a reader to run `pravaha-server &` and the build produced a
+                plain jar with no manifest main class and no dependencies, so the only way to
+                start this server was to assemble a classpath by hand. That is not a packaging
+                nicety: it is the difference between software somebody can install and software
+                somebody can compile.
+
+                classifier, so the plain jar keeps its coordinates for modules that depend on
+                this one. A repackaged jar on a compile classpath puts every dependency inside
+                BOOT-INF where javac cannot see it.
+              -->
+              <classifier>app</classifier>
+              <mainClass>com.ash.messaging.pravaha.server.PravahaServerApplication</mainClass>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

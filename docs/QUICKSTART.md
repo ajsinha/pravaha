@@ -29,10 +29,25 @@ git clone <this repository> && cd pravaha
 ./mvnw -q -DskipTests install
 ```
 
-A few minutes the first time. Then:
+A few minutes the first time. That produces two runnable things:
+
+| | |
+|---|---|
+| `pravaha-cli/target/pravaha-cli-<version>-cli.jar` | the CLI, launched by `bin/pravaha` |
+| `pravaha-server/target/pravaha-server-<version>-app.jar` | the engine node, launched by `bin/pravaha-server` |
+
+Put `bin/` on your `PATH` — every example below types `pravaha` rather than a path:
 
 ```bash
+export PATH="$PWD/bin:$PATH"
 pravaha --help
+```
+
+Or build a container image instead, which needs no JDK on the host:
+
+```bash
+docker build -t pravaha:local .
+docker run --rm -p 8080:8080 -p 9090:9090 pravaha:local --spring.profiles.active=dev
 ```
 
 ## 2. Run a query with no server at all
@@ -77,9 +92,42 @@ now. See [Concepts §7](CONCEPTS.md#7-bounds-what-changes-the-answer-and-what-pr
 ## 4. Start a server and register a continuous query
 
 ```bash
-pravaha-server &                      # or run PravahaFlightServer from your own code
-pravaha queries                       # no continuous queries are registered
+pravaha-server --spring.profiles.active=dev &   # or run PravahaFlightServer from your own code
+pravaha queries                                 # no continuous queries are registered
 ```
+
+**Why the profile.** The server refuses to start if it would serve every view to unauthenticated
+callers and nobody has said that is the intent — the `dev` profile is that acknowledgement, kept out
+of the default so a production deployment cannot inherit it by copying a file. For anything beyond a
+local first run, configure credentials instead:
+
+```yaml
+pravaha:
+  security:
+    authentication: token
+    policy: authenticated
+    tokens:
+      "a-long-random-string": { id: ann, tenant: acme, roles: [reader] }
+  flight:
+    tls: { certificate: /etc/pravaha/tls.crt, key: /etc/pravaha/tls.key }
+```
+
+**Where rows come from.** A registered query receives nothing until a stream is bound to a source.
+Bind one under `pravaha.sources`:
+
+```yaml
+pravaha:
+  sources:
+    txn:
+      plugin: filesystem            # filesystem, feedfile, jdbc or delta
+      options:
+        path: /var/lib/pravaha/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+```
+
+Without a binding the query still registers and runs — an application pushing its own rows through
+the SDK is a supported way to work — and the node logs that nothing is attached, because "zero rows"
+otherwise has two causes that look identical.
 
 Register one:
 

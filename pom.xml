@@ -57,6 +57,7 @@
   </modules>
 
   <properties>
+    <maven.shade.version>3.6.0</maven.shade.version>
     <!-- Design 4.5: Java 21 LTS is the baseline; pravaha-api targets 17 for embedders. -->
     <maven.compiler.release>21</maven.compiler.release>
     <api.compiler.release>17</api.compiler.release>
