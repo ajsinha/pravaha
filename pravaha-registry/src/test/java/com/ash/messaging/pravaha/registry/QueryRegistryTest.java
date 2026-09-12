@@ -34,6 +34,7 @@ import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 
@@ -66,6 +67,98 @@ class QueryRegistryTest {
         views = new ViewCatalog();
         registry = new QueryRegistry(views, TXN);
         arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
+    }
+
+    @Test
+    void aPrincipalCannotRegisterOverAStreamTheyMayNotRead() {
+        // The bypass this closes: registration asked only whether somebody may register
+        // *anything*, never whether they may read what the query names. So a principal who
+        // could register could name a stream they had no access to, give the view a name of
+        // their own choosing, and read it back -- because the read check is against the view's
+        // name and the policy was never told what the view derives from.
+        SecurityPolicy noTxn = new SecurityPolicy() {
+            @Override
+            public AccessDecision mayRead(Principal principal, String view) {
+                return "txn".equals(view)
+                        ? AccessDecision.deny("not cleared for transaction data")
+                        : AccessDecision.allow();
+            }
+
+            @Override
+            public AccessDecision mayRegisterQuery(Principal principal) {
+                return AccessDecision.allow();
+            }
+        };
+
+        try (QueryRegistry guarded = new QueryRegistry(new ViewCatalog(), noTxn, AuditSink.NONE, TXN)) {
+            assertThatThrownBy(() -> guarded.register("laundered", "SELECT user_id, amount FROM txn", List.of(0), DANA))
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-7002")
+                    .hasMessageContaining("which they may not read")
+                    .hasMessageContaining("standing read");
+        }
+    }
+
+    @Test
+    void principalsWithDifferentRowFiltersDoNotShareOneComputation() {
+        // Sharing is by fingerprint, and the fingerprint used to ignore row filters entirely --
+        // so a principal restricted to one slice and a principal restricted to none produced the
+        // same fingerprint and shared one computation with one copy of the state. The read path
+        // was the only thing between that and the restricted principal seeing everything.
+        SecurityPolicy perPrincipal = new SecurityPolicy() {
+            @Override
+            public AccessDecision mayRead(Principal principal, String view) {
+                return "dana".equals(principal.id())
+                        ? AccessDecision.allowWithRowFilter("status = 'SETTLED'")
+                        : AccessDecision.allow();
+            }
+
+            @Override
+            public AccessDecision mayRegisterQuery(Principal principal) {
+                return AccessDecision.allow();
+            }
+        };
+        Principal rob = new Principal("rob", "acme", Set.of("analyst"), Map.of());
+
+        try (QueryRegistry guarded = new QueryRegistry(new ViewCatalog(), perPrincipal, AuditSink.NONE, TXN)) {
+            String sql = "SELECT user_id, amount, status FROM txn";
+            RegisteredQuery restricted = guarded.register("dana_view", sql, List.of(0), DANA);
+            RegisteredQuery unrestricted = guarded.register("rob_view", sql, List.of(0), rob);
+
+            assertThat(restricted.fingerprint())
+                    .as("a filtered principal and an unfiltered one must not share state")
+                    .isNotEqualTo(unrestricted.fingerprint());
+            assertThat(restricted.names()).containsExactly("dana_view");
+            assertThat(unrestricted.names()).containsExactly("rob_view");
+        }
+    }
+
+    @Test
+    void thesameFilterStillShares() {
+        // The other half: sharing must still happen when the entitlements match, or the claim
+        // that ten analysts asking one question cost one computation stops being true the moment
+        // a row filter exists.
+        SecurityPolicy sameForAll = new SecurityPolicy() {
+            @Override
+            public AccessDecision mayRead(Principal principal, String view) {
+                return AccessDecision.allowWithRowFilter("status = 'SETTLED'");
+            }
+
+            @Override
+            public AccessDecision mayRegisterQuery(Principal principal) {
+                return AccessDecision.allow();
+            }
+        };
+        Principal rob = new Principal("rob", "acme", Set.of("analyst"), Map.of());
+
+        try (QueryRegistry shared = new QueryRegistry(new ViewCatalog(), sameForAll, AuditSink.NONE, TXN)) {
+            String sql = "SELECT user_id, amount, status FROM txn";
+            RegisteredQuery first = shared.register("a", sql, List.of(0), DANA);
+            RegisteredQuery second = shared.register("b", sql, List.of(0), rob);
+
+            assertThat(second.fingerprint()).isEqualTo(first.fingerprint());
+            assertThat(second.names()).containsExactlyInAnyOrder("a", "b");
+        }
     }
 
     @AfterEach

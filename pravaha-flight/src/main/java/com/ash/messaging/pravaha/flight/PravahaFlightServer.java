@@ -26,6 +26,7 @@ import org.apache.arrow.memory.RootAllocator;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.security.AuditSink;
+import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.serving.ReadAdmission;
@@ -104,6 +105,7 @@ public final class PravahaFlightServer implements AutoCloseable {
         requireNotStarted("authorization");
         this.policy = java.util.Objects.requireNonNull(policy, "policy");
         this.audit = java.util.Objects.requireNonNull(audit, "audit");
+        requireOnePolicy();
         return this;
     }
 
@@ -140,7 +142,35 @@ public final class PravahaFlightServer implements AutoCloseable {
     public PravahaFlightServer hosting(com.ash.messaging.pravaha.registry.QueryRegistry registry) {
         requireNotStarted("a registry");
         this.registry = java.util.Objects.requireNonNull(registry, "registry");
+        requireOnePolicy();
         return this;
+    }
+
+    /**
+     * Refuses a deployment where the server and the registry authorize against different policies.
+     *
+     * <p>There are two policy holders and until now nothing said so. A deployment that configured
+     * one and not the other got a server where registering was judged by one set of rules and
+     * reading by another -- silently, and in the direction of whichever was more permissive. It was
+     * found by writing a test that configured the registry and not the server, and watching a
+     * subscription that should have been refused succeed.
+     *
+     * <p>Identity rather than equality, deliberately: two policies that behave the same today are
+     * still two objects somebody can change independently tomorrow.
+     */
+    private void requireOnePolicy() {
+        if (registry == null || policy == null) {
+            return;
+        }
+        if (registry.policy() != policy) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN,
+                    "this server and the registry it hosts authorize against different SecurityPolicy "
+                            + "instances. Registering would be judged by one and reading by the other, which "
+                            + "is a split authorization model nobody chose -- and the more permissive of the "
+                            + "two would decide. Pass the same policy to both, or pass it to neither and let "
+                            + "both default.");
+        }
     }
 
     /**

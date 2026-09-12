@@ -292,13 +292,18 @@ class FlightRegistryTest {
         ViewCatalog views = new ViewCatalog();
         // A lambda policy: it implements mayRead and keeps the interface's default
         // mayRegisterQuery, which is what almost anybody writing a custom policy will do.
-        try (QueryRegistry strict = new QueryRegistry(
-                        views,
-                        (principal, view) -> com.ash.messaging.pravaha.security.AccessDecision.allow(),
-                        com.ash.messaging.pravaha.security.AuditSink.NONE,
-                        TRADE);
-                PravahaFlightServer guarded =
-                        new PravahaFlightServer(views).hosting(strict).start("localhost", 0);
+        // One policy object, given to both. The server and the registry each hold one, and
+        // passing it to only one of them is now refused -- registering would be judged by one
+        // set of rules and reading by the other.
+        com.ash.messaging.pravaha.security.SecurityPolicy readable =
+                (principal, view) -> com.ash.messaging.pravaha.security.AccessDecision.allow();
+
+        try (QueryRegistry strict =
+                        new QueryRegistry(views, readable, com.ash.messaging.pravaha.security.AuditSink.NONE, TRADE);
+                PravahaFlightServer guarded = new PravahaFlightServer(views)
+                        .authorizedBy(readable, com.ash.messaging.pravaha.security.AuditSink.NONE)
+                        .hosting(strict)
+                        .start("localhost", 0);
                 FlightClient other = FlightClient.builder(
                                 allocator, Location.forGrpcInsecure("localhost", guarded.port()))
                         .build()) {

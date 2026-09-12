@@ -149,6 +149,30 @@ mTLS between nodes is in the design (§25) and not implemented, because there ar
 - **Secret management integration** (`SecretProvider` SPI in the design) — not built
 - **Security review and SBOM** — Wave 10
 
+## What a registration is allowed to read
+
+A registration is a **standing read** of every stream the query names, so it is authorized as one.
+At registration the engine asks `mayRead` for each source stream in the plan — taken from the plan
+rather than the SQL text, because the text can name a stream the planner optimised away and omit one
+a view expanded into.
+
+This closes a bypass. Registration previously asked only `mayRegisterQuery` — whether somebody may
+register *anything* — and never whether they may read what the query names. A principal who could
+register could name a stream they had no access to, give the view a name of their own choosing, and
+read it back: the read check is against the *view's* name, and the policy was never told what the
+view derives from. A careful policy author could not have refused it, because the engine gave them
+nothing to refuse on.
+
+**Row filters are part of the fingerprint.** Sharing is by canonical fingerprint (ADR-025), and the
+fingerprint now folds in the principal's row filters, sorted. Two principals with the same
+entitlement share one computation — which is the claim the product makes. Two with *different*
+entitlements do not, and previously did: the same fingerprint, one computation, one copy of the
+state, with the read path the only thing between a restricted principal and everything.
+
+**One policy per deployment.** The server and the registry each hold a `SecurityPolicy`, and passing
+it to only one is refused at startup. Configured separately, registering was judged by one set of
+rules and reading by the other — silently, in the direction of whichever was more permissive.
+
 ## The console's own gate
 
 The console authenticates with a **single shared secret** (`console.password`), held in a signed

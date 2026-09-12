@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.registry;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
+import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.AuditSink;
@@ -177,17 +179,49 @@ public final class QueryRegistry implements AutoCloseable {
         List<ParameterPlacement> placements = prepared.placements();
         PhysicalOperator plan = prepared.plan();
 
-        // Bound values are in the plan, so they are in the fingerprint: two bindings of the same SQL
-        // are two computations. That is the truth rather than a policy, and it is precisely why a
-        // parameter the view carries should be a tap filter instead -- same answer, one computation.
-        QueryFingerprint fingerprint = QueryFingerprint.of(plan);
-
         AccessDecision decision = policy.mayRegisterQuery(principal);
         audit.record(AuditEvent.of(principal, "register", name, decision, sql));
         if (!decision.allowed()) {
             throw new PravahaException(
                     SecurityErrors.FORBIDDEN, principal.id() + " may not register a query: " + decision.reason());
         }
+
+        // May this principal read what the query reads?
+        //
+        // Registration used to ask only whether somebody may register *anything*, and never
+        // whether they may read the streams the query names. So a principal who could register
+        // but could not read `payroll` could register `SELECT * FROM payroll` under a name of
+        // their choosing and then read that view -- because the read check is against the view's
+        // name, and the policy was never told what the view derives from. A careful policy author
+        // could not have refused it; the engine gave them nothing to refuse on.
+        List<String> rowFilters = new ArrayList<>();
+        for (String source : sourceStreams(plan)) {
+            AccessDecision read = policy.mayRead(principal, source);
+            audit.record(AuditEvent.of(principal, "register:source", source, read, sql));
+            if (!read.allowed()) {
+                throw new PravahaException(
+                        SecurityErrors.FORBIDDEN,
+                        principal.id() + " may not register '" + name + "' because it reads '" + source
+                                + "', which they may not read: " + read.reason()
+                                + ". A registration is a standing read of everything the query names, so it "
+                                + "is refused here rather than at the first row.");
+            }
+            read.rowFilter().ifPresent(rowFilters::add);
+        }
+        // Sorted, so two principals holding the same filters in a different order share, and two
+        // holding different ones do not.
+        Collections.sort(rowFilters);
+
+        // Bound values are in the plan, so they are in the fingerprint: two bindings of the same SQL
+        // are two computations. That is the truth rather than a policy, and it is precisely why a
+        // parameter the view carries should be a tap filter instead -- same answer, one computation.
+        //
+        // The principal's row filters are in it too, and that is the point of the two-argument
+        // form. Without them, a principal restricted to one region and a principal restricted to
+        // none produced the same fingerprint, shared one computation and one copy of the state --
+        // and the read path was the only thing standing between that and the restricted principal
+        // seeing everything.
+        QueryFingerprint fingerprint = QueryFingerprint.of(plan, rowFilters);
 
         RegisteredQuery existing = byFingerprint.get(fingerprint);
         if (existing != null && !existing.state().isTerminal()) {
@@ -246,6 +280,26 @@ public final class QueryRegistry implements AutoCloseable {
         } finally {
             journal = suspended;
         }
+    }
+
+    /**
+     * Every stream the plan reads, in the order it reads them.
+     *
+     * <p>Taken from the plan rather than from the SQL text, because the text can name a stream the
+     * planner optimised away and can omit one a view expanded into. What the plan scans is what the
+     * query will actually read.
+     */
+    private static List<String> sourceStreams(PhysicalOperator plan) {
+        List<String> found = new ArrayList<>();
+        collectSources(plan, found);
+        return found;
+    }
+
+    private static void collectSources(PhysicalOperator operator, List<String> into) {
+        if (operator instanceof ScanOperator scan && !into.contains(scan.streamName())) {
+            into.add(scan.streamName());
+        }
+        operator.inputs().forEach(input -> collectSources(input, into));
     }
 
     private RegisteredQuery start(
@@ -360,6 +414,16 @@ public final class QueryRegistry implements AutoCloseable {
         public String toString() {
             return "Recovery[" + recovered.size() + " recovered, " + refused.size() + " refused]";
         }
+    }
+
+    /**
+     * The policy this registry authorizes against.
+     *
+     * <p>Exposed so a server hosting it can check that it is the same one, because there are two
+     * and nothing used to say so.
+     */
+    public SecurityPolicy policy() {
+        return policy;
     }
 
     /** The query answering to {@code name}. */
