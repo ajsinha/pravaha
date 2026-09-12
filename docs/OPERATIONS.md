@@ -189,6 +189,28 @@ three quarters, and it is a pure function of the membership: every node that agr
 cluster computes the same owners without asking. That is also *why* `PARTITIONED` needs consensus —
 nodes that disagree about membership confidently compute different owners.
 
+## The server does not ingest anything yet
+
+**A continuous query registered against the server never receives a row.** Nothing in
+`pravaha-server` or `pravaha-flight` calls `RegisteredQuery.accept`, and nothing calls
+`advanceWatermark`. The only callers of either are four test classes. `PravahaNode` builds the
+registry and the Flight endpoint and wires no source, no pump and no ingestion; `StreamController`
+registers a stream's *schema* and does not read from it.
+
+The visible symptom is that `rows_in` stays at zero for every registered query, for ever. Because
+event time never advances, nothing downstream of it happens either: no window closes, no join
+evicts, no `LEFT JOIN` emits its unmatched row, and no subscription ever delivers. A live tail on
+the console will sit empty and look like a quiet stream rather than a disconnected one.
+
+**What does work.** The engine itself processes data properly through `QueryExecution` — lanes,
+pumps, arenas, watermarks, checkpoints — and that path is what the CLI uses (`pravaha run`) and what
+the integration tests exercise. Embedded use through `pravaha-embedded` drives the same path. So the
+engine is real; it is the *server* that is not connected to a source.
+
+Until that is wired, treat `pravaha-server` as a registry and a query endpoint, not as a stream
+processor. This is the single largest gap between what the documentation describes and what a
+deployment does.
+
 ## Starting a node
 
 `pravaha-server` is the process. It brings up three things beyond the engine, in this order:

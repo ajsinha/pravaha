@@ -357,6 +357,14 @@ there is nothing to keep in step.
 Worth having in one place, because the obvious mental model ("state is in RocksDB") is wrong for this
 codebase today.
 
+**The server has no ingestion path.** `RegisteredQuery.accept` and `advanceWatermark` are called
+from four test classes and from nothing in `pravaha-server` or `pravaha-flight`. A query registered
+against a running server never sees a row, `rows_in` stays at zero, and nothing that depends on event
+time advancing ever happens. The engine's real ingestion is `QueryExecution.pumpInto`, which the CLI
+and the embedded path use; the registry was built as a separate path and never joined to it. This is
+the third instance of the same pattern in this codebase — built, tested, documented, never wired —
+and the most consequential, because it is the product's core loop.
+
 **There is no RocksDB.** Not a dependency, not a line of code. State is L0 — an off-heap
 open-addressed hash arena — plus checkpoints written as files. The RocksDB L1 spill tier is design
 decision D5 and is unbuilt. §G7 explains why it is a *tier* and not the whole stack: JNI costs 1–3 µs
