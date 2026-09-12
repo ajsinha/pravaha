@@ -6,7 +6,14 @@
 
 ### Ask once. Answer always.
 
-**An embeddable, store-native, incrementally-maintained continuous query engine.**
+**An embeddable, store-native, incrementally-maintained SQL engine.**
+
+> **Read this before evaluating.** Today Pravaha is a **bounded-input** engine: windows close when
+> the input ends, because nothing generates watermarks — the embedding application supplies them or
+> they do not advance. Over a file, a scan or a replay the answers are correct and complete. Over an
+> unbounded stream, no window would close. The `pravaha-server` process additionally has **no
+> ingestion path at all**: a query registered against it never receives a row.
+> [What is and is not built →](docs/HANDOVER.md)
 
 *Pravaha* (Sanskrit: *continuous, uninterrupted flow*) · pronounced *pruh-VAA-huh*
 
@@ -29,9 +36,10 @@
 >
 > Wave 3 added whole-stage code generation — roughly **10× the interpreted path** — the lane model,
 > the hash exchange between lanes, backpressure that reaches the source plugin, and adaptive
-> batching. Wave 4 added **windowed `GROUP BY`** end to end, watermarks with idle detection, window
-> slicing, session windows, late-data correction by retraction, a dead-letter queue, changelog
-> negotiation and the L0 state map.
+> batching. Wave 4 added **windowed `GROUP BY`** end to end, window slicing,
+> session windows and late-data correction by retraction. Watermark *handling* is built; watermark
+> *generation* is not. The dead-letter queue, the changelog negotiation and the L0 state map were
+> built and are not wired into any running path.
 >
 > **Gates P2 and P3 are both blocked on the same thing, and it is not code.** The throughput and
 > scaling figures need 16 physical homogeneous cores; the development machine is a 12-core

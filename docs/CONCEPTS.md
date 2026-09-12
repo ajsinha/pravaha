@@ -50,6 +50,17 @@ Watermarks are what close windows, what release join state, and what make "the a
 to here" a statement anyone can act on. Almost everything time-shaped in Pravaha is downstream of
 this one idea.
 
+> **What actually happens today.** Nothing in the engine *generates* a watermark. No source plugin,
+> no ingest pump and no server path advances event time — `advanceWatermark` is called by the
+> embedding application and by tests, and by nothing else. What closes a window in practice is
+> `finish()`, which the engine calls when the **input ends**.
+>
+> So on a bounded source — a file, a table scan, a replay — the answers are correct and complete,
+> because the end of input fires everything still open. On a genuinely unbounded stream, no window
+> would close and no join would release state, because nothing would ever say "nothing earlier is
+> coming". An embedder can supply watermarks itself and get the full behaviour; the engine does not
+> supply them for you. Treat this as the central limitation to plan around.
+
 ## 4. Changes carry weights, and a correction is a retraction plus an insert
 
 Rows do not just arrive; they arrive with a **weight**. `+1` is a row appearing, `-1` is one being

@@ -186,7 +186,7 @@ is sized by cores — roughly 30 of them on this class of box, whatever the quer
 |---|---|---|---|
 | Generated stage + its classloader | ~40 KB | ~400 MB | Metaspace, off-heap |
 | Plan IR, schema, catalog entry, subscription record | 50–100 KB | 0.5–1 GB | Heap |
-| Operator state (windows, aggregates) | **budget ≤ 4 MB** | ≤ 40 GB | Off-heap L0, then RocksDB — **never heap** |
+| Operator state (windows, aggregates) | **budget ≤ 4 MB** | ≤ 40 GB | *Designed* as off-heap L0 then RocksDB. **As built: row payloads are off-heap in arenas; the indexes and accumulators are on-heap `HashMap`.** `L0StateMap` exists and is used by nothing; there is no RocksDB in the build. GC pressure therefore scales with key count |
 | Inbox, arena, timer wheel, thread | **0** | ~150 MB total | Per lane, ~30 of them |
 | Aerospike connections | **0** | one pool | Node-wide, shared |
 
