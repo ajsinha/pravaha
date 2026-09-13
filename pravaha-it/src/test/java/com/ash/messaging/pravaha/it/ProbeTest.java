@@ -15,110 +15,91 @@
  */
 package com.ash.messaging.pravaha.it;
 
-import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
-import com.ash.messaging.pravaha.common.arena.RowArena;
-import com.ash.messaging.pravaha.common.memory.MemoryAccess;
-import com.ash.messaging.pravaha.common.row.BinaryRowView;
-import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
-import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
-import com.ash.messaging.pravaha.registry.Subscription;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
+import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
-import com.ash.messaging.pravaha.serving.ViewChange;
+import com.ash.messaging.pravaha.serving.ViewQuery;
 
 class ProbeTest {
 
-    private static final StreamSchema TXN = StreamSchema.builder("txn")
-            .field("user_id", Types.string())
-            .field("amount", Types.int64())
-            .field("event_time", Types.timestamp())
-            .eventTime("event_time")
-            .build();
-
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
     private static final long SECOND = 1_000_000_000L;
+    private static final long T0 = 1_767_225_600_000_000_000L;
+    private static final String SPEC = "id:INT64,usr:STRING,amount:INT64,event_time:TIMESTAMP";
 
     @Test
-    void probeGlobalPair() {
-        ViewCatalog views = new ViewCatalog();
-        try (QueryRegistry registry = new QueryRegistry(views, TXN);
-                RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8)) {
-            RegisteredQuery q = registry.register("t", "SELECT SUM(amount) AS total FROM txn", List.of(0), DANA);
-            List<List<ViewChange>> batches = new ArrayList<>();
-            try (Subscription s = q.subscribe(b -> batches.add(List.copyOf(b)))) {
-                feed(arena, q, "u1", 300, 0);
-                q.commit();
-                q.commit();
-                feed(arena, q, "u1", 50, 0);
-                q.commit();
-                q.commit();
+    void probeLateness(@TempDir Path root) throws Exception {
+        for (Duration d : List.of(
+                Duration.ofSeconds(60),
+                Duration.ofSeconds(130),
+                Duration.ofSeconds(200),
+                Duration.ofMinutes(10),
+                Duration.ofDays(3650))) {
+            Path dir = root.resolve("d" + d.toSeconds());
+            Files.createDirectories(dir);
+            Path data = dir.resolve("ev.csv");
+            StringBuilder csv = new StringBuilder();
+            for (int k = 0; k <= 120; k++) {
+                csv.append(k)
+                        .append(",u")
+                        .append(k % 5)
+                        .append(',')
+                        .append(k)
+                        .append(',')
+                        .append(T0 + k * SECOND)
+                        .append('\n');
             }
-            for (int i = 0; i < batches.size(); i++) {
-                System.out.println("PROBE gbatch" + i + " " + render(batches.get(i)));
-            }
-            System.out.println("PROBE gview="
-                    + q.view().scan().stream().map(java.util.Arrays::toString).toList());
-        }
-    }
-
-    @Test
-    void probeWindowed() {
-        ViewCatalog views = new ViewCatalog();
-        try (QueryRegistry registry = new QueryRegistry(views, TXN);
-                RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8)) {
-            RegisteredQuery q = registry.register(
-                    "w",
-                    "SELECT user_id, window_start, SUM(amount) AS total FROM "
-                            + "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
-                            + "GROUP BY user_id, window_start, window_end",
-                    List.of(0, 1),
-                    DANA);
-            List<List<ViewChange>> batches = new ArrayList<>();
-            try (Subscription s = q.subscribe(b -> batches.add(List.copyOf(b)))) {
-                for (String u : List.of("u1", "u2", "u3")) {
-                    feed(arena, q, u, 100, 1 * SECOND);
-                    feed(arena, q, u, 101, 2 * SECOND);
-                    feed(arena, q, u, 102, 3 * SECOND);
-                    feed(arena, q, u, 103, 4 * SECOND);
+            Files.writeString(data, csv);
+            StreamSchema ev = StreamSchema.builder("ev")
+                    .field("id", Types.int64())
+                    .field("usr", Types.string())
+                    .field("amount", Types.int64())
+                    .field("event_time", Types.timestamp())
+                    .eventTime("event_time")
+                    .outOfOrderness(d)
+                    .build();
+            PluginSourceFeeds feeds = new PluginSourceFeeds()
+                    .bind(new SourceBinding(
+                            "ev",
+                            "filesystem",
+                            Map.of("path", data.toString(), "schema", SPEC, "event.time", "event_time")));
+            ViewCatalog views = new ViewCatalog();
+            long start = System.nanoTime();
+            String outcome;
+            try (QueryRegistry registry = new QueryRegistry(views, ev)
+                    .feedingFrom(feeds)
+                    .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50))) {
+                RegisteredQuery q = registry.register(
+                        "w",
+                        "SELECT window_start, window_end, COUNT(*) AS n, SUM(amount) AS total FROM "
+                                + "TABLE(TUMBLE(TABLE ev, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                                + "GROUP BY window_start, window_end",
+                        List.of(0),
+                        Principal.ANONYMOUS);
+                long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+                while (System.nanoTime() < deadline && q.rowsIn() < 121) {
+                    Thread.sleep(10);
                 }
-                q.advanceWatermark(11 * SECOND);
+                Thread.sleep(500);
+                outcome = "rows="
+                        + new ViewQuery(views).execute("SELECT * FROM w").size();
+            } catch (RuntimeException e) {
+                outcome = "CLOSE THREW " + e.getMessage();
             }
-            for (int i = 0; i < batches.size(); i++) {
-                System.out.println("PROBE wbatch" + i + " " + render(batches.get(i)));
-            }
+            System.out.println("PROBE d=" + d + " " + outcome + " closeMs=" + (System.nanoTime() - start) / 1_000_000);
         }
-    }
-
-    private static String render(List<ViewChange> changes) {
-        StringBuilder sb = new StringBuilder();
-        for (ViewChange c : changes) {
-            sb.append(c.weight()).append(java.util.Arrays.toString(c.values())).append(' ');
-        }
-        return sb.toString();
-    }
-
-    private static void feed(RowArena arena, RegisteredQuery query, String user, long amount, long t) {
-        RowLayout layout = RowLayout.of(TXN);
-        BinaryRowWriter writer = new BinaryRowWriter(layout);
-        BinaryRowView view = new BinaryRowView(layout);
-        long handle = arena.allocate(layout.rowSize(256));
-        writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-        writer.setString(0, user);
-        writer.setLong(1, amount);
-        writer.setLong(2, t);
-        writer.weight(1L).eventTimestampNanos(t).sequence(t).commit();
-        arena.trimTo(handle, writer.sizeSoFar());
-        query.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
-        query.awaitApplied(java.time.Duration.ofSeconds(10));
     }
 }

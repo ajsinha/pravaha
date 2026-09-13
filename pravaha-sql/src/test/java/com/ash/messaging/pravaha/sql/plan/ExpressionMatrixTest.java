@@ -19,8 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.common.arena.RowArena;
@@ -666,7 +668,8 @@ class ExpressionMatrixTest {
             Case.refused("SQLX-141 VALUES is refused", "SELECT * FROM (VALUES (1), (2))", "PRV-2020"),
 
             // --- SQLX §9, hostile and awkward SQL ---------------------------------------------
-            Case.refused("SQLX-163 the empty query", "", "PRV-2001"),
+            // SQLX-163, the empty query, is not a row here: its message is JIT-dependent. See
+            // SqlSupportMatrixTest.theEmptyStatementIsRefusedWithAnExplanation, defect 5.
             Case.refused("SQLX-164 only whitespace", "   ", "PRV-2001"),
             Case.refused("SQLX-165 only a line comment", "-- just a comment", "PRV-2001"),
             Case.refused("SQLX-165 only a block comment", "/* block */", "PRV-2001"),
@@ -794,7 +797,7 @@ class ExpressionMatrixTest {
                     "7"),
             Case.refused("TYPE-149 CAST from text is refused", "SELECT CAST(user_id AS BIGINT) FROM txn", "PRV-2021"),
             Case.refused(
-                    "TYPE-149 CAST from a boolean is refused", "SELECT CAST(flagged AS INTEGER) FROM txn", "PRV-2021"),
+                    "TYPE-149 CAST from a boolean is refused", "SELECT CAST(flagged AS INTEGER) FROM txn", "PRV-2002"),
             // TYPE-110: Calcite types a written 1.5 as DECIMAL, and this engine has no decimal
             // arithmetic. The refusal must say so rather than silently computing in doubles.
             Case.refused(
@@ -842,7 +845,10 @@ class ExpressionMatrixTest {
             // so it is pinned here -- but a user who asked for the sum of a text column is told
             // about ledgers and 128-bit decimals and never told that SUM over text is the problem.
             Case.refused("AGG-048/TYPE-040 SUM over a STRING column", "SELECT SUM(user_id) FROM txn", "PRV-2021"),
-            Case.refused("AGG-048/TYPE-041 SUM over a BOOLEAN column", "SELECT SUM(flagged) FROM txn", "PRV-2021"),
+            // ...and SUM over BOOLEAN is refused one layer earlier, by Calcite, with PRV-2002 and
+            // a message that does name the problem. Two spellings of "sum something that is not a
+            // number", two codes, two qualities of explanation.
+            Case.refused("AGG-048/TYPE-041 SUM over a BOOLEAN column", "SELECT SUM(flagged) FROM txn", "PRV-2002"),
             Case.refused(
                     "SQLX-044c SUM of a CASE that Calcite coerced to text",
                     "SELECT SUM(CASE WHEN amount > 50 THEN 'big' ELSE 0 END) FROM txn",
@@ -860,7 +866,24 @@ class ExpressionMatrixTest {
             Case.fails("AGG-047 MIN over a STRING column dies at emit", "SELECT MIN(user_id) FROM txn", "not INT64"),
             // SQLX-039/TYPE-113: r4's amount is 0. Integer division by zero must fail, promptly,
             // naming the cause.
-            Case.fails("SQLX-039/TYPE-113 integer division by zero", "SELECT 100 / amount FROM txn", "zero"));
+            Case.fails("SQLX-039/TYPE-113 integer division by zero", "SELECT 100 / amount FROM txn", "zero"),
+            // AGG-043: MIN/MAX over TIMESTAMP_LTZ is the one non-INT64 type the accumulators handle,
+            // because a nanosecond epoch already is a long.
+            Case.answers(
+                    "AGG-043 MIN and MAX over TIMESTAMP_LTZ",
+                    "SELECT MIN(event_time), MAX(event_time) FROM txn",
+                    "1000000000|13000000000"),
+            // TYPE-150: the workaround the float-aggregate refusal itself recommends. It has to
+            // give the right number, or the refusal's advice is worse than the refusal.
+            // CAST truncates towards zero: 2, 4, 1, 0, 1, 0 -- which sums to 8, not to 9.75.
+            Case.answers(
+                    "TYPE-150 SUM(CAST(price AS BIGINT)), the recommended workaround",
+                    "SELECT SUM(CAST(price AS BIGINT)) FROM txn",
+                    "8"),
+            Case.refused(
+                    "SQLX-036 a function outside the supported set names the set",
+                    "SELECT CHAR_LENGTH(user_id) FROM txn",
+                    "PRV-2021"));
 
     @Test
     void everyConvertedCaseWithAnAnswerProducesIt() {
@@ -948,6 +971,148 @@ class ExpressionMatrixTest {
                 .as("the refusals are half the contract: a construct that starts refusing with a "
                         + "different code sends a user looking in the wrong place")
                 .isEmpty();
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // Cases whose claim is about the output schema rather than the rows.
+    // -------------------------------------------------------------------------------------------
+
+    @Test
+    void anAliasReachesTheOutputSchemaWithAndWithoutAs() {
+        // SQLX-004 and SQLX-005. The alias is what a client displays and keys on, so it is part of
+        // the contract even though no row carries it.
+        assertThat(outputNamesOf("SELECT amount AS a FROM txn")).containsExactly("a");
+        assertThat(outputNamesOf("SELECT amount a FROM txn")).containsExactly("a");
+    }
+
+    @Test
+    void aQualifiedColumnProducesABareOutputName() {
+        // SQLX-006. SQL_SUPPORT.md states it in so many words: "SELECT t.amount produces a column
+        // called amount, not t.amount". A client keying on the name breaks if this drifts.
+        assertThat(outputNamesOf("SELECT t.amount FROM txn AS t")).containsExactly("amount");
+    }
+
+    @Test
+    void duplicateOutputNamesAreDisambiguatedRatherThanCollapsed() {
+        // SQLX-010 and SQLX-011. The document does not say what happens when two output columns
+        // claim one name; this is the answer, and the failure it rules out is a two-column SELECT
+        // arriving as one column, or as two columns holding the same value.
+        assertThat(outputNamesOf("SELECT amount AS a, txn_id AS a FROM txn")).containsExactly("a", "a0");
+        assertThat(outputNamesOf("SELECT amount, amount FROM txn")).containsExactly("amount", "amount0");
+        assertThat(answerOf("SELECT amount AS a, txn_id AS a FROM txn"))
+                .containsExactly("100|1", "250|2", "-50|3", "0|4", "7|5", "7|6");
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // Cases about size and shape rather than about a value.
+    // -------------------------------------------------------------------------------------------
+
+    @Test
+    void aThousandNestedParenthesesPlansAndAnswers() {
+        // SQLX-173. Round 1 recorded a deeply nested predicate refusing as the literal text
+        // "PRV-2001  null" (finding Q-14). At this depth, through the planner directly, it does
+        // not: the predicate is flattened and answers. This pins that, so a regression in the
+        // parser's depth handling is a failure here rather than a support call.
+        String sql = "SELECT txn_id FROM txn WHERE " + "(".repeat(1000) + "amount > 0" + ")".repeat(1000);
+        assertThat(answerOf(sql)).containsExactly("1", "2", "5", "6");
+    }
+
+    @Test
+    void aThousandConjunctsPlansAndTheStrongestOneDecides() {
+        // SQLX-174. A thousand terms of `amount > -n`; the strongest is `amount > -1`, which keeps
+        // 100, 250, 0, 7 and 7 -- five rows. An implementation that dropped conjuncts past some
+        // limit would keep six.
+        StringBuilder sql = new StringBuilder("SELECT txn_id FROM txn WHERE ");
+        for (int i = 1000; i >= 1; i--) {
+            sql.append("amount > -").append(i);
+            if (i > 1) {
+                sql.append(" AND ");
+            }
+        }
+        assertThat(answerOf(sql.toString())).containsExactly("1", "2", "4", "5", "6");
+    }
+
+    @Test
+    void aTrailingSemicolonIsRefusedRatherThanSilentlyAccepted() {
+        // SQLX-167. Either spelling is fine; what is not fine is one surface accepting it and
+        // another not. This pins the behaviour so the three surfaces can be compared against it.
+        assertThat(messageOf("SELECT txn_id FROM txn;")).startsWith("PRV-2001").contains("Encountered \";\"");
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // Defects. Each of these is written as the case says it should behave, and disabled, so the
+    // suite stays green and the defect stays visible instead of being quietly deleted.
+    // -------------------------------------------------------------------------------------------
+
+    @Test
+    @Disabled("PRV-2021 defect 1: SELECT TRUE throws a raw ClassCastException (Boolean to BigDecimal) "
+            + "from ExpressionCompiler.literal, so a boolean literal reaches the user with no error code")
+    void booleanLiteralInTheSelectList() {
+        // SQLX-016. Either answer is acceptable to the case -- six rows of `true`, or a PRV-2021
+        // saying boolean literals are not supported. A ClassCastException is neither.
+        String message = messageOf("SELECT TRUE FROM txn");
+        if (message != null) {
+            assertThat(message).startsWith("PRV-");
+        } else {
+            assertThat(answerOf("SELECT TRUE FROM txn"))
+                    .containsExactly("true", "true", "true", "true", "true", "true");
+        }
+    }
+
+    @Test
+    @Disabled("PRV-2021 defect 2: SELECT NULL throws IllegalArgumentException 'no Pravaha type for SQL "
+            + "type NULL' with no PRV code, from TypeMapping via Literal.ofNull")
+    void aBareNullInTheSelectList() {
+        // SQLX-015. Six empty fields or a coded refusal; anything without a code is a FAIL, and
+        // the promise that every refusal carries a code is SQL_SUPPORT.md's own.
+        String message = messageOf("SELECT NULL FROM txn");
+        if (message != null) {
+            assertThat(message).startsWith("PRV-");
+        } else {
+            assertThat(answerOf("SELECT NULL FROM txn"))
+                    .containsExactly("NULL", "NULL", "NULL", "NULL", "NULL", "NULL");
+        }
+    }
+
+    @Test
+    @Disabled("PRV-2021 defect 3: a TIMESTAMP literal in a predicate throws java.lang.AssertionError "
+            + "'cannot convert TIMESTAMP literal to class java.math.BigDecimal' -- an Error, not an "
+            + "exception, which round 2 recorded killing a Flight worker thread")
+    void aTimestampLiteralInAPredicate() {
+        // TYPE-030 and SQLX-060. event_time is 1s..13s, so the literal below is in the future and
+        // the right answer is no rows -- but any coded refusal would also pass this case. An
+        // AssertionError escapes every `catch (Exception)` on the way out.
+        String message = messageOf("SELECT txn_id FROM txn WHERE event_time > TIMESTAMP '2020-01-01 00:00:00'");
+        if (message != null) {
+            assertThat(message).startsWith("PRV-");
+        } else {
+            assertThat(answerOf("SELECT txn_id FROM txn WHERE event_time > TIMESTAMP '2020-01-01 00:00:00'"))
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    @Disabled("PRV-2021 defect 4 (FINDINGS Q-11, still OPEN): SELECT -amount is refused by a message "
+            + "that says unary minus is supported -- \"only the two-operand form is supported (unary "
+            + "minus included, which Calcite normalises to 0 - x)\" -- while refusing exactly that")
+    void unaryMinus() {
+        // SQLX-038 and TYPE-098. Negating D1's amounts gives -100, -250, 50, 0, -7, -7, which sum
+        // to -314: the negation of SUM(amount). Either it works, or the refusal must not claim it
+        // does; a message that contradicts itself is worse than a bare code.
+        String message = messageOf("SELECT -amount FROM txn");
+        if (message != null) {
+            assertThat(message)
+                    .as("a refusal that names the construct it is refusing as supported")
+                    .doesNotContain("unary minus included");
+        } else {
+            assertThat(answerOf("SELECT -amount FROM txn")).containsExactly("-100", "-250", "50", "0", "-7", "-7");
+        }
+    }
+
+    private static List<String> outputNamesOf(String sql) {
+        PhysicalOperator plan = new PhysicalPlanBuilder()
+                .build(SqlPlanner.withStreams(TXN, OTHER).plan(sql));
+        return plan.outputSchema().fields().stream().map(Field::name).toList();
     }
 
     // ---------------------------------------------------------------------------------------

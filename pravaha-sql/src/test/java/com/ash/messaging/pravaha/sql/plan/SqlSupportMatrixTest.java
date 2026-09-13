@@ -114,20 +114,45 @@ class SqlSupportMatrixTest {
 
     private static final List<Case> MATRIX = List.of(
             // --- Projection -------------------------------------------------------------------
-            Case.ok("columns", "SELECT txn_id, amount FROM txn"),
-            Case.ok("star", "SELECT * FROM txn"),
-            Case.ok("column alias", "SELECT amount AS a FROM txn"),
+            // Answers, not plans. Every entry below that names its rows was a Case.ok until the
+            // conversion of docs/qa/cases/SQLX.md: "supported" meant "plans and compiles", and a
+            // construct could return the wrong number with this matrix green. That is finding Q-8.
+            Case.answers("columns", "SELECT txn_id, amount FROM txn", "t1|100", "t2|250", "t3|50", "t4|400"),
+            Case.answers(
+                    "star",
+                    "SELECT * FROM txn",
+                    "t1|ann|100|1.5|COMPLETED|true|1",
+                    "t2|bob|250|2.5|COMPLETED|false|2",
+                    "t3|ann|50|0.5|PENDING|false|3",
+                    "t4|cat|400|4.0|NULL|true|4"),
+            Case.answers("column alias", "SELECT amount AS a FROM txn", "100", "250", "50", "400"),
             Case.ok("table alias with AS", "SELECT t.txn_id, t.amount FROM txn AS t"),
             Case.ok("table alias without AS", "SELECT t.txn_id FROM txn t"),
             Case.ok("qualified column in WHERE", "SELECT t.txn_id FROM txn AS t WHERE t.amount > 1"),
             Case.ok("unqualified column while aliased", "SELECT txn_id FROM txn AS t"),
-            Case.ok("qualified star", "SELECT t.* FROM txn AS t"),
+            // SQLX-007: two spellings of the same thing must agree, and the matrix asserted only
+            // that each planned.
+            Case.answers(
+                    "qualified star",
+                    "SELECT t.* FROM txn AS t",
+                    "t1|ann|100|1.5|COMPLETED|true|1",
+                    "t2|bob|250|2.5|COMPLETED|false|2",
+                    "t3|ann|50|0.5|PENDING|false|3",
+                    "t4|cat|400|4.0|NULL|true|4"),
             Case.ok(
                     "table alias on both sides of a join",
                     "SELECT t.txn_id, o.region FROM txn AS t JOIN other AS o ON t.user_id = o.user_id"),
             // An alias may shadow the name of a different registered stream. Standard SQL: inside
             // this query `other` means txn, because the alias hides the base name.
-            Case.ok("alias shadowing another stream's name", "SELECT other.txn_id FROM txn AS other"),
+            // SQLX-009: if the shadow leaked, this would read the `other` stream, which has no
+            // txn_id column at all. Four rows of txn's own ids is the proof that it did not.
+            Case.answers(
+                    "alias shadowing another stream's name",
+                    "SELECT other.txn_id FROM txn AS other",
+                    "t1",
+                    "t2",
+                    "t3",
+                    "t4"),
             // Answers, not just plans. amount is 100, 250, 50, NULL, so amount*2+1 is
             // 201, 501, 101 and NULL -- null propagating rather than becoming 1.
             // Answers, not only plans. amount is 100, 250, 50, 400, so amount*2+1 is
@@ -153,38 +178,92 @@ class SqlSupportMatrixTest {
             Case.answers("AVG divides", "SELECT AVG(amount) FROM txn", "200"),
             // status is null for cat, and must stay null rather than becoming an empty string.
             Case.answers("null survives a projection", "SELECT status FROM txn WHERE user_id = 'cat'", "NULL"),
-            Case.ok("floating arithmetic", "SELECT price / 2 FROM txn"),
-            Case.ok("CAST", "SELECT CAST(amount AS DOUBLE) FROM txn"),
-            Case.ok("literal", "SELECT 1 FROM txn"),
-            Case.ok("string literal", "SELECT 'flagged' FROM txn"),
-            Case.ok("UPPER", "SELECT UPPER(user_id) FROM txn"),
-            Case.ok("LOWER", "SELECT LOWER(user_id) FROM txn"),
-            Case.ok("TRIM", "SELECT TRIM(user_id) FROM txn"),
+            // SQLX-018: division on doubles, where a "promote to long" bug returns plausible
+            // integers. 1.5/2 and 0.5/2 are exact in binary, so no tolerance is needed or allowed.
+            Case.answers("floating arithmetic", "SELECT price / 2 FROM txn", "0.75", "1.25", "0.25", "2.0"),
+            Case.answers("CAST", "SELECT CAST(amount AS DOUBLE) FROM txn", "100.0", "250.0", "50.0", "400.0"),
+            // SQLX-013: one literal per row -- four rows, not one.
+            Case.answers("literal", "SELECT 1 FROM txn", "1", "1", "1", "1"),
+            // SQLX-014: ExpressionCompiler.literal uses getValue2 precisely so the apostrophes do
+            // not land in the row. Nothing ran a row to check until now.
+            Case.answers("string literal", "SELECT 'flagged' FROM txn", "flagged", "flagged", "flagged", "flagged"),
+            Case.answers("UPPER", "SELECT UPPER(user_id) FROM txn", "ANN", "BOB", "ANN", "CAT"),
+            Case.answers("LOWER", "SELECT LOWER(user_id) FROM txn", "ann", "bob", "ann", "cat"),
+            Case.answers("TRIM", "SELECT TRIM(user_id) FROM txn", "ann", "bob", "ann", "cat"),
             Case.refused(
                     "TRIM of a character other than a space", "SELECT TRIM('x' FROM user_id) FROM txn", "PRV-2021"),
             Case.refused("TRIM from one end", "SELECT TRIM(LEADING ' ' FROM user_id) FROM txn", "PRV-2021"),
-            Case.ok("string concatenation", "SELECT user_id || 'x' FROM txn"),
-            Case.ok("a chain of concatenations", "SELECT user_id || '-' || user_id FROM txn"),
-            Case.ok("SUBSTRING with a length", "SELECT SUBSTRING(user_id FROM 1 FOR 3) FROM txn"),
-            Case.ok("SUBSTRING to the end", "SELECT SUBSTRING(user_id FROM 2) FROM txn"),
-            Case.ok("a text CASE", "SELECT CASE WHEN amount > 5 THEN 'big' ELSE 'small' END FROM txn"),
-            Case.ok("text functions nested", "SELECT UPPER(TRIM(user_id)) || '!' FROM txn"),
+            Case.answers("string concatenation", "SELECT user_id || 'x' FROM txn", "annx", "bobx", "annx", "catx"),
+            // SQLX-047: a chain must flatten rather than nest into the wrong associativity.
+            Case.answers(
+                    "a chain of concatenations",
+                    "SELECT user_id || '-' || user_id FROM txn",
+                    "ann-ann",
+                    "bob-bob",
+                    "ann-ann",
+                    "cat-cat"),
+            // SQLX-048: SUBSTRING is 1-based. An off-by-one gives "nn" for the first and "n" for
+            // the second, both of which plan perfectly.
+            Case.answers(
+                    "SUBSTRING with a length",
+                    "SELECT SUBSTRING(user_id FROM 1 FOR 3) FROM txn",
+                    "ann",
+                    "bob",
+                    "ann",
+                    "cat"),
+            Case.answers("SUBSTRING to the end", "SELECT SUBSTRING(user_id FROM 2) FROM txn", "nn", "ob", "nn", "at"),
+            Case.answers(
+                    "a text CASE",
+                    "SELECT CASE WHEN amount > 5 THEN 'big' ELSE 'small' END FROM txn",
+                    "big",
+                    "big",
+                    "big",
+                    "big"),
+            Case.answers(
+                    "text functions nested",
+                    "SELECT UPPER(TRIM(user_id)) || '!' FROM txn",
+                    "ANN!",
+                    "BOB!",
+                    "ANN!",
+                    "CAT!"),
             // Accepted, and worth knowing why it is not refused: Calcite's validator coerces the 0
             // to the string '0' before Pravaha sees the query, so the branches do agree on a type by
             // the time they arrive. The result is text -- a downstream SUM of it will not plan.
-            Case.ok("a CASE mixing text and a number", "SELECT CASE WHEN amount > 5 THEN 'big' ELSE 0 END FROM txn"),
+            Case.answers(
+                    "a CASE mixing text and a number",
+                    "SELECT CASE WHEN amount > 5 THEN 'big' ELSE 0 END FROM txn",
+                    "big",
+                    "big",
+                    "big",
+                    "big"),
             Case.refused("SELECT DISTINCT (over a stream)", "SELECT DISTINCT user_id FROM txn", "PRV-2050"),
 
             // --- WHERE ------------------------------------------------------------------------
-            Case.ok("comparison", "SELECT txn_id FROM txn WHERE amount > 100"),
-            Case.ok("AND, OR, NOT", "SELECT txn_id FROM txn WHERE amount > 1 AND (NOT flagged OR amount < 9)"),
-            Case.ok("IN list", "SELECT txn_id FROM txn WHERE user_id IN ('a','b')"),
-            Case.ok("BETWEEN", "SELECT txn_id FROM txn WHERE amount BETWEEN 1 AND 9"),
-            Case.ok("IS NULL", "SELECT txn_id FROM txn WHERE status IS NULL"),
-            Case.ok("arithmetic in a predicate", "SELECT txn_id FROM txn WHERE amount * 2 > 100"),
-            Case.ok("boolean column", "SELECT txn_id FROM txn WHERE flagged"),
-            Case.ok("LIKE", "SELECT txn_id FROM txn WHERE user_id LIKE 'u%'"),
-            Case.ok("NOT LIKE", "SELECT txn_id FROM txn WHERE user_id NOT LIKE 'u%'"),
+            Case.answers("comparison", "SELECT txn_id FROM txn WHERE amount > 100", "t2", "t4"),
+            // flagged is true, false, false, true; `amount < 9` is false everywhere, so this keeps
+            // the two unflagged rows. A predicate tree evaluated in the wrong order keeps four.
+            Case.answers(
+                    "AND, OR, NOT",
+                    "SELECT txn_id FROM txn WHERE amount > 1 AND (NOT flagged OR amount < 9)",
+                    "t2",
+                    "t3"),
+            // An IN list that matches nothing is worth keeping as a control -- a filter that
+            // dropped every row would pass it -- but only beside one that matches.
+            Case.answers("IN list matching nothing", "SELECT txn_id FROM txn WHERE user_id IN ('a','b')"),
+            Case.answers("IN list", "SELECT txn_id FROM txn WHERE user_id IN ('ann','cat')", "t1", "t3", "t4"),
+            Case.answers("BETWEEN matching nothing", "SELECT txn_id FROM txn WHERE amount BETWEEN 1 AND 9"),
+            // SQLX-089: inclusive at both ends. An exclusive implementation keeps only t3.
+            Case.answers(
+                    "BETWEEN is inclusive", "SELECT txn_id FROM txn WHERE amount BETWEEN 50 AND 250", "t1", "t2", "t3"),
+            Case.answers("IS NULL", "SELECT txn_id FROM txn WHERE status IS NULL", "t4"),
+            Case.answers("IS NOT NULL", "SELECT txn_id FROM txn WHERE status IS NOT NULL", "t1", "t2", "t3"),
+            Case.answers(
+                    "arithmetic in a predicate", "SELECT txn_id FROM txn WHERE amount * 2 > 100", "t1", "t2", "t4"),
+            Case.answers("boolean column", "SELECT txn_id FROM txn WHERE flagged", "t1", "t4"),
+            Case.answers("negated boolean column", "SELECT txn_id FROM txn WHERE NOT flagged", "t2", "t3"),
+            Case.answers("LIKE matching nothing", "SELECT txn_id FROM txn WHERE user_id LIKE 'u%'"),
+            Case.answers("LIKE", "SELECT txn_id FROM txn WHERE user_id LIKE 'a%'", "t1", "t3"),
+            Case.answers("NOT LIKE", "SELECT txn_id FROM txn WHERE user_id NOT LIKE 'u%'", "t1", "t2", "t3", "t4"),
             Case.refused("LIKE with ESCAPE", "SELECT txn_id FROM txn WHERE user_id LIKE 'u!%' ESCAPE '!'", "PRV-2021"),
             Case.refused(
                     "LIKE against a pattern that is not a literal",
@@ -194,7 +273,8 @@ class SqlSupportMatrixTest {
             Case.refused("comparing text to a number", "SELECT txn_id FROM txn WHERE amount > txn_id", "PRV-2021"),
 
             // --- Aggregation ------------------------------------------------------------------
-            Case.ok("global COUNT(*)", "SELECT COUNT(*) FROM txn"),
+            Case.answers("global COUNT(*)", "SELECT COUNT(*) FROM txn", "4"),
+            Case.answers("global MIN and MAX", "SELECT MIN(amount), MAX(amount) FROM txn", "50|400"),
             Case.ok(
                     "TUMBLE",
                     "SELECT window_start, window_end, user_id, COUNT(*) FROM " + TUMBLING
@@ -230,18 +310,38 @@ class SqlSupportMatrixTest {
 
             // --- Joins ------------------------------------------------------------------------
             // --- Expressions -----------------------------------------------------------------
-            Case.ok("CASE WHEN", "SELECT CASE WHEN amount > 100 THEN 1 ELSE 0 END FROM txn"),
-            Case.ok(
+            Case.answers("CASE WHEN", "SELECT CASE WHEN amount > 100 THEN 1 ELSE 0 END FROM txn", "0", "1", "0", "1"),
+            // The first true branch wins: 250 and 400 are both > 100, so neither falls through to
+            // the second branch.
+            Case.answers(
                     "CASE with several branches",
-                    "SELECT CASE WHEN amount > 100 THEN 2 WHEN amount > 10 THEN 1 ELSE 0 END FROM txn"),
-            Case.ok("CASE with no ELSE", "SELECT CASE WHEN amount > 100 THEN 1 END FROM txn"),
-            Case.ok("ABS", "SELECT ABS(amount) FROM txn"),
-            Case.ok("FLOOR and CEIL", "SELECT FLOOR(amount), CEIL(amount) FROM txn"),
-            Case.ok("ROUND", "SELECT ROUND(amount) FROM txn"),
-            Case.ok("a function inside arithmetic", "SELECT ABS(amount) * 2 + 1 FROM txn"),
-            Case.ok(
+                    "SELECT CASE WHEN amount > 100 THEN 2 WHEN amount > 10 THEN 1 ELSE 0 END FROM txn",
+                    "1",
+                    "2",
+                    "1",
+                    "2"),
+            // A missing ELSE is NULL, not the type's zero -- which is what an implementation that
+            // initialises the output slot and forgets the null bit produces.
+            Case.answers(
+                    "CASE with no ELSE", "SELECT CASE WHEN amount > 100 THEN 1 END FROM txn", "NULL", "1", "NULL", "1"),
+            Case.answers("ABS", "SELECT ABS(amount) FROM txn", "100", "250", "50", "400"),
+            Case.answers(
+                    "FLOOR and CEIL",
+                    "SELECT FLOOR(amount), CEIL(amount) FROM txn",
+                    "100|100",
+                    "250|250",
+                    "50|50",
+                    "400|400"),
+            Case.answers("ROUND", "SELECT ROUND(amount) FROM txn", "100", "250", "50", "400"),
+            Case.answers(
+                    "a function inside arithmetic", "SELECT ABS(amount) * 2 + 1 FROM txn", "201", "501", "101", "801"),
+            Case.answers(
                     "a function inside a CASE",
-                    "SELECT CASE WHEN ABS(amount) > 5 THEN ABS(amount) ELSE 0 END FROM txn"),
+                    "SELECT CASE WHEN ABS(amount) > 5 THEN ABS(amount) ELSE 0 END FROM txn",
+                    "100",
+                    "250",
+                    "50",
+                    "400"),
             Case.refused("ROUND to decimal places", "SELECT ROUND(amount, 2) FROM txn", "PRV-2021"),
             Case.ok("inner equi-join", "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id = o.user_id"),
             Case.ok(
@@ -291,9 +391,16 @@ class SqlSupportMatrixTest {
                     "non-equi join", "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id > o.user_id", "PRV-2020"),
 
             // --- Sorting, sets, subqueries ----------------------------------------------------
-            Case.ok("derived table", "SELECT x.user_id FROM (SELECT user_id FROM txn) x"),
-            Case.ok("WITH (common table expression)", "WITH x AS (SELECT user_id FROM txn) SELECT user_id FROM x"),
-            Case.ok("SELECT STREAM", "SELECT STREAM txn_id FROM txn"),
+            Case.answers(
+                    "derived table", "SELECT x.user_id FROM (SELECT user_id FROM txn) x", "ann", "bob", "ann", "cat"),
+            Case.answers(
+                    "WITH (common table expression)",
+                    "WITH x AS (SELECT user_id FROM txn) SELECT user_id FROM x",
+                    "ann",
+                    "bob",
+                    "ann",
+                    "cat"),
+            Case.answers("SELECT STREAM", "SELECT STREAM txn_id FROM txn", "t1", "t2", "t3", "t4"),
             Case.refused("ORDER BY", "SELECT txn_id FROM txn ORDER BY amount", "PRV-2020"),
             Case.refused("LIMIT", "SELECT txn_id FROM txn LIMIT 5", "PRV-2020"),
             Case.refused("OFFSET", "SELECT txn_id FROM txn OFFSET 5 ROWS", "PRV-2020"),
@@ -320,7 +427,58 @@ class SqlSupportMatrixTest {
                     "INSERT INTO other (user_id, region, event_time) VALUES ('a','b', CURRENT_TIMESTAMP)",
                     "PRV-2020"),
             Case.refused("UPDATE", "UPDATE txn SET amount = 1 WHERE amount > 1", "PRV-2020"),
-            Case.refused("DELETE", "DELETE FROM txn WHERE amount > 1", "PRV-2020"));
+            Case.refused("DELETE", "DELETE FROM txn WHERE amount > 1", "PRV-2020"),
+
+            // --- Constructs the document does not list, converted from docs/qa/cases ----------
+            // SQLX-112: the three GROUP BY extensions, each refused by name.
+            Case.refused(
+                    "GROUPING SETS",
+                    "SELECT user_id, COUNT(*) FROM txn GROUP BY GROUPING SETS ((user_id), ())",
+                    "PRV-2020"),
+            Case.refused(
+                    "CUBE", "SELECT user_id, status, COUNT(*) FROM txn GROUP BY CUBE (user_id, status)", "PRV-2020"),
+            Case.refused(
+                    "ROLLUP",
+                    "SELECT user_id, status, COUNT(*) FROM txn GROUP BY ROLLUP (user_id, status)",
+                    "PRV-2020"),
+            // SQLX-036: the supported numeric set is ABS, FLOOR, CEIL and ROUND, and the refusal
+            // for anything else names the set. Four spellings, because each reaches it differently.
+            Case.refused("SQRT", "SELECT SQRT(price) FROM txn", "PRV-2021"),
+            Case.refused("POWER", "SELECT POWER(amount, 2) FROM txn", "PRV-2021"),
+            Case.refused("CHAR_LENGTH", "SELECT CHAR_LENGTH(user_id) FROM txn", "PRV-2021"),
+            // SQLX-021 and TYPE-149: casts leave the numeric family and are refused by name.
+            Case.refused("CAST to text", "SELECT CAST(amount AS VARCHAR) FROM txn", "PRV-2021"),
+            Case.refused("CAST from text", "SELECT CAST(user_id AS BIGINT) FROM txn", "PRV-2021"),
+            // SQLX-113 and AGG-033: the float-aggregate refusal, one entry per kind, because the
+            // message names the kind and the column and round 2 found the four drifting apart.
+            Case.refused("SUM over a FLOAT64 column", "SELECT SUM(price) FROM txn", "PRV-2020"),
+            Case.refused("AVG over a FLOAT64 column", "SELECT AVG(price) FROM txn", "PRV-2020"),
+            // SQLX-088: IS NULL over an expression rather than over a bare column.
+            Case.refused("IS NULL over an expression", "SELECT txn_id FROM txn WHERE (amount * 2) IS NULL", "PRV-2021"),
+            // SQLX-163 to SQLX-182: statements that are not queries, and queries that name things
+            // that do not exist. Each must be a coded refusal rather than a stack trace.
+            // The empty statement is not here: its message is an internal StringIndexOutOfBounds
+            // text that HotSpot's fast-throw replaces with null. See theEmptyStatement below.
+            Case.refused("only a comment", "-- just a comment", "PRV-2001"),
+            Case.refused("two statements", "SELECT txn_id FROM txn; SELECT user_id FROM txn", "PRV-2001"),
+            Case.refused("an unknown stream", "SELECT x FROM nosuchstream", "PRV-2002"),
+            Case.refused("an unknown column", "SELECT nosuchcol FROM txn", "PRV-2002"),
+            Case.refused("an identifier in the wrong case", "SELECT USER_ID FROM txn", "PRV-2002"));
+
+    @Test
+    @org.junit.jupiter.api.Disabled("PRV-2001 defect 5 (SQLX-163): an empty statement is refused with "
+            + "the text of an internal StringIndexOutOfBoundsException -- 'Index 0 out of bounds for "
+            + "length 0' -- and once HotSpot's fast-throw preallocates that exception the refusal "
+            + "becomes the literal string 'PRV-2001  null'. A user's explanation therefore depends on "
+            + "how warm the JVM is. Same class as FINDINGS Q-14.")
+    void theEmptyStatementIsRefusedWithAnExplanation() {
+        String message = messageOf(Case.refused("the empty statement", "", "PRV-2001"));
+        assertThat(message).startsWith("PRV-2001");
+        assertThat(message)
+                .as("an explanation a user can act on, not an internal bounds error and not 'null'")
+                .doesNotContain("null")
+                .doesNotContain("out of bounds");
+    }
 
     @Test
     void theSupportMatrixIsWhatTheDocumentationSaysItIs() {
