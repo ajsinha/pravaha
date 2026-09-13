@@ -21,9 +21,16 @@ import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.common.arena.RowArena;
+import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.common.row.BinaryRowView;
+import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
+import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
+import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
+import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -71,7 +78,27 @@ class SqlSupportMatrixTest {
     private static final String TUMBLING = "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND))";
 
     /** One row of the support matrix: what it is, the SQL, and {@code "OK"} or the PRV code. */
-    private record Case(String label, String sql, String expected, boolean lookup) {
+    private record Case(String label, String sql, String expected, boolean lookup, List<String> answer) {
+
+        Case(String label, String sql, String expected, boolean lookup) {
+            this(label, sql, expected, lookup, null);
+        }
+
+        /**
+         * A case that also asserts the rows the construct produces.
+         *
+         * <p>The matrix had no such thing. It planned each statement, built a pipeline, and used a
+         * {@code RowOutput} that threw if anything tried to write a row -- so "supported" meant
+         * "plans and compiles", and {@code SQL_SUPPORT.md}'s opening claim that every construct is
+         * checked by a test was true only of the half that cannot produce a wrong number. None of
+         * the wrong-answer defects in this engine would have failed this build.
+         *
+         * @param answer each output row rendered as its values joined by '|', in order
+         */
+        static Case answers(String label, String sql, String... answer) {
+            return new Case(label, sql, "OK", false, List.of(answer));
+        }
+
         static Case ok(String label, String sql) {
             return new Case(label, sql, "OK", false);
         }
@@ -101,7 +128,24 @@ class SqlSupportMatrixTest {
             // An alias may shadow the name of a different registered stream. Standard SQL: inside
             // this query `other` means txn, because the alias hides the base name.
             Case.ok("alias shadowing another stream's name", "SELECT other.txn_id FROM txn AS other"),
-            Case.ok("integer arithmetic", "SELECT amount * 2 + 1 FROM txn"),
+            // Answers, not just plans. amount is 100, 250, 50, NULL, so amount*2+1 is
+            // 201, 501, 101 and NULL -- null propagating rather than becoming 1.
+            // Answers, not only plans. amount is 100, 250, 50, 400, so amount*2+1 is
+            // 2*100+1=201, 2*250+1=501, 2*50+1=101, 2*400+1=801.
+            Case.answers("integer arithmetic", "SELECT amount * 2 + 1 FROM txn", "201", "501", "101", "801"),
+            // 100, 250 and 400 exceed 60; 50 does not.
+            Case.answers(
+                    "filter keeps the matching rows", "SELECT user_id FROM txn WHERE amount > 60", "ann", "bob", "cat"),
+            Case.answers(
+                    "CASE chooses the branch",
+                    "SELECT CASE WHEN amount > 60 THEN 'big' ELSE 'small' END FROM txn",
+                    "big",
+                    "big",
+                    "small",
+                    "big"),
+            Case.answers("text functions", "SELECT UPPER(user_id) || '!' FROM txn WHERE amount = 250", "BOB!"),
+            // status is null for cat, and must stay null rather than becoming an empty string.
+            Case.answers("null survives a projection", "SELECT status FROM txn WHERE user_id = 'cat'", "NULL"),
             Case.ok("floating arithmetic", "SELECT price / 2 FROM txn"),
             Case.ok("CAST", "SELECT CAST(amount AS DOUBLE) FROM txn"),
             Case.ok("literal", "SELECT 1 FROM txn"),
@@ -322,6 +366,100 @@ class SqlSupportMatrixTest {
                     .as("%s is refused with a code and almost no explanation: '%s'", testCase.label(), message)
                     .isGreaterThan(40);
         }
+    }
+
+    @Test
+    void everyConstructWithADocumentedAnswerProducesIt() {
+        List<String> wrong = new java.util.ArrayList<>();
+        for (Case testCase : MATRIX) {
+            if (testCase.answer() == null) {
+                continue;
+            }
+            List<String> actual;
+            try {
+                actual = answerOf(testCase);
+            } catch (RuntimeException e) {
+                wrong.add(testCase.label() + ": threw " + e.getMessage());
+                continue;
+            }
+            if (!actual.equals(testCase.answer())) {
+                wrong.add(testCase.label() + ": expected " + testCase.answer() + " and produced " + actual);
+            }
+        }
+        assertThat(wrong)
+                .as("a construct that plans and returns the wrong rows is worse than one that is refused: "
+                        + "the refusal is visible and the number is not")
+                .isEmpty();
+    }
+
+    /** Runs the case's rows through a real pipeline and renders what came out. */
+    private static List<String> answerOf(Case testCase) {
+        PhysicalOperator plan = new PhysicalPlanBuilder()
+                .build(SqlPlanner.withStreams(TXN, OTHER, THIRD).plan(testCase.sql()));
+        List<CapturingRowWriter.Captured> captured = new java.util.ArrayList<>();
+        RowLayout layout = RowLayout.of(TXN);
+
+        try (RowArena feed = new RowArena(MemoryAccess.best(), 1 << 20, 4);
+                InterpretedPipeline pipeline = InterpretedPipeline.compile(
+                        plan, (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), captured::add))) {
+            BinaryRowWriter writer = new BinaryRowWriter(layout);
+            BinaryRowView view = new BinaryRowView(layout);
+            for (int i = 0; i < FIXTURE.size(); i++) {
+                long handle = feed.allocate(layout.rowSize(256));
+                writer.begin(feed.regionOf(handle), feed.offsetOf(handle));
+                FIXTURE.get(i).accept(writer);
+                writer.weight(1L).eventTimestampNanos(i + 1L).sequence(i + 1L).commit();
+                feed.trimTo(handle, writer.sizeSoFar());
+                pipeline.accept(view.wrap(feed.regionOf(handle), feed.offsetOf(handle)));
+            }
+            pipeline.finish();
+        }
+        return captured.stream().map(SqlSupportMatrixTest::render).toList();
+    }
+
+    private static String render(CapturingRowWriter.Captured row) {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < row.values().length; i++) {
+            if (i > 0) {
+                text.append('|');
+            }
+            text.append(row.isNull(i) ? "NULL" : String.valueOf(row.values()[i]));
+        }
+        return text.toString();
+    }
+
+    /**
+     * The rows every answer case runs against.
+     *
+     * <p>One fixture for all of them, so an expected value is arithmetic over a table the reader can
+     * see rather than a number that has to be trusted.
+     *
+     * <pre>
+     * txn_id  user_id  amount  price  status      flagged  event_time
+     * t1      ann      100     1.5    COMPLETED   true     1
+     * t2      bob      250     2.5    COMPLETED   false    2
+     * t3      ann      50      0.5    PENDING     false    3
+     * t4      cat      400     4.0    NULL        true     4
+     * </pre>
+     */
+    private static final List<java.util.function.Consumer<BinaryRowWriter>> FIXTURE = List.of(
+            w -> row(w, 1, "ann", 100L, 1.5, "COMPLETED", true),
+            w -> row(w, 2, "bob", 250L, 2.5, "COMPLETED", false),
+            w -> row(w, 3, "ann", 50L, 0.5, "PENDING", false),
+            w -> row(w, 4, "cat", 400L, 4.0, null, true));
+
+    private static void row(
+            BinaryRowWriter w, long id, String user, long amount, double price, String status, boolean flagged) {
+        // txn_id is STRING in this schema, not a number. Writing a long into it failed at the row
+        // writer -- which is the mechanism proving itself before it ever compared an answer.
+        // status is the only nullable column in this schema, so it carries the null case.
+        w.setString(0, "t" + id).setString(1, user).setLong(2, amount).setDouble(3, price);
+        if (status == null) {
+            w.setNull(4);
+        } else {
+            w.setString(4, status);
+        }
+        w.setBoolean(5, flagged).setLong(6, id);
     }
 
     private static String outcomeOf(Case testCase) {

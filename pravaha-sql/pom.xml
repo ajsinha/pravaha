@@ -39,5 +39,17 @@
       <artifactId>calcite-core</artifactId>
       <version>${calcite.version}</version>
     </dependency>
+    <!--
+      For the support matrix, which until now built pipelines and deliberately never ran a row
+      through one — so every tick in SQL_SUPPORT.md was a statement about planning, and not one
+      wrong answer could fail the build. CapturingRowWriter is what lets a case assert the answer.
+    -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-testkit</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+
   </dependencies>
 </project>

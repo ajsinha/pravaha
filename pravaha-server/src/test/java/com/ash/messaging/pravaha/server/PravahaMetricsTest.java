@@ -156,7 +156,7 @@ class PravahaMetricsTest {
 
     @Test
     void closingRemovesEverythingItPublished() {
-        node.registry().orElseThrow().register("one", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        node.registry().orElseThrow().register("one_view", "SELECT user_id, amount FROM txn", List.of(0), DANA);
         node.registry().orElseThrow().register("two", "SELECT user_id, amount, user_id FROM txn", List.of(0), DANA);
         metrics.sync();
 
