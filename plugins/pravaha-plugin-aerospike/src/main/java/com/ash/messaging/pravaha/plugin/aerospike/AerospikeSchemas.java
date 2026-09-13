@@ -126,16 +126,55 @@ public final class AerospikeSchemas {
             TypeName type = schema.field(ordinal).type().typeName();
             switch (type) {
                 case BOOLEAN -> writer.setBoolean(ordinal, asBoolean(bin, value));
-                case INT8 -> writer.setByte(ordinal, (byte) asLong(bin, value));
-                case INT16 -> writer.setShort(ordinal, (short) asLong(bin, value));
-                case INT32, DATE -> writer.setInt(ordinal, (int) asLong(bin, value));
+                case INT8 ->
+                    writer.setByte(
+                            ordinal, (byte) inRange(bin, asLong(bin, value), Byte.MIN_VALUE, Byte.MAX_VALUE, "INT8"));
+                case INT16 ->
+                    writer.setShort(ordinal, (short)
+                            inRange(bin, asLong(bin, value), Short.MIN_VALUE, Short.MAX_VALUE, "INT16"));
+                case INT32, DATE ->
+                    writer.setInt(ordinal, (int)
+                            inRange(bin, asLong(bin, value), Integer.MIN_VALUE, Integer.MAX_VALUE, type.name()));
                 case INT64, TIME, TIMESTAMP_LTZ -> writer.setLong(ordinal, asLong(bin, value));
-                case FLOAT32 -> writer.setFloat(ordinal, (float) asDouble(bin, value));
+                case FLOAT32 -> writer.setFloat(ordinal, asFloat(bin, asDouble(bin, value)));
                 case FLOAT64 -> writer.setDouble(ordinal, asDouble(bin, value));
                 case BYTES -> writer.setBytes(ordinal, (byte[]) value);
                 default -> writer.setString(ordinal, String.valueOf(value));
             }
         }
+    }
+
+    /**
+     * A stored integer that fits the column it was declared as, or a refusal.
+     *
+     * <p>Aerospike integers are always 64 bits. A bin holding 300 and declared INT8 used to be cast
+     * to 44 and written into the row as though that were the value -- a wrong answer with nothing
+     * to notice it by, in a plugin whose whole job is to report what the store holds. It is the same
+     * disagreement between a record and its declaration that a string in an integer bin already
+     * refused; only the shape of the lie was different.
+     */
+    private static long inRange(String bin, long value, long low, long high, String declared) {
+        if (value < low || value > high) {
+            throw new PravahaException(
+                    AerospikeErrors.UNSUPPORTED_TYPE,
+                    "bin '" + bin + "' holds " + value + ", which does not fit the " + declared
+                            + " it is declared as. Aerospike stores every integer as 64 bits, so a record "
+                            + "written by another application can exceed the declaration; declare the column "
+                            + "INT64 if that is the range the data actually has.");
+        }
+        return value;
+    }
+
+    /** Likewise for the narrower float: a value no float can hold is refused, not rounded to infinity. */
+    private static float asFloat(String bin, double value) {
+        float narrowed = (float) value;
+        if (Float.isInfinite(narrowed) && !Double.isInfinite(value)) {
+            throw new PravahaException(
+                    AerospikeErrors.UNSUPPORTED_TYPE,
+                    "bin '" + bin + "' holds " + value + ", which is outside the range of the FLOAT32 it is "
+                            + "declared as. Declare the column FLOAT64 if that is the range the data has.");
+        }
+        return narrowed;
     }
 
     private static long asLong(String bin, Object value) {

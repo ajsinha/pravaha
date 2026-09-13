@@ -15,6 +15,10 @@
  */
 package com.ash.messaging.pravaha.plugin.aerospike;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import com.aerospike.client.command.ParticleType;
 import com.aerospike.client.exp.Exp;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -73,13 +77,17 @@ final class AerospikeExpressions {
                 if (!(filter.value() instanceof String text)) {
                     yield null;
                 }
+                Exp equals = stringEquals(bin, text);
                 // Only equality and inequality. Aerospike compares strings byte-wise, and whether
                 // that agrees with the engine's ordering depends on a collation neither side has
                 // declared -- so an ordered comparison that looked right would be right only for
                 // ASCII, and wrong quietly for everything else.
                 yield switch (filter.comparison()) {
-                    case EQ -> Exp.eq(Exp.stringBin(bin), Exp.val(text));
-                    case NE -> Exp.ne(Exp.stringBin(bin), Exp.val(text));
+                    case EQ -> equals;
+                    // Existence as well as inequality. An absent bin reads as NULL, and the
+                    // engine's own <> drops NULL rather than keeping it, so a pushdown that kept
+                    // those records would only make the engine throw them away again.
+                    case NE -> equals == null ? null : Exp.and(Exp.binExists(bin), Exp.not(equals));
                     default -> null;
                 };
             }
@@ -87,9 +95,10 @@ final class AerospikeExpressions {
                 if (!(filter.value() instanceof Boolean flag)) {
                     yield null;
                 }
+                Exp equals = booleanEquals(bin, flag);
                 yield switch (filter.comparison()) {
-                    case EQ -> Exp.eq(Exp.boolBin(bin), Exp.val(flag));
-                    case NE -> Exp.ne(Exp.boolBin(bin), Exp.val(flag));
+                    case EQ -> equals;
+                    case NE -> Exp.and(Exp.binExists(bin), Exp.not(equals));
                     default -> null;
                 };
             }
@@ -97,6 +106,93 @@ final class AerospikeExpressions {
             // representation at all. Left with the engine.
             default -> null;
         };
+    }
+
+    /**
+     * A BOOLEAN bin equalling {@code flag}, whichever way the value was stored.
+     *
+     * <p>Aerospike only grew a boolean particle in server 5.6; before that a boolean was an integer,
+     * and {@code AerospikeSchemas.copyInto} still reads one as {@code != 0} because plenty of live
+     * data looks like that. {@code Exp.boolBin} does not: a filter that only asked for the boolean
+     * particle excluded every legacy record, and the store sent one row where the engine kept two.
+     *
+     * <p>Guarded by the particle type rather than relying on what a mistyped comparison does. Both
+     * arms are then exactly {@code copyInto}'s two readings of a boolean, which is what makes this
+     * pushdown exact rather than nearly right.
+     */
+    private static Exp booleanEquals(String bin, boolean flag) {
+        Exp asBoolean =
+                Exp.and(Exp.eq(Exp.binType(bin), Exp.val(ParticleType.BOOL)), Exp.eq(Exp.boolBin(bin), Exp.val(flag)));
+        Exp asInteger = Exp.and(
+                Exp.eq(Exp.binType(bin), Exp.val(ParticleType.INTEGER)),
+                flag ? Exp.ne(Exp.intBin(bin), Exp.val(0)) : Exp.eq(Exp.intBin(bin), Exp.val(0)));
+        return Exp.or(asBoolean, asInteger);
+    }
+
+    /**
+     * A STRING bin equalling {@code text}, or null when that cannot be decided in the store.
+     *
+     * <p>A STRING column is where {@code copyInto} is at its most permissive: the default branch
+     * renders <em>whatever the bin holds</em> with {@code String.valueOf}. So a bin holding the
+     * integer 42, declared STRING, reads as "42" and matches {@code = '42'} -- and a pushdown that
+     * only compared the string particle excluded it, losing a row the engine would have kept.
+     *
+     * <p>Each particle whose rendering can be reproduced exactly gets an arm. A literal that could
+     * be the rendering of a list, a map or a blob gets no expression at all: {@code String.valueOf}
+     * of a container is a Java formatting decision, not something to reimplement in an expression
+     * and hope stays in step. Leaving it with the engine costs bandwidth, which is the side to err
+     * on.
+     */
+    private static Exp stringEquals(String bin, String text) {
+        List<Exp> arms = new ArrayList<>(4);
+        arms.add(Exp.and(
+                Exp.eq(Exp.binType(bin), Exp.val(ParticleType.STRING)), Exp.eq(Exp.stringBin(bin), Exp.val(text))));
+        // Round-tripped, not merely parsed. "007" parses as 7 and renders as "7", so a record
+        // holding 7 does not read as "007" and must not be matched by one.
+        try {
+            long asLong = Long.parseLong(text);
+            if (String.valueOf(asLong).equals(text)) {
+                arms.add(Exp.and(
+                        Exp.eq(Exp.binType(bin), Exp.val(ParticleType.INTEGER)),
+                        Exp.eq(Exp.intBin(bin), Exp.val(asLong))));
+            }
+        } catch (NumberFormatException notAnInteger) {
+            // Not an integer literal, so no integer bin can render as it. Nothing to add.
+        }
+        try {
+            double asDouble = Double.parseDouble(text);
+            if (String.valueOf(asDouble).equals(text)) {
+                arms.add(Exp.and(
+                        Exp.eq(Exp.binType(bin), Exp.val(ParticleType.DOUBLE)),
+                        Exp.eq(Exp.floatBin(bin), Exp.val(asDouble))));
+            }
+        } catch (NumberFormatException notADouble) {
+            // Likewise.
+        }
+        if ("true".equals(text) || "false".equals(text)) {
+            arms.add(Exp.and(
+                    Exp.eq(Exp.binType(bin), Exp.val(ParticleType.BOOL)),
+                    Exp.eq(Exp.boolBin(bin), Exp.val(Boolean.parseBoolean(text)))));
+        }
+        if (couldRenderAContainer(text)) {
+            return null;
+        }
+        return arms.size() == 1 ? arms.get(0) : Exp.or(arms.toArray(new Exp[0]));
+    }
+
+    /**
+     * Whether {@code text} could be how Java renders a list, a map or a byte array.
+     *
+     * <p>Deliberately coarse. The question is not what these render as -- it is whether this
+     * literal is close enough to that shape to be worth refusing, and a literal that merely looks
+     * like one costs a scan's bandwidth rather than a row.
+     */
+    private static boolean couldRenderAContainer(String text) {
+        if (text.isEmpty()) {
+            return false;
+        }
+        char first = text.charAt(0);
+        return first == '[' || first == '{' || text.startsWith("null");
     }
 
     private static Exp compare(ReadRequest.Comparison comparison, Exp bin, Exp value) {

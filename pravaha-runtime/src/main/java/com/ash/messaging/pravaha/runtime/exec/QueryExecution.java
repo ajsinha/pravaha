@@ -632,6 +632,16 @@ public final class QueryExecution implements AutoCloseable {
         return lanes.laneCount();
     }
 
+    /**
+     * The physical plan this execution is running.
+     *
+     * <p>Exposed for pushdown: whatever opens a source needs the plan to work out which of the
+     * query's predicates that source could evaluate itself, and it is the execution that holds it.
+     */
+    public PhysicalOperator plan() {
+        return plan;
+    }
+
     /** How long a watermark advance waits for the lanes to apply it before giving up on this tick. */
     private static final Duration WATERMARK_ADVANCE_TIMEOUT = Duration.ofSeconds(10);
 

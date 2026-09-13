@@ -195,21 +195,38 @@ with empty operator state. That was true of its stateless query. For a stateful 
 round-trips correctly — 736-byte files, 662 bytes of state. The defect is narrower and worse than
 first recorded: the state tier works, and nothing reads it back.
 
-## Silent data loss in pushdown — three ways
+## Silent data loss in pushdown — three ways — FIXED
 
-Filter pushdown is a documented equivalence guarantee. It is broken where `translate` believes it is
-exact and is not:
+Filter pushdown is a documented equivalence guarantee. It was broken where `translate` believed it
+was exact and was not:
 
-- A BOOLEAN bin holding a legacy 0/1 integer — which `copyInto` deliberately supports — is excluded
-  by `Exp.boolBin`. The engine keeps 2 rows, the store sends 1.
-- A bin stored as integer and declared STRING: `copyInto` coerces, `Exp.stringBin` excludes.
+- A BOOLEAN bin holding a legacy 0/1 integer — which `copyInto` deliberately supports — was excluded
+  by `Exp.boolBin`. The engine kept 2 rows, the store sent 1.
+- A bin stored as integer and declared STRING: `copyInto` coerced, `Exp.stringBin` excluded.
 - INT8 narrowing mismatches.
 
-The equality, ordering, `IS NULL`, `<>` and untranslatable paths are all correct.
+The equality, ordering, `IS NULL`, `<>` and untranslatable paths were all correct.
 
-**And pushdown is never wired on the server path at all**: `PluginSourceFeeds` calls the two-argument
-`createReader` and never asks for capabilities. The README's claim is true of `pravaha run` and two
-tests.
+**Fixed.** The BOOLEAN and STRING expressions are built per particle type now, with one arm for each
+reading `copyInto` actually performs — so the store's answer and the engine's agree by construction
+rather than by coincidence. A literal that could be a container's rendering is not pushed at all,
+because `String.valueOf` of a list is a Java formatting decision and not something to reimplement in
+an expression and hope stays in step; that costs bandwidth, which is the side to err on. Integer
+round-tripping is checked rather than assumed: `'007'` parses as 7 but renders as `"7"`, so a record
+holding 7 must not match it.
+
+The narrowing case was the reader's, not the translator's: `copyInto` cast a 64-bit bin down to the
+declared width and wrote the truncated value into the row as though it were the value — 300 declared
+INT8 answered a query as 44. It refuses now, the same way a string in an integer bin already did.
+
+Four ITs against a real Aerospike server cover these, each proven by seeding the original defect
+back in.
+
+**And pushdown was never wired on the server path at all**: `PluginSourceFeeds` called the
+two-argument `createReader` and never asked for capabilities. The README's claim was true of
+`pravaha run` and two tests. **Fixed** — the feed derives a `ReadRequest` from the query's own plan
+and offers it. `PluginSourceFeedsTest` now has a source that records what it was offered, so the
+question "does a registered query push its predicates" has an answer that a test can give.
 
 ## The sink
 

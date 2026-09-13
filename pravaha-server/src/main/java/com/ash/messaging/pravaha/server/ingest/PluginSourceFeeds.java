@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
 import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
@@ -33,6 +34,7 @@ import com.ash.messaging.pravaha.registry.SourceFeedFactory;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
+import com.ash.messaging.pravaha.runtime.plan.Pushdown;
 
 /**
  * Turns configured {@link SourceBinding}s into rows arriving at a registered query.
@@ -109,6 +111,16 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 StreamSourcePlugin plugin = openPlugin(binding);
                 resources.add(plugin);
 
+                // Offer the source whatever of the WHERE clause it can evaluate itself. This was
+                // missing here for as long as the server path existed: pushdown worked in
+                // `pravaha run` and in tests, and a registered query -- the only way anything in
+                // production reads a source -- scanned everything and filtered it after the fact.
+                // The README's cost-curve claim was true of a code path no deployment used.
+                //
+                // Safe to offer blindly: the engine keeps its own filter whatever the source does,
+                // so this changes how many bytes cross the boundary and nothing else.
+                ReadRequest request = Pushdown.requestFor(execution.plan(), stream, plugin.capabilities());
+
                 List<SourcePartition> partitions = plugin.partitions(stream);
                 partitionCounts.put(stream, partitions.size());
                 for (SourcePartition partition : partitions) {
@@ -117,7 +129,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     // the failure on top of the state that already counted them.
                     String token = resumeFrom.get("partition-" + pumps.size());
                     SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
-                    PartitionReader reader = plugin.createReader(partition, from);
+                    PartitionReader reader = plugin.createReader(partition, from, request);
                     resources.add(reader);
                     // Lane 0: a registered query is compiled onto one lane today. When that
                     // changes, the partition index is what chooses the lane -- it is already the

@@ -42,6 +42,7 @@ import com.ash.messaging.pravaha.api.plugin.PushdownKind;
 import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assumptions.assumeThat;
 
 /**
@@ -212,6 +213,120 @@ class AerospikePluginIT {
         // Ten are DONE; of those, amount >= 100 keeps ids 10 to 20 even.
         assertThat(rows.stream().map(row -> (Long) row[0]).sorted().toList())
                 .containsExactly(10L, 12L, 14L, 16L, 18L, 20L);
+        plugin.close();
+    }
+
+    @Test
+    void aLegacyBooleanStoredAsAnIntegerIsPushedTheWayItIsRead() {
+        // Aerospike only grew a boolean particle in server 5.6, and copyInto still reads an integer
+        // bin as a boolean because plenty of live data is still written that way. The pushdown did
+        // not: Exp.boolBin excluded every legacy record, so the store sent one row where the engine
+        // kept two -- silent loss in the mechanism whose contract is that it never loses anything.
+        admin.put(
+                new WritePolicy(),
+                new Key(AerospikeContainer.NAMESPACE, "orders", 1L),
+                new Bin("order_id", 1L),
+                new Bin("shipped", true));
+        admin.put(
+                new WritePolicy(),
+                new Key(AerospikeContainer.NAMESPACE, "orders", 2L),
+                new Bin("order_id", 2L),
+                new Bin("shipped", 1L));
+        admin.put(
+                new WritePolicy(),
+                new Key(AerospikeContainer.NAMESPACE, "orders", 3L),
+                new Bin("order_id", 3L),
+                new Bin("shipped", 0L));
+        AerospikeSourcePlugin plugin = source(Map.of("schema", "order_id:INT64,shipped:BOOLEAN"));
+
+        List<Object[]> shipped = drain(
+                plugin,
+                null,
+                new ReadRequest(List.of(new ReadRequest.Filter("shipped", ReadRequest.Comparison.EQ, true))));
+        assertThat(shipped.stream().map(row -> (Long) row[0]).sorted().toList())
+                .as("the boolean particle and the legacy 1 are both true, because that is how the row is read")
+                .containsExactly(1L, 2L);
+
+        List<Object[]> notShipped = drain(
+                plugin,
+                null,
+                new ReadRequest(List.of(new ReadRequest.Filter("shipped", ReadRequest.Comparison.EQ, false))));
+        assertThat(notShipped.stream().map(row -> (Long) row[0]).toList()).containsExactly(3L);
+        plugin.close();
+    }
+
+    @Test
+    void aStringColumnOverANonStringBinIsPushedTheWayItIsRead() {
+        // copyInto's default branch renders whatever the bin holds with String.valueOf, so a bin
+        // holding the integer 42 declared STRING reads as "42". Exp.stringBin excluded it, and the
+        // row the engine would have kept never arrived.
+        admin.put(
+                new WritePolicy(),
+                new Key(AerospikeContainer.NAMESPACE, "orders", 1L),
+                new Bin("order_id", 1L),
+                new Bin("ref", "42"));
+        admin.put(
+                new WritePolicy(),
+                new Key(AerospikeContainer.NAMESPACE, "orders", 2L),
+                new Bin("order_id", 2L),
+                new Bin("ref", 42L));
+        admin.put(
+                new WritePolicy(),
+                new Key(AerospikeContainer.NAMESPACE, "orders", 3L),
+                new Bin("order_id", 3L),
+                new Bin("ref", 7L));
+        AerospikeSourcePlugin plugin = source(Map.of("schema", "order_id:INT64,ref:STRING"));
+
+        List<Object[]> rows = drain(
+                plugin, null, new ReadRequest(List.of(new ReadRequest.Filter("ref", ReadRequest.Comparison.EQ, "42"))));
+
+        assertThat(rows.stream().map(row -> (Long) row[0]).sorted().toList())
+                .as("both records read as \"42\"; neither may be filtered out by the store")
+                .containsExactly(1L, 2L);
+        plugin.close();
+    }
+
+    @Test
+    void aLiteralThatDoesNotRoundTripMatchesOnlyTheStringBin() {
+        // "007" parses as 7 and renders as "7", so a record holding the integer 7 does not read as
+        // "007" -- and must not be matched by a filter for it. Parsing alone would have matched it.
+        admin.put(
+                new WritePolicy(),
+                new Key(AerospikeContainer.NAMESPACE, "orders", 1L),
+                new Bin("order_id", 1L),
+                new Bin("ref", "007"));
+        admin.put(
+                new WritePolicy(),
+                new Key(AerospikeContainer.NAMESPACE, "orders", 2L),
+                new Bin("order_id", 2L),
+                new Bin("ref", 7L));
+        AerospikeSourcePlugin plugin = source(Map.of("schema", "order_id:INT64,ref:STRING"));
+
+        List<Object[]> rows = drain(
+                plugin,
+                null,
+                new ReadRequest(List.of(new ReadRequest.Filter("ref", ReadRequest.Comparison.EQ, "007"))));
+
+        assertThat(rows.stream().map(row -> (Long) row[0]).toList()).containsExactly(1L);
+        plugin.close();
+    }
+
+    @Test
+    void anIntegerTooLargeForItsDeclaredColumnIsRefusedRatherThanTruncated() {
+        // A bin holding 300 declared INT8 used to be cast to 44 and written into the row as though
+        // that were the value. Aerospike stores every integer as 64 bits, so this is the same
+        // disagreement between a record and its declaration that a string in an integer bin already
+        // refused -- only the shape of the lie was different, and this one answered the query.
+        admin.put(
+                new WritePolicy(),
+                new Key(AerospikeContainer.NAMESPACE, "orders", 1L),
+                new Bin("order_id", 1L),
+                new Bin("small", 300L));
+        AerospikeSourcePlugin plugin = source(Map.of("schema", "order_id:INT64,small:INT8"));
+
+        assertThatThrownBy(() -> drain(plugin, null, ReadRequest.NOTHING))
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("does not fit the INT8");
         plugin.close();
     }
 

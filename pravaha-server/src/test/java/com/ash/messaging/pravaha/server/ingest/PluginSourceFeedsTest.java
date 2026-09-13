@@ -284,6 +284,52 @@ class PluginSourceFeedsTest {
     }
 
     @Test
+    void aRegisteredQueryOffersItsFiltersToTheSource() {
+        // Pushdown is the claim the whole cost story rests on, and the server path never made it.
+        // PluginSourceFeeds called the two-argument createReader, so a registered query -- the only
+        // way anything in production reads a source -- scanned the store and filtered afterwards.
+        // It worked in `pravaha run` and in plugin tests calling the three-argument form directly,
+        // neither of which is a deployment.
+        RecordingPushdownPlugin.OFFERED.clear();
+        PluginSourceFeeds feeds =
+                new PluginSourceFeeds().bind(new SourceBinding("pushed", "recording-pushdown", Map.of()));
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, RecordingPushdownPlugin.SCHEMA).feedingFrom(feeds)) {
+            registry.register(
+                    "filtered",
+                    "SELECT id, amount FROM pushed WHERE user_id = 'ann' AND amount > 100",
+                    List.of(0),
+                    Principal.ANONYMOUS);
+
+            assertThat(RecordingPushdownPlugin.offered())
+                    .as("the source must be asked for a reader that knows what the query wants")
+                    .isNotEmpty();
+            assertThat(RecordingPushdownPlugin.offered().get(0).filters())
+                    .as("both conjuncts belong to the source; neither is over a computed column")
+                    .extracting(f -> f.column() + " " + f.comparison() + " " + f.value())
+                    .containsExactlyInAnyOrder("user_id EQ ann", "amount GT 100");
+        }
+    }
+
+    @Test
+    void aQueryWithNoWhereClauseOffersTheSourceNothing() {
+        // The offer is derived from the plan, not fabricated. A request carrying filters no
+        // predicate asked for would cost rows rather than bandwidth.
+        RecordingPushdownPlugin.OFFERED.clear();
+        PluginSourceFeeds feeds =
+                new PluginSourceFeeds().bind(new SourceBinding("pushed", "recording-pushdown", Map.of()));
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, RecordingPushdownPlugin.SCHEMA).feedingFrom(feeds)) {
+            registry.register("unfiltered", "SELECT id, amount FROM pushed", List.of(0), Principal.ANONYMOUS);
+
+            assertThat(RecordingPushdownPlugin.offered()).isNotEmpty();
+            assertThat(RecordingPushdownPlugin.offered().get(0).isEmpty()).isTrue();
+        }
+    }
+
+    @Test
     void aSourceCanRetractWhatItInserted(@TempDir Path dir) throws Exception {
         // The blocker under every Z-set defect. Four of five plugins hard-coded weight +1 and the
         // schema grammar had no operation column, so no configured source could deliver a negative
