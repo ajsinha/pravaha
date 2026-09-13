@@ -19,7 +19,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.Field;
@@ -1045,8 +1044,6 @@ class ExpressionMatrixTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    @Disabled("PRV-2021 defect 1: SELECT TRUE throws a raw ClassCastException (Boolean to BigDecimal) "
-            + "from ExpressionCompiler.literal, so a boolean literal reaches the user with no error code")
     void booleanLiteralInTheSelectList() {
         // SQLX-016. Either answer is acceptable to the case -- six rows of `true`, or a PRV-2021
         // saying boolean literals are not supported. A ClassCastException is neither.
@@ -1060,8 +1057,6 @@ class ExpressionMatrixTest {
     }
 
     @Test
-    @Disabled("PRV-2021 defect 2: SELECT NULL throws IllegalArgumentException 'no Pravaha type for SQL "
-            + "type NULL' with no PRV code, from TypeMapping via Literal.ofNull")
     void aBareNullInTheSelectList() {
         // SQLX-015. Six empty fields or a coded refusal; anything without a code is a FAIL, and
         // the promise that every refusal carries a code is SQL_SUPPORT.md's own.
@@ -1075,9 +1070,6 @@ class ExpressionMatrixTest {
     }
 
     @Test
-    @Disabled("PRV-2021 defect 3: a TIMESTAMP literal in a predicate throws java.lang.AssertionError "
-            + "'cannot convert TIMESTAMP literal to class java.math.BigDecimal' -- an Error, not an "
-            + "exception, which round 2 recorded killing a Flight worker thread")
     void aTimestampLiteralInAPredicate() {
         // TYPE-030 and SQLX-060. event_time is 1s..13s, so the literal below is in the future and
         // the right answer is no rows -- but any coded refusal would also pass this case. An
@@ -1092,9 +1084,6 @@ class ExpressionMatrixTest {
     }
 
     @Test
-    @Disabled("PRV-2021 defect 4 (FINDINGS Q-11, still OPEN): SELECT -amount is refused by a message "
-            + "that says unary minus is supported -- \"only the two-operand form is supported (unary "
-            + "minus included, which Calcite normalises to 0 - x)\" -- while refusing exactly that")
     void unaryMinus() {
         // SQLX-038 and TYPE-098. Negating D1's amounts gives -100, -250, 50, 0, -7, -7, which sum
         // to -314: the negation of SUM(amount). Either it works, or the refusal must not claim it
@@ -1118,6 +1107,21 @@ class ExpressionMatrixTest {
     // ---------------------------------------------------------------------------------------
     // The harness. SQLX calls this shape H-MTX: plan, build, compile, feed D1, render.
     // ---------------------------------------------------------------------------------------
+
+    @Test
+    void theLiteralsThatUsedToEscapeUncodedNowAnswerRatherThanRefuse() {
+        // The four cases above each accept an answer *or* a coded refusal, because either was an
+        // acceptable outcome for the case. This pins what actually happens, so a later change that
+        // quietly downgrades an answer to a refusal is a failure rather than a shrug.
+        assertThat(answerOf("SELECT TRUE FROM txn")).allMatch("true"::equals).hasSize(6);
+        assertThat(answerOf("SELECT -amount FROM txn")).containsExactly("-100", "-250", "50", "0", "-7", "-7");
+        assertThat(answerOf("SELECT txn_id FROM txn WHERE event_time > TIMESTAMP '2020-01-01 00:00:00'"))
+                .as("the literal is far in the future of the fixture, so nothing matches")
+                .isEmpty();
+        // A bare NULL stays refused -- it has no type, so there is no column it could be -- but the
+        // refusal carries a code and says what to write instead.
+        assertThat(messageOf("SELECT NULL FROM txn")).startsWith("PRV-").contains("CAST(NULL AS BIGINT)");
+    }
 
     private static List<String> answerOf(String sql) {
         PhysicalOperator plan = new PhysicalPlanBuilder()

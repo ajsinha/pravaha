@@ -105,9 +105,19 @@ public final class TypeMapping {
                         ? Types.string()
                         : Types.string(type.getPrecision());
             case VARBINARY, BINARY -> Types.bytes();
+            case NULL ->
+                throw new com.ash.messaging.pravaha.api.PravahaException(
+                        com.ash.messaging.pravaha.sql.SqlErrors.UNSUPPORTED_EXPRESSION,
+                        "a bare NULL has no type, so there is no column this could be. Say which kind of "
+                                + "nothing you mean -- CAST(NULL AS BIGINT), CAST(NULL AS VARCHAR) -- and the "
+                                + "column gets a type a reader can decode.");
             default ->
-                throw new IllegalArgumentException("no Pravaha type for SQL type " + type.getSqlTypeName()
-                        + "; the supported set is in TypeMapping");
+                // Coded, because SQL_SUPPORT.md promises every refusal carries one and an
+                // IllegalArgumentException reaching a client through Flight carries none.
+                throw new com.ash.messaging.pravaha.api.PravahaException(
+                        com.ash.messaging.pravaha.sql.SqlErrors.UNSUPPORTED_EXPRESSION,
+                        "no Pravaha type for SQL type " + type.getSqlTypeName()
+                                + "; the supported set is in TypeMapping");
         };
     }
 

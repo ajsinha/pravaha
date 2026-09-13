@@ -166,6 +166,16 @@ public sealed interface Expression {
             return new Literal((long) value, value, null, TypeName.FLOAT64, false);
         }
 
+        /**
+         * A boolean literal, carried as 1 and 0.
+         *
+         * <p>Typed BOOLEAN rather than INT64, because the type is what the projection writes by:
+         * {@code SELECT TRUE} has to reach the row as a boolean column, not as the number one.
+         */
+        public static Literal ofBoolean(boolean value) {
+            return new Literal(value ? 1 : 0, value ? 1 : 0, null, TypeName.BOOLEAN, false);
+        }
+
         public static Literal ofText(String value) {
             return new Literal(0, 0, value, TypeName.STRING, false);
         }

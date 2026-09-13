@@ -92,6 +92,26 @@ final class ExpressionCompiler {
             }
             return Expression.Literal.ofLong(((BigDecimal) literal.getValue4()).longValue() * 1_000_000L);
         }
+        if (sqlType == SqlTypeName.BOOLEAN) {
+            // getValue4 hands back a Boolean here, and the code below casts it to BigDecimal -- so
+            // SELECT TRUE reached the user as a raw ClassCastException with no error code at all.
+            return Expression.Literal.ofBoolean(Boolean.TRUE.equals(literal.getValue2()));
+        }
+        if (sqlType == SqlTypeName.TIMESTAMP || sqlType == SqlTypeName.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+            // Nanoseconds, because that is what the engine holds a timestamp in throughout
+            // (ADR-012). Calcite carries the literal in milliseconds. Reading it through getValue4
+            // threw a java.lang.AssertionError -- an Error, not an exception, which round 2 recorded
+            // killing a Flight worker thread rather than failing the query.
+            return Expression.Literal.ofLong(literal.getValueAs(Long.class) * 1_000_000L);
+        }
+        if (sqlType == SqlTypeName.DATE) {
+            // Days since the epoch, which is what a DATE column holds.
+            return Expression.Literal.ofLong(literal.getValueAs(Integer.class));
+        }
+        if (sqlType == SqlTypeName.TIME) {
+            // Nanoseconds into the day; Calcite counts milliseconds.
+            return Expression.Literal.ofLong(literal.getValueAs(Integer.class) * 1_000_000L);
+        }
         if (sqlType == SqlTypeName.CHAR || sqlType == SqlTypeName.VARCHAR) {
             // getValue2 rather than getValue: the latter hands back an NlsString carrying charset
             // and collation, whose toString is the SQL rendering -- quotes included -- and would
@@ -150,12 +170,36 @@ final class ExpressionCompiler {
                                         + "ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, TRIM, "
                                         + "SUBSTRING and || .");
                 };
+        if (call.getOperands().size() == 1) {
+            // Unary. The refusal here used to say unary minus was supported "which Calcite
+            // normalises to 0 - x" while refusing exactly that -- Calcite does not normalise it,
+            // and the message sent anybody reading it looking for a different problem. So do the
+            // normalisation rather than describing it.
+            Expression operand = compile(call.getOperands().get(0));
+            TypeName unaryType = typeOf(call.getType().getSqlTypeName(), call.toString());
+            return switch (operator) {
+                case SUBTRACT ->
+                    new Expression.Arithmetic(
+                            unaryType == TypeName.FLOAT32 || unaryType == TypeName.FLOAT64
+                                    ? Expression.Literal.ofDouble(0)
+                                    : Expression.Literal.ofLong(0),
+                            Expression.Operator.SUBTRACT,
+                            operand,
+                            unaryType);
+                // Unary plus is the identity, and SQL says so.
+                case ADD -> operand;
+                default ->
+                    throw new PravahaException(
+                            SqlErrors.UNSUPPORTED_EXPRESSION,
+                            "'" + call + "' applies " + call.getOperator().getName()
+                                    + " to one operand, which has no meaning. Only unary - and unary + take one.");
+            };
+        }
         if (call.getOperands().size() != 2) {
             throw new PravahaException(
                     SqlErrors.UNSUPPORTED_EXPRESSION,
                     "'" + call + "' has " + call.getOperands().size()
-                            + " operands; only the two-operand form is supported (unary minus included, which "
-                            + "Calcite normalises to 0 - x).");
+                            + " operands; only the one- and two-operand forms are supported.");
         }
 
         TypeName type = typeOf(call.getType().getSqlTypeName(), call.toString());
@@ -305,6 +349,8 @@ final class ExpressionCompiler {
             case DOUBLE -> TypeName.FLOAT64;
             case BOOLEAN -> TypeName.BOOLEAN;
             case DATE -> TypeName.DATE;
+            case TIME -> TypeName.TIME;
+            case CHAR, VARCHAR -> TypeName.STRING;
             case TIMESTAMP, TIMESTAMP_WITH_LOCAL_TIME_ZONE -> TypeName.TIMESTAMP_LTZ;
             case DECIMAL -> refuseDecimalType(context);
             default ->

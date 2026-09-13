@@ -156,13 +156,25 @@ class TypeMappingTest {
     }
 
     @Test
+    void aBareNullIsRefusedWithTheCastThatFixesIt() {
+        assertThatThrownBy(() ->
+                        TypeMapping.fromCalcite(FACTORY.createSqlType(org.apache.calcite.sql.type.SqlTypeName.NULL)))
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("a bare NULL has no type")
+                .hasMessageContaining("CAST(NULL AS BIGINT)");
+    }
+
+    @Test
     void anUnmappableSqlTypeSaysSoRatherThanGuessing() {
         RelDataType interval = FACTORY.createSqlIntervalType(new org.apache.calcite.sql.SqlIntervalQualifier(
                 org.apache.calcite.avatica.util.TimeUnit.DAY,
                 org.apache.calcite.avatica.util.TimeUnit.SECOND,
                 org.apache.calcite.sql.parser.SqlParserPos.ZERO));
+        // Coded, not an IllegalArgumentException. SQL_SUPPORT.md promises every refusal carries a
+        // PRV code, and this one reached a client through Flight carrying none -- which is how
+        // SELECT NULL surfaced as an untyped stack trace.
         assertThatThrownBy(() -> TypeMapping.fromCalcite(interval))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
                 .hasMessageContaining("no Pravaha type");
     }
 }

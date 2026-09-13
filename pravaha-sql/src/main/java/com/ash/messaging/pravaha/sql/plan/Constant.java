@@ -62,6 +62,18 @@ sealed interface Constant {
 
         @Override
         public long asLong() {
+            // Temporal first, and never through BigDecimal. Calcite's getValueAs raises a
+            // java.lang.AssertionError for a TIMESTAMP asked for as a BigDecimal -- an Error, which
+            // escapes every catch (Exception) on the way out and which round 2 recorded killing a
+            // Flight worker thread rather than failing the query that caused it.
+            //
+            // The units are the engine's, not Calcite's: nanoseconds for a timestamp and a time of
+            // day, days for a date. Comparing a millisecond literal against a nanosecond column is
+            // wrong by six orders of magnitude and still looks like a timestamp.
+            Long temporal = temporalNanos();
+            if (temporal != null) {
+                return temporal;
+            }
             BigDecimal decimal = literal.getValueAs(BigDecimal.class);
             if (decimal != null) {
                 return decimal.longValue();
@@ -76,8 +88,22 @@ sealed interface Constant {
 
         @Override
         public double asDouble() {
+            Long temporal = temporalNanos();
+            if (temporal != null) {
+                return temporal;
+            }
             BigDecimal decimal = literal.getValueAs(BigDecimal.class);
             return decimal == null ? 0d : decimal.doubleValue();
+        }
+
+        /** This literal in the engine's own units, or null when it is not a temporal one. */
+        private Long temporalNanos() {
+            return switch (literal.getType().getSqlTypeName()) {
+                case TIMESTAMP, TIMESTAMP_WITH_LOCAL_TIME_ZONE -> literal.getValueAs(Long.class) * 1_000_000L;
+                case TIME -> (long) literal.getValueAs(Integer.class) * 1_000_000L;
+                case DATE -> (long) literal.getValueAs(Integer.class);
+                default -> null;
+            };
         }
 
         @Override

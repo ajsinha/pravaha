@@ -721,12 +721,28 @@ public final class QueryExecution implements AutoCloseable {
      * <p>Driven by whoever commits: the ingest feed's publish timer, or an embedder pushing its own
      * rows. Tying it to the watermark tick alone would leave a push-based query silent, because a
      * query with no pump has no watermark partitions and so never ticks.
+     *
+     * <p>Returns once the lanes have emitted, so a caller that commits straight afterwards commits
+     * the answer this call produced rather than the one before it.
      */
     public void publishContinuousAggregates() {
+        long[] tickets = new long[pipelines.size()];
+        java.util.Arrays.fill(tickets, -1L);
         for (int i = 0; i < pipelines.size(); i++) {
             InterpretedPipeline pipeline = pipelines.get(i);
             if (pipeline.hasContinuousAggregates()) {
-                lanes.lane(i).submitControlTask(pipeline::emitContinuousAggregates);
+                tickets[i] = lanes.lane(i).submitControlTask(pipeline::emitContinuousAggregates);
+            }
+        }
+        // Waited for, because the caller is about to commit. Submitting and returning meant the
+        // emission landed after the commit that asked for it, so an unwindowed aggregate's answer
+        // appeared one commit late -- and a query that received a single batch and was then read
+        // showed nothing at all, for ever, which is indistinguishable from the aggregate never
+        // emitting. The old behaviour was written down ("a caller may see the previous answer
+        // once") rather than fixed; it should not have been.
+        for (int i = 0; i < tickets.length; i++) {
+            if (tickets[i] >= 0) {
+                lanes.lane(i).awaitControlTask(tickets[i], WATERMARK_ADVANCE_TIMEOUT);
             }
         }
     }
