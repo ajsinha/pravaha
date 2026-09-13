@@ -346,4 +346,50 @@ class QueryRegistryTest {
         assertThat(a.state()).isEqualTo(QueryState.DROPPED);
         assertThat(registry.size()).isZero();
     }
+
+    @Test
+    void aSecondNameForOneComputationIsQueryableUnderThatName() {
+        // Sharing is a documented user-facing feature and it made the second name useless: register
+        // acknowledged RUNNING, `queries` listed it, and reading it answered "Object not found",
+        // because the shared path skipped view registration entirely. A QA pass reported the second
+        // name still unqueryable after the first fix, so this pins all three halves rather than the
+        // one that was easiest to see.
+        RegisteredQuery first = registry.register(
+                "first_view", "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED'", List.of(0), DANA);
+        RegisteredQuery second = registry.register(
+                "second_view", "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED'", List.of(0), DANA);
+
+        assertThat(second).as("the same question is one computation").isSameAs(first);
+
+        feed(first, "u1", 300L, "COMPLETED");
+        first.commit();
+
+        assertThat(new ViewQuery(views)
+                        .execute("SELECT user_id FROM first_view")
+                        .size())
+                .isEqualTo(1);
+        assertThat(new ViewQuery(views)
+                        .execute("SELECT user_id FROM second_view")
+                        .size())
+                .as("the second name must answer, not report itself missing")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void droppingOneNameOfASharedComputationLeavesTheOtherAnswering() {
+        registry.register("alpha", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        RegisteredQuery shared = registry.register("beta", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        feed(shared, "u1", 10L, "COMPLETED");
+        shared.commit();
+
+        registry.drop("alpha");
+
+        // Removing a name must remove that name and nothing else. A dropped view has to stop
+        // answering -- otherwise it serves whatever the closed computation last committed, for ever
+        // -- but the computation is still held open by the other name.
+        assertThat(new ViewQuery(views).execute("SELECT user_id FROM beta").size())
+                .isEqualTo(1);
+        assertThatThrownBy(() -> new ViewQuery(views).execute("SELECT user_id FROM alpha"))
+                .isInstanceOf(PravahaException.class);
+    }
 }

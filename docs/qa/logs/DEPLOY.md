@@ -1157,3 +1157,772 @@ but the port assignment was not in fact exclusive.
 Every server started during this run was stopped by PID. At the end: `ss -ltn` showed none of
 18300–18319 or 19300–19319 bound by me, every recorded PID was gone, the test container was stopped
 and removed, and `git status --short` showed only `docs/qa/cases/` and `docs/qa/logs/`.
+
+---
+
+# Re-QA 2026-09-12
+
+Verification pass over the ten FAILs above, plus a regression hunt around each fix. Ports 18300–18319
+and 19300–19319, scratch `$SD` as before. Every server started was stopped by PID; `ss -ltn` at the
+end showed none of my ports bound and the test container was removed.
+
+## Which build these results are against — read this first
+
+The artefacts I was handed were the ones built at **21:37** from `ab0eca3` ("Remediate what QA found").
+I verified they were that build before starting: `BOOT-INF/lib/` went from 151 files / 73,871,162
+bytes to **152 files / 73,917,522 bytes** (the one new entry is
+`netty-transport-native-unix-common-4.1.135.Final.jar`, 44,327 bytes), and
+`BOOT-INF/classes/.../PravahaNode.class` and `BOOT-INF/lib/pravaha-registry-*.jar`'s
+`QueryRegistry.class` were byte-identical to `target/classes`, which contained the remediation
+(`registerAs` present in the constant pool).
+
+**The tree was rebuilt underneath me at 22:03:49**, while this pass was running:
+
+```
+$ stat -c 'ctime=%z size=%s' pravaha-server/target/pravaha-server-0.1.0-SNAPSHOT-app.jar
+ctime=2026-09-12 22:03:49 size=76624053          # was 74232567 at 21:37
+$ git status --short
+ M pravaha-registry/.../QueryRegistry.java        M pravaha-registry/.../RegisteredQuery.java
+ M pravaha-runtime/.../QueryExecution.java        M pravaha-server/pom.xml
+ M pravaha-cli/.../QueryRunner.java
+?? pravaha-server/src/main/java/.../EngineHealthIndicator.java      # written 21:58
+```
+
+That uncommitted work is a second round of remediation — of defects on this very list — in flight
+while I was verifying the first. So every verdict below is tagged with the build it was taken on:
+
+- **[handed-over]** — the 21:37 artefacts, i.e. `ab0eca3`. Everything up to 22:02 wall clock.
+- **[in-progress]** — the 22:03:49 rebuild of the uncommitted working tree. The 50-cycle test, the
+  container case, and four deliberate probes at the end.
+
+Where the two disagree I say so. **A [handed-over] verdict is the verdict on the release**; an
+[in-progress] one is a heads-up on work that is not committed and that nobody asked me to test.
+
+---
+
+## Priority 1 — the registry defects
+
+### DEPLOY-046 — PARTIALLY-FIXED [handed-over] (still high)
+The journal half is fixed. The queryable half is not.
+
+```
+$ pravaha register --name alpha --sql-file $SD/sql/big.sql --keys 0 --url grpc://127.0.0.1:19301
+registered alpha  state=RUNNING  fingerprint=d8a13cf760d4
+$ pravaha register --name beta  --sql-file $SD/sql/big.sql --keys 0 --url grpc://127.0.0.1:19301
+registered alpha  state=RUNNING  fingerprint=d8a13cf760d4     exit=0
+$ pravaha register --name gamma --sql-file $SD/sql/oks.sql --keys 0 --url grpc://127.0.0.1:19301
+registered gamma  state=RUNNING  fingerprint=b6af4dfc4770
+
+$ strings $SD/rq/j1/registry.log | grep -E '^(alpha|beta|gamma)$|SELECT'
+alpha
+:SELECT txn_id, user_id, amount FROM txn WHERE amount > 100
+beta                                                          <-- journalled now
+:SELECT txn_id, user_id, amount FROM txn WHERE amount > 100
+gamma
+;SELECT txn_id, user_id, status FROM txn WHERE status = 'ok'
+
+$ pravaha query --sql "SELECT * FROM beta" --url grpc://127.0.0.1:19301
+PRV-1041  PRV-2002  Object 'beta' not found. Known streams: [alpha, gamma]
+exit=1
+```
+After `kill -TERM` and a restart on the same journal:
+```
+... INFO ... registry recovered 3 of 3 queries from $SD/rq/j1/registry.log      (was 2 of 2)
+$ pravaha queries --url grpc://127.0.0.1:19301
+alpha  RUNNING  d8a13cf760d4  8
+beta   RUNNING  d8a13cf760d4  8
+gamma  RUNNING  b6af4dfc4770  8
+$ pravaha query --sql "SELECT * FROM beta" --url grpc://127.0.0.1:19301
+PRV-1041  PRV-2002  Object 'beta' not found. Known streams: [alpha, gamma]
+```
+
+**Verdict:** Journalled — yes. Survives a restart as a listed name — yes. **Queryable — no, before
+or after the restart.** The commit message claims both halves ("It answered nothing ... and it
+vanished at the next restart"); one of the two is still exactly as it was.
+
+**Cause, and why the fix could not have worked.** `views.registerAs(name, existing.view())` puts the
+alias in `ViewCatalog` correctly. The catalogue key is then thrown away one layer up:
+
+```java
+// ViewQuery.relFor
+StreamSchema[] schemas = catalog.schemas().values().toArray(new StreamSchema[0]);
+return SqlPlanner.withStreams(schemas).plan(sql);
+```
+`schemas()` returns `name -> view.schema()`, `.values()` discards the name, and
+`SqlPlanner.withStreams` re-keys each stream on `StreamSchema.name()` — which is the view's own
+name, `alpha`. The alias is invisible to the planner, which is why the error lists
+`[alpha, gamma]`. Registering the alias in the catalogue cannot fix this; `relFor` has to plan
+against `catalog.schemas()` as a map, or `ServedView` has to be published per name.
+
+Confirmed still present on [in-progress] as well:
+```
+$ pravaha register --name p_alpha --sql-file $SD/sql/big.sql --keys 0 --url grpc://127.0.0.1:19302
+registered p_alpha  state=RUNNING  fingerprint=d8a13cf760d4
+$ pravaha register --name p_beta  --sql-file $SD/sql/big.sql --keys 0 --url grpc://127.0.0.1:19302
+registered p_alpha  state=RUNNING  fingerprint=d8a13cf760d4
+$ pravaha query --sql "SELECT * FROM p_beta" --url grpc://127.0.0.1:19302
+PRV-1041  PRV-2002  Object 'p_beta' not found. Known streams: [p_alpha]
+```
+
+**Severity stays high.** The durability hole is closed and the usability hole is not: sharing still
+hands a client a name that `queries` reports RUNNING and that no read can reach. Arguably it is now
+*worse* for an operator, because the name survives a restart and so looks permanent.
+
+**Related, and a real consequence rather than a nicety:** because the planner resolves the alias to
+the primary name, `ViewQuery.execute` also runs `policy.mayRead(principal, source)` against the
+*primary* name, not the name the caller wrote. If the alias ever starts resolving, a policy keyed on
+view names will authorize `beta` as `alpha`. Worth a SEC case when this is fixed.
+
+### DEPLOY-032 — PARTIALLY-FIXED [handed-over]. The unwind is clean where it exists, and it does not exist on two of the three paths.
+
+**The path that was fixed is genuinely fixed, and I tried hard to break it.** I made the journal
+unwritable *after* startup by replacing the file with a directory (a `chmod 000` is not enough:
+`append()` calls `SensitiveFiles.createOwnerOnly(file)` first, which chmods it back to 600 — worth
+knowing, and a small hardening of its own).
+
+```
+$ rm $SD/rq/j2/registry.log && mkdir $SD/rq/j2/registry.log
+$ pravaha register --name u3 --sql-file $SD/sql/u3.sql --keys 0 --url grpc://127.0.0.1:19302
+PRV-1041  PRV-8006  cannot append to the registry journal at $SD/rq/j2/registry.log. ...
+exit=1
+$ pravaha queries --url grpc://127.0.0.1:19302
+u1  RUNNING  d8a13cf760d4  8
+u2  RUNNING  b6af4dfc4770  8                       <-- u3 absent
+$ pravaha query --sql "SELECT * FROM u3" --url grpc://127.0.0.1:19302
+PRV-1041  PRV-2002  Object 'u3' not found. Known streams: [u1, u2]
+```
+Attacking the unwind for leaks — 45 failed registrations under distinct names, then a thread dump:
+```
+$ (45 register attempts against the broken journal, all refused)
+threads: 35 -> 51 -> 51            heap used: 166MB -> 194MB -> 158MB
+$ jcmd <pid> Thread.print | grep -oP '^"pravaha[^"]*"' | sort | uniq -c
+      2 "pravaha-checkpointer"
+      2 "pravaha-feed-u#"
+      1 "pravaha-metrics"
+      2 "pravaha-query-#"
+      2 "pravaha-watermark"
+```
+Two live queries, two of each per-query thread, none left over from 45 unwinds. The +16 threads are
+`grpc-nio-worker-ELG` filling to `nproc`=24 as CLI connections arrive; it stopped at 24 and the
+count was identical after another 25 attempts, and heap after the run was *below* the start. **No
+leaked lane thread, arena, feed or checkpointer.** `RegisteredQuery.close()` does feed → checkpointer
+→ execution in that order and the unwind calls it, so the cause was addressed, not the symptom.
+
+**What is not fixed.** Two paths mutate the registry and then journal, with nothing between them:
+
+1. **The shared-computation registration** (`register`, the `existing != null` early return). The
+   journal append was added to it for DEPLOY-046 and no try/catch with it. Logged as **DEPLOY-050**.
+2. **`drop`**, which has no unwind at all and never had one. Logged as **DEPLOY-049**.
+
+Both are reachable by the same operator action that produced DEPLOY-032 in the first place — a
+journal that has gone away under a running node.
+
+**Severity: the fixed path was the worst one, so this drops from high to a high residual in
+DEPLOY-050 and DEPLOY-049.**
+
+### DEPLOY-050 — FAIL (high) — NEW. The shared-computation path journals without unwinding.
+```
+$ (journal still replaced by a directory; u1 is live with fingerprint d8a13cf760d4)
+$ pravaha register --name shadow --sql-file $SD/sql/big.sql --keys 0 --url grpc://127.0.0.1:19302
+PRV-1041  PRV-8006  cannot append to the registry journal at $SD/rq/j2/registry.log ...
+exit=1
+$ pravaha queries --url grpc://127.0.0.1:19302
+u1      RUNNING  d8a13cf760d4  8
+u2      RUNNING  b6af4dfc4770  8
+shadow  RUNNING  d8a13cf760d4  8            <-- the registration the client was told failed
+```
+**Verdict:** The client has an error; the node has the name. `existing.addName(name)`,
+`byName.put`, and `views.registerAs` have all run before `journalRegistration` throws, and the early
+return is not inside the try that was added two statements below it. The name is now:
+
+- **taken** — a later `register --name shadow` is refused with `PRV-8001 'shadow' is already
+  registered`, so the client cannot even retry cleanly;
+- **holding the computation open** — `drop u1` would no longer release it, because `removeName`
+  still sees `shadow`;
+- **in the journal's future**, in the sense that a subsequent successful `drop shadow` calls
+  `recordDrop` for a name the journal has no registration for.
+
+It is not *readable*, but only by accident: DEPLOY-046 means an alias answers nothing anyway. Fix the
+alias without fixing this and a refused registration starts serving rows again.
+
+**Severity high**, same reasoning as the original DEPLOY-032: it is the failure the journal exists to
+prevent, reached by the obvious retry. The fix is three lines — the same try/catch, with
+`existing.removeName(name)` in it.
+
+### DEPLOY-049 — FAIL (high) — NEW. A drop that fails is applied anyway, and a restart undoes it.
+`drop` removes the name, removes the view and closes the computation *before* `journal.recordDrop`,
+with no unwind:
+```
+$ pravaha query --sql "SELECT * FROM u2" --url grpc://127.0.0.1:19302
+8 rows
+$ pravaha drop --name u2 --url grpc://127.0.0.1:19302
+PRV-1041  PRV-8006  cannot append to the registry journal at $SD/rq/j2/registry.log. The
+registration would be lost at the next restart, so it is refused now rather than acknowledged and
+forgotten
+exit=1
+$ pravaha queries --url grpc://127.0.0.1:19302
+u1  RUNNING  d8a13cf760d4  8                   <-- u2 gone
+$ pravaha query --sql "SELECT * FROM u2" --url grpc://127.0.0.1:19302
+PRV-1041  PRV-2002  Object 'u2' not found. Known streams: [u1]
+$ jcmd <pid> Thread.print | grep -oP '^"pravaha[^"]*"' | sort | uniq -c
+      1 "pravaha-checkpointer"     1 "pravaha-feed-u1"     1 "pravaha-query-0"
+      1 "pravaha-metrics"          1 "pravaha-watermark"
+```
+The computation was closed — the threads are gone — after the client was told the operation failed.
+Then, journal restored and node restarted:
+```
+... INFO ... registry recovered 2 of 2 queries from $SD/rq/j2/registry.log
+$ pravaha queries --url grpc://127.0.0.1:19302
+u1  RUNNING  d8a13cf760d4  8
+u2  RUNNING  b6af4dfc4770  8            <-- the query that was "not dropped" is back
+```
+**Verdict:** Three states, all different: the client believes `u2` exists, the running node has
+destroyed it, and the journal will resurrect it. A client that retries the drop (the obvious
+response to the error) gets `PRV-8001`-class "no such query" and reasonably concludes it is gone —
+until the next restart. The error text is also wrong for this verb: nothing was "refused", and there
+is no "registration" in a drop.
+
+**Severity high.** Exactly the DEPLOY-032 failure mode, in the direction nobody checked, and the one
+where the damage is unrecoverable state rather than a stray thread.
+
+---
+
+## Priority 2 — the `..` traversal and what stripping dots cost
+
+### DEPLOY-036 — VERIFIED-FIXED [handed-over]
+```
+$ ls -la $SD/rq/cp2/            # the PARENT of pravaha.checkpoint.directory, BEFORE
+drwxrwxr-x  3 .    drwxrwxr-x 7 ..    drwxrwxr-x 50 root
+
+$ pravaha register --name '..'           ... registered ..           exit=0
+$ pravaha register --name '.'            ... registered .            exit=0
+$ pravaha register --name '../../etc'    ... registered ../../etc    exit=0
+$ pravaha register --name '/etc/pravaha' ... registered /etc/pravaha exit=0
+$ pravaha register --name '...'          ... registered ...          exit=0
+$ (5 seconds, interval=2s, so every one has checkpointed)
+
+$ ls -la $SD/rq/cp2/            # AFTER -- unchanged
+drwxrwxr-x  3 .    drwxrwxr-x 7 ..    drwxrwxr-x 55 root
+$ ls -la $SD/rq/cp2/root/
+drwx------ 2 _                 <-- "."
+drwx------ 2 __                <-- ".."
+drwx------ 2 ___               <-- "..."
+drwx------ 2 ______etc         <-- "../../etc"
+drwx------ 2 _etc_pravaha      <-- "/etc/pravaha"
+```
+**Verdict:** Every hostile name lands inside the configured root. The parent directory gained
+nothing and its mode is untouched. **Non-vacuity:** the checkpoints were actually written (files
+appear in each directory within the 2s interval, and the directories are 700, which only
+`SensitiveFiles` sets), so the sanitiser was exercised rather than skipped. Dropping all five
+afterwards also worked, so the names round-trip through `drop` as well.
+
+### DEPLOY-051 — FAIL (medium) — NEW, introduced by the DEPLOY-036 fix.
+`name.replaceAll("[^A-Za-z0-9_-]", "_")` is many-to-one. `a.b` and `a_b` are two different
+computations and one directory:
+```
+$ pravaha register --name 'a.b' --sql-file $SD/sql/tr6.sql --keys 0 --url grpc://127.0.0.1:19302
+registered a.b  state=RUNNING  fingerprint=63a62815a967
+$ pravaha register --name 'a_b' --sql-file $SD/sql/tr7.sql --keys 0 --url grpc://127.0.0.1:19302
+registered a_b  state=RUNNING  fingerprint=ba3f90338748
+
+$ ls -d $SD/rq/cp2/root/a.b
+ls: cannot access '.../root/a.b': No such file or directory
+$ (keep=2, interval=2s, two checkpointers, watched for 12 seconds:)
+t+2s:  checkpoint-11.bin checkpoint-12.bin
+t+4s:  checkpoint-12.bin checkpoint-13.bin
+t+6s:  checkpoint-13.bin checkpoint-14.bin
+t+8s:  checkpoint-14.bin checkpoint-15.bin
+t+10s: checkpoint-15.bin checkpoint-16.bin
+t+12s: checkpoint-16.bin checkpoint-17.bin
+```
+**Verdict:** Two queries, one directory, **one id sequence**. Two checkpointers each firing every
+2s should add two files per tick; the id advances by one, so they are computing the next id from the
+same `availableIds()` listing and writing the same filename — each overwrites the other. With
+`keep=2` there are never more than two files for two queries, so at any moment at least one query's
+only fallback is a file belonging to the other one.
+
+This breaks an invariant the product states in two places, in the same words:
+`application.yaml:142` — *"Each query checkpoints into its own directory beneath this one: one
+shared store would make pruning global, so a busy query would evict a quiet one's only fallback"* —
+and `docs/OPERATIONS.md:408`. The reason given for the design is precisely the failure the fix
+introduced.
+
+**Severity medium today** (DEPLOY-037: nothing reads checkpoints, so nothing acts on a corrupt one)
+and **high the day restore lands**, because a restore would read a file written by a different
+query's operators. It is also reachable without hostile intent: `orders.eu` and `orders_eu` are two
+names an ordinary team would pick.
+
+**[in-progress] note.** The uncommitted tree changes this to
+`safe + "-" + Integer.toHexString(name.hashCode())`. That fixes `a.b`/`a_b` and does not fix the
+defect, because `String.hashCode` is trivially collidable. I constructed a collision from the
+identity `d(i)*31 + d(i+1) = 0` on the first attempt and it reproduces:
+```
+$ pravaha register --name 'a#!b' --sql-file $SD/sql/h1.sql --keys 0 --url ...   fingerprint=88d03d32f2d3
+$ pravaha register --name 'a"@b' --sql-file $SD/sql/h2.sql --keys 0 --url ...   fingerprint=aa4417c6e076
+$ ls $SD/rq/cp3/root/
+a__b-2c9fc3          <-- both of them
+p_alpha-cc6000cf
+```
+A truncated SHA-256, or the query fingerprint that is already computed two lines earlier, costs the
+same and is not collidable by a bored user.
+
+### DEPLOY-054 — FAIL (low) — NEW. The checkpoint directory is world-readable until its first write.
+From the same listings:
+```
+drwxrwxr-x 2 ashutosh ashutosh fail1 .. fail19      <-- registrations that never checkpointed
+drwx------ 2 ashutosh ashutosh __  ___  _etc_pravaha  <-- directories that have a checkpoint in them
+```
+**Verdict:** `FileCheckpointStore`'s constructor creates the directory at the ambient umask;
+`SensitiveFiles` tightens it only when a file is written into it. At the default `interval: 1m`
+that is a one-minute window on every registration, and it is permanent for a registration that
+failed after the store was constructed (the `fail*` directories above) or for a query dropped before
+its first checkpoint. DEPLOY-038 passed because every directory it looked at had been written to.
+
+**Severity low** — the directory is empty during the window — but it is the same reasoning
+`SensitiveFiles` exists for, and `Files.createDirectories` with an explicit `PosixFilePermissions`
+attribute is a one-line fix.
+
+---
+
+## Priority 3 — a dropped view stops answering
+
+### VERIFIED-FIXED [handed-over] for a query with one name; a shared computation is left unreachable.
+```
+$ pravaha query --sql "SELECT * FROM gamma" --url grpc://127.0.0.1:19301
+8 rows
+$ pravaha drop --name gamma --url grpc://127.0.0.1:19301
+dropped gamma
+$ pravaha query --sql "SELECT * FROM gamma" --url grpc://127.0.0.1:19301
+PRV-1041  PRV-2002  Object 'gamma' not found. Known streams: [alpha]
+```
+**Non-vacuity:** the same statement returned 8 rows against the same node seconds earlier, so the
+refusal is the drop and not a broken read path.
+
+**The regression I went looking for, and found a different one.** Dropping one name of a shared
+computation must not stop the others answering. It does not — and that is not worth much, because
+the other name never answered:
+```
+$ pravaha drop --name alpha --url grpc://127.0.0.1:19301
+dropped alpha
+$ pravaha queries --url grpc://127.0.0.1:19301
+beta  RUNNING  d8a13cf760d4  8                  <-- correct: the refcount held
+$ pravaha query --sql "SELECT * FROM alpha" --url grpc://127.0.0.1:19301
+PRV-1041  PRV-4023  'alpha' is not a registered view; this server serves [beta]
+$ pravaha query --sql "SELECT * FROM beta"  --url grpc://127.0.0.1:19301
+PRV-1041  PRV-2002  Object 'beta' not found. Known streams: [alpha]
+```
+**Verdict on the refcount: correct.** `removeName` returned false, the computation stayed up, and
+`byFingerprint` still holds it. **Verdict on the result: the computation is now unreachable by any
+name**, while `queries` reports it RUNNING and it holds a lane thread, an arena, a feed, a
+checkpointer and a watermark timer. There is no way to get an answer out of it and no way to
+recreate `alpha` for it (`register --name alpha` would build a second computation, or return the
+same unreachable one). The only exit is `drop beta`.
+
+Note the two error messages disagree about what exists: the planner still lists `alpha` as a known
+stream (the surviving `ServedView` is keyed `beta` in the catalogue but still *named* `alpha`, and
+`SqlPlanner.withStreams` re-keys on the name) while the registry says the server serves `[beta]`. So
+**a dropped name remains visible in the catalogue a client can enumerate** — a small information
+leak of a name the operator removed, from the same root cause as DEPLOY-046.
+
+This is one defect, not three: publish the view per name and all of it goes away.
+
+---
+
+## Priority 4 — checkpoints written and never read
+
+### DEPLOY-037 — STILL-FAILING [handed-over] (high). No restore path exists.
+```
+before, source still full:
+$ pravaha query --sql "SELECT * FROM u1" --url grpc://127.0.0.1:19302
+7 rows
+$ curl .../actuator/metrics/pravaha.query.view.size?tag=query:u1   -> 7.0
+$ ls $SD/rq/cp2/root/u1/
+checkpoint-158.bin  checkpoint-159.bin
+
+$ : > $SD/data/txn.csv         # emptied, so nothing can re-arrive and mask the answer
+$ kill -TERM <pid>; (restart on the same journal and the same checkpoint directory)
+$ pravaha query --sql "SELECT * FROM u1" --url grpc://127.0.0.1:19302
+0 rows
+$ curl .../actuator/metrics/pravaha.query.view.size?tag=query:u1   -> 0.0
+$ curl .../actuator/metrics/pravaha.query.rows.in?tag=query:u1     -> 0.0
+$ grep -ci restor $SD/rq/run/u3.log
+0
+```
+Static, on the tree as shipped:
+```
+$ grep -rn "\.latest()\|\.restore(" --include=*.java . | grep -v /target/ | grep -v /src/test/
+pravaha-cluster/.../PartitionHandoff.java:134:    target.restore(snapshot);
+```
+One hit, unrelated. Nothing between startup and a checkpoint file.
+
+**Verdict:** Unchanged and confirmed by the same three independent lines as before — empirical
+(7 → 0 with `rows_in` 0, so not masked by re-ingestion), static (no caller), and content (the files
+still hold a source offset and an empty `operatorState`; a fresh one hexdumps as
+`PRVC ... partition-0 ... 0x138 ... 00000000 PRVC`).
+
+**What the documentation now says, versus what happens** — this was asked for explicitly, and the
+docs are not merely stale, they contradict *each other*:
+
+| Where | What it says | True? |
+|---|---|---|
+| `application.yaml:135` | "What a query had accumulated, so a restart recovers answers and not only questions." | **No** |
+| `docs/OPERATIONS.md:405` | "**Checkpoints** remember what those queries had accumulated. A node with a journal and no checkpoint directory comes back knowing every question and none of the answers." | **No** — with a checkpoint directory it also comes back knowing none of the answers |
+| `docs/OPERATIONS.md:463` | "Checkpoints are files; recovery restores from the newest complete one. A join's state survives a crash — there is a test that an interrupted run equals an uninterrupted one." | **No.** The test is real and tests `QueryExecution.restore` directly; no product path calls it |
+| `docs/OPERATIONS.md:416` | "**What this means for you.** Plan restarts as warm-ups, not as resumptions." | **Yes** — and it flatly contradicts the three rows above it |
+| `docs/OPERATIONS.md:391` | "Registered continuous queries are checkpointed when `pravaha.checkpoint.directory` is set" | **Yes.** Written. Just never read |
+
+The section heading is "Checkpoints: what is actually true". The one sentence in it that is actually
+true is the one that contradicts the rest of the page and the configuration file. Severity stays
+**high**: it is a documented capability of the release that does not exist, and an operator who
+reads either of the two authoritative sources will size a restart wrongly.
+
+---
+
+## Priority 5 — still unfixed, confirmed and re-ranked
+
+### DEPLOY-041 — STILL-FAILING [handed-over] (high). Re-ranked to the **top** of the list.
+```
+$ grep -rn "HealthIndicator" --include=*.java . | grep -v /target/
+(nothing -- 0 files)
+$ bin/pravaha-server ... --server.port=18310 --pravaha.flight.port=19314 --pravaha.flight.enabled=false \
+    --management.endpoint.health.show-details=always
+... INFO ... Flight SQL disabled (pravaha.flight.enabled=false); this node serves HTTP only
+$ curl -s .../actuator/health
+{"status":"UP","groups":["liveness","readiness"],"components":{
+  "diskSpace":{"status":"UP",...}, "livenessState":{"status":"UP"}, "ping":{"status":"UP"},
+  "readinessState":{"status":"UP"}, "ssl":{"status":"UP","details":{"validChains":[],"invalidChains":[]}}}}
+$ curl -s .../actuator/health/liveness    {"status":"UP"}
+$ curl -s .../actuator/health/readiness   {"status":"UP"}
+$ ss -ltn | grep 19314
+(nothing)
+```
+Identical to the original run, down to the component list. **I move this above DEPLOY-037** for this
+pass, because the re-QA turned up two more ways for a node to be UP and useless that health would
+have caught and does not: the shared computation left unreachable by a drop (priority 3), and
+DEPLOY-053 below, where a node recovers **zero of three** queries and reports UP.
+
+**[in-progress]:** `EngineHealthIndicator.java` was written at 21:58 and is untracked. Not in the
+build I was given; not tested.
+
+### DEPLOY-042 — STILL-FAILING [handed-over] (medium-high)
+```
+$ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18302/actuator/prometheus
+404
+$ curl -s http://127.0.0.1:18302/actuator | python3 -c '...'
+['health', 'health-path', 'info', 'metrics', 'metrics-requiredMetricName', 'self']
+$ grep -n "micrometer\|prometheus" pravaha-server/pom.xml
+(nothing)
+$ grep -n -A4 exposure pravaha-server/src/main/resources/application.yaml
+27:      exposure:
+28-        include: health,info,metrics,prometheus
+```
+**Verdict:** Unchanged. `application.yaml` still advertises a scrape endpoint that does not exist.
+
+**[in-progress]:** `micrometer-registry-prometheus` is added to `pravaha-server/pom.xml` in the
+working tree, and the container I built from that tree returns **200** on `/actuator/prometheus`
+(see the container case below). So this one is genuinely fixed in the next build.
+
+### DEPLOY-039 — STILL-FAILING [handed-over] (medium)
+```
+$ grep -n "message -> {}" pravaha-registry/.../QueryRegistry.java
+416:                        message -> {});
+$ grep -rn "stats()" --include=*.java pravaha-server | grep -v /target/
+(nothing)
+```
+**Verdict:** Unchanged — the `PeriodicCheckpointer` log consumer is still the discarding lambda and
+`stats()` is still published nowhere, so a checkpoint that fails for six hours is indistinguishable
+from one that succeeds. I did not re-run the live reproduction; the static evidence is the whole
+mechanism and the original run's transcript stands.
+
+**[in-progress]:** replaced with `query::recordCheckpointFailure` in the working tree.
+
+### DEPLOY-007 — STILL-FAILING [handed-over] (low)
+```
+$ ln -s /home/ashutosh/IdeaProjects/pravaha/bin/pravaha $SD/mybin/pravaha
+$ cd / && PATH=$SD/mybin:$PATH pravaha version
+pravaha: cannot find the CLI jar.
+  Build it with:  ./mvnw -pl pravaha-cli -am install -DskipTests
+exit=2
+$ grep -n "BASH_SOURCE\|readlink" bin/pravaha bin/pravaha-server
+bin/pravaha:9:here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bin/pravaha-server:14:here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+```
+**Verdict:** Unchanged, both launchers, same misleading message.
+
+### DEPLOY-047 — STILL-FAILING [handed-over] (low)
+```
+$ grep -rn "\.compact(" --include=*.java . | grep -v /target/
+pravaha-registry/src/test/java/.../RegistryJournalTest.java:352:  writer.compact(writer.replay());
+```
+Measured again on [in-progress] over 50 register/drop cycles: the journal ends at **6,832 bytes for
+100 records and zero live queries**, none of which will ever be removed.
+
+### DEPLOY-048 — STILL-FAILING [handed-over] (low), FIXED on [in-progress]
+```
+[handed-over, after dropping all 9 queries on the node:]
+$ pravaha queries --url grpc://127.0.0.1:19302
+no continuous queries are registered
+$ ls $SD/rq/cp2/root | wc -l
+54
+
+[in-progress, after 50 register/drop cycles:]
+$ ls $SD/rq/cp3/root | wc -l
+0
+```
+**Verdict:** Confirmed still failing in the release, and the working tree fixes it with
+`deleteCheckpointsOf(name)` in `drop`. I verified the fixed behaviour because it happened to be what
+was running; note it deletes by the *sanitised* directory name, so until DEPLOY-051 is fixed
+properly a drop of `a.b` deletes `a_b`'s checkpoints too.
+
+---
+
+## Priority 6 — container rebuild
+
+### DEPLOY-011 / 011b / 012 / 013 / 014 — re-run, PASS. Jar growth is not pathological.
+
+Jar size, which was the question:
+```
+handed-over [ab0eca3]:
+$ unzip -l ...-app.jar 'BOOT-INF/lib/*' | tail -2
+ 73917522                     152 files          (was 73871162 / 151 files)
+$ unzip -l ...-app.jar | grep netty-transport-native-unix
+    44327  BOOT-INF/lib/netty-transport-native-unix-common-4.1.135.Final.jar
+```
+**+46,360 bytes, +0.06%, one file.** That is the new dependency and its jar-entry overhead and
+nothing else. Not pathological.
+
+The image (built from the working tree, so [in-progress] — the Dockerfile runs its own `mvnw
+package` inside the build stage):
+```
+$ docker build -t pravaha-reqa-deploy:test .
+#14 [build 8/8] RUN ./mvnw -B -q -DskipTests package     DONE 151.9s
+#21 naming to docker.io/library/pravaha-reqa-deploy:test DONE 11.6s
+$ docker images pravaha-reqa-deploy:test --format '{{.Size}}'
+717MB                                        (was 712MB)
+$ docker run --rm --entrypoint sh pravaha-reqa-deploy:test -c 'ls -la /opt/pravaha/lib'
+-rw-r--r-- 1 root root 48759733 pravaha-cli.jar
+-rw-r--r-- 1 root root 76624053 pravaha-server.jar
+```
+Both jars are byte-for-byte the size of the host-built ones, so the reproducible build still
+reproduces inside the image. 76,624,053 against the release's 74,232,567 is +2.39MB, and that is
+`micrometer-registry-prometheus` and its transitives — the DEPLOY-042 fix, which is the only place
+in this release a megabyte-scale dependency was added.
+
+It serves:
+```
+$ docker run -d --name pravaha-reqa -p 18315:8080 -p 19315:9090 pravaha-reqa-deploy:test --spring.profiles.active=dev
+$ docker inspect -f '{{.State.Health.Status}}' pravaha-reqa
+healthy
+$ curl -s http://127.0.0.1:18315/actuator/health
+{"status":"UP","groups":["liveness","readiness"]}
+$ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18315/actuator/prometheus
+200                                              <-- 404 on the handed-over build
+$ bin/pravaha queries --url grpc://127.0.0.1:19315
+no continuous queries are registered
+$ docker exec pravaha-reqa sh -c 'cat /proc/1/cmdline | tr "\0" " "'
+/opt/java/openjdk/bin/java --add-opens=... -jar /opt/pravaha/bin/../lib/pravaha-server.jar --spring.profiles.active=dev
+$ docker logs pravaha-reqa | grep -i "watermarks:"
+... watermarks: idle-after=PT30S, tick=PT1S
+```
+**Verdict:** Builds, serves both protocols to the host, java is PID 1, the HEALTHCHECK reports
+healthy, and the TLS dependency did not break the non-TLS path. No `NoClassDefFoundError` in the
+container log. **Non-vacuity:** the Flight call came from the host CLI over the published port and
+returned a server-generated message, so both listeners are really bound in the container.
+
+The DEPLOY-011b observation stands unchanged: the image declares `VOLUME ["/var/lib/pravaha"]` and
+still sets neither `pravaha.registry.journal` nor `pravaha.checkpoint.directory`, so the shipped
+image is not durable out of the box.
+
+---
+
+## Priority 7 — watermarks on by default: what they cost
+
+### The watermark timer itself costs a thread per query and no measurable CPU.
+A registration used to start three named threads (DEPLOY-044). It now starts four:
+```
+$ (9 queries registered)
+$ jcmd <pid> Thread.print | grep -oP '^"pravaha[^"]*"' | sort | uniq -c
+      9 "pravaha-checkpointer"
+      9 "pravaha-feed-<name>"
+      9 "pravaha-query-N"
+      9 "pravaha-watermark"          <-- new
+      1 "pravaha-metrics"
+```
+Over 50 register/drop cycles [in-progress] every one is reclaimed:
+```
+$ (baseline, nothing registered)                                     53 threads
+$ (50 register/drop cycles)                                          72 threads
+$ jcmd <pid> Thread.print | grep -oP '^"pravaha[^"]*"' | sort | uniq -c
+      1 "pravaha-metrics"
+$ pravaha queries --url grpc://127.0.0.1:19302
+no continuous queries are registered
+$ jcmd <pid> GC.run; GC.run; GC.heap_info
+ garbage-first heap   total 114688K, used 30634K
+```
+The +19 are `grpc-nio-worker-ELG` again (bound `nproc`=24), and live heap after a full GC is 30,634K
+— within 400K of the 30,230K the original run measured after its own 50 cycles. **No watermark
+thread leak, no heap leak.** PASS, and it re-confirms DEPLOY-044 and DEPLOY-045.
+
+CPU attributable to the watermark timer: **none I can measure.** A/B on the same node and the same
+three queries:
+
+| watermark | idle CPU, 3 queries |
+|---|---|
+| `tick=1s`, `idle-after=30s` (the default) | 26.3% of one core |
+| `tick=5m`, `idle-after=10m` | 26.3% of one core |
+
+### DEPLOY-052 — FAIL (high) — NEW. An idle registered query costs ~9% of a CPU core.
+That A/B is how I found it: the number did not move, because the cost is not the watermark.
+Measured on one JVM, source run dry, `rows_in` flat at 0, over 30-second windows:
+
+| registered queries | process CPU at idle |
+|---|---|
+| 0 | 0.2% of one core |
+| 3 | 26.3% of one core |
+| 9 | 92.3% of one core |
+
+Attributed per thread from `/proc/<pid>/task/*/stat` over 20s, 9 queries:
+```
+   196 ticks  pravaha-query-0  (tid 416401)      ... nine of these, 133-196 ticks each
+    26 ticks  pravaha-feed-..                    ... nine of these, ~20 ticks each
+     0 ticks  pravaha-watermark                  ... all nine
+TOTAL 1584 ticks over 20s = 79.2% of one core
+```
+The lane threads are the whole bill. Three consecutive stack samples, one second apart, all
+identical:
+```
+at jdk.internal.misc.Unsafe.park(java.base@21.0.12/Native Method)
+at java.util.concurrent.locks.LockSupport.parkNanos(java.base@21.0.12/LockSupport.java:410)
+at com.ash.messaging.pravaha.common.queue.WaitStrategy.lambda$static$1(WaitStrategy.java:58)
+at com.ash.messaging.pravaha.runtime.lane.Lane.run(Lane.java:452)
+```
+`WaitStrategy.java:58` is the `parkNanos(1L)` arm of `SPIN_THEN_YIELD`, which is
+`LaneConfig.defaults()`, which is what `QueryRegistry` uses:
+```java
+private LaneConfig laneConfig = LaneConfig.defaults().withThreads("pravaha-query", true);
+```
+`parkNanos(1)` returns immediately, so the "gives the core back when it is not [flowing]" in that
+strategy's own javadoc does not happen; it polls a dry queue in a tight loop for ever.
+
+**And there is no lever.** `WaitStrategy` documents `BACKOFF_PARK` as "Low CPU. For shared or
+containerised hosts, and for many low-rate queries" and `BLOCKING` as "for queries below roughly a
+thousand records a second" — exactly this deployment — and:
+```
+$ grep -rn "executingWith\|LaneConfig\|wait-strategy" pravaha-server/src/main/java pravaha-server/src/main/resources
+(nothing)
+```
+`PravahaNode` never calls `QueryRegistry.executingWith`, and there is no `pravaha.lane.*` key. The
+strategy an operator would need is written, documented, and unreachable from configuration — the
+same "built and never wired" shape as DEPLOY-047 and DEPLOY-037.
+
+**Severity high.** It sets a hard ceiling on the product's headline use: this 24-core machine
+saturates at roughly 250 *idle* registered queries, a 4-core container at about 40, and a 2-core one
+at 20 — before a single row is processed. It is also the kind of thing that reads as a runaway
+process to an operator, on a node that is doing nothing. Neither the previous pass nor this one has
+any evidence it is new (idle CPU was never measured before the watermark change, which is why I
+measured it now); the A/B above shows watermarks did not cause it.
+
+### DEPLOY-053 — FAIL (medium) — NEW. An out-of-bounds watermark setting is caught per query, not at startup.
+Found while setting up the A/B. `pravaha.watermark.idle-after` has a maximum of 10 minutes and the
+tick must be finer than it. The node does not check either at startup:
+```
+$ bin/pravaha-server ... --pravaha.watermark.idle-after=1h        # on a journal holding 3 queries
+... INFO ... watermarks: idle-after=PT1H, tick=PT1H
+... INFO ... registry recovered 0 of 3 queries from $SD/rq/j2/registry.log
+... WARN ... registration not recovered -- wm1: an idle timeout of PT1H is above the maximum of PT10M. ...
+... WARN ... registration not recovered -- wm2: ...
+... WARN ... registration not recovered -- wm3: ...
+$ curl -s .../actuator/health
+{"status":"UP","groups":["liveness","readiness"]}
+$ bin/pravaha queries --url grpc://127.0.0.1:19302
+no continuous queries are registered
+```
+Same for `tick=10m` with the default `idle-after=30s`: started, logged the setting as if it were in
+force, refused all three at recovery.
+
+**Verdict:** A typo in one duration takes out **every** registered query on the node, at the one
+moment the operator is least likely to be watching output — a restart — and the node then reports
+UP, serves nothing, and answers "no continuous queries are registered" as though the journal were
+empty. The bound exists and its message is excellent; it is enforced in the wrong place. This is the
+same shape as DEPLOY-035b (`keep=0` refused at registration, not at startup) and it is why
+DEPLOY-041 is re-ranked to the top: no health check on this node would go DOWN.
+
+**Severity medium**, on impact (total loss of service after a restart) tempered by requiring a
+misconfiguration. Fix: validate in `PravahaNode` beside the other startup refusals, and log
+`recovered 0 of 3` at WARN rather than INFO.
+
+---
+
+## Regression hunt — which PASSing cases I re-ran, and why
+
+I chose the cases that share code with something that changed, rather than re-running the suite.
+
+| Case | Why it was in scope | Result |
+|---|---|---|
+| DEPLOY-027/030/031/033 (journal write, replay, startup warnings) | `journalRegistration` moved and gained a caller and a try/catch | PASS. Replay is correct for 3 of 3 and 2 of 2 across six restarts; recovery still re-authorizes (DEPLOY-053's refusals prove the refusal path runs); both startup warnings still emitted |
+| DEPLOY-034/035/038 (checkpoint content, keep, modes) | `startCheckpointing` changed | PASS with one new defect: files 600 and written directories 700 as before, but see DEPLOY-054 for directories that have never been written to. Content still has an empty `operatorState` |
+| DEPLOY-040/043 (health endpoints, meter removal) | `ViewCatalog.remove` is new and `PravahaMetrics` syncs from the registry | PASS. Meters vanish with their queries; three health endpoints still answer 200 (what they mean is DEPLOY-041) |
+| DEPLOY-044/045 (thread and heap leaks) | a fourth thread per query, plus a whole new unwind path | PASS. See priority 7: 50 cycles leave one `pravaha-metrics` thread and 30MB live heap |
+| DEPLOY-011/011b/012/013/014 (container) | new runtime dependency; jars rebuilt | PASS. See priority 6 |
+| DEPLOY-002/003 (launcher finds its jar) | jars rebuilt under it | PASS — `bin/pravaha version` and every CLI call in this run worked from the development tree |
+
+Cases I deliberately did **not** re-run: DEPLOY-004/005/006/008/009/010 (launcher argument and
+JAVA_HOME handling), 016–026 (process lifecycle, signals, port binding), 028/029 (journal
+permissions and fsync), 035b, and 015 (the image's fail-closed refusal). Nothing in the change list
+touches the shell launchers, the signal path or `SmartLifecycle`, and re-running them would have
+cost the time I spent on DEPLOY-052, which nothing else would have found.
+
+---
+
+## Re-QA summary
+
+| Original FAIL | Verdict | Severity now |
+|---|---|---|
+| DEPLOY-046 | **PARTIALLY-FIXED** — journalled and survives a restart; still not queryable | High |
+| DEPLOY-032 | **PARTIALLY-FIXED** — the new-computation path unwinds cleanly; the shared path and `drop` do not | High residual (DEPLOY-050, DEPLOY-049) |
+| DEPLOY-036 | **VERIFIED-FIXED** | — (introduced DEPLOY-051) |
+| DEPLOY-037 | **STILL-FAILING** | High |
+| DEPLOY-041 | **STILL-FAILING** | High |
+| DEPLOY-042 | **STILL-FAILING** on the release; fixed in the uncommitted tree | Medium-high |
+| DEPLOY-039 | **STILL-FAILING** on the release; fixed in the uncommitted tree | Medium |
+| DEPLOY-007 | **STILL-FAILING** | Low |
+| DEPLOY-047 | **STILL-FAILING** | Low |
+| DEPLOY-048 | **STILL-FAILING** on the release; fixed in the uncommitted tree | Low |
+
+2 verified fixed of the ten (DEPLOY-036, and the separate "a dropped view stops answering" change),
+2 partially fixed, 6 still failing. Six new defects: DEPLOY-049 through DEPLOY-054.
+
+| New | Severity | One line |
+|---|---|---|
+| DEPLOY-052 | High | Every idle registered query burns ~9% of a CPU core in `SPIN_THEN_YIELD`, and the low-CPU strategies are unreachable from configuration |
+| DEPLOY-049 | High | A `drop` whose journal append fails has already happened; the client is told it failed and a restart brings the query back |
+| DEPLOY-050 | High | The shared-computation registration journals with no unwind: refused to the client, name bound on the node, computation pinned open |
+| DEPLOY-051 | Medium | `a.b` and `a_b` sanitise to one checkpoint directory and overwrite and prune each other — the exact failure `application.yaml` says the per-query directory exists to prevent |
+| DEPLOY-053 | Medium | An out-of-range `pravaha.watermark.*` is enforced per registration, so the node starts UP and recovers zero queries |
+| DEPLOY-054 | Low | A checkpoint directory is created at the ambient umask and tightened only by its first write |
+
+## What I could not cover in this pass, and why
+
+**The uncommitted second round of fixes.** Four of the verdicts above have a working-tree change
+that addresses them, written while I was testing. I probed two of them opportunistically (the
+checkpoint-directory digest, which is still collidable, and the shared alias, which is still
+unqueryable) because the build was in front of me. I did not test `EngineHealthIndicator`,
+`recordCheckpointFailure` or the prometheus registry beyond the container's 200, and nothing here
+should be read as a verdict on them.
+
+**Whether DEPLOY-052 is a regression.** Idle CPU was not measured in the first pass, so I can say
+what it costs now and that watermarks are not the cause, but not what it cost before.
+
+**DEPLOY-039 live.** Re-confirmed statically only; the original run's transcript is the empirical
+half and nothing in the change list could have altered it.
+
+**The same four areas as last time** — TLS on the Flight port, clustered lifecycle, real power loss,
+and anything downstream of a restore that does not exist.
+
+**A note on the environment, again, and more seriously than last time.** The tree was rebuilt
+mid-run, 14 minutes into this pass, with production code modified in the working directory. The
+first pass's note was that another agent held a port I had been assigned; this one is that the
+artefact under test changed while under test. The port collision cost me nothing; this cost me the
+ability to give a single unqualified answer to "is it fixed", and it is only recoverable at all
+because `stat` records a ctime and the behaviour changed visibly (checkpoint directories acquired a
+digest suffix mid-run, which is how I noticed). A verification pass needs a frozen artefact.

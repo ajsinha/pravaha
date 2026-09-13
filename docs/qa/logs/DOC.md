@@ -1056,3 +1056,701 @@ the document asks for.
 and the regression described in the banner arrived without my touching anything. Everything in Group
 A that ran green ran against the 20:22 artefact, and I have said so at each case rather than
 re-testing against an artefact that no longer starts.
+
+---
+
+# Re-QA 2026-09-12
+
+Second pass, same area, same ports (HTTP 18500–18508, Flight 19500–19508), scratch
+`/tmp/.../scratchpad/qa-doc2`. Six server PIDs started, all killed by number. Artefacts taken as
+built (`ab0eca3`); nothing rebuilt except one `dependency:build-classpath` for a TLS probe.
+
+**The finding that frames everything below:**
+
+```
+$ git diff --stat 6030cd5..HEAD -- docs/ README.md
+ docs/qa/cases/*.md  docs/qa/logs/*.md   (10 files, the QA record itself)
+```
+
+**Not one line of prose changed.** `README.md`, `QUICKSTART.md`, `OPERATIONS.md`, `SECURITY.md`,
+`SQL_SUPPORT.md`, `TROUBLESHOOTING.md`, `HANDOVER.md` and `console/README.md` are byte-identical to
+what the first pass assessed. Every FAIL that was purely a documentation defect therefore stands by
+construction, and I have re-executed the ones with a runtime component rather than assuming.
+
+The code, meanwhile, moved a long way. That asymmetry is the whole story of this pass: **the
+remediation fixed the engine and left the documentation describing the broken one.** Eleven of my
+twenty-eight FAILs are now *worse* than when I filed them, because the document is no longer merely
+unhelpful — it is the only thing standing between a reader and a feature that now works.
+
+---
+
+## Part 1 — DOC-008, the case that was BLOCKED
+
+### DOC-008 — The documented `pravaha.security` block — **PARTIALLY FIXED**
+
+The startup blocker is gone. The documented block, copied verbatim from `QUICKSTART.md:104–113`
+with only the two TLS paths repointed at files I own, starts a server:
+
+```
+$ pravaha-server --spring.config.additional-location=file:./application.yaml \
+                 --server.port=18505 --pravaha.flight.port=19505
+... PravahaNode : security: authentication=token, policy=authenticated, audit=none, flight transport=TLS
+... PravahaNode : watermarks: idle-after=PT30S, tick=PT1S
+... PravahaNode : Flight SQL listening on 0.0.0.0:19505
+... Started PravahaServerApplication in 23.77 seconds
+```
+
+No `PRV-7002`. The `dev`-profile control starts too. The regression described in the first log's
+banner is gone.
+
+**Token authentication works, and works exactly as documented.** Against a second node with the same
+security block and no TLS (18506/19506):
+
+```
+$ pravaha queries --url grpc://localhost:19506
+PRV-1041  PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+$ pravaha queries --url grpc://localhost:19506 --token a-long-random-string
+no continuous queries are registered
+$ pravaha queries --url grpc://localhost:19506 --token nope
+PRV-1041  PRV-7001  the credential presented was not accepted
+$ curl -s http://127.0.0.1:18506/api/v1/streams
+{"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'",
+ "helpUrl":"https://docs.pravaha.io/errors/PRV-7001","timestamp":"...","path":"/api/v1/streams","status":401}
+```
+
+Not vacuous: the same call with a valid token succeeds, and a wrong token gives a *different*
+message from a missing one, which is the distinction `TROUBLESHOOTING.md:73` says is deliberate.
+The 401 body now carries the full `ApiError` field set, as claimed.
+
+**TLS works on the wire.** A real handshake, with ALPN:
+
+```
+$ echo | openssl s_client -connect 127.0.0.1:19505 -alpn h2
+subject=CN=localhost
+Protocol: TLSv1.3
+ALPN protocol: h2
+```
+
+**And no shipped Pravaha client can use it.** See DOC-053 — this is the reason the verdict is
+PARTIAL and not VERIFIED-FIXED. The documented production configuration produces a node that
+`pravaha` cannot talk to.
+
+Two further things a reader copying the block verbatim now meets, in the order they meet them:
+
+```
+$ # QUICKSTART lines 104-113 EXACTLY, on a machine with no /etc/pravaha
+$ pravaha-server --spring.config.additional-location=file:./application.yaml ...
+Caused by: PravahaException: PRV-6104  the TLS certificate /etc/pravaha/tls.crt is not a readable file
+```
+
+An excellent message for a code that `TROUBLESHOOTING.md` does not list, on a page that says a code
+missing from it does not exist (DOC-029, DOC-060). The quickstart never tells the reader to create
+those files, or that they may drop the `flight.tls` block.
+
+---
+
+## Part 2 — the twenty-eight FAILs
+
+| Case | Verdict | Note |
+|---|---|---|
+| DOC-001 prerequisites | STILL FAILING | document unchanged |
+| **DOC-005** quickstart §2 | **STILL FAILING** | re-run verbatim; identical output |
+| **DOC-006** quickstart §3 | **STILL FAILING** | re-run verbatim; identical output |
+| **DOC-010** §4 never names the file | **STILL FAILING, now worse** | the block it tells you to write is now *missing a key* as well (DOC-051) |
+| **DOC-011** no `event_time` in §4's schema | **STILL FAILING, and promoted to the worst defect in the set** | see below |
+| DOC-013 §5 unreachable | STILL FAILING | consequence of DOC-011 |
+| DOC-019 "what is not built" | STILL FAILING, now wrong in a third way | meters are visible on `/actuator/metrics` (below) |
+| DOC-020 `system_design.md` linked unmarked | STILL FAILING | unchanged |
+| DOC-021 `--help` omits `register --sql`; dead `docs.pravaha.io` | STILL FAILING | `PravahaCli.java:124` still prints `--sql-file` only; every error still ends in the NXDOMAIN link |
+| DOC-022 `explain` without `--schema` | STILL FAILING | re-run; `--schema is required. Supplied: [sql]` |
+| DOC-023 `/actuator/prometheus` | STILL FAILING | re-curled: `404` |
+| **DOC-024** documented keys that are inert | **PARTIALLY FIXED** | 2 of 3 watermark keys now read; the third is still inert **and is the only one any document names**. See DOC-052 |
+| DOC-025 `SECURITY.md` names no `pravaha.security.*` key | STILL FAILING | `grep -c 'pravaha.security' docs/SECURITY.md` → `0` |
+| DOC-026 `OPERATIONS.md:325` port 8815 | STILL FAILING | unchanged |
+| DOC-027 javadoc names keys that do not exist | PARTIALLY FIXED | `StreamSchema.java:51` still names `pravaha.watermark.out-of-orderness`, which still has no reader |
+| DOC-028 `console/README.md` names no env var | STILL FAILING | `grep -c CONSOLE_PASSWORD console/README.md` → `0` |
+| DOC-029 ten undocumented codes | STILL FAILING, now twelve | all ten still absent; `PRV-6104` now reachable on the documented path, and two codes gained new meanings (DOC-054, DOC-055) |
+| DOC-031 ranges table missing `9xxx` | STILL FAILING | unchanged |
+| **DOC-033** "no ingestion path at all" | **STILL FAILING, and now false twice over** | see DOC-057 |
+| DOC-034 metrics documented three ways | STILL FAILING, now four ways | below |
+| DOC-035 console: four statements, two false | STILL FAILING | `README.md:29`, `:306` unchanged |
+| DOC-036 four studies or five | STILL FAILING | five on disk; six documents still say four |
+| DOC-037 `examples/02` "arrives in Wave 4" | STILL FAILING | unchanged |
+| **DOC-038** HANDOVER's test-coverage claim | **STILL FAILING** | `HANDOVER.md:57–58` verbatim unchanged; `ExamplesTest` still names `QUICKSTART.md` only in a comment (`:41`) |
+| DOC-039 README module list | STILL FAILING | unchanged |
+| DOC-043 `examples/README.md` coverage claim | STILL FAILING | unchanged |
+| DOC-049 clone-to-running-query | STILL FAILING | re-walked; the stops moved, see Part 4 |
+| DOC-050 operator gaps | STILL FAILING, one gap closed in code only | watermark tuning is now half-real and wholly undocumented |
+
+**Verified fixed: 0 of 28.** Partially fixed: 2 (DOC-024, DOC-027), and in both cases the fix
+landed in the code while the document kept pointing at the part that did not move.
+
+### DOC-005 / DOC-006 — re-run verbatim
+
+```
+$ cd examples/01-filter-and-project
+$ pravaha run --sql "SELECT user_id, amount FROM txn WHERE amount > 100" \
+              --schema "user_id:STRING,amount:INT64" --stream txn --in transactions.csv --out out.csv
+--out-schema is required. Supplied: [sql, schema, stream, in, out]
+$ pravaha run --sql "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id" \
+              --schema "user_id:STRING,amount:INT64" --stream txn --in transactions.csv --out out.csv
+--out-schema is required. Supplied: [sql, schema, stream, in, out]
+```
+**Verdict: STILL FAILING, unchanged, critical.** The first two commands a new user types still do
+not run. Four weeks of engine work went by and the five-line fix did not.
+
+### DOC-024 — two of three watermark keys now read; the documented one is not
+
+`PravahaNode.java:372` now calls `registry.generatingWatermarks(watermarkIdleAfter, watermarkTick)`
+and logs it. `idle-after` and `tick` are live. **`pravaha.watermark.out-of-orderness` still has no
+reader**, and it is the *only* one of the three that `CONCEPTS.md` and `OPERATIONS.md` name as a
+thing to set. Proven both directions in DOC-052.
+
+### DOC-033 — the README claim, re-checked
+
+`README.md:14–15` is unchanged. `OPERATIONS.md:298` is unchanged. `HANDOVER.md:394` carries a third
+copy ("`RegisteredQuery.accept` … called from four test classes and from nothing in
+`pravaha-server`"). All three are false, and I demonstrated the refutation again this pass with a
+windowed query (Part 3). The blockquote is still the first screen of the front page.
+
+### DOC-034 — metrics, now documented four ways
+
+```
+$ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18501/actuator/prometheus
+404
+$ curl -s http://127.0.0.1:18501/actuator/metrics | ... names containing 'pravaha'
+['pravaha.query.rows.in', 'pravaha.query.running', 'pravaha.query.view.evicted',
+ 'pravaha.query.view.removals', 'pravaha.query.view.size', 'pravaha.query.view.updates',
+ 'pravaha.query.watermark.lag.seconds']
+```
+**New information since the first pass:** the meters *are* exposed on `/actuator/metrics` once a
+query is registered — my first run found none because no query existed on that node, which I
+recorded at the time. So `OPERATIONS.md:483` ("**No metrics endpoint.** Counters exist on objects;
+nothing scrapes them") is wrong on both halves now, `OPERATIONS.md:333` is still wrong about
+`/actuator/prometheus`, `OPERATIONS.md:51` still says Micrometer is Wave 9 work, and
+`QUICKSTART.md:324` still files the metrics endpoint under Wave 9. Four statements, one true.
+
+---
+
+## Part 3 — QUICKSTART end to end, walked literally, now that windowing works
+
+**Windowing genuinely works from configuration.** This is the largest thing that changed, and I
+proved it with hand-checkable arithmetic.
+
+Source, seven rows, an `event_time` column in epoch nanoseconds, two complete one-minute windows and
+one row far in the future to advance the watermark past them:
+
+```
+1,alice,500,COMPLETED,1767261605000000000      10:00:05
+2,bob,50,COMPLETED,1767261610000000000         10:00:10
+3,alice,100,COMPLETED,1767261620000000000      10:00:20
+4,carol,900,PENDING,1767261630000000000        10:00:30   <- excluded by WHERE
+5,alice,250,COMPLETED,1767261670000000000      10:01:10
+6,bob,75,COMPLETED,1767261680000000000         10:01:20
+7,alice,1,COMPLETED,1767262000000000000        10:06:40   <- advances the watermark
+```
+
+```yaml
+pravaha:
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+      event-time: event_time          # <- NOT IN ANY DOCUMENT
+      out-of-orderness: 5s            # <- NOT IN ANY DOCUMENT
+  sources:
+    txn: { plugin: filesystem, options: { path: .../txn2.csv, schema: "...same..." } }
+```
+
+```
+$ pravaha-server --spring.config.additional-location=file:./application.yaml --spring.profiles.active=dev ...
+... sources bound: [txn <- filesystem[event.time, path, schema]]
+... watermarks: idle-after=PT30S, tick=PT1S
+
+$ pravaha register --name uv4 --sql-file velocity.sql --keys 0,1     # velocity.sql VERBATIM from QUICKSTART:153-162
+registered uv4  state=RUNNING  fingerprint=8a86337b7b50
+
+$ pravaha query --sql "SELECT * FROM uv4"
+window_end             user_id  txn_count  total
+1767261660000000000    alice    2          600
+1767261660000000000    bob      1          50
+1767261720000000000    alice    1          250
+1767261720000000000    bob      1          75
+4 rows
+```
+
+**Proof it is not vacuous.** Every number is hand-checkable and every one is right. Window ending
+10:01:00 holds alice's 500+100=600 over two rows and bob's 50 over one; window ending 10:02:00 holds
+alice's 250 and bob's 75. Carol's `PENDING` row is absent from both, which is the `WHERE` clause
+working. The 10:06:00 window containing row 7 has **not** emitted, because no row advances the
+watermark past its end — which is the engine being correct, and is exactly the behaviour
+`QUICKSTART.md:197` describes in prose and could not previously demonstrate. A broken watermark
+would have produced zero rows; a broken filter would have produced 900 somewhere; a broken window
+assignment would have put row 5 in the first window.
+
+### Where a new reader now succeeds or fails, step by step
+
+| Step | Outcome |
+|---|---|
+| §1 build, `PATH`, `--help`, container | **Works.** Unchanged and correct |
+| §2 first `run` | **FAILS.** `--out-schema is required` (DOC-005). Nothing in the document recovers from it |
+| §3 the refusal demo | **FAILS** identically, and the lesson is lost (DOC-006) |
+| §4 start a server, `dev` profile | **Works** |
+| §4 the production security block | **Starts now** — a real advance — but gives `PRV-6104` on a machine with no `/etc/pravaha`, and once certs exist, **no `pravaha` command can reach the node** (DOC-053) |
+| §4 the `streams`/`sources` block | **Still never named as a file**, two YAML documents both starting `pravaha:` still have to be merged with no instruction, `path:` still points at `/var/lib/pravaha/incoming/txn.csv`, second `pravaha-server` still collides with the first (DOC-010) |
+| §4 register `velocity.sql` | **FAILS.** Re-run against the document's own schema, on the current build: |
+
+```
+$ # QUICKSTART lines 120-131 verbatim (path repointed), velocity.sql verbatim from 153-162
+$ pravaha register --name user_volume --sql-file velocity.sql --keys 1 --url grpc://localhost:19502
+PRV-1041  PRV-2002  Column 'event_time' not found in table 't'. Known streams: [txn]
+```
+
+| Step | Outcome |
+|---|---|
+| §5 `query --params` | Unreachable |
+| §6 `subscribe` | Unreachable; and the filesystem source still does not tail, so the document's "send an event past the window's end" is still impossible with the source it configures (DOC-014's caveat) |
+| §7 console | `python run_pravaha_web.py` — still `command not found`; `QUICKSTART.md:229` and `console/README.md:21` unchanged |
+| §8 `drop` | Unreachable |
+
+**Verdict on DOC-011: STILL FAILING, and I am raising it to the single most damaging defect in this
+area, above DOC-005.** The reasoning has changed. When I filed it, the missing `event_time` was one
+of two things blocking a windowed query, and the other one — the inert watermark configuration —
+was in the engine. That one is fixed. Windowing now works, from a configuration file, with correct
+answers. The *only* thing between a new reader and the engine's headline feature is
+`QUICKSTART.md:124`, which declares a schema with no `event_time` column, thirty lines above a query
+that groups on `t.event_time`. Two words of YAML and one column in a string.
+
+---
+
+## Part 4 — new defects
+
+Numbered continuing the original sequence.
+
+### DOC-051 — **`pravaha.streams.<n>.event-time` is documented nowhere, and nothing works without it** — FAIL
+
+```
+$ grep -rn 'event-time' README.md docs/QUICKSTART.md docs/OPERATIONS.md docs/CONCEPTS.md \
+        docs/USER_GUIDE.md docs/SECURITY.md docs/HANDOVER.md console/README.md \
+        pravaha-server/src/main/resources/application.yaml
+(no match — the only hits in docs/ are prose uses of the phrase "event-time streaming")
+```
+
+The key is real and is the load-bearing one. `StreamDeclarationProperties.Declaration.getEventTime`
+says so in its own javadoc:
+
+> Without it no watermark can advance, and without a watermark no window ever closes: a windowed
+> query plans, registers, reports RUNNING, ingests every row and emits nothing, for ever.
+
+`PravahaNode.java:250` calls `builder.eventTime(column)`; `:277` forwards it to the source as
+`event.time`, which the startup log prints (`sources bound: [txn <- filesystem[event.time, path,
+schema]]`). It is, on this evidence, the most important configuration key in the product.
+
+Every place a reader would look has a `streams:` example **without it**: `QUICKSTART.md:120–124`,
+and the commented block at `application.yaml:70–73`, which shows `schema:` and stops.
+
+**Severity: critical.** The failure mode is the one the javadoc names — RUNNING, rows ingested,
+nothing emitted, no error, for ever — and it is the worst shape a defect can take for a user,
+because there is nothing to search for. A reader who somehow gets past DOC-011 by adding an
+`event_time` column to the schema (the obvious fix, and the one the error message suggests) lands
+straight in it, because declaring the column is not the same as marking it.
+
+### DOC-052 — **The watermark key every document names is inert; the one that works is documented nowhere** — FAIL
+
+Two nodes, identical but for one line, same source, same query, same 10-minute lateness:
+
+```
+A)  pravaha.watermark.out-of-orderness: 10m       <- the DOCUMENTED key
+    $ pravaha query --sql "SELECT * FROM w_global"
+    1767261660000000000  alice  2  600
+    1767261660000000000  bob    1  50
+    1767261720000000000  alice  1  250
+    1767261720000000000  bob    1  75
+    4 rows                                        <- windows closed; the key did NOTHING
+
+B)  pravaha.streams.txn.out-of-orderness: 10m     <- the UNDOCUMENTED key
+    $ pravaha queries
+    w_stream  RUNNING  8a86337b7b50  7            <- all seven rows ingested
+    $ pravaha query --sql "SELECT * FROM w_stream"
+    0 rows                                        <- watermark held back; the key WORKED
+```
+
+This is the falsification the first pass could not run. With ten minutes of allowed lateness, the
+last event at +400s cannot advance the watermark past a window ending at +120s, so a node that
+honoured the setting must emit nothing. (A) emitted everything; (B) emitted nothing. The key that
+`CONCEPTS.md:66` tells you to move, that `OPERATIONS.md:222` documents with an inline comment, that
+`StreamSchema.java:51` names in javadoc, and that ships in `application.yaml:167` under the best
+explanatory comment in the repository, **still has no reader anywhere in main sources.**
+
+**Severity: critical, and this is the finding I would fix first after DOC-011.** An operator
+following `OPERATIONS.md` sets `pravaha.watermark.out-of-orderness`, gets no error, gets no warning
+in the startup log — which now prints `watermarks: idle-after=PT30S, tick=PT1S` and conspicuously
+omits out-of-orderness — and believes lateness is configured. It is not. The remediation made this
+strictly worse: it introduced a *working* key whose name differs from the inert one only by where it
+sits in the tree, documented neither, and left the inert one shipping in the config file.
+
+### DOC-053 — **No shipped Pravaha client can connect to a TLS node; the netty fix went to the server only** — FAIL
+
+The TLS fix is real on the server: `openssl s_client` completes a TLSv1.3 handshake with ALPN `h2`
+against port 19505. Every Pravaha client fails:
+
+```
+$ pravaha queries --url grpc+tls://localhost:19505 --token a-long-random-string
+PRV-1041  io exception
+Channel Pipeline: [ProtocolNegotiators$ClientTlsHandler#0, WriteBufferingAndExceptionHandler#0, ...]
+```
+
+Not a trust problem. A probe built on the shipped SDK's own classpath, passing the server's
+certificate as an explicit trust anchor via `FlightClient.builder(...).trustedCertificates(...)`:
+
+```
+Caused by: javax.net.ssl.SSLHandshakeException: SslHandler removed before handshake completed
+```
+
+That is verbatim the symptom `pravaha-server/pom.xml` now describes in its own comment:
+
+> gRPC's SSL handler reaches `io.netty.channel.unix.UnixChannel`, which lives in this artifact and
+> in no other netty jar on this classpath. Without it a TLS node starts, logs that it is serving
+> TLS, binds its port, and answers nobody.
+
+```
+$ unzip -l pravaha-server/.../-app.jar | grep -c netty-transport-native-unix
+1
+$ unzip -l pravaha-cli/.../-cli.jar | grep -c 'io/netty/channel/unix'
+0
+```
+
+Proof by adding the one jar to the probe's classpath and changing nothing else:
+
+```
+$ java -cp "netty-transport-native-unix-common-4.1.135.Final.jar:$CP:probe" TlsProbe 19505 tls.crt <token>
+org.apache.arrow.flight.FlightRuntimeException: UNIMPLEMENTED: Not implemented.
+```
+
+`UNIMPLEMENTED` is the *server answering* — the handshake completed and `listFlights` reached the
+producer. One missing runtime dependency, present in `pravaha-server` and absent from `pravaha-cli`
+and `sdk/pravaha-sdk-java-flight`.
+
+**Severity: critical.** `QUICKSTART.md:111–112` and `USER_GUIDE.md:39`
+(`pravaha queries --url grpc+tls://pravaha:9090 --token "$PRAVAHA_TOKEN"`) both tell an operator to
+run TLS. Following them produces a node that the CLI, the Java SDK and therefore the console cannot
+reach, with a message — "io exception" — that names nothing and points nowhere. The comment in
+`pravaha-server/pom.xml` predicts the consequence exactly: *"The only way back to a working
+deployment is to switch TLS off, which is how a fleet ends up authenticated over plaintext."* That
+sentence is now true of the client side.
+
+Related documentation gap: neither the SDK nor the CLI has **any** way to supply a trust anchor —
+`PravahaFlightClient.java:145` is a bare `FlightClient.builder(allocator, location).build()`, with no
+`trustedCertificates`, no `verifyServer`, no `--cacert`. No document says a Pravaha client requires
+a certificate chaining to the JDK default trust store, because nobody has been able to get that far.
+
+### DOC-054 — **The new `authenticated` + `none` refusal is undocumented, and `PRV-7002` now means three unrelated things** — FAIL
+
+```
+$ cat application.yaml
+pravaha: { security: { authentication: none, policy: authenticated } }
+$ pravaha-server --spring.config.additional-location=file:./application.yaml ...
+Caused by: PravahaException: PRV-7002  pravaha.security.policy=authenticated with
+pravaha.security.authentication=none is a node nobody can use: the policy serves only verified
+callers and nothing here can verify one. Set pravaha.security.authentication=token and configure
+pravaha.security.tokens, or choose a policy that admits anonymous callers.
+  at PravahaNode.refuseAccidentalOpenServer(PravahaNode.java:182)
+```
+
+The refusal is right and the message is excellent. It appears in **no document**:
+
+```
+$ grep -rn 'authentication: none\|nobody can use' README.md docs/*.md console/README.md
+(no match)
+```
+
+`application.yaml:75–92` is where the three supported ways to close a server are written down, and
+it still lists `policy: authenticated` as a standalone option with no mention that it is refused
+unless authentication is configured.
+
+`PRV-7002` now carries three unrelated failures: `SECURITY_FORBIDDEN` at runtime (authenticated but
+not authorized), the `requireOnePolicy` startup check, and this new startup check. The documentation
+covers only the first:
+
+```
+docs/TROUBLESHOOTING.md:78  | PRV-7002 | Authenticated, not authorized | Ask for access — a new credential will not help |
+docs/SECURITY.md:119        | PRV-7002 | Authenticated, not authorized | Ask for access |
+```
+
+**Severity: high.** An operator whose node will not start looks up `PRV-7002` and is told to ask
+somebody for access. `TROUBLESHOOTING.md:73` even has a section titled "`PRV-7001` vs `PRV-7002` —
+told apart deliberately", which now tells them apart incorrectly.
+
+### DOC-055 — **Aggregates over floating-point columns are refused; `SQL_SUPPORT.md` says they work** — FAIL
+
+```
+$ pravaha validate --sql "SELECT SUM(price) FROM txn" --schema 'id:INT64,price:FLOAT64' --stream txn
+PRV-2020  SUM(price) is over a FLOAT64 column, and this engine's aggregates accumulate in 64-bit
+integers only. It is refused rather than answered, because the alternative was no rows and a
+successful status. Cast the column to an integer if the rounding is acceptable --
+SUM(CAST(price AS BIGINT)) -- or aggregate it outside the engine.
+
+$ pravaha validate --sql "SELECT MIN(price) FROM txn" --schema 'id:INT64,price:FLOAT64' --stream txn
+PRV-2020  MIN(price) is over a FLOAT64 column, ...
+
+$ pravaha validate --sql "SELECT COUNT(price) FROM txn" --schema 'id:INT64,price:FLOAT64' --stream txn
+valid                                    <- COUNT is exempt
+$ pravaha validate --sql "SELECT SUM(id) FROM txn" --schema 'id:INT64,price:FLOAT64' --stream txn
+valid                                    <- the control: INT64 still works
+```
+
+Against `docs/SQL_SUPPORT.md`:
+
+| Line | Says | Now |
+|---|---|---|
+| `:112` | `` `COUNT`, `SUM`, `MIN`, `MAX`, `AVG` `` ✅, caveat column **empty** | false for FLOAT32/FLOAT64 |
+| `:158–159` | over a view, "`KeyedAggregate` answers it — including `SUM`, `MIN`, `MAX`, `AVG`" | same refusal; it is a plan-time guard |
+| `:50` | "Integer and floating arithmetic — `amount * 2 + 1`, `price / 2`" ✅ | still true of arithmetic, and now actively misleading beside `:112` |
+| `:51` | `CAST(x AS DOUBLE)` ✅ | true, and the refusal's own advice is to cast the *other* way |
+
+**Severity: high.** `SQL_SUPPORT.md` is the document whose entire job is to be the truth table, and
+this is a whole column type silently promoted from ✅ to ❌. The natural first query against a price,
+a rate, a latency or a temperature now fails, and the reference says it should not. `PRV-2020` also
+gains a meaning: the ten `SQL_SUPPORT.md` rows that cite it are all relational-operator refusals, and
+a reader looking up `PRV-2020` after a `SUM` finds a list about joins and `ORDER BY`.
+
+Minor, inside the message: `MIN(price)` and `MAX(price)` are told to fix it with
+`SUM(CAST(price AS BIGINT))`.
+
+### DOC-056 — **`SecurityPolicy.mayAdminister` is new public API and appears in no document** — FAIL
+
+```java
+// SecurityPolicy.java, new in ab0eca3
+default AccessDecision mayAdminister(Principal principal, String view) {
+    return mayRead(principal, view);
+}
+```
+
+`docs/SECURITY.md` documents a two-verb policy: `mayRead` and `mayRegisterQuery`. Line 38 defines
+the authorization seam as answering "**What may they read?**", which is now incomplete — the policy
+also decides who may `DROP`, `PAUSE` and `RESUME`. `ARCHITECTURE.md:473` describes `SecurityPolicy`
+as "`(Principal, view)` in, an `AccessDecision` out" for reads only.
+
+Worse, `SECURITY.md:73` is a blockquote written specifically to warn about this class of mistake:
+
+> **A lambda does not override `mayRegisterQuery`.** `SecurityPolicy` is a functional interface on
+> `mayRead`, so `(principal, view) -> allow()` keeps the default…
+
+The warning is now incomplete in the dangerous direction. `(principal, view) -> allow()` also grants
+`mayAdminister` to everyone who can read, and `mayAdminister` destroys accumulated state and takes a
+view away from every other client holding a name for it. The javadoc says exactly this and says a
+deployment separating operators from readers "should override this and say so" — advice that is
+unreachable from the documentation.
+
+Compounding it: `QUICKSTART.md:110` prints `roles: [reader]` in the production security block, and
+
+```
+$ grep -rn 'roles()' --include=*.java pravaha-*/src/main sdk/*/src/main
+(no match outside Principal.java itself)
+```
+
+Nothing reads a principal's roles. The token labelled `reader` may drop every query on the node.
+`SECURITY.md:198` does say "there are no roles", two documents away from the block that shows one.
+
+**Severity: high**, and it is the kind of gap that produces an outage rather than an error.
+
+### DOC-057 — **The remediation made `README.md`'s opening blockquote false a second time** — FAIL
+
+```
+README.md:12-16
+> **Read this before evaluating.** Today Pravaha is a **bounded-input** engine: windows close when
+> the input ends, because nothing generates watermarks — the embedding application supplies them or
+> they do not advance. ... Over an unbounded stream, no window would close. The `pravaha-server`
+> process additionally has **no ingestion path at all**: a query registered against it never
+> receives a row.
+```
+
+Three claims, all false as of `ab0eca3`:
+
+1. "nothing generates watermarks" — `PravahaNode.java:372` calls
+   `registry.generatingWatermarks(idleAfter, tick)`, logged at startup as
+   `watermarks: idle-after=PT30S, tick=PT1S`.
+2. "no window would close" over an unbounded stream — Part 3 closed two, from a configured source,
+   with correct sums, while a third stayed open because its watermark had not arrived.
+3. "no ingestion path at all" — DOC-033, refuted twice now.
+
+**Severity: critical, and it is the highest-leverage single edit available in this repository.** It
+is the first screen of the front page, inside a box labelled "Read this before evaluating", and the
+sentences describe an engine two releases old. `HANDOVER.md:394` carries the same claim in a
+document whose purpose is to tell the next session what is true.
+
+### DOC-058 — QUICKSTART's own `--keys 1` silently discards every window but the latest — FAIL
+
+Same server, same `velocity.sql`, differing only in the `--keys` the document prints:
+
+```
+$ pravaha register --name user_volume --sql-file velocity.sql --keys 1        # QUICKSTART:164
+$ pravaha query --sql "SELECT * FROM user_volume"
+window_end             user_id  txn_count  total
+1767261720000000000    alice    1          250
+1767261720000000000    bob      1          75
+2 rows                                                  <- the 10:01 window is gone
+
+$ pravaha register --name uv4 --sql-file velocity.sql --keys 0,1
+$ pravaha query --sql "SELECT * FROM uv4"
+... 4 rows                                              <- both windows
+```
+
+Keyed on `user_id` alone, each new window overwrites the previous one for that user. That may be the
+intended "current velocity per user" semantics, but the document never says so, and it prints
+`window_end` as the first output column — a column that can only ever hold one value per user.
+A reader checking yesterday's window finds it silently absent.
+
+**Severity: moderate**, high for trust: the arithmetic is right and the retention is invisible.
+
+### DOC-059 — The delimited-source format for a `TIMESTAMP` column is undocumented, and getting it wrong yields silence — FAIL
+
+My first attempt at Part 3 used ISO-8601 in the CSV, which is what `TIMESTAMP` suggests:
+
+```
+1,alice,500,COMPLETED,2026-01-01 10:00:05
+```
+```
+$ pravaha queries
+user_volume  RUNNING  8a86337b7b50  0            <- zero rows in
+(server log: no error, no warning, nothing)
+```
+
+`DelimitedCodec.java:116` requires a bare `Long.parseLong`, and the value is interpreted as
+**nanoseconds since the epoch**. Nothing states this: not `QUICKSTART.md`, not `SQL_SUPPORT.md:234`
+(which lists `TIMESTAMP` among the supported types and says nothing about its wire form), not
+`application.yaml`, not `examples/`. The plugin option keys generally (`path`, `schema`, `delimiter`,
+`event.time`) remain documented nowhere, which I filed under DOC-050.
+
+**Severity: high**, because of the failure mode. `ROWS IN` stayed at 0 and nothing was logged — the
+same silent shape as DOC-051, reached by a different wrong guess.
+
+### DOC-060 — `PRV-6104` is now the first failure on the documented production path — FAIL
+
+Covered in Part 1. `PRV-6104 FLIGHT_TLS_UNREADABLE` was one of the ten codes missing from
+`TROUBLESHOOTING.md` (DOC-029). Before this release it was unreachable, because TLS never got that
+far. It is now the first thing a reader meets after copying `QUICKSTART.md:111–112` verbatim, and
+`TROUBLESHOOTING.md` still says of itself that a code missing from its table does not exist.
+
+### DOC-061 — A shared computation's second name lists as RUNNING and answers nothing — FAIL
+
+The remediation states: *"a shared computation's second name is journalled and registered as a
+view."* The first half happened; the second did not.
+
+```
+$ pravaha register --name uv2 --sql-file velocity.sql --keys 0,1 --url grpc://localhost:19501
+registered user_volume  state=RUNNING  fingerprint=8a86337b7b50      <- I asked for uv2
+a query with the same fingerprint is the same computation, shared
+
+$ pravaha queries --url grpc://localhost:19501
+NAME         STATE    FINGERPRINT   ROWS IN
+user_volume  RUNNING  8a86337b7b50  7
+uv2          RUNNING  8a86337b7b50  7                                <- uv2 is listed
+
+$ pravaha query --sql "SELECT * FROM uv2" --url grpc://localhost:19501
+PRV-1041  PRV-2002  Object 'uv2' not found. Known streams: [user_volume]
+```
+
+`uv2` lists as RUNNING with seven rows in, and does not exist as a view. `drop --name uv2` then
+succeeds, so the name is real to the registry and invisible to the serving layer. The confirmation
+line printed the *other* name, so a script reading stdout cannot even tell which name it got.
+
+This is engine behaviour rather than prose, and I am filing it here because sharing is a documented
+user-facing feature — `CONCEPTS.md §5`, `QUICKSTART.md`, and `pravaha --help`'s "A computation is
+released when its last name is dropped" — and the documentation currently describes something that
+does not work. **Severity: high.** Hand to whoever owns `QueryRegistry`/`ViewCatalog`; the fix
+appears to cover the journal and the listing and not the view registration.
+
+Note also that the fingerprint matched across `--keys 1` and `--keys 0,1`, two registrations whose
+*output* differs (DOC-058). If key columns are outside the fingerprint, sharing can hand a caller a
+view keyed differently from the one they asked for.
+
+---
+
+## Part 5 — the configuration-key audit, both directions
+
+Re-run against the current build.
+
+**Keys the code binds in `pravaha-server` main sources:**
+
+```
+pravaha.cluster.mechanism           pravaha.flight.tls.certificate
+pravaha.cluster.mode                pravaha.flight.tls.key
+pravaha.flight.enabled              pravaha.node.id
+pravaha.flight.host                 pravaha.watermark.idle-after
+pravaha.flight.port                 pravaha.watermark.tick
++ @ConfigurationProperties: pravaha.security.*, pravaha.streams.*, pravaha.sources.*, pravaha.checkpoint.*, pravaha.registry.*
+```
+
+**Documented and inert** (down from five, up in severity):
+
+| Key | Documented at | Reality |
+|---|---|---|
+| `pravaha.watermark.out-of-orderness` | `CONCEPTS.md:66`, `OPERATIONS.md:222`, `application.yaml:167`, javadoc `StreamSchema.java:51` | **no reader.** Proven inert by experiment (DOC-052) |
+| `pravaha.cluster.socket.peers` / `.heartbeat.millis` / `.timeout.millis` | `OPERATIONS.md:104-106` | unchanged: `PravahaNode` still forwards only `mode` and `mechanism` |
+| `pravaha.cluster.zookeeper.*` | `OPERATIONS.md:113` | unchanged |
+
+`pravaha.watermark.idle-after` and `.tick` are **no longer inert** — the one improvement in this
+table.
+
+**Bound and documented nowhere** (new this pass):
+
+| Key | Consequence of not knowing it |
+|---|---|
+| `pravaha.streams.<n>.event-time` | no window ever closes; RUNNING, rows in, nothing out, no error (DOC-051) |
+| `pravaha.streams.<n>.out-of-orderness` | the only working lateness control (DOC-052) |
+| `pravaha.security.audit` | unchanged from DOC-025 |
+| `pravaha.checkpoint.timeout` | unchanged; still not settable from server YAML |
+| `filesystem` plugin options (`path`, `schema`, `delimiter`, `event.time`) | unchanged from DOC-050; `event.time` is new and is forwarded by the node |
+
+**Both directions therefore worse than at the first pass.** Two keys moved off the inert list and
+three moved onto the undocumented list, and the two that arrived are the two that decide whether the
+engine's headline feature runs at all.
+
+---
+
+## Re-QA summary
+
+| | Count |
+|---|---|
+| FAILs re-tested | 28 |
+| VERIFIED-FIXED | **0** |
+| PARTIALLY-FIXED | 2 (DOC-024, DOC-027) — code moved, documents did not |
+| STILL-FAILING | 26 |
+| BLOCKED cases resolved | 1 (DOC-008 → PARTIALLY-FIXED) |
+| New defects | 11 (DOC-051 … DOC-061) |
+
+**Ranked by harm to a new user or an operator:**
+
+1. **DOC-051** — `pravaha.streams.<n>.event-time` undocumented. Silent, permanent, unsearchable.
+2. **DOC-011** — QUICKSTART §4 still declares a schema its own query cannot use. Now the *only*
+   barrier to a working windowed query.
+3. **DOC-053** — no shipped client can reach a TLS node; the netty fix went to the server only.
+4. **DOC-052** — the documented lateness key is inert; the working one is undocumented.
+5. **DOC-057** — README's first blockquote is now false three ways.
+6. **DOC-005 / DOC-006** — the first two commands in the quickstart still do not run.
+7. **DOC-055** — float aggregates refused; `SQL_SUPPORT.md` says ✅.
+8. **DOC-056** — `mayAdminister` is new public API; a reader token can drop every query.
+9. **DOC-061** — a shared computation's second name lists RUNNING and answers nothing.
+10. **DOC-059** — `TIMESTAMP` in a delimited source must be epoch nanoseconds; said nowhere; wrong
+    guess is silent.
+11. **DOC-054 / DOC-060 / DOC-029** — new and newly-reachable codes absent from a troubleshooting
+    page that claims to be exhaustive.
+12. **DOC-033 / DOC-038 / DOC-034 / DOC-026 / DOC-025 / DOC-028** — unchanged false claims.
+13. **DOC-058** — `--keys 1` silently keeps one window per user.
+
+### What I could not cover, and why
+
+**The console against the new server.** I did not restart it; §7's defects are pure text and
+unchanged, and the runtime questions belong to whoever owns the console's own area.
+
+**`mayAdminister` enforcement end to end.** I established the documentation gap from the source and
+from `Principal.roles()` having no reader, but did not stand up a node with a restrictive policy and
+two principals — that is SEC's area and its log should carry the enforcement verdict.
+
+**The case studies, `system_design.md` and `implementation_plan.md`.** Unchanged since the first
+pass and out of proportion to this pass's budget. `system_design.md` is still linked as "the full
+specification" with no marker that it is aspirational (DOC-020).
+
+**Whether `pravaha.streams.<n>.out-of-orderness` has bounds.** `OPERATIONS.md` claims the
+`idle-after` bounds are "both enforced"; I did not test the new per-stream key against absurd values
+beyond the 10m that proved it live.

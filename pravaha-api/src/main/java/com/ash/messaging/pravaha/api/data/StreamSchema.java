@@ -143,6 +143,29 @@ public final class StreamSchema {
         return byName.containsKey(fieldName);
     }
 
+    /**
+     * The same schema under a different name, at the same version.
+     *
+     * <p>For a view served under more than one name. Two registrations of one question share a
+     * computation and a copy of the state, and each name must be plannable -- the SQL planner keys
+     * tables by the schema's own name, so handing it one schema twice makes the second name
+     * invisible and {@code SELECT ... FROM second_name} answers "Object not found" from a name the
+     * server has just acknowledged as RUNNING.
+     */
+    public StreamSchema renamedTo(String newName) {
+        if (name.equals(newName)) {
+            return this;
+        }
+        Builder b = new Builder(newName).version(version);
+        fields.forEach(f -> b.field(f.name(), f.type()));
+        if (eventTimeOrdinal >= 0) {
+            b.eventTime(fields.get(eventTimeOrdinal).name());
+            b.outOfOrderness(outOfOrderness);
+        }
+        primaryKey.forEach(b::primaryKeyField);
+        return b.build();
+    }
+
     /** This schema with the version incremented and the given fields. Used by catalog evolution. */
     public StreamSchema evolve(List<Field> newFields) {
         Builder b = new Builder(name).version(version + 1);

@@ -370,3 +370,194 @@ back and re-reading the file from line 1 means duplicate rows after every restar
 read ROWS IN and the view for the recovered query.
 **Expected:** Document the truth precisely. 20 rows again from a fresh read is defensible for a
 file source; 40 rows in the view, or a recovered query that is never fed at all, is a defect.
+
+---
+
+# Re-QA cases — verification pass
+
+Written before execution, as the original set was. These cover only the re-verification: the
+thirteen FAILs, the code paths their fixes touched, and the two things the original pass could not
+test because DEFECT-1 killed every attempt (ingest and serving together at scale, and backpressure).
+
+**New data.** `$QA/data/huge.csv` (2 000 000 rows, `id` unique), `$QA/data/gone.csv` recreated at
+200 000, `$QA/data/ev.csv` (60 000 rows over exactly 60 s carrying an event-time column, 5 users,
+`amount=1` on every row so every window sum is hand-computable), `$QA/data/evbig.csv` (500 000 rows
+over 500 s, 50 000 distinct keys, for a deliberately state-heavy consumer).
+**New config.** `$QA/conf/main2.yaml` — `main.yaml` plus `huge`, `ev`, `evbig`, with
+`pravaha.streams.ev.event-time` / `.out-of-orderness` and `pravaha.watermark.{idle-after,tick}`.
+
+**Keying rule for every DEFECT-1 case.** Every view below is keyed on ordinal 0, `id`, which is
+UNIQUE in every file used. This is deliberate: the remediation's own commit message records that the
+first reproduction attempt failed because the view was keyed on a 500-value column, so 200 000 rows
+collapsed to a correct-looking 500. A view keyed on a unique column has size == rowsIn or it has
+lost rows, and there is nowhere for loss to hide.
+
+## INGEST-041 — DEFECT-1 at scale, ingest and serving together, unique key
+**Intent:** The headline fix. The combination the original pass could never run: a query that
+actually writes to its view, over a large file, with the view keyed on a unique column so that any
+lost row is visible as a count.
+**Setup:** `main2.yaml`; stream `big` (500 000 rows, `id` unique).
+**Steps:** Register `SELECT id, usr, amount FROM big` keyed on 0. Wait for `rowsIn` to stop moving.
+Read `rowsIn` and `SELECT * FROM <view>`.
+**Expected:** `rowsIn = 500000` **and** view size `= 500000`. Anything less in either is
+STILL-FAILING. A `ConcurrentModificationException` anywhere in the server log is a fail regardless
+of the counts.
+
+## INGEST-042 — Many concurrent readers while ingesting
+**Intent:** The commit says the reader is "the third thread and the one a deployment actually has".
+Eight readers scanning continuously while the feed commits is the shape that most exercises the new
+monitor, and the shape most likely to expose a lock the fix did not cover.
+**Setup:** As INGEST-041.
+**Steps:** Register the query and immediately start 8 threads, each on its own Flight connection,
+scanning the view in a loop until `rowsIn` settles. Count scans, reader errors, and the maximum
+single-scan latency.
+**Expected:** `rowsIn = view size = 500000`; zero reader errors; no exception in the log. A reader
+seeing a *partial* commit is not directly observable, but a scan returning a count above the final
+total, or an error, would prove it.
+
+## INGEST-043 — Several distinct queries over one stream, all serving, at scale
+**Intent:** INGEST-038 established that different fingerprints get their own feed and their own
+reader. Under the fix each of those feeds now commits into its own view on its own thread. Four
+concurrent feeds over one file is the multi-writer case.
+**Setup:** As INGEST-041.
+**Steps:** Register four queries over `big` with four distinct plans, all writing to their views,
+all keyed on `id`. Wait for all to settle.
+**Expected:** Each reports `rowsIn = 500000` and each view holds exactly the number of rows its
+predicate selects. No feed dies.
+
+## INGEST-044 — A query dropped while another reads the same stream at scale
+**Intent:** `drop` now calls `views.remove(name)`, which is new code on a path that runs while other
+feeds are committing. A drop mid-ingest must not disturb the survivors, and the dropped name must
+stop answering.
+**Setup:** Two distinct queries over `big`, both serving.
+**Steps:** With both mid-file, drop one. Immediately query the dropped name and the survivor.
+**Expected:** The dropped name no longer answers (`Object not found`). The survivor finishes at
+500 000 in and 500 000 in its view.
+
+## INGEST-045 — Pause and resume under load, with a view being written
+**Intent:** INGEST-008/009 could only test pause against a query that wrote nothing. Repeat them
+against a query that commits, which is the combination the fix changed.
+**Setup:** A serving query over `big`.
+**Steps:** Pause mid-file; sample `rowsIn` and the view size four times; resume; wait for settle.
+**Expected:** Both frozen while paused, both equal, and both reach exactly 500 000 after resume —
+not more (a replay) and not less (a gap).
+
+## INGEST-046 — A very large file: 2 000 000 rows, ingest and serving together
+**Intent:** DEFECT-1's probability rose with input size. Four times the largest file the original
+pass used, with the view actually being written, is the strongest available disproof.
+**Setup:** Stream `huge`.
+**Steps:** Register a serving query keyed on `id`; wait for settle; compare.
+**Expected:** `rowsIn = view size = 2000000`.
+
+## INGEST-047 — Did the lock collapse throughput?
+**Intent:** The named regression risk. A monitor taken on every `apply` and every `commit`, with
+readers contending for it, could stall ingestion instead of losing rows — a different failure with
+the same symptom (a view that never fills).
+**Setup:** Streams `big` and `huge`.
+**Steps:** Measure rows/s for (a) the original pass's no-output control — `WHERE id > 999999999`,
+which never touches the overlay — and (b) the same file with a serving query, with and without 8
+concurrent readers.
+**Expected:** A number, recorded. Serving is expected to cost something; the question is whether it
+costs an order of magnitude. Below ~10 000 rows/s for a local CSV, or readers making ingestion more
+than ~2x slower, is a regression worth filing.
+
+## INGEST-048 — Does a reader block for long behind the lock?
+**Intent:** The other half of the same risk, from the reader's side. `scan()` copies the whole
+visible map under the monitor; at 500 000 rows that copy is not free, and `commit` waits behind it.
+**Setup:** A filled 500 000-row view.
+**Steps:** 20 sequential scans; report mean and max latency. Repeat while a second feed is ingesting.
+**Expected:** A number, recorded. A scan that takes seconds, or a max far above the mean, says the
+monitor is the bottleneck.
+
+## INGEST-049 — Is a dead feed now visible? (DEFECT-6)
+**Intent:** The original pass's second-worst finding: a dead feed and a healthy one are
+character-for-character identical to an operator. `PumpingFeed` now records the failure for every
+throwable; the question is whether anything an operator can read says so.
+**Setup:** `ragged` (a malformed line on line 2).
+**Steps:** Register over it. Then look everywhere a shipped surface could say: `pravaha queries`,
+the Flight LIST action, `/api/v1/status`, `/status`, and the server log.
+**Expected:** Somewhere an operator can reach, a query whose feed has died is distinguishable from
+one that is merely quiet. If not, say exactly what an operator would see instead.
+
+## INGEST-050 — DEFECT-2/3 confirmation: a malformed line still ends ingestion
+**Intent:** Not fixed, per the brief. Confirm precisely, so the record is accurate.
+**Setup:** `ragged`, `wide`, `badtype`, `nullcol`.
+**Steps:** Register over each; read `rowsIn`, the view, and the recorded failure.
+**Expected:** Confirm or refute: ingestion ends at the bad line; rows before it are lost
+(`rowsIn=0`); the diagnostic is replaced by `abort()`'s `UnsupportedOperationException`.
+
+## INGEST-051 — DEFECT-4 confirmation: no schema validation
+**Setup:** `mismatch` (4-column plugin schema, 3-column catalog) and `typemix`.
+**Steps:** Register over each.
+**Expected:** Confirm registration succeeds and the feed dies at the first row, with nothing
+validated at bind time. Re-check specifically that the new `event.time` schema rebuild in
+`FilesystemSourcePlugin.open` has not changed what the plugin decodes with.
+
+## INGEST-052 — DEFECT-8 confirmation: a directory as `path`
+**Setup:** `dirpath`.
+**Expected:** Confirm `open()` still accepts a directory and the feed dies on first read.
+
+## INGEST-053 — DEFECT-5: the second name answers, and survives a restart
+**Intent:** Both halves of the fix. `views.registerAs` makes the second name queryable;
+`journalRegistration` on the shared path makes it survive a restart. The second is the half that
+cannot be checked without stopping the server.
+**Setup:** `journal.yaml` with `pravaha.registry.journal` set.
+**Steps:** Register `v_a` and `v_b` with identical SQL. `SELECT * FROM v_a` and `FROM v_b`. Stop the
+server by PID; restart on the same config; check the recovery line, then query both names again.
+**Expected:** Both names return the same rows before and after the restart, and the recovery line
+accounts for both. Adversarial extension: drop one name and confirm the other still answers, and
+that the dropped one does not.
+
+## INGEST-054 — DEFECT-7 confirmation: only `filesystem` is on the classpath
+**Expected:** Confirm `Available: [filesystem]` and that the app jar still ships one plugin jar.
+
+## INGEST-055 — Backpressure: a source far faster than its consumer
+**Intent:** The gap the original pass declared untested. A windowed aggregate over 50 000 distinct
+keys is a genuinely slow, state-heavy consumer, and a local CSV is a very fast source. This is the
+first time the two can be run together.
+**Setup:** `evbig` (500 000 rows, 50 000 keys, event-time declared).
+**Steps:** Register a windowed aggregate over it and watch `rowsIn` advance. In parallel, read
+`IngestPump.pauseCount()` / `pausedNanos()` from the in-process harness, since no shipped surface
+exposes them.
+**Expected:** Ingestion completes, every row is accounted for, nothing is dropped, no OOM, and the
+pump is observed to pause and resume rather than either overflowing or deadlocking. If the pump
+never pauses, say so and say why the consumer was not slow enough.
+
+## INGEST-056 — Windowed ingestion end to end from configuration
+**Intent:** The new `pravaha.streams.<n>.event-time` plus the plugin stamping rows. The original
+pass could not run a windowed query at all.
+**Setup:** `ev`: 60 000 rows, exactly 1 000 per second across 60 s, `amount=1`, 5 users
+round-robin, `event-time: event_time`, `out-of-orderness: 1s`.
+**Steps:** Register `SELECT window_start, usr, SUM(amount) ... TUMBLE(... INTERVAL '10' SECOND)`.
+Wait, then read the view.
+**Expected:** Hand-computed. Six 10-second windows; 10 000 rows each; 2 000 per user per window; so
+each output row is `SUM(amount) = 2000`, and there are 5 users x however many windows the watermark
+closed. With 1 s lateness the first five windows must close from the data alone; the sixth needs the
+idle timeout. Any output row whose sum is not 2000 is a fail. Zero rows is a fail.
+
+## INGEST-057 — `event-time` naming a column that does not exist
+**Intent:** The new configuration key needs a negative. An operator will typo it.
+**Setup:** A config declaring `event-time: no_such_column`.
+**Expected:** The node refuses at startup with a message naming the stream, the bad column and the
+real columns — not a node that starts and silently stamps nothing.
+
+## INGEST-058 — Regression: sharing, refcount and the dropped view
+**Intent:** `registerAs` and `remove` are new on the sharing path, which INGEST-010/011/013 covered.
+Re-run them.
+**Steps:** Three names on one fingerprint; count feed threads and file descriptors; drop one; check
+the other two still answer; drop to zero and check the view stops answering.
+**Expected:** One thread and one descriptor for three names; dropping one leaves the rest complete;
+the last drop releases everything and the name stops answering.
+
+## INGEST-059 — Regression: journal restart still re-feeds
+**Intent:** `journalRegistration` moved inside a try/catch that unwinds. Confirm INGEST-040's result
+is unchanged.
+**Expected:** `recovered N of N`, the query re-fed, the view complete and not doubled.
+
+## INGEST-060 — Adversarial: can the new monitor deadlock?
+**Intent:** The commit says `awaitFrontier` was deliberately left outside the lock to avoid a
+deadlock. Probe the reasoning: a consistent read that waits for a frontier, issued while the feed is
+committing hard and other readers are scanning.
+**Steps:** During a 2 000 000-row ingest, hold 8 readers scanning and issue repeated reads. Watch
+for a stall. Take a thread dump if anything hangs and look for a cycle on the `ServedView` monitor.
+**Expected:** No thread blocked indefinitely; the ingest completes.

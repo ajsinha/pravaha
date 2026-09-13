@@ -957,3 +957,679 @@ not in the policy model itself.
   particularly given that `SecurityPolicy` explicitly promises no decision caching.
 * **The Python SDK and the console** as clients. Only the Java CLI, raw Flight clients and `curl`
   were used.
+
+---
+
+# Re-QA 2026-09-12
+
+Verification pass against the rebuilt `pravaha-server-0.1.0-SNAPSHOT-app.jar` (now containing
+`netty-transport-native-unix-common-4.1.135.Final`) and `pravaha-cli-0.1.0-SNAPSHOT-cli.jar`.
+Ports 18200–18219 / 19200–19219. Harness rebuilt against the new jars; **no production code was
+modified**. Every server started here was killed by PID.
+
+Two harness sources were added to the QA scratch directory for this pass: `SecTlsFull` (a full
+Flight SQL round trip — register, `getFlightInfo`, `getStream` — over a chosen transport) and
+`SecLeakProbe` (every other Flight route that could disclose what `LIST` now hides).
+
+A node with real rules is still not reachable through configuration — see **SEC-061** — so the
+rule-bearing cases are again run against `QaPolicy` on the released jars. The `AuthenticatedOnlyPolicy`
+cases now run against a **real node** (18207/19208), which is new: that configuration could not start
+before.
+
+| principal | rule (unchanged from the original pass) |
+|---|---|
+| `ann` | reads everything |
+| `bob` | reads everything **with row filter `region = 'EU'`** |
+| `carol` | **denied** any view whose name contains `payroll` |
+
+---
+
+## Re-tested: the nine FAILs
+
+### SEC-047 — TLS on the Flight transport — **VERIFIED-FIXED**
+
+The dependency is present and a client completes real Flight calls over the socket, data included.
+
+```
+$ unzip -l pravaha-server-0.1.0-SNAPSHOT-app.jar | grep unix-common
+    44327  BOOT-INF/lib/netty-transport-native-unix-common-4.1.135.Final.jar
+
+$ bin/pravaha-server --server.port=18205 --pravaha.flight.port=19206 \
+      --spring.config.additional-location=file:.../tls-tokens.yaml \
+      --pravaha.flight.tls.certificate=.../cert.pem --pravaha.flight.tls.key=.../key.pem
+security: authentication=token, policy=permissive, audit=memory, flight transport=TLS
+sources bound: [payroll <- filesystem[path, schema]]
+Flight SQL listening on 0.0.0.0:19206
+
+$ SecTlsFull 19206 tls/cert.pem <valid-token>        (grpc+tls, cert as the ONLY trust anchor)
+channel: grpc+tls, trust anchor = tls/cert.pem
+  register -> PRVH|...|tlsview|...|RUNNING|...|3d0031e7df37
+  getFlightInfo -> schema=[employee: Utf8, region: Utf8, salary: Int(64, true)] endpoints=1
+  row: e1 EU 99000
+  row: e2 US 250000
+  row: e3 EU 55000
+TLS END-TO-END OK, rows=3
+
+$ openssl s_client -connect 127.0.0.1:19206 -alpn h2 -servername localhost
+SSL handshake has read 1312 bytes and written 1640 bytes
+New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384
+ALPN protocol: h2
+```
+**Verdict:** not a port that merely answers a handshake — a `doAction` control call, a
+`getFlightInfo` plan and a `getStream` carrying three real rows, all over one TLS channel with the
+server's certificate as the only trust anchor. Not vacuous: the same probe run with a *different*
+self-signed certificate as the trust anchor fails, and the same probe in plaintext mode fails
+(below), so the session is genuinely negotiated and genuinely verified.
+
+Negatives, all still holding:
+```
+$ SecTlsFull 19206 cert.pem <token> plaintext      -> PLAINTEXT FAILED: Network closed for unknown reason
+$ bin/pravaha queries --url grpc://127.0.0.1:19206 --token <valid>
+PRV-1041  Network closed for unknown reason
+$ SecTlsProbe 19206 other-selfsigned.pem <token>   -> TLS call FAILED: ... SslHandler#0 ...
+$ ... --pravaha.flight.tls.certificate=.../nope.pem     -> PRV-6104 the TLS certificate ... is not a readable file
+$ ... --pravaha.flight.tls.certificate=.../<a directory> -> PRV-6104 the TLS certificate ... is not a readable file
+$ chmod 000 locked.pem; ... --certificate=.../locked.pem -> PRV-3010 cannot start the Flight SQL server ... (Permission denied)
+$ ... --certificate=<the KEY file> --key=<the CERT file>  -> IllegalArgumentException: Input stream not contain valid certificates
+$ ss -ltn | grep -E '18206|19207'                        -> nothing bound on 18206/19207
+```
+An unreadable certificate refuses the start and leaves nothing listening; a plaintext client against
+a TLS port is dropped; there is no plaintext fallback **when both halves of the pair are set**.
+SEC-050's note stands: `chmod 000` still arrives as `PRV-3010 LANE_FAILED` rather than `PRV-6104`.
+
+**But the pair is not checked as a pair.** Setting only one half is a new defect in each direction —
+see **SEC-059** (key without certificate: silent plaintext) and **SEC-060** (certificate without key:
+raw NPE). SEC-059 is the security-relevant one.
+
+Also new, and operationally serious given that this feature now works: the shipped client cannot use
+it against anything but a publicly-trusted certificate — see **SEC-063**.
+
+### SEC-048 — no plaintext fallback on a TLS port — **PASS, and now for the right reason**
+The original PASS carried a caveat: the port answered nobody, so "no plaintext fallback" was proved
+vacuously. With SEC-047 fixed the same port now answers a TLS client with rows (above) and still
+drops a plaintext one. The caveat is discharged.
+
+### SEC-007 / SEC-008 part 1 — `policy=authenticated` cannot start a node — **VERIFIED-FIXED**
+
+```
+$ bin/pravaha-server --server.port=18207 --pravaha.flight.port=19208 \
+      --spring.config.additional-location=file:.../authpol.yaml
+      (authentication: token, policy: authenticated, two tokens, Flight enabled)
+== authpol: STARTED (pid 383314)
+security: authentication=token, policy=authenticated, audit=memory, flight transport=PLAINTEXT
+Flight SQL listening on 0.0.0.0:19208
+```
+`PravahaNode.start` now calls `.authorizedBy(securityPolicyOf(registry), auditSink())` **before**
+`.hosting(registry)`, so `requireOnePolicy()` compares the registry's real policy against itself
+rather than against the constructor's `PERMISSIVE` initialiser. The node serves:
+```
+$ bin/pravaha register --name secret_pay --sql-file secret.sql --keys 0 --url grpc://127.0.0.1:19208 --token <ann>
+registered secret_pay  state=RUNNING  fingerprint=0f3582b08599
+$ bin/pravaha queries --url grpc://127.0.0.1:19208 --token <ann>
+NAME        STATE    FINGERPRINT   ROWS IN
+secret_pay  RUNNING  0f3582b08599  3
+```
+Not vacuous: the identical command line with `policy=permissive` was never the thing under test, and
+the node's own summary line reports `policy=authenticated` while Flight is listening.
+
+Case-insensitivity (SEC-007's original spelling `AUTHENTICATED`) also starts — see the bypass table,
+which shows `AUTHENTICATED` reaching the *contradiction* refusal rather than the policy-name refusal,
+i.e. the match is case-insensitive as intended.
+
+### The new refusal: `policy=authenticated` + `authentication=none` — **works, and I could not bypass it**
+
+```
+$ bin/pravaha-server --server.port=18208 --pravaha.flight.port=19209 --pravaha.security.policy=authenticated
+Caused by: PravahaException: PRV-7002  pravaha.security.policy=authenticated with
+pravaha.security.authentication=none is a node nobody can use: the policy serves only verified
+callers and nothing here can verify one. Set pravaha.security.authentication=token and configure
+pravaha.security.tokens, or choose a policy that admits anonymous callers.
+```
+Eleven attempts to reach the contradictory state anyway:
+
+| attempt | result |
+|---|---|
+| `--pravaha.security.policy=authenticated` | REFUSED (contradiction) |
+| `--pravaha.security.policy=AUTHENTICATED` | REFUSED (contradiction) — casing does not evade |
+| `--pravaha.security.policy=" Authenticated "` | REFUSED — leading/trailing space is stripped |
+| `--pravaha.security.policy=authenticated-only` (the alias) | REFUSED |
+| `+ --pravaha.security.allow-anonymous=true` | REFUSED — the acknowledgement does **not** unlock it |
+| `+ --spring.profiles.active=dev` | REFUSED — the dev profile does not unlock it |
+| `PRAVAHA_SECURITY_POLICY=authenticated` (environment) | REFUSED — relaxed binding is covered |
+| `+ --pravaha.security.authentication=tokens` (typo → none) | REFUSED |
+| `+ --pravaha.flight.enabled=false` | REFUSED — the old workaround is correctly closed too |
+| `--pravaha.security.policy=com.ash...SecurityPolicy$1` (a class name) | REFUSED: *"is not a policy this node knows"* |
+| `+ --pravaha.security.authentication=TOKEN` (no tokens configured) | STARTED — and refuses every caller (SEC-009 behaviour), so not a hole |
+
+**Verdict:** the refusal is on the value *after* normalisation and is checked independently of
+`allow-anonymous`, the active profile and whether Flight is enabled. I found no way through it.
+The last row is the one worth noticing for the right reason: a *class name* is refused, which is
+correct given the parser — but it is also the only thing an operator could have typed to install
+rules of their own, and the message invites exactly that. See **SEC-061**.
+
+### SEC-033 — unauthenticated `LIST` on an `AuthenticatedOnlyPolicy` node — **VERIFIED-FIXED**
+
+Run against the harness in the original configuration (`AuthenticatedOnlyPolicy`, no `TokenVerifier`):
+```
+$ bin/pravaha queries --url grpc://127.0.0.1:19204            (NO credential)
+no continuous queries are registered
+$ bin/pravaha drop   --name sales_view --url grpc://127.0.0.1:19204
+PRV-7002  anonymous may not drop 'sales_view': this server serves data only to authenticated
+callers, and this call presented no credential Pravaha could verify
+$ bin/pravaha pause  --name sales_view --url ...  -> same refusal
+$ bin/pravaha resume --name sales_view --url ...  -> same refusal
+```
+And on a **real** node with a verifier (18207/19208, `policy=authenticated`), `PrincipalMiddleware`
+still refuses every verb before the producer runs:
+```
+$ bin/pravaha queries|drop|pause|resume --url grpc://127.0.0.1:19208     (no credential)
+PRV-1041  PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+$ bin/pravaha queries --url grpc://127.0.0.1:19208 --token <ann>          (control)
+NAME        STATE    FINGERPRINT   ROWS IN
+secret_pay  RUNNING  0f3582b08599  3
+```
+**Verdict:** fixed, twice over. Two caveats, neither of which changes the verdict:
+1. The configuration this case describes is now refused at startup by design, so the fix is
+   defence-in-depth rather than the live control.
+2. The *names* it hides are still obtainable from a single error message — **SEC-058**.
+
+### SEC-034 — `DROP`/`PAUSE`/`RESUME` unauthorized — **PARTIALLY-FIXED**
+
+The reported symptom is gone. An explicitly denied principal is refused, and a permitted one works:
+```
+$ bin/pravaha drop   --name payroll_view --url grpc://127.0.0.1:19203 --token carol-token-cccc
+PRV-1041  PRV-7002  carol may not drop 'payroll_view': carol is not entitled to payroll
+$ bin/pravaha pause  --name payroll_view --url ... --token carol-token-cccc   -> ... may not pause ...
+$ bin/pravaha resume --name payroll_view --url ... --token carol-token-cccc   -> ... may not resume ...
+
+$ bin/pravaha pause  --name hr_summary --url ... --token ann-token-aaaa   -> pauseped hr_summary
+$ bin/pravaha resume --name hr_summary --url ... --token ann-token-aaaa   -> resumeped hr_summary
+$ bin/pravaha drop   --name hr_summary --url ... --token ann-token-aaaa   -> dropped hr_summary
+```
+
+**Now the attack on the default.** `mayAdminister` defaults to `mayRead`, so *may read* means *may
+destroy*. Two principals who plainly should not be administrators are:
+
+```
+(1) bob — a principal the policy restricts to a row filter, region = 'EU'.
+    He has never been shown a whole row set of sales_view in his life.
+$ bin/pravaha pause --name sales_view --url grpc://127.0.0.1:19203 --token bob-token-bbbb
+pauseped sales_view
+$ bin/pravaha drop  --name sales_view --url grpc://127.0.0.1:19203 --token bob-token-bbbb
+dropped sales_view
+
+(2) carol — denied 'payroll' — against a payroll query whose NAME does not say payroll.
+$ bin/pravaha drop --name secret_pay --url grpc://127.0.0.1:19203 --token carol-token-cccc
+dropped secret_pay
+    (secret_pay is  SELECT employee, region, salary FROM payroll
+                    WHERE employee = 'ACC-0007-SECRET-CUSTOMER' , registered by ann)
+
+$ bin/pravaha queries --url ... --token ann-token-aaaa       (the owner, afterwards)
+NAME          STATE    FINGERPRINT   ROWS IN
+payroll_view  RUNNING  3d0031e7df37  1
+hr_summary    RUNNING  57ed47d2dabf  2
+```
+And on the **shipped** `policy=authenticated` node, where every authenticated caller may read
+everything and therefore administer everything:
+```
+$ bin/pravaha queries --url grpc://127.0.0.1:19208 --token <carol>
+NAME        STATE    FINGERPRINT   ROWS IN
+secret_pay  RUNNING  0f3582b08599  3          <- ann's query, with its SQL on the wire
+$ bin/pravaha pause --name secret_pay --url grpc://127.0.0.1:19208 --token <carol>   -> pauseped secret_pay
+$ bin/pravaha drop  --name secret_pay --url grpc://127.0.0.1:19208 --token <carol>   -> dropped secret_pay
+$ bin/pravaha queries --url grpc://127.0.0.1:19208 --token <ann>                     -> no continuous queries are registered
+```
+
+**The exposure, precisely, for the owner to decide on.**
+* `mayAdminister` is consulted, so the hook is there and works. What it inherits is a policy that
+  answers a *read* question.
+* Consequence A — **read access is destroy access.** Any principal a policy grants read on a view,
+  including one granted only a filtered slice of it, may `DROP` that view: its accumulated state,
+  for every other principal holding a name for it. There is no ownership test anywhere: the
+  registration's owning `Principal` is recorded (SEC-044/045 prove it survives a journal replay) and
+  `requireAdministrable` does not look at it.
+* Consequence B — **the shipped non-permissive policy makes the hook a no-op.**
+  `AuthenticatedOnlyPolicy.mayRead` allows every authenticated caller, so on `policy=authenticated`
+  — the only closed configuration a server node can actually be given — `mayAdminister` allows every
+  authenticated caller too. Any token holder can drop any other token holder's continuous query.
+  That is the whole fleet's exposure today, because a custom policy cannot be installed (SEC-061).
+* Consequence C — the deny that *does* work is keyed on the view **name** (Consequence of SEC-057's
+  root cause): `carol` was refused on `payroll_view` and permitted on `secret_pay`, which reads the
+  same stream.
+* An override exists (`mayAdminister` is a default method), and the javadoc calls it "the weakest
+  rule that is not wrong" — but no shipped policy overrides it, and no server deployment can supply
+  one. The documentation should state Consequence A as the contract, and `AuthenticatedOnlyPolicy`
+  should almost certainly override `mayAdminister` to compare against the registration's owner.
+
+*(Still cosmetic, still there: the CLI prints "pauseped" / "resumeped".)*
+
+### SEC-043 — `LIST` discloses SQL text to a principal denied the underlying stream — **STILL-FAILING (CRITICAL)**
+
+`LIST` is now filtered — by **view name**, which is not the thing that was leaking.
+
+```
+$ bin/pravaha register --name secret_pay --url grpc://127.0.0.1:19203 --token ann-token-aaaa \
+      --sql-file <<< "SELECT employee, region, salary FROM payroll
+                      WHERE employee = 'ACC-0007-SECRET-CUSTOMER'"
+registered secret_pay  fingerprint=0f3582b08599
+$ bin/pravaha register --name payroll_eu  ... "SELECT employee, region, salary FROM payroll WHERE region = 'EU'"
+
+$ SecListProbe 19203 carol-token-cccc          (carol is denied 'payroll' by the policy)
+result 1: PRVH|...|sales_view|...|RUNNING|...|SELECT order_id, region, amount FROM sales|...
+result 2: PRVH|...|hr_summary|...|RUNNING|...|SELECT employee, region, salary FROM payroll WHERE salary >= 0|...
+result 3: PRVH|...|secret_pay|...|RUNNING|...|SELECT employee, region, salary FROM payroll WHERE employee = 'ACC-0007-SECRET-CUSTOMER'|...|0f3582b08599|...|0
+results=3
+
+$ SecListProbe 19203 ann-token-aaaa            (control)
+results=4                                      (the same three, plus payroll_view)
+```
+**Verdict:** the filter calls `policy.mayRead(principal, name)` on the *registered view name*, so it
+hides a query only when the policy's rule happens to match the name a client chose. `carol` is
+denied `payroll`; `payroll_view` is hidden; `secret_pay` is not — and `secret_pay` is a payroll query
+whose SQL carries the literal `'ACC-0007-SECRET-CUSTOMER'`. **The exact string from the original
+SEC-043 evidence is still delivered to the exact principal who was not supposed to see it.** The
+severity is unchanged.
+
+This is the same root cause as SEC-057: an authorization decision taken on a client-chosen label
+rather than on the query's known source streams. The registry computes the source set at
+registration to run precisely this check and then discards it. Until `mayRead` is given the lineage,
+the `LIST` filter cannot be made correct — it can only be made to look correct on the cases whose
+names happen to match.
+
+A second, independent way through the same filter — names only, but complete — is **SEC-058**.
+
+### SEC-057 — read-time authorization sees only the view name — **STILL-FAILING (HIGH)**
+
+Unchanged, re-demonstrated on the current build:
+```
+control — carol denied under the stream's own name:
+$ bin/pravaha query --sql 'SELECT employee, region, salary FROM payroll_view' --url grpc://127.0.0.1:19203 --token carol-token-cccc
+PRV-1041  PRV-7002  carol may not read 'payroll_view': carol is not entitled to payroll
+
+ann (entitled) has registered the same payroll data as "hr_summary":
+    SELECT employee, region, salary FROM payroll WHERE salary >= 0
+
+$ bin/pravaha query --sql 'SELECT employee, region, salary FROM hr_summary' --url ... --token carol-token-cccc
+employee  region  salary
+e1        EU      99000
+e2        US      250000
+2 rows
+$ ... --token ann-token-aaaa           (identical output — carol is not getting a filtered view)
+```
+**The exposure, restated.** `SecurityPolicy.mayRead(principal, view)` is handed a string a client
+chose. Registration is authorized correctly against the query's real source streams — and that
+knowledge is then thrown away, so every subsequent read of the resulting view is judged on a label.
+A policy author has nothing to key a read decision on except a name that the data's subject does not
+control. Requirement 3 ("users receive only the data they are authorized for") does not survive a
+registration boundary.
+
+What bounds it — and this is the honest limit of the severity:
+```
+$ bin/pravaha register --name carol_clean --url ... --token carol-token-cccc \
+      --sql-file <<< "SELECT employee, region, salary FROM payroll"
+PRV-1041  PRV-7002  carol may not register 'carol_clean' because it reads 'payroll', which they may
+not read: carol is not entitled to payroll. A registration is a standing read of everything the
+query names, so it is refused here rather than at the first row.
+
+$ bin/pravaha register --name carol_chain --url ... --token carol-token-cccc \
+      --sql-file <<< "SELECT employee, region, salary FROM hr_summary"
+PRV-1041  PRV-2002  Object 'hr_summary' not found. Known streams: [sales, payroll]
+```
+So carol cannot launder the data *herself*, and cannot chain off a view either. The leak needs an
+entitled principal to register the derived view — which under `AuthenticatedOnlyPolicy` is every
+authenticated caller, and in any real deployment is a routine act nobody would think of as a grant.
+HIGH, not CRITICAL, and still the most structurally important item on the list: SEC-043's fix is
+already wrong *because* of it, and SEC-034's working deny is keyed on the same string.
+
+### SEC-008 part 2 / SEC-028 — HTTP does not consult the policy — **PARTIALLY-FIXED (HIGH)**
+
+The refusal closes the **anonymous** version of this and nothing else.
+
+```
+$ grep -rn "SecurityPolicy|principalOf|pravaha.principal|Principal" \
+      pravaha-server/src/main/java/com/ash/messaging/pravaha/server/api/
+(count: 0 across QueryController, StreamController, StatusController, ApiExceptionHandler)
+```
+`BearerTokenFilter` still parks a `Principal` on the request as `pravaha.principal` and still exposes
+`principalOf(request)`; nothing on the HTTP side calls it.
+
+What is genuinely closed: with `authentication: none` the node can no longer be given
+`policy=authenticated`, so the previous demonstration — an anonymous caller listing every stream
+schema and registering streams on a node whose configuration read "only verified callers see
+anything" — is unreachable. Verified:
+```
+$ curl -o /dev/null -w '%{http_code}' http://127.0.0.1:18207/api/v1/status    -> 401
+$ curl ... /api/v1/streams                                                     -> 401
+$ curl -X POST -d '{"name":"evil","schema":"a:STRING"}' ... /api/v1/streams    -> 401
+$ curl -H 'Authorization: Bearer <ann>' ... /api/v1/streams                     -> 200
+```
+
+**What remains exposed, exactly.** With `authentication: token` and a principal the policy denies:
+*every valid token is a full administrator of the HTTP surface, whatever the policy says.* On the
+`policy=authenticated` node, as `carol`:
+```
+$ curl -H 'Authorization: Bearer <carol>' http://127.0.0.1:18207/api/v1/streams
+[{"name":"payroll","version":1,"fieldCount":3,"fields":[{"name":"employee",...},{"name":"salary",...}]}]
+
+$ curl -X POST -H 'Authorization: Bearer <carol>' -d '{"name":"carol_injected","schema":"a:STRING,b:INT64"}' \
+       http://127.0.0.1:18207/api/v1/streams
+HTTP 201  {"name":"carol_injected",...}
+$ curl -H 'Authorization: Bearer <carol>' http://127.0.0.1:18207/api/v1/streams
+['payroll', 'carol_injected']
+
+$ curl -X POST -H 'Authorization: Bearer <carol>' -d '{"sql":"SELECT employee, salary FROM payroll"}' \
+       'http://127.0.0.1:18207/api/v1/queries/explain?level=physical'
+{"level":"physical","plan":"Project[employee, salary]\n  Scan(payroll)\n","outputFields":[...]}
+```
+So, precisely: **read** the name, version and full field list of every configured stream; **plan and
+validate arbitrary SQL** over any of them, receiving the physical plan and output schema;
+**register** a stream. No `mayRead`, no `mayRegisterQuery`, no principal. On Flight the same token
+would be judged; on HTTP it is not. Two surfaces of one node, two rule sets.
+
+Three things bound it, and the owner should know all three:
+1. The HTTP surface has **no read path to data** — no endpoint returns rows. The disclosure is
+   schemas, plans and stream names, not tenant data.
+2. `POST /api/v1/streams` turns out not to reach the engine at all — see **SEC-062**. The write is
+   a lie rather than a mutation, which makes it an integrity problem on the API's own view of the
+   world and not an engine compromise.
+3. The scenario "a custom policy denying a principal" cannot be constructed on a server node at all
+   today (**SEC-061**). Today's real exposure is therefore (1)+(2) for any token holder; the moment
+   a policy becomes installable, HTTP will ignore it wholesale.
+
+### SEC-021 — the 401 body is not an `ApiError` — **PARTIALLY-FIXED (MEDIUM, unchanged)**
+
+The four missing fields are there. An extra one that `ApiError` does not have is still there, so the
+two shapes are still two shapes.
+```
+$ curl http://127.0.0.1:18207/api/v1/streams                                  (401, BearerTokenFilter)
+{"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'",
+ "helpUrl":"https://docs.pravaha.io/errors/PRV-7001","timestamp":"2026-09-13T01:48:45.569862379Z",
+ "path":"/api/v1/streams","status":401}
+
+$ curl -H 'Authorization: Bearer <ann>' .../api/v1/streams/nosuch            (404, ApiExceptionHandler)
+{"code":"PRV-2003","message":"PRV-2003  no stream named 'nosuch'. Registered: [payroll]",
+ "helpUrl":"https://docs.pravaha.io/errors/PRV-2003","timestamp":"...","path":"/api/v1/streams/nosuch"}
+
+401 keys: ['code', 'helpUrl', 'message', 'path', 'status', 'timestamp']
+404 keys: ['code', 'helpUrl', 'message', 'path',           'timestamp']
+only in 401: ['status']
+```
+Deserialised into the server's own `ApiError` record with a default Jackson mapper (`SecErrShape`):
+```
+401 (BearerTokenFilter): FAILED -> UnrecognizedPropertyException: Unrecognized field "status"
+    (class ApiError), not marked as ignorable (5 known properties: "code","helpUrl","message","path","timestamp")
+404 (ApiExceptionHandler): parsed as ApiError OK
+```
+**Verdict:** field for field it is `ApiError` **plus `status`**, and `status` is precisely the field
+the original defect called out as extra. The client this defect was written about — one with a
+strict error deserialiser — still breaks, on the same response, for the same reason. Also unchanged:
+```
+401: Content-Type: application/json;charset=ISO-8859-1
+404: Content-Type: application/json
+```
+Cause is unchanged too: `refuse()` still builds the JSON by string concatenation instead of
+serialising an `ApiError`. Adding four fields to a hand-built string is treating the symptom; the
+defect is that there are two writers of one shape. Drop `status`, set UTF-8, or better, serialise
+the record.
+
+---
+
+## Regression hunt
+
+Chosen because they exercise the code the fixes touched: `refuseAccidentalOpenServer` and
+`securityPolicy()` (SEC-001..006), the `PravahaFlightSqlProducer.doAction` switch that gained
+`requireAdministrable` and the `LIST` filter (SEC-032), and the read path that the `LIST` filter now
+shares a policy call with (SEC-035/038/040).
+
+| case | what it guards | result |
+|---|---|---|
+| SEC-001 | shipped defaults still refuse to start | **PASS** — `PRV-7002 ... accept unauthenticated callers`, nothing bound |
+| SEC-002 | the documented first-run path still works | **PASS** — `--spring.profiles.active=dev` starts open, `/api/v1/status` 200 |
+| SEC-003 | `allow-anonymous=true` still starts | **PASS** |
+| SEC-005 | boolean binding still strict | **PASS** — `allow-anonymous=enabled` → `Invalid boolean value 'enabled'` |
+| SEC-006 | unknown policy name still fails closed | **PASS** — `'authentcated' ... is not a policy this node knows` |
+| SEC-032 | a verifier refuses every verb before the producer | **PASS** — queries/drop/pause/resume with no credential all `PRV-7001` on 19208 |
+| SEC-035 | deny on read still enforced | **PASS** — carol refused `payroll_view`, ann gets the row |
+| SEC-038 | row filter still ANDed into the plan | **PASS** — ann sees `EU` and `US`; bob's distinct regions are `EU` only |
+| SEC-040 | subscribe refuses a filtered principal rather than leaking | **PASS** — full `PRV-7002 ... a subscription cannot enforce a filter` message intact |
+
+**No regressions.** The authorization engine is as sound as it was; every failure remains at a call
+site, in wiring, or in what the policy is asked.
+
+---
+
+## New defects
+
+### SEC-058 — a "not found" error enumerates every view the `LIST` filter just hid — **HIGH**
+
+The `LIST` filter is undone by one call, by any authenticated principal, on three different verbs.
+
+```
+$ bin/pravaha queries --url grpc://127.0.0.1:19203 --token carol-token-cccc     (the filtered LIST)
+NAME        STATE    FINGERPRINT   ROWS IN
+secret_pay  RUNNING  0f3582b08599  0
+
+$ SecLeakProbe 19203 carol-token-cccc                                            (getFlightInfo, absent name)
+getFlightInfo(absent): FlightRuntimeException -- PRV-2002  Object 'view_that_does_not_exist_zz'
+    not found. Known streams: [secret_pay, payroll_eu, payroll_view]
+
+$ bin/pravaha drop --name zzz_nope --url ... --token carol-token-cccc
+PRV-1041  PRV-8002  no query named 'zzz_nope' is registered; this node has
+    [sales_view, payroll_view, hr_summary]
+
+$ bin/pravaha subscribe --view zzz_nope --url ... --token carol-token-cccc
+PRV-8002  no query named 'zzz_nope' is registered; this node has [sales_view, payroll_view, hr_summary]
+
+$ bin/pravaha register --name x --sql-file <<< 'SELECT ... FROM hr_summary' --token carol-token-cccc
+PRV-1041  PRV-2002  Object 'hr_summary' not found. Known streams: [sales, payroll]
+```
+**Verdict:** carol's filtered listing shows one view. A single request for a name that does not exist
+hands her all three, `payroll_view` included — the one the filter exists to hide. `PRV-2002` names
+every view or base stream on the read and register paths; `PRV-8002` names every registered query on
+the drop, pause, resume and subscribe paths. Both messages are built from the full registry with no
+principal in scope.
+
+There is also a plain existence oracle even without the enumeration: `carol may not read
+'payroll_view'` and `Object 'zzz' not found` are distinguishable answers, so a name can be probed
+one at a time.
+
+`PrincipalMiddleware`'s javadoc — quoted in the original SEC-033 — says "the set of view names is a
+map of what this deployment does … worth a refusal". The `LIST` fix acted on that; these four verbs
+did not. The fix is to build the "did you mean" list from what the principal may read, and to answer
+a denied *existing* name and an absent name identically.
+
+This is why SEC-043's verdict is CRITICAL on the SQL text and this one is HIGH: names leak here,
+names **and query text including literal account identifiers** leak there.
+
+### SEC-059 — `tls.key` without `tls.certificate` starts the node in plaintext — **HIGH**
+
+```
+$ bin/pravaha-server --server.port=18206 --pravaha.flight.port=19207 \
+      --spring.config.additional-location=file:.../tokens.yaml \
+      --pravaha.flight.tls.key=.../key.pem                       # certificate NOT set
+== STARTED
+WARN  authentication is on and Flight is serving plaintext, so credentials travel in the clear;
+      set pravaha.flight.tls.certificate and .key unless something in front of this node is
+      terminating TLS
+security: authentication=token, policy=permissive, audit=memory, flight transport=PLAINTEXT
+Flight SQL listening on 0.0.0.0:19207
+
+$ SecTlsFull 19207 cert.pem <valid-token> plaintext
+channel: grpc (plaintext)
+  register -> PRVH|...|fbview|...|RUNNING|...
+  getFlightInfo -> schema=[employee: Utf8, region: Utf8, salary: Int(64, true)] endpoints=1
+PLAINTEXT END-TO-END OK, rows=0
+
+$ SecTlsFull 19207 cert.pem <valid-token>            (a TLS client against the same port)
+TLS FAILED: FlightRuntimeException -- io exception Channel Pipeline: [SslHandler#0, ...]
+```
+**Verdict:** an operator who sets half the pair — a typo in the `certificate` key, a templating
+mistake, a secret that failed to mount — gets a running node that accepts bearer tokens over
+cleartext, and the only signal is the *same generic warning* every plaintext node prints. The two
+halves are never compared: `encryptedWith` is simply not called when the certificate is null, and the
+node reports `flight transport=PLAINTEXT` as though nobody had asked for TLS. Contrast SEC-049,
+where a certificate pointing at a missing file correctly refuses the start — the failure closed when
+the operator got the path wrong and opens when they got the property name wrong.
+
+The mirror case refuses, so the asymmetry is not deliberate: see SEC-060. The fix is to treat "one
+of `certificate`/`key` set" as a configuration error, and to say *which* half is missing.
+
+### SEC-060 — `tls.certificate` without `tls.key` throws a raw NullPointerException — **LOW**
+
+```
+$ bin/pravaha-server ... --pravaha.flight.tls.certificate=.../cert.pem      # key NOT set
+== REFUSED
+security: authentication=token, policy=permissive, audit=memory, flight transport=TLS
+Caused by: java.lang.NullPointerException: Cannot invoke "java.io.File.isFile()" because "privateKey" is null
+$ ss -ltn | grep -E '18206|19207'   -> nothing bound
+```
+**Verdict:** fails closed, which is the important half, but with no `PRV-` code, no named property
+and no guidance — `encryptedWith` dereferences the key before checking it. An operator debugging
+this sees a Java stack trace where every other configuration error in this node produces a sentence.
+Same root cause as SEC-059, opposite symptom; one fix closes both.
+
+### SEC-061 — a server node cannot be given a `SecurityPolicy` — **HIGH**
+
+```
+$ bin/pravaha-server ... --pravaha.security.policy=com.ash.messaging.pravaha.security.SecurityPolicy$1
+Caused by: PravahaException: PRV-7002  pravaha.security.policy is 'com.ash...SecurityPolicy$1', which
+is not a policy this node knows. Use 'permissive' or 'authenticated', or implement SecurityPolicy for
+rules of your own.
+
+$ sed -n '281,295p' PravahaNode.java
+    return switch (configured.toLowerCase(Locale.ROOT)) {
+        case "permissive" -> SecurityPolicy.PERMISSIVE;
+        case "authenticated", "authenticated-only" -> new AuthenticatedOnlyPolicy();
+        default -> throw new PravahaException(...);
+    };
+
+$ grep -rn "@Bean" pravaha-server/.../PravahaServerApplication.java
+(three beans: pravahaEngine, pravahaAuthentication, pravahaLifecycle — none of them a SecurityPolicy,
+ and PravahaNode's constructor takes no SecurityPolicy)
+```
+**Verdict:** `bin/pravaha-server` can run exactly two policies, `PERMISSIVE` and
+`AuthenticatedOnlyPolicy`, and **neither denies any authenticated principal anything.** There is no
+property that names a class, no bean an operator can contribute, no `ObjectProvider<SecurityPolicy>`.
+The error message above ends "or implement SecurityPolicy for rules of your own", and
+`docs/SECURITY.md`'s "Setting it up" shows `.authorizedBy(myPolicy, myAuditSink)` — both describe the
+**embedded** path only. An operator who follows either instruction on a server has nowhere to put the
+result.
+
+Why HIGH rather than a documentation nit: it is the ceiling on what this node can enforce.
+Requirement 3 ("users receive only the data they are authorized for") is not merely unimplemented on
+HTTP (SEC-028) — on a server node it is **unachievable by configuration on either surface**, because
+no configurable policy ever returns a deny or a row filter for an authenticated caller. Every
+per-tenant, row-filtered or entitlement-based deployment this engine advertises requires code the
+server has no seam for. It also means SEC-034's "the operator can override `mayAdminister`" is not
+an available remedy for a server deployment.
+
+### SEC-062 — `POST /api/v1/streams` never reaches the engine — **MEDIUM**
+
+```
+$ curl -X POST -H 'Authorization: Bearer <carol>' -d '{"name":"carol_injected","schema":"a:STRING,b:INT64"}' \
+       http://127.0.0.1:18207/api/v1/streams
+HTTP 201  {"name":"carol_injected","version":1,"fieldCount":2,...}
+$ curl -H 'Authorization: Bearer <carol>' http://127.0.0.1:18207/api/v1/streams
+['payroll', 'carol_injected']
+
+$ bin/pravaha register --name ci_view --sql-file <<< 'SELECT a, b FROM carol_injected' \
+      --url grpc://127.0.0.1:19208 --token <carol>
+PRV-1041  PRV-2002  Object 'carol_injected' not found. Known streams: [payroll]
+```
+**Verdict:** `StreamController.register` writes into `StreamCatalog`; `PravahaNode.start` copies
+`streams.all()` into the `QueryRegistry` **once**, at startup. A stream registered afterwards over
+HTTP is visible on `GET /api/v1/streams` and invisible to every query, and is lost on restart. The
+API reports a success that changed nothing.
+
+Security-relevant because it is an unauthenticated-by-policy write (SEC-028) into the surface an
+operator, the console and the OpenAPI-driven clients read: any token holder can inject arbitrary
+stream names and schemas into the node's self-description. It also *bounds* SEC-028 — the write is
+not an engine mutation. Primarily a functional defect; flagged here because it changes SEC-028's
+severity and belongs to whoever owns the HTTP API.
+
+### SEC-063 — the shipped client cannot present a TLS trust anchor — **MEDIUM**
+
+```
+$ bin/pravaha queries --url grpc+tls://localhost:19206 --token <valid>
+PRV-1041  io exception
+Channel Pipeline: [ProtocolNegotiators$ClientTlsHandler#0, WriteBufferingAndExceptionHandler#0, ...]
+
+$ grep -rn "trustedCertificates|--tls|tls-ca" pravaha-cli/src/main/java/  -> 0 hits
+$ sed -n '142,145p' sdk/pravaha-sdk-java-flight/.../PravahaFlightClient.java
+    Location location = options.endpoint().tls() ? Location.forGrpcTls(...) : Location.forGrpcInsecure(...);
+    FlightClient transport = FlightClient.builder(allocator, location).build();       // system trust store only
+```
+**Verdict:** `ClientOptions` understands `grpc+tls://` and refuses to send a token over plaintext
+without `allowInsecureToken`, which is good — and neither it nor the CLI has any way to supply a CA
+or a certificate, so the client trusts only the JVM's default store. A node with a private-CA or
+self-signed certificate — the normal case for an internal deployment, and the case SEC-047's own
+repro uses — cannot be reached by `bin/pravaha` at all, and the failure is an unexplained
+`io exception` with a netty pipeline dump rather than "the server's certificate is not trusted".
+My probe reaches the same node because it calls `FlightClient.builder(...).trustedCertificates(...)`,
+which the SDK does not expose. The practical effect is that turning TLS on breaks the shipped CLI,
+which is the pressure that turns it back off — the same failure mode SEC-047 was filed about, one
+layer out.
+
+---
+
+## Re-QA summary
+
+| original FAIL | verdict |
+|---|---|
+| SEC-047 (TLS unusable) | **VERIFIED-FIXED** |
+| SEC-007 / SEC-008 part 1 (`policy=authenticated` cannot start) | **VERIFIED-FIXED** |
+| SEC-033 (anonymous `LIST`) | **VERIFIED-FIXED** |
+| SEC-034 (`DROP`/`PAUSE`/`RESUME` unauthorized) | **PARTIALLY-FIXED** |
+| SEC-021 (401 body not an `ApiError`) | **PARTIALLY-FIXED** |
+| SEC-008 part 2 / SEC-028 (HTTP ignores the policy) | **PARTIALLY-FIXED** (anonymous case closed; principal-blind HTTP unchanged) |
+| SEC-043 (`LIST` leaks SQL text) | **STILL-FAILING** |
+| SEC-057 (read-time authorization by name) | **STILL-FAILING** |
+
+3 verified fixed, 3 partially fixed, 2 still failing. 0 regressions. 6 new defects.
+
+### Everything open, re-ranked by real-world exposure
+
+| # | Severity | Exposure |
+|---|---|---|
+| SEC-043 | **CRITICAL** | A principal denied a stream still receives the full SQL of queries over it, literals included. The `LIST` filter keys on a client-chosen view name, so it hides only queries whose names happen to match the policy's rule. Verbatim reproduction of the original leak. |
+| SEC-034 | **HIGH** | `mayAdminister` defaults to `mayRead`: read access is destroy access. A row-filtered principal dropped a view whole; on `policy=authenticated` — the only closed configuration a server can be given — every token holder can drop every other's continuous query, state and all. No ownership test exists anywhere. |
+| SEC-061 | **HIGH** | A server node can run only `PERMISSIVE` or `AuthenticatedOnlyPolicy`, neither of which denies an authenticated caller anything. Per-tenant rules and row filters are unreachable by configuration, on both surfaces. The ceiling on everything above. |
+| SEC-057 | **HIGH** | Read-time authorization sees a client-chosen label, not the query's sources. A view derived from a restricted stream is readable by a principal denied that stream. The root cause SEC-043 and SEC-034's deny both inherit. |
+| SEC-058 | **HIGH** | One request for a name that does not exist returns every view name on the node, to a principal the `LIST` filter hides them from — on `getFlightInfo`, `register`, `drop`, `pause`, `resume` and `subscribe`. |
+| SEC-059 | **HIGH** | `tls.key` without `tls.certificate` starts a node that serves bearer tokens in cleartext, warning only what every plaintext node warns. Half a TLS pair is not an error. |
+| SEC-028 / SEC-008 p2 | **HIGH** *(today: MEDIUM in practice)* | No HTTP controller reads the principal. Any valid token lists every stream schema, plans arbitrary SQL and registers streams. Bounded today because HTTP serves no rows and its writes never reach the engine (SEC-062) — and unbounded the moment SEC-061 is fixed. |
+| SEC-063 | **MEDIUM** | The shipped CLI/SDK cannot supply a TLS trust anchor, so a private-CA node is unreachable by `bin/pravaha`; the pressure is to turn TLS back off. |
+| SEC-062 | **MEDIUM** | `POST /api/v1/streams` returns 201 and changes nothing the engine uses; any token holder can inject phantom streams into the node's self-description. |
+| SEC-021 | **MEDIUM** | The 401 body is `ApiError` **plus `status`**. Still two shapes; a default Jackson mapper still fails on it, on the response a misconfigured deployment returns most. Content-Type still ISO-8859-1. |
+| SEC-060 | **LOW** | `tls.certificate` without `tls.key` refuses the start with a raw NPE instead of a `PRV-` message. |
+
+### On whether the fixes address causes
+
+Three do. TLS was a missing dependency and is now a working transport, proved with rows on the wire.
+The `authorizedBy`/`hosting` ordering was a wiring bug and is fixed with a comment explaining why the
+order is not stylistic. The `policy=authenticated` + `authentication=none` refusal is a genuine
+guard, and I could not get round it in eleven tries.
+
+Two do not. **`LIST` filtering by view name treats the symptom**: the original evidence was a payroll
+query's SQL reaching a principal denied payroll, and that exact evidence still reproduces — the
+filter hides `payroll_view` because the string matches and discloses `secret_pay`, which reads the
+same stream, because it does not. Worse, it is a fix that *looks* right in the obvious test, which
+makes it the kind that stops being re-examined. The same applies to `requireAdministrable`: the hook
+is correct and the default it inherits answers a different question. Both are downstream of SEC-057,
+which is unfixed, and neither can be made correct until `mayRead` is given the lineage the registry
+already computes and discards.
+
+**The 401 body was fixed by adding fields to a hand-built string** rather than by serialising the
+record, so the extra `status` field — the specific thing the defect named — survived the fix.
+
+### What this pass could not cover
+
+* **A deployment with real rules on a real node.** SEC-061 makes it impossible: the rule-bearing
+  cases still run against `QaPolicy` in the QA harness on the released jars. `AuthenticatedOnlyPolicy`
+  is now testable on a real node and was.
+* **Token rotation, expiry, revocation** — still no `TokenVerifier` in the repository that has them.
+* **Concurrency around authorization** — a revocation during an open subscription, a `drop` racing a
+  `register`. Still not covered, and `mayAdminister` has now added a second decision point on the
+  same objects, so this is more worth a pass of its own than it was.
+* **The Python SDK and the console as clients**, and **TLS against a publicly-trusted certificate**
+  (SEC-063 means the shipped CLI can only be exercised that way).

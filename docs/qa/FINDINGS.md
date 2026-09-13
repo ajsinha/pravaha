@@ -110,3 +110,62 @@ inside this week's rewrite, and `docs.pravaha.io` being NXDOMAIN while a test as
 Two non-documentation bugs the documentation agent found on the way, both **OPEN**:
 `ErrorCode.category()` throws for 8xxx and 9xxx codes from inside `ApiExceptionHandler`; and three
 documents tell operators to prune checkpoints by hand when `PeriodicCheckpointer` already does it.
+
+---
+
+# Round 2 — verification, and what it cost
+
+Four of the five re-QA agents have reported. **Of 62 findings re-tested: 8 verified fixed, 11
+partially fixed, 43 still failing — and 38 new defects found.** The new ones outnumber the ones
+closed, which is the honest measure of how thin round 1's coverage was.
+
+## The new blocker
+
+**Q-16 (BLOCKER) — windowing corrupts itself above ~210,000 rows.** It could not be wrong before,
+because it never emitted anything. It emits now, and past roughly 210k rows an
+`IndexOutOfBoundsException` appears with a **wrapped signed-32-bit offset** into the off-heap arena:
+`Range [-1897170280, …)`. At 230k rows ingest froze at 149,388 and the view returned **13 windows
+instead of 19, with no error at all** and the query still reporting `RUNNING`.
+`advanceWatermarkQuietly` swallows the one WARN, and the watermark clock dies — the catch produces
+exactly the silent stop its own comment warns about. Independent of window count, so it is row
+volume, not window bookkeeping.
+
+## Fixes that were incomplete, and why
+
+| | |
+|---|---|
+| **COUNT(col)** | Fixed in `GlobalAggregate` only. `KeyedAggregate` and `WindowedAggregate` still count nulls, each emitting a row whose COUNT contradicts its own SUM. The commit said the neighbouring branches "had the check all along" — true of *all three* operators, and the fix went into one. |
+| **Float aggregates** | The refusal is solid and survives eleven rewrites. But it was one type family away from the real hole: SUM/MIN/MAX/AVG over **INT8/INT16/INT32** die at runtime with a leaked internal schema name. |
+| **ROUND** | `floor(abs(x)+0.5)` is the implementation with the known half-ulp defect. `ROUND(0.49999999999999994)` returns 1 where 0 is correct. `BigDecimal.setScale(0, HALF_UP)` — named in the original report — has neither problem. A symptom fix. |
+| **Shared second name** | Journalled and listed, still not resolvable at the time of the pass. Since fixed at the layer that actually resolves names (`ViewCatalog.schemas()` re-keying), pending re-verification. |
+| **Checkpoint directories** | The traversal fix was real; the sanitiser it used was many-to-one, so `a.b` and `a_b` shared a directory and pruned each other. Since replaced with an injective encoding, pending re-verification. |
+| **LIST filtering** | Filters on the *view name a client chose*, so a restricted stream registered under an innocuous name still leaks its SQL to a denied principal. The original evidence string still reaches the original principal. Symptom fix. |
+| **`mayAdminister`** | Defaults to `mayRead`, so read access is destroy access. Under `AuthenticatedOnlyPolicy` — the only closed configuration a server can be given — every token holder can drop every other's query. The owning principal is recorded and never consulted. |
+
+## New findings worth naming here
+
+- **A server node cannot be given a custom `SecurityPolicy` at all** — only `permissive` or
+  `authenticated`, neither of which ever denies an authenticated caller anything. So "the operator
+  can override the default" is not an available remedy, and the row-filter machinery is unreachable
+  from configuration.
+- **The LIST filter is defeated by one error message**: `PRV-2002`/`PRV-8002` enumerate every view.
+- **Silent plaintext downgrade**: TLS key set without certificate starts in plaintext; the mirror
+  case throws a raw NPE. The pair is never checked as a pair.
+- **No shipped client can use TLS**: the netty fix went into `pravaha-server` only — the module being
+  tested, not the module that was wrong. The CLI and SDK have none of it.
+- **Every idle query burned ~9% of a core** (9 queries = 92%), lane threads spinning in a strategy
+  the config could not change. *Fixed and measured at 0% since.*
+- **A drop the client is told failed had already destroyed the computation**, was not journalled, and
+  came back on restart. Three parties, three beliefs. *Fixed since.*
+- **Two documented watermark keys, one inert** — the remediation added a working key one level down
+  from the documented one and documented neither, which an agent called out as papering over.
+- **`pravaha run` still prints `ok 9 in, 0 out`** for a windowed query that emitted nothing.
+- **Narrow-type and temporal literals** throw raw `ClassCastException`; a `TIMESTAMP` comparison
+  throws an `AssertionError` that kills a Flight worker thread.
+
+## The process failure, recorded because it changed the results
+
+I rebuilt the tree **while the verification pass was running**, after saying I would not. Two agents
+detected it independently — one noticed checkpoint directories acquiring a digest suffix mid-run —
+and had to tag every verdict `[handed-over]` or `[in-progress]`. Some verdicts are therefore about a
+build that no longer exists. Rule 1 of `TEST_PLAN.md` exists because of this.

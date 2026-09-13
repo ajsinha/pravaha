@@ -980,3 +980,710 @@ bounded-join path, since no reader I could construct blocked long enough to reac
 concurrent registration of the same query from two clients at once, which is where the
 fingerprint-sharing path in `QueryRegistry.register` would be raced — it is `synchronized`, so I
 judged it lower value than the defects above and did not spend the time.
+
+---
+
+# Re-QA 2026-09-12 (verification pass)
+
+Executed against the rebuilt artifacts, HTTP 18100 / Flight 19100, Java 21.0.12. No production code
+was changed.
+
+**What I tested, and a warning about it.** The app jar under test was packaged at 21:37. The working
+tree has moved past it: `git status` at 22:16 showed uncommitted edits to `StreamSchema`,
+`ViewCatalog`, `QueryRegistry`, `RegisteredQuery`, `QueryExecution` and a new
+`EngineHealthIndicator.java`. Two of my verdicts below (INGEST-053, DEFECT-16) turn on a method,
+`StreamSchema.renamedTo`, that **exists in the tree and not in the shipped jar** — so on the artifact
+I was told to use, half of the DEFECT-5 fix is absent. Every verdict here is about the artifact.
+
+New drivers, both built only from shipped classes:
+
+* **`probe2.sh`** — the SDK client with concurrency added: N reader threads, each on its own Flight
+  connection, scanning a view in a loop while a feed ingests, with per-scan latency and a rowsIn
+  time series. It exists because the one combination the original pass could never run was *ingest
+  and serving together at scale*.
+* **`h2.sh`** — in-process on the shipped server classes, in package
+  `com.ash.messaging.pravaha.server.ingest` so it can reach three things no shipped surface exposes:
+  `SourceFeed.describe()`, `IngestPump`'s backpressure counters, and `Retention` (the SDK's
+  `register` has no such parameter, so every Flight registration silently takes the 24 h default).
+
+**Keying.** Every DEFECT-1 case below keys the view on ordinal 0, `id`, which is unique in every file
+used, so `view size == rowsIn` or rows were lost. This is the trap the remediation's own commit
+message records falling into: a view keyed on a 500-value column made 200 000 lost rows look like a
+correct 500.
+
+---
+
+## Verdicts on the thirteen original FAILs
+
+| Case | Verdict |
+|---|---|
+| INGEST-002 | **VERIFIED-FIXED** |
+| INGEST-004 | **VERIFIED-FIXED** |
+| INGEST-007 | **STILL-FAILING** |
+| INGEST-016 | **STILL-FAILING** |
+| INGEST-020 | **STILL-FAILING** |
+| INGEST-021 | **STILL-FAILING** |
+| INGEST-022 | **STILL-FAILING** |
+| INGEST-024 | **STILL-FAILING** |
+| INGEST-026 | **STILL-FAILING** |
+| INGEST-027 | **STILL-FAILING** |
+| INGEST-029 | **PARTIALLY-FIXED** — the loss is gone; two new failures took its place |
+| INGEST-034 | **STILL-FAILING** |
+| INGEST-037 | **STILL-FAILING** |
+
+---
+
+### INGEST-002 — VERIFIED-FIXED
+
+```
+$ probe2.sh register t1 "SELECT id, usr, amount FROM txn WHERE id > 0" 0  sleep 1200  rows t1  count t1
+register t1 -> RUNNING fp=f2eb2bbc309d  rowsIn t1 = 20  viewrows t1 = 20
+                                        rowsIn t2 = 20  viewrows t2 = 19     (WHERE id > 1)
+                                        rowsIn t3 = 20  viewrows t3 = 18     (WHERE id > 2)
+                                        rowsIn t4 = 20  viewrows t4 = 17
+                                        rowsIn t5 = 20  viewrows t5 = 16
+```
+
+**Verdict:** Fixed. Five registrations, five distinct fingerprints, 20 rows in each time and a view
+holding exactly what the predicate selects. The original failure was 11 of 20 with the other 9 never
+arriving. Not vacuous: the five predicates make the expected view size 20, 19, 18, 17, 16, and all
+five match — a view filled by luck would not walk down in step with the predicate.
+
+### INGEST-004 — VERIFIED-FIXED
+
+```
+$ probe2.sh register tl "SELECT id, usr, amount FROM tail100" 0  sleep 1500  rows tl  count tl
+rowsIn tl = 100 ; viewrows tl = 100
+```
+
+**Verdict:** 100 of 100, against 8 of 100 before.
+
+### INGEST-007, INGEST-037 — STILL-FAILING (DEFECT-6 unchanged)
+
+```
+$ probe2.sh register v_ragged ... v_wide ... v_badtype ... v_nullcol ... v_dirpath ... v_mm ...
+            v_tm ... v_unb ... v_ctl ...  sleep 3000  list
+  v_ragged   RUNNING  d9683c2a2421  rowsIn=0      # feed killed by a malformed line
+  v_wide     RUNNING  218bf54a2409  rowsIn=0
+  v_badtype  RUNNING  b7037bddba06  rowsIn=0
+  v_nullcol  RUNNING  c03de7a236e8  rowsIn=0
+  v_unb      RUNNING  9c8689d4e523  rowsIn=0      # nothing bound at all
+  v_dirpath  RUNNING  3af572e078ba  rowsIn=0
+  v_mm       RUNNING  fd7cf4110e4b  rowsIn=0
+  v_tm       RUNNING  7dc7c1c8ce90  rowsIn=0
+  v_ctl      RUNNING  8dcec656ef1c  rowsIn=20     # control, same server, same moment
+
+$ curl -s http://localhost:18100/api/v1/status
+{"instanceId":"qa-ingest","version":"0.1.0-SNAPSHOT","engineState":"RUNNING",
+ "uptimeSeconds":210,"registeredQueries":24,"plugins":[]}
+$ curl -s http://localhost:18100/actuator/health
+{"status":"UP","groups":["liveness","readiness"]}
+$ bin/pravaha queries
+NAME       STATE    FINGERPRINT   ROWS IN
+v_ragged   RUNNING  d9683c2a2421  0
+v_unb      RUNNING  9c8689d4e523  0
+v_ctl      RUNNING  8dcec656ef1c  20
+
+$ grep -icE 'ragged|badtype|dirpath|feed.*stopped|PRV-5092|abort' logs/main2.log
+2                      # both are the startup "streams declared"/"sources bound" lines
+$ for p in /api/v1/queries /api/v1/health; do curl -o/dev/null -w '%{http_code}\n' ...; done
+404
+404
+```
+
+**Verdict:** **STILL-FAILING, and this is now the most consequential of the unfixed items**, because
+the failures it hides have multiplied (see DEFECT-13). `PumpingFeed`'s fix is real and internal:
+`publishPeriodically` is inside the try and the catch takes `Throwable`, so the feed now *records*
+why it died. Nothing reads the recording. `describe()` still reaches no Flight action, no REST
+endpoint, no CLI column and no log line. Seven dead feeds and one unbound stream printed eight
+identical lines, and `/actuator/health` said `UP` while they did.
+
+**What an operator would actually see:** `ROWS IN` stuck at 0 in `pravaha queries`, `engineState:
+RUNNING` and `status: UP` from HTTP, and a server log containing no error, warning or exception
+about any of it. To tell a dead feed from a quiet source they would have to know the row count of
+the source file and compare it by hand, per query, repeatedly — and that only works for a source
+whose length is knowable, which a stream is not.
+
+### INGEST-016, INGEST-020, INGEST-021, INGEST-022, INGEST-024, INGEST-026, INGEST-027 — STILL-FAILING
+
+Confirmed one at a time through `h2.sh`, which is the only way to read the reason:
+
+```
+--- ragged (line 2 has 2 fields) ---
+FINAL rowsIn=0 viewRows=0 state=RUNNING
+describe(): reading ragged (1 partition) -- stopped: PRV-5092  the source feed for 'v' stopped:
+  java.lang.UnsupportedOperationException: a plugin aborted a row mid-write ... Report this ...
+feed thread alive: NONE
+--- wide (line 2 has 4 fields) ---      identical
+--- badtype ('notanumber' in an INT64) ---   identical
+--- nullcol (empty field in NOT NULL) ---    identical
+--- mismatch (3-col catalog vs 4-col plugin) ---  identical
+--- typemix (INT64 catalog vs STRING plugin) ---  identical
+--- dirpath (a directory as path) ---
+describe(): reading dirpath (1 partition) -- stopped: PRV-5040  read failed at line 0
+feed thread alive: NONE
+```
+
+**Verdict:** Unchanged in every respect. One malformed line still ends ingestion for the whole query;
+the rows read before it are still lost (`rowsIn=0`, not 1); `DelegatingRowWriter.abort()` still
+throws `UnsupportedOperationException` and still replaces the real diagnostic with an internal note
+telling the operator to "Report this"; nothing still validates the catalog schema against the
+plugin's; and `Files.isReadable` still accepts a directory. DEFECT-2, DEFECT-3, DEFECT-4 and
+DEFECT-8 all stand exactly as filed.
+
+Worth recording that the new `event.time` handling in `FilesystemSourcePlugin.open` rebuilds the
+schema through `StreamSchema.builder`, and I checked specifically that it does not change what the
+plugin decodes with: nullability rides on the `PravahaType` rather than on a builder flag, so
+`usr:STRING?` survives the rebuild. INGEST-025's positive control still behaves.
+
+### INGEST-034 — STILL-FAILING (DEFECT-7 unchanged)
+
+```
+$ probe2.sh register v_feedfile ... register v_noplug ...
+register v_feedfile -> ERROR PRV-5090  no source plugin named 'feedfile' is on the classpath,
+  so stream 'feedfile' cannot be fed. Available: [filesystem]
+register v_noplug   -> ERROR PRV-5090  no source plugin named 'kafka' ... Available: [filesystem]
+$ unzip -l ...app.jar | grep -c 'BOOT-INF/lib/pravaha-plugin'
+1
+```
+
+**Verdict:** One plugin jar ships. The documentation still advertises four.
+
+### INGEST-029 — PARTIALLY-FIXED
+
+```
+$ probe2.sh throughput r41 "SELECT id, usr, amount FROM big" 0 500000
+THRU r41 rowsIn=500000 viewSize=500000 expected=500000 in 6.39s
+$ grep -c ConcurrentModification logs/main2*.log
+0   0
+```
+
+**Verdict:** The symptom this case was filed for is **gone**: 500 000 rows in, 500 000 rows visible,
+keyed on a unique column, no `ConcurrentModificationException` anywhere in two full server sessions.
+The original reading was 5 123 of 500 000.
+
+It is *partially* fixed because the failure mode did not disappear — it moved. Two things now
+produce the same user-visible outcome, a query reporting `RUNNING` over a view holding a fraction of
+the data: DEFECT-13 (the lane thread dies where the feed used to) and DEFECT-14 (readers starve the
+feed of the new monitor). Both are below.
+
+---
+
+## The fix, probed adversarially
+
+### INGEST-041 — PASS
+
+```
+$ probe2.sh throughput r41 "SELECT id, usr, amount FROM big" 0 500000
+THRU r41 rowsIn=500000 viewSize=500000 expected=500000 in 6.39s = 78234 rows/s
+```
+
+**Verdict:** The plain case is clean. Non-vacuous: the key is `id`, unique across all 500 000 rows,
+so the view cannot collapse; and the same measurement returns a mismatch under INGEST-042.
+
+### INGEST-042 — FAIL (new: DEFECT-14)
+
+```
+$ probe2.sh race r42 "SELECT id, usr, amount FROM big" 0 8 500000
+RACE r42 readers=8 rowsIn=240379 viewSize=268984 expected=500000 *** MISMATCH ***
+  scans=372 readerErrors=0 maxScanLatency=1428.3ms
+```
+
+`rowsIn` had not moved for three seconds when the harness gave up; it resumed the moment the readers
+stopped, which is why the later view count is *higher* than the last `rowsIn` sample. So this is not
+loss. It is a stall, and the measurement below shows its shape:
+
+```
+$ probe2.sh stall r47b "SELECT id, usr, amount FROM big" 0 8 0 30000 500000 180000
+  t=  258ms rowsIn=  46784  rate= 177212/s  readers=ON
+  t=  766ms rowsIn= 311806  rate= 520672/s  readers=ON
+  t= 1274ms rowsIn= 313854  rate=   3556/s  readers=ON
+  t= 2356ms rowsIn= 314878  rate=      0/s  readers=ON
+  t= 3482ms rowsIn= 314878  rate=      0/s  readers=ON
+  ... twenty-eight seconds between 0 and 4 000 rows/s ...
+  t=29615ms rowsIn= 368455  rate=   2016/s  readers=ON
+  t=30123ms rowsIn= 369479  rate=   1973/s  readers=off
+  t=31146ms rowsIn= 396888  rate=  43600/s  readers=off
+  t=36681ms rowsIn= 500000  rate=  13936/s  readers=off
+STALL r47b final rowsIn=500000 viewSize=500000 expected=500000 OK
+  scans=427 readerErrors=0 maxScanLatency=965.4ms
+```
+
+**Verdict:** **FAIL, new defect, and the direct cost of the fix.** No rows are lost — given enough
+time the count is exact — but eight concurrent readers take ingestion from ~520 000 rows/s to
+~2 000 rows/s, and hold it there for as long as they keep reading. That is the second failure mode
+the brief asked to watch for, and it is present in full.
+
+Cause, from three thread dumps of the running server taken during the stall:
+
+```
+$ jcmd <pid> Thread.print          # dumps 1 and 2 of 3
+"pravaha-feed-r48" ... java.lang.Thread.State: BLOCKED (on object monitor)
+	at com.ash.messaging.pravaha.serving.ServedView.commit(ServedView.java:210)
+	- waiting to lock <0x000000044cb6a1b8> (a ...ServedView)
+	at com.ash.messaging.pravaha.server.ingest.PumpingFeed.publishPeriodically(PumpingFeed.java:164)
+
+"flight-server-default-executor-0" ... java.lang.Thread.State: RUNNABLE
+	at java.util.LinkedHashMap.valuesToArray(LinkedHashMap.java:687)
+	at java.util.ArrayList.<init>(ArrayList.java:181)
+	at com.ash.messaging.pravaha.serving.ServedView.scan(ServedView.java:319)
+	- locked <0x000000044cb6a1b8> (a ...ServedView)
+```
+
+`ServedView.scan()` is `synchronized` and its body is `new ArrayList<>(visible.values())` — an O(n)
+copy of the committed map, taken under the view's monitor. At 300 000 rows that copy is long enough
+that eight readers looping hold the monitor almost continuously, and `commit` on the feed thread
+never gets in. Measured directly:
+
+```
+$ probe2.sh scanlat s1 10        # a filled 500 000-row view, no other load
+  scans=10 mean=346.7ms max=1014.7ms
+```
+
+A third of a second of monitor, per scan, per reader.
+
+The degradation is smooth and starts at one reader — end-to-end time for the same 500 000 rows:
+
+| readers | wall clock | effective rate |
+|---|---|---|
+| 0 | 2.1 s | ~230 000/s |
+| 1 | 6.4 s | ~78 000/s |
+| 2 | 7.0 s | ~71 000/s |
+| 8 | ~37 s | ~13 500/s, with sustained plateaus at ~2 000/s |
+
+Zero reader errors in any run, and no reader ever observed a count above the final total, so the
+atomicity the monitor was taken for does hold. This is the price, not a second race.
+
+### INGEST-043 — PASS
+
+```
+$ four concurrent registrations over `big`, four distinct plans, all serving, all keyed on id
+THRU q1 rowsIn=500000 viewSize=500000 expected=500000 in 7.52s
+THRU q2 rowsIn=500000 viewSize=500000 expected=500000 in 6.66s
+THRU q3 rowsIn=500000 viewSize=500000 expected=500000 in 7.35s
+THRU q4 rowsIn=500000 viewSize=499999 expected=499999 in 7.31s
+```
+
+**Verdict:** Four feeds, four lanes, four views, all exact. Non-vacuous: `q4` is
+`WHERE amount > 1`, which excludes exactly the one row with `amount = 1`, and its view holds 499 999
+— one fewer than the others, which is the right number rather than a round one.
+
+### INGEST-044 — PASS
+
+```
+$ probe2.sh register d1 "SELECT id, usr, amount FROM huge" 0  register d2 "SELECT id, amount FROM huge" 0
+           sleep 1500  rows d1  rows d2  drop d1  sleep 300  list
+rowsIn d1 = 679842 ; rowsIn d2 = 788458        # both demonstrably mid-file
+drop d1 -> ok in 31.4ms
+  d2  RUNNING  34cd1f6127cb  rowsIn=926481
+$ SELECT * FROM d1  ->  PRV-2002  Object 'd1' not found. Known streams: [s1, d2]
+$ rowsIn d2 = 1000209                          # still climbing afterwards
+```
+
+**Verdict:** A drop with two feeds mid-file over a two-million-row source: the dropped name stops
+answering immediately, the survivor is undisturbed and keeps climbing. The new `views.remove(name)`
+in `drop` does what it says. Non-vacuous — the 679 842 / 788 458 samples prove both feeds were
+actively pumping at the moment of the drop.
+
+### INGEST-045 — PASS
+
+```
+$ probe2.sh register p1 "SELECT id, usr, amount FROM big" 0  pause p1
+  sample 1: rowsIn p1 = 297423   viewrows p1 = 296468
+  sample 2: rowsIn p1 = 297423   viewrows p1 = 296468
+  sample 3: rowsIn p1 = 297423   viewrows p1 = 296468
+  sample 4: rowsIn p1 = 297423   viewrows p1 = 296468
+$ probe2.sh resume p1  waitstable p1 2000 60000  rows p1  count p1
+stable p1 rowsIn=500000 after 2708ms ; rowsIn = 500000 ; viewrows = 500000
+```
+
+**Verdict:** INGEST-008/009 repeated against a query that actually writes to its view, which is the
+combination the fix changed and the original pass had to avoid. Frozen at 297 423 for eight seconds,
+then exactly 500 000 — not more, so no replay; not less, so no gap. The 955-row difference between
+`rowsIn` and the view while paused is the uncommitted overlay, and it closes on resume.
+
+### INGEST-046 — FAIL (new: DEFECT-13)
+
+```
+$ probe2.sh stall r46b "SELECT id, usr, amount FROM big2" 0 0 0 0 990000 180000     # 990 000 rows, no readers
+STALL r46b final rowsIn=932782 viewSize=931136 expected=990000 *** MISMATCH ***
+
+$ probe2.sh list          # and eight seconds later, twice
+  r46b  RUNNING  526f9cf8c0f3  rowsIn=932782
+  r46c  RUNNING  7667fb0710ed  rowsIn=933155
+  r46b  RUNNING  526f9cf8c0f3  rowsIn=932782
+  r46c  RUNNING  7667fb0710ed  rowsIn=933155
+$ curl -s http://localhost:18100/api/v1/status
+{"engineState":"RUNNING", ...}
+$ grep -cE 'ERROR|Exception|arena' logs/main2-run1.log
+0
+$ jcmd <pid> Thread.print | grep -E '^"pravaha-(query|feed)'
+"pravaha-feed-r46b" ... cpu=575081.24ms elapsed=959.23s
+"pravaha-feed-r46c" ... cpu=451092.74ms elapsed=740.18s
+```
+
+**Verdict:** **FAIL, and this is the headline finding of the re-QA.** Ingestion stops dead at
+~932 000 rows, permanently, with no reader involved. Both queries report `RUNNING` for ever, the
+node reports `engineState: RUNNING`, and the server log contains not one error line. **There is no
+`pravaha-query-*` thread in the dump: the lane thread is gone.** The two feed threads are still
+alive and have burned 575 s and 451 s of CPU between them since their lanes died.
+
+The reason, from the in-process harness, which can call the method the server never calls:
+
+```
+$ h2.sh big2 ... "SELECT id, usr, amount FROM big2" 30000 forever 0
+FINAL rowsIn=932744 viewRows=931136 state=RUNNING evicted=0 commits=1436
+describe(): reading big2 (1 partition)
+  pump rowsPumped=932744 pauseCount=246 resumeCount=245 pausedNanos=28081675519 paused=true
+  lane metrics: [LaneMetrics[laneId=0, rowsIn=931208, rowsOut=930696, batches=10049,
+                 idleCycles=73042, rejectedOffers=0, inboxFill=1.0, exchangedIn=0]]
+  checkHealth() THREW: PRV-3010  lane 0 stopped after a failure:
+     PRV-3001  the projection's arena is full; raise arena.slab.size or reduce the batch size
+    caused by: PRV-3001 ...
+      at ...InterpretedPipeline$Builder.lambda$projector$9(InterpretedPipeline.java:704)
+      at ...runtime.lane.Lane.run(Lane.java:433)
+feed thread alive: pravaha-feed-v=true
+```
+
+`Lane.run` catches `Throwable`, records it in `Lane.failure` and sets `state = FAILED`. The thread
+ends. `QueryExecution.checkHealth()` would rethrow it. **Nothing in the server calls
+`checkHealth()`** — `grep -rn checkHealth --include=*.java` finds it in `pravaha-cli`'s
+`QueryRunner`, in `pravaha-it` tests, and nowhere in `pravaha-server`. So:
+
+* `RegisteredQuery.state()` stays `RUNNING`
+* `SourceFeed.describe()` says `reading big2 (1 partition)` — no failure, because the *feed* is fine
+* `rowsIn` freezes; the view holds whatever the lane had committed
+* the pump pauses at its high watermark (`inboxFill=1.0`) and never resumes, so the feed thread
+  spins on a full inbox for the life of the node, burning a core
+
+This is the exact shape of the original DEFECT-1 — a silently dead query reporting healthy — moved
+one thread across. The remediation hardened the feed thread against a throw and the lane thread is
+now the one that dies.
+
+**It is not a million-row edge case.** A windowed aggregate over 50 000 keys dies at a quarter of
+that (INGEST-055).
+
+`arena.slab.size`, which the error names as the remedy, appears in six error messages in
+`pravaha-runtime` and **nowhere else in the repository** — not in `application.yaml`, not as a
+`@Value`, not in `docs/`. The one instruction the engine gives the operator cannot be carried out.
+(**DEFECT-19**)
+
+### INGEST-047 — see INGEST-042. INGEST-048 — FAIL (contributing: DEFECT-15)
+
+```
+$ probe2.sh scanlat s1 10                      # 500 000-row view, otherwise idle
+  scans=10 mean=346.7ms max=1014.7ms
+$ probe2.sh scanlat s1 10                      # with a second feed ingesting big2 concurrently
+  scans=10 mean=397.1ms max=1096.2ms
+```
+
+**Verdict:** A scan of a 500 000-row view costs a third of a second on average and up to a second,
+all of it inside the view's monitor. That is the number behind DEFECT-14 from the reader's side.
+
+A second O(n)-under-the-lock cost was found in the same dumps:
+
+```
+"pravaha-feed-r48" ... java.lang.Thread.State: RUNNABLE
+	at com.ash.messaging.pravaha.serving.ServedView.evict(ServedView.java:370)
+	at com.ash.messaging.pravaha.serving.ServedView.commit(ServedView.java:232)
+	- locked <0x000000044cb6a1b8> (a ...ServedView)
+```
+
+`commit` calls `evict()` while holding the monitor, on every 20 ms publish tick. `evict()` returns
+immediately only when retention is `forever`; **the default is `Retention.DEFAULT`, 24 hours**, and
+the SDK's `register` has no retention parameter, so every query registered through Flight gets it.
+Under that default `evict()` iterates the entire `visible` map on every tick. Measured with the
+harness, same file, same query, retention the only difference:
+
+```
+### DEFAULT retention (24h)                    ### forever
+  + 1002ms rowsIn=  57391 rate= 57276/s          + 1008ms rowsIn=  23143 rate=  22959/s
+  + 5121ms rowsIn= 246121 rate= 28747/s          + 5459ms rowsIn= 580547 rate= 182989/s
+  + 9264ms rowsIn= 284009 rate=  9152/s          + 9564ms rowsIn= 932586 rate=       0/s (DEFECT-13)
+  +17900ms rowsIn= 344492 rate=  4335/s
+  +40546ms rowsIn= 474204 rate=  7211/s
+```
+
+Ingestion under the default retention decays to a fifth of its rate as the view grows, and the cost
+is paid with the monitor held, so it slows readers too. `evicted=0` in every run: the sweep found
+nothing to evict on any tick, all 1 400-plus of them. (**DEFECT-15**)
+
+### INGEST-060 — PASS (no deadlock; starvation instead)
+
+Four thread dumps taken during heavy ingest with eight readers, on both the server and the harness.
+Every blocked thread was `BLOCKED (on object monitor)` on `ServedView`, held by a thread that was
+`RUNNABLE` and making progress; no cycle, and every run eventually completed with exact counts. The
+commit message's reasoning about keeping `awaitFrontier` outside the lock holds up. What the
+arrangement produces instead is DEFECT-14.
+
+---
+
+## The other re-tests
+
+### INGEST-049 — FAIL
+
+Covered under INGEST-007/037 above. A dead feed reaches no shipped surface. The recording half of
+the `PumpingFeed` fix works and the reading half does not exist. Made materially worse by DEFECT-13,
+which is a dead *lane*: for that one, even `describe()` says nothing is wrong, because the feed
+genuinely is fine.
+
+### INGEST-053 — PARTIALLY-FIXED, and it introduced DEFECT-16
+
+Half one, the view name. **Not fixed in the shipped artifact:**
+
+```
+$ probe2.sh register v_a "SELECT id, usr, amount FROM txn" 0
+           register v_b "SELECT id, usr, amount FROM txn" 0
+           register v_c "SELECT id, usr, amount FROM txn" 0  sleep 2000  list
+  v_a  RUNNING  8dcec656ef1c  rowsIn=20
+  v_b  RUNNING  8dcec656ef1c  rowsIn=20
+  v_c  RUNNING  8dcec656ef1c  rowsIn=20
+  SELECT * FROM v_a ->  (20 rows total)
+  SELECT * FROM v_b ->  PRV-2002  Object 'v_b' not found. Known streams: [v_a]
+  SELECT * FROM v_c ->  PRV-2002  Object 'v_c' not found. Known streams: [v_a]
+```
+
+`QueryRegistry.register` does call `views.registerAs(name, existing.view())` — confirmed in the
+shipped bytecode:
+
+```
+$ javap -c -p ...pravaha-registry-0.1.0-SNAPSHOT/... QueryRegistry | grep registerAs
+ 335: invokevirtual  // Method ViewCatalog.registerAs:(Ljava/lang/String;L...ServedView;)L...ViewCatalog;
+```
+
+The break is one layer down. `ViewQuery` plans against `catalog.schemas().values()` — the values
+only, so the planner keys each table by the *schema's* name, and all three aliases carry the schema
+of `v_a`. The tree fixes this by renaming each schema to its catalogue key:
+
+```java
+views.forEach((name, view) -> schemas.put(name, view.schema().renamedTo(name)));   // in the tree
+```
+
+and the shipped jar does not have it:
+
+```
+$ javap -c -p ...pravaha-serving.../ViewCatalog | sed -n '/lambda$schemas$0/,/^$/p'
+   3: invokevirtual  // Method ServedView.schema:()L...StreamSchema;
+   6: invokeinterface // Method java/util/Map.put
+$ javap -p ...appjar/x/pravaha-api-0.1.0-SNAPSHOT/... StreamSchema | grep -i renamed
+(nothing)
+$ javap -p pravaha-api/target/pravaha-api-0.1.0-SNAPSHOT.jar ... | grep -i renamed
+  public com.ash.messaging.pravaha.api.data.StreamSchema renamedTo(java.lang.String);
+```
+
+The workspace `pravaha-api` jar is stamped 22:16 and the app jar was packaged at 21:37. So the fix
+is written and half-shipped. **Verdict against the artifact: STILL-FAILING.** Against the tree it
+is very likely fixed, and should be re-run on the next build.
+
+Half two, the journal. **VERIFIED-FIXED:**
+
+```
+$ cat state/journal.log
+   VPRVH  R  v_a  SELECT id, usr, amount FROM txn  0  anonymous  86400000
+   VPRVH  R  v_b  SELECT id, usr, amoun...                                 # the alias is journalled
+$ probe2.sh drop v_a  sleep 800  list
+  v_b  RUNNING  8dcec656ef1c  rowsIn=20
+  v_c  RUNNING  8dcec656ef1c  rowsIn=20
+$ stop.sh journal && start.sh journal
+registry recovered 2 of 2 queries from .../state/journal.log
+  v_b  RUNNING  8dcec656ef1c  rowsIn=20
+  v_c  RUNNING  8dcec656ef1c  rowsIn=20
+```
+
+The alias is journalled, the drop is journalled, and `recovered 2 of 2` is now the truth rather than
+a claim about a name that had vanished. This half is right.
+
+The adversarial extension found something new, though:
+
+```
+$ probe2.sh drop v_a                           # drop the FIRST name of three sharing one computation
+drop v_a -> ok in 260.3ms
+  SELECT * FROM v_a ->  PRV-4023  'v_a' is not a registered view; this server serves [v_b, v_c]
+  SELECT * FROM v_b ->  PRV-2002  Object 'v_b' not found. Known streams: [v_a]
+  SELECT * FROM v_c ->  PRV-2002  Object 'v_c' not found. Known streams: [v_a]
+```
+
+**The computation is alive, ingesting, reported RUNNING under two names, and unreadable under every
+name there is.** Two shipped surfaces contradict each other in consecutive lines: one says the
+server serves `v_b` and `v_c`, the other says only `v_a` exists. It clears on a restart, because the
+surviving name becomes the primary. This is DEFECT-16, and it is a direct consequence of shipping
+`views.remove(name)` in `drop` without the `renamedTo` half — the drop fix made the pre-existing
+alias defect strictly worse.
+
+### INGEST-054 — STILL-FAILING. See INGEST-034.
+
+### INGEST-055 — PASS on the mechanism, BLOCKED on the question
+
+The first time backpressure has been exercised at all. A consumer that is slow but survives:
+
+```
+$ h2.sh big ... "SELECT id, usr, amount FROM big" 12000 forever 0
+FINAL rowsIn=500000 viewRows=500000 state=RUNNING
+  pump rowsPumped=500000 pauseCount=45 resumeCount=45 pausedNanos=85589371 paused=false
+  lane metrics: [LaneMetrics[laneId=0, rowsIn=500000, rowsOut=500000, batches=17537,
+                 rejectedOffers=0, inboxFill=0.0]]
+  checkHealth(): healthy
+```
+
+**Verdict:** Backpressure works and loses nothing. 45 pauses and 45 resumes — balanced, so the
+edge-triggered hysteresis is behaving; `rejectedOffers=0`, so no row was ever refused and dropped;
+85 ms of pause in total; every one of the 500 000 rows arrives and is visible. Non-vacuous: the pump
+demonstrably *did* engage, 45 times, rather than the source simply never outrunning the consumer,
+which was the reason INGEST-030 could not conclude.
+
+The question the case was written for is still not answered, for a new reason. The genuinely slow
+consumer — a windowed aggregate over 50 000 keys — dies before the source finishes:
+
+```
+$ probe2.sh register bp <TUMBLE 600s over evbig, GROUP BY window, usr>  samples bp 8 2000
+  sample 0 t=0ms      rowsIn=4757
+  sample 1 t=2000ms   rowsIn=263768
+  sample 2..7         rowsIn=263768         # frozen, RUNNING, for the rest of the run
+
+$ h2.sh evbig ... <same query> 25000 forever 0 event.time=event_time lateness=PT1S watermarks=on
+FINAL rowsIn=263656 viewRows=1 state=RUNNING
+  pump rowsPumped=263656 pauseCount=152 resumeCount=151 pausedNanos=24640364125 paused=true
+  lane metrics: [... inboxFill=1.0 ...]
+  checkHealth() THREW: PRV-3010  lane 0 stopped after a failure:
+     PRV-3001  the projection's arena is full; raise arena.slab.size or reduce the batch size
+```
+
+**263 656 rows.** That is DEFECT-13 again, at a quarter of the row count, on the kind of query the
+engine exists to run. Note `pausedNanos` = 24.6 s of a 25 s run with `paused=true` at the end: the
+pump is not throttling a slow consumer, it is parked against a dead one, and it has no way to tell
+the difference. Steady-state backpressure against a consumer that is merely slow remains untested.
+
+### INGEST-056 — PASS (with DEFECT-18)
+
+Windowed ingestion works end to end from configuration. This is new and it is the feature the engine
+is named for.
+
+```
+$ probe2.sh register w1 "SELECT window_start, window_end, usr, SUM(amount) AS total
+                         FROM TABLE(TUMBLE(TABLE ev, DESCRIPTOR(event_time), INTERVAL '10' SECOND))
+                         GROUP BY window_start, window_end, usr" 0,1,2
+register w1 -> RUNNING fp=fc78e66138ac
+  w1  RUNNING  fc78e66138ac  rowsIn=60000
+
+$ probe2.sh sqln "SELECT * FROM w1" 40
+  1767225600000000000  1767225610000000000  u0  2000
+  1767225600000000000  1767225610000000000  u1  2000
+  ... 25 rows, five windows x five users, every total exactly 2000 ...
+$ probe2.sh sqln "SELECT * FROM w1 WHERE total <> 2000" 5
+  (0 rows total)
+```
+
+**Verdict:** Hand-checked and exact. `ev.csv` is 60 000 rows, 1 000 per second across 60 seconds,
+`amount = 1`, five users round-robin — so a 10-second window holds 10 000 rows, 2 000 per user, and
+every output row must read 2 000. All 25 do, and the `total <> 2000` probe returns nothing. The
+`pravaha.streams.ev.event-time` declaration reaches the plugin (`sources bound: [ev <-
+filesystem[event.time, path, schema]]` in the startup log) and rows are stamped with it. Non-vacuous
+by construction: with event time zero, which is what the original pass observed, no window in 2026
+would ever close and the view would hold nothing, which is precisely what SQL-039 recorded.
+
+Also confirmed: `COUNT(*)` per window is 5, so no user is double-counted across windows.
+
+**But there are five windows, not six.** The sixth — 1767225650–660, holding 10 000 of the 60 000
+rows — never closes. Sampled again after three minutes of a completely idle source with
+`pravaha.watermark.idle-after: 5s` configured:
+
+```
+$ bin/pravaha query --sql "SELECT window_start, COUNT(*) AS n FROM w1 GROUP BY window_start"
+window_start          n
+1767225600000000000   5
+1767225610000000000   5
+1767225620000000000   5
+1767225630000000000   5
+1767225640000000000   5
+5 rows
+```
+
+The idle timeout excludes an idle partition from the watermark minimum rather than advancing the
+watermark past it, so a source with one partition that has reached end of file leaves its last
+window open for ever. One sixth of the data is silently never emitted, with no indication anywhere.
+(**DEFECT-18**)
+
+### INGEST-057 — PASS
+
+```
+$ start.sh evbad          # pravaha.streams.evbad.event-time: no_such_column
+DIED after 9s
+Caused by: PRV-2002  stream 'evbad' declares 'no_such_column' as its event time and has no such
+  column. Its columns are [id, usr, amount, event_time].
+```
+
+**Verdict:** The negative for the new configuration key is exactly right: refused at startup, names
+the stream, names the bad column, lists the real ones. Non-vacuous — the same node starts cleanly
+when the column exists, which is INGEST-056.
+
+Incidental, and it cost me a restart: the schema grammar spells the type `TIMESTAMP`, not
+`TIMESTAMP_LTZ`, even though that is the `TypeName` every error and every internal API uses. The
+refusal lists the accepted spellings, so it is self-correcting, but the two names for one type are a
+trap for anyone reading the engine's own error messages back into a config file.
+
+### INGEST-058 — PASS on the refcount, FAIL on the outcome
+
+```
+$ jcmd <pid> Thread.print | grep -c '^"pravaha-feed'       # three names, one fingerprint
+1
+$ ls -l /proc/<pid>/fd | grep -c txn.csv
+1
+```
+
+One feed thread and one descriptor for three shared names: the sharing mechanism itself is
+unchanged and correct. The outcome after a drop is DEFECT-16 above.
+
+### INGEST-059 — PASS
+
+`recovered 2 of 2`, both recovered queries re-fed to 20 rows, view complete and not doubled. The new
+unwind-on-journal-failure path did not disturb it. The INGEST-040 caveat still stands: with no
+checkpoint directory, the file is re-read from line 1 on every restart.
+
+---
+
+## New defects found in this pass
+
+Continuing the original numbering.
+
+| # | Severity | Cases | Defect |
+|---|---|---|---|
+| 13 | **Blocker** | 046, 055 | **A lane thread that dies leaves a query reporting RUNNING for ever.** `Lane.run` catches `Throwable`, records it and exits; `QueryExecution.checkHealth()` would rethrow it and **nothing in `pravaha-server` calls it**. Observed twice: a plain projection dies at ~932 000 rows, a windowed aggregate over 50 000 keys at ~264 000, both with `PRV-3001 the projection's arena is full`. State stays `RUNNING`, `describe()` reports no failure (the feed really is healthy), `engineState` is `RUNNING`, the log is empty, and the orphaned feed thread spins on a full inbox burning a core — 575 s of CPU in 959 s of wall clock, measured. This is the original DEFECT-1's failure shape, one thread across. |
+| 14 | **Blocker** | 042, 047, 048 | **Concurrent readers starve ingestion of the new monitor.** `ServedView.scan()` copies the whole committed map under the view's monitor — 347 ms mean, 1 015 ms max on a 500 000-row view — and `commit` on the feed thread waits behind it. Eight readers take ingestion from ~520 000 rows/s to ~2 000 rows/s and hold it there; one reader costs 3x. Proven by thread dumps: feed `BLOCKED` at `ServedView.commit:210`, monitor held by a Flight executor inside `ServedView.scan:319`. No rows are lost — the fix is correct, and this is its price. |
+| 15 | High | 048 | **`evict()` runs a full O(view) sweep on every 20 ms commit, with the monitor held.** It short-circuits only for `Retention.forever()`; the default is 24 hours and the SDK's `register` has no retention parameter, so every Flight registration takes it. Ingest rate decays to a fifth as the view grows, and readers wait behind each sweep. `evicted=0` on all 1 400+ commits measured: the sweep never found anything. |
+| 16 | High | 053, 058 | **Dropping the first name of a shared computation makes it unreadable under every name.** `views.remove(name)` shipped; the `StreamSchema.renamedTo` half that makes an alias queryable did not. After `drop v_a`, `v_b` and `v_c` report RUNNING and ingest, one surface says "this server serves [v_b, v_c]" and the next says "Known streams: [v_a]". Clears only on restart. The fix exists in the working tree (`pravaha-api` jar stamped 22:16 vs the app jar's 21:37) and is not in the artifact. |
+| 17 | Medium | 045 | **A new `ConcurrentModificationException` in the watermark thread.** `QueryExecution.partitionHighWater` is a plain `LinkedHashMap`, iterated on the `pravaha-watermark` timer while registration puts into it. Caught and logged (`WARN could not advance the watermark`), so the clock survives one occurrence — but the watermark does not advance on that tick, and nothing counts how often it happens. Same class of bug as DEFECT-1, on a path the remediation newly switched on. |
+| 18 | Medium | 056 | **A bounded source never closes its last window.** `idle-after` excludes an idle partition from the watermark minimum rather than advancing past it, so an end-of-file source leaves its final window open for ever: 10 000 of 60 000 rows silently never emitted, still absent after three minutes with `idle-after: 5s`. There is no end-of-stream watermark. |
+| 19 | Medium | 046, 055 | **`arena.slab.size` is not a configuration key.** Six error messages in `pravaha-runtime` tell the operator to raise it, including the one that kills the lane in DEFECT-13. `grep -rn` finds it in those six strings and nowhere else — no `application.yaml` entry, no `@Value`, no mention in `docs/`. The only remedy the engine offers cannot be applied. |
+| 20 | Low | — | **`bin/pravaha` has no Java version guard.** With `JAVA_HOME` unset it takes whatever `java` is on `PATH`; on this machine that is JDK 25, and every invocation dies 10/10 with `ExceptionInInitializerError` → `UnsupportedOperationException at io.netty.buffer.EmptyByteBuf.memoryAddress`. With `JAVA_HOME` pointed at 21 it works 10/10. A two-line version check would turn an Arrow/netty stack trace into "Pravaha requires Java 21". |
+
+DEFECT-9 from the original pass is unchanged: `/api/v1/status` still reports the **stream** count in
+the `registeredQueries` field (24 streams declared, reported as 24 queries while 9 were registered),
+and `plugins` is still `[]`.
+
+---
+
+## Re-QA summary
+
+| Verdict | Count |
+|---|---|
+| VERIFIED-FIXED | 2 (002, 004) |
+| PARTIALLY-FIXED | 2 (029, 053) |
+| STILL-FAILING | 10 (007, 016, 020, 021, 022, 024, 026, 027, 034, 037) |
+| New cases PASS | 8 (041, 043, 044, 045, 054-confirm, 057, 059, 060) |
+| New cases FAIL | 5 (042, 046, 047, 048, 049) |
+| New cases mixed | 2 (055, 056 — pass with a defect) |
+| New defects | 8 (13-20) |
+
+**What I could not cover, and why.** Steady-state backpressure against a consumer that is slow
+rather than dead is still untested: the only genuinely slow consumer I could build — a windowed
+aggregate over 50 000 keys — dies of DEFECT-13 at 264 000 rows. The pause/resume mechanism itself is
+now verified (INGEST-055), which is more than the original pass could say. `IngestPump`'s
+`pauseCount`/`resumeCount`/`pausedNanos` are still exposed through no surface at all, so everything
+above came from a harness reaching into the JVM; the same is true of `Lane.failure()` and
+`QueryExecution.checkHealth()`, which is how DEFECT-13's cause was obtained and is exactly why
+DEFECT-13 is invisible in production. Multi-partition sources, plugins other than `filesystem`, and
+checkpoint/offset restore remain uncovered for the reasons given in the original pass. Finally: the
+working tree moved while I tested — `StreamSchema`, `ViewCatalog`, `QueryRegistry`,
+`RegisteredQuery`, `QueryExecution` all carry uncommitted edits, and there is a new untracked
+`EngineHealthIndicator.java` — so INGEST-053 and DEFECT-16 in particular should be re-run against
+the next build before anyone acts on them.

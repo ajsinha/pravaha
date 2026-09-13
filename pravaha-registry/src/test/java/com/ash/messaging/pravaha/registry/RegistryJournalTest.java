@@ -83,7 +83,7 @@ class RegistryJournalTest {
 
         try (QueryRegistry registry = registry(journal, SecurityPolicy.PERMISSIVE)) {
             registry.register(
-                    "sensitive",
+                    "sensitive_view",
                     "SELECT user_id, amount FROM txn WHERE user_id = ?",
                     List.of(0),
                     DANA,
@@ -107,15 +107,15 @@ class RegistryJournalTest {
 
         try (QueryRegistry first = registry(journal, SecurityPolicy.PERMISSIVE)) {
             first.register("by_user", "SELECT user_id, amount, status FROM txn", List.of(0), DANA);
-            first.register("all", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+            first.register("all_txn", "SELECT user_id, amount FROM txn", List.of(0), DANA);
         }
 
         try (QueryRegistry second = registry(journal, SecurityPolicy.PERMISSIVE)) {
             QueryRegistry.Recovery recovery = second.recover(RegistryJournalTest::lookUp);
 
             assertThat(recovery.complete()).isTrue();
-            assertThat(recovery.recovered()).containsExactly("by_user", "all");
-            assertThat(second.names()).contains("by_user", "all");
+            assertThat(recovery.recovered()).containsExactly("by_user", "all_txn");
+            assertThat(second.names()).contains("by_user", "all_txn");
         }
     }
 
@@ -302,7 +302,7 @@ class RegistryJournalTest {
         Path journal = directory.resolve("registry.journal");
 
         try (QueryRegistry first = registry(journal, SecurityPolicy.PERMISSIVE)) {
-            first.register("one", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+            first.register("one_view", "SELECT user_id, amount FROM txn", List.of(0), DANA);
             first.register("two", "SELECT user_id, status FROM txn", List.of(0), DANA);
         }
         // A crash during an append leaves a truncated tail. That is the expected shape of a crash,
@@ -313,14 +313,15 @@ class RegistryJournalTest {
         List<RegistryJournal.Entry> replayed = new RegistryJournal(journal).replay();
 
         assertThat(replayed).hasSize(1);
-        assertThat(replayed.get(0).name()).isEqualTo("one");
+        assertThat(replayed.get(0).name()).isEqualTo("one_view");
     }
 
     @Test
     void aRecordThisVersionCannotUnderstandIsRefusedRatherThanSkipped(@TempDir Path directory) throws Exception {
         Path journal = directory.resolve("registry.journal");
         new RegistryJournal(journal)
-                .recordRegistration("one", "SELECT user_id FROM txn", List.of(0), "dana", Retention.DEFAULT, List.of());
+                .recordRegistration(
+                        "one_view", "SELECT user_id FROM txn", List.of(0), "dana", Retention.DEFAULT, List.of());
         // A record of a kind this version does not know.
         byte[] payload = com.ash.messaging.pravaha.api.wire.ControlWire.encode(List.of("X", "something-new"));
         java.io.ByteArrayOutputStream framed = new java.io.ByteArrayOutputStream();

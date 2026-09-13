@@ -129,6 +129,17 @@
       pravaha-flight the same declaration is a downgrade against Arrow's own graph and the enforcer
       refuses it, correctly.
     -->
+    <!--
+      application.yaml has exposed /actuator/prometheus since it was written, and the endpoint
+      returned 404 because nothing provided the registry behind it. Configuration that advertises a
+      scrape target which does not exist is worse than none: a monitoring setup is built against it,
+      reports no data, and the absence looks like a quiet system.
+    -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+      <scope>runtime</scope>
+    </dependency>
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-transport-native-unix-common</artifactId>

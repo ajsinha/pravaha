@@ -94,7 +94,11 @@ public final class ViewCatalog {
     /** Every view's schema, for a client browsing the catalogue. */
     public Map<String, StreamSchema> schemas() {
         Map<String, StreamSchema> schemas = new LinkedHashMap<>();
-        views.forEach((name, view) -> schemas.put(name, view.schema()));
+        // Renamed to the key it is registered under, not the name the schema was built with. The
+        // planner keys tables by the schema's own name, so a view served under a second name handed
+        // over its original schema and the alias was simply invisible: registration acknowledged
+        // RUNNING and the read answered "Object not found. Known streams: [the first name]".
+        views.forEach((name, view) -> schemas.put(name, view.schema().renamedTo(name)));
         return schemas;
     }
 

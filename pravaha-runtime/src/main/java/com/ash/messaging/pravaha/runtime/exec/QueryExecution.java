@@ -634,9 +634,32 @@ public final class QueryExecution implements AutoCloseable {
         pipelines.forEach(pipeline -> pipeline.advanceWatermark(watermarkNanos));
     }
 
-    /** Waits until every lane has drained what it was given. */
+    /**
+     * Waits until every lane has drained what it was given, or until one of them dies.
+     *
+     * <p>Checking health while waiting, rather than waiting and then reporting a timeout, and the
+     * difference is the whole value of this method. A lane that has failed cannot drain, so
+     * quiescence never arrives and the caller waits out the entire timeout -- five minutes, for
+     * {@code pravaha run} -- and is then told the query "did not finish; the lane is still working
+     * or stuck". Meanwhile the real cause, an {@code ArithmeticException} from a division by zero or
+     * an overflow, sat in the lane's {@code failure} field the whole time, unread.
+     *
+     * <p>So: poll in short slices and rethrow the moment a lane reports a failure. A wrong query now
+     * fails in milliseconds, saying what was wrong with it.
+     */
     public boolean awaitQuiescent(Duration timeout) {
-        return lanes.awaitQuiescent(timeout);
+        long deadline = System.nanoTime() + timeout.toNanos();
+        Duration slice = Duration.ofMillis(50);
+        while (System.nanoTime() < deadline) {
+            checkHealth();
+            if (lanes.awaitQuiescent(slice)) {
+                // Once more after draining: the failure may have been the last thing a lane did.
+                checkHealth();
+                return true;
+            }
+        }
+        checkHealth();
+        return false;
     }
 
     /** Rethrows the first lane failure, if any lane died. */

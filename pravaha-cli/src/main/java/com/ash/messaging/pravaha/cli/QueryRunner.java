@@ -147,6 +147,12 @@ public final class QueryRunner {
                     // thread -- which is what emits the final windows of a stateful query.
                     execution.close();
                 }
+                // After close, because close is where each lane finishes its pipeline -- and a lane
+                // that dies in finish() dies after every earlier check has passed. Without this the
+                // command printed "ok  3 in, 1 out" and exited zero for a query that had thrown:
+                // two rows silently missing, a successful status, and the ArithmeticException that
+                // caused it never reaching the person who ran it.
+                execution.checkHealth();
                 rowsWritten = sink.write(collector.rows());
                 sink.flush();
             } finally {

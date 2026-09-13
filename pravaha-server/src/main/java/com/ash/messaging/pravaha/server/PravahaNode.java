@@ -369,6 +369,21 @@ public class PravahaNode implements SmartLifecycle {
         // closing, a join evicting, a view forgetting -- and the registry only arms it when asked.
         // Unasked, a windowed query ingested every row and emitted nothing for ever, and the
         // documentation assured operators the bounds were enforced.
+        // Validated here, where one bad value is one startup failure, rather than at registration
+        // where it is every query failing separately. `idle-after: 1h` is outside the tracker's
+        // bounds: the node started, logged the setting as in force, recovered 0 of 3 queries and
+        // reported itself healthy. A typo in one duration silently emptied the node.
+        try {
+            // Constructing one is the validation: the bounds live in the tracker and are enforced
+            // in its constructor, so checking them here by hand would be a second copy to drift.
+            new com.ash.messaging.pravaha.runtime.time.WatermarkTracker(watermarkIdleAfter.toNanos());
+        } catch (RuntimeException e) {
+            throw new PravahaException(
+                    SqlErrors.VALIDATION_FAILED,
+                    "pravaha.watermark.idle-after is " + watermarkIdleAfter + ", which this engine will not "
+                            + "accept: " + e.getMessage() + " Left as configured, every registration on this "
+                            + "node would fail and the node would look healthy.");
+        }
         registry.generatingWatermarks(watermarkIdleAfter, watermarkTick);
         log.info("watermarks: idle-after={}, tick={}", watermarkIdleAfter, watermarkTick);
 

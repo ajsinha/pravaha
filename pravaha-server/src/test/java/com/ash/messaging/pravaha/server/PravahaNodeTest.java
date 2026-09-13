@@ -53,6 +53,26 @@ class PravahaNodeTest {
         return catalog;
     }
 
+    /** A node with the wire protocol switched off: running, and reachable by no client. */
+    private static PravahaNode nodeWithoutFlight() {
+        return new PravahaNode(
+                catalog(),
+                new SourceBindingProperties(),
+                new StreamDeclarationProperties(),
+                openServer(),
+                null,
+                null,
+                java.time.Duration.ofSeconds(30),
+                java.time.Duration.ofSeconds(1),
+                false,
+                "127.0.0.1",
+                0,
+                persistence(""),
+                "SINGLE",
+                "single",
+                "no-flight-node");
+    }
+
     private static PravahaNode node(String journal) {
         // Port zero: the operating system picks, so tests do not fight over a fixed one.
         return new PravahaNode(
@@ -222,5 +242,30 @@ class PravahaNodeTest {
         PersistenceProperties persistence = new PersistenceProperties();
         persistence.getRegistry().setJournal(journal == null ? "" : journal);
         return persistence;
+    }
+
+    @Test
+    void aNodeNoClientCanReachIsNotHealthy() {
+        // There was no health indicator at all, so a node with Flight disabled -- unreachable by
+        // either SDK, the CLI or the console -- reported UP on health, liveness and readiness. An
+        // orchestrator would have kept it in rotation for ever. A check that is always UP is a
+        // monitoring system reporting confidently on nothing.
+        PravahaNode node = nodeWithoutFlight();
+        node.start();
+        try {
+            EngineHealthIndicator health = new EngineHealthIndicator(node);
+            assertThat(health.health().getStatus().getCode())
+                    .as("Flight is disabled in this node, so no client can reach it")
+                    .isEqualTo("DOWN");
+        } finally {
+            node.stop();
+        }
+    }
+
+    @Test
+    void aStoppedNodeIsNotHealthy() {
+        PravahaNode node = nodeWithoutFlight();
+        assertThat(new EngineHealthIndicator(node).health().getStatus().getCode())
+                .isEqualTo("DOWN");
     }
 }

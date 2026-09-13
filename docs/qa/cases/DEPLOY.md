@@ -412,3 +412,65 @@ one that did take a checkpoint keeps the customer data in it after the query is 
 directories left behind.
 **Expected:** Directories for dropped queries are cleaned up, or their retention is a documented
 decision. Silent unbounded accumulation of directories holding operator state is a defect.
+
+---
+
+# Re-QA 2026-09-12 — cases added during the verification pass
+
+## DEPLOY-049 — a journal failure on DROP does not leave the node and the client disagreeing
+**Intent:** `register` now unwinds when the journal append fails. `drop` mutates the registry
+*before* it journals and has no equivalent unwind, so the mirror-image of DEPLOY-032 should be
+checked: a drop the client is told failed, which actually happened.
+**Setup:** A journalled node with a live registered query; the journal made unwritable afterwards.
+**Steps:** Drop the query; read the CLI exit status; list queries; query the view; restart the node
+on the same journal.
+**Expected:** Either the drop is refused and the query still runs and still answers, or the drop
+succeeds and is journalled. A refusal that silently applied, and that a restart then reverses, is a
+FAIL.
+
+## DEPLOY-050 — the journal-failure unwind covers the shared-computation path too
+**Intent:** The unwind added for DEPLOY-032 is in the branch that starts a new computation. The
+early-return branch for a second name on an existing computation now also journals, and a failure
+there has no try/catch around it.
+**Setup:** A journalled node with one live query; the journal made unwritable afterwards.
+**Steps:** Register a second name whose SQL is identical to the live query's. Read the exit status,
+then list queries and try to drop the name.
+**Expected:** A registration the client is told failed leaves no name bound, and does not keep the
+shared computation open.
+
+## DEPLOY-051 — two query names must not share one checkpoint directory
+**Intent:** DEPLOY-036 was fixed by stripping dots from the directory name. Stripping is
+many-to-one: `a.b` and `a_b` both become `a_b`. `application.yaml` states the invariant explicitly
+("Each query checkpoints into its own directory beneath this one: one shared store would make
+pruning global, so a busy query would evict a quiet one's only fallback").
+**Setup:** A node with `pravaha.checkpoint.directory` set, `interval: 2s`, `keep: 2`.
+**Steps:** Register two queries with different SQL under names `a.b` and `a_b`. Watch the
+checkpoint root for 20 seconds.
+**Expected:** Two directories, each with its own checkpoint id sequence. One directory shared by two
+fingerprints is a FAIL.
+
+## DEPLOY-052 — an idle registered query does not burn CPU
+**Intent:** A registry node is expected to hold many standing queries, most of them quiet most of
+the time. Each registration starts a lane thread; what that thread does when there is nothing to do
+decides how many queries a node can hold.
+**Setup:** A node with a source that has run dry, so `rows_in` is flat.
+**Steps:** Measure process CPU over 30s with 0, 3 and 9 registered queries. Attribute the time per
+thread from `/proc/<pid>/task/*/stat`. Check whether the wait strategy is configurable from the
+server's configuration.
+**Expected:** An idle query costs approximately nothing, or the cost is configurable and documented.
+
+## DEPLOY-053 — a watermark setting outside its bounds is refused at startup, not at recovery
+**Intent:** `pravaha.watermark.*` is now live on every node. Its bounds are enforced where a query
+is registered. A node whose configuration is out of bounds therefore starts, reports healthy, and
+loses every query it was supposed to recover.
+**Steps:** Start a node with `pravaha.watermark.idle-after=1h` on a journal holding queries.
+**Expected:** The node refuses to start, naming the setting. Starting UP with nothing recovered is a
+FAIL.
+
+## DEPLOY-054 — a checkpoint directory is owner-only from the moment it exists
+**Intent:** DEPLOY-038 confirmed 700 on directories that had been written to. The directory is
+created at registration and tightened only when a file is written into it, so there is a window —
+permanent, for a query that never checkpoints — at the ambient umask.
+**Steps:** Register queries that do not live long enough to checkpoint, and registrations that fail
+after the store is constructed; list the modes under the checkpoint root.
+**Expected:** `drwx------` from creation.

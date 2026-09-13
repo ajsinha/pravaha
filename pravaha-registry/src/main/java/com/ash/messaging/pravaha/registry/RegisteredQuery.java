@@ -375,6 +375,31 @@ public final class RegisteredQuery implements AutoCloseable {
         }
     }
 
+    /** The most recent checkpoint failure, and how many there have been. */
+    public Optional<String> lastCheckpointFailure() {
+        return Optional.ofNullable(lastCheckpointFailure);
+    }
+
+    public long checkpointFailures() {
+        return checkpointFailures.get();
+    }
+
+    /**
+     * Records that a checkpoint did not happen.
+     *
+     * <p>Kept rather than logged, because "has this query been checkpointing?" is a question an
+     * operator asks about one query at a time and a log is the wrong shape to answer it. The count
+     * matters as much as the message: one failure is a full disk, six hours of them is a query whose
+     * recovery story is fiction.
+     */
+    void recordCheckpointFailure(String message) {
+        lastCheckpointFailure = message;
+        checkpointFailures.incrementAndGet();
+    }
+
+    private volatile String lastCheckpointFailure;
+    private final AtomicLong checkpointFailures = new AtomicLong();
+
     /** Attaches the checkpointer for this computation. Called once, by the registry that started it. */
     void checkpointWith(AutoCloseable periodic) {
         this.checkpointer = periodic;

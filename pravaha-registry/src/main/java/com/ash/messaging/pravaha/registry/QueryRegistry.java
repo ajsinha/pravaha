@@ -80,7 +80,23 @@ public final class QueryRegistry implements AutoCloseable {
     // renders the list and for a test that asserts on it.
     private final Map<String, RegisteredQuery> byName = new LinkedHashMap<>();
     private RegistryJournal journal;
-    private LaneConfig laneConfig = LaneConfig.defaults().withThreads("pravaha-query", true);
+    /**
+     * Lanes for a registry, which is a different machine from lanes for one query.
+     *
+     * <p>{@code LaneConfig.defaults()} spins, and spinning is right for the case it was written for:
+     * one query, a source that never stops, latency that matters more than a core. A registry is the
+     * opposite case. It holds many queries, most of them idle most of the time, and each one owns a
+     * lane thread -- so the default spent a core per eleven idle queries doing nothing. Measured:
+     * three idle queries at 26% of a core, nine at 92%, with the source dry and no rows arriving. A
+     * two-core container saturates at about twenty idle registrations.
+     *
+     * <p>{@code BACKOFF_PARK} is what {@code WaitStrategy} documents for exactly this, and nothing
+     * ever selected it.
+     */
+    private LaneConfig laneConfig = LaneConfig.defaults()
+            .withWaitStrategy(com.ash.messaging.pravaha.common.queue.WaitStrategy.Kind.BACKOFF_PARK)
+            .withThreads("pravaha-query", true);
+
     private MemoryAccess access = MemoryAccess.best();
     private Duration watermarkIdleAfter;
     private Duration watermarkTick;
@@ -320,7 +336,17 @@ public final class QueryRegistry implements AutoCloseable {
             // ("Object not found" from a name that had just been acknowledged RUNNING), and it
             // vanished at the next restart while the node reported "recovered 2 of 2".
             views.registerAs(name, existing.view());
-            journalRegistration(name, sql, keyColumns, principal, retention, parameters);
+            try {
+                journalRegistration(name, sql, keyColumns, principal, retention, parameters);
+            } catch (RuntimeException e) {
+                // The same unwind the fresh path has. Without it a refusal the client could see left
+                // the name held and the shared computation pinned open by a registration that,
+                // as far as its caller knew, had failed.
+                existing.removeName(name);
+                byName.remove(name);
+                views.remove(name);
+                throw e;
+            }
             return existing;
         }
 
@@ -402,20 +428,66 @@ public final class QueryRegistry implements AutoCloseable {
         // trusted. requireName already refuses the obvious, but a directory is a different alphabet
         // from an identifier and "../" in a view name should not be able to choose where a
         // checkpoint lands.
-        // Dots are stripped too, not just separators. The first version kept them, on the reasoning
-        // that a dot is harmless in a filename -- and a query named ".." then wrote its checkpoints
-        // one level ABOVE the configured root, where SensitiveFiles promptly chmodded somebody
-        // else's directory to 700.
-        String directory = name.replaceAll("[^A-Za-z0-9_-]", "_");
+        String directory = checkpointDirectoryFor(name);
         com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer checkpointer =
                 com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer.from(
                         execution,
                         new com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore(
                                 checkpointRoot.resolve(directory)),
                         checkpointConfiguration,
-                        message -> {});
+                        // Not a no-op. PeriodicCheckpointer reports every failure rather than the
+                        // first, precisely so that a query which has silently not checkpointed for
+                        // six hours does not look like one that has -- and then the registry threw
+                        // each report away, which produced exactly that. Recorded on the query, so
+                        // an operator asking about it gets an answer.
+                        query::recordCheckpointFailure);
         checkpointer.start();
         query.checkpointWith(checkpointer);
+    }
+
+    private void deleteCheckpointsOf(String name) {
+        if (checkpointRoot == null) {
+            return;
+        }
+        java.nio.file.Path directory = checkpointRoot.resolve(checkpointDirectoryFor(name));
+        try (java.util.stream.Stream<java.nio.file.Path> entries = java.nio.file.Files.list(directory)) {
+            for (java.nio.file.Path entry : entries.toList()) {
+                java.nio.file.Files.deleteIfExists(entry);
+            }
+            java.nio.file.Files.deleteIfExists(directory);
+        } catch (java.io.IOException e) {
+            // A drop must succeed even if the disk will not co-operate. Leftover files cost space;
+            // a drop that fails half way costs a query nobody can remove.
+        }
+    }
+
+    /**
+     * The directory a query's checkpoints live in.
+     *
+     * <p>Dots are stripped along with separators, so a query named {@code ..} cannot write above the
+     * configured root. A digest tail keeps two names that sanitise alike -- {@code a.b} and {@code
+     * a_b} -- in separate directories, which they must be: sharing one would have each pruning the
+     * other's fallbacks away.
+     */
+    private static String checkpointDirectoryFor(String name) {
+        // Percent-style hex encoding, which is injective: two different names cannot produce one
+        // directory. Replacing unsafe characters with '_' is many-to-one, and a hash suffix does not
+        // rescue it -- a collision was constructed from first principles on the first attempt, and
+        // `a#!b` and `a"@b` still shared a directory. Two queries in one directory share a
+        // checkpoint id sequence and prune each other's fallbacks away, which is the exact failure
+        // the per-query directory exists to prevent.
+        //
+        // '_' is encoded too, or `a_b` and `a b` would still meet.
+        StringBuilder encoded = new StringBuilder(name.length() + 8);
+        for (byte b : name.getBytes(java.nio.charset.StandardCharsets.UTF_8)) {
+            char c = (char) (b & 0xFF);
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+                encoded.append(c);
+            } else {
+                encoded.append('_').append(String.format("%02x", b & 0xFF));
+            }
+        }
+        return encoded.toString();
     }
 
     private static List<String> sourceStreams(PhysicalOperator plan) {
@@ -630,6 +702,10 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public synchronized void drop(String name) {
         RegisteredQuery query = require(name);
+        // Journal first: see the note below on why this order is the only honest one.
+        if (journal != null) {
+            journal.recordDrop(name);
+        }
         byName.remove(name);
         // The view goes with the name. A dropped view that keeps answering serves whatever the
         // closed computation last committed, for ever, to a caller with no way to know that nothing
@@ -638,12 +714,15 @@ public final class QueryRegistry implements AutoCloseable {
         if (query.removeName(name)) {
             byFingerprint.remove(query.fingerprint());
             query.close();
+            // The checkpoints go with the computation. They are a fallback for a query that exists;
+            // once nothing holds this one open they are state outliving its owner, and they
+            // accumulate for the life of the deployment -- 52 directories for 2 live queries, in a
+            // QA run of 50 register/drop cycles.
+            deleteCheckpointsOf(name);
         }
-        if (journal != null) {
-            // Recorded even when other names still hold the computation open: the journal is about
-            // names, and this name is gone whatever happens to the computation behind it.
-            journal.recordDrop(name);
-        }
+        // The journal entry was written before anything was released: a drop the client is told
+        // failed must not have destroyed the computation, and a drop that succeeded must survive a
+        // restart. Recording it here instead meant neither was guaranteed.
     }
 
     @Override
@@ -654,7 +733,39 @@ public final class QueryRegistry implements AutoCloseable {
         all.forEach(RegisteredQuery::close);
     }
 
+    /**
+     * Refuses a name no query will be able to say.
+     *
+     * <p>A view name is written in a FROM clause, so it has to survive the SQL parser. {@code
+     * primary} does not: the registration is accepted, the server reports RUNNING, and every attempt
+     * to read it fails with a parse error naming a column position, which reads like a broken query
+     * rather than a name that was never usable. Refused at registration, where the person who chose
+     * the name is still holding it.
+     */
+    private static void requireSayableName(String name) {
+        if (!name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            throw new PravahaException(
+                    RegistryErrors.NAME_IN_USE,
+                    "'" + name + "' cannot be used as a view name: a name is written in a FROM clause, so it "
+                            + "must be a plain identifier -- a letter or underscore, then letters, digits or "
+                            + "underscores.");
+        }
+        try {
+            // Calcite's own parser rather than a list of reserved words kept by hand here. The list
+            // is long, it is version-specific, and a copy of it is wrong the first time Calcite
+            // changes -- whereas the parser is the thing that will actually reject the name.
+            org.apache.calcite.sql.parser.SqlParser.create("SELECT 1 FROM " + name)
+                    .parseQuery();
+        } catch (org.apache.calcite.sql.parser.SqlParseException | RuntimeException e) {
+            throw new PravahaException(
+                    RegistryErrors.NAME_IN_USE,
+                    "'" + name + "' is a reserved word in SQL, so no query could read the view. Choose a name "
+                            + "that can appear in a FROM clause unquoted.");
+        }
+    }
+
     private void requireName(String name) {
+        requireSayableName(name);
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("a registration needs a name");
         }
