@@ -21,7 +21,7 @@ than from how many cases an area happened to suggest.
 | REST endpoint paths | 6 | `pravaha-server/api` |
 | Flight control verbs | 5 | `ControlWire` |
 | Plugins | 9 (5 source, 2 sink, 2 lookup) | `plugins/` |
-| Error codes | 104 | `new ErrorCode(...)` |
+| Error codes | 110 | `new ErrorCode(...)` — 104 excludes the Java SDK's six, which I miscounted |
 | ADRs (each a decision with behaviour) | 35 | `docs/adr/` |
 | SDKs | 3 (Java, Java-Flight, Python) | `sdk/` |
 | Console route modules | 6 | `console/routes/` |

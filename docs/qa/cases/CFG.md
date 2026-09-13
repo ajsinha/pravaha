@@ -35,9 +35,9 @@ more interesting than the case that referenced it.
    case below checks each pair.
 2. The four `@ConfigurationProperties` classes are bound with `prefix = "pravaha"` for streams,
    sources and persistence, and `prefix = "pravaha.security"` for security
-   (`StreamDeclarationProperties.java:32-33`, `SourceBindingProperties.java:29-30`,
-   `PersistenceProperties.java:28-29`, `SecurityProperties.java:45-46`). The odd-looking choice is
-   deliberate and documented at `SourceBindingProperties.java:53-56`: `prefix = "pravaha.sources"`
+   (`StreamDeclarationProperties.java:44-45`, `SourceBindingProperties.java:43-44`,
+   `PersistenceProperties.java:41-42`, `SecurityProperties.java:46`). The odd-looking choice is
+   deliberate and documented at `SourceBindingProperties.java:52-58`: `prefix = "pravaha.sources"`
    would have bound `pravaha.sources.bindings.txn`, so the key everybody documents would have bound
    nothing.
 3. **`refuseAccidentalOpenServer` runs *after* `CoordinatorFactory.create`**
@@ -49,7 +49,7 @@ more interesting than the case that referenced it.
    (`PravahaNode.java:302-313`). `SecurityProperties`' own javadoc at line 39 says the policy values
    are `permissive` or **`tenant`** — a value the code does not know.
 5. `security.authenticates()` is `"token".equalsIgnoreCase(authentication)`
-   (`SecurityProperties.java:118-120`). **Every other string, including `"tokens"`, `"TOKEN "` with
+   (`SecurityProperties.java:110-112`). **Every other string, including `"tokens"`, `"TOKEN "` with
    a trailing space, and `"basic"`, silently means `none`.** There is no refusal of an unknown
    authentication value anywhere.
 6. TLS is applied only through `if (tlsCertificate != null) server.encryptedWith(tlsCertificate,
@@ -71,7 +71,7 @@ more interesting than the case that referenced it.
    **not** validated at startup; `tick <= idle-after` is checked per registration in
    `QueryExecution.generatingWatermarks` (`QueryExecution.java:339`).
 9. `PersistenceProperties.checkpointConfiguration()` builds a `Configuration` containing exactly two
-   keys — `pravaha.checkpoint.interval` (in nanoseconds, deliberately: `PersistenceProperties.java:64-79`)
+   keys — `pravaha.checkpoint.interval` (in nanoseconds, deliberately: `PersistenceProperties.java:66-80`)
    and `pravaha.checkpoint.keep`. `PeriodicCheckpointer.from` reads **three**:
    interval, keep and `pravaha.checkpoint.timeout` (`PeriodicCheckpointer.java:122-126`).
    **`pravaha.checkpoint.timeout` is therefore inert on the server path** and always falls back to
@@ -86,7 +86,7 @@ more interesting than the case that referenced it.
     keys (`ZooKeeperProvider.java:61-68`). **None of them is forwarded**, so following
     `OPERATIONS.md:99-107` verbatim fails at startup with `PRV-9005`.
 12. `PravahaServerApplication.pravahaEngine` forwards exactly **one** key into the engine's own
-    `Configuration`: `pravaha.node.id` (`PravahaServerApplication.java:50-53`). Every engine-level
+    `Configuration`: `pravaha.node.id` (`PravahaServerApplication.java:50-54`). Every engine-level
     key the design document describes — `pravaha.runtime.*`, `pravaha.state.*` — therefore has no
     path from a YAML file into the engine even if a reader existed.
 13. **`arena.slab.size` is named as the remedy by six runtime error messages and is not a
@@ -100,9 +100,9 @@ more interesting than the case that referenced it.
     is therefore the only lane sizing a server node can ever have: `batchSize=512`,
     `inboxCells=2048`, `inboxCellBytes=512`, `waitStrategy=SPIN_THEN_YIELD`,
     `arenaSlabBytes=4 MiB`, `arenaMaxSlabs=8`, `exchangeCells=1024`, `shutdownTimeout=5s`
-    (`LaneConfig.java:83-95`). There is no `pravaha.lane.*` key.
+    (`LaneConfig.java:83-96`). There is no `pravaha.lane.*` key.
 15. `EngineHealthIndicator` returns **DOWN** when `node.flightPort()` is empty — which is exactly
-    the `pravaha.flight.enabled=false` case (`EngineHealthIndicator.java:69-76`). Its own javadoc
+    the `pravaha.flight.enabled=false` case (`EngineHealthIndicator.java:69-77`). Its own javadoc
     records that this was once UP. `management.endpoint.health.probes.enabled=true` adds
     `/actuator/health/liveness` and `/actuator/health/readiness`; whether a custom indicator
     contributes to the **readiness group** is the thing to check, not to assume.
@@ -111,7 +111,7 @@ more interesting than the case that referenced it.
     (`ConfigParsers.java:35-41`), data sizes are binary (`ConfigParsers.java:95-98`). These raise
     `PRV-102n`. **Spring's binder, which is what reads `application.yaml`, is a different parser**
     with different rules — `Duration` accepts ISO-8601 `PT30S` and bare `30` (as milliseconds by
-    default). Two duration dialects meet in this file; `PersistenceProperties.java:64-71` records
+    default). Two duration dialects meet in this file; `PersistenceProperties.java:69-74` records
     the bug that came of it.
 17. `application-dev.yaml` contains exactly one key: `pravaha.security.allow-anonymous: true`.
 18. `OPERATIONS.md:322-326` documents `pravaha.flight.port: 8815`. `application.yaml` and
@@ -143,7 +143,18 @@ pravaha:
 
 Started with
 `pravaha-server --spring.config.additional-location=file:$QA/conf/<case>.yaml`, unless a case says
-otherwise. Every case that expects a **refusal** expects it to be visible in the process's exit
+otherwise.
+
+**Setup, when a case does not state one.** Every case below starts from `base.yaml` above, copied to
+`$QA/conf/<case-id>.yaml` and edited **only in the key or keys the case names** — that is the case's
+setup, and stating it again in forty-nine cases would be forty-nine chances for it to drift. A case
+carries its own `**Setup:**` line exactly when it needs something else: extra files, a second node, a
+pre-existing journal or checkpoint directory, a TLS pair, or a different starting security posture.
+Two section preambles carry shared setup for the cases beneath them — the security matrix
+(CFG-057 – CFG-080) and the TLS 3 x 3 (CFG-068 – CFG-076) — and those cases inherit it rather than
+repeating it.
+
+Every case that expects a **refusal** expects it to be visible in the process's exit
 status and its final log line, not only in a stack trace.
 
 **T0 = 1767225600000000000 ns = 2026-01-01T00:00:00Z.** Timestamps below are written `T0+n` seconds.
@@ -194,7 +205,7 @@ which half of the file the engine reads.
 
 ## CFG-001 — `pravaha.node.id`
 **Intent:** The only key forwarded into the engine's own `Configuration`
-(`PravahaServerApplication.java:50-53`), the id a cluster `Member` is advertised under
+(`PravahaServerApplication.java:50-54`), the id a cluster `Member` is advertised under
 (`PravahaNode.java:332`), and the id `DefaultPravahaEngine` reports as `instanceId`
 (`DefaultPravahaEngine.java:42`). If it is unreadable at any of those three, the key is decorative.
 **Falsifier:** the configured id does not appear in `GET /api/v1/status`, in the coordinator's
@@ -351,7 +362,7 @@ a catalog entry with no usable schema would still list.
 ## CFG-008 — `pravaha.streams.<n>.event-time`
 **Intent:** The declaration without which no watermark advances and no window ever closes — a
 windowed query registers, reports RUNNING, ingests every row and emits nothing, for ever
-(`StreamDeclarationProperties.java:57-64`). It is also what `withDeclaredEventTime` pushes down to
+(`StreamDeclarationProperties.java:70-77`). It is also what `withDeclaredEventTime` pushes down to
 the plugin as the `event.time` option (`PravahaNode.java:267-279`), so it is declared once rather
 than twice.
 **Falsifier:** `QW` against a stream with `event-time` declared emits nothing; or a misspelled
@@ -407,7 +418,7 @@ reads no rows.
 
 | Variant | Value | Expected |
 |---|---|---|
-| unset | `txn: { options: {...} }` | `spec.plugin` is `null`. `SourceBindingProperties.toBindings` builds `SourceBinding("txn", null, opts)` with **no validation** (`SourceBindingProperties.java:47-52`), so the node **starts**. The failure arrives at the first registration, as `PRV-5090` with `'null'` in the message. **A binding with no plugin should be refused at startup; record this as a finding** |
+| unset | `txn: { options: {...} }` | `spec.plugin` is `null`. `SourceBindingProperties.toBindings` builds `SourceBinding("txn", null, opts)` with **no validation** (`SourceBindingProperties.java:62-68`), so the node **starts**. The failure arrives at the first registration, as `PRV-5090` with `'null'` in the message. **A binding with no plugin should be refused at startup; record this as a finding** |
 | valid | `filesystem` | `sources bound: [...]` names `txn`; `QW` delivers the canonical result |
 | valid | `FileSystem` | equalsIgnoreCase at `PluginSourceFeeds.java:166` → same as `filesystem` |
 | invalid | `kafka` | `PRV-5090 INGEST_NO_SUCH_PLUGIN` **at first registration, not at startup**, listing the available plugins. Record the list: `filesystem, feedfile, jdbc, delta` must all appear |
@@ -450,8 +461,8 @@ call Flight with and without a bearer token; call `GET /api/v1/streams` with and
 
 | Variant | Value | Expected |
 |---|---|---|
-| unset | absent | `none` (`SecurityProperties.java:49`) |
-| valid | `token` with `tokens` configured | log says `authentication=token`; `BearerTokenFilter` is registered (`PravahaServerApplication.java:92-107`); an unauthenticated HTTP call gets `PRV-7001`; an unauthenticated Flight call gets `PRV-7001` from `PrincipalMiddleware.java:96` |
+| unset | absent | `none` (`SecurityProperties.java:50`) |
+| valid | `token` with `tokens` configured | log says `authentication=token`; `BearerTokenFilter` is registered (`PravahaServerApplication.java:65-81`); an unauthenticated HTTP call gets `PRV-7001`; an unauthenticated Flight call gets `PRV-7001` from `PrincipalMiddleware.java:96` |
 | valid | `TOKEN` | `equalsIgnoreCase` → identical to `token` |
 | **invalid** | `tokens` (plural — the sub-key's name) | **silently means `none`.** The node starts, the log says `authentication=none`, the filter is not registered, and `refuseAccidentalOpenServer` then either refuses (if `allow-anonymous` is false) or opens the server. A one-character typo in the most security-relevant key in the file is accepted without a word. **Finding** |
 | invalid | `basic`, `mtls`, `oauth` | same: silently `none` |
@@ -476,7 +487,7 @@ disagrees with its own code (fact 4).
 | valid | `authenticated` | `AuthenticatedOnlyPolicy`; with `authentication: token` an anonymous Flight caller gets nothing and a verified one does |
 | valid | `authenticated-only` | accepted as a synonym (`PravahaNode.java:287`). Must behave identically to `authenticated` |
 | valid | `AUTHENTICATED`, `  authenticated  ` | `trim()` then `toLowerCase(ROOT)` (`PravahaNode.java:283-285`) → identical |
-| **invalid** | `tenant` — **the value `SecurityProperties.java:39` documents** | `PRV-7002` at startup: *"pravaha.security.policy is 'tenant', which is not a policy this node knows."* **The javadoc on the field is wrong; raise it** |
+| **invalid** | `tenant` — **the value `SecurityProperties.java:52` documents** | `PRV-7002` at startup: *"pravaha.security.policy is 'tenant', which is not a policy this node knows."* **The javadoc on the field is wrong; raise it** |
 | invalid | `strict` | `PRV-7002`, message listing `permissive` and `authenticated` |
 | boundary | `""` | `trim()` gives `""`, which matches no case → `PRV-7002`. Note the message renders an empty quoted string |
 | boundary | `null` in YAML (`policy:` with nothing after it) | `getPolicy()` returns null → the `== null` branch defaults to `permissive` (`PravahaNode.java:282-284`) — **a different answer from `""`**, from two spellings of "nothing" |
@@ -492,7 +503,7 @@ disagrees with its own code (fact 4).
 
 | Variant | Value | Expected |
 |---|---|---|
-| unset | absent | `none` (`SecurityProperties.java:55`) → `AuditSink.NONE` |
+| unset | absent | `none` (`SecurityProperties.java:56`) → `AuditSink.NONE` |
 | valid | `none` | no records |
 | valid | `memory` | `AuditSink.InMemory`; **both** the allowed and the refused decision recorded, each naming the principal and the view. A sink that records only refusals is a finding |
 | valid | `MEMORY`, `  memory  ` | `trim()` + `toLowerCase` → identical |
@@ -539,9 +550,9 @@ authenticate with it.
 
 | Variant | Value | Expected |
 |---|---|---|
-| unset | `tokens: {}` or absent | `verifier()` returns `TokenVerifier.rejectAll()` (`SecurityProperties.java:105-110`) — **every call is refused**, deliberately, so the state is visible at the first call rather than in a support ticket. Confirm the startup log makes this discoverable |
+| unset | `tokens: {}` or absent | `verifier()` returns `TokenVerifier.rejectAll()` (`SecurityProperties.java:121-130`) — **every call is refused**, deliberately, so the state is visible at the first call rather than in a support ticket. Confirm the startup log makes this discoverable |
 | valid | one token | that token authenticates; a different string gets `PRV-7001` |
-| valid | three tokens | `StaticTokenVerifier.of(...).and(...)` chain (`SecurityProperties.java:111-124`); **all three** authenticate. A chain that only honours the first or the last is the failure this row exists for |
+| valid | three tokens | `StaticTokenVerifier.of(...).and(...)` chain (`SecurityProperties.java:131-143`); **all three** authenticate. A chain that only honours the first or the last is the failure this row exists for |
 | boundary | a 1-character token `x` | accepted. No minimum length is enforced anywhere; note it |
 | boundary | two identical token strings | impossible in YAML (duplicate map key). Record which of the two Spring keeps |
 | **disclosure** | any | the token string must **not** appear in the startup log, in `/api/v1/status`, or in `/actuator/env`. `management.endpoints.web.exposure.include` does not list `env` (`application.yaml`), so `/actuator/env` should 404 — confirm it |
@@ -558,7 +569,7 @@ in journal entries as the query's owner, and in `PRV-7002` messages
 
 | Variant | Value | Expected |
 |---|---|---|
-| unset | absent | **the map key is used as the id** (`SecurityProperties.java:113-114`) — that is, *the bearer token becomes the principal id*, and therefore lands in the audit sink and in the journal on disk. **That is credential material in two durable places. Finding** |
+| unset | absent | **the map key is used as the id** (`SecurityProperties.java:134-136`) — that is, *the bearer token becomes the principal id*, and therefore lands in the audit sink and in the journal on disk. **That is credential material in two durable places. Finding** |
 | valid | `ann` | `ann` in the audit record, in the journal entry's owner field, and in any `PRV-7002` message |
 | boundary | `""` | `spec.getId()` is `""`, not null, so the `== null` fallback does not fire → an empty principal id. `principalNamed("")` on recovery returns `Optional.empty()` (`PravahaNode.java:491-495`), so **a query registered by this principal is refused on replay**. Pin that chain |
 | boundary | a 512-character id | accepted; must not be truncated in the journal |
@@ -574,7 +585,7 @@ says.
 
 | Variant | Value | Expected |
 |---|---|---|
-| unset | absent | `"public"` (`SecurityProperties.java:131`), **not null** |
+| unset | absent | `"public"` (`SecurityProperties.java:150`), **not null** |
 | valid | `acme` | `Principal.tenant() == "acme"`, visible in the audit record |
 | boundary | `""` | empty tenant, accepted, no complaint. Record what a policy does with it |
 | boundary | two tokens with different tenants | both work; the two principals differ only in tenant |
@@ -583,7 +594,7 @@ says.
 
 ## CFG-019 — `pravaha.security.tokens.<t>.roles`
 **Intent:** The role set on the `Principal`. Bound through `setRoles(List<String>)` into a
-`LinkedHashSet` (`SecurityProperties.java:143-145`).
+`LinkedHashSet` (`SecurityProperties.java:173-175`).
 **Falsifier:** roles are dropped, reordered in a way that matters, or deduplicated silently when
 duplication was meaningful.
 **Setup / Steps:** as CFG-017.
@@ -591,7 +602,7 @@ duplication was meaningful.
 
 | Variant | Value | Expected |
 |---|---|---|
-| unset | absent | empty set, **not null** (`SecurityProperties.java:133`) |
+| unset | absent | empty set, **not null** (`SecurityProperties.java:151`) |
 | valid | `[reader]` | `Principal.roles() == {reader}` |
 | valid | `[reader, writer, admin]` | all three, in that iteration order |
 | boundary | `[reader, reader]` | deduplicated to one by the `Set`. Silent; note it |
@@ -612,7 +623,7 @@ so.
 
 | Variant | Value | Expected |
 |---|---|---|
-| unset | `""` | `pathOf` gives `Optional.empty()` (`PersistenceProperties.java:71-73`); WARN line *"pravaha.registry.journal is not set, so registered queries live only in memory and a restart will lose them without saying so"*; after restart `pravaha queries` returns **0** queries |
+| unset | `""` | `pathOf` gives `Optional.empty()` (`PersistenceProperties.java:82-84`); WARN line *"pravaha.registry.journal is not set, so registered queries live only in memory and a restart will lose them without saying so"*; after restart `pravaha queries` returns **0** queries |
 | valid | `$QA/journal` | file created; after restart the log says `registry recovered 1 of 1 queries from $QA/journal` and `pravaha queries` returns **1** |
 | invalid | a path in a directory that does not exist | expect `PRV-8006 REGISTRY_JOURNAL_UNWRITABLE` (`RegistryJournal.java:229,276`). Record **when**: at startup, or at the first registration. Startup is the right answer |
 | invalid | an **unwritable** directory (`chmod 500`) | `PRV-8006`. `OPERATIONS.md` states a registration whose journal append fails is **refused**, because acknowledging one that will not survive a restart tells the client something untrue. Prove that: the `register` call must fail, and `pravaha queries` must then show **0**, not 1 |
@@ -650,7 +661,7 @@ replaying the file. The unset row is the feature-removed control and returns 0 r
 
 ## CFG-022 — `pravaha.checkpoint.interval`
 **Intent:** How often state is written down, and the key whose two duration dialects already caused
-one shipped bug (`PersistenceProperties.java:64-71`).
+one shipped bug (`PersistenceProperties.java:69-74`).
 **Falsifier:** the configured interval is not the interval observed, or an ISO-8601 value reaches
 the engine's parser.
 **Setup:** `base.yaml` with `checkpoint.directory: $QA/ckpt`.
@@ -891,6 +902,8 @@ coordinator either, because the `Configuration` is built from two literals).
 (`SocketProvider.java:81`). Run it separately so the finding is recorded per key rather than as
 "and the other one too" — a defect list that says "three cluster keys" is harder to close than one
 that names them.
+**Falsifier:** setting it to `50` or `60000` changes the socket coordinator's observed peer timeout.
+**Expected:** every variant indistinguishable, because `PravahaNode.java:144-147` never forwards the key. Default `5000 ms` is always in force. Same finding as CFG-030, recorded against this key by name.
 
 ## CFG-033 — `pravaha.cluster.zookeeper.connect`
 **Intent:** Required by `ZooKeeperProvider.java:61-65`, with no default, and unreachable for the
@@ -908,6 +921,7 @@ raised at that severity.
 
 ## CFG-034 — `pravaha.cluster.zookeeper.root`
 **Intent:** Default `/pravaha` (`ZooKeeperProvider.java:66`). Same inertness as CFG-031.
+**Falsifier:** setting it to `/other` changes the ZooKeeper path this node uses.
 **Expected:** every variant indistinguishable; record as one finding with CFG-033.
 
 ## CFG-035 — `pravaha.cluster.zookeeper.session.timeout.millis`
@@ -915,12 +929,16 @@ raised at that severity.
 **Boundary worth recording even though unreachable:** `getLong` returns a `long` and the cast to
 `int` is unchecked, so a value above `2147483647` would wrap silently **if the key ever became
 readable**. Note it against the reader, not the key.
+**Falsifier:** setting it to `60000` changes the session timeout the coordinator asks ZooKeeper for.
+**Expected:** every variant indistinguishable; default `15_000 ms` always in force.
 
 ## CFG-036 — `pravaha.cluster.zookeeper.connect.timeout.millis`
 **Intent:** Default `10_000`, same unchecked `long`→`int` cast (`ZooKeeperProvider.java:68`). Same
 inertness, same latent narrowing.
 
 ### The Spring half of the same file
+**Falsifier:** setting it to `1000` changes how long the coordinator waits to connect.
+**Expected:** every variant indistinguishable; default `10_000 ms` always in force.
 
 ## CFG-037 — `server.port`
 **Intent:** The HTTP surface every operator, the console and every `/api/v1` example uses.
@@ -943,6 +961,7 @@ honours and **it is not in this file**.
 
 ## CFG-039 — `spring.application.name`
 **Intent:** Appears in metric tags and logs. Low risk, enumerated for completeness.
+**Falsifier:** the configured name appears in no metric tag and in no `/actuator/info` field.
 **Expected:** unset → absent; valid `pravaha` → present in `/actuator/info` and metric common tags;
 boundary `""` → accepted; wrong type `[]` → context refresh fails.
 
@@ -1014,6 +1033,7 @@ harder to diagnose.
 ## CFG-045 — `springdoc.api-docs.path`
 **Intent:** Where the OpenAPI document is served. `OpenApiContractTest` pins the document itself; this
 pins the path.
+**Falsifier:** the OpenAPI document is served somewhere other than the configured path, or the document served does not describe the paths this server actually maps.
 **Expected:** unset → `/v3/api-docs`; configured → `/api/v1/openapi.json` serves a document whose
 `paths` include `/api/v1/streams`, `/api/v1/queries/validate`, `/api/v1/queries/explain`,
 `/api/v1/status`; boundary `/` → record; wrong type `[]` → context refresh fails. Also confirm the
@@ -1021,6 +1041,8 @@ OpenAPI document's `ApiError` schema matches `ApiDtos.ApiError`'s five fields, s
 on it.
 
 ## CFG-046 — `springdoc.swagger-ui.path`
+**Intent:** Where the Swagger UI is served, and whether it and the OpenAPI document stay in step when only one of the two paths is changed.
+**Falsifier:** the UI is served somewhere other than the configured path, or loads a document from a path the server does not serve.
 **Expected:** unset → `/swagger-ui.html`; configured `/api/docs` → serves the UI and the UI loads
 the document from CFG-045's path; a mismatch between the two (change one, not the other) must
 produce a UI that fails to load, not a blank page — record which.
@@ -1176,7 +1198,7 @@ to any field.
 **Steps:**
 1. Run the grep. Record every hit.
 2. Enumerate the ten `LaneConfig` fields and, for each, record the value a server node runs with,
-   taken from `LaneConfig.defaults()` (`LaneConfig.java:83-95`), and the configuration key that
+   taken from `LaneConfig.defaults()` (`LaneConfig.java:83-96`), and the configuration key that
    would set it. The second column is empty ten times.
 3. Confirm `MemoryAccess` selection is likewise only a system property (CFG-047), so the second
    argument is unreachable too.
@@ -1278,6 +1300,7 @@ regression.
 
 ## CFG-064 — authenticated / token / allow-anonymous=true
 **Intent:** The dead key again (CFG-060), now on the closed configuration.
+**Falsifier:** this configuration behaves differently from CFG-063 in any of the four observations.
 **Expected:** identical to CFG-063. Worth its own run because this is the configuration a team
 reaches by starting from `dev` and hardening: they set `authentication` and `policy` and **leave
 `allow-anonymous: true` behind**, and nothing tells them it is now meaningless. If a future change
@@ -1289,6 +1312,7 @@ silently opens.
 ## CFG-065 — an unknown policy on an otherwise closed node
 **Intent:** `securityPolicy()` is called **twice** — once from `refuseAccidentalOpenServer` at
 `PravahaNode.java:163` and once at line 339. The first call is where an unknown value is discovered.
+**Falsifier:** the node starts with a policy name it does not know, or exits leaving a coordinator thread behind.
 **Setup:** `authentication: token`, `policy: strict`, tokens configured.
 **Expected:** `PRV-7002` at startup from `PravahaNode.java:288-293`, quoting `'strict'` and naming
 `permissive` and `authenticated`. **Before** any port is bound and **after** the coordinator has
@@ -1297,6 +1321,7 @@ started (fact 3) — confirm the coordinator is closed cleanly on the way out, b
 no try/finally around it. **A leaked coordinator thread after a failed startup is a finding.**
 
 ## CFG-066 — an unknown policy on a node that would also be accidentally open
+**Falsifier:** the node reports the open-server problem rather than the unknown-policy one, or reports both.
 **Setup:** `authentication: none`, `policy: strict`, `allow-anonymous: false`.
 **Intent:** Which of the two problems is reported. `refuseAccidentalOpenServer` evaluates
 `securityPolicy()` inside the expression that computes `open` (line 163), so the **policy** error
@@ -1306,7 +1331,7 @@ operator fixes the policy, restarts, and meets the second. Record the two-restar
 
 ## CFG-067 — `authentication: token` with `tokens` empty
 **Intent:** `verifier()` returns `TokenVerifier.rejectAll()` rather than null
-(`SecurityProperties.java:105-110`), so `authenticates()` is true, the filter is registered, and
+(`SecurityProperties.java:121-130`), so `authenticates()` is true, the filter is registered, and
 **every** call is refused.
 **Falsifier:** the node starts and serves anybody; or the node refuses to start.
 **Expected:** starts. `authenticates()` true → neither startup guard fires. Anonymous and
@@ -1322,11 +1347,15 @@ Nine cases over `certificate ∈ {unset, valid, missing-file}` × `key ∈ {unse
 exist.
 
 ## CFG-068 — certificate unset, key unset
+**Intent:** The TLS baseline: neither half configured, which is the shipped default and the state every other row in this 3x3 is measured against.
+**Falsifier:** a node with no TLS material configured serves TLS, or refuses to start.
 **Expected:** plaintext, `flight transport=PLAINTEXT`, `grpc://` connects, `grpc+tls://` does not.
 The baseline. With `authentication: token` the WARN at `PravahaNode.java:193-195` fires; with
 `authentication: none` it does not.
 
 ## CFG-069 — certificate valid, key valid
+**Intent:** The only TLS configuration that works, and the control for CFG-070 through CFG-076.
+**Falsifier:** a matched certificate and key do not produce an encrypted transport.
 **Expected:** `encryptedWith` accepts both; `flight transport=TLS`; `grpc+tls://` connects with the
 CA; `grpc://` fails. `PravahaFlightServer.isEncrypted()` is true.
 
@@ -1363,25 +1392,35 @@ directions, and they produce a silent plaintext server and an unexplained crash.
 as one finding with two symptoms.**
 
 ## CFG-072 — certificate missing-file, key valid
+**Intent:** The certificate half unreadable, with the key half valid -- the branch `PravahaFlightServer.java:118-122` exists for.
+**Falsifier:** the node starts, in plaintext or otherwise.
 **Expected:** `PRV-6104` from `PravahaFlightServer.java:118-122`, naming the certificate's
 **absolute** path. Startup fails. This is the behaviour CFG-070 should have.
 
 ## CFG-073 — certificate valid, key missing-file
+**Intent:** The key half unreadable, with the certificate half valid -- the branch at `PravahaFlightServer.java:123-127`.
+**Falsifier:** the node starts, in plaintext or otherwise.
 **Expected:** `PRV-6104` from `PravahaFlightServer.java:123-127`, naming the key's absolute path.
 This is the behaviour CFG-071 should have. **The two `PRV-6104` branches are three lines apart and
 both work; the two failures above bypass them entirely.**
 
 ## CFG-074 — certificate missing-file, key missing-file
+**Intent:** Both halves unreadable: which one the operator is told about.
+**Falsifier:** the message names the key, or names both, or the node starts.
 **Expected:** `PRV-6104` naming the **certificate** (checked first). The key's absence is not
 mentioned. Record it: an operator fixes the path in the message, restarts, and meets the second.
 
 ## CFG-075 — certificate missing-file, key unset
+**Intent:** Establishing that the NPE of CFG-071 needs a certificate that exists -- the ordering of the two checks inside `encryptedWith` decides which failure an operator gets.
+**Falsifier:** a `NullPointerException` rather than `PRV-6104`.
 **Expected:** `encryptedWith(missingCert, null)` — the certificate check at line 118 runs **before**
 the null dereference at line 123, so this is `PRV-6104`, not an NPE. **The NPE in CFG-071 requires a
 certificate that exists.** That is worth stating explicitly, because it means the crash only happens
 to operators who got the certificate right.
 
 ## CFG-076 — certificate unset, key missing-file
+**Intent:** Both halves wrong in the silent direction: a key that does not exist, and no certificate to make anything look at it.
+**Falsifier:** the node refuses to start, or says anything at all about TLS.
 **Expected:** plaintext, as CFG-070. The key is never opened, so its non-existence is never noticed.
 Two wrong things and zero messages.
 
@@ -1410,7 +1449,7 @@ acknowledgement; confirm the file has not grown.
 
 ## CFG-079 — HTTP is not governed by the policy
 **Intent:** `BearerTokenFilter` is registered iff `verifier() != null`, i.e. iff
-`authentication: token` (`PravahaServerApplication.java:92-107`). **`policy` is not consulted on the
+`authentication: token` (`PravahaServerApplication.java:65-81`). **`policy` is not consulted on the
 HTTP path at all.** `ApiExceptionHandler` maps `SECURITY` to 403, but nothing on the HTTP side calls
 a `SecurityPolicy`.
 **Falsifier:** an HTTP call is refused by the policy.
@@ -1432,6 +1471,7 @@ reading by another — silently, in the direction of whichever was more permissi
 object passed to `authorizedBy`, and that `hosting(registry)` is called **after**. Then attempt to
 construct a divergence: is there any key, profile or ordering that makes them differ? Expect not,
 and record the reasoning, because this is a guard whose value is that it can never fire.
+**Expected:** one `SecurityPolicy` object, fetched from the registry at `PravahaNode.java:298-300` and handed to `authorizedBy` at `:427` before `hosting(registry)` at `:428`. `requireOnePolicy` compares it with itself and passes. No configuration reaches a divergence. Record the mechanism, not the absence of an error.
 **Vacuity:** a guard that cannot fire is indistinguishable from a guard that is not there, so the
 case must show the *mechanism* — that one object is fetched from the registry and handed to the
 server — not merely that no error occurred.
@@ -1470,6 +1510,7 @@ watermark to have passed `T0+10`, which the default lateness cannot produce at a
 
 ## CFG-082 — both keys set, and disagreeing
 **Intent:** What an operator who read both documents does.
+**Falsifier:** the engine-wide key overrides the per-stream one, or the two are combined.
 **Setup:** `pravaha.watermark.out-of-orderness: 0s` **and**
 `pravaha.streams.txn.out-of-orderness: 30s`.
 **Expected:** **0 rows.** The per-stream key wins because it is the only one read: `30s` gives
@@ -1477,6 +1518,8 @@ watermark `T0+11 − 30s = T0−19`, closing nothing. The engine-wide key that r
 is set to the more permissive value has no say. Record the log — nothing mentions either key.
 
 ## CFG-083 — both keys set, agreeing
+**Intent:** The configuration an operator who read both documents will actually arrive at, and the reason the inert key survives undetected.
+**Falsifier:** the result differs from CFG-081 run A.
 **Setup:** both at `0s`.
 **Expected:** **6 rows**, identical to CFG-081 A. The result is right for the wrong reason, which is
 why this configuration is dangerous: it is the one an operator will arrive at, and it works, so the
@@ -1486,6 +1529,7 @@ inert key is never discovered until somebody removes the line that was doing the
 **Intent:** The working key's own failure mode: `withEventTime` returns at
 `PravahaNode.java:234-236` when `event-time` is blank, so `outOfOrderness` at line 251 is never
 reached.
+**Falsifier:** `out-of-orderness` takes effect without `event-time` being declared.
 **Setup:** `pravaha.streams.txn.out-of-orderness: 0s`, `event-time` **removed**.
 **Expected:** **0 rows**, and for a second reason on top of the first: with no event-time column the
 plugin stamps every row 0 (`PravahaNode.java:261-265`) and no watermark can advance into the
@@ -1512,11 +1556,12 @@ tension and the documentation asserts both.
 ## CFG-086 — the documentation audit for the pair
 **Intent:** Close the loop in the other direction: every place the inert key is documented must be
 corrected, and the working key must be documented somewhere.
+**Falsifier:** the working key is documented in an operator-facing document, or the inert key is documented in fewer than four places.
 **Steps:** `grep -rn "out-of-orderness" docs/ pravaha-*/src/main/resources/`.
 **Expected:** the inert key appears at `application.yaml` (the `pravaha.watermark` block, eight
 lines of prose), `OPERATIONS.md:222`, `CONCEPTS.md:66`, and `StreamSchema.java:51` — four places.
 The working key, `pravaha.streams.<n>.out-of-orderness`, appears in
-`StreamDeclarationProperties.java:67` javadoc and **in no operator-facing document at all**.
+`StreamDeclarationProperties.java:86` javadoc and **in no operator-facing document at all**.
 `OPERATIONS.md:227-232` tells the operator to set lateness *"per stream, at creation, with
 `StreamSchema.outOfOrderness`"* — a Java API — without mentioning that a configuration key for it
 exists. **Four documents for the key that does nothing, none for the key that works.** That is the
@@ -1530,7 +1575,7 @@ Seven cases. Two blocks, one name space, no check that they correspond.
 
 ## CFG-087 — a stream declared with no source
 **Intent:** The documented and intended state — *"that is what a query written ahead of its source
-needs"* (`SourceBindingProperties.java:22-26`).
+needs"* (`SourceBindingProperties.java:38-41`).
 **Falsifier:** the node refuses, or the stream is unplannable.
 **Setup:** `base.yaml` with the whole `pravaha.sources` block removed.
 **Steps:** start; read the log; `GET /api/v1/streams`; register `QW`; wait 15 s; read the view.
@@ -1542,7 +1587,7 @@ RUNNING query with an empty view is the single most common false alarm.
 **Vacuity:** CFG-088's control is the same file with the source restored, giving 3 rows.
 
 ## CFG-088 — a source bound to a stream that is not declared
-**Intent:** The reverse, and the one `StreamDeclarationProperties.java:33-38` says produced
+**Intent:** The reverse, and the one `StreamDeclarationProperties.java:34-38` says produced
 *"Object 'txn' not found. Known streams: []"* — accurate and baffling next to a configuration file
 that clearly mentions `txn`.
 **Falsifier:** the node refuses at startup, or the binding silently works.
@@ -1551,10 +1596,12 @@ that clearly mentions `txn`.
 says the stream is bound. `GET /api/v1/streams` returns **empty**. `register QW` fails with
 `PRV-2003 SQL_UNKNOWN_STREAM`: *"Object 'txn' not found. Known streams: []"*. **The node logged that
 it bound a stream it does not know and then said it knows no streams.** Nothing at startup compares
-the two maps; `sources.toBindings()` does no validation (`SourceBindingProperties.java:47-52`).
+the two maps; `sources.toBindings()` does no validation (`SourceBindingProperties.java:62-68`).
 **Finding: the two blocks should be reconciled at startup and are not.**
 
 ## CFG-089 — a source for one stream, a declaration for another
+**Intent:** The typo case: a source block and a streams block that are each internally valid and name different streams.
+**Falsifier:** the node refuses to start, or any log line pairs the two names.
 **Setup:** `pravaha.streams.txn` declared; `pravaha.sources.txns` (plural) bound.
 **Expected:** starts; `sources bound:` names `txns`; `GET /api/v1/streams` lists `txn`; `QW` against
 `txn` registers, runs, and receives **nothing**, for ever. **Neither block is wrong on its own and
@@ -1563,6 +1610,7 @@ Confirm `pravaha_query_rows_in` is 0 and that no log line pairs the two names.
 
 ## CFG-090 — many streams, some bound
 **Intent:** The realistic case: declare four streams, bind two.
+**Falsifier:** the two startup log lines, read together, tell the operator which streams are declared and unbound.
 **Setup:** declare `s1..s4` with the base schema; bind `s1` and `s2` to `txnA.csv`.
 **Expected:** `streams declared in configuration: [s1, s2, s3, s4]` (`PravahaNode.java:219-221`) and
 `sources bound: [...]` naming two. Four queries, one per stream: `s1` and `s2` deliver the canonical
@@ -1572,6 +1620,7 @@ neither states it.** Propose the line that should exist: *"declared and unbound:
 ## CFG-091 — declaration order and binding order
 **Intent:** `LinkedHashMap` in both properties classes, so both preserve file order. Whether
 anything depends on it.
+**Falsifier:** two runs of the same file, or two files differing only in key order, produce a different order in any of the three places.
 **Steps:** two files with `s1,s2,s3` and `s3,s2,s1`; compare `GET /api/v1/streams` order, the
 `streams declared in configuration:` line, and the `sources bound:` line.
 **Expected:** all three follow file order in both runs. Nothing behavioural depends on it. Record
@@ -1580,6 +1629,7 @@ two nodes' logs useless.
 
 ## CFG-092 — the same stream name in both blocks with different schemas
 **Intent:** CFG-011's disagreement row, run as a pairing case.
+**Falsifier:** the node compares the two schemas at startup and says something.
 **Setup:** `pravaha.streams.txn.schema` with four columns; `pravaha.sources.txn.options.schema` with
 two.
 **Expected:** starts, no comparison, no warning. `QW` plans against four columns. The plugin decodes
@@ -1591,6 +1641,7 @@ divergence is attributable.
 
 ## CFG-093 — stream names that are not valid SQL identifiers
 **Intent:** The map key becomes a catalog name and then a table name in SQL.
+**Falsifier:** a name that startup accepts cannot be found in the catalog listing, and nothing said so.
 **Setup:** declare streams named `my-stream`, `1txn`, `select`, `txn ` (trailing space), `TXN` and
 `txn` together, and a name with a non-ASCII character.
 **Expected:** for each: whether startup accepts it, whether it appears in `GET /api/v1/streams`,
@@ -1621,6 +1672,7 @@ three rows return — the warm-up, not an outage, that `OPERATIONS.md:367-369` d
 ## CFG-095 — checkpoint set, journal unset
 **Intent:** The mirror image, and the more surprising one: state is written and there is nothing to
 restore it into.
+**Falsifier:** the orphaned checkpoint files are cleaned up, or the query comes back.
 **Setup:** `journal: ""`, `checkpoint.directory: $QA/ckpt`, `interval: 2s`.
 **Steps:** as CFG-094, plus `ls -R $QA/ckpt` before and after the restart.
 **Expected:** checkpoint files exist before the restart and **still exist after it**, orphaned —
@@ -1631,12 +1683,15 @@ anything cleans them; expect not.
 
 ## CFG-096 — both set
 **Intent:** The intended production configuration.
+**Falsifier:** the view is empty after the restart, or the per-query subdirectory name changes across it.
 **Expected:** after restart and **before feeding**: `pravaha queries` → 1; the view → the three
 canonical rows `u0=5, u1=7, u2=3`. Confirm the per-query subdirectory naming under `$QA/ckpt` is
 stable across the restart, because a name derived from anything volatile would silently orphan the
 state exactly as CFG-095 does.
 
 ## CFG-097 — neither set
+**Intent:** The development default: neither durability mechanism on, and both warnings present so the operator knows which of CFG-094 and CFG-095 they are not in.
+**Falsifier:** fewer than two warnings at startup.
 **Expected:** two WARNs at startup (`PravahaNode.java:363` and `:413`); after restart, 0 queries and
 0 rows. The development default. Both warnings must be present — one without the other is the
 configuration in CFG-094 or CFG-095 and the operator needs to know which.
@@ -1644,6 +1699,7 @@ configuration in CFG-094 or CFG-095 and the operator needs to know which.
 ## CFG-098 — checkpoint directory shared between two nodes
 **Intent:** `application.yaml` argues that each query checkpoints into its own directory beneath the
 root so that pruning is per query. Two **nodes** sharing a root is the case it does not address.
+**Falsifier:** two nodes sharing a checkpoint root keep their state separate.
 **Setup:** two nodes, ports 18800/19800 and 18801/19801, different `pravaha.node.id`, the **same**
 `checkpoint.directory` and **different** journals; register a query with the same name on both.
 **Expected:** record whether the per-query subdirectory is namespaced by node id. If it is not, two
@@ -1653,12 +1709,16 @@ nodes write the same directory and `prune(keep)` on one deletes the other's fall
 reads another node's state.** That is the finding if the namespacing is absent.
 
 ## CFG-099 — journal shared between two nodes
+**Intent:** Two nodes appending to one journal file, which nothing in the configuration forbids.
+**Falsifier:** the journal is locked, or interleaved appends replay cleanly on both nodes.
 **Setup:** as CFG-098 but sharing the **journal** and not the checkpoint directory.
 **Expected:** both nodes append to one file. Record whether `RegistryJournal` takes a lock. If not,
 interleaved appends produce records that neither node can replay, which surfaces as `PRV-8005` on
 the next restart of both. Confirm by restarting one.
 
 ## CFG-100 — journal permissions change while running
+**Intent:** The journal becoming unwritable under a running node -- a full disk or a permissions change -- and whether a registration is refused or acknowledged.
+**Falsifier:** the registration succeeds, or `pravaha queries` shows it afterwards.
 **Setup:** journal set and working; after one successful registration, `chmod 400` the journal file.
 **Steps:** register a second query.
 **Expected:** `PRV-8006 REGISTRY_JOURNAL_UNWRITABLE` and **the registration refused** —
@@ -1669,6 +1729,8 @@ again: it must succeed, with no residue from the failed attempt.
 — a query that registered in memory and failed only to journal would show 2.
 
 ## CFG-101 — checkpoint directory permissions change while running
+**Intent:** The checkpoint directory becoming unwritable under a running node, and whether anything an operator watches moves.
+**Falsifier:** a failing checkpointer is visible in a metric, a query state, or health.
 **Setup:** `checkpoint.directory` set and working, `interval: 2s`; after the first checkpoint,
 `chmod 500` the per-query directory.
 **Expected:** `PeriodicCheckpointer.checkpointQuietly` is named "quietly" — record exactly what it
@@ -1677,6 +1739,8 @@ operator's next restart is the one that discovers it, and `pravaha_query_running
 Confirm which of the seven gauges (`PravahaMetrics.java:120-135`) moves. Expect none.
 
 ## CFG-102 — `keep` reduced across a restart
+**Intent:** Whether `keep` is applied to what a previous run wrote, and whether checkpoint ids stay monotonic across a restart.
+**Falsifier:** the old run's files survive a smaller `keep`, or an id is reused.
 **Setup:** run with `keep: 5` and `interval: 2s` for 20 s (expect 5 files); stop; restart with
 `keep: 1`.
 **Expected:** after the first checkpoint on the new run, `prune(1)` leaves **1** file — the four
@@ -1694,6 +1758,7 @@ check while failing the id check.
 
 ## CFG-103 — `flight.enabled: false` — what is still reachable
 **Intent:** Establish the blast radius before asking about health.
+**Falsifier:** any client surface still works, or any `/api/v1` path stops working.
 **Setup:** `base.yaml` with `pravaha.flight.enabled: false`.
 **Steps:** start; then, in order: `GET /api/v1/status`, `GET /api/v1/streams`,
 `POST /api/v1/streams`, `POST /api/v1/queries/validate`, `POST /api/v1/queries/explain`,
@@ -1738,15 +1803,21 @@ propose it in the finding.
 ## Spring profiles
 
 ## CFG-106 — no profile
+**Intent:** The no-profile baseline, and the log line that tells an operator which files were read.
+**Falsifier:** a profile-specific file is applied when no profile is active.
 **Expected:** `application.yaml` only. `allow-anonymous: false` → CFG-057's refusal. Startup log
 shows `The following 0 profiles are active` or the equivalent for the Boot version; record the exact
 line, because it is how an operator confirms which files were read.
 
 ## CFG-107 — `--spring.profiles.active=dev`
+**Intent:** The `dev` profile applied, as every quickstart instructs.
+**Falsifier:** the node is still refused, or differs from CFG-078's diff in any way.
 **Expected:** `application-dev.yaml` overlays exactly one key; the node starts open (CFG-078).
 `The following 1 profile is active: "dev"`.
 
 ## CFG-108 — an unknown profile
+**Intent:** What happens when a profile name has no file behind it -- the way a production deployment silently runs on development settings.
+**Falsifier:** Spring refuses an unknown profile, or logs that no file was found for it.
 **Setup:** `--spring.profiles.active=prod`.
 **Expected:** **Spring does not refuse an unknown profile.** No `application-prod.yaml` exists, so
 nothing is overlaid and the node behaves exactly as CFG-106 — that is, it is **refused**, for the
@@ -1756,6 +1827,8 @@ it. Propose that line; a silently ignored profile name is how a production deplo
 development settings.
 
 ## CFG-109 — several profiles at once
+**Intent:** Profile precedence, which is the whole semantics of running more than one and is discoverable from no document in this repository.
+**Falsifier:** `dev,prod` and `prod,dev` behave identically when both files set the same key to different values.
 **Setup:** `--spring.profiles.active=dev,prod`; then `prod,dev`; then `dev,dev`.
 **Expected:** later profiles win for overlapping keys. Only `dev` has a file, so all three start
 open and identically. Record the active-profile log line for each. Then the real test: create
@@ -1767,6 +1840,7 @@ ordering is the whole semantics and an operator has no other way to discover it.
 **Intent:** Every case in this file uses `--spring.config.additional-location`. Its precedence
 against a profile-specific file is the assumption the whole file rests on, so it is checked once,
 last, explicitly.
+**Falsifier:** `application-dev.yaml` wins over a file given with `--spring.config.additional-location`.
 **Setup:** `$QA/conf/cfg.yaml` with `pravaha.security.allow-anonymous: false`; run with
 `--spring.profiles.active=dev` (whose packaged file sets it to `true`).
 **Steps:** run both ways round: additional-location with the `dev` profile, and the `dev` profile

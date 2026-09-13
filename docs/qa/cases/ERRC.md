@@ -31,12 +31,12 @@ The code under test is `pravaha-api/.../ErrorCode.java` (the record, the `Catego
    (`PluginErrors.java:22-26`, `FlightErrors.java:33-40`). So there are **110 declarations and 110
    distinct numbers**; `ErrorCodeUniquenessTest` is what keeps that true.
 3. **`ErrorCode.Category` has seven constants covering 1000–7999**
-   (`ErrorCode.java:39-46`). `category()` iterates them and **throws
+   (`ErrorCode.java:39-47`). `category()` iterates them and **throws
    `IllegalStateException("no category for PRV-nnnn")` when none matches**
-   (`ErrorCode.java:69-76`). **The 8xxx registry family (seven codes) and the 9xxx cluster family
+   (`ErrorCode.java:66-73`). **The 8xxx registry family (seven codes) and the 9xxx cluster family
    (seven codes) have no category.** `ErrorCodeTest.java:61` asserts this throw for 8500 — the
    behaviour is tested and the consequence is not.
-4. **`ApiExceptionHandler.statusFor` calls `code.category()`** (`ApiExceptionHandler.java:63`).
+4. **`ApiExceptionHandler.statusFor` calls `code.category()`** (`ApiExceptionHandler.java:65`).
    So **any `PRV-8nnn` or `PRV-9nnn` that reaches an HTTP controller becomes an
    `IllegalStateException` inside the exception handler**, not an `ApiError`.
 5. **The `Category` ranges do not mean what their names say.** `CLUSTER` is `(6000, 6999)` — which
@@ -48,7 +48,7 @@ The code under test is `pravaha-api/.../ErrorCode.java` (the record, the `Catego
    full table below it.
 6. **`statusFor` maps the whole `SECURITY` category to 403.** `PRV-7001` is *unauthenticated*, which
    is 401. The only reason this is not visible on every call is that `BearerTokenFilter.refuse`
-   writes its own 401 without going through the handler (`BearerTokenFilter.java:113-133`). A
+   writes its own 401 without going through the handler (`BearerTokenFilter.java:114-131`). A
    `PRV-7001` thrown from a **controller** — e.g. by `TokenVerifier` behind a controller rather than
    the filter — arrives as 403 with no `WWW-Authenticate` header.
 7. **`BearerTokenFilter.refuse` hand-writes JSON with six fields**: `code`, `message`, `helpUrl`,
@@ -79,7 +79,7 @@ The code under test is `pravaha-api/.../ErrorCode.java` (the record, the `Catego
     start because `pravaha.security.audit` was set to `log`, is wrong in every word.
 11. **`ErrorCode` refuses a number outside 1000–9999 and a blank name**
     (`ErrorCode.java:29-36`). `helpUrl()` is `https://docs.pravaha.io/errors/PRV-nnnn`
-    (`ErrorCode.java:27,77-79`) for **all 110**, including the ten that are not documented and the
+    (`ErrorCode.java:27,75-77`) for **all 110**, including the ten that are not documented and the
     nine that cannot be thrown.
 12. `FlightErrors` maps Pravaha failures onto Flight statuses; `TROUBLESHOOTING.md:89-94` states
     that `PRV-4026`/`4027`/`4028` all arrive at a client as `RESOURCE_EXHAUSTED` so a driver retries
@@ -362,7 +362,7 @@ several things.**
 **Setup:** `SELECT * FROM nosuch` against a node with `txn` declared, and against a node with
 nothing declared (CFG-088).
 **Expected:** `PRV-2003`, E3 listing the known streams — *"Object 'txn' not found. Known streams:
-[]"*. The empty-list rendering is the one `StreamDeclarationProperties.java:33-38` calls baffling;
+[]"*. The empty-list rendering is the one `StreamDeclarationProperties.java:34-38` calls baffling;
 confirm it still is, and that the second run lists `[txn]`. E4: documented.
 
 ## ERRC-021 — PRV-2010 SQL_PLANNING_FAILED
@@ -434,12 +434,14 @@ being read as a refusal.
 ## ERRC-027 — PRV-2061 SQL_PARAMETER_ARITY
 **Reached through:** `BoundParameters.java:94`. **Setup:** two `?` and one bound value; one `?` and
 two. **Expected:** `PRV-2061`, E3 giving both counts — *"expected 2, got 1"*. E4: documented.
+**Falsifier:** a parameter-count mismatch is accepted and the extra or missing value is silently ignored.
 
 ## ERRC-028 — PRV-2062 SQL_PARAMETER_TYPE
 **Reached through:** three sites — `BoundParameters.java:132`, `ParameterMetadata.java:122`,
 `Constant.java:136`. **Setup:** bind a string to an `INT64` parameter; bind via Flight with an Arrow
 type the parameter is not; bind a literal that will not narrow. **Expected:** `PRV-2062`, E3 naming
 the ordinal, the expected type and the supplied one. E4: documented.
+**Falsifier:** a value of the wrong type is coerced rather than refused.
 
 ## ERRC-029 — PRV-2063 SQL_PARAMETER_NOT_A_VALUE
 **Reached through:** `ParameterMetadata.java:81,108`. **Setup:** a `?` in a position that is not a
@@ -449,6 +451,7 @@ parameter may stand for a value and not for an identifier or a table. E4: docume
 ---
 
 ## PRV-3xxx — runtime and code generation
+**Falsifier:** a `?` in a non-value position parses, plans and then fails somewhere else.
 
 ## ERRC-030 — PRV-3001 RUNTIME_ARENA_EXHAUSTED
 **Reached through:** nine sites — `WindowedAggregate.java:278`, `WindowAssign.java:68`,
@@ -502,9 +505,12 @@ reasoning. E4: documented.
 ## ERRC-034 — PRV-3021 RUNTIME_UNSUPPORTED_JOIN
 **Reached through:** nine sites — `JoinKeys.java:54,61,98,163`, `QueryExecution.java:452,580`,
 `InterpretedPipeline.java:584`, `LookupJoin.java:344,373`.
-**Falsifier / Setup / Expected:** as ERRC-033, with `JOIN`'s refusal list as the source of
-candidates. `JoinKeys` validates key columns, which is the likeliest live reach: a join on
-incompatible key types. E4: documented.
+**Falsifier:** an unsupported join is refused at planning with `PRV-2020` instead, so this code is
+unreachable.
+**Setup:** as ERRC-033, with `JOIN`'s refusal list as the source of candidates. `JoinKeys` validates
+key columns, which is the likeliest live reach: a join on incompatible key types.
+**Expected:** either a reach with E1-E4, or a documented finding of unreachability with the
+reasoning and the planner code that pre-empts it. E4: documented.
 
 ## ERRC-035 — PRV-3100 CODEGEN_COMPILATION_FAILED
 **Reached through:** `StageCompiler.java:95,101`.
@@ -581,10 +587,12 @@ feature with no entry point. E4: documented.
 
 ## ERRC-041 — PRV-4011 BACKFILL_MISSING_VERSION
 **Reached through:** `SplicedReader.java:294`. Same reachability question as ERRC-040.
+**Falsifier:** a missing version is treated as version zero and the backfill proceeds.
 **Expected:** E3 must name which version was expected and what was found. E4: documented.
 
 ## ERRC-042 — PRV-4012 BACKFILL_UNSUPPORTED_KEY
 **Reached through:** `SplicedReader.java:321`. Same reachability question.
+**Falsifier:** an unsupported key type is accepted and produces a wrong splice.
 **Expected:** E3 names the key type and the supported ones. E4: documented.
 
 ## ERRC-043 — PRV-4013 BACKFILL_MALFORMED_OFFSET — **declared and never thrown**
@@ -597,11 +605,13 @@ cannot emit. Group this finding with ERRC-039 and the seven others.
 
 ## ERRC-044 — PRV-4014 BACKFILL_NOT_CAUGHT_UP
 **Reached through:** `ShadowDeployment.java:129`. Same reachability question as ERRC-040.
+**Falsifier:** a shadow deployment is promoted while still behind.
 **Expected:** E3 must say how far behind and what would count as caught up — a "not yet" error
 without a distance is not actionable. E4: documented.
 
 ## ERRC-045 — PRV-4015 BACKFILL_SEAM_WENT_BACKWARDS
 **Reached through:** `ShadowDeployment.java:165`. Same reachability question.
+**Falsifier:** a seam that moves backwards is accepted, which would double-count the overlap.
 **Expected:** E3 names both seam positions. This is a correctness alarm, not an operational one, so
 the message must make clear that the result would have been wrong. E4: documented.
 
@@ -798,6 +808,7 @@ record which.** E4: documented.
 
 ## ERRC-064 — PRV-5050 DELTA_TABLE_UNREADABLE
 **Reached through:** `DeltaSourcePlugin.java:95,117`.
+**Falsifier:** an unreadable Delta table produces a generic binding failure with no path.
 **Setup:** `plugin: delta` with `path` pointing at a directory with no `_delta_log`; and at one
 whose log is truncated.
 **Expected:** `PRV-5050` wrapped in `PRV-5091`, E3 naming the path and what was missing.
@@ -805,12 +816,14 @@ E4: documented.
 
 ## ERRC-065 — PRV-5051 DELTA_UNSUPPORTED_TYPE
 **Reached through:** `DeltaTypes.java:103,147`.
+**Falsifier:** an unsupported column type is silently dropped from the schema.
 **Setup:** a Delta table with a column type the engine's 16 types do not cover (a `MAP`, a `STRUCT`,
 a `DECIMAL(38,10)`).
 **Expected:** `PRV-5051`, E3 naming the column, its Delta type and the supported set. E4: documented.
 
 ## ERRC-066 — PRV-5052 DELTA_MALFORMED_OFFSET
 **Reached through:** `DeltaOffset.java:89`.
+**Falsifier:** a malformed offset token is treated as BEGINNING, silently replaying the table.
 **Setup:** resume from a hand-edited offset token.
 **Expected:** `PRV-5052`, E3 quoting the token. E4: documented.
 
@@ -829,12 +842,14 @@ Delta consumer breaks, and a generic read failure sends the operator to the wron
 
 ## ERRC-068 — PRV-5054 DELTA_READ_FAILED
 **Reached through:** `DeltaScanFiles.java:80,131`, `DeltaPartitionReader.java:296`.
+**Falsifier:** an I/O failure mid-scan ends the feed silently.
 **Setup:** a parquet file removed from under a live read; an I/O error during a scan.
 **Expected:** `PRV-5054`, E3 naming the file. Record how it differs from ERRC-067's output — if it
 does not differ, the two conditions are indistinguishable at the client. E4: documented.
 
 ## ERRC-069 — PRV-5055 DELTA_UNSUPPORTED_FEATURE
 **Reached through:** `DeltaScanFiles.java:100`.
+**Falsifier:** a table using an unimplemented reader feature is read anyway, producing wrong rows.
 **Setup:** a table with a reader feature the plugin does not implement — deletion vectors, column
 mapping, or `v2Checkpoint`.
 **Expected:** `PRV-5055`, E3 naming the feature by its protocol name so it can be matched against
@@ -842,6 +857,7 @@ the table's `protocol` entry. E4: documented.
 
 ## ERRC-070 — PRV-5060 FEEDFILE_DIRECTORY_UNREADABLE
 **Reached through:** `FeedDirectory.java:105`, `FeedFileSourcePlugin.java:161`.
+**Falsifier:** a feed directory that cannot be read produces an empty feed rather than a failure.
 **Setup:** `plugin: feedfile` pointed at a path that does not exist, at a file rather than a
 directory, and at a directory with mode `000`.
 **Expected:** `PRV-5060` for all three, E3 distinguishing them — "does not exist", "is not a
@@ -849,18 +865,21 @@ directory" and "cannot be read" are three different fixes. E4: documented.
 
 ## ERRC-071 — PRV-5061 FEEDFILE_BAD_SCHEMA
 **Reached through:** `FeedSchemas.java:45,74`.
+**Falsifier:** a header that does not match the declared schema is decoded by position anyway.
 **Setup:** a feed file whose header does not match the declared schema; a schema string the feedfile
 plugin cannot parse.
 **Expected:** `PRV-5061`, E3 showing both the declared and the observed shape. E4: documented.
 
 ## ERRC-072 — PRV-5062 FEEDFILE_DECODE_FAILED
 **Reached through:** `CsvDecoder.java:89,155,177` and `ParquetDecoder.java:85,112`.
+**Falsifier:** a malformed record is skipped with no message.
 **Setup:** a malformed CSV row and a malformed parquet page, one each.
 **Expected:** `PRV-5062`, E3 naming file and record index. Compare with `PRV-5040` (ERRC-063) —
 two plugins, two decode codes, and the messages should be equally located. E4: documented.
 
 ## ERRC-073 — PRV-5063 FEEDFILE_MALFORMED_OFFSET
 **Reached through:** `FeedFileOffset.java:60,68`.
+**Falsifier:** a malformed offset token is treated as BEGINNING.
 **Setup:** a hand-edited offset token, and one with a non-numeric record index.
 **Expected:** `PRV-5063` twice, E3 quoting the token. E4: documented.
 
@@ -877,6 +896,7 @@ deletion.
 
 ## ERRC-075 — PRV-5065 FEEDFILE_BAD_CONFIGURATION
 **Reached through:** `FeedFileSourcePlugin.java:104,114,136,148`.
+**Falsifier:** an unusable option combination is accepted and fails later, or all four sites produce the same message.
 **Setup:** four option mistakes, one per site — a missing required option, a conflicting pair, an
 unparseable value, an unsupported format.
 **Expected:** `PRV-5065` four times with four distinguishable messages, each naming the option.
@@ -884,6 +904,7 @@ E4: documented.
 
 ## ERRC-076 — PRV-5070 JDBC_CONNECT_FAILED
 **Reached through:** `JdbcSourcePlugin.java:185,242`, `JdbcLookupPlugin.java:142`.
+**Falsifier:** the connection string, including the password, appears in the message or the log.
 **Setup:** a JDBC URL to a port nothing listens on; valid host, wrong credentials; a driver class
 not on the classpath.
 **Expected:** `PRV-5070` for the first two. The third may be `PRV-5074` — record which. E3 must
@@ -893,6 +914,7 @@ E4: documented.
 
 ## ERRC-077 — PRV-5071 JDBC_QUERY_FAILED
 **Reached through:** six sites across `JdbcPartitionReader`, `JdbcLookupPlugin`, `JdbcSourcePlugin`.
+**Falsifier:** the database's own message is discarded, or the bound parameter values are included.
 **Setup:** a query against a table that does not exist; a syntax error in the configured SQL; a
 connection dropped mid-read.
 **Expected:** `PRV-5071`, E3 carrying the database's own `SQLState`/message, which is the actionable
@@ -900,16 +922,20 @@ part — and **not** the bound parameter values, which are customer data. Check 
 
 ## ERRC-078 — PRV-5072 JDBC_UNSUPPORTED_TYPE
 **Reached through:** `JdbcTypes.java:76`.
+**Falsifier:** an unsupported column type is silently mapped to STRING.
 **Setup:** a table with a `CLOB`, a `BLOB`, an array column, and a `DECIMAL(38,10)`.
 **Expected:** `PRV-5072`, E3 naming the column, its JDBC type name and the supported set.
 E4: documented.
 
 ## ERRC-079 — PRV-5073 JDBC_MALFORMED_OFFSET
-**Reached through:** `JdbcOffset.java:74`. **Setup / Expected:** as ERRC-066. E4: documented.
+**Reached through:** `JdbcOffset.java:74`.
+**Falsifier:** a malformed offset token is treated as BEGINNING.
+**Expected:** `PRV-5073`, E3 quoting the token and naming the expected form. E4: documented.
 
 ## ERRC-080 — PRV-5074 JDBC_BAD_CONFIGURATION
 **Reached through:** seven sites — `JdbcLookupPlugin.java:99,104,109,120,153`,
 `JdbcSourcePlugin.java:117,228`.
+**Falsifier:** any of the seven messages echoes the options map, which contains the password.
 **Setup:** seven option mistakes, one per site.
 **Expected:** `PRV-5074` seven times, seven distinguishable messages. **The password check again:**
 `JdbcLookupPlugin.java:99-120` is option validation and a message that echoes the whole options map
@@ -917,6 +943,7 @@ would include the password. Check. E4: documented.
 
 ## ERRC-081 — PRV-5080 AEROSPIKE_CONNECT_FAILED
 **Reached through:** `AerospikeSourcePlugin.java:220`, `AerospikeClients.java:36`.
+**Falsifier:** an unreachable seed produces a hang with no code where a code is possible.
 **Setup:** seed host nothing listens on; and the containerised case `TROUBLESHOOTING.md:147-150`
 describes — a node reporting its bridge address, where **the symptom is a hang rather than an
 error**.
@@ -929,6 +956,7 @@ a reader who searches `PRV-5080` finds the table row, not the remedy. `AERO` own
 ## ERRC-082 — PRV-5081 AEROSPIKE_OPERATION_FAILED
 **Reached through:** `AerospikeLookupPlugin.java:161`, `AerospikeSinkPlugin.java:177,189,226`,
 `LutScanReader.java:197`.
+**Falsifier:** the Aerospike result code is discarded, leaving the operator without the key the vendor's documentation is indexed by.
 **Setup:** a write to a namespace that does not exist; a read of a set that does not exist; a scan
 interrupted.
 **Expected:** `PRV-5081`, E3 carrying the Aerospike result code, which is what the vendor's
@@ -936,6 +964,7 @@ documentation is indexed by. E4: documented.
 
 ## ERRC-083 — PRV-5082 AEROSPIKE_UNSUPPORTED_TYPE
 **Reached through:** `AerospikeSchemas.java:97,146,158,173`.
+**Falsifier:** an unsupported bin type is silently read as null.
 **Setup:** a bin holding a map, a list, a GeoJSON value, and an HLL.
 **Expected:** `PRV-5082` four times, E3 naming the bin and the type. E4: documented.
 
@@ -944,6 +973,7 @@ documentation is indexed by. E4: documented.
 `AerospikeSourcePlugin.java:120,126,133`, `AerospikeHosts.java:34,41`,
 `AerospikeLookupPlugin.java:92,99,105`, `AerospikeSinkPlugin.java:103,112`,
 `AerospikeStrategy.java:73,84`.
+**Falsifier:** any of the fifteen messages is a restatement of the code's name, or two sites are indistinguishable.
 **Setup:** fifteen option mistakes, one per site. `AerospikeStrategy.java:73,84` covers an unknown
 strategy name — one of the four `AERO` enumerates.
 **Expected:** `PRV-5083` fifteen times with fifteen distinguishable messages. **This is the widest
@@ -951,8 +981,10 @@ single code in the product**; the case's value is finding the two or three sites
 restatement of the code name. E4: documented.
 
 ## ERRC-085 — PRV-5084 AEROSPIKE_MALFORMED_OFFSET
-**Reached through:** `LutScanReader.java:125,133`. **Setup / Expected:** as ERRC-066, including the
-non-numeric variant. E4: documented.
+**Reached through:** `LutScanReader.java:125,133`.
+**Setup:** a hand-edited offset token, and one whose scan position is non-numeric.
+**Falsifier:** a malformed offset token is treated as BEGINNING.
+**Expected:** `PRV-5084` for both sites, E3 quoting the token. E4: documented.
 
 ## ERRC-086 — PRV-5090 INGEST_NO_SUCH_PLUGIN
 **Reached through:** `PluginSourceFeeds.java:172`. The one-line reach is CFG-010's `plugin: kafka`.
@@ -969,6 +1001,7 @@ reads *"If a code is missing here it does not exist in the engine."*
 ## ERRC-087 — PRV-5091 INGEST_BINDING_FAILED
 **Reached through:** `PluginSourceFeeds.java:141` (a `RuntimeException` from `configure`/`open`) and
 `:148` (a checked `Exception` — "refused its configuration"). Two sites, two messages, one code.
+**Falsifier:** a failed binding leaves a file handle or a connection open, or the cause's code is lost.
 **Setup:** CFG-011's empty options (missing `path`) for the first; a path that exists and cannot be
 read for the second.
 **Expected:** `PRV-5091` twice. E3: both name the plugin and the stream; check the cause's own code
@@ -1011,6 +1044,7 @@ cluster problem. It does not reach HTTP today; record the latent mapping. E4: do
 
 ## ERRC-090 — PRV-6101 FLIGHT_UNSUPPORTED_REQUEST
 **Reached through:** `PravahaFlightSqlProducer.java:423,618`.
+**Falsifier:** an unimplemented Flight SQL metadata call returns an empty result rather than refusing.
 **Setup:** Flight SQL verbs this producer does not implement — `getSqlInfo` variants,
 `getCrossReference`, `getExportedKeys`, `getImportedKeys`, `getPrimaryKeys`, `beginTransaction`.
 **Expected:** `PRV-6101` for each, E3 naming the request and, ideally, what the server does support.
@@ -1021,6 +1055,7 @@ watch for** — a driver reads it as "no primary keys" rather than "not supporte
 ## ERRC-091 — PRV-6102 FLIGHT_BAD_HANDLE
 **Reached through:** `ControlWire.java:110,115,120,126,136` and, through the alias,
 `PravahaFlightSqlProducer.java:372,476` and `ArrowParameters.java:64,80,85,92,107`.
+**Falsifier:** a malformed handle or control payload is interpreted rather than refused.
 **Setup:** a hand-built `Action` that is not a Pravaha request; a truncated control payload; a
 `register` action missing the key columns; a `getStream` with a ticket that is not a subscription
 ticket; bound parameters carrying no rows.
@@ -1061,7 +1096,7 @@ troubleshooting page.**
 ## ERRC-094 — PRV-7001 SECURITY_UNAUTHENTICATED
 **Reached through:** six sites — `PrincipalMiddleware.java:96,103,115`,
 `StaticTokenVerifier.java:83`, `TokenVerifier.java:45,56` — plus the HTTP filter's hand-written
-response (`BearerTokenFilter.java:113-133`).
+response (`BearerTokenFilter.java:114-131`).
 **Falsifier:** an unauthenticated caller is served, or the refusal reveals *why* the credential
 failed.
 **Setup:** `errc.yaml` (token auth). Four calls: HTTP with no header; HTTP with a bad token; Flight
@@ -1079,7 +1114,7 @@ with no credential; Flight with a bad credential.
   refusals carry the **same** message. **A message that distinguishes them is a security finding,
   not an E3 improvement.**
 - **The latent 401/403 defect:** `statusFor` maps the whole `SECURITY` category to
-  `HttpStatus.FORBIDDEN` (`ApiExceptionHandler.java:64`). Any `PRV-7001` thrown from a controller
+  `HttpStatus.FORBIDDEN` (`ApiExceptionHandler.java:67`). Any `PRV-7001` thrown from a controller
   rather than the filter arrives as **403**. Construct one if a path exists; if none does, record
   the mapping as latent.
 - **E4:** documented, in a dedicated table opposite `PRV-7002`.
@@ -1165,6 +1200,7 @@ rows are still there.
 
 ## ERRC-098 — PRV-8002 REGISTRY_NO_SUCH_QUERY
 **Reached through:** `QueryRegistry.java:669`, `SubscriptionFilter.java:83`.
+**Falsifier:** an operation on a name that does not exist succeeds, or its message contradicts `PRV-4023`'s about what exists.
 **Setup:** `pravaha drop --name nosuch`, `pause`, `resume`; and a subscribe to a query dropped
 mid-subscription.
 **Expected:** `PRV-8002`, E3 listing the queries that do exist — the same actionable content
@@ -1174,6 +1210,7 @@ about what exists. E4: documented. **E5** applies.
 
 ## ERRC-099 — PRV-8003 REGISTRY_ILLEGAL_TRANSITION
 **Reached through:** `RegisteredQuery.java:249,269,333,345`.
+**Falsifier:** an illegal transition succeeds, or a legal one is refused.
 **Setup:** the illegal transitions — `resume` a running query, `pause` a paused one, `pause` a
 failed one, anything on a dropped one.
 **Expected:** `PRV-8003` for each, E3 naming the current state and the attempted transition, and the
@@ -1184,6 +1221,7 @@ rather than a guard working.
 
 ## ERRC-100 — PRV-8004 REGISTRY_QUERY_FAILED
 **Reached through:** `Subscription.java:103,134`, `RegisteredQuery.java:191`.
+**Falsifier:** the underlying failure is discarded, leaving `query failed` with no cause.
 **Setup:** a query that fails at runtime (ERRC-032's lane failure); then read it, and subscribe to
 it.
 **Expected:** `PRV-8004`, E3 carrying the **underlying** failure — a "query failed" with no cause is
@@ -1193,6 +1231,7 @@ applies.
 
 ## ERRC-101 — PRV-8005 REGISTRY_JOURNAL_UNREADABLE
 **Reached through:** `RegistryJournal.java:163,185`.
+**Falsifier:** a truncated final record is refused, or a newer-version record is skipped rather than refused.
 **Setup:** CFG-020's corrupt-journal variants — a record from a newer version, a record with an
 unknown field, a byte flipped in the middle, and a truncated final record.
 **Expected:** `PRV-8005` for the version case and the mid-file corruption; **the truncated tail must
@@ -1207,6 +1246,7 @@ unusual".
 
 ## ERRC-102 — PRV-8006 REGISTRY_JOURNAL_UNWRITABLE
 **Reached through:** `RegistryJournal.java:229,276`.
+**Falsifier:** the registration is acknowledged despite the journal append failing.
 **Setup:** CFG-100 — journal made read-only under a running node, then a registration.
 **Expected:** `PRV-8006` **and the registration refused** —
 `OPERATIONS.md:379` states the registration is refused *"because acknowledging one that will
@@ -1302,12 +1342,14 @@ message is false; otherwise the case has found a YAML mistake.
 
 ## ERRC-109 — PRV-9006 CLUSTER_HANDOFF_FAILED
 **Reached through:** `PartitionHandoff.java:126,150,179`. Blocked by CFG-030 in the same way.
+**Falsifier:** a handoff failure is reported without naming the partition.
 **Expected:** if reachable, `PRV-9006` naming the partition, the source and the destination node —
 a handoff failure with no partition id is not actionable. If not, record as blocked. E4: documented.
 **E5, E6** apply.
 
 ## ERRC-110 — PRV-9007 CLUSTER_REBALANCE_REFUSED
 **Reached through:** `Rebalancer.java:121,129`. Blocked by CFG-030 in the same way.
+**Falsifier:** a rebalance is refused without naming the criterion that would make it acceptable.
 **Expected:** if reachable, `PRV-9007` naming why the rebalance was refused and what would make it
 acceptable — a refusal is an operational decision and the operator needs the criterion. If not,
 record as blocked. E4: documented. **E5, E6** apply.
@@ -1361,8 +1403,8 @@ cluster (9001–9007) families are outside it.
    `StreamController` are the surfaces; `POST /api/v1/streams` with a name that collides is the most
    likely candidate — trace it.
 3. Where one exists, provoke it and capture the **actual HTTP response**.
-**Expected:** `ApiExceptionHandler.handle` calls `statusFor(e.errorCode())` at line 31, which calls
-`category()` at line 63, which throws. The handler fails **while handling**, so the client receives
+**Expected:** `ApiExceptionHandler.handle` calls `statusFor(e.errorCode())` at line 45, which calls
+`category()` at line 65, which throws. The handler fails **while handling**, so the client receives
 whatever the servlet container produces — a 500 with an HTML body or an empty one — **not the
 `ApiError` the API contract promises for every non-2xx response, and not the code**. That is a
 contract violation on the error path, which is the path clients handle worst.

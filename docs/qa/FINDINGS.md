@@ -670,3 +670,64 @@ calls `getTables` first cannot connect. Arrow marks **every** field nullable whi
 Also: `--lanes` is documented in `QueryRunner`'s javadoc and read by nothing; and QUICKSTART §2's
 `pravaha run` cannot work as written — no `--out-schema`, and a two-field schema against a
 four-column file.
+
+---
+
+# Configuration and error codes — 228 cases, and several corrections to this file
+
+## Corrections first
+
+- **There are 110 error codes, not 104.** My figure excluded the Java SDK's six. 100 are documented,
+  **ten** are missing — not twelve as recorded earlier: `PRV-1030/1031/1040/1041/1042/1043`,
+  `PRV-5090/5091/5092`, `PRV-6104`. Nothing in `TROUBLESHOOTING.md` is absent from the engine, so the
+  error is one-directional.
+- **There are 38 `pravaha.*` settings**, not 37 — 36 YAML keys plus two system properties.
+
+## E-1 (HIGH) — the document describes eight failures the engine cannot report
+
+**Nine codes have no throw site at all**: 1043, 4002, 4013, 5012, 5020, 5053, 5064, 8007, 9004. Eight
+of the nine are documented. Two are routine operational events: `PRV-5053` (a vacuumed Delta file)
+surfaces instead as a generic read failure, and `PRV-5064` (a rotated feed file) surfaces as
+**silence**.
+
+## E-2 (HIGH) — `ErrorCode.Category.CLUSTER` is the Flight range
+
+`CLUSTER` is declared as `(6000, 6999)`. Real cluster codes are 9xxx and have **no** category, so
+`FlightErrors.UNSUPPORTED_TYPE.category()` returns `CLUSTER`. The enum, the ranges table in
+`TROUBLESHOOTING.md` and that document's full table describe three different numbering schemes, and
+`PRV-9xxx` is absent from the ranges table entirely while all seven appear below it.
+
+## E-3 (HIGH) — one code, fifteen throw sites, four unrelated meanings
+
+`PRV-7002` now means: an authorization denial; the startup refusal of an open server; the
+policy/authentication contradiction; and bad configuration *values*. The document's advice — "ask for
+access; a new credential will not help" — is wrong for seven of those sites. **I added two of the
+four meanings today.** `PRV-2002` has the same shape: three of its five sites are startup
+configuration refusals wearing an SQL code.
+
+## E-4 — four more of mine, all in code I wrote this morning
+
+- **`pravaha.checkpoint.timeout` is inert.** `PeriodicCheckpointer.from` reads three keys; my
+  `PersistenceProperties.checkpointConfiguration()` writes two. There is no field to bind it to.
+- **`pravaha.security.authentication` has no validation.** `"tokens"`, `"basic"` and `"token "` all
+  silently mean `none` — an authentication setting that fails open on a typo. The adjacent `policy`
+  key, in the same class, both trims and refuses.
+- **`allow-anonymous` is dead when `authentication: token`**, because my guard requires
+  `!authenticates()`. It silently does nothing on exactly the configuration a team reaches by
+  hardening `dev`.
+- **`BearerTokenFilter.refuse` emits `PRV-0400`** — a code the `ErrorCode` constructor would reject —
+  in a six-field body where `ApiError` has five.
+
+## E-5 — my health indicator may not be the one an orchestrator polls
+
+`/actuator/health` is correctly DOWN with Flight off, but **the readiness group is not configured to
+include the indicator**, so the probe Kubernetes actually polls may still report UP. The fix was half
+of one.
+
+## E-6 — configuration that cannot reach its readers
+
+Seven cluster keys (`socket.*`, `zookeeper.*`) have no readers, so production `PARTITIONED` is
+unreachable from configuration. `arena.slab.size` and `state.slab.size` have no keys at all — the
+first is named as the remedy by six error messages. `QueryRegistry.executingWith` is never called, so
+ten lane settings are unreachable. And `SecurityProperties`' own javadoc names two values the code
+rejects (`policy: tenant`, `audit: log`), while `system_design.md` names `mode: HA`.
