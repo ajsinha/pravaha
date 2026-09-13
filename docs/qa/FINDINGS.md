@@ -169,3 +169,77 @@ I rebuilt the tree **while the verification pass was running**, after saying I w
 detected it independently — one noticed checkpoint directories acquiring a digest suffix mid-run —
 and had to tag every verdict `[handed-over]` or `[in-progress]`. Some verdicts are therefore about a
 build that no longer exists. Rule 1 of `TEST_PLAN.md` exists because of this.
+
+---
+
+# Aerospike and the state tier — the area round 1 never scoped
+
+60 cases, 60 executed against a **real Aerospike Community Edition 8.1.2.4 server**. **35 pass, 25
+fail.** This area had zero coverage in round 1 because I chose areas by instinct; the owner spotted
+the gap.
+
+## Two blockers
+
+**A-1 — the flagship connector cannot be selected by configuration on any deployment.**
+`pravaha-plugin-aerospike` has no `META-INF/services` file. Every other source plugin has one, and
+`ServiceLoader` is the only production path to a source plugin. A node starts cleanly, logs
+`sources bound: [txn <- aerospike…]`, and refuses at the first registration. The fix is a
+three-line resource file.
+
+**A-2 — checkpoints are write-only, proven end to end.** 662 bytes of *real* operator state in three
+files on disk; server restarted with the source emptied; the view came back with **0 rows**. Nothing
+calls `latest()` or `restore()` outside tests.
+
+This also **corrects an earlier finding**: the deployment agent reported every checkpoint as 60 bytes
+with empty operator state. That was true of its stateless query. For a stateful query the state tier
+round-trips correctly — 736-byte files, 662 bytes of state. The defect is narrower and worse than
+first recorded: the state tier works, and nothing reads it back.
+
+## Silent data loss in pushdown — three ways
+
+Filter pushdown is a documented equivalence guarantee. It is broken where `translate` believes it is
+exact and is not:
+
+- A BOOLEAN bin holding a legacy 0/1 integer — which `copyInto` deliberately supports — is excluded
+  by `Exp.boolBin`. The engine keeps 2 rows, the store sends 1.
+- A bin stored as integer and declared STRING: `copyInto` coerces, `Exp.stringBin` excludes.
+- INT8 narrowing mismatches.
+
+The equality, ordering, `IS NULL`, `<>` and untranslatable paths are all correct.
+
+**And pushdown is never wired on the server path at all**: `PluginSourceFeeds` calls the two-argument
+`createReader` and never asks for capabilities. The README's claim is true of `pravaha run` and two
+tests.
+
+## The sink
+
+- **Cannot write any row with a null column** — `REPLACE` + `Bin.asNull` is a server parameter error.
+  The README's own LEFT-join example produces exactly such a row.
+- **A sink→source round trip loses the key**: written as record identity, read back from bins, every
+  row returns `[null, …]`.
+- **Declares `EXACTLY_ONCE`** while the mechanism meant to make that safe does not exist: nothing
+  reads `emitsDeletes`/`replayableOffsets`, and `DeliveryGuarantee.weakest` has no production caller.
+  ADR-029's load-bearing sentence — "refused at registration rather than discovered in production" —
+  describes a mechanism that was never built.
+
+## Also
+
+No sink or lookup discovery at all, and `QueryRegistry` passes `Map.of()` for lookups — so a
+lookup-join query cannot be registered on a server, which is why a documented ✅ is unreachable.
+No TLS and no `authMode` for Aerospike: clear text, no option, undocumented. A stray
+`checkpoint-backup.bin` in the checkpoint directory makes `availableIds`, `latest` and `prune` all
+throw `NumberFormatException`, turning a tidy-up mistake into an unrecoverable query. `prune` can
+delete the last readable checkpoint. `store()` never fsyncs while claiming durability.
+`timestampNanos` uses `nanoTime()`, so every checkpoint reads as 1970.
+
+`AerospikeContinuousQueryIT` passes in 47s against a real server and proves less than its name: one
+batch drain, a hand-advanced watermark, no write during the run, and it drives the engine through
+APIs no server path uses.
+
+## Needs a human
+
+Aerospike Enterprise (XDR, user management, `authMode`); a TLS-enabled Aerospike (blocked on code,
+not infrastructure — the plugin has no configuration surface to point at one); a multi-node cluster
+for partition-parallel scanning, rebalance during a scan and node loss mid-scan; and scale, since
+every scan here was under ten records and `LutScanReader` buffers a whole scan on heap unbounded.
+Each has a run-this recipe at the end of `logs/AERO.md`.
