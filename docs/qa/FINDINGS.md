@@ -471,3 +471,74 @@ on a three-column output was accepted silently.
 `pravaha-algebra` is referenced by no file outside itself. `AdaptiveStage` and `StageUpgradeService`
 by nothing in any `src/main`. The interpreted→generated upgrade works when driven by hand and cannot
 be reached from a server. `pravaha-embedded` has nine methods and cannot register or read a query.
+
+---
+
+# Windowing and aggregates — 380 more cases, and two answers that are simply wrong
+
+## W-1 (HIGH) — windowed `AVG` returns the SUM
+
+`WindowedAggregate` maps `case SUM, AVG -> SlicedAggregateState.Kind.SUM`, and that state class has
+no AVG kind and no divisor anywhere. `SqlPlanner` runs no rule set, so Calcite never reduces AVG to
+SUM/COUNT either. `KeyedAggregate` and `GlobalAggregate` both divide — **so the same query returns a
+different number over a window than over a view**, and only a group with more than one row
+discriminates. Found independently by two agents.
+
+## W-2 (HIGH) — the last window is computed and thrown away, and that ordering is mine
+
+`finish()` does fire the final windows at lane shutdown. But `RegisteredQuery.close()` sets
+`DROPPED`, closes the feed, and *then* closes the execution — and the feed thread is the only thing
+that commits. So the final windows are emitted into a sink whose committer has already gone, and
+`commit()` would no-op anyway because the state is already `DROPPED`.
+
+I chose that order today to fix "closing the execution while a pump is mid-write leaves it writing
+into a lane that has gone". The fix was right about the pump and lost every query's final results.
+
+## W-3 — the recommended workaround is the reason the defect survived
+
+`AGG-032` is recorded **NOT DISCRIMINATING** rather than dropped: it is the exact query
+`SQL_SUPPORT.md` recommends as the bounded alternative to `COUNT(DISTINCT)` over a stream, and it
+*agrees with* the defective implementation. The documentation steers users onto the one input where
+the bug is invisible.
+
+## W-4 — lookup joins are unreachable from every shipped surface
+
+Stronger than previously recorded. `SqlPlanner.withLookups` has **one caller in all of main**, and
+all six planning call sites use `withStreams` — so `table.isLookup()` is always false and
+`buildLookupJoin` always reaches a refusal naming `registerLookup`, an API the user cannot call. A
+second, independent block: `QueryRegistry` uses the five-argument `start`, so `lookups = Map.of()`.
+The operator itself works when driven by hand.
+
+Multi-lane joins are equally unreachable: `QueryRegistry` hard-codes one lane and `PluginSourceFeeds`
+always calls `pumpInto(0, …)`, so `refuseUnpartitionedJoin` can never fire on a server either — and
+`pravaha run` cannot run a join at all, taking one `--stream`.
+
+## W-5 — corrections to earlier entries in this file
+
+Two things recorded earlier were imprecise, and the windowing agent pushed back rather than
+inheriting them:
+
+- **The "wrapped signed-32-bit arena offset" does not obviously correspond to code on `develop`.**
+  `RowInbox` and `SpscRowRing` both guard their 2 GB limits explicitly, and `ArenaHandle`'s offset
+  cannot exceed a 4 MB slab. **Four** distinct mechanisms in this engine produce "stops, with no
+  error" — the slice ceiling, the window walk, arena exhaustion, and a backpressure stall — and the
+  cases now give each a distinguishing thread-dump, log and heap signature rather than assuming one.
+- **`⌈size/slide⌉` is a maximum, not a constant.** The true count is
+  `floor((t+S)/D) − floor(t/D)`; at size 10s slide 3s a row at t=0 lands in 3 windows and at t=2s in
+  4. Slices per window is `S/gcd(S,D)`, not `S/D` — which understates a 10s/9.999s hop by 10,000×.
+
+## W-6 — also pinned, from reading the source
+
+CUMULATE does not exist anywhere in the repo (Calcite parses it, so it reaches a `default` arm and is
+refused with no `SQL_SUPPORT.md` row). `slide > size` is refused by an `IllegalArgumentException`
+with **no PRV code**. Windowed `COUNT(col)` counts NULLs and `COUNT(DISTINCT)` counts NULL as the
+value 0. Windowed `MIN` returns 0 when a NULL is present, and returns 0 over an all-positive column.
+Empty and all-NULL aggregates return 0 where SQL says NULL. A **global** aggregate on four lanes is
+*not* refused, so four lanes emit four partial rows with no error — while every *windowed* aggregate
+is refused above one lane with a message saying "groups by a key" when it does not. `COUNT(DISTINCT
+f64)` is exempted by the float refusal and passes the plan gate into `getString`. Narrow integers and
+`MIN`/`MAX` over DATE, BOOLEAN and STRING die with a raw `IllegalArgumentException` carrying a leaked
+internal schema name and no code. A NULL-keyed left row in a LEFT join is never emitted null-padded,
+as SQL requires, and nothing counts it. Retention is 24 hours and settable from nowhere, so a
+one-day window is evicted one window after it lands. Sub-millisecond intervals truncate to zero and
+are refused as "not positive".

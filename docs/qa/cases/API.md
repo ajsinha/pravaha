@@ -894,3 +894,1225 @@ further output — a subscription that had not actually closed would print it.
 **Expected:** exit `2`; `err.txt` is `--filter takes column=value pairs, got 'user_id'`;
 `out.txt` empty; no TCP connection to 9090. Then the mixed case
 `--filter "user_id=u1,status"` must fail the same way on the second pair, having accepted the first.
+
+### H. Exit codes, streams, transport and hostile input (API-067–075)
+
+## API-067 — with no server running, every server command exits 1
+**Intent:** six commands, one expectation. `PravahaFlightClient.connect` builds a lazy gRPC channel,
+so the failure appears on the first call and reaches `fail(e)`, which exits 1. None of these may
+exit 0 and none may exit 2.
+**Falsifier:** any of the six exiting 0 (a silent success against nothing), or 2 (which would tell a
+script the command line was wrong when the server was simply down), or hanging indefinitely.
+**Setup:** `H-CLI`, nothing listening on 9090, `--url grpc://localhost:9090` (the default).
+**Steps:** run each and record `$?`:
+```
+pravaha queries
+pravaha query     --sql "SELECT 1"
+pravaha register  --name x --sql "SELECT user_id FROM txn" --keys 0
+pravaha drop      --name x
+pravaha pause     --name x
+pravaha resume    --name x
+pravaha subscribe --view x
+```
+**Expected:** all seven invocations exit `1`. Each writes a message to **stderr** naming
+`localhost:9090` (either the SDK's `cannot connect to localhost:9090: …` or a Flight
+`UNAVAILABLE` description) and writes nothing to stdout. Each returns within the client's connect
+timeout rather than blocking forever — record the actual wall time for each, since `subscribe`
+blocks in `subscription.run()` and is the one that could hang.
+
+## API-068 — a `--url` with no scheme defaults to TLS and fails against a plaintext server
+**Intent:** `Endpoint.parse` starts with `tls = true` and only a recognised scheme turns it off, so
+`--url localhost:9090` is **not** the same as the default `grpc://localhost:9090`. A user who
+copies a host:port out of a log gets a TLS handshake against a plaintext socket.
+**Falsifier:** `localhost:9090` behaving identically to `grpc://localhost:9090`.
+**Setup:** `H-SRV` (Flight is plaintext — `pravaha.flight.tls.certificate` is empty).
+**Steps:**
+1. `pravaha queries --url grpc://localhost:9090; echo $?`
+2. `pravaha queries --url localhost:9090 >out.txt 2>err.txt; echo $?`
+**Expected:** (1) exit `0` with the listing. (2) exit `1`; `err.txt` shows a transport/handshake
+failure, not a Pravaha PRV code. The contrast is the finding: the same address, two outcomes, and
+nothing in the message says "this client tried TLS".
+
+## API-069 — an unknown `--url` scheme is refused by the client
+**Intent:** the `default ->` arm of `Endpoint.parse`'s scheme switch.
+**Falsifier:** the scheme being ignored and a connection attempted anyway.
+**Setup:** `H-CLI`.
+**Steps:** `pravaha queries --url "ftp://localhost:9090" >out.txt 2>err.txt; echo $?`; then
+`pravaha queries --url "" 2>err2.txt; echo $?`; then `pravaha queries --url "grpc://" 2>err3.txt; echo $?`
+**Expected:** all three exit `1`. `err.txt` says `'ftp' is not a known scheme` and quotes the
+connection string; `err2.txt` says it is empty — **except** that `--url ""` is stored as a blank
+value and `args.get("url", default)` uses `getOrDefault`, which returns the blank rather than the
+default, so the blank reaches `Endpoint.parse`; `err3.txt` says it names no host. Record which of
+the three produces a message that names `--url` — a client-layer message that never mentions the
+flag the user typed is the usability defect here.
+
+## API-070 — `--token` sends a bearer credential in clear text without a word
+**Intent:** `ServerCommand.connect` calls `options.token(token).allowInsecureToken(true)`
+unconditionally — and `allowInsecureToken()` is read by **nothing** in the SDK. The guard exists as
+a field and a builder method and enforces nothing, so a token typed on a `grpc://` URL travels
+unencrypted and silently.
+**Falsifier:** a warning on stderr, or a refusal, when a token is paired with a plaintext URL.
+**Setup:** `H-SRVA` (authenticating) but with `pravaha.flight.tls` still empty, so Flight is
+plaintext.
+**Steps:** `pravaha queries --url grpc://localhost:9090 --token "ann-token-0123456789" >out.txt 2>err.txt; echo $?`
+while capturing loopback traffic (`tcpdump -i lo -A port 9090`).
+**Expected:** exit `0` with the listing; `err.txt` **empty** — no warning of any kind; and the
+capture contains the literal bytes `Bearer ann-token-0123456789` in a gRPC header frame. That
+`err.txt` is empty is the assertion; the capture is the proof it should not have been.
+
+## API-071 — `PRAVAHA_CLI_TRACE` adds a stack trace to stderr and nothing to stdout
+**Intent:** the only debugging switch the CLI has, and the guarantee that it changes stderr only.
+**Falsifier:** the trace appearing on stdout, or the exit code changing when the variable is set.
+**Setup:** `H-CLI`, nothing on 9090.
+**Steps:**
+1. `pravaha queries >a.out 2>a.err; echo $?`
+2. `PRAVAHA_CLI_TRACE=1 pravaha queries >b.out 2>b.err; echo $?`
+**Expected:** both exit `1`; `a.out` and `b.out` are both empty and identical; `b.err` begins with
+the same first line as `a.err` and then contains at least one line matching `^\s+at ` (a stack
+frame), while `a.err` contains none. Note that the variable is consulted only in
+`ServerCommand.fail`, so it does nothing for `validate`, `explain` or `run` — verify that
+`PRAVAHA_CLI_TRACE=1 pravaha validate --sql --nonsense --schema SCHEMA4` (API-021) still prints no
+trace, which is the gap.
+
+## API-072 — data goes to stdout and diagnosis goes to stderr, for every command
+**Intent:** one case enumerating the split across the whole CLI, because a pipeline
+(`pravaha query … | cut -f2`) is broken by a single diagnostic line on the wrong stream.
+**Falsifier:** any of the rows below landing on the wrong stream.
+**Setup:** `H-SRV` with `by_user` registered and the three rows of API-060 fed.
+**Steps:** run each command with `>out 2>err` and classify every byte:
+
+| Command | must be on **stdout** | must be on **stderr** |
+|---|---|---|
+| `pravaha` (no args) | the usage block | nothing |
+| `pravaha frobnicate` | the usage block | `unknown command: frobnicate` |
+| `pravaha validate` (ok) | `valid …`, `  output: …` | nothing |
+| `pravaha validate` (bad SQL) | nothing | `PRV-…` + help URL |
+| `pravaha explain` (ok) | header + plan | nothing |
+| `pravaha run` (ok) | `ok  6 in, 3 out`, timings | nothing |
+| `pravaha query` (ok) | header, rows, `N rows` | nothing |
+| `pravaha query` (refused) | nothing | `PRV-4023 …` |
+| `pravaha queries` | header + rows, or the empty sentence | nothing |
+| `pravaha register` | `registered …` + sharing note | nothing |
+| `pravaha subscribe` | the `subscribed to …` banner, rows, `-- commit, …` | nothing |
+| `pravaha drop/pause/resume` | `…ped <name>` | nothing |
+
+**Expected:** exactly as tabulated. Two things to flag if observed: the `subscribed to …` banner and
+the `-- commit, N rows` markers are **annotations on stdout**, so `pravaha subscribe --view v | …`
+feeds a consumer three kinds of line; and the `run`/`register` second lines are likewise
+commentary on stdout. Record them — they are defensible, but a consumer must be told.
+
+## API-073 — unicode survives arguments, data and output
+**Intent:** the CLI passes argument strings to the planner and rows through the arena unchanged. A
+non-ASCII identifier, a non-ASCII literal and non-ASCII data in one case.
+**Falsifier:** mojibake in the output file, a row dropped, or a parse failure on a valid identifier.
+**Setup:** `H-CLI`, `LANG=C.UTF-8`. Input `/tmp/uni.csv`:
+```
+1,Ashutosh,500,COMPLETED
+2,元気,900,COMPLETED
+3,Ünïcödé,150,COMPLETED
+4,🚀rocket,50,COMPLETED
+```
+**Steps:**
+```
+pravaha run --sql "SELECT user_id, amount FROM txn WHERE amount > 100" \
+  --schema SCHEMA4 --in /tmp/uni.csv --out /tmp/uni-out.csv --out-schema OUTSCHEMA; echo $?
+xxd /tmp/uni-out.csv | head
+```
+**Expected:** exit `0`; `ok  4 in, 3 out` (`500 > 100`, `900 > 100`, `150 > 100` kept; `50 > 100`
+dropped → `4 - 1 = 3`). `/tmp/uni-out.csv` is exactly
+`Ashutosh,500\n元気,900\nÜnïcödé,150\n`, and `xxd` shows `元` as the three bytes `e5 85 83` — not
+`3f` (`?`) and not a pair of Latin-1 bytes. Then repeat with the rocket row raised to `150` and
+confirm a four-byte astral-plane codepoint (`f0 9f 9a 80`) round-trips.
+**Vacuity:** the row that is dropped is ASCII-named and the rows that survive are not, so a run that
+silently dropped every non-ASCII row would report `4 in, 0 out` rather than `4 in, 3 out`.
+
+## API-074 — a very large `--sql` is accepted or refused, but never truncated
+**Intent:** argument size limits are the operating system's (`ARG_MAX`), not the CLI's, and the
+failure mode at the boundary must not be a silently shortened query.
+**Falsifier:** a query longer than some threshold being planned as a prefix of itself — i.e. exit 0
+with an output schema that does not match the full statement.
+**Setup:** `H-CLI`. Build `SELECT user_id FROM txn WHERE amount IN (1, 2, …, N)` for
+`N = 1_000`, `10_000` and `100_000`; the last is roughly `100_000 × 7 = 700_000` characters, near
+typical `ARG_MAX` of 2 MiB for the whole environment.
+**Steps:** for each `N`: `pravaha validate --sql "$BIG" --schema SCHEMA4 >out.txt 2>err.txt; echo $?`
+Then repeat the largest through `--sql-file` on `pravaha register`, which has no argument limit.
+**Expected:** for each `N`, exactly one of: exit `0` with `output: [user_id STRING NOT NULL]`; or
+exit `1` with a PRV code from the planner; or the shell itself failing with
+`Argument list too long` before `pravaha` runs (exit `126`/`127`, and no Pravaha output at all). A
+fourth outcome — exit 0 after the SQL was truncated — is the falsifier. Record where the planner's
+own limit bites, and confirm the `--sql-file` route gets further than the argument route.
+
+## API-075 — colour is suppressed whenever a machine is reading
+**Intent:** `Ansi.detect()` returns false when `NO_COLOR` is set, when `TERM` is unset or `dumb`, or
+when `System.console()` is null (which is exactly the redirected case). Escape codes in a CI
+transcript hide the string somebody is grepping for.
+**Falsifier:** a `0x1B` byte in any redirected output under any of the three conditions.
+**Setup:** `H-CLI`.
+**Steps:** run `pravaha validate --sql "SELECT nope FROM txn" --schema SCHEMA4 2>err.txt` under each
+of: (a) `NO_COLOR=1` with a tty; (b) `TERM=dumb`; (c) `TERM` unset; (d) output redirected to a file
+with `TERM=xterm-256color` and `NO_COLOR` unset; (e) under `script -qc` so a pty exists **and**
+output is a terminal.
+**Expected:** in (a)–(d), `grep -c $'\x1b' err.txt` is `0` and the first line is exactly
+`PRV-2002 …`. In (e) the same line is wrapped in `\x1b[31m … \x1b[0m` — the colour path is
+reachable, which is what stops (a)–(d) from passing vacuously against a build where colour was
+removed altogether.
+
+---
+
+## REST (API-076–API-125)
+
+Six documented paths, plus `/actuator/*` and the OpenAPI document. `api/openapi.lock.json` is the
+contract of record and lists exactly: `GET /api/v1/status`, `GET /status`, `GET|POST /api/v1/streams`,
+`GET /api/v1/streams/{name}`, `POST /api/v1/queries/validate`, `POST /api/v1/queries/explain`.
+Every case below states the status, the body shape, and — in section D — whether it answers without
+a credential.
+
+### A. Path and method (API-076–086)
+
+## API-076 — `GET /api/v1/status` returns the node's identity and uptime as JSON
+**Intent:** the machine-readable half of the status pair; the console's first call.
+**Falsifier:** a missing field, `uptimeSeconds` as a string, or a plugin list that is not an array.
+**Setup:** `H-SRV`, up for at least 3 s.
+**Steps:** `curl -si localhost:8080/api/v1/status`
+**Expected:** `200`; `Content-Type: application/json`; a body parsing to an object with exactly the
+six `NodeStatus` fields — `instanceId` (`"pravaha-node-01"` from `pravaha.node.id`), `version`,
+`engineState` (`"RUNNING"`), `uptimeSeconds` (a JSON number >= 3), `registeredQueries`, `plugins`
+(an array). Note the field name: `registeredQueries` is filled from `catalog.size()`, the count of
+**streams**, so with the one declared stream it reads `1` while zero queries are registered. Pin
+that — the name and the value disagree.
+
+## API-077 — `GET /status` returns a self-contained HTML page
+**Intent:** the page that must render when the console process is down and nothing else works. No
+template engine, no static asset, no external font, no script.
+**Falsifier:** any `<script`, `<link`, `src=`, or `http`-scheme URL in the body; or a
+`Content-Type` that is not `text/html`.
+**Setup:** `H-SRV`.
+**Steps:** `curl -si localhost:8080/status -o page.html` then
+`grep -Eic '<script|<link|src=|https?://' page.html`
+**Expected:** `200`; `Content-Type: text/html;charset=UTF-8`; grep count `0`; the body contains
+`<title>Pravaha node pravaha-node-01</title>`, the four rows `State`, `Version`, `Uptime`,
+`Streams`, and the state rendered with `class="ok"` because `stateClass("RUNNING")` is `ok`. The
+`Streams` row's value equals `registeredQueries` from API-076 — the same field, so the two
+representations cannot disagree.
+
+## API-078 — `GET /api/v1/streams` lists the declared streams with their fields
+**Intent:** the read half of the catalog, and the field rendering (`sqlName()`, not an enum name).
+**Falsifier:** an internal enum constant in `type`, a `fieldCount` that disagrees with `fields`
+length, or ordinals out of order.
+**Setup:** `H-SRV` (one declared stream, `txn`, four fields).
+**Steps:** `curl -s localhost:8080/api/v1/streams | jq .`
+**Expected:** `200`; an array of length `1`; `[0].name == "txn"`, `[0].version == 1`,
+`[0].fieldCount == 4`, `[0].fields | length == 4`; the fields in ordinal order `0,1,2,3` with
+`type` values `"INT64 NOT NULL"`, `"STRING NOT NULL"`, `"INT64 NOT NULL"`, `"STRING NOT NULL"` and
+`nullable` `false` for all four. Record the `nullable` values — Flight reports the same schema with
+every field nullable (API-150), and the two surfaces disagree.
+
+## API-079 — `GET /api/v1/streams/{name}` returns one stream
+**Intent:** the single-resource read.
+**Falsifier:** an array instead of an object, or a different rendering of the same schema.
+**Setup:** `H-SRV`.
+**Steps:** `curl -s localhost:8080/api/v1/streams/txn | jq .`
+**Expected:** `200`; an object byte-equal to element `[0]` of API-078's array.
+
+## API-080 — `POST /api/v1/streams` answers 201 while the locked contract says 200
+**Intent:** `StreamController.register` returns `ResponseEntity.status(HttpStatus.CREATED)`, but
+`api/openapi.lock.json` records `"responses": ["200"]` for this operation because springdoc
+documents the declared return type rather than the entity's status. A generated client that treats
+anything but 200 as a failure breaks on the one write the API has.
+**Falsifier:** the response being 200 (then the lock is right and this case retires), or the lock
+listing 201.
+**Setup:** `H-SRV`.
+**Steps:**
+```
+curl -si localhost:8080/api/v1/streams -H 'Content-Type: application/json' \
+     -d '{"name":"orders","schema":"order_id:INT64,sku:STRING,qty:INT32"}'
+jq '.paths."/api/v1/streams".post.responses' api/openapi.lock.json
+```
+**Expected:** HTTP `201 Created`, body a `StreamSummary` with `name == "orders"`,
+`fieldCount == 3`, `version == 1`; and the lock file showing `[ "200" ]`. Both observations in one
+case, because the finding is the difference between them.
+
+## API-081 — `POST /api/v1/queries/validate` answers 200 for a valid query
+**Intent:** the editor endpoint. A successful validation carries the output fields and its own
+latency.
+**Falsifier:** a status other than 200, an empty `outputFields`, or `elapsedMicros` absent.
+**Setup:** `H-SRV`.
+**Steps:**
+```
+curl -s localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' \
+  -d '{"sql":"SELECT user_id, amount FROM txn WHERE amount > 100"}' | jq .
+```
+**Expected:** `200`; `valid == true`; `diagnostics == []`; `outputFields` of length `2` —
+`{name:"user_id", type:"STRING NOT NULL", nullable:false, ordinal:0}` and
+`{name:"amount", type:"INT64 NOT NULL", nullable:false, ordinal:1}`; `elapsedMicros` a number.
+
+## API-082 — an invalid query is also 200, with `valid: false`
+**Intent:** the deliberate design choice: a syntax error mid-keystroke is a normal editor state, not
+an HTTP failure. And the diagnostic carries the PRV code and a help URL.
+**Falsifier:** a 400, or a `diagnostics` array without `code`/`helpUrl`.
+**Setup:** `H-SRV`.
+**Steps:**
+```
+curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' \
+  -d '{"sql":"SELECT nope FROM txn"}'
+curl -s  localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' \
+  -d '{"sql":"SELECT user_id, COUNT(*) FROM txn GROUP BY user_id"}' | jq -r .diagnostics[0].code
+```
+**Expected:** the first is `200` with `valid == false`, `diagnostics[0].code == "PRV-2002"`,
+`diagnostics[0].severity == "error"`,
+`diagnostics[0].helpUrl == "https://docs.pravaha.io/errors/PRV-2002"`, and `outputFields == []`.
+The second prints `PRV-2050` (the unbounded-state refusal), also inside a 200. Note that
+`diagnostics[0].message` for the first ends `. Known streams: [txn]` — the disclosure of API-116.
+
+## API-083 — `explain` honours `level`, and an unknown level is 400
+**Intent:** four values on one query parameter, enumerated: `physical` (the default), `logical`,
+`codegen`, and anything else.
+**Falsifier:** `codegen` returning a plan instead of Java; an unknown level defaulting silently to
+physical; or a level error arriving as a 500.
+**Setup:** `H-SRV`. Body `{"sql":"SELECT user_id, amount FROM txn WHERE amount > 100"}` throughout.
+**Steps:** POST to `/api/v1/queries/explain` with no `level`, then `?level=physical`,
+`?level=logical`, `?level=codegen`, `?level=PHYSICAL`, `?level=`.
+**Expected:**
+- no `level` and `?level=physical`: `200`, `level == "physical"`, `plan` contains `Scan(txn)`,
+  `outputFields` of length 2 (as API-081).
+- `?level=logical`: `200`, `level == "logical"`, `plan` contains `Logical`, and
+  **`outputFields == []`** — the logical arm returns `List.of()`. Pin it: the same request shape
+  returns fields for one level and not another.
+- `?level=codegen`: `200`, `level == "codegen"`, `plan` is Java source (contains `class` and
+  `ExplainStage`) or begins `-- no generated form:`, and `outputFields` has length 2.
+- `?level=PHYSICAL` and `?level=`: `400` with an `ApiError` whose `code` is `PRV-0400` and whose
+  message is `level must be 'logical' or 'physical', got 'PHYSICAL'` — note the message omits
+  `codegen`, which the endpoint does accept. That is a second finding in the same case.
+
+## API-084 — the wrong method on each documented path is 405
+**Intent:** enumerate the method matrix rather than gesture at it. Six paths x the methods they do
+not implement.
+**Falsifier:** any of these answering 200, or a 404 where the path exists but the method does not
+(which tells a client the endpoint is gone rather than misused).
+**Setup:** `H-SRV`.
+**Steps:** for each row, `curl -si -X <M> localhost:8080<path>`:
+
+| Path | implemented | expected 405 for |
+|---|---|---|
+| `/api/v1/status` | GET | POST, PUT, PATCH, DELETE |
+| `/status` | GET | POST, PUT, PATCH, DELETE |
+| `/api/v1/streams` | GET, POST | PUT, PATCH, DELETE |
+| `/api/v1/streams/txn` | GET | POST, PUT, PATCH, DELETE |
+| `/api/v1/queries/validate` | POST | GET, PUT, PATCH, DELETE |
+| `/api/v1/queries/explain` | POST | GET, PUT, PATCH, DELETE |
+
+**Expected:** every cell in the last column returns `405 Method Not Allowed` with an `Allow` header
+naming exactly the implemented methods for that path. Record the **body**: these are Spring's own
+errors, not `ApiError` (see API-124), so a strict client parsing `code`/`helpUrl` finds neither.
+That is `4 + 4 + 3 + 4 + 4 + 4 = 23` requests.
+
+## API-085 — HEAD and OPTIONS on every path
+**Intent:** the two methods a proxy, a browser preflight or a health checker sends unprompted.
+**Falsifier:** HEAD returning a body, or OPTIONS returning 500.
+**Setup:** `H-SRV`.
+**Steps:** `curl -sI localhost:8080<path>` and `curl -si -X OPTIONS localhost:8080<path>` for the
+six paths.
+**Expected:** HEAD mirrors GET's status and headers with a zero-length body on the four GET paths,
+and `405` on the two POST-only paths. OPTIONS returns `200` with an `Allow` header listing the
+implemented methods for that path. No path returns 500.
+
+## API-086 — near-miss paths are 404, and the 404 body is Spring's, not `ApiError`
+**Intent:** trailing slashes, wrong case and unknown segments — the four ways a client mistypes a
+path — and the shape of the answer.
+**Falsifier:** `/api/v1/Streams` serving the stream list (a case-insensitive route), or a 500.
+**Setup:** `H-SRV`.
+**Steps:** `curl -si` each of `/api/v1/streams/`, `/api/v1/Streams`, `/API/v1/streams`,
+`/api/v2/streams`, `/api/v1/queries`, `/api/v1/queries/validate/`, `/apiv1/status`.
+**Expected:** `/api/v1/streams/` returns `200` with the list (Spring matches the trailing slash by
+default in this configuration) **or** `404`; record which, because the lock file names the
+slash-free form only. Every other path returns `404`. Each 404 body is Spring's default error
+object (`timestamp`, `status`, `error`, `path`) — with `spring.mvc.problemdetails.enabled: false`
+there is no RFC 7807 body and no `ApiError`, which is the gap API-124 measures.
+
+### B. Request bodies (API-087–098)
+
+## API-087 — malformed JSON is 400 and must not be 500
+**Intent:** the parser failing before any controller runs.
+**Falsifier:** a 500, or a 200 with `valid:false` (which would mean the body was silently read as
+something).
+**Setup:** `H-SRV`.
+**Steps:**
+```
+curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' -d '{"sql": '
+curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' -d 'not json'
+curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' -d '[1,2,3]'
+```
+**Expected:** all three `400`. The bodies are Spring's `HttpMessageNotReadableException` rendering,
+**not** `ApiError` — no `code`, no `helpUrl`. Record the exact body of the first: a client that
+parses `.code` gets `null` and will report "unknown error".
+
+## API-088 — a body missing `sql` reaches the planner as null
+**Intent:** `ValidateRequest` is a record with no validation, so `{}` binds `sql = null` and
+`SqlPlanner.plan(null)` is called. Either a `PravahaException` (-> a 400 `ApiError`) or an
+unhandled `NullPointerException` (-> a 500 with Spring's body, and a stack trace in the log).
+**Falsifier:** a 200 with `valid: true`.
+**Setup:** `H-SRV`.
+**Steps:** `curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' -d '{}'`
+and the same with `{"sql":null}`, and against `/api/v1/queries/explain`.
+**Expected:** record the status for each of the four. The required outcome is a `400` carrying an
+`ApiError`; a `500` is a defect and the case's finding, because a caller omitting a field is a
+caller's mistake and the handler's own Javadoc says every non-2xx is an `ApiError`. Whichever is
+observed, the body must be valid JSON (API-125).
+
+## API-089 — wrong types in the body
+**Intent:** `{"sql": 42}`, `{"sql": []}`, `{"sql": {}}`, `{"sql": true}` — Jackson coerces some of
+these and refuses others, and the difference is invisible from the outside unless it is pinned.
+**Falsifier:** `{"sql": 42}` being planned as the string `42` and returning 200 `valid:false` with a
+parse error, when the client sent a number and deserves to be told so.
+**Setup:** `H-SRV`.
+**Steps:** POST each of the four to `/api/v1/queries/validate`.
+**Expected:** Jackson's default coerces a scalar to `String`, so `{"sql": 42}` and `{"sql": true}`
+are expected to reach the planner as `"42"` and `"true"` and return `200` with `valid == false` and
+`diagnostics[0].code == "PRV-2001"`; `{"sql": []}` and `{"sql": {}}` are expected to fail
+deserialization with `400`. Record all four: the finding is that a type error on the wire and a
+syntax error in the SQL are reported identically for two of them.
+
+## API-090 — unknown fields in the body are ignored
+**Intent:** Spring Boot's Jackson default is `FAIL_ON_UNKNOWN_PROPERTIES = false`, so a client
+sending a field the server does not know gets no warning — which is the right choice for forward
+compatibility and worth recording so nobody relies on the opposite.
+**Falsifier:** a 400 for an extra field.
+**Setup:** `H-SRV`.
+**Steps:**
+```
+curl -s localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' \
+  -d '{"sql":"SELECT user_id FROM txn","tenant":"acme","level":"codegen","limit":99}' | jq .
+```
+**Expected:** `200`, `valid == true`, `outputFields` of length 1. The `level` field in the **body**
+is ignored entirely — `explain` reads `level` from the **query string** — so a client that puts it
+in the body silently gets `physical`. Confirm that against `/api/v1/queries/explain` with
+`{"sql":"...","level":"logical"}` and no query parameter: the response must say
+`"level":"physical"`.
+
+## API-091 — an empty body
+**Intent:** the zero-length case, distinct from `{}`.
+**Falsifier:** a 200.
+**Setup:** `H-SRV`.
+**Steps:** `curl -si -X POST localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' --data-binary ''`
+and the same for `/api/v1/queries/explain` and `/api/v1/streams`.
+**Expected:** `400` for all three (`Required request body is missing`), with Spring's error body.
+No 500, no stack trace in the response.
+
+## API-092 — a very large body
+**Intent:** there is no configured `server.max-http-request-size` for the JSON surface, so the limit
+is Tomcat's and then the planner's. The failure at the boundary must be a status, not an OOM.
+**Falsifier:** the process exhausting heap, the connection being dropped without a status, or a
+truncated SQL being planned.
+**Setup:** `H-SRV` with `-Xmx512m` so exhaustion would be visible.
+**Steps:** POST `/api/v1/queries/validate` with `sql` built as
+`SELECT user_id FROM txn WHERE amount IN (1, ..., N)` at `N = 10_000` (~70 KB),
+`N = 1_000_000` (~7 MB), and a 64 MB body.
+**Expected:** `N = 10_000` -> `200` (`valid` true or a planner refusal, either is acceptable);
+`N = 1_000_000` -> a status within 60 s, either `200` with `valid:false` or `400`/`413`, and the
+node still answering `GET /api/v1/status` afterwards; 64 MB -> a `413` or a connection refusal, and
+again a live node afterwards.
+**Vacuity:** the post-condition — `GET /api/v1/status` returning 200 after each — is the part that
+cannot pass with the feature removed; a node that died would fail it.
+
+## API-093 — the wrong `Content-Type`
+**Intent:** `@RequestBody` on a JSON-only controller; `text/plain`, `application/xml`,
+`application/x-www-form-urlencoded` and a missing header are four different client mistakes.
+**Falsifier:** any of them being parsed as JSON and returning 200.
+**Setup:** `H-SRV`.
+**Steps:** POST the valid body of API-081 to `/api/v1/queries/validate` four times: with
+`Content-Type: text/plain`, `application/xml`, `application/x-www-form-urlencoded`, and with the
+header removed entirely (`-H 'Content-Type:'`).
+**Expected:** `415 Unsupported Media Type` for all four, with an `Accept-Post` or `Accept` header
+naming `application/json`. Record whether the body is `ApiError` (it is not — API-124).
+
+## API-094 — `Accept` headers the client sends and the ones it does not
+**Intent:** JSON endpoints under `Accept: text/html`, the HTML endpoint under
+`Accept: application/json`, and both with no `Accept` at all.
+**Falsifier:** `/status` returning JSON, or `/api/v1/status` returning the HTML page, to a caller
+whose `Accept` asked for the other.
+**Setup:** `H-SRV`.
+**Steps:** for `/api/v1/status` and `/status`, send `Accept: application/json`,
+`Accept: text/html`, `Accept: */*`, and no `Accept` header.
+**Expected:** `/api/v1/status` returns `200 application/json` for `application/json`, `*/*` and no
+header, and `406 Not Acceptable` for `Accept: text/html`. `/status` (declared
+`produces = TEXT_HTML_VALUE`) returns `200 text/html` for `text/html`, `*/*` and no header, and
+`406` for `Accept: application/json`. Two paths, four headers, eight observations — the two 406s
+are the ones a badly-configured console will hit.
+
+## API-095 — unicode in the request body round-trips
+**Intent:** a non-ASCII identifier and literal through JSON, the planner, and back into the
+diagnostic message.
+**Falsifier:** mojibake in `diagnostics[0].message`, or a 400 for a well-formed UTF-8 body.
+**Setup:** `H-SRV`.
+**Steps:** POST to `/api/v1/queries/validate` with `Content-Type: application/json; charset=utf-8`
+and the body `{"sql":"SELECT \"顧客\" FROM txn"}`, reading `diagnostics[0].message`.
+**Expected:** `200` with `valid == false` and a message quoting `顧客` in correct UTF-8 (bytes
+`e9 a1 a7 e5 ae a2`), not `???`. Then the same identifier as a **real** column: register a stream
+`uni` with schema `顧客:STRING,amount:INT64` and validate `SELECT 顧客 FROM uni` — expect `200`,
+`valid == true`, `outputFields[0].name == "顧客"`, and the same name back from
+`GET /api/v1/streams/uni`.
+
+## API-096 — `POST /api/v1/streams` with fields missing
+**Intent:** `RegisterStreamRequest` is an unvalidated record: `{"name":"x"}` passes `schema = null`
+into `parseSchema`, and `{"schema":"a:INT64"}` passes `name = null` into `StreamSchema.builder`.
+**Falsifier:** a stream being registered under the name `null`, or a 200.
+**Setup:** `H-SRV`.
+**Steps:** POST `{}`, `{"name":"x"}`, `{"schema":"a:INT64"}`, `{"name":"","schema":"a:INT64"}`,
+`{"name":"x","schema":""}`.
+**Expected:** none of the five results in a stream appearing in `GET /api/v1/streams` — verify after
+each. Record each status: the `null` schema is expected to raise an NPE inside `spec.split(",")`
+(-> `500`, a defect), the empty schema produces `PRV-5040` from `parseSchema` (-> `500`, because
+5040 is in the **PLUGIN** range; see API-122), and the empty name may register a stream named `""`.
+Any stream actually created here is a finding in its own right.
+
+## API-097 — a malformed schema spec is a caller's mistake reported as a server error
+**Intent:** the HTTP twin of API-033. `parseSchema` throws `PravahaException(PRV-5040)`;
+`ErrorCode.Category` puts 5040 in `PLUGIN`; `ApiExceptionHandler.statusFor` maps `PLUGIN` to
+`INTERNAL_SERVER_ERROR`. So a typo in a request body returns **500**.
+**Falsifier:** a 400 (which would mean the classification was fixed).
+**Setup:** `H-SRV`.
+**Steps:**
+```
+curl -si localhost:8080/api/v1/streams -H 'Content-Type: application/json' \
+  -d '{"name":"bad","schema":"order_id INT64,sku:STRING"}'
+```
+**Expected:** `500`, body an `ApiError` with `code == "PRV-5040"`,
+`message == "schema entry 'order_id INT64' is not 'name:TYPE'. Example: id:INT64,name:STRING"`,
+`helpUrl == "https://docs.pravaha.io/errors/PRV-5040"`, `path == "/api/v1/streams"`. A monitoring
+rule that pages on 5xx pages for somebody's typo, and a client that retries 5xx retries forever.
+`GET /api/v1/streams` afterwards must still show only `txn` (and `orders` if API-080 ran).
+
+## API-098 — control characters and broken encodings in the body
+**Intent:** hostile-ish input on the one endpoint an editor calls on every keystroke burst.
+**Falsifier:** a 500 with a stack trace, or a response body that is not valid JSON.
+**Setup:** `H-SRV`.
+**Steps:** four bodies against `/api/v1/queries/validate`, in order:
+(a) a SQL string containing a JSON-escaped NUL (the six characters backslash-u-0-0-0-0) between
+`SELECT` and `FROM txn`;
+(b) the same position holding a **raw** unescaped NUL byte, built with `printf` and sent with
+`curl --data-binary @-`;
+(c) a SQL string containing two escaped newlines, an escaped tab, and the line comment
+`-- trailing comment` after `SELECT user_id FROM txn`;
+(d) a lone unpaired surrogate as the whole SQL value (the six characters backslash-u-d-8-0-0).
+**Expected:** (a) `200` with `valid == false` and `diagnostics[0].code == "PRV-2001"` — the escaped
+NUL survives JSON decoding and is a SQL parse error. (b) `400`, a JSON syntax error, because a raw
+NUL is not legal inside a JSON string. (c) `200` with `valid == true` and one output field, because
+the newlines, the tab and the SQL line comment are all legal. (d) `400` from Jackson. No case
+returns 500, and all four response bodies parse under `jq -e .`.
+
+### C. Missing names, duplicates and concurrency (API-099–104)
+
+## API-099 — an unknown stream name is 400, not 404, and names every stream that does exist
+**Intent:** two findings in one request. `StreamCatalog.require` throws `PRV-2003`, which is in the
+`PLANNING` category, which `statusFor` maps to `BAD_REQUEST` — so a resource that does not exist is
+reported as a malformed request. And the message appends `Registered: ` plus the whole key set.
+**Falsifier:** a 404 (the REST convention, and what a client's `if (404) create()` expects), or a
+message that does not enumerate.
+**Setup:** `H-SRV` with `txn` and `orders` registered.
+**Steps:** `curl -si localhost:8080/api/v1/streams/nope`
+**Expected:** `400 Bad Request`; body an `ApiError` with `code == "PRV-2003"`,
+`message == "no stream named 'nope'. Registered: [txn, orders]"`,
+`helpUrl == "https://docs.pravaha.io/errors/PRV-2003"`, `path == "/api/v1/streams/nope"`, and a
+`timestamp`. `ApiIntegrationTest.anUnknownStreamIsA400WithTheErrorCodeAndAHelpUrl` asserts the 400,
+so the status is deliberate — record it against the REST convention rather than as a surprise, and
+record the disclosure as its own finding: an unauthenticated caller on `H-SRV` learns the complete
+stream inventory by guessing one wrong name.
+
+## API-100 — awkward names in the path
+**Intent:** the `{name}` segment is passed straight to `catalog.require`, so every encoding question
+is the servlet container's.
+**Falsifier:** a 500 for any of these, or a traversal reaching outside the catalog.
+**Setup:** `H-SRV`.
+**Steps:** `curl -si` each of:
+`/api/v1/streams/%E9%A1%A7%E5%AE%A2` (the UTF-8 for a registered unicode stream),
+`/api/v1/streams/txn%20`, `/api/v1/streams/..%2F..%2Fetc%2Fpasswd`,
+`/api/v1/streams/a%2Fb`, `/api/v1/streams/` + a 4096-character name, `/api/v1/streams/TXN`.
+**Expected:** the unicode name returns `200` with that stream (given API-095 registered it);
+`txn%20` (trailing space) returns `400 PRV-2003` naming `'txn '`; the traversal forms return `400`
+from Spring's path handling or `400 PRV-2003` — never a 200, never a file, never a 500; the
+4096-character name returns `400 PRV-2003` or `414`; `TXN` returns `400 PRV-2003` because the
+catalog is case-sensitive. Every non-2xx body must still be JSON.
+
+## API-101 — registering the same stream name twice is refused
+**Intent:** `StreamCatalog.register` refuses when the name exists **at the same version**, and
+schema versions are immutable. `parseSchema` always builds version 1, so through this API every
+duplicate is a refusal.
+**Falsifier:** the second POST replacing the first (which would silently change the meaning of a
+query planned against the old schema), or a 201.
+**Setup:** `H-SRV`, `orders` registered by API-080.
+**Steps:**
+```
+curl -si localhost:8080/api/v1/streams -H 'Content-Type: application/json' \
+  -d '{"name":"orders","schema":"order_id:INT64,sku:STRING,qty:INT32"}'
+curl -si localhost:8080/api/v1/streams -H 'Content-Type: application/json' \
+  -d '{"name":"orders","schema":"order_id:INT64"}'
+curl -s  localhost:8080/api/v1/streams/orders | jq .fieldCount
+```
+**Expected:** both POSTs return `400` with `code == "PRV-2002"` and the message
+`stream 'orders' version 1 is already registered. Schema versions are immutable; register a new
+version rather than replacing one a query may be planned against.` The final `jq` prints `3` — the
+**original** three-field schema, unchanged by the second, narrower attempt. Note the status: a
+duplicate is `400`, not the `409 Conflict` a REST client will be looking for.
+**Vacuity:** the third request is what makes this non-vacuous — asserting the 400 alone would pass
+even if the catalog had been overwritten and then complained.
+
+## API-102 — concurrent identical registrations produce exactly one stream
+**Intent:** `StreamCatalog` is `synchronized` on every method, so the race should resolve to one
+winner and N-1 refusals. This is the only write the REST API has.
+**Falsifier:** two 201s; or a `fieldCount` that is neither of the submitted schemas; or a 500 from
+a `ConcurrentModificationException`.
+**Setup:** `H-SRV`, `concurrent_stream` not registered.
+**Steps:** 20 parallel POSTs of `{"name":"concurrent_stream","schema":"a:INT64,b:STRING"}` with
+`xargs -P20 -n1 curl -s -o /dev/null -w '%{http_code}\n'`, then `GET /api/v1/streams`.
+**Expected:** exactly one `201` and exactly nineteen `400` responses — `1 + 19 = 20`, no other
+status, no timeout. `GET /api/v1/streams` shows `concurrent_stream` exactly once with
+`fieldCount == 2`.
+**Vacuity:** run the same 20 against a name that already exists and confirm `0` successes and `20`
+refusals; a harness that counted "at least one 201" would pass in both worlds.
+
+## API-103 — concurrent identical reads and validations agree byte for byte
+**Intent:** the read and validate paths hold no per-request state, so 50 concurrent identical calls
+must return 50 identical bodies (modulo `elapsedMicros` and `uptimeSeconds`).
+**Falsifier:** any two responses differing in a field other than the two timing fields; any 5xx;
+any response with a truncated body.
+**Setup:** `H-SRV`.
+**Steps:** 50 parallel `POST /api/v1/queries/validate` with the API-081 body; 50 parallel
+`GET /api/v1/streams`; 50 parallel `GET /api/v1/status`. Normalise `elapsedMicros` and
+`uptimeSeconds` to `0` with `jq` and `sort -u | wc -l` each set.
+**Expected:** `1` distinct body for the validate set, `1` for the streams set, `1` for the status
+set; `150` responses total, all `200`. `SqlPlanner` is constructed per call, so a shared-planner
+regression would show here as a mixed set.
+
+## API-104 — a validation racing a registration sees one state or the other, never half
+**Intent:** the catalog is read by `QueryController.plannerFor()` on every validate, so a stream
+appearing mid-flight must either be fully visible or not visible at all.
+**Falsifier:** a validate that reports `valid == true` against a stream whose fields it then cannot
+project; or a `PRV-2002` whose `Known streams:` list contains a name that `GET /api/v1/streams` does
+not.
+**Setup:** `H-SRV`.
+**Steps:** in a loop of 200 iterations: POST `/api/v1/streams` with
+`{"name":"race_N","schema":"a:INT64,b:STRING"}` while, in parallel, POSTing
+`{"sql":"SELECT a, b FROM race_N"}` to `/api/v1/queries/validate`, and immediately afterwards
+`GET /api/v1/streams`.
+**Expected:** each validate returns either `valid == true` with `outputFields` of exactly
+`[a INT64 NOT NULL, b STRING NOT NULL]`, or `valid == false` with `PRV-2002` and a
+`Known streams:` list that does **not** contain `race_N`. Never a third outcome. Every `race_N`
+appears exactly once in the final listing: `200` streams created from `200` attempts.
+
+### D. Authentication — which paths answer without a credential (API-105–114)
+
+## API-105 — every documented path refuses an unauthenticated caller when authentication is on
+**Intent:** the core of this section. `BearerTokenFilter` is registered on `/*` at
+`HIGHEST_PRECEDENCE` and `shouldNotFilter` exempts only five prefixes, so all six documented paths
+must refuse. Enumerated one by one because "the API is authenticated" is exactly the claim that is
+true for five paths and false for the sixth in every product that has this bug.
+**Falsifier:** any row below answering 200 without a credential. The write (`POST /api/v1/streams`)
+is the one that matters most: before the filter existed, anyone who could reach the port could
+register a stream.
+**Setup:** `H-SRVA`. No `Authorization` header on any request.
+**Steps:** `curl -s -o /dev/null -w '%{http_code} %{url_effective}\n'` for:
+`GET /api/v1/status`, `GET /status`, `GET /api/v1/streams`, `GET /api/v1/streams/txn`,
+`POST /api/v1/streams` (valid body), `POST /api/v1/queries/validate` (valid body),
+`POST /api/v1/queries/explain` (valid body).
+**Expected:** all seven return `401`. Each body is JSON with
+`code == "PRV-7001"`, `message == "this server requires a credential; send it as 'Authorization: Bearer <token>'"`,
+`helpUrl == "https://docs.pravaha.io/errors/PRV-7001"`, a `timestamp`, `path` equal to the request
+URI — and a sixth field, `status: 401`, which `ApiError` does not have (API-123). Confirm with
+`GET /api/v1/streams` afterwards, with a valid token, that the unauthenticated POST created nothing.
+
+## API-106 — malformed and wrong credentials
+**Intent:** six shapes of a bad `Authorization` header, and the rule that the refusal must not say
+*why*. `BearerTokenFilter` strips a case-insensitive `Bearer ` prefix and otherwise passes the whole
+header value to the verifier as the token.
+**Falsifier:** two different messages for "unknown token" and "expired token" (an oracle); or any of
+these being admitted.
+**Setup:** `H-SRVA`. Target `GET /api/v1/streams` each time.
+**Steps:** send `Authorization:` with each of — (a) `Bearer ann-token-0123456789` (control, valid);
+(b) `bearer ann-token-0123456789` (lower case scheme); (c) `BEARER ann-token-0123456789`;
+(d) `ann-token-0123456789` (no scheme at all); (e) `Bearer wrong-token`; (f) `Bearer ` (empty
+token); (g) `Basic YW5uOng=`; (h) the header sent twice with different values.
+**Expected:** (a), (b), (c) and (d) all return `200` — the `regionMatches(true, …)` makes the scheme
+case-insensitive, and a bare token with no scheme is accepted, which is worth recording as a
+deliberate leniency. (e), (f) and (g) return `401` with **the same** `message` as each other, which
+must not distinguish "unknown" from "malformed". (h) returns `401` or `200` deterministically —
+record which header wins, since a proxy that appends a header would decide it.
+
+## API-107 — the OpenAPI document and the docs UI answer without a credential, by design
+**Intent:** three of the five `OPEN_PREFIXES`. They describe the shape of the API and disclose no
+row data, and a client that cannot fetch the schema cannot generate a client.
+**Falsifier:** a 401 on any of them (which would break code generation), **or** any of them
+containing stream names, query text or configuration values.
+**Setup:** `H-SRVA`, no `Authorization` header.
+**Steps:** `curl -si localhost:8080/api/v1/openapi.json`, `.../api/docs`, `.../swagger-ui/index.html`;
+then `grep -c 'txn\|by_user\|token' openapi.json`.
+**Expected:** `200` for all three. The OpenAPI document lists the six locked paths and the DTO
+schemas, and the grep count is `0` — no stream name, no query text and no credential appears in it.
+If a stream name does appear, an unauthenticated caller can enumerate the deployment's data model,
+and that is the finding.
+
+## API-108 — `/actuator/health` and `/actuator/info` answer without a credential; `metrics` and `prometheus` do not
+**Intent:** the other two open prefixes, and the boundary immediately beyond them. A liveness probe
+must not authenticate — it would fail closed when the identity source is down — but metrics are
+operational data.
+**Falsifier:** `/actuator/metrics` or `/actuator/prometheus` answering 200 without a credential
+(they are exposed by `management.endpoints.web.exposure.include` but are **not** in
+`OPEN_PREFIXES`); or `/actuator/health` requiring one.
+**Setup:** `H-SRVA`, no `Authorization` header.
+**Steps:** `curl -s -o /dev/null -w '%{http_code} %{url_effective}\n'` for
+`/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/info`,
+`/actuator/metrics`, `/actuator/metrics/jvm.memory.used`, `/actuator/prometheus`, `/actuator`.
+**Expected:** `200` for the four health/info paths — including the two probe sub-paths, which match
+the `/actuator/health` prefix. `401` for `/actuator/metrics`, its sub-path, `/actuator/prometheus`
+and the `/actuator` index. Then repeat all eight **with** a valid token and expect `200` for the
+first seven. Record the health body: with `show-details: when-authorized` and no Spring Security in
+the stack, an unauthenticated caller is not "authorized", so `/actuator/health` should be
+`{"status":"UP"}` and nothing more — component details leaking here would name plugins, databases
+and paths.
+
+## API-109 — `OPEN_PREFIXES` is a `startsWith` test, so near-miss paths are also unauthenticated
+**Intent:** `shouldNotFilter` does `OPEN_PREFIXES.stream().anyMatch(path::startsWith)` on the raw
+`getRequestURI()`. Any path that merely *begins* with one of the five strings bypasses
+authentication entirely. Whether that is exploitable depends on what else routes.
+**Falsifier:** any of the probe paths below reaching a controller that serves data while
+unauthenticated. A 404 is an acceptable answer; a 200 with content is not.
+**Setup:** `H-SRVA`, no `Authorization` header.
+**Steps:** `curl -si` each of `/actuator/healthz`, `/actuator/health-anything`,
+`/actuator/healthXX/../metrics`, `/api/v1/openapi.jsonx`, `/api/v1/openapi.json/../streams`,
+`/api/docsomething`, `/swagger-ui-x`, `/api/docs/../../api/v1/streams`.
+**Expected:** every one must be `404` (unmatched route) or `401`. **None** may return `200` with a
+stream list, a status document or metrics. Record, for each, whether the filter was skipped — the
+distinguishing signal is a `404` body in Spring's shape rather than the `PRV-7001` JSON. Any path
+that both skips the filter and routes somewhere is an authentication bypass and the most serious
+finding this file can produce.
+
+## API-110 — a valid token from any tenant reads everything
+**Intent:** the HTTP surface authenticates and **never authorizes**: no controller calls
+`BearerTokenFilter.principalOf`, and `SecurityPolicy` is consulted only on the Flight path. So
+`AuthenticatedOnlyPolicy` is the whole of REST's authorization model, and it says "any verified
+caller".
+**Falsifier:** any difference between what `ann` (tenant `acme`) and `bob` (tenant `globex`) can
+see or do. There is none — this case pins that.
+**Setup:** `H-SRVA`.
+**Steps:** with ann's token and then with bob's, `GET /api/v1/streams`, `GET /api/v1/status`,
+`POST /api/v1/queries/validate` (a query over `txn`), and `POST /api/v1/streams` registering
+`bobs_stream`.
+**Expected:** identical `200` responses for the reads under both tokens, byte for byte; and both
+registrations succeed. In particular `bob`, from another tenant, registers a stream on this node
+and reads `acme`'s schemas. The `path`/`principal` never appears in an audit record for these calls
+either, because the REST surface records none.
+
+## API-111 — with `authentication: none` the filter is registered but disabled
+**Intent:** `PravahaServerApplication` always constructs the filter and sets
+`registration.setEnabled(verifier != null)`, for the stated reason that a `FilterRegistrationBean`
+holding no filter fails the servlet container at refresh. So on an open node the filter object
+exists and does nothing.
+**Falsifier:** an open node refusing a request (the filter leaking through as enabled), or the
+container failing to start.
+**Setup:** `H-SRV` (`--spring.profiles.active=dev`).
+**Steps:** all seven requests of API-105 with no `Authorization` header; then the same seven **with**
+`Authorization: Bearer anything-at-all`.
+**Expected:** all fourteen return their normal 2xx — the header is neither required nor validated
+nor rejected. The node started (which is the regression this arrangement exists to prevent), and
+`GET /actuator/health` is `200`.
+
+## API-112 — the node refuses to start open unless somebody said so
+**Intent:** `refuseAccidentalOpenServer` is the reason the defaults in `application.yaml` do not
+boot. It is part of the API surface because it decides whether the port is there at all.
+**Falsifier:** the node starting and serving `/api/v1/streams` with the shipped defaults.
+**Setup:** a clean checkout's `application.yaml`, no profile.
+**Steps:** `pravaha-server` with no `--spring.profiles.active`; then with
+`pravaha.security.policy=authenticated` and `authentication=none`; then with the `dev` profile.
+**Expected:** (1) startup fails with a `PravahaException` naming
+`pravaha.security.authentication=none, policy=permissive` and listing the three ways out; no port
+8080 listener (`curl` gets connection refused). (2) startup fails with the contradiction message —
+"a node nobody can use" — because the policy serves only verified callers and nothing can verify
+one. (3) starts, and `/api/v1/streams` answers `200` anonymously. Three configurations, three
+outcomes, and only the third has an HTTP surface.
+
+## API-113 — credentials are read from the header and nowhere else
+**Intent:** `request.getHeader("authorization")` is the only source. A token in a query string or a
+cookie must not work — and, just as importantly, must not be logged.
+**Falsifier:** `?token=…` or `?access_token=…` being honoured.
+**Setup:** `H-SRVA`.
+**Steps:** `GET /api/v1/streams?token=ann-token-0123456789`, then with
+`?access_token=…`, then with `Cookie: authorization=Bearer ann-token-0123456789`, then with
+`X-Authorization: Bearer …`.
+**Expected:** all four `401` with `PRV-7001`. Then inspect the access log and the application log:
+the query-string forms mean the credential is now in `path` inside the 401 body **and** in any
+request log line. Record whether `ApiError.path` echoes the full query string — if it does, a
+credential is being written into the error body the client may log again.
+
+## API-114 — a credential is not required to learn the node exists, its version, or its state
+**Intent:** closing the section by naming what an unauthenticated caller can still learn on a fully
+authenticated node: liveness, readiness, and the OpenAPI document.
+**Falsifier:** `/actuator/health` or `/api/v1/openapi.json` disclosing the instance id, the stream
+names, the configured tokens, or the plugin inventory.
+**Setup:** `H-SRVA`, no credential.
+**Steps:** fetch `/actuator/health`, `/actuator/info`, `/api/v1/openapi.json` and diff their content
+against the authenticated `GET /api/v1/status` body.
+**Expected:** the open endpoints disclose at most `{"status":"UP"}`, an empty or build-info `info`
+body, and the API's static shape. None of `pravaha-node-01`, `txn`, a plugin name or a token
+substring appears in any of the three. Anything that does is a disclosure finding, and belongs in
+`SECX` as well as here.
+
+### E. Disclosure: actuator endpoints and error messages (API-115–120)
+
+## API-115 — `/actuator/env`
+**Intent:** checked individually, because `env` is the single worst actuator endpoint to expose: it
+renders the whole `Environment`, including `pravaha.security.tokens.*` — the static credentials
+themselves — and any secret passed as a system property or an environment variable.
+**Falsifier:** a `200` from `/actuator/env` under any configuration reachable from the shipped
+files; or a `200` from `/actuator/env/pravaha.security.tokens`.
+**Setup:** `H-SRV` (open) and `H-SRVA` (authenticated), tried in turn.
+**Steps:** `curl -si localhost:8080/actuator/env` and
+`curl -si 'localhost:8080/actuator/env/pravaha.security.tokens.*'`, on both nodes, without a
+credential and then with one.
+**Expected:** `404` on both nodes in all four combinations, because
+`management.endpoints.web.exposure.include: health,info,metrics,prometheus` does not list `env`.
+On `H-SRVA` an unauthenticated request may be answered by the filter as `401` before routing —
+record which comes first, since a `401` here proves the filter runs and a `404` proves the exposure
+list does. If either node returns a `200`, capture the body and check it for a token value; that is
+a credential disclosure and stops the wave.
+
+## API-116 — REST error messages enumerate the catalogue
+**Intent:** three messages on this surface list everything the node holds, to any caller who reaches
+them: `PRV-2003` appends `Registered: [every stream]`, `PRV-2002` from the planner appends
+`. Known streams: [every stream]`, and `PRV-4023` (reachable through the Flight read path, quoted
+back by the CLI) appends `this server serves [every view]`. None consults the policy.
+**Falsifier:** none of them enumerating — which is what a filtered listing would look like, and what
+`pravaha.list` already does on the Flight side.
+**Setup:** `H-SRVA` with streams `txn`, `orders`, `payroll` declared. Call as `bob` (tenant
+`globex`), who has no relationship with any of them.
+**Steps:**
+```
+curl -s -H "$BOB" localhost:8080/api/v1/streams/nope            | jq -r .message
+curl -s -H "$BOB" localhost:8080/api/v1/queries/validate \
+     -H 'Content-Type: application/json' -d '{"sql":"SELECT x FROM nope"}' | jq -r .diagnostics[0].message
+```
+**Expected:** the first message ends `Registered: [txn, orders, payroll]`; the second ends
+`. Known streams: [txn, orders, payroll]`. Both are served on a node configured to serve data only
+to verified callers, and both hand a verified caller from an unrelated tenant the complete
+inventory. This is the REST half of the disclosure the Flight side has at API-180: **a filtered
+listing plus an enumerating error message is not a filtered listing.**
+**Vacuity:** `GET /api/v1/streams` as bob returns all three too (API-110), so on `H-SRVA` the error
+message discloses nothing the listing does not. Re-run the case on a node whose policy filters the
+listing — the point is that these messages would still enumerate, and the mechanism is the same one
+`QueryRegistry.require` uses where the listing *is* filtered.
+
+## API-117 — `/actuator/beans` and `/actuator/configprops`
+**Intent:** two endpoints checked individually. `beans` is a map of the application's internals;
+`configprops` renders bound `@ConfigurationProperties` — which includes `SecurityProperties`, and
+therefore `tokens`, unless Spring's sanitizer masks it.
+**Falsifier:** either returning `200` with content.
+**Setup:** `H-SRV` and `H-SRVA`.
+**Steps:** `curl -si` both paths on both nodes, with and without a credential.
+**Expected:** `404` everywhere (neither id is in the exposure list); `401` instead of `404` for the
+unauthenticated calls on `H-SRVA` is acceptable and should be recorded. If `configprops` ever
+returns 200, assert specifically that `pravaha.security.tokens` values render as `******` and not as
+the token text.
+
+## API-118 — `/actuator/heapdump` and `/actuator/threaddump`
+**Intent:** individually, because they are different risks. A heap dump contains every row in flight,
+every token in memory and every query's bound parameters; a thread dump contains stack frames and,
+indirectly, the shape of what is running.
+**Falsifier:** either returning `200`; or `heapdump` returning a `Content-Disposition` and a
+multi-megabyte body.
+**Setup:** `H-SRV` and `H-SRVA`.
+**Steps:** `curl -si -o /dev/null -w '%{http_code} %{size_download}\n'` for both paths on both
+nodes, with and without a credential.
+**Expected:** `404` with a body of a few hundred bytes in all eight combinations (or `401` on the
+unauthenticated `H-SRVA` calls). Any response over 1 MB from `/actuator/heapdump` is a stop-the-wave
+finding.
+
+## API-119 — `/actuator/loggers`, `/actuator/mappings`, `/actuator/shutdown`
+**Intent:** the three that let a caller *change* or *map* the running node rather than read it.
+`loggers` accepts a POST that turns on DEBUG logging (which will write query text and parameter
+values to disk); `mappings` lists every route; `shutdown` stops the node.
+**Falsifier:** any of them returning anything but 404 — and in particular
+`POST /actuator/shutdown` returning `200 {"message":"Shutting down…"}`.
+**Setup:** `H-SRV` and `H-SRVA`.
+**Steps:** `GET /actuator/loggers`, `POST /actuator/loggers/com.ash.messaging.pravaha` with
+`{"configuredLevel":"DEBUG"}`, `GET /actuator/mappings`, `POST /actuator/shutdown` — each on both
+nodes, unauthenticated and authenticated.
+**Expected:** `404` (or `401`) for all of them, and — the assertion that matters — the node is
+**still running** afterwards: `GET /actuator/health` returns `200 {"status":"UP"}` at the end of the
+case. A `shutdown` that worked would be found by the next case failing to connect, which is not the
+same as being found here.
+
+## API-120 — the exposure list is the control, so audit it in both directions
+**Intent:** every endpoint above is closed by one line of `application.yaml`. That line is therefore
+part of the API's security surface, and a change to it is an API change. Audit it both ways:
+everything exposed answers, and everything else does not.
+**Falsifier:** an actuator id answering 200 that is not one of the four listed; or one of the four
+listed returning 404 (which would mean monitoring has silently stopped).
+**Setup:** `H-SRV`.
+**Steps:** for every id Spring Boot ships — `auditevents, beans, caches, conditions, configprops,
+env, flyway, health, heapdump, httpexchanges, info, integrationgraph, liquibase, logfile, loggers,
+mappings, metrics, prometheus, quartz, scheduledtasks, sessions, shutdown, startup, threaddump` —
+`curl -s -o /dev/null -w '%{http_code} %{url_effective}\n' localhost:8080/actuator/<id>`.
+**Expected:** exactly four `200`s — `health`, `info`, `metrics`, `prometheus` — matching
+`management.endpoints.web.exposure.include` character for character. Every other id returns `404`:
+`24 - 4 = 20` of them. Also fetch `/actuator` itself (the discovery index) and confirm it lists only
+the four, so a caller cannot learn that the others exist.
+
+### F. The error body (API-121–125)
+
+## API-121 — every failure the handler produces is an `ApiError` with the same five fields
+**Intent:** `ApiExceptionHandler`'s stated contract — "every non-2xx response is an `ApiError` and
+nothing else" — asserted across every reachable producer rather than on one example.
+**Falsifier:** any two of these bodies having different field sets; any missing `helpUrl`; any
+`timestamp` absent.
+**Setup:** `H-SRV`.
+**Steps:** provoke each and dump `keys` with `jq -S 'keys'`:
+`GET /api/v1/streams/nope` (PRV-2003, 400);
+`POST /api/v1/streams` with a duplicate name (PRV-2002, 400);
+`POST /api/v1/streams` with a malformed spec (PRV-5040, 500);
+`POST /api/v1/queries/explain?level=weird` (PRV-0400, 400, the `IllegalArgumentException` arm).
+**Expected:** all four bodies have exactly the key set
+`["code","helpUrl","message","path","timestamp"]` — five keys, no more and no fewer. `code` matches
+`^PRV-\d{4}$` in all four. `helpUrl` is `https://docs.pravaha.io/errors/<code>` for the three
+`PravahaException` cases and — note — the **empty string** for the `IllegalArgumentException` case,
+which the handler hard-codes as `""`. That is a contract violation in the field the console renders
+as a link; record it.
+
+## API-122 — the status is derived from the code's category, so enumerate the categories
+**Intent:** `statusFor` switches on `ErrorCode.Category`, which is decided purely by the numeric
+range. That is the design's strength (a new PRV-2xxx is a 400 without anyone remembering) and its
+weakness (PRV-5040, a caller's typo, is a 500 because 5xxx means PLUGIN).
+**Falsifier:** any row below mapping differently.
+**Setup:** `H-SRV`, plus a unit-level check of `ApiExceptionHandler.statusFor` for the codes that
+cannot be provoked over HTTP.
+**Steps:** for each category, provoke or call `statusFor` directly:
+
+| Category | Range | Example code | Expected status | Reachable over HTTP? |
+|---|---|---|---|---|
+| CONFIGURATION | 1000–1999 | PRV-1xxx | 400 | not from these controllers |
+| PLANNING | 2000–2999 | PRV-2002, PRV-2003 | 400 | yes — API-099, API-101 |
+| RUNTIME | 3000–3999 | PRV-3xxx | 500 | not from these controllers |
+| STATE | 4000–4999 | PRV-4023 | 500 | not from these controllers |
+| PLUGIN | 5000–5999 | PRV-5040 | **500** | yes — API-097 |
+| CLUSTER | 6000–6999 | PRV-6102 | 500 | not from these controllers |
+| SECURITY | 7000–7999 | PRV-7001 | 403 | no — the filter writes 401 itself |
+
+**Expected:** exactly as tabulated. Two findings to record: PRV-5040 is a **caller's** error
+returned as 500 (the whole of API-097), and the `SECURITY` row maps to **403** in `statusFor` while
+the only security failure a client actually sees is the filter's hand-written **401** — so the
+mapping for `PRV-7001` is dead code, and a `PRV-7002` raised inside a controller would arrive as a
+403 that no client is looking for on this surface.
+
+## API-123 — codes outside every category range make the handler throw
+**Intent:** `ErrorCode.Category` covers 1000–7999. `RegistryErrors` uses 8001–8007 and
+`ClusterErrors` uses 9001–9007, so `category()` throws `IllegalStateException("no category for
+PRV-8002")`. If any such exception ever reaches `ApiExceptionHandler`, the handler itself fails and
+the client gets Spring's 500 page instead of an `ApiError` — the one shape the design promises never
+to send.
+**Falsifier:** `statusFor(new ErrorCode(8002, …))` returning a status instead of throwing; or a
+`PravahaException` carrying an 8xxx/9xxx code producing a well-formed `ApiError`.
+**Setup:** a unit call to `ApiExceptionHandler.statusFor` with `RegistryErrors.NO_SUCH_QUERY`
+(8002) and `ClusterErrors.INSUFFICIENT_GUARANTEE` (9002); plus a survey of whether any controller
+path can reach an 8xxx or 9xxx code today.
+**Expected:** both calls throw `IllegalStateException` with the message `no category for PRV-8002`
+and `no category for PRV-9002`. The survey's expected answer is "no path today" — the REST surface
+touches the catalog and the planner only, never the registry or the cluster. Record it as a latent
+defect with a one-line reproduction, because the first REST endpoint that lists registered queries
+will hit it.
+
+## API-124 — the framework's own failures are not `ApiError`
+**Intent:** the honest boundary of the "one error shape" promise. `spring.mvc.problemdetails` is
+deliberately off, so a 404, a 405, a 415 and a malformed-JSON 400 are all rendered by Spring's
+default error handling, which produces `{timestamp, status, error, path}` — different field names,
+no `code`, no `helpUrl`.
+**Falsifier:** any of them carrying `code` and `helpUrl` (which would mean the promise is now kept
+and this case retires).
+**Setup:** `H-SRV`.
+**Steps:** collect `jq -S 'keys'` for: `GET /api/v1/nothing-here` (404),
+`DELETE /api/v1/streams` (405), `POST /api/v1/queries/validate` with `Content-Type: text/plain`
+(415), `POST /api/v1/queries/validate` with `-d '{'` (400), and — for contrast —
+`GET /api/v1/streams/nope` (400 `ApiError`).
+**Expected:** the first four share a key set that is **not** the five of API-121 (expect
+`["error","path","status","timestamp"]`), and the fifth has exactly the `ApiError` five. So a strict
+client on this surface must handle **two** error shapes, and the count is the finding: `4` framework
+failures against `1` engine failure in this sample.
+
+## API-125 — every error body is strictly parseable JSON
+**Intent:** the 401 body is built by **string concatenation** in `BearerTokenFilter.refuse`, with
+only `"` replaced by `'` in the reason and the path. A message containing a backslash, a newline, or
+a non-ASCII character would produce invalid JSON, and the client that most needs to parse a 401 is
+the one retrying with a fresh credential.
+**Falsifier:** any body below failing `jq -e .`; or the 401's `status` field being absent, since
+that is what API-123 records; or a `timestamp` that is not ISO-8601.
+**Setup:** `H-SRVA`.
+**Steps:**
+1. Unauthenticated `GET /api/v1/streams` → parse the 401 with `jq -e .`.
+2. Unauthenticated `GET` of a path containing a double quote, a backslash and a newline
+   (percent-encoded) → parse the 401, and check that `path` did not break the JSON.
+3. Every error body collected in API-121 and API-124 → `jq -e .`.
+4. For each, check `timestamp` against `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$`.
+**Expected:** every body parses. The `path` in step 2 either round-trips escaped correctly or shows
+the concatenation's limits — a backslash in the URI is **not** escaped by
+`replace("\"", "'")`, so a path ending in a backslash before the closing quote is the specific
+input that breaks the body. Record whether it does: that is a malformed response to an
+unauthenticated caller, which is reachable by anyone who can reach the port.
+
+---
+
+## Flight and Flight SQL (API-126–API-180)
+
+Five control verbs (`pravaha.register`, `.drop`, `.list`, `.pause`, `.resume`), the statement path
+(`getFlightInfo`, `getStream`, `getSchema`), prepared statements, `acceptPutPreparedStatementQuery`,
+and Flight SQL's catalog/metadata commands. Control verbs are Flight **actions** framed by
+`ControlWire`; a subscription is a Flight **ticket** recognised by the magic `0x50525648` ("PRVH").
+
+Status mapping, from `FlightErrors.statusFor` — needed in nearly every case below:
+
+| PRV | CallStatus |
+|---|---|
+| PRV-7001 | `UNAUTHENTICATED` |
+| PRV-7002, PRV-7003 | `UNAUTHORIZED` |
+| PRV-4026, PRV-4027, PRV-4028 | `RESOURCE_EXHAUSTED` |
+| PRV-4021, PRV-4029 | `TIMED_OUT` |
+| PRV-4023, PRV-6102 | `NOT_FOUND` |
+| everything else | `INVALID_ARGUMENT` |
+
+### A. The five control verbs, authorized / unauthenticated / denied (API-126–140)
+
+## API-126 — `pravaha.register`, authorized
+**Intent:** the happy path of the verb that stands up a computation, and the three fields it returns.
+**Falsifier:** an empty result, a state that is not the registry's, or a fingerprint that is not the
+short form.
+**Setup:** `H-FLA`, called as **dana** (allowed).
+**Steps:** `client.doAction(new Action("pravaha.register", ControlWire.encode("q_new", "SELECT user_id, amount FROM txn WHERE amount > 100", "0")), danaHeaders)`
+and read the single `Result`.
+**Expected:** exactly one `Result`, then `onCompleted`. `ControlWire.decode(result.getBody())` is a
+three-element list: `["q_new", "RUNNING", <short fingerprint>]`. `registry.names()` afterwards
+contains `q_new`, so the four registrations are `q_alpha, q_beta, q_gamma, q_new`.
+
+## API-127 — `pravaha.register`, unauthenticated
+**Intent:** `PrincipalMiddleware.Factory.onCallStarted` runs before the producer, so an action with
+no credential costs a header parse and never reaches the registry.
+**Falsifier:** a registration appearing; or the refusal arriving as `INVALID_ARGUMENT` rather than
+`UNAUTHENTICATED`, which tells a client to fix its request instead of its credential.
+**Setup:** `H-FLA`, no `authorization` header.
+**Steps:** the same `doAction` as API-126 with no `CallOption`.
+**Expected:** `FlightRuntimeException` with `CallStatus.UNAUTHENTICATED` and a description starting
+`PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'`.
+`registry.names()` is unchanged: still exactly `[q_alpha, q_beta, q_gamma]`.
+**Vacuity:** assert the name set before and after; a refusal that still registered would pass an
+exception-only assertion.
+
+## API-128 — `pravaha.register`, authenticated but denied
+**Intent:** the interesting half. `POLICY.mayRegisterQuery(sam)` **allows** (sam is not anonymous),
+so the refusal comes from the *source* check inside `QueryRegistry.register` — `mayRead(sam, "txn")`
+— which exists precisely so that a principal who may register cannot register a standing read of
+something they may not read.
+**Falsifier:** the registration succeeding; or the message naming `mayRegisterQuery` rather than the
+source stream, which would mean the source check did not run.
+**Setup:** `H-FLA`, called as **sam**.
+**Steps:** the same `doAction` as API-126, as sam.
+**Expected:** `CallStatus.UNAUTHORIZED` (from `PRV-7002`), description
+`sam may not register 'q_new' because it reads 'txn', which they may not read: only analysts read
+txn. A registration is a standing read of everything the query names, so it is refused here rather
+than at the first row.` `registry.names()` unchanged at three.
+
+## API-129 — `pravaha.drop`, authorized
+**Intent:** the verb that destroys accumulated state, on the allowed path.
+**Falsifier:** the query surviving, or a result body that does not say `DROPPED`.
+**Setup:** `H-FLA`, as **dana**; `q_gamma` registered.
+**Steps:** `doAction("pravaha.drop", ControlWire.encode("q_gamma"))`.
+**Expected:** one `Result` decoding to `["q_gamma", "DROPPED"]`; `registry.names()` afterwards is
+`[q_alpha, q_beta]` — `3 - 1 = 2`; a subsequent `pravaha.list` returns two results.
+
+## API-130 — `pravaha.drop`, unauthenticated
+**Intent:** the case the code's own comment is about: "an unauthenticated caller dropped every
+continuous query on a node configured to serve only verified callers."
+**Falsifier:** the drop succeeding. This is the highest-severity falsifier in the file.
+**Setup:** `H-FLA`, no credential; `q_gamma` registered.
+**Steps:** `doAction("pravaha.drop", ControlWire.encode("q_gamma"))` with no header.
+**Expected:** `UNAUTHENTICATED` with `PRV-7001`; `registry.names()` still `[q_alpha, q_beta,
+q_gamma]`; `q_gamma` still `RUNNING` and still answering reads.
+**Vacuity:** feed a row to `q_gamma` after the refusal and confirm its `rowsIn` still advances — a
+query that had been dropped could not.
+
+## API-131 — `pravaha.drop`, authenticated but denied
+**Intent:** the other half of that comment: "an authenticated but denied principal dropped another
+principal's payroll query." `requireAdministrable` runs `mayAdminister`, which defaults to
+`mayRead`, and records the decision in the audit sink either way.
+**Falsifier:** the drop succeeding, or no audit record for the refusal.
+**Setup:** `H-FLA`, as **sam**, with an `AuditSink.InMemory`.
+**Steps:** `doAction("pravaha.drop", ControlWire.encode("q_gamma"))` as sam; then inspect the audit
+sink.
+**Expected:** `UNAUTHORIZED` (`PRV-7002`), description
+`sam may not drop 'q_gamma': only analysts read q_gamma`. `q_gamma` still registered. The audit sink
+holds one event with action `drop`, subject `sam`, object `q_gamma`, decision denied — recorded
+**before** the throw, so a refusal is auditable.
+
+## API-132 — `pravaha.pause`, authorized
+**Intent:** the state transition and the returned state string.
+**Falsifier:** a body that does not say `PAUSED`, or a query still advancing after the call.
+**Setup:** `H-FLA`, as **dana**; `q_alpha` RUNNING.
+**Steps:** `doAction("pravaha.pause", ControlWire.encode("q_alpha"))`, then feed three rows to
+`txn`, then `pravaha.list`.
+**Expected:** one result decoding to `["q_alpha", "PAUSED"]`; the listing shows `q_alpha` in state
+`PAUSED`; its `rowsIn` is the same before and after the three rows.
+**Vacuity:** the row feed is what makes this non-vacuous — a paused query and an idle source look
+identical without it. Confirm `q_beta`'s `rowsIn` **did** advance by 3 over the same interval, which
+proves rows were flowing.
+
+## API-133 — `pravaha.pause`, unauthenticated
+**Intent:** pause takes a query away from everyone reading it just as surely as drop does.
+**Falsifier:** the pause succeeding.
+**Setup:** `H-FLA`, no credential.
+**Steps:** `doAction("pravaha.pause", ControlWire.encode("q_alpha"))`.
+**Expected:** `UNAUTHENTICATED`, `PRV-7001`; `q_alpha` still `RUNNING` in a subsequent authenticated
+listing, and its `rowsIn` still advancing.
+
+## API-134 — `pravaha.pause`, authenticated but denied
+**Intent:** as API-131 for the pause verb.
+**Falsifier:** the pause succeeding, or a different error code than drop's for the same denial.
+**Setup:** `H-FLA`, as **sam**.
+**Steps:** `doAction("pravaha.pause", ControlWire.encode("q_alpha"))`.
+**Expected:** `UNAUTHORIZED`, `PRV-7002`, description `sam may not pause 'q_alpha': only analysts
+read q_alpha`; state unchanged; one denied audit event with action `pause`.
+
+## API-135 — `pravaha.resume`, authorized
+**Intent:** the return leg of API-132, and the `RUNNING` string.
+**Falsifier:** the state not returning to RUNNING, or rows that arrived while paused being lost or
+double-counted.
+**Setup:** `H-FLA`, as **dana**, `q_alpha` PAUSED by API-132 with three rows fed during the pause.
+**Steps:** `doAction("pravaha.resume", ControlWire.encode("q_alpha"))`, then read the view.
+**Expected:** one result decoding to `["q_alpha", "RUNNING"]`; the listing shows `RUNNING`. Record
+`rowsIn` before the pause (`n`), during (`n`), and after resume — whether it becomes `n + 3` or
+stays `n` is `LIFE`'s question, but this case records the number so the two areas cannot disagree.
+
+## API-136 — `pravaha.resume`, unauthenticated
+**Intent:** completing the matrix; resume is the verb an attacker would use to undo an operator's
+pause.
+**Falsifier:** the resume succeeding.
+**Setup:** `H-FLA`, no credential, `q_alpha` PAUSED.
+**Steps:** `doAction("pravaha.resume", ControlWire.encode("q_alpha"))`.
+**Expected:** `UNAUTHENTICATED`, `PRV-7001`; `q_alpha` still `PAUSED`.
+
+## API-137 — `pravaha.resume`, authenticated but denied
+**Intent:** the last of the twelve administer cells.
+**Falsifier:** the resume succeeding.
+**Setup:** `H-FLA`, as **sam**, `q_alpha` PAUSED.
+**Steps:** `doAction("pravaha.resume", ControlWire.encode("q_alpha"))`.
+**Expected:** `UNAUTHORIZED`, `PRV-7002`, `sam may not resume 'q_alpha': only analysts read
+q_alpha`; still `PAUSED`.
+
+## API-138 — `pravaha.list`, authorized
+**Intent:** the listing's five fields per query, and the order.
+**Falsifier:** a missing field, a `rowsIn` that is not a number, or SQL text absent (the console
+needs it).
+**Setup:** `H-FLA`, as **dana**; three registrations.
+**Steps:** `doAction("pravaha.list", ControlWire.encode(""))` and collect every `Result`.
+**Expected:** exactly three results, in registration order `q_alpha, q_beta, q_gamma`. Each decodes
+to five fields: `[name, state, sql, shortFingerprint, rowsIn]` — note the listing carries the
+**full SQL text**, which the repository's own configuration says to treat like data.
+
+## API-139 — `pravaha.list`, unauthenticated
+**Intent:** the set of view names is a map of what the deployment does; `PrincipalMiddleware`'s own
+Javadoc says so.
+**Falsifier:** any result at all reaching an unauthenticated caller.
+**Setup:** `H-FLA`, no credential.
+**Steps:** `doAction("pravaha.list", ControlWire.encode(""))`.
+**Expected:** `UNAUTHENTICATED`, `PRV-7001`, and **zero** `Result` objects delivered before the
+error.
+
+## API-140 — `pravaha.list`, authenticated but denied, returns an empty list rather than a refusal
+**Intent:** the deliberate asymmetry: `LIST` filters with `policy.mayRead` per name and `continue`s
+past the ones the caller may not read, so sam gets an empty successful listing instead of a
+`FORBIDDEN`. "A principal sees the queries they could read, and does not learn that the others
+exist."
+**Falsifier:** sam receiving any result; or sam receiving an error, which would itself confirm that
+queries exist.
+**Setup:** `H-FLA`, as **sam**, three registrations.
+**Steps:** `doAction("pravaha.list", ControlWire.encode(""))` as sam, and also as **ravi** (allowed
+with a row filter).
+**Expected:** sam gets **zero** results and a clean `onCompleted` — no error. Ravi gets **three**,
+because `AccessDecision.allowWithRowFilter(...)` is `allowed()`. So of three principals the counts
+are `3, 3, 0` for dana, ravi, sam. This filtering is what API-180 shows is undone by the error
+messages.
+**Vacuity:** sam's empty listing is indistinguishable from an empty registry, which is the intent —
+so assert dana's three in the same run, or the case passes against a node with nothing registered.
+
+### B. Malformed control bodies (API-141–146)
+
+## API-141 — `pravaha.register` with too few fields is refused cleanly
+**Intent:** the one arity check in `doAction`: `fields.size() < 3` throws `PRV-6102` with a sentence
+naming what is needed.
+**Falsifier:** an `IndexOutOfBoundsException` reaching the client as `INTERNAL`.
+**Setup:** `H-FLR` (permissive, anonymous, registry present).
+**Steps:** `doAction("pravaha.register", ControlWire.encode())` (zero fields), then with one field,
+then with two.
+**Expected:** all three return `CallStatus.NOT_FOUND` — because `PRV-6102` maps to `NOT_FOUND` —
+with the description `register needs a name, some SQL and key columns`. Record the status: a
+malformed request arriving as `NOT_FOUND` is odd enough that a client may retry it as a missing
+resource.
+
+## API-142 — `pravaha.drop`, `.pause` and `.resume` with an empty body throw from an array index
+**Intent:** none of the three checks `fields.size()` before `fields.get(0)`, so an empty
+`ControlWire` payload raises `IndexOutOfBoundsException`, which falls to the `RuntimeException` arm
+and becomes `CallStatus.INTERNAL`. The class's own contract — "a malformed payload is a refusal with
+a code, never an exception with an array index in it" — is kept by `ControlWire.decode` and then
+broken by its caller.
+**Falsifier:** a `PRV-6102` refusal (which would mean it was fixed).
+**Setup:** `H-FLR`.
+**Steps:** for each of the three verbs, `doAction(verb, ControlWire.encode())` — a well-formed
+envelope with zero fields.
+**Expected:** all three fail with `CallStatus.INTERNAL` and a description that is
+`Index 0 out of bounds for length 0` or similar — an exception message with an index in it, reaching
+a client. Three verbs, one defect, one line of fix.
+
+## API-143 — `pravaha.register` with a non-numeric key ordinal
+**Intent:** `Integer.parseInt(ordinal.strip())` is unguarded.
+**Falsifier:** a `PRV-6102` refusal naming the bad ordinal.
+**Setup:** `H-FLR`.
+**Steps:** `doAction("pravaha.register", ControlWire.encode("q_x", "SELECT user_id FROM txn", "a"))`;
+then with `"0,"`, `",0"`, `"-1"`, `"99"`, and an empty key string `""`.
+**Expected:** `"a"` → `INTERNAL` with `For input string: "a"`. `"0,"` and `",0"` → accepted, because
+blank ordinals are skipped by `if (!ordinal.isBlank())`. `""` → an empty key list, which
+`QueryRegistry.register` refuses with `IllegalArgumentException("a registration needs at least one
+key column: a view with no key is a log …")` → `INTERNAL`. `"-1"` and `"99"` → the engine's own
+refusal; record the code. Six inputs, at least three distinct failure shapes, only one of which
+carries a PRV code.
+
+## API-144 — a control body that is not `ControlWire` at all
+**Intent:** `ControlWire.decode` is the guard that works: magic, version and every length are
+bounds-checked, and a bad payload is `PRV-6102` rather than an exception.
+**Falsifier:** an exception with an index or an offset in it; or a partial decode being acted on.
+**Setup:** `H-FLR`.
+**Steps:** `doAction("pravaha.list", body)` for each body: 0 bytes; 4 bytes of `0x00`; 8 random
+bytes; a valid protobuf `Any`; a 1 MB block of random bytes; a valid envelope truncated to 12 bytes;
+a valid envelope with the field-count int set to `0x7FFFFFFF`; the same with a field length larger
+than the remaining buffer.
+**Expected:** every one fails with `NOT_FOUND` (`PRV-6102`) and one of the three
+`ControlWire.decode` messages — `this is not a Pravaha request` (magic mismatch or under 9 bytes),
+`this request was built by a different version of the client; upgrade one of them` (version byte),
+or `this Pravaha request is malformed` (count over 1024, or a length past the end). No case produces
+`INTERNAL`, no case allocates the 2 GB the bogus count asks for, and the server is still answering
+afterwards.
+
+## API-145 — a control envelope from a future client version
+**Intent:** `VERSION` is 1 and `decode` refuses anything else with an upgrade instruction. Pinning
+it protects the one forward-compatibility promise this hand-rolled framing makes.
+**Falsifier:** a version-2 envelope being decoded as version 1.
+**Setup:** `H-FLR`.
+**Steps:** hand-build an envelope with magic `0x50525648`, version byte `2`, one field `q_alpha`,
+and send it as `pravaha.drop`; repeat with version `0` and version `-1` (`0xFF`).
+**Expected:** all three `NOT_FOUND` with `this request was built by a different version of the
+client; upgrade one of them`. `q_alpha` is not dropped — verify with a listing.
+
+## API-146 — unknown and non-Pravaha actions
+**Intent:** the `type.startsWith("pravaha.")` fork. Anything not starting with the prefix goes to
+Flight SQL's own `doAction`; anything that does and is not one of the five is `PRV-6101`.
+**Falsifier:** an unknown `pravaha.*` action being silently accepted; or a Flight SQL action being
+swallowed by the Pravaha branch.
+**Setup:** `H-FLR`.
+**Steps:** `doAction("pravaha.frobnicate", …)`, `doAction("pravaha.", …)`, `doAction("PRAVAHA.list", …)`,
+`doAction("CancelFlightInfo", …)`, `doAction("", …)`.
+**Expected:** `pravaha.frobnicate` and `pravaha.` → `INVALID_ARGUMENT` (PRV-6101 is not in the
+mapping table) with `this server does not answer the action 'pravaha.frobnicate'`.
+`PRAVAHA.list` does **not** match the prefix (case-sensitive) so it goes to Flight SQL and comes
+back `UNIMPLEMENTED` or "Unknown action" — a different status for what a user will read as the same
+mistake. `CancelFlightInfo` and `""` are Flight SQL's to answer; record what they return.

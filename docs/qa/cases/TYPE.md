@@ -1618,3 +1618,1697 @@ Step 4: binding NULL makes the predicate `Predicate.False` by design (ADR-032's 
 so the result is **0 rows** — not an error, and not the rows where `s IS NULL`. Assert zero rows and
 pair it with `WHERE s IS NULL`, which must return **2** rows (ids 3 and 4); the two differing is the
 whole point of that design decision.
+
+---
+
+## 10. NULL and three-valued logic (TYPE-080 … TYPE-087)
+
+The predicate IR is deliberately **two-valued**: every comparison returns `false` for a null
+operand, and `PredicateCompiler.negate` pushes `NOT` into the comparisons at compile time so that a
+Java `!` never turns a row SQL dropped into a row that passes. `Predicate.Not` exists but the SQL
+compiler never emits it. These cases test that the compile-time reasoning is right, because it is
+right once per query and wrong for every row.
+
+## TYPE-080 — NULL in a projection is distinguishable from every type's zero value
+**Intent:** the null bitmap versus the type default. For nine of the ten declarable types there is a
+value that renders identically to NULL in a CSV, or nearly so, and only `IS NULL` can tell them
+apart.
+**Falsifier:** any column where `IS NULL` and the rendered output disagree; row 4's `s` (a NULL) and
+a genuinely empty string behaving identically under `IS NULL`.
+**Setup:** `types.csv` plus `empt.csv` — schema `id:INT64,s:STRING?` with `null.literal` left at the
+default — containing `1,` and, as the contrast, a row written through the SDK with `setString(1,
+"")` so an empty string exists that the codec cannot produce.
+**Steps:**
+1. `SELECT id FROM types WHERE <col> IS NULL` for each of `b i8 i16 i32 i64 f32 f64 s bin ts`
+2. `SELECT id FROM types WHERE <col> IS NOT NULL` for the same ten
+3. the empty-string contrast: `SELECT id FROM e WHERE s IS NULL` and `WHERE s = ''`
+**Expected:** step 1 returns `3` for `b i8 i16 i32 i64 f32 f64 ts`; `3,4` for `s`; `2,3` for `bin`.
+Step 2 returns the complements: `1,2,4,5` for the eight; `1,2,5` for `s`; `1,4,5` for `bin`.
+Every pair sums to 5.
+Step 3: the file-sourced row is NULL (`IS NULL` matches, `s = ''` does not, because the comparison
+short-circuits on the null bit); the SDK-written row is an empty string (`IS NULL` does not match,
+`s = ''` does). **The two are different rows with the same rendering**, and a build in which they
+behave identically has lost the distinction the null bitmap exists for.
+**Vacuity:** ten complementary pairs summing to 5 each. A build that returned everything for
+`IS NOT NULL` and nothing for `IS NULL` would fail twenty assertions, not one.
+
+## TYPE-081 — NULL propagates through arithmetic, for every operator and every numeric type
+**Intent:** `Expression.Arithmetic.isNull` returns true if either side is null, and the compute stage
+checks `expression.isNull(row)` **before** evaluating. A zero written here becomes a plausible
+number in a downstream `SUM`.
+**Falsifier:** `a + 1` over a NULL `a` producing `1`; `a * 0` producing `0`; `a / b` over a NULL `a`
+and a zero `b` throwing a division-by-zero (which would mean `isNull` is checked after evaluation).
+**Setup:** `num.csv` row 6 (`a` NULL, `b` = 5, `x` NULL, `y` = 5.0, `r` NULL).
+**Steps:** `SELECT id, a+b, a-b, a*b, a/b, a%b FROM num`, then the same with `x` and `y`, then
+`SELECT id, a*0 AS z FROM num`, then `SELECT id, b/a FROM num` (NULL as the **divisor**).
+**Expected:** row 6 is NULL in all five integer results, all five floating results, in `a*0`, and in
+`b/a`. Assert the CSV field is empty, not `0`. The other rows are unaffected: TYPE-102 and TYPE-103
+hold their values.
+The `b/a` case is the important one — `a` is NULL and would evaluate to 0, so an implementation that
+evaluated before checking would divide 5 by 0 and throw. **Zero exceptions is part of the expected
+result.**
+
+## TYPE-082 — WHERE NOT (col > k) drops the NULL row
+**Intent:** SQL says `NOT UNKNOWN` is `UNKNOWN` and a `WHERE` keeps only `TRUE`. `PredicateCompiler.
+negate` implements this by flipping the operator at compile time rather than negating at run time.
+Every one of the six operators has its own entry in `Op.negated()`.
+**Falsifier:** the NULL row appearing under any `NOT`; `col > k` and `NOT (col > k)` together
+returning every row.
+**Setup:** `types.csv`; `i64` is NULL only at id 3.
+**Steps:** for each of the six operators, run `WHERE i64 <op> 0` and `WHERE NOT (i64 <op> 0)`;
+then `WHERE NOT NOT (i64 > 0)`; then `WHERE NOT (i64 IS NULL)`.
+**Expected:**
+| predicate | rows | `NOT` of it | rows |
+|---|---|---|---|
+| `i64 = 0` | `4` | `i64 <> 0` | `1,2,5` |
+| `i64 <> 0` | `1,2,5` | `i64 = 0` | `4` |
+| `i64 < 0` | `2` | `i64 >= 0` | `1,4,5` |
+| `i64 <= 0` | `2,4` | `i64 > 0` | `1,5` |
+| `i64 > 0` | `1,5` | `i64 <= 0` | `2,4` |
+| `i64 >= 0` | `1,4,5` | `i64 < 0` | `2` |
+
+In all six pairs the two sides sum to **4**, not 5: id 3 is in neither. `NOT NOT (i64 > 0)` returns
+`1,5`, identical to `i64 > 0`. `NOT (i64 IS NULL)` returns `1,2,4,5` — a null check *is* total, so
+its negation is the other one and the row is not lost twice.
+**Vacuity:** the six sums of 4 are the assertion. A two-valued `!` would make every pair sum to 5,
+and each individual result would still look reasonable.
+
+## TYPE-083 — `= NULL` is not `IS NULL`, and `<> NULL` is not `IS NOT NULL`
+**Intent:** `PredicateCompiler.compare` returns `Predicate.False` for a null constant, for every
+operator and every type. That is the standard, it is what ADR-032 commits to for bound parameters,
+and it is the behaviour most likely to be "helpfully" changed by someone who has not read this.
+**Falsifier:** `WHERE s = NULL` returning the rows where `s` is null; `WHERE s <> NULL` returning
+anything at all.
+**Setup:** `types.csv`, and fixture `S` for the bound-parameter half.
+**Steps:** `WHERE s = NULL`, `WHERE s <> NULL`, `WHERE i64 = NULL`, `WHERE i64 > NULL`,
+`WHERE b = NULL`, `WHERE ts = NULL`; then `WHERE s IS NULL` as the contrast; then through the
+server, `pravaha query --sql "SELECT id FROM tv WHERE s = ?"` with a NULL bound.
+**Expected:** all six `NULL`-literal forms return **0 rows**. `WHERE s IS NULL` returns `3,4`. The
+bound-NULL form returns **0 rows**, matching the literal form exactly — that equivalence is what
+ADR-032 promises and this is where it is checked.
+**Vacuity:** six zero-row results are individually vacuous; `s IS NULL` returning two rows from the
+same file in the same run is what makes them meaningful.
+
+## TYPE-084 — a NULL boolean is in neither `WHERE b` nor `WHERE NOT b`
+**Intent:** the sharpest statement of two-valued-from-three-valued. Both spellings compile to
+`CompareBoolean`, which begins `!row.isNull(ordinal) && …`, so the NULL row is excluded twice.
+**Falsifier:** the two results together covering all five rows.
+**Setup:** `types.csv`; `b` = true, false, NULL, true, false.
+**Steps:** `WHERE b`, `WHERE NOT b`, `WHERE b OR NOT b`, `WHERE b IS NULL`.
+**Expected:** `WHERE b` → `1,4`. `WHERE NOT b` → `2,5`. **`WHERE b OR NOT b` → `1,2,4,5` — four
+rows, not five.** That is SQL-correct and is the single most counter-intuitive result in this file;
+assert it explicitly so nobody "fixes" it. `WHERE b IS NULL` → `3`, and 4 + 1 = 5.
+**Vacuity:** the tautology `b OR NOT b` returning fewer than every row is impossible in a
+two-valued logic, so this case cannot pass with three-valued handling removed.
+
+## TYPE-085 — LIKE and NOT LIKE both drop the NULL row
+**Intent:** `Predicate.Like.test` returns `false` on a null column *before* applying `negated`, so
+the row is dropped by both forms. A Java `!` around the match would keep it under `NOT LIKE`.
+**Falsifier:** the NULL row appearing under `NOT LIKE`.
+**Setup:** `text.csv`; `s` is NULL at id 3.
+**Steps:** `WHERE s LIKE 'a%'`, `WHERE s NOT LIKE 'a%'`, `WHERE NOT (s LIKE 'a%')`,
+`WHERE s LIKE '%'`, `WHERE s NOT LIKE '%'`, `WHERE s IS NULL`.
+**Expected:** `LIKE 'a%'` → `4,8` (`a.com`, `axcom`). `NOT LIKE 'a%'` → `1,2,5,6,7` — five rows.
+`NOT (s LIKE 'a%')` must return the **same five**, because Calcite's `NOT` over `LIKE` routes through
+`negate`'s `case LIKE -> like(call, true)` and compiles to the same node. 2 + 5 = 7 = 8 − 1 NULL.
+`LIKE '%'` → `1,2,4,5,6,7,8` — seven rows; the pattern becomes the regex `.*`, which matches every
+string including an empty one, but **not** a null. `NOT LIKE '%'` → **0 rows**. `s IS NULL` → `3`.
+**Vacuity:** `LIKE '%'` returning seven and `NOT LIKE '%'` returning zero, over eight rows, is only
+possible if the null row is excluded from both.
+
+## TYPE-086 — `||` with a NULL part is NULL, not an empty string
+**Intent:** `Concat.isNull` scans every part. This is the SQL rule and it is the reason
+`first || ' ' || last` produces NULL rather than a name with a trailing space — stated in the
+javadoc, tested here.
+**Falsifier:** `s || '!'` over a NULL `s` producing `!`; producing an empty field that is not
+actually NULL (check with `IS NULL`, not by eye).
+**Setup:** `text.csv`; `s` NULL at id 3, `t` non-null everywhere.
+**Steps:**
+1. `SELECT id, s || '!' AS c FROM text`, `--out-schema "id:INT64,c:STRING?"`
+2. `SELECT id, s || '-' || t AS c FROM text`
+3. `SELECT id FROM text WHERE s || '!' IS NULL` — proves it is NULL and not empty
+4. `SELECT id, CASE WHEN s IS NULL THEN t ELSE s || '-' || t END AS c FROM text` — the documented
+   workaround
+**Expected:** step 1: `hello world!`, `  padded  !`, **NULL**, `a.com!`, `straße!`, `👍ok!`,
+`100%!`, `axcom!`. Step 2 is NULL at id 3 and `hello world-HELLO`, `  padded  -x`, `a.com-z`,
+`straße-ß`, `👍ok-e`, `100%-%`, `axcom-q` elsewhere — note the three-part form flattens to one
+`Concat` node, so the NULL check is over all three parts, not two nested pairs.
+Step 3 returns exactly `3`. Step 4 returns `y` at id 3 and the concatenated value elsewhere,
+demonstrating the documented escape hatch works.
+**Vacuity:** step 3 is the anti-vacuity device. A CSV field that is empty could be an empty string;
+`IS NULL` returning that row is what proves it is not.
+
+## TYPE-087 — AND and OR with an UNKNOWN operand
+**Intent:** `Predicate.And` and `Predicate.Or` are plain boolean loops over two-valued parts, so
+SQL's `UNKNOWN AND FALSE = FALSE` and `UNKNOWN OR TRUE = TRUE` fall out only if the compile-time
+flattening was right. `negate` also maps `NOT (A AND B)` to `Or(negate A, negate B)`, which is
+De Morgan — correct in two-valued logic and correct here **only** because each negated part is
+already false-for-null.
+**Falsifier:** `WHERE i64 > 0 OR id = 3` not returning id 3; `WHERE NOT (i64 > 0 AND id = 1)`
+returning id 3.
+**Setup:** `types.csv`; `i64` NULL at id 3 only.
+**Steps:**
+1. `WHERE i64 > 0 AND id = 3`
+2. `WHERE i64 > 0 OR id = 3`
+3. `WHERE NOT (i64 > 0 AND id = 1)`
+4. `WHERE NOT (i64 > 0 OR id = 1)`
+5. `WHERE (i64 > 0 AND id = 1) OR (i64 IS NULL)`
+**Expected:**
+1. → **0 rows**. For id 3 the left is UNKNOWN and the right is TRUE; `UNKNOWN AND TRUE` is UNKNOWN,
+   which a `WHERE` drops. For every other id the right is FALSE.
+2. → `1,3,5`. Id 3 is kept because `UNKNOWN OR TRUE` is TRUE — and the implementation gets it right
+   by short-circuiting on the true part, which is the same answer for the right reason.
+3. → `2,3,4,5` — **four rows**. De Morgan gives `i64 <= 0 OR id <> 1`. Id 1: `false OR false` →
+   dropped. Id 2: `true OR true` → kept. Id 3: `i64 <= 0` is false (the column is null) and
+   `id <> 1` is true → kept. Id 4: `0 <= 0` true → kept. Id 5: `i64 <= 0` false, `id <> 1` true →
+   kept. SQL agrees: for id 3, `i64 > 0` is UNKNOWN, `UNKNOWN AND FALSE` is FALSE, and `NOT FALSE`
+   is TRUE. The compile-time De Morgan and the standard reach the same four rows.
+4. → `2,4`. `NOT (A OR B)` is `A' AND B'` = `i64 <= 0 AND id <> 1`. Id 2: true AND true → kept.
+   Id 3: `i64 <= 0` is false (null) → dropped. Id 4: `0 <= 0` true, `4 <> 1` true → kept.
+   Id 5: `i64 <= 0` false → dropped. **Two rows.** SQL agrees: for id 3 the OR is
+   `UNKNOWN OR FALSE` = UNKNOWN, and `NOT UNKNOWN` = UNKNOWN → dropped.
+5. → `1,3`. Id 1 satisfies the left conjunction; id 3 satisfies `IS NULL`.
+**Vacuity:** cases 3 and 4 differ by exactly id 3 and id 5, which is only possible if UNKNOWN is
+handled differently under `AND` and under `OR`. A build that treated null as false everywhere gives
+3 → `2,3,4,5` (the same, by luck) and 4 → `2,3,4` (wrong), so case 4 is the one that discriminates.
+
+---
+
+## 11. Minimum and maximum values (TYPE-088 … TYPE-093)
+
+The extremes of each type's domain, through the whole path: decode, layout, predicate, projection,
+encode. Where a type has a subnormal or a signed asymmetry, that is the value used, because it is
+the one a rounding or a sign error destroys.
+
+## TYPE-088 — the four integer widths at both extremes
+**Intent:** each width's minimum is one larger in magnitude than its maximum, and every path that
+negates, absolutes or narrows can get that wrong in a way that is invisible for every other value.
+**Falsifier:** any extreme that does not survive decode → predicate → projection → encode unchanged;
+`Byte.parseByte("128")` accepted.
+**Setup:** `types.csv` (ids 1 and 2 carry the extremes), plus `over.csv` with the out-of-range
+literals `1,128,32768,2147483648,9223372036854775808` at schema
+`id:INT64,i8:INT8,i16:INT16,i32:INT32,i64:INT64` and `2,-129,-32769,-2147483649,-9223372036854775809`.
+**Steps:**
+1. project all four columns from `types.csv` and compare bytes (this is TYPE-001 narrowed)
+2. `WHERE i8 = 127`, `= -128`, `WHERE i16 = 32767`, `= -32768`, `WHERE i32 = 2147483647`,
+   `= -2147483648`, `WHERE i64 = 9223372036854775807`, `= -9223372036854775808`
+3. decode `over.csv`
+**Expected:** step 1 returns the eight values unchanged. Step 2 returns `1` for the four maxima and
+`2` for the four minima — eight single-row results.
+Step 3 must **fail at decode** for every column, with
+`line 1, column 'i8' (INT8): '128' is not a number` and the analogous messages — `Byte.parseByte`,
+`Short.parseShort`, `Integer.parseInt` and `Long.parseLong` all throw `NumberFormatException` for a
+value one past the limit, which `DelimitedCodec` catches and re-reports. The message says "is not a
+number", which is **inaccurate for an out-of-range integer** — record that as a diagnostic finding:
+`128` is a number, it is not an `INT8`.
+**Vacuity:** the same file with `127` in place of `128` must decode, so the failure is attributable
+to the range and not to the file.
+
+## TYPE-089 — FLOAT32 at both extremes and at the subnormal boundary
+**Intent:** four values that a 32-bit float can just represent, and two it cannot.
+**Falsifier:** `3.4028235E38` decoding to `Infinity`; `1.4E-45` decoding to `0.0`; `1.17549435E-38`
+(the smallest **normal**) decoding to a subnormal or to zero.
+**Setup:** `f32e.csv` — schema `id:INT64,f:FLOAT32?` — with
+`1,3.4028235E38` / `2,-3.4028235E38` / `3,1.4E-45` / `4,-1.4E-45` / `5,1.17549435E-38` /
+`6,1.0E39` / `7,1.0E-46` / `8,NaN` / `9,Infinity` / `10,-Infinity`.
+**Steps:** project `f`; then `WHERE f > 0` and `WHERE f = f` (which is false for NaN).
+**Expected:** projected values, by `Float.toString`:
+`3.4028235E38`, `-3.4028235E38`, `1.4E-45`, `-1.4E-45`, `1.17549435E-38`, **`Infinity`**,
+**`0.0`**, `NaN`, `Infinity`, `-Infinity`.
+Rows 6 and 7 are the findings and are covered again in TYPE-099/101: `Float.parseFloat("1.0E39")`
+**silently returns `Infinity`** and `Float.parseFloat("1.0E-46")` silently returns `0.0` — neither
+throws, so a value 10 orders of magnitude out of range enters the engine as a different value under
+a successful decode.
+`WHERE f > 0` → `1,3,5,6,9` (five rows: the three positive finites, the overflowed Infinity and the
+declared Infinity; NaN is not > 0; the underflowed 0.0 is not > 0).
+`WHERE f = f` → every row except id 8 — nine rows, because NaN ≠ NaN. Record whether
+`CompareDouble`'s `Double.compare` agrees: `Double.compare(NaN, NaN)` is **0**, so if the predicate
+compiles to a comparison against a NaN *literal* it would return TRUE where IEEE says FALSE. Test it:
+`WHERE f = CAST('NaN' AS DOUBLE)` if the parser allows, else note it as untestable from SQL.
+
+## TYPE-090 — FLOAT64 at both extremes and at the subnormal boundary
+**Intent:** as TYPE-089 for the eight-byte width, where the range is wide enough that a value passed
+through a `float` anywhere becomes `Infinity` immediately.
+**Falsifier:** `1.7976931348623157E308` returning `Infinity` (the signature of a float round trip);
+`4.9E-324` returning `0.0`; `2.2250738585072014E-308` (the smallest normal) returning a subnormal.
+**Setup:** `f64e.csv` — schema `id:INT64,f:FLOAT64?` — with
+`1,1.7976931348623157E308` / `2,-1.7976931348623157E308` / `3,4.9E-324` / `4,-4.9E-324` /
+`5,2.2250738585072014E-308` / `6,1.0E309` / `7,1.0E-324` / `8,NaN` / `9,Infinity` / `10,-Infinity`.
+**Steps:** project `f`; `WHERE f > 0`; `WHERE f < 1.0E308`.
+**Expected:** projected, by `Double.toString`: `1.7976931348623157E308`,
+`-1.7976931348623157E308`, `4.9E-324`, `-4.9E-324`, `2.2250738585072014E-308`, **`Infinity`**,
+**`0.0`**, `NaN`, `Infinity`, `-Infinity`. Rows 6 and 7 overflow and underflow silently at
+`Double.parseDouble`, as in TYPE-089.
+`WHERE f > 0` → `1,3,5,6,9`. `WHERE f < 1.0E308` → `2,3,4,5,7,10` — six rows: the two negatives,
+both subnormals, the underflowed zero and −Infinity. Id 1 (1.797…E308) is **not** less than 1.0E308.
+
+## TYPE-091 — TIMESTAMP_LTZ range: the epoch, negative instants, and the year 2262 ceiling
+**Intent:** `TypeName.TIMESTAMP_LTZ`'s own javadoc says "range to year 2262, which is adequate and
+half the cost of 96 bits". That is a documented limit nobody has tested, and the failure past it is
+a silent wrap in a column people will use for event time.
+**Falsifier:** `Long.MAX_VALUE` nanoseconds rendering as a date before 1970; the epoch treated as
+unset; a negative instant clamped to zero.
+**Setup:** `tse.csv` — schema `id:INT64,ts:TIMESTAMP?` — with
+`1,0` / `2,-1` / `3,9223372036854775807` / `4,-9223372036854775808` / `5,1700000000000000000` /
+`6,253402300799000000000` (9999-12-31T23:59:59Z in nanoseconds).
+**Steps:** project `ts`; `WHERE ts > 0`; `WHERE ts < 0`; then read the same values through the
+Flight wire (TYPE-073's vehicle) and record the rendered datetimes.
+**Expected:** row 6 **fails at decode**: 253402300799000000000 is about 2.5 × 10²⁰ and
+`Long.parseLong` throws, reported as `line 6, column 'ts' (TIMESTAMP_LTZ): '253402300799000000000'
+is not a number`. That is the 2262 ceiling in practice, and the message does not mention it.
+Rows 1–5 project unchanged. `WHERE ts > 0` → `3,5`. `WHERE ts < 0` → `2,4`. 2 + 2 + 1 (id 1, which
+is neither) = 5.
+On the wire: `9223372036854775807` ns is **2262-04-11T23:47:16.854775807Z**
+(9223372036854775807 / 1 000 000 000 = 9223372036 seconds; 9223372036 / 31 556 952 ≈ 292.27 years
+after 1970). `-9223372036854775808` ns is 1677-09-21T00:12:43.145224192Z. Assert both render as
+those dates and not as an error or a wrapped value.
+
+## TYPE-092 — STRING and BYTES at the empty and long extremes
+**Intent:** the variable-width types have no numeric range, but they do have a length, and the
+length is an `int` in a slot alongside an `int` offset. Establish the empty case and a length large
+enough to exercise the arena and the 512-byte payload reservation in the CLI's collector.
+**Falsifier:** an empty string treated as NULL; a string longer than the collector's
+`layout.rowSize(512)` reservation silently truncated rather than growing or failing loudly.
+**Setup:** `len.csv` — schema `id:INT64,s:STRING?,bin:BYTES?` — with
+`1,,` (both NULL) / `2,a,a` / a row 3 whose `s` is 511 `x` characters / a row 4 whose `s` is 1024
+`x` characters / a row 5 whose `s` is 65536 `x` characters. Plus an SDK-written row with
+`setString(1, "")` for the genuine empty string, as in TYPE-080.
+**Steps:** project `s`; `SELECT id, CHAR_LENGTH(s)` if supported, otherwise assert the output field's
+byte length externally; `WHERE s IS NULL`.
+**Expected:** row 1 is NULL (`IS NULL` matches). Rows 2–5 project their exact content, with output
+byte lengths 1, 511, 1024 and 65536. The 1024 and 65536 rows are the assertions: the CLI's
+`Collector.begin` allocates `layout.rowSize(512)` and the writer appends the payload past that
+reservation, so either the arena grows, or the write fails with a bounds error, or — the outcome to
+look for — it **silently writes past the reservation into the next row's space**. Record which.
+A truncated 65536-byte string, or a corrupted neighbouring row, is a blocker.
+**Vacuity:** the 1-byte and 511-byte rows must pass in the same run, so a failure at 1024 is
+attributable to the length and not to the fixture.
+
+## TYPE-093 — the physical row layout for the fixture schema, computed by hand
+**Intent:** `RowLayout` decides every offset once per schema, and every read in the engine trusts it.
+The arithmetic is small enough to do by hand and is the foundation under every alignment hazard
+named elsewhere in this file (the eight-byte read of a four-byte `FLOAT32` in TYPE-026, of a
+four-byte `INT32` in TYPE-034).
+**Falsifier:** any offset differing from the hand-computed one; `fixedEnd` not a multiple of 8; two
+fields overlapping.
+**Setup:** schema `L` = `id:INT64,b:BOOLEAN,i8:INT8,i16:INT16,i32:INT32,f32:FLOAT32,f64:FLOAT64,
+s:STRING` — eight fields, all NOT NULL — read through `RowLayout.of(...)` directly or through
+`RowLayout.toString()`, which prints header, null-bitmap size and offset, fixed size and offset, and
+the variable-field count.
+**Steps:** build the layout and read `offsetOf(0..7)`, `nullBitmapOffset()`, `nullBitmapBytes()`,
+`fixedRegionOffset()`, `fixedEnd()`, `variableFieldCount()`, `rowSize(5)`.
+**Expected, computed by hand.** `HEADER_BYTES` = 32. n = 8, so `nullBitmapBytes` =
+align8(⌈8/8⌉) = align8(1) = **8**, `nullBitmapOffset` = **32**, `fixedRegionOffset` = 32 + 8 = **40**.
+Then, aligning each field to `min(width, 8)`:
+
+| ordinal | field | width | cursor in | aligned to | **offset** | cursor out |
+|---|---|---|---|---|---|---|
+| 0 | `id` INT64 | 8 | 40 | 8 | **40** | 48 |
+| 1 | `b` BOOLEAN | 1 | 48 | 1 | **48** | 49 |
+| 2 | `i8` INT8 | 1 | 49 | 1 | **49** | 50 |
+| 3 | `i16` INT16 | 2 | 50 | 2 | **50** | 52 |
+| 4 | `i32` INT32 | 4 | 52 | 4 | **52** | 56 |
+| 5 | `f32` FLOAT32 | 4 | 56 | 4 | **56** | 60 |
+| 6 | `f64` FLOAT64 | 8 | 60 | 8 | **64** | 72 |
+| 7 | `s` STRING | 8 (var slot) | 72 | 8 | **72** | 80 |
+
+`fixedEnd` = align8(80) = **80**. `variableFieldCount` = **1**. `rowSize(5)` = 80 + 5 = **85**.
+Note the four bytes of padding at 60–63 before `f64`, and note that `f32` at 56 is followed by
+padding — so the eight-byte read of `f32` in TYPE-026 picks up `f32`'s four bytes plus four
+**uninitialised-then-zeroed** padding bytes, because `begin()` zeroes `0..fixedEnd`. That is why
+TYPE-026 needs the explicit `f32 = 1.5` control rather than reasoning from garbage.
+Add the same computation for a DECIMAL field: width 16, aligned to `min(16,8)` = 8, occupying 16
+bytes — assert `offsetOf` advances by 16, not by 8.
+
+---
+
+## 12. Overflow and underflow (TYPE-094 … TYPE-101)
+
+`Expression.Arithmetic.evaluateLong` uses `Math.addExact` / `subtractExact` / `multiplyExact`, which
+throw on 64-bit overflow. `InterpretedPipeline.writeComputed` then narrows the result with a plain
+Java cast for `INT32`, `INT16` and `INT8`. So the engine detects overflow at exactly one width and
+wraps silently at three — and which of the four applies is decided by Calcite's type inference for
+the expression, not by anything the user wrote.
+
+## TYPE-094 — INT32 overflow wraps silently, under a success status
+**Intent:** the defect the brief names, pinned with hand-computed arithmetic on both sides of the
+wrap so the magnitude of the error is on the record.
+**Falsifier:** the query throwing (the defect is fixed — then assert it names the column and carries
+a code); or the query returning the mathematically correct 2147483648.
+**Setup:** `small.csv`; `u` = 2147483647, −2147483648, 7, −7; `v` = 1, −1, 3, 3.
+**Steps:**
+1. `pravaha validate --stream small --schema "<small schema>" --sql "SELECT id, u + v AS c FROM
+   small"` — read and record the printed type of `c`
+2. `pravaha run` the same with `--out-schema "id:INT64,c:INT32?"`, and record the exit code
+3. the same for `u - v`, `u * v`
+4. the control: `SELECT id, CAST(u AS BIGINT) + CAST(v AS BIGINT) AS c FROM small` with
+   `--out-schema "id:INT64,c:INT64?"`
+**Expected:** step 1 prints `c` as `INTEGER`. Step 2 exits **0** with 4 in / 4 out and:
+- id 1: 2147483647 + 1 = 2147483648; `(int) 2147483648L` = **−2147483648**. Off by 2³² = 4294967296.
+- id 2: −2147483648 + (−1) = −2147483649; `(int) −2147483649L` = **2147483647**. Off by 2³².
+- id 3: 7 + 3 = **10**. id 4: −7 + 3 = **−4**.
+Step 3, `u - v`: id 1 → 2147483646; id 2 → −2147483647; id 3 → 4; id 4 → −10. No wrap.
+`u * v`: id 1 → 2147483647 × 1 = 2147483647; id 2 → −2147483648 × −1 = 2147483648, `(int)` →
+**−2147483648** — a negative product of two negatives, under exit 0; id 3 → 21; id 4 → −21.
+Step 4 returns the correct 2147483648 and −2147483649, proving the values are reachable and only the
+output width is losing them.
+**Vacuity:** ids 3 and 4 give the right answers in the same run, so the case cannot pass by the
+query failing wholesale. The assertion is on the two wrapped values specifically, with the exit code
+asserted as 0 — "wrong answer, green status" is the finding, and an assertion that allowed a
+non-zero exit would miss it.
+
+## TYPE-095 — INT64 overflow throws, and the message names nothing useful
+**Intent:** the contrast with TYPE-094. `Math.addExact` throws `ArithmeticException("long
+overflow")` — a message with no column, no row, no value and no `PRV-` code.
+**Falsifier:** the query wrapping instead of throwing; or the exception being swallowed and the row
+silently dropped under exit 0 (finding Q-7 says this happens non-deterministically).
+**Setup:** `num.csv`; row 7 has `a` = 9223372036854775807, `b` = 1; row 8 has `a` =
+−9223372036854775808, `b` = −1.
+**Steps:**
+1. `SELECT id, a + b AS c FROM num` with `--out-schema "id:INT64,c:INT64?"`
+2. `SELECT id, a - b AS c FROM num`
+3. `SELECT id, a * b AS c FROM num`
+4. run each **five times** and record the exit code and row count of every run
+**Expected:** step 1 must fail on row 7 with `ArithmeticException: long overflow`, exit 1.
+Step 2 must fail on row 8: −9223372036854775808 − (−1) is fine (= −9223372036854775807), but row 7
+is 9223372036854775807 − 1 = 9223372036854775806, also fine — so step 2 **succeeds** and returns
+row 7 → 9223372036854775806 and row 8 → −9223372036854775807. That asymmetry is deliberate: it shows
+the throw is about the value, not about the column.
+Step 3: row 7 is 9223372036854775807 × 1 = 9223372036854775807 (no overflow); row 8 is
+−9223372036854775808 × −1 = 9223372036854775808, which does not fit → `ArithmeticException: long
+overflow`.
+Step 4 is the Q-7 check: **all five runs of each step must agree**. A step that exits 0 with 7 rows
+on one run and 1 with 0 rows on another is non-determinism, which is worse than either outcome.
+**Vacuity:** step 2 succeeding in the same fixture is what makes steps 1 and 3's failures
+attributable to overflow rather than to the row or the file.
+
+## TYPE-096 — INT16 and INT8 arithmetic: which width does the output take?
+**Intent:** the neighbours of TYPE-094. Whether the narrow widths wrap depends entirely on whether
+Calcite types `TINYINT + TINYINT` as `TINYINT` or promotes it to `INTEGER`, and nothing in Pravaha
+decides it. Establish the fact before asserting the values.
+**Falsifier:** an output type that differs between `validate` and the executed plan; a wrap under
+exit 0 at either width.
+**Setup:** `small.csv`; `p`/`q` are INT8 (127, 1 / −128, −1 / 7, 3 / −7, 3), `m`/`n` are INT16
+(32767, 1 / −32768, −1 / 7, 3 / −7, 3).
+**Steps:**
+1. `pravaha validate` on `SELECT id, p + q AS c FROM small` and on `m + n`; record the printed type
+   of `c` in both
+2. run both, with `--out-schema` matching whatever step 1 reported
+3. run `SELECT id, p + q + q AS c FROM small` — a three-term sum, to see whether the promotion
+   happens once or per operator
+**Expected, branching on step 1.**
+*If `c` is `INTEGER`:* no wrap. `p + q` → 128, −129, 10, −4. `m + n` → 32768, −32769, 10, −4. All
+four values fit an `INTEGER` output and the answers are mathematically correct. This is the good
+outcome and the case passes.
+*If `c` is `TINYINT` / `SMALLINT`:* `writeComputed` narrows with `(byte)` / `(short)` and the
+answers become 127 + 1 = 128 → `(byte) 128` = **−128**; −128 + (−1) = −129 → `(byte) −129` =
+**127**; 32767 + 1 = 32768 → `(short) 32768` = **−32768**; −32768 + (−1) = −32769 →
+`(short) −32769` = **32767**. Exit 0. That is the same defect as TYPE-094 two widths down and must
+be filed as such.
+Step 3 distinguishes a one-time promotion from a per-operator one; record the type and the value for
+id 1 (127 + 1 + 1 = 129).
+
+## TYPE-097 — Long.MIN_VALUE / −1 overflows without throwing
+**Intent:** the one arithmetic overflow Java's exact methods do not cover. `Arithmetic.evaluateLong`
+routes `DIVIDE` to a plain `l / r` with only a zero check, and `Long.MIN_VALUE / -1L` is
+`Long.MIN_VALUE` in Java — a negative quotient from two operands of opposite sign is impossible in
+mathematics and is what the engine returns.
+**Falsifier:** the expression returning 9223372036854775808 (impossible in 64 bits, so the real
+falsifier is a throw or a refusal); or the case silently passing because the row was dropped.
+**Setup:** `num.csv` row 8: `a` = −9223372036854775808, `b` = −1.
+**Steps:**
+1. `SELECT id, a / b AS c FROM num` with `--out-schema "id:INT64,c:INT64?"`
+2. `SELECT id, a % b AS c FROM num`
+3. `SELECT id, ABS(a / b) AS c FROM num`
+**Expected:** step 1 exits 0 and row 8's `c` is **−9223372036854775808** — negative, from dividing a
+negative by a negative. Mathematically the answer is 9223372036854775808, which no `INT64` holds, so
+the correct behaviour is the `ArithmeticException` that `ABS` already raises for the same reason
+(TYPE-126). Record the discrepancy: `ABS(Long.MIN_VALUE)` throws and `Long.MIN_VALUE / -1` does not,
+for identical arithmetic.
+Step 2: `Long.MIN_VALUE % -1L` is **0** in Java, which is correct.
+Step 3 is the confirmation: `ABS` of step 1's result is `ABS(Long.MIN_VALUE)`, which **throws** —
+so the engine refuses to take the absolute value of a number it was willing to compute.
+Other rows for context: row 1 `17 / 5` = 3, row 7 `9223372036854775807 / 1` = 9223372036854775807.
+
+## TYPE-098 — unary minus, and the refusal that contradicts itself
+**Intent:** finding Q-11's neighbour. `SELECT -a` is refused with a message stating that unary minus
+*is* supported. The case establishes what actually works, so the refusal can be fixed against a
+known-good list, and checks whether the INT64 minimum survives each spelling.
+**Falsifier:** `-a` planning (the defect is fixed — then check `-(-9223372036854775808)` throws);
+`0 - a` and `a * -1` disagreeing on any row.
+**Setup:** `num.csv`.
+**Steps:** `SELECT id, -a AS c FROM num`; `SELECT id, 0 - a AS c FROM num`;
+`SELECT id, a * -1 AS c FROM num`; `SELECT id FROM num WHERE -a > 0`.
+**Expected:** `-a` is refused with `PRV-2021` and `'<expr>' has 1 operands; only the two-operand
+form is supported (unary minus included, which Calcite normalises to 0 - x).` — a sentence that
+says unary minus is included while refusing it. Record the message verbatim; it is the finding.
+`0 - a`: row 1 → −17, row 2 → 17, row 3 → −17, row 4 → 17, row 5 → −7, row 6 → NULL,
+row 7 → −9223372036854775807, row 8 → `Math.subtractExact(0, -9223372036854775808)` → **throws
+`ArithmeticException: long overflow`**, which is correct.
+`a * -1`: identical values for rows 1–7, and row 8 is
+`Math.multiplyExact(-9223372036854775808, -1)` → **throws**, also correct. The two spellings must
+agree, including on the throw.
+`WHERE -a > 0` is refused for the same reason as `SELECT -a`.
+
+## TYPE-099 — FLOAT32 overflow at decode is silent
+**Intent:** `Float.parseFloat` returns `Infinity` for an out-of-range literal rather than throwing,
+so `DelimitedCodec`'s `NumberFormatException` handler never fires and a value 10 orders of magnitude
+out of range enters the engine as `Infinity` under a successful decode. The integer widths behave
+the opposite way (TYPE-088) — the same file, the same codec, two different policies.
+**Falsifier:** `1.0E39` throwing at decode (the inconsistency is closed — record it); or arriving as
+`3.4028235E38` (clamped, which would be a third policy).
+**Setup:** `f32e.csv` from TYPE-089.
+**Steps:** decode and project `f`; then `WHERE f > 3.4028235E38`; then compare with `over.csv` from
+TYPE-088, where `128` in an `INT8` column **does** throw.
+**Expected:** `1.0E39` → `Infinity`, exit 0. `WHERE f > 3.4028235E38` → ids `6` and `9` — the
+overflowed value and the explicitly declared `Infinity`, indistinguishable. The contrast with
+`over.csv` is the finding: an integer one past its range is a decode error naming the line, and a
+float ten orders past its range is `Infinity` with no diagnostic at all.
+
+## TYPE-100 — FLOAT64 overflow at decode and in arithmetic
+**Intent:** as TYPE-099 at the eight-byte width, plus the arithmetic case: IEEE overflow inside an
+expression is also silent, by design (`l * r` with no exact-method equivalent).
+**Falsifier:** `1.0E309` throwing at decode; `1.0E308 * 10` throwing rather than yielding `Infinity`;
+`Infinity - Infinity` yielding anything but `NaN`.
+**Setup:** `f64e.csv` from TYPE-090.
+**Steps:** project `f`; `SELECT id, f * 10 AS c FROM f64e`; `SELECT id, f - f AS c FROM f64e`;
+`SELECT id, f / f AS c FROM f64e`.
+**Expected:** `1.0E309` decodes to `Infinity`.
+`f * 10`: id 1 → 1.7976931348623157E308 × 10 overflows → **`Infinity`**, exit 0. id 3 →
+4.9E-324 × 10 = **4.94E-323** (a subnormal times ten stays subnormal and loses bits; assert the
+exact printed value, which is `4.94E-323`). id 5 → 2.2250738585072014E-307. id 8 → `NaN`.
+id 9 → `Infinity`. id 10 → `-Infinity`.
+`f - f`: **0.0** for every finite row; **`NaN`** for ids 8, 9 and 10 (`Infinity - Infinity` is NaN).
+`f / f`: **1.0** for every finite non-zero row; `NaN` for ids 7 (0.0/0.0), 8, 9 and 10.
+Every one of these is IEEE-correct and none throws; that is the documented position
+("Floating point division by zero is infinity rather than an error, which is IEEE's answer and stays
+IEEE's answer here") and this case is where it is verified rather than assumed.
+
+## TYPE-101 — FLOAT32 and FLOAT64 underflow to zero, silently
+**Intent:** the other end of TYPE-099/100, and the more dangerous one: `Infinity` is visible in a
+result set and `0.0` is not. A price of `1.0E-46` becoming exactly zero is a value that will be
+summed, divided by, and compared to zero without anybody noticing.
+**Falsifier:** `1.0E-46` throwing at decode; arriving as `1.4E-45` (clamped); or arriving as a
+non-zero value that is not a subnormal.
+**Setup:** `f32e.csv` and `f64e.csv`.
+**Steps:** project `f`; `WHERE f = 0`; `WHERE f <> 0`; then the arithmetic underflow
+`SELECT id, f * 1.0E-300 AS c FROM f64e`.
+**Expected:** in `f32e`, id 7 (`1.0E-46`) projects as **`0.0`** and is returned by `WHERE f = 0`
+alongside no other row — one row that was not zero in the file. In `f64e`, id 7 (`1.0E-324`) likewise
+projects as **`0.0`**: the smallest positive double is 4.9E-324, and 1.0E-324 is below half of it, so
+it rounds to zero.
+`f * 1.0E-300` over `f64e`: id 5 is 2.2250738585072014E-308 × 1.0E-300, whose true value is
+~2.2E-608 — far below the subnormal floor — so the result is **0.0**, silently. Note this expression
+also triggers the DECIMAL-literal hazard of TYPE-110 if `1.0E-300` is parsed as a decimal literal;
+if it is refused, substitute `f * f` (id 5 → 4.95E-616 → **0.0**) and record both.
+**Vacuity:** `WHERE f <> 0` returning the complement, and both counts summing to the row count, is
+what distinguishes "underflowed to zero" from "the row was dropped".
+
+---
+
+## 13. Arithmetic over every numeric pair (TYPE-102 … TYPE-110)
+
+Five operators over six numeric types. `Expression.Arithmetic` has exactly two evaluators —
+`evaluateLong` and `evaluateDouble` — and which one runs is decided by the *output* field's type in
+`writeComputed`, not by the operand types. So the pair matters twice: once for which evaluator runs,
+and once for which narrowing is applied on the way out. Each case below enumerates all five
+operators over all four sign combinations, with every value computed by hand.
+
+## TYPE-102 — INT64 × INT64, five operators, four sign combinations
+**Intent:** the integer baseline. Twenty hand-computed values, so that every later case can be
+compared against a known-correct table.
+**Falsifier:** any of the twenty differing; integer `/` producing a fraction; `%` taking the sign of
+the divisor.
+**Setup:** `num.csv` rows 1–4: `(a,b)` = (17,5), (−17,5), (17,−5), (−17,−5).
+**Steps:** `SELECT id, a+b AS s, a-b AS d, a*b AS m, a/b AS q, a%b AS r FROM num` with
+`--out-schema "id:INT64,s:INT64?,d:INT64?,m:INT64?,q:INT64?,r:INT64?"`, restricted to rows 1–4 by
+`WHERE id <= 4`.
+**Expected:**
+
+| id | a | b | `a+b` | `a-b` | `a*b` | `a/b` | `a%b` |
+|---|---|---|---|---|---|---|---|
+| 1 | 17 | 5 | **22** | **12** | **85** | **3** | **2** |
+| 2 | −17 | 5 | **−12** | **−22** | **−85** | **−3** | **−2** |
+| 3 | 17 | −5 | **12** | **22** | **−85** | **−3** | **2** |
+| 4 | −17 | −5 | **−22** | **−12** | **85** | **3** | **−2** |
+
+Division truncates **towards zero** (−17/5 = −3, not −4 as floor division would give) and `%` takes
+the sign of the **dividend** (−17 % 5 = −2, 17 % −5 = +2). Check: 3 × 5 + 2 = 17 ✓;
+−3 × 5 + (−2) = −17 ✓; −3 × −5 + 2 = 17 ✓; 3 × −5 + (−2) = −17 ✓. The identity
+`(a/b)*b + a%b = a` must hold for all four rows and is the cheapest way to catch a sign error.
+**Vacuity:** all four sign combinations in one run. A build that got the signs right only for
+positives would pass one row of four.
+
+## TYPE-103 — FLOAT64 × FLOAT64, five operators, four sign combinations
+**Intent:** the floating baseline, over the same magnitudes so the contrast with TYPE-102 is exactly
+the type and nothing else.
+**Falsifier:** `x/y` returning 3 instead of 3.4 (integer division leaked into the double path); `%`
+returning a different sign convention from the integer case.
+**Setup:** `num.csv` rows 1–4: `(x,y)` = (17.0,5.0), (−17.0,5.0), (17.0,−5.0), (−17.0,−5.0).
+**Steps:** `SELECT id, x+y, x-y, x*y, x/y, x%y FROM num WHERE id <= 4` with a FLOAT64 out-schema.
+**Expected:**
+
+| id | x | y | `x+y` | `x-y` | `x*y` | `x/y` | `x%y` |
+|---|---|---|---|---|---|---|---|
+| 1 | 17.0 | 5.0 | **22.0** | **12.0** | **85.0** | **3.4** | **2.0** |
+| 2 | −17.0 | 5.0 | **−12.0** | **−22.0** | **−85.0** | **−3.4** | **−2.0** |
+| 3 | 17.0 | −5.0 | **12.0** | **22.0** | **−85.0** | **−3.4** | **2.0** |
+| 4 | −17.0 | −5.0 | **−22.0** | **−12.0** | **85.0** | **3.4** | **−2.0** |
+
+`x/y` is the assertion against TYPE-102's `a/b`: **3.4 here, 3 there**, from the same numbers. Java's
+`%` on doubles is `fmod`, which takes the dividend's sign — the same convention as the integer case,
+which is worth asserting because IEEE's `remainder` operation does not.
+All of `17.0`, `5.0`, `22.0`, `85.0` and `2.0` are exactly representable; `3.4` is not, and
+`Double.toString` of the nearest double prints exactly `3.4` — compare as text or as a `double`, not
+against a decimal expansion.
+
+## TYPE-104 — INT32 × INT32, five operators
+**Intent:** the narrower integer pair, where `writeComputed`'s `(int)` narrowing applies. Rows 3–4 of
+`small.csv` are small enough that nothing wraps, so this case isolates the *arithmetic*; TYPE-094
+isolates the *wrap*.
+**Falsifier:** any value differing from TYPE-102's table for the same operands; `u/v` producing a
+FLOAT.
+**Setup:** `small.csv` rows 3 and 4: `(u,v)` = (7,3), (−7,3).
+**Steps:** `SELECT id, u+v, u-v, u*v, u/v, u%v FROM small WHERE id >= 3`, with the out-schema
+matching whatever `validate` reports for the five columns.
+**Expected:** id 3: 7+3 = **10**, 7−3 = **4**, 7×3 = **21**, 7/3 = **2** (truncating, not 2.333),
+7%3 = **1**. id 4: −7+3 = **−4**, −7−3 = **−10**, −7×3 = **−21**, −7/3 = **−2**, −7%3 = **−1**.
+Identity check: 2 × 3 + 1 = 7 ✓; −2 × 3 + (−1) = −7 ✓.
+**Note:** finding Q-10 reports `-7 % 3` written to an `INT64` output column as `4294967295`. That is
+`(int) -1` reinterpreted as an unsigned 32-bit value by a mismatched `--out-schema`. Run this case
+**twice** — once with `--out-schema` matching the plan's real type, once with it deliberately
+declared `INT64?` — and record both. The first must give −1; the second is the Q-10 defect and its
+value is the finding.
+
+## TYPE-105 — INT16 × INT16 and INT8 × INT8, five operators
+**Intent:** the two narrowest pairs, completing the integer column of the grid. As TYPE-104, chosen
+so nothing wraps, so the arithmetic is isolated from TYPE-096's width question.
+**Falsifier:** any value differing from TYPE-104's; a result that changes when an adjacent column
+changes (a read of the wrong width).
+**Setup:** `small.csv` rows 3 and 4: `(m,n)` = (7,3), (−7,3) for INT16; `(p,q)` = (7,3), (−7,3) for
+INT8.
+**Steps:** the five operators for each pair, on rows 3 and 4.
+**Expected:** both pairs give exactly TYPE-104's table: **10, 4, 21, 2, 1** for row 3 and
+**−4, −10, −21, −2, −1** for row 4. Ten values per width, twenty in all.
+**Vacuity:** the three integer widths agreeing on the same twenty numbers is the assertion. A width
+read incorrectly would disagree with the other two, and any one width alone could not show it.
+
+## TYPE-106 — FLOAT32 × FLOAT32, five operators
+**Intent:** the four-byte float pair, where `writeComputed` narrows with `(float)` after evaluating
+in `double`. That round trip is exact for these magnitudes and must stay exact.
+**Falsifier:** `r/3` returning a value that differs from `(float)(17.0/3.0)`; the output column
+typed `DOUBLE` while declared `FLOAT32`, or the reverse.
+**Setup:** `num.csv`, column `r` = 17.0, −17.0, 17.0, −17.0 for rows 1–4.
+**Steps:** `pravaha validate` on `SELECT id, r+r, r-r, r*r, r/r, r%r FROM num` and record the five
+printed types; then run with a matching out-schema; then `SELECT id, r/3.0E0 AS c FROM num` (the
+`E0` form forces a DOUBLE literal rather than the DECIMAL one of TYPE-110).
+**Expected:** for rows 1–4: `r+r` = **34.0 / −34.0 / 34.0 / −34.0**; `r-r` = **0.0** everywhere;
+`r*r` = **289.0** everywhere (17² = 289, exactly representable); `r/r` = **1.0** everywhere;
+`r%r` = **0.0** everywhere. Row 5 (`r` = 7.0): 14.0, 0.0, 49.0, 1.0, 0.0. Row 6 (`r` NULL): NULL in
+all five.
+`r/3.0E0`: 17.0/3.0 in `double` is 5.666666666666667; narrowed to `float` it is **5.6666665**, and
+if the output column is `DOUBLE` it is **5.666666666666667**. Record which, because the answer
+depends entirely on the type Calcite chose and nothing in the query says.
+**Vacuity:** `r-r = 0.0` and `r/r = 1.0` would pass on almost any implementation; `r*r = 289.0` and
+the `r/3.0E0` value are the discriminating ones.
+
+## TYPE-107 — INT64 × FLOAT64: the mixed pair, and the cast Calcite inserts
+**Intent:** `rate * 2 > amount` over a DOUBLE and a BIGINT is the case `Expression.Cast` exists for.
+The integer side is wrapped in a `CAST` by Calcite, `Cast.evaluateDouble` takes
+`source.evaluateLong` and widens it, and the result is the *floating* answer — which is a different
+number from the integer answer for the same operands.
+**Falsifier:** `a / x` returning 3 (the integer answer); the cast being visible in `EXPLAIN` (it is
+deliberately invisible — `Cast.describe` returns the source's description); a loss of precision
+above 2⁵³.
+**Setup:** `num.csv` rows 1–4 (`a` = ±17, `x` = ±17.0, `y` = ±5.0) and row 7 (`a` =
+9223372036854775807).
+**Steps:**
+1. `SELECT id, a/y AS c FROM num WHERE id <= 4`, out-schema FLOAT64
+2. `SELECT id, a/b AS c FROM num WHERE id <= 4`, out-schema INT64 — the contrast
+3. `SELECT id, a*y, a+y, a-y, a%y FROM num WHERE id <= 4`
+4. `pravaha explain --level physical` on step 1's SQL
+5. `SELECT id, a + y AS c FROM num WHERE id = 7` — the precision probe
+**Expected:** step 1: **3.4, −3.4, −3.4, 3.4** (id 3's `y` is −5.0, id 4's is −5.0). Step 2:
+**3, −3, −3, 3**. The two differ on every row, and that difference is the case.
+Step 3: `a*y` = 85.0, −85.0, −85.0, 85.0; `a+y` = 22.0, −12.0, 12.0, −22.0; `a-y` = 12.0, −22.0,
+22.0, −12.0; `a%y` = 2.0, −2.0, 2.0, −2.0 — identical to TYPE-103, which is the point: the mixed
+pair must agree with the all-double pair.
+Step 4: the `EXPLAIN` output shows `(a / y)`, with **no `CAST` rendered** — assert its absence, since
+`Cast.describe` deliberately delegates.
+Step 5: `a` is 9223372036854775807 and `y` is 5.0. `Cast.evaluateDouble` converts the long to a
+double, which rounds it to 9223372036854775808.0 (2⁶³), and adding 5.0 leaves it unchanged at that
+magnitude, so `c` = **9.223372036854776E18**. The integer value's last three digits are lost by the
+cast — correct IEEE behaviour and a real precision hazard; assert the exact printed value.
+
+## TYPE-108 — INT32 × INT64: mixed integer widths
+**Intent:** the pair where Calcite promotes to `BIGINT` and the 32-bit wrap of TYPE-094 should
+therefore **not** happen. That is the documented workaround for TYPE-094 and it must work.
+**Falsifier:** `u + k` wrapping; the output typed `INTEGER`.
+**Setup:** `mix.csv` — schema `id:INT64,u:INT32?,k:INT64?` — with `1,2147483647,1` /
+`2,-2147483648,-1` / `3,7,3`.
+**Steps:** `pravaha validate` on `SELECT id, u+k AS c FROM mix` and record `c`'s type; then run with
+`--out-schema "id:INT64,c:INT64?"`; then the five operators.
+**Expected:** `c` is `BIGINT`. `u+k`: id 1 → **2147483648** (no wrap — the number TYPE-094 could not
+produce), id 2 → **−2147483649**, id 3 → **10**. `u-k`: 2147483646, −2147483647, 4.
+`u*k`: 2147483647, 2147483648, 21 — note id 2 is −2147483648 × −1 = **2147483648**, positive and
+correct, where TYPE-094's same-width version gave −2147483648. `u/k`: 2147483647, 2147483648, 2.
+`u%k`: 0, 0, 1.
+**Vacuity:** id 3 gives small correct answers in the same run, so a wholesale failure cannot be
+mistaken for a pass; ids 1 and 2 are the assertions, and their values are exactly the ones TYPE-094
+loses.
+
+## TYPE-109 — FLOAT32 × FLOAT64: mixed floating widths
+**Intent:** the remaining mixed pair. Calcite promotes `REAL` to `DOUBLE`, and `Column.evaluateDouble`
+widens the float exactly — so the result is the double computed from the float's *actual* stored
+value, which is not the decimal text that was in the file.
+**Falsifier:** the result computed as if the FLOAT32 held its decimal text exactly; the output typed
+`REAL`, which would narrow the answer.
+**Setup:** `mixf.csv` — schema `id:INT64,r:FLOAT32?,d:FLOAT64?` — with `1,0.1,0.1` /
+`2,16777217,16777217` / `3,17.0,5.0`.
+**Steps:** `validate` for the type of `r+d`, `r-d`, `r*d`, `r/d`, `r%d`; then run.
+**Expected:** the output type is `DOUBLE`.
+Id 1: `r` decoded by `Float.parseFloat("0.1")` is 0.1f, whose exact double value is
+**0.10000000149011612**; `d` is 0.1 as a double, **0.1000000000000000055511151231257827**.
+`r-d` = 0.10000000149011612 − 0.1 = **1.4901161138336505E-9**, *not* 0.0. That non-zero difference is
+the case: it proves the float was widened rather than re-parsed.
+`r+d` = **0.20000000149011612**. `r/d` = **1.0000000149011612**. `r*d` = **0.010000000149011613**.
+`r%d` = 0.10000000149011612 % 0.1 = **1.4901161138336505E-9**.
+Id 2: `r` is 1.6777216E7 (the 2²⁴+1 rounding), `d` is 1.6777217E7 exactly. `r-d` = **−1.0**.
+Id 3: `r+d` = **22.0**, `r/d` = **3.4**, matching TYPE-103.
+**Vacuity:** id 3 reproduces the all-double answers, so ids 1 and 2's non-zero differences are
+attributable to the FLOAT32 storage and not to a broken subtraction.
+
+## TYPE-110 — an integer column against a decimal-looking literal is refused as DECIMAL arithmetic
+**Intent:** the neighbour of the DECIMAL refusal that nobody writes down. A literal spelled `2.5`
+arrives from Calcite as `DECIMAL(2,1)`. `ExpressionCompiler.literal` is careful — it turns a
+zero-scale decimal into a long and a non-zero one into a double — but the **call's** type is what
+`typeOf` sees, and `BIGINT × DECIMAL` is `DECIMAL`, which `refuseDecimalType` rejects. So
+`SELECT amount * 2.5` over a `BIGINT` column is refused while `SELECT rate * 2.5` over a `DOUBLE`
+column is not. Neither query mentions decimals.
+**Falsifier:** `a * 2.5` planning and producing an approximate answer (silently doing what the
+refusal exists to prevent); or `x * 2.5` over a DOUBLE column being refused (a false positive that
+would make the engine unusable for ordinary arithmetic).
+**Setup:** `num.csv`.
+**Steps:** `pravaha validate` on each of:
+1. `SELECT id, a * 2.5 AS c FROM num` (BIGINT × decimal literal)
+2. `SELECT id, a / 2.5 AS c FROM num`
+3. `SELECT id, a + 2.5 AS c FROM num`
+4. `SELECT id, a * 2.0 AS c FROM num` — trailing-zero decimal, which `literal` strips to a long
+5. `SELECT id, x * 2.5 AS c FROM num` (DOUBLE × decimal literal)
+6. `SELECT id, a * 2 AS c FROM num` — integer literal, the control
+7. `SELECT id, CAST(a AS DOUBLE) * 2.5 AS c FROM num` — the suggested rewrite
+**Expected:** 1–3 are refused with `PRV-2021` and the DECIMAL sentence: *"is DECIMAL arithmetic,
+which Pravaha refuses rather than approximates. Evaluating it in double would pass every test
+anybody writes and produce a rounding error in a ledger… Cast to DOUBLE explicitly if approximate is
+genuinely acceptable."* Record the message: it is accurate about the policy and misleading about the
+query, because nothing in `a * 2.5` is decimal in any sense the user intended.
+4 is the interesting one — `2.0` strips to scale 0, so the *literal* becomes a long, but the
+**call's** type is still `DECIMAL` and the refusal is expected to fire anyway. If it does not,
+record the inconsistency: `a * 2.0` works and `a * 2.5` does not, for reasons invisible in the SQL.
+5 must **succeed**: `x` is DOUBLE, so the call type is DOUBLE. Values for rows 1–4: 17.0 × 2.5 =
+**42.5**, −42.5, 42.5, −42.5.
+6 must succeed: 34, −34, 34, −34.
+7 must succeed and give 42.5, −42.5, 42.5, −42.5 — the same numbers as 5, which is what makes the
+refusal's advice actionable.
+**Vacuity:** cases 5, 6 and 7 succeeding in the same run is what proves 1–3's refusals are about the
+literal's type and not about the file, the column or the operator.
+
+---
+
+## 14. Division, modulo and zero (TYPE-111 … TYPE-116)
+
+Integer division by zero **throws** (`ArithmeticException`, with the record routed to the DLQ);
+floating division by zero **is IEEE** (`Infinity`, `NaN`). Both are deliberate, both are documented
+in the source, and the asymmetry is the thing to verify — a user writing `a / b` and `x / y` over the
+same data gets an exception from one and an infinity from the other.
+
+## TYPE-111 — integer division truncates towards zero, not towards negative infinity
+**Intent:** the SQL standard says truncation; Java agrees; a "helpful" `Math.floorDiv` would disagree
+for exactly the negative cases and agree everywhere else.
+**Falsifier:** `−17 / 5` returning −4; `17 / −5` returning −4.
+**Setup:** `num.csv` rows 1–4, plus `1,1,2` style rows where the quotient is between −1 and 1: add
+`9,1,2,1.0,2.0,1.0` and `10,-1,2,-1.0,2.0,-1.0`.
+**Steps:** `SELECT id, a/b AS q FROM num`.
+**Expected:** rows 1–4: **3, −3, −3, 3**. Row 9: 1/2 = **0**. Row 10: −1/2 = **0**, not −1. Rows 9
+and 10 are the discriminating pair — floor division gives −1 for row 10 and 0 for row 9, so a build
+that disagrees on row 10 alone is using the wrong rule.
+
+## TYPE-112 — modulo takes the sign of the dividend
+**Intent:** the companion rule. `%` in SQL and in Java takes the dividend's sign; a modulo that
+returned a non-negative result (Python's rule) would differ on exactly two of the four sign
+combinations.
+**Falsifier:** `−17 % 5` returning 3; `17 % −5` returning −3.
+**Setup:** `num.csv` rows 1–4 and 9–10.
+**Steps:** `SELECT id, a%b AS r FROM num`; then `SELECT id, (a/b)*b + a%b AS ident FROM num`; then
+the `MOD(a, b)` spelling.
+**Expected:** rows 1–4: **2, −2, 2, −2**. Row 9: 1 % 2 = **1**. Row 10: −1 % 2 = **−1**.
+`ident` = `a` for every row — 17, −17, 17, −17, 1, −1. That identity holding across all six rows is
+the strongest single assertion in this section.
+`MOD(a, b)` must produce the identical column: `ExpressionCompiler` maps both `%` and `MOD` to
+`Operator.MODULO`, so a difference between them is a compiler bug.
+
+## TYPE-113 — integer division by zero throws, and what happens to the batch
+**Intent:** the documented decision — *"throwing is the one that cannot be mistaken for an answer —
+the record goes to the dead-letter queue with the reason"*. Finding Q-5 says it instead hangs for
+five minutes and loses the whole batch. Measure it.
+**Falsifier:** the division returning a value; the command hanging for five minutes; rows before the
+failing one silently disappearing under exit 0.
+**Setup:** `num.csv` row 5 (`a` = 7, `b` = 0). Rows 1–4 precede it and rows 6–8 follow it.
+**Steps:**
+1. `SELECT id, a/b AS q FROM num` with an INT64 out-schema; **time the command**
+2. `SELECT id, a%b AS r FROM num`; time it
+3. `SELECT id, a/b AS q FROM num WHERE b <> 0` — the guarded form
+4. `SELECT id, CASE WHEN b = 0 THEN 0 ELSE a/b END AS q FROM num` — the guarded form the source
+   javadoc recommends
+**Expected:** steps 1 and 2 must fail with `ArithmeticException: division by zero in a projection;
+the record is routed to the DLQ rather than given a value that could be mistaken for an answer`, and
+must do so **in well under five seconds**. Record the wall-clock time; anything near five minutes is
+the `awaitQuiescent` timeout in `QueryRunner` and is finding Q-5.
+Record also how many rows reached `out.csv`: the message promises a DLQ and the loss of only the
+offending record, so rows 1–4 and 6–8 should survive. If `out.csv` is empty or absent, the whole
+batch was lost and the message is inaccurate.
+Step 3 must succeed with rows 1–4 → 3, −3, −3, 3, row 6 → NULL, row 7 → 9223372036854775807,
+row 8 → −9223372036854775808 (TYPE-097) — **seven rows, row 5 excluded**.
+Step 4 must succeed with all eight rows and row 5 → **0**; this is TYPE-120's laziness case and is
+included here to show the recommended workaround works.
+**Vacuity:** steps 3 and 4 succeeding on the same file is what makes steps 1 and 2's failure
+attributable to the zero and not to the fixture.
+
+## TYPE-114 — floating division by zero is Infinity, not an error
+**Intent:** the asymmetry with TYPE-113, stated in the source as a deliberate choice. Three distinct
+IEEE results have to come out right: `+x/0.0`, `−x/0.0` and `0.0/0.0`.
+**Falsifier:** `7.0/0.0` throwing; returning 0; or returning `NaN`.
+**Setup:** `num.csv` row 5 (`x` = 7.0, `y` = 0.0), plus rows `11,0,0,-7.0,0.0,0.0` and
+`12,0,0,0.0,0.0,0.0`.
+**Steps:** `SELECT id, x/y AS q FROM num` with a FLOAT64 out-schema; then `WHERE x/y > 0`.
+**Expected:** row 5 → **`Infinity`**, exit 0. Row 11 → **`-Infinity`**. Row 12 → 0.0/0.0 = **`NaN`**.
+Rows 1–4 → 3.4, −3.4, −3.4, 3.4. Row 6 → NULL.
+`WHERE x/y > 0` returns rows 1, 4 and 5 — the two positive quotients and the `Infinity`; `NaN` is
+not greater than 0 and `-Infinity` is not.
+**Vacuity:** the three different zero results (`Infinity`, `-Infinity`, `NaN`) in one run cannot all
+come from a single wrong constant.
+
+## TYPE-115 — floating modulo by zero is NaN
+**Intent:** completes the zero row. Java's `%` on doubles with a zero divisor is `NaN`, not an
+exception and not `Infinity`.
+**Falsifier:** `7.0 % 0.0` throwing, or returning 0.0, or returning `Infinity`.
+**Setup:** as TYPE-114.
+**Steps:** `SELECT id, x%y AS r FROM num`; then `WHERE x%y = x%y` (false for NaN);
+then `WHERE x%y IS NULL` (must be false — NaN is a value, not a null).
+**Expected:** rows 5, 11 and 12 → **`NaN`**. Rows 1–4 → 2.0, −2.0, 2.0, −2.0. Row 6 → NULL.
+`WHERE x%y = x%y` excludes rows 5, 11 and 12 **if** the comparison respects NaN ≠ NaN; note that
+`Predicate.CompareExpressions` uses `Double.compare`, for which `Double.compare(NaN, NaN)` is **0**
+— so this predicate is expected to **include** them, disagreeing with IEEE and with every other SQL
+engine. Record which happens; a `Double.compare`-based equality that calls NaN equal to itself is a
+real defect and this is the case that exposes it.
+`WHERE x%y IS NULL` returns only row 6. NaN is not NULL, and a build that conflated them would
+return four rows.
+
+## TYPE-116 — `%` and `MOD`, and the operators that are not supported
+**Intent:** `ExpressionCompiler` maps `%` and `MOD` to one operator and refuses everything else by
+name. The refusal's list of supported functions is a user-facing contract and must be accurate.
+**Falsifier:** `MOD(a,b)` and `a % b` differing; a supported function named in the refusal that is
+then refused; `POWER`, `SQRT` or `MOD` with three arguments producing a value.
+**Setup:** `num.csv`.
+**Steps:** `SELECT id, MOD(a,b) FROM num WHERE id <= 4`; `SELECT id, a % b FROM num WHERE id <= 4`;
+then `pravaha validate` on `POWER(a,2)`, `SQRT(a)`, `EXP(a)`, `LN(a)`, `MOD(a,b,2)`,
+`ROUND(x, 2)`, `a ^ b`.
+**Expected:** the two modulo spellings give the identical column **2, −2, 2, −2**.
+`POWER`, `SQRT`, `EXP`, `LN` and `^` are refused with `PRV-2021` and
+`function '<NAME>' in '<expr>' is not supported in a projection. Supported: + - * / %, ABS, FLOOR,
+CEIL, ROUND, CASE WHEN, UPPER, LOWER, TRIM, SUBSTRING and || .` — assert that every function in
+that list is in fact supported (it is the list this file's sections 15–17 cover), and that nothing
+supported is missing from it.
+`MOD(a,b,2)` and `ROUND(x, 2)` reach the arity check instead and are refused with
+`ROUND is supported with one argument and was given 2. ROUND to a number of decimal places is not
+built; round the value and scale it, or cast it.` — a different, more useful message. Assert both
+messages, because they come from different branches and only one of them names a workaround.
+
+---
+
+## 15. CASE WHEN (TYPE-117 … TYPE-124)
+
+Calcite flattens a chain into one call — condition, value, condition, value, …, else — and
+`ExpressionCompiler.caseWhen` rebuilds it as nested two-way `Expression.Case` nodes. The constructor
+enforces one output type, with a special rule for a null branch. Only the taken branch is evaluated,
+which is load-bearing rather than an optimisation.
+
+**Fixture `case.csv`** — schema `id:INT64,n:INT64?,d:FLOAT64?,s:STRING?`
+```
+1,10,10.0,alpha
+2,0,0.0,beta
+3,-7,-7.0,gamma
+4,,,
+5,100,100.0,delta
+```
+
+## TYPE-117 — branch selection: the first TRUE branch wins
+**Intent:** the base semantics, over a three-branch chain, with a row matching each branch and a row
+matching none.
+**Falsifier:** a later branch taken while an earlier one is true; the ELSE taken while a branch is
+true; the result depending on the order the conditions were evaluated in rather than on which is
+first-true.
+**Setup:** `case.csv`.
+**Steps:** `SELECT id, CASE WHEN n > 50 THEN 1 WHEN n > 5 THEN 2 WHEN n >= 0 THEN 3 ELSE 4 END AS c
+FROM cse` with `--out-schema "id:INT64,c:INT64?"`.
+**Expected:** by hand — id 1 (`n` = 10): not > 50; > 5 → **2**. id 2 (`n` = 0): not > 50; not > 5;
+>= 0 → **3**. id 3 (`n` = −7): none true → ELSE → **4**. id 4 (`n` NULL): every comparison is
+UNKNOWN, which `Predicate.test` returns as false, so ELSE → **4**. id 5 (`n` = 100): > 50 → **1**.
+Result: `1,2` / `2,3` / `3,4` / `4,4` / `5,1`.
+The overlapping branches are deliberate: id 1 satisfies both `> 5` and `>= 0`, and id 5 satisfies all
+three. If id 5 returns 2 or 3, the chain is not evaluating in written order.
+
+## TYPE-118 — a CASE with no ELSE is NULL, not a type default
+**Intent:** Calcite always supplies an ELSE, adding a null one where the SQL omitted it, and the
+`Case` constructor retypes that null to the THEN branch's type. The observable result must be NULL,
+which is the difference between "no rule applied" and "the rule said zero".
+**Falsifier:** a no-match row returning 0, `false` or an empty string; the query being refused with
+`this CASE has no ELSE branch and no value to fall through to`, which would mean the null-branch
+retyping did not fire.
+**Setup:** `case.csv`.
+**Steps:**
+1. `SELECT id, CASE WHEN n > 50 THEN 1 END AS c FROM cse`, out-schema `id:INT64,c:INT64?`
+2. `SELECT id FROM cse WHERE (CASE WHEN n > 50 THEN 1 END) IS NULL` — proves NULL, not zero
+3. `SELECT id, CASE WHEN n > 50 THEN d END AS c FROM cse`, out-schema `id:INT64,c:FLOAT64?`
+4. `SELECT id, CASE WHEN n > 50 THEN s END AS c FROM cse`, out-schema `id:INT64,c:STRING?`
+5. `SELECT id, CASE WHEN n > 50 THEN NULL ELSE 1 END AS c FROM cse` — the null on the *other* side
+**Expected:** step 1 → `1,` / `2,` / `3,` / `4,` / `5,1`: four NULLs and one 1.
+Step 2 returns `1,2,3,4` — four rows. Assert this, not the rendering; an empty CSV field could be a
+zero-length string.
+Steps 3 and 4 exercise the retyping for FLOAT64 and STRING: id 5 → 100.0 and `delta`, the rest NULL.
+Step 5 exercises `isNullLiteral(then)`: id 5 → NULL, the rest → 1. Both directions of the constructor's
+null-branch rule are then covered.
+
+## TYPE-119 — nesting, and a CASE inside a CASE
+**Intent:** `caseWhen` recurses `from + 2`, so a chain becomes right-nested pairs. An explicitly
+nested CASE in the SQL is a different tree with the same meaning, and the two must agree.
+**Falsifier:** the chained and nested forms disagreeing on any row; a five-branch chain losing its
+last branch.
+**Setup:** `case.csv`.
+**Steps:**
+1. the chain: `CASE WHEN n > 50 THEN 1 WHEN n > 5 THEN 2 ELSE 3 END`
+2. the equivalent nesting: `CASE WHEN n > 50 THEN 1 ELSE CASE WHEN n > 5 THEN 2 ELSE 3 END END`
+3. a five-branch chain: `CASE WHEN n > 50 THEN 1 WHEN n > 5 THEN 2 WHEN n = 0 THEN 3 WHEN n < 0
+   THEN 4 ELSE 5 END`
+4. `pravaha explain --level physical` on both 1 and 2
+**Expected:** 1 and 2 give the identical column: **2, 3, 3, 3, 1**. 3 gives: id 1 → 2; id 2 → 3
+(`n = 0`); id 3 → 4 (`n < 0`); id 4 → **5** (all four comparisons UNKNOWN → ELSE); id 5 → 1. The
+fifth branch being reached by exactly one row is the assertion that the chain did not lose its tail.
+Step 4: both plans render as
+`CASE WHEN … THEN … ELSE CASE WHEN … THEN … ELSE … END END` — `Case.describe` nests explicitly, so
+the two spellings should produce the same `EXPLAIN` text. If they differ, record the difference; two
+identical queries with different fingerprints would not share one computation.
+
+## TYPE-120 — only the taken branch is evaluated
+**Intent:** *"`CASE WHEN n = 0 THEN 0 ELSE total / n END` divides by zero if both arms are evaluated,
+and a reader is entitled to assume the guard guards."* The guard is the case.
+**Falsifier:** the query throwing `ArithmeticException: division by zero`; the query throwing
+`ABS(-9223372036854775808) has no representable result` from an untaken branch.
+**Setup:** `case.csv` (id 2 has `n` = 0) and `num.csv` (row 8 has `a` = Long.MIN_VALUE).
+**Steps:**
+1. `SELECT id, CASE WHEN n = 0 THEN 0 ELSE 100 / n END AS c FROM cse`
+2. `SELECT id, CASE WHEN n <> 0 THEN 100 / n ELSE 0 END AS c FROM cse` — the guard the other way up
+3. `SELECT id, CASE WHEN a > -9223372036854775808 THEN ABS(a) ELSE 0 END AS c FROM num`
+4. `SELECT id, CASE WHEN n IS NULL THEN 0 ELSE 100 / n END AS c FROM cse` — the NULL guard
+**Expected:** step 1 exits 0. By hand: id 1 → 100/10 = **10**; id 2 → guard true → **0**; id 3 →
+100/(−7) = **−14** (truncating toward zero: −14.28…); id 4 → `n` is NULL so `n = 0` is UNKNOWN → ELSE
+→ `100 / NULL`, whose `isNull` is true **before** any division → **NULL**; id 5 → 100/100 = **1**.
+Step 2 gives the same column: id 2's guard `n <> 0` is false → ELSE → 0. Id 4's guard is UNKNOWN →
+ELSE → 0. Note the difference from step 1: **id 4 is 0 here and NULL in step 1**, because the NULL
+row falls to the opposite arm. Both are correct; the pair is what shows the reader that "the guard
+guards" does not mean "the guard covers NULL".
+Step 3 exits 0 with row 8 → 0, and does **not** throw — the untaken `ABS` branch is never evaluated.
+Step 4: id 4 → **0**, everything else as step 1.
+**Vacuity:** every step must exit 0 **and** return 5 rows. A build that evaluated both arms would
+throw, and a build that silently dropped the failing row would return 4 — the row count catches the
+second.
+
+## TYPE-121 — text branches
+**Intent:** `Case.evaluateString` and `writeComputed`'s `case STRING` path. A CASE whose branches are
+strings is the commonest business-rule shape there is, and the expression tree only learned to carry
+text recently.
+**Falsifier:** a text CASE refused; the branches' bytes written as a long (the failure the
+`writeComputed` javadoc records); unicode mangled through the branch.
+**Setup:** `case.csv`, and `text.csv` for the unicode half.
+**Steps:**
+1. `SELECT id, CASE WHEN n > 50 THEN 'big' WHEN n > 5 THEN 'medium' ELSE 'small' END AS c FROM cse`,
+   out-schema `id:INT64,c:STRING?`
+2. `SELECT id, CASE WHEN n > 50 THEN s ELSE 'none' END AS c FROM cse` — a column in a branch
+3. `SELECT id, CASE WHEN id = 5 THEN '👍' ELSE 'ß' END AS c FROM txt` over `text.csv`
+4. `SELECT id, n, CASE WHEN n > 5 THEN 'yes' ELSE 'no' END AS c FROM cse` — text beside a number,
+   which is the mixed-projection shape that used to fail at the writer
+**Expected:** 1 → `medium, small, small, small, big`. 2 → id 5 → `delta`, the rest `none`; note id 4
+takes the ELSE and gets `none`, **not** NULL, even though `s` is NULL there — the branch that was
+taken has no null in it. 3 → `ß` for ids 1–4 and 6–8, `👍` for id 5; compare byte lengths (2 and 4).
+4 → five rows with both a number and a string per row: `1,10,yes` / `2,0,no` / `3,-7,no` /
+`4,,no` / `5,100,yes`.
+**Vacuity:** step 4 mixing a numeric and a text output column in one projection is the
+anti-vacuity device; steps 1–3 would pass with a text-only writer.
+
+## TYPE-122 — a CASE whose branches have different types
+**Intent:** `Case`'s constructor throws unless both branches agree: *"A row whose type depends on its
+own values has no schema."* Calcite may coerce first, so the case establishes which layer refuses and
+whether the refusal is a `PRV-` code or a raw `IllegalArgumentException`.
+**Falsifier:** a mixed-type CASE planning and producing a column whose type varies by row; a refusal
+with no code and no explanation.
+**Setup:** `case.csv`.
+**Steps:** `pravaha validate` on each of:
+1. `CASE WHEN n > 5 THEN 1 ELSE 'x' END` — number / text
+2. `CASE WHEN n > 5 THEN s ELSE 0 END` — text / number
+3. `CASE WHEN n > 5 THEN 1 ELSE 1.5 END` — integer / decimal literal
+4. `CASE WHEN n > 5 THEN n ELSE d END` — BIGINT / DOUBLE columns
+5. `CASE WHEN n > 5 THEN true ELSE 1 END` — boolean / number
+**Expected:** 1, 2 and 5 are expected to be rejected by Calcite's validator with **`PRV-2002`**
+(no common type), before Pravaha's constructor is reached. 4 is expected to be **coerced** by
+Calcite to DOUBLE with a CAST around `n`, and to **succeed**: id 1 → 10.0, id 2 → 0.0, id 3 → −7.0,
+id 4 → NULL, id 5 → 100.0. 3 is the interesting one — Calcite coerces to `DECIMAL`, which
+`ExpressionCompiler.typeOf` refuses with `PRV-2021` and the DECIMAL sentence, so an ordinary
+`CASE … THEN 1 ELSE 1.5 END` is refused for reasons that mention ledgers.
+Record, for each of the five, whether the refusal came from Calcite (`PRV-2002`), from
+`ExpressionCompiler` (`PRV-2021`) or from the `Case` constructor (a raw `IllegalArgumentException`
+reported as `IllegalArgumentException: a CASE must produce one type, and this one produces …`). The
+third is a finding: it has no code and reaches the user as a bare Java exception name.
+
+## TYPE-123 — a CASE whose condition is UNKNOWN takes the ELSE
+**Intent:** the single most surprising interaction in this file. `Predicate.test` is two-valued, so a
+NULL condition is indistinguishable from a false one and the ELSE branch runs. SQL agrees — but a
+reader expecting "NULL in, NULL out" does not.
+**Falsifier:** a NULL condition producing NULL; a NULL condition producing the THEN branch.
+**Setup:** `case.csv`; id 4 has `n`, `d` and `s` all NULL.
+**Steps:**
+1. `SELECT id, CASE WHEN n > 5 THEN 1 ELSE 0 END AS c FROM cse`
+2. `SELECT id, CASE WHEN n IS NULL THEN -1 WHEN n > 5 THEN 1 ELSE 0 END AS c FROM cse` — the
+   explicit form
+3. `SELECT id, CASE WHEN n = n THEN 1 ELSE 0 END AS c FROM cse` — a tautology that is UNKNOWN for
+   NULL
+4. `SELECT id, CASE WHEN s = 'alpha' THEN 1 ELSE 0 END AS c FROM cse` — the text comparison route
+**Expected:** 1 → **1, 0, 0, 0, 1** — id 4 is **0**, not NULL. 2 → **1, 0, 0, −1, 1**, which is what
+the author almost always meant. 3 → **1, 1, 1, 0, 1**: `n = n` is true for every non-null row and
+UNKNOWN for id 4, so the tautology is false there. 4 → **1, 0, 0, 0, 0**: `CompareString` returns
+false for the null row.
+**Vacuity:** steps 1 and 2 differ on exactly one row, and that row is the whole point. A case
+asserting only step 1 would pass under an implementation that had no concept of UNKNOWN at all.
+
+## TYPE-124 — a CASE used as a WHERE operand, and a text comparison inside one
+**Intent:** two structural limits. `PredicateCompiler.compile` has no `CASE` kind, so a bare CASE in
+a `WHERE` must reach `comparison`/`compareExpressions` or be refused; and `rejectText` forbids text
+inside a larger comparison expression, which a CASE returning text would be.
+**Falsifier:** `WHERE CASE … END` planning and filtering on something that is not the CASE's value;
+a text-valued CASE compared to a literal producing a comparison of the underlying long.
+**Setup:** `case.csv`.
+**Steps:**
+1. `SELECT id FROM cse WHERE (CASE WHEN n > 5 THEN 1 ELSE 0 END) = 1`
+2. `SELECT id FROM cse WHERE (CASE WHEN n > 5 THEN 1 ELSE 0 END) > 0`
+3. `SELECT id FROM cse WHERE CASE WHEN n > 5 THEN true ELSE false END` — a bare boolean CASE
+4. `SELECT id FROM cse WHERE (CASE WHEN n > 5 THEN 'y' ELSE 'n' END) = 'y'`
+5. `SELECT id, CASE WHEN s = 'alpha' THEN 1 ELSE 0 END AS c FROM cse` — a text comparison *inside*
+   a CASE, which is the supported direction
+**Expected:** 1 and 2 go through `compareExpressions` and must return **1,5**.
+3 has no `CASE` kind in `PredicateCompiler.compile`, so it is expected to be refused with `PRV-2021`
+and `cannot compile the expression '…' (CASE) yet. Supported: AND, OR, NOT, comparisons against a
+literal, IS [NOT] NULL, LIKE against a literal pattern, and boolean columns.` Record it: an ordinary
+boolean CASE in a WHERE is not supported and the message says so, which is acceptable — but the same
+predicate written as form 1 works, and that difference is undocumented.
+4 must be refused by `rejectText` with `PRV-2021` and `compares text inside a larger expression,
+which Pravaha cannot do; only = and <> between a text column and a literal are supported`.
+5 must **succeed** — a text comparison as a CASE's *condition* is a `Predicate`, not an expression
+operand — giving **1, 0, 0, 0, 0**. The contrast between 4 and 5 is the case: text may be compared
+to decide a branch, and may not be compared to decide a filter.
+
+---
+
+## 16. ABS, FLOOR, CEIL and ROUND (TYPE-125 … TYPE-132)
+
+`Expression.Unary.type()` returns **the argument's type, unchanged** — so `FLOOR` of an integer is
+that integer and of a double is a double, and the integer path deliberately never round-trips through
+a `double`. `evaluateLong` returns the value unchanged for `FLOOR`, `CEIL` and `ROUND`, and throws
+for `ABS(Long.MIN_VALUE)`. `evaluateDouble` implements `ROUND` as
+`Math.signum(v) * Math.floor(Math.abs(v) + 0.5)` — half away from zero, which is what SQL means, and
+which has a half-ulp defect that TYPE-130 and TYPE-131 exist to expose.
+
+**Fixture `rnd.csv`** — schema `id:INT64,d:FLOAT64?,n:INT64?`
+```
+1,2.5,2
+2,-2.5,-2
+3,0.5,0
+4,-0.5,0
+5,0.49999999999999994,0
+6,4503599627370497.0,4503599627370497
+7,-0.4,0
+8,1.5,1
+9,-1.5,-1
+10,0.0,0
+11,,
+12,9007199254740993.0,9007199254740993
+13,-17.0,-17
+14,-9223372036854775808.0,-9223372036854775808
+```
+`Double.parseDouble("9007199254740993.0")` is 2⁵³+1, which rounds to **9007199254740992.0**; the
+`n` column holds the exact integer 9007199254740993. That pairing is deliberate.
+
+## TYPE-125 — ABS over integers and over doubles
+**Intent:** the ordinary cases, and the two zero cases where a sign can survive an absolute value.
+**Falsifier:** `ABS(-17)` returning −17; `ABS(-0.0)` returning `-0.0`; `ABS(NULL)` returning 0.
+**Setup:** `rnd.csv`, plus rows `15,-0.0,0` and `16,NaN,0` and `17,-Infinity,0`.
+**Steps:** `SELECT id, ABS(n) AS a FROM rnd` (out-schema INT64) and `SELECT id, ABS(d) AS a FROM rnd`
+(out-schema FLOAT64).
+**Expected:** integer column: id 13 → **17**; id 1 → 2; id 2 → 2; id 9 → 1; id 11 → **NULL** (not 0
+— `Unary.isNull` delegates to the argument); id 12 → 9007199254740993 (**exact**, because the
+integer path never visits a double); id 14 → **throws**, see TYPE-126.
+Double column: id 2 → 2.5; id 4 → 0.5; id 7 → 0.4; id 11 → NULL; id 15 → **0.0**, positive zero, not
+`-0.0` (`Math.abs(-0.0)` clears the sign bit — assert the printed text, since `-0.0 == 0.0`
+compares equal and only the rendering distinguishes them); id 16 → **NaN**; id 17 → **Infinity**.
+**Vacuity:** id 11 being NULL in both columns is the null-propagation assertion, and id 12's exact
+9007199254740993 is what proves the integer path stayed integral.
+
+## TYPE-126 — ABS(Long.MIN_VALUE) throws rather than returning a negative absolute value
+**Intent:** finding Q-12's fix, verified. `Math.abs(Long.MIN_VALUE)` is `Long.MIN_VALUE` — negative,
+from a function whose job is to return something that is not — and the engine now refuses it.
+**Falsifier:** the expression returning −9223372036854775808; the exception carrying no explanation;
+the whole batch lost so that the other thirteen rows never appear.
+**Setup:** `rnd.csv` row 14 (`n` = −9223372036854775808).
+**Steps:**
+1. `SELECT id, ABS(n) AS a FROM rnd` — time the command
+2. `SELECT id, ABS(n) AS a FROM rnd WHERE n > -9223372036854775808` — the guarded form
+3. `SELECT id, ABS(d) AS a FROM rnd` — the same magnitude as a double
+4. `SELECT id, ABS(0 - n) AS a FROM rnd WHERE id = 14`
+**Expected:** step 1 fails with
+`ArithmeticException: ABS(-9223372036854775808) has no representable result: the range of a 64-bit
+integer is asymmetric, so the magnitude of its smallest value is one larger than its largest.` —
+exit 1, in well under five seconds. The message is exemplary; assert its text, because it is the
+model the other run-time failures in this file are measured against.
+Step 2 must succeed over the remaining rows.
+Step 3 must **succeed**: `ABS(-9.223372036854776E18)` is `9.223372036854776E18`, because a double has
+no asymmetry. The same number is representable as a double and not as a long, and the engine gives
+two different answers for it — that contrast is worth recording.
+Step 4: `0 - n` already throws (`Math.subtractExact`, TYPE-098), so the failure moves one operator
+earlier and reports `long overflow` instead — a much worse message for the same underlying fact.
+**Vacuity:** step 2 succeeding is what makes step 1's failure attributable to the value.
+
+## TYPE-127 — FLOOR, CEIL and ROUND over an integer column are the identity
+**Intent:** the deliberate short-circuit: *"Already whole. Returning it unchanged rather than
+round-tripping through a double, which loses precision above 2⁵³ and would make FLOOR of a large id
+a different id."* Row 12 is exactly that id.
+**Falsifier:** `FLOOR(9007199254740993)` returning 9007199254740992; any of the three changing any
+integer value; a negative integer being floored downward.
+**Setup:** `rnd.csv`, column `n`.
+**Steps:** `SELECT id, FLOOR(n), CEIL(n), CEILING(n), ROUND(n) FROM rnd` with an INT64 out-schema.
+**Expected:** all four columns equal `n`, row for row: 2, −2, 0, 0, 0, 4503599627370497, 0, 1, −1,
+0, **NULL**, **9007199254740993**, −17, −9223372036854775808.
+Row 12 is the assertion — 2⁵³+1 survives — and row 14 shows that the integer path does **not** throw
+for `Long.MIN_VALUE` the way `ABS` does. `CEILING` must produce the identical column to `CEIL`
+(`unaryFunction` maps both).
+**Vacuity:** rows 1, 2, 8 and 9 have fractional-looking doubles beside them in `d`; if any integer
+result matches the `d`-column answer instead (3, −3, 2, −2), the integer short-circuit was bypassed.
+
+## TYPE-128 — FLOOR and CEIL over a double column, including negatives and negative zero
+**Intent:** `Math.floor` and `Math.ceil`, whose behaviour for negatives between −1 and 0 produces a
+negative zero that renders differently from zero.
+**Falsifier:** `FLOOR(-2.5)` returning −2.0; `CEIL(-2.5)` returning −3.0; `CEIL(-0.4)` returning
+`0.0` rather than `-0.0` (or the reverse — the case records which, and either way it must be
+consistent with `Math.ceil`).
+**Setup:** `rnd.csv`, column `d`.
+**Steps:** `SELECT id, FLOOR(d) AS f, CEIL(d) AS c FROM rnd` with a FLOAT64 out-schema.
+**Expected, by hand:**
+
+| id | `d` | `FLOOR(d)` | `CEIL(d)` |
+|---|---|---|---|
+| 1 | 2.5 | **2.0** | **3.0** |
+| 2 | −2.5 | **−3.0** | **−2.0** |
+| 3 | 0.5 | **0.0** | **1.0** |
+| 4 | −0.5 | **−1.0** | **−0.0** |
+| 5 | 0.49999999999999994 | **0.0** | **1.0** |
+| 6 | 4503599627370497.0 | **4503599627370497.0** | **4503599627370497.0** |
+| 7 | −0.4 | **−1.0** | **−0.0** |
+| 8 | 1.5 | **1.0** | **2.0** |
+| 9 | −1.5 | **−2.0** | **−1.0** |
+| 10 | 0.0 | **0.0** | **0.0** |
+| 11 | NULL | **NULL** | **NULL** |
+| 12 | 9007199254740992.0 | **9.007199254740992E15** | **9.007199254740992E15** |
+| 13 | −17.0 | **−17.0** | **−17.0** |
+
+Ids 4 and 7 are the assertions: `Math.ceil` of a value in (−1, 0) is **negative zero**, printed by
+`Double.toString` as `-0.0`. A result of `0.0` there means something re-normalised the value on the
+way out, which matters because `CEIL(d)` feeding a `CASE WHEN … = 0` would then behave differently
+from `CEIL(d)` printed.
+Ids 6 and 12 must be returned unchanged, because both are already integral doubles.
+
+## TYPE-129 — ROUND is half away from zero, not banker's rounding
+**Intent:** finding Q-4's fix, verified on both signs. `Math.rint` would give 2 for `ROUND(2.5)` and
+−2 for `ROUND(-2.5)`, disagreeing with Calcite, Postgres, MySQL and Oracle. Every value it produced
+was plausible, which is why nobody noticed until an invoice was out by a penny.
+**Falsifier:** `ROUND(2.5)` = 2; `ROUND(-2.5)` = −2; `ROUND(0.5)` = 0; `ROUND(1.5)` = 2 **and**
+`ROUND(2.5)` = 2 (the signature of half-to-even, where one of the two is right by accident).
+**Setup:** `rnd.csv`, column `d`.
+**Steps:** `SELECT id, ROUND(d) AS r FROM rnd` with a FLOAT64 out-schema.
+**Expected:** id 1 (2.5) → **3.0**; id 2 (−2.5) → **−3.0**; id 3 (0.5) → **1.0**; id 4 (−0.5) →
+**−1.0**; id 8 (1.5) → **2.0**; id 9 (−1.5) → **−2.0**; id 10 (0.0) → **0.0**; id 11 → NULL;
+id 13 (−17.0) → **−17.0**.
+The 1.5/2.5 pair is the discriminator: half-to-even gives 2.0 for both, half-away-from-zero gives
+2.0 and 3.0. Assert both in the same run.
+**Vacuity:** four ties of each sign, so a build that special-cased one value cannot pass.
+
+## TYPE-130 — ROUND(0.49999999999999994) — the half-ulp defect
+**Intent:** the implementation adds 0.5 and floors. For the double immediately below 0.5, that
+addition **rounds up to exactly 1.0** in IEEE 754, and the floor then returns 1 — a value strictly
+less than a half rounding to one. This is a known defect of the `floor(x + 0.5)` idiom and the brief
+names it; this case is the written proof.
+**Falsifier:** `ROUND(0.49999999999999994)` returning 0.0 — which is the correct answer and means the
+defect is fixed. Any other result, including 1.0, is the defect.
+**Setup:** `rnd.csv` row 5. The value is 0.5 − 2⁻⁵⁴ = 0.499999999999999944488848768742172, the
+largest double strictly below 0.5.
+**Steps:**
+1. `SELECT id, ROUND(d) AS r FROM rnd WHERE id = 5`
+2. `SELECT id, d FROM rnd WHERE id = 5` — confirm the stored value
+3. `SELECT id, FLOOR(d + 0.5E0) AS r FROM rnd WHERE id = 5` — the idiom, spelled out
+4. the negative twin: add `18,-0.49999999999999994,0` and run `ROUND(d)`
+**Expected, with the arithmetic shown:**
+`Math.abs(0.499999999999999944488848768742172)` is the value itself.
+Adding 0.5 gives the exact real 0.999999999999999944488848768742172, which is **exactly halfway**
+between the two nearest doubles, 0.99999999999999988897769753748 (= 1 − 2⁻⁵³) and 1.0. IEEE 754
+round-to-nearest-**even** picks the one with the even final significand bit, which is **1.0**.
+`Math.floor(1.0)` = 1.0. `Math.signum(0.4999…)` = 1.0. So the result is **1.0**.
+**The correct answer is 0.0**, because the input is strictly less than one half.
+Step 2 must print `0.49999999999999994`, proving the input was not itself rounded to 0.5 on the way
+in. Step 3 must give the same 1.0, proving the defect is in the idiom and not in `ROUND`'s dispatch.
+Step 4 must give **−1.0** by the mirror argument, where the correct answer is −0.0 or 0.0.
+**Vacuity:** step 2 is the anti-vacuity device. Without it, a decoder that turned the literal into
+0.5 would make `ROUND` = 1.0 look correct.
+**The fix to test against when it lands:** `BigDecimal.valueOf(v).setScale(0, RoundingMode.HALF_UP)`,
+or a comparison-based implementation that checks `v - floor(v)` against 0.5 exactly. After any fix,
+re-run TYPE-129 in full — half-away-from-zero must survive.
+
+## TYPE-131 — ROUND(4503599627370497.0) — exactness above 2⁵²
+**Intent:** the second face of the same defect, at the other end of the range. Above 2⁵² a double's
+spacing is 1.0, so `x + 0.5` is not representable and rounds to even — which changes an integer that
+needed no rounding at all.
+**Falsifier:** `ROUND(4503599627370497.0)` returning 4503599627370497.0 — the correct answer, meaning
+the defect is fixed.
+**Setup:** `rnd.csv` row 6 (`d` = 4503599627370497.0 = 2⁵² + 1, exactly representable) and row 12.
+**Steps:**
+1. `SELECT id, ROUND(d) AS r FROM rnd WHERE id IN (6, 12)` — or two separate `WHERE id = …` runs if
+   `IN` is unsupported
+2. `SELECT id, d FROM rnd WHERE id = 6` — confirm the stored value
+3. `SELECT id, ROUND(n) AS r FROM rnd WHERE id = 6` — the same number as an INT64
+4. `SELECT id, FLOOR(d) AS f, CEIL(d) AS c FROM rnd WHERE id = 6` — the neighbours, which must be
+   exact
+**Expected, with the arithmetic shown:** 4503599627370497.0 + 0.5 = 4503599627370497.5 exactly in
+the reals. Doubles in [2⁵², 2⁵³) are spaced 1.0 apart, so 4503599627370497.5 is **exactly halfway**
+between 4503599627370497.0 and 4503599627370498.0. Round-to-nearest-even picks **4503599627370498.0**
+(the even one). `Math.floor` leaves it. So `ROUND(4503599627370497.0)` = **4.503599627370498E15**,
+one more than the input, for a value that was already a whole number.
+Row 12 (`d` = 9007199254740992.0 = 2⁵³): 9007199254740992.5 lies between 9007199254740992.0 and
+9007199254740994.0 (spacing 2.0 above 2⁵³), a quarter of the way, so it rounds **down** to
+9007199254740992.0 and `ROUND` returns it unchanged — **correct**. The two rows together show the
+defect is spacing-dependent and not a blanket off-by-one.
+Step 2 must print `4.503599627370497E15`. Step 3 must return **4503599627370497** exactly, because
+`evaluateLong` returns the value unchanged — so the *same number* rounds to itself as an INT64 and to
+itself-plus-one as a FLOAT64. Step 4: `FLOOR` and `CEIL` must both return 4.503599627370497E15,
+proving only `ROUND` is affected.
+**Vacuity:** step 3 and step 4 both returning the input is what isolates `ROUND`.
+
+## TYPE-132 — ROUND of a negative fraction produces negative zero; ROUND with two arguments is refused
+**Intent:** two loose ends. `Math.signum(v) * Math.floor(...)` multiplies −1.0 by 0.0 and gets
+**−0.0** for any `v` in (−0.5, 0), and the arity check refuses `ROUND(x, 2)` with a message naming a
+workaround.
+**Falsifier:** `ROUND(-0.4)` rendering as `0.0` (then record it — something normalised the sign);
+`ROUND(x, 2)` planning; the arity refusal naming the wrong argument count.
+**Setup:** `rnd.csv` row 7 (`d` = −0.4) and rows 15/16/17 from TYPE-125.
+**Steps:**
+1. `SELECT id, ROUND(d) AS r FROM rnd WHERE id = 7`
+2. `SELECT id FROM rnd WHERE ROUND(d) = 0 AND id = 7` — does `-0.0` compare equal to 0?
+3. `SELECT id, ROUND(d) FROM rnd WHERE id IN (16, 17)` — NaN and −Infinity
+4. `pravaha validate` on `SELECT ROUND(d, 2) FROM rnd`, `ROUND(d, 0)`, `ABS(d, 1)`, `FLOOR(d, 1)`
+**Expected:** step 1 → **`-0.0`**. `Math.signum(-0.4)` is −1.0; `Math.abs(-0.4) + 0.5` is
+0.9000000000000000222; `Math.floor` of that is 0.0; −1.0 × 0.0 = −0.0. The printed field is `-0.0`,
+which is a different four characters from `0.0` and will differ in a byte-compared expected file.
+Step 2 must return row 7: `Double.compare(-0.0, 0.0)` is **−1**, not 0 — so if `CompareExpressions`
+uses `Double.compare`, the predicate is **false** and the row is **not** returned, while
+`-0.0 == 0.0` is true in Java and in SQL. Record which happens. A `-0.0` that is not equal to `0.0`
+is a real defect and this is its cheapest reproduction.
+Step 3: `ROUND(NaN)` = `Math.signum(NaN) * Math.floor(NaN + 0.5)` = NaN × NaN = **NaN**.
+`ROUND(-Infinity)` = −1.0 × `Math.floor(Infinity)` = −1.0 × Infinity = **−Infinity**.
+Step 4: all four are refused with `PRV-2021` and
+`ROUND is supported with one argument and was given 2. ROUND to a number of decimal places is not
+built; round the value and scale it, or cast it.` — with the function name and the count matching
+what was written in each case. `ROUND(d, 0)` is refused too, even though a scale of zero is exactly
+what the one-argument form does; record that as a usability finding.
+
+---
+
+## 17. UPPER, LOWER, TRIM, SUBSTRING and `||` (TYPE-133 … TYPE-139)
+
+`TextFunction` uses `Locale.ROOT` deliberately — *"correct for text and wrong for an engine whose
+answer must not depend on which machine a lane happens to run on"*. `TRIM` strips **spaces only**,
+not whitespace. `Substring` counts **code points**, is 1-based, and defines a start below 1 as
+contributing nothing rather than being clamped. `Concat` is null-propagating and text-only.
+
+## TYPE-133 — UPPER and LOWER do not depend on the JVM's default locale
+**Intent:** the Turkish dotted/dotless `i` is the standard test, and it is the one that makes an
+engine's answer depend on which machine a lane runs on. `Locale.ROOT` must win over `user.language`.
+**Falsifier:** `UPPER('i')` returning `İ` (U+0130) under a Turkish default locale; `LOWER('I')`
+returning `ı` (U+0131); the same query giving different bytes on two machines.
+**Setup:** `loc.csv` — schema `id:INT64,s:STRING?` — with `1,i` / `2,I` / `3,istanbul` /
+`4,TITLE` / `5,ß` / `6,İ`.
+**Steps:** run `SELECT id, UPPER(s) AS u, LOWER(s) AS l FROM loc` **three times**:
+1. with the default locale
+2. with `JAVA_TOOL_OPTIONS="-Duser.language=tr -Duser.country=TR"`
+3. with `JAVA_TOOL_OPTIONS="-Duser.language=lt -Duser.country=LT"` (Lithuanian, which adds combining
+   dots in lowercasing)
+**Expected:** **all three runs produce byte-identical output.** The values:
+id 1 → `I` / `i`; id 2 → `I` / `i`; id 3 → `ISTANBUL` / `istanbul`; id 4 → `TITLE` / `title`;
+id 5 → see TYPE-134; id 6 (`İ`, U+0130) → `İ` / and its ROOT lowercase, which is **`i̇`** — U+0069
+followed by U+0307, **two code points from one**. Assert the byte length of that field is 3
+(`69 CC 87`), not 1.
+**Vacuity:** running once proves nothing about locale independence. The three runs, byte-compared
+against each other, are the case.
+
+## TYPE-134 — UPPER can make a string longer
+**Intent:** `String.toUpperCase` expands `ß` to `SS` and a few other characters similarly, so a
+function documented as "one string in, one string out" changes the length. That matters for a
+`VARCHAR(n)` column and for anything that pre-sizes a buffer.
+**Falsifier:** `UPPER('ß')` returning `ß` or `S`; a bounded `STRING(1)` output column silently
+truncating the result rather than refusing.
+**Setup:** `loc.csv` id 5, plus `1,ﬁ` (U+FB01, the fi ligature, which uppercases to `FI`) and
+`1,ŉ` (U+0149, which uppercases to two code points).
+**Steps:**
+1. `SELECT id, UPPER(s) AS u FROM loc` and compare byte lengths
+2. `SELECT id, LOWER(UPPER(s)) AS r FROM loc` — the round trip
+3. declare the output column as `u:STRING` and check nothing truncates; then, through the
+   programmatic path, as `Types.string(1)` and see whether the length bound is enforced at all
+**Expected:** id 5 → `SS`, **2 bytes from 1**. `ﬁ` → `FI`, 2 bytes from 3. `ŉ` → `ʼN`, 3 bytes from 2.
+Step 2: `LOWER(UPPER('ß'))` = `ss`, **not** `ß` — case conversion is not invertible, and asserting
+the round trip fails is the point.
+Step 3: `StringType.maxLength` is carried in the type but nothing in `BinaryRowWriter.setString`
+consults it, so a bounded column is expected to accept an over-long value silently. Record it: the
+bound is documentation, not a constraint.
+
+## TYPE-135 — TRIM strips spaces and only spaces
+**Intent:** *"SQL's default trim character is `' '`, not 'whitespace' — Java's `strip()` would also
+take tabs and newlines, which is a different function wearing the same name."* Verify the narrower
+behaviour, because the wider one looks more helpful and is wrong.
+**Falsifier:** a tab, newline, carriage return, form feed or non-breaking space being stripped;
+interior spaces being collapsed; a string of only spaces not becoming empty.
+**Setup:** `trm.csv` — schema `id:INT64,s:STRING?` — written so the whitespace is exact:
+id 1 `··a·b··` (· = space), id 2 `→a→` (→ = U+0009 tab), id 3 `\na\n` (real newlines are impossible
+in a line-delimited file — use the SDK for this row, or a delimiter other than `,` and a file with
+the row written via `setString`), id 4 `··` (two spaces only), id 5 `a`, id 6 NULL,
+id 7 ` a ` (non-breaking space).
+**Steps:** `SELECT id, TRIM(s) AS t FROM trm`, out-schema `id:INT64,t:STRING?`; compare byte lengths.
+**Expected:** id 1 → `a·b`, 3 bytes — leading and trailing spaces gone, the interior space kept.
+id 2 → `→a→` **unchanged**, 3 bytes — tabs are not spaces. id 3 → unchanged. id 4 → the **empty
+string**, 0 bytes, and `IS NULL` must be **false** for it. id 5 → `a`. id 6 → **NULL**. id 7 →
+unchanged, 5 bytes — U+00A0 is two UTF-8 bytes and is not U+0020.
+**Vacuity:** id 4 becoming a zero-length string rather than NULL is the anti-vacuity assertion;
+without an `IS NULL` check the two are indistinguishable in the output file.
+
+## TYPE-136 — TRIM's unsupported forms are refused by name
+**Intent:** `ExpressionCompiler.trim` checks the normalised three-operand form for `BOTH` and a space
+literal and refuses anything else — *"rather than silently given the default, which would return the
+input unchanged for anything that has no leading spaces, and look like it worked."*
+**Falsifier:** `TRIM(LEADING ' ' FROM s)` planning and behaving as `TRIM(BOTH …)`;
+`TRIM('x' FROM s)` planning and stripping spaces instead.
+**Setup:** `trm.csv`.
+**Steps:** `pravaha validate` on `TRIM(LEADING ' ' FROM s)`, `TRIM(TRAILING ' ' FROM s)`,
+`TRIM(BOTH 'x' FROM s)`, `TRIM('x' FROM s)`, `LTRIM(s)`, `RTRIM(s)`; and `TRIM(s)` and
+`TRIM(BOTH ' ' FROM s)` as the controls.
+**Expected:** the six unsupported forms are refused with `PRV-2021` and
+`'<expr>' is not supported: TRIM strips spaces from both ends, and LEADING, TRAILING and a trim
+character other than a space are not built.` — except `LTRIM`/`RTRIM`, which are not `TRIM` at all
+and will reach the general function refusal with the *"Supported: + - * / %, ABS, FLOOR, CEIL,
+ROUND, CASE WHEN, UPPER, LOWER, TRIM, SUBSTRING and ||"* list. Record which message each produces;
+the second list does not mention that `TRIM` is restricted to the `BOTH ' '` form, so a user reading
+it will write `TRIM(LEADING …)` next and be refused again by a different message.
+The two controls must plan and must produce TYPE-135's answers.
+
+## TYPE-137 — SUBSTRING is 1-based and counts code points, not chars
+**Intent:** *"Counting chars is the one-line version and it cuts a surrogate pair in half:
+`SUBSTRING(emoji FROM 1 FOR 1)` would return half of an emoji, which is not a string at all."*
+**Falsifier:** `SUBSTRING(s FROM 1 FOR 1)` over `👍ok` returning a 3-byte lone surrogate, a
+replacement character, or an empty string; `FROM 1` returning the second character (0-based).
+**Setup:** `text.csv` (id 6 is `👍ok`: three code points, five UTF-16 units, six UTF-8 bytes;
+id 5 is `straße`: six code points, seven UTF-8 bytes).
+**Steps:** `SELECT id, SUBSTRING(s FROM 1 FOR 1) AS a, SUBSTRING(s FROM 2 FOR 1) AS b,
+SUBSTRING(s FROM 2) AS c, SUBSTRING(s FROM 1 FOR 3) AS d FROM txt`, out-schema all `STRING?`;
+compare byte lengths.
+**Expected, by hand.**
+Id 6 (`👍ok`): `a` = **`👍`** (4 bytes) — position 1 is the whole emoji;
+`b` = **`o`**; `c` = **`ok`** (2 bytes); `d` = **`👍ok`** (6 bytes, all three code points).
+Id 5 (`straße`): `a` = `s`; `b` = `t`; `c` = `traße` (6 bytes — `ß` is 2); `d` = `str`.
+Id 1 (`hello world`): `a` = `h`; `b` = `e`; `c` = `ello world`; `d` = `hel`.
+Id 2 (`  padded  `): `a` = a single space (1 byte); `b` = a single space; `c` = ` padded  `;
+`d` = `  p`.
+Id 3 (NULL): all four **NULL** — `Substring.isNull` propagates from the source.
+**Vacuity:** the `a` column for id 6 is the whole case; asserting only its *length* (4 bytes) and not
+its bytes would pass on any 4-byte garbage, so compare the bytes `F0 9F 91 8D`.
+
+## TYPE-138 — SUBSTRING with a start below 1, a length past the end, and a negative length
+**Intent:** *"A start below 1 is not an error… `SUBSTRING(s FROM -1 FOR 4)` returns the first two
+characters: positions −1 and 0 contribute nothing. Clamping start to 1 instead — the
+obvious-looking fix — would return four characters and quietly disagree with every other database."*
+**Falsifier:** `FROM -1 FOR 4` returning four characters; `FROM 0 FOR 3` returning three; a length
+past the end throwing; a huge length overflowing into an empty result.
+**Setup:** `text.csv` id 1 (`hello world`, 11 code points) and id 6 (`👍ok`, 3 code points).
+**Steps:** for id 1, run each of:
+`FROM -1 FOR 4`, `FROM 0 FOR 3`, `FROM 0`, `FROM 1 FOR 0`, `FROM 1 FOR -2`, `FROM 5 FOR 100`,
+`FROM 12`, `FROM 12 FOR 5`, `FROM 1 FOR 9223372036854775807`, `FROM -9223372036854775808 FOR 3`.
+**Expected, with the arithmetic from `Substring.evaluateString` shown** (`total` = 11,
+`until = from + max(0, length)`, `first = max(1, from)`, `last = min(total+1, until)`, empty if
+`first >= last`):
+
+| form | from | until | first | last | result |
+|---|---|---|---|---|---|
+| `FROM -1 FOR 4` | −1 | 3 | 1 | 3 | **`he`** (2 chars) |
+| `FROM 0 FOR 3` | 0 | 3 | 1 | 3 | **`he`** (2 chars) |
+| `FROM 0` | 0 | 12 | 1 | 12 | **`hello world`** (11) |
+| `FROM 1 FOR 0` | 1 | 1 | 1 | 1 | **empty** |
+| `FROM 1 FOR -2` | 1 | 1 | 1 | 1 | **empty** (`max(0,-2)` = 0) |
+| `FROM 5 FOR 100` | 5 | 105 | 5 | 12 | **`o world`** (7) |
+| `FROM 12` | 12 | 12 | 12 | 12 | **empty** |
+| `FROM 12 FOR 5` | 12 | 17 | 12 | 12 | **empty** |
+| `FROM 1 FOR Long.MAX_VALUE` | 1 | overflow-safe in `long` | 1 | 12 | **`hello world`** |
+| `FROM Long.MIN_VALUE FOR 3` | MIN | MIN+3 | 1 | MIN+3 | **empty** (`first >= last`) |
+
+The `Long.MAX_VALUE` row is the overflow guard the source calls out — `until` is computed in `long`
+so a huge length cannot wrap negative and turn a valid query into an empty string. Assert the full
+string, not an empty one.
+Repeat `FROM -1 FOR 4` for id 6 (`👍ok`): from −1, until 3, first 1, last 3 → the first **two code
+points**, `👍o`, **5 bytes**. A char-counting implementation would return `👍` and half of nothing.
+**Vacuity:** four of the ten forms expect an empty string, which is what a wholly broken
+`SUBSTRING` also returns. The six non-empty expectations in the same run are what make them
+meaningful.
+
+## TYPE-139 — `||`: flattening, arity, NULL, and a non-text operand
+**Intent:** `Concat` requires at least two parts, all of type STRING, flattens nested chains, and is
+null if any part is. Each of those is a separate branch.
+**Falsifier:** `a || b || c` producing an intermediate string (observable as a different `EXPLAIN`
+shape, or as a different fingerprint for two spellings of the same query); a numeric operand
+silently stringified; NULL behaving as an empty string (covered in TYPE-086, restated here as the
+arity/type case).
+**Setup:** `text.csv`.
+**Steps:**
+1. `SELECT id, s || '-' || t AS c FROM txt` and `pravaha explain --level physical` on it
+2. `SELECT id, (s || '-') || t AS c FROM txt` — the explicitly nested spelling; compare the plans
+3. `SELECT id, CONCAT(s, '-', t) AS c FROM txt` — the function spelling Calcite rewrites
+4. `SELECT id, s || 1 AS c FROM txt` — a numeric operand
+5. `SELECT id, s || CAST(1 AS VARCHAR) AS c FROM txt` — the suggested rewrite
+6. `SELECT id, id || s AS c FROM txt` — a BIGINT column on the left
+**Expected:** 1, 2 and 3 produce the **identical column**: `hello world-HELLO`, `  padded  -x`,
+NULL, `a.com-z`, `straße-ß`, `👍ok-e`, `100%-%`, `axcom-q`. Their `EXPLAIN` output must render as a
+single `a || b || c`, not as a nested pair — `concat` flattens at compile time, and two spellings of
+the same query producing different plan text would give them different fingerprints and therefore
+separate computations, which is the sharing this engine exists to do.
+4 and 6 are refused. Record where: if Calcite inserts a `CAST(1 AS VARCHAR)` first, the refusal comes
+from `ExpressionCompiler.typeOf` as `PRV-2021` with `'…' has SQL type VARCHAR, which Pravaha cannot
+compute with yet` — a message about VARCHAR for a query about a number. If it reaches the `Concat`
+constructor instead, the refusal is a raw
+`IllegalArgumentException: || joins text, and one side produces INT64. Wrap it in CAST(… AS VARCHAR)
+if that is what you meant` — good advice with no code, and advice that **case 5 will show does not
+work**.
+5 must be refused for the same VARCHAR reason. That makes the constructor's suggested rewrite
+un-followable, which is the finding: *a refusal that recommends a construct the engine also refuses*.
+
+---
+
+## 18. LIKE and NOT LIKE (TYPE-140 … TYPE-144)
+
+`Predicate.Like` translates the SQL pattern to a regex once per query, quoting everything that is
+not `%` or `_`, and matches with `Pattern.matches` semantics (whole string) under `DOTALL`. There is
+no escape character, and `ESCAPE` is refused at compile time.
+
+## TYPE-140 — LIKE is anchored at both ends
+**Intent:** `matches()` requires the whole string, so `LIKE 'abc'` is equality and `LIKE 'a%'` is a
+prefix test. An implementation using `find()` would make every pattern a substring search — which
+returns more rows and looks like it works.
+**Falsifier:** `s LIKE 'ello'` matching `hello world`; `s LIKE 'a'` matching `a.com`.
+**Setup:** `text.csv`.
+**Steps:** `WHERE s LIKE 'a.com'`, `'a'`, `'a%'`, `'%com'`, `'%o%'`, `'ello'`, `'%'`, `''`.
+**Expected:** `'a.com'` → `4`. `'a'` → **0 rows**. `'a%'` → `4,8`. `'%com'` → `4,8`.
+`'%o%'` → **`1,4,6,8`**. The eight `s` values are `hello world`, `  padded  `, NULL, `a.com`,
+`straße`, `👍ok`, `100%`, `axcom`; those containing the letter `o` are ids 1, 4, 6 and 8.
+`'ello'` → **0 rows** — the anchoring assertion.
+`'%'` → `1,2,4,5,6,7,8` (seven; NULL excluded). `''` → **0 rows** — no string in the fixture is
+empty; add an SDK-written empty-string row and assert `LIKE ''` matches it and nothing else.
+**Vacuity:** `'ello'` and `'a'` returning zero while `'%o%'` returns four in the same run is what
+makes the zeros meaningful.
+
+## TYPE-141 — regex metacharacters in a pattern are literal
+**Intent:** *"a user writing `LIKE '%.com'` means a dot."* `toRegex` quotes every literal run with
+`Pattern.quote`, so `.`, `*`, `+`, `[`, `(`, `\`, `$`, `^`, `|` and `?` are characters.
+**Falsifier:** `LIKE '%.com'` matching `axcom`; `LIKE '100%'`'s `%` being taken literally (it is not
+— see TYPE-144); a pattern containing `\E` breaking the quoting and being interpreted as a regex.
+**Setup:** `text.csv`, plus rows `9,a+b,q` / `10,x|y,q` / `11,c\Ed,q` / `12,(z),q`.
+**Steps:** `WHERE s LIKE '%.com'`, `'a.c%'`, `'a+b'`, `'x|y'`, `'(z)'`, `'c\Ed'`, and the control
+`'a_com'`.
+**Expected:** `'%.com'` → **`4` only**. `axcom` (id 8) must **not** match: a regex `.` would match
+the `x`. That single exclusion is the case.
+`'a.c%'` → `4` only, for the same reason.
+`'a+b'` → `9`; `'x|y'` → `10`; `'(z)'` → `12` — each matching exactly its own row and nothing else,
+which a regex interpretation would not do (`a+b` would match `aab`, `x|y` would match any row
+containing `x` or `y`).
+`'c\Ed'` → `11`. This is the `Pattern.quote` boundary case: `quote` wraps the literal in `\Q…\E`,
+and a literal containing `\E` terminates the quoting early unless `quote` escapes it — it does, so
+the row must match and no exception may be thrown. A `PatternSyntaxException` at registration here is
+a finding.
+`'a_com'` → **`8`** (`axcom`) and **not** `4` — `_` matches exactly one character, and `a.com` has a
+`.` in that position so it matches too; recompute: `a_com` is `a` + any + `com`, which matches both
+`a.com` and `axcom` → **`4,8`**. That pair is the control proving `_` is still a wildcard while `.`
+is not.
+
+## TYPE-142 — `_` matches exactly one character, including a newline
+**Intent:** `DOTALL` is set *because* SQL's `_` matches any character and a regex `.` does not match
+a newline by default. Also: `_` counts UTF-16 code units, not code points, so it will cut an
+astral character in half — establish which.
+**Falsifier:** `_` matching zero or two characters; `_` failing to match a newline; a pattern of
+three `_` matching `👍ok` (three code points but **four** UTF-16 units).
+**Setup:** `text.csv` plus an SDK-written row `13` whose `s` is `a\nb` (a real newline).
+**Steps:** `WHERE s LIKE 'a_b'` against row 13; `WHERE s LIKE '___'` (three underscores);
+`WHERE s LIKE '____'` (four); `WHERE s LIKE '_ok'`; `WHERE s LIKE '__ok'`;
+`WHERE s LIKE 'stra_e'`.
+**Expected:** `'a_b'` → row **13**; the newline is matched, which requires `DOTALL`.
+`'___'` matches strings of exactly three UTF-16 units: none of the fixture's values are three units
+(`hello world` 11, `  padded  ` 10, `a.com` 5, `straße` 6, `👍ok` **4**, `100%` 4, `axcom` 5,
+`a+b` 3, `x|y` 3, `c\Ed` 4, `(z)` 3, `a\nb` 3) → **`9,10,12,13`**.
+`'____'` → **`6,7,11`** — `👍ok` is four UTF-16 units, so it matches here and **not** under `'___'`.
+That is the finding: `SUBSTRING` counts code points (TYPE-137) and `LIKE`'s `_` counts UTF-16 units,
+so the two functions disagree about the length of the same string. Record it.
+`'_ok'` → **0 rows** (`👍ok` needs two units for the emoji); `'__ok'` → **`6`**.
+`'stra_e'` → **`5`** — `ß` is one UTF-16 unit.
+**Vacuity:** the `'___'` / `'____'` pair differing by exactly id 6 is the assertion; either query
+alone would be uninformative.
+
+## TYPE-143 — NULL is dropped by LIKE and by NOT LIKE
+**Intent:** restated from TYPE-085 as a LIKE-section case, with the additional check that
+`NOT LIKE` compiles to the `negated` flag rather than to a wrapping `NOT`.
+**Falsifier:** the NULL row appearing under `NOT LIKE`; `NOT (s LIKE p)` and `s NOT LIKE p` returning
+different sets.
+**Setup:** `text.csv`; `s` is NULL at id 3.
+**Steps:** `WHERE s LIKE 'a%'`; `WHERE s NOT LIKE 'a%'`; `WHERE NOT (s LIKE 'a%')`;
+`WHERE s NOT LIKE 'a%' OR s IS NULL`; `pravaha explain --level physical` on the second and third.
+**Expected:** `LIKE 'a%'` → `4,8`. Both `NOT` spellings → the **same five rows** `1,2,5,6,7`.
+2 + 5 = 7 = 8 − 1. The fourth query → `1,2,3,5,6,7` — six rows, which is how the NULL row is
+recovered when that is what the author wanted.
+The two `EXPLAIN` outputs must be **identical**, rendering as `s NOT LIKE 'a%'` — a single
+`Like` node with `negated = true`, not a `Not` wrapping a `Like`. Different plan text would mean
+different fingerprints for the same query and separate computations for one question.
+
+## TYPE-144 — ESCAPE is refused, and a literal `%` is therefore unmatchable
+**Intent:** the honest consequence of having no escape character, stated in the source: *"Without
+ESCAPE, `%` and `_` are always wildcards and there is no way to match them literally."* The case
+proves both halves — the refusal, and the gap it leaves.
+**Falsifier:** `ESCAPE` planning; the refusal message not mentioning why; a pattern with a literal
+`%` silently matching only the literal (which would mean an undocumented escape exists).
+**Setup:** `text.csv` id 7 is `100%`; add `14,100,q` and `15,1000,q`.
+**Steps:**
+1. `pravaha validate` on `WHERE s LIKE '100\%' ESCAPE '\'`
+2. `WHERE s LIKE '100%'`
+3. `WHERE s LIKE '%\%%'` — trying to find rows containing a percent sign
+4. `WHERE s = '100%'` — the workaround
+5. `pravaha validate` on `WHERE s LIKE t` (a pattern that is not a literal)
+6. `pravaha validate` on `WHERE UPPER(s) LIKE 'A%'` (a left side that is not a column)
+**Expected:** 1 is refused with `PRV-2021` and `'<expr>' uses LIKE with an ESCAPE clause, which is
+not built. Without ESCAPE, % and _ are always wildcards and there is no way to match them
+literally.`
+2 → **`7,14,15`** — `100%` is `100` followed by anything, so it matches `100`, `1000` **and**
+`100%`. The row the author wanted is one of three, and there is no pattern that selects it alone.
+3 → the `\` is a literal backslash and `%` are wildcards, so the pattern is `anything + \ + anything`
+→ **0 rows** (no value contains a backslash except `c\Ed`, id 11, which **does** → **`11`**). Record
+the actual result; either way it is not "the rows containing a percent sign".
+4 → **`7`** only. That is the workaround, and it only works for an exact match.
+5 is refused with `'<expr>' uses a pattern that is not a literal. The pattern is compiled once when
+the query is registered; one that varies per row would be compiled per row.`
+6 is refused with `'<expr>' matches something other than a column. LIKE is supported as column LIKE
+'pattern'.`
+All three refusals are honest and each names its own reason; assert the text of each, since they come
+from three different branches of `PredicateCompiler.like`.
+
+---
+
+## 19. CAST (TYPE-145 … TYPE-150)
+
+`ExpressionCompiler.cast` accepts a conversion only when **both** the source and the target are in
+`isNumeric` — `INT8 INT16 INT32 INT64 FLOAT32 FLOAT64`. `BOOLEAN`, `STRING`, `BYTES`, `DATE`,
+`TIME`, `TIMESTAMP_LTZ`, `DECIMAL` and the nested types are all refused, in either direction.
+Narrowing truncates towards zero. `Cast.describe` is deliberately invisible in `EXPLAIN`.
+
+## TYPE-145 — CAST between the six numeric types: the thirty ordered pairs
+**Intent:** the full numeric cast matrix. Six sources × five targets is thirty conversions, plus six
+identity casts that `cast` short-circuits (`source.type() == target ? source : new Cast(...)`).
+**Falsifier:** any pair refused; any identity cast producing a `Cast` node (visible as a change in
+`EXPLAIN` or in the fingerprint); a widening conversion losing a value.
+**Setup:** `cast.csv` — schema
+`id:INT64,i8:INT8?,i16:INT16?,i32:INT32?,i64:INT64?,f32:FLOAT32?,f64:FLOAT64?` — with
+`1,100,100,100,100,100.0,100.0` / `2,-100,-100,-100,-100,-100.0,-100.0` /
+`3,0,0,0,0,0.0,0.0` / `4,,,,,,` (all NULL).
+**Steps:** for each of the six source columns, project
+`CAST(<col> AS TINYINT)`, `SMALLINT`, `INTEGER`, `BIGINT`, `REAL`, `DOUBLE` — thirty-six
+projections in all, sixteen of which can be batched into six queries of six columns each.
+Then `pravaha explain --level physical` on `SELECT CAST(i64 AS BIGINT) FROM cst`.
+**Expected:** all thirty-six plan. Row 1 gives **100** (or `100.0` for the float targets) from every
+source; row 2 gives **−100** / `−100.0`; row 3 gives **0** / `0.0`; row 4 gives **NULL** from all
+thirty-six — `Cast.isNull` delegates to the source.
+The magnitudes are chosen to fit every target, so any value other than ±100 or 0 identifies the
+failing pair precisely.
+The `EXPLAIN` of the identity cast must render as `i64` alone, with no `CAST` — proving the
+short-circuit fired. If a `Cast` node appears, `CAST(x AS BIGINT)` and `x` have different plan text
+and therefore different fingerprints, and the same question registered two ways gets two
+computations.
+**Vacuity:** thirty-six results asserted individually. A single "casts work" assertion on one pair
+would leave thirty-five untested, which is exactly the failure the authoring contract names.
+
+## TYPE-146 — narrowing a float to an integer truncates towards zero
+**Intent:** `Cast.evaluateLong` does `(long) source.evaluateDouble(row)` — a Java narrowing cast,
+which truncates rather than rounds, and truncates towards zero rather than towards negative
+infinity. Three different wrong answers are plausible here and only one is right.
+**Falsifier:** `CAST(-3.9 AS BIGINT)` returning −4 (floor) or −3.9 rounded to −4 (round-half);
+`CAST(3.9 AS BIGINT)` returning 4.
+**Setup:** `trunc.csv` — schema `id:INT64,f:FLOAT64?` — with
+`1,3.9` / `2,-3.9` / `3,3.5` / `4,-3.5` / `5,0.9` / `6,-0.9` / `7,-0.0` / `8,NaN`.
+**Steps:** `SELECT id, CAST(f AS BIGINT) AS c FROM trunc` with an INT64 out-schema; then
+`SELECT id, CAST(f AS INTEGER) AS c FROM trunc`; then `SELECT id, FLOOR(f), ROUND(f) FROM trunc` for
+the contrast.
+**Expected:** `CAST(f AS BIGINT)`: id 1 → **3**; id 2 → **−3**; id 3 → **3**; id 4 → **−3**;
+id 5 → **0**; id 6 → **0**; id 7 → **0**; id 8 → **0** (`(long) NaN` is 0 in Java — a silent and
+very surprising conversion; assert it and record it as a hazard).
+Contrast in the same run: `FLOOR(f)` gives 3.0, **−4.0**, 3.0, −4.0, 0.0, **−1.0**, −0.0, NaN;
+`ROUND(f)` gives 4.0, −4.0, 4.0, −4.0, 1.0, −1.0, −0.0, NaN. Three functions, three different
+answers for id 2 (−3, −4, −4) and for id 6 (0, −1, −1). That table is the case.
+**Vacuity:** ids 2 and 6 discriminate truncation from flooring; ids 1 and 3 discriminate truncation
+from rounding. All four in one run.
+
+## TYPE-147 — CAST from a float too large for the target saturates silently
+**Intent:** Java's `(long)` narrowing of an out-of-range double **clamps** to `Long.MAX_VALUE` /
+`Long.MIN_VALUE` rather than wrapping or throwing. A price of 1e300 becomes 9223372036854775807,
+which is a number somebody will then add up.
+**Falsifier:** the cast throwing (the honest behaviour — record it as fixed); the cast wrapping to an
+arbitrary value; `CAST(NaN AS BIGINT)` returning anything but 0.
+**Setup:** `sat.csv` — schema `id:INT64,f:FLOAT64?` — with
+`1,1.0E300` / `2,-1.0E300` / `3,Infinity` / `4,-Infinity` / `5,NaN` / `6,9.3E18` /
+`7,1.0E10`.
+**Steps:** `SELECT id, CAST(f AS BIGINT) AS c FROM sat`; then `CAST(f AS INTEGER)`;
+then `CAST(f AS TINYINT)`.
+**Expected:** `AS BIGINT`: id 1 → **9223372036854775807**; id 2 → **−9223372036854775808**;
+id 3 → **9223372036854775807**; id 4 → **−9223372036854775808**; id 5 → **0**; id 6 → 9.3e18 is above
+`Long.MAX_VALUE` (9.223e18) → **9223372036854775807**; id 7 → **10000000000**, correct.
+Exit 0 throughout — every one of those is a silently wrong answer under a success status, and id 7
+proves the mechanism works for in-range values.
+`AS INTEGER` then applies `writeComputed`'s `(int)` on top: `(int) 9223372036854775807L` is
+**−1**, so id 1 becomes **−1** and id 2 becomes **0**. Two narrowings in series, each silent.
+`AS TINYINT`: `(byte)` of the clamped long — id 1 → **−1**, id 2 → **0**.
+**Vacuity:** id 7's correct 10000000000 in the same run rules out a wholesale failure.
+
+## TYPE-148 — CAST from a wide integer to a narrow one wraps
+**Intent:** the integer half of TYPE-147. `Cast.evaluateLong` returns the source's long unchanged for
+an integer source — the **narrowing happens only in `writeComputed`**, as a plain Java cast. So the
+cast node itself is a no-op and the loss occurs at the write, which is why it cannot be detected by
+inspecting the expression.
+**Falsifier:** the cast throwing; the value surviving (which would mean the output column was wider
+than declared).
+**Setup:** `cast.csv` extended with `5,0,0,0,4294967296,0.0,0.0` and
+`6,0,0,0,257,0.0,0.0` and `7,0,0,0,65537,0.0,0.0`.
+**Steps:** `SELECT id, CAST(i64 AS INTEGER) AS c FROM cst` (out-schema INT32);
+`CAST(i64 AS SMALLINT)` (INT16); `CAST(i64 AS TINYINT)` (INT8).
+**Expected:** row 5 (`i64` = 4294967296 = 2³²): `AS INTEGER` → `(int) 4294967296L` = **0**;
+`AS SMALLINT` → `(short)` of it = **0**; `AS TINYINT` → **0**.
+Row 6 (`i64` = 257): `AS INTEGER` → 257; `AS SMALLINT` → 257; `AS TINYINT` → `(byte) 257` = **1**.
+Row 7 (`i64` = 65537 = 2¹⁶+1): `AS INTEGER` → 65537; `AS SMALLINT` → `(short) 65537` = **1**;
+`AS TINYINT` → `(byte) 65537` = **1**.
+Rows 1–3 (±100, 0) survive every narrowing unchanged, which is the control.
+Exit 0 throughout. Every wrapped value is a silently wrong answer; record the three.
+
+## TYPE-149 — CAST to or from a non-numeric type is refused, by name
+**Intent:** `isNumeric` excludes `BOOLEAN`, `STRING`, `BYTES`, `DATE`, `TIME`, `TIMESTAMP_LTZ`,
+`DECIMAL` and the nested types. Several of those are casts every other SQL engine performs, and the
+refusal is the engine's honest position — but it has to *be* a refusal, with a code, naming both
+types.
+**Falsifier:** any of them planning; a refusal that is a `ClassCastException` or an
+`IllegalArgumentException` rather than `PRV-2021`; a refusal that names neither type.
+**Setup:** `types.csv`.
+**Steps:** `pravaha validate` on each of:
+1. `CAST(s AS BIGINT)` — text to number
+2. `CAST(i64 AS VARCHAR)` — number to text
+3. `CAST(b AS INTEGER)` — boolean to number
+4. `CAST(i64 AS BOOLEAN)`
+5. `CAST(ts AS BIGINT)` — timestamp to epoch nanoseconds
+6. `CAST(i64 AS TIMESTAMP)` — epoch nanoseconds to timestamp
+7. `CAST(i64 AS DECIMAL(20,2))`
+8. `CAST(bin AS VARCHAR)`
+9. `CAST(s AS VARCHAR)` — the identity, which the short-circuit should accept
+**Expected:** 1, 3, 4 and 8 are refused with `PRV-2021` and
+`'<expr>' converts between <SOURCE> and <TARGET>; Pravaha evaluates numeric conversions only`, with
+both type names present. 2, 6 and 8 may instead be refused earlier by `typeOf`, as
+`'<expr>' has SQL type VARCHAR, which Pravaha cannot compute with yet` — record which branch each
+takes, because only the first message explains the policy.
+5 is refused: `TIMESTAMP_LTZ` is not numeric, so **there is no supported way to get an instant out
+of the engine as a number**. That is worth recording on its own: a user who wants epoch nanoseconds
+has no expression that produces them.
+7 is refused with the DECIMAL sentence from `refuseDecimalType`, which speaks of "DECIMAL
+arithmetic" for what is a pure conversion — an inaccurate message for a correct refusal.
+9 should be accepted by the `source.type() == target` short-circuit and return `s` unchanged; if it
+is refused, the short-circuit is not reached for text and an identity cast is an error.
+**Vacuity:** case 9 succeeding is what proves the refusals are about the type pair and not about
+`CAST` being unsupported wholesale.
+
+## TYPE-150 — `SUM(CAST(price AS BIGINT))`: the workaround the refusal recommends
+**Intent:** TYPE-037 and TYPE-038 refuse floating-point aggregates and tell the user to write
+`SUM(CAST(price AS BIGINT))`. A refusal whose suggested rewrite does not work is worse than no
+suggestion. This is the case that closes the loop, and it is the last one because it depends on
+almost everything above it.
+**Falsifier:** the rewrite being refused; the rewrite planning and dying at run time the way
+TYPE-034 does; the rewrite producing a number that is not the hand-computed truncated sum.
+**Setup:** `price.csv` — schema `id:INT64,u:STRING,price:FLOAT64?,pf:FLOAT32?` — with
+```
+1,u1,10.5,10.5
+2,u1,20.4,20.4
+3,u2,-3.7,-3.7
+4,u2,,
+5,u1,0.5,0.5
+```
+**Steps:**
+1. `SELECT SUM(price) FROM price` — the refusal, to capture the advice
+2. `SELECT SUM(CAST(price AS BIGINT)) FROM price` with `--out-schema "v:INT64?"`
+3. `SELECT MIN(CAST(price AS BIGINT)), MAX(CAST(price AS BIGINT)), AVG(CAST(price AS BIGINT))
+   FROM price`
+4. `SELECT SUM(CAST(pf AS BIGINT)) FROM price` — the FLOAT32 source
+5. `SELECT COUNT(CAST(price AS BIGINT)) FROM price`
+6. `SELECT u, SUM(CAST(price AS BIGINT)) FROM price GROUP BY u` over a **view**, to check the keyed
+   path too
+7. `pravaha explain --level physical` on step 2 — is there a `ComputeOperator` below the aggregate?
+**Expected:** step 1 is refused with the message quoted in TYPE-038.
+Step 2 must **succeed**. Hand-computed: `CAST` truncates towards zero, so the values become
+10.5 → **10**, 20.4 → **20**, −3.7 → **−3**, NULL → NULL, 0.5 → **0**.
+Sum = 10 + 20 + (−3) + 0 = **27**. Note what the rewrite costs: the true sum of the prices is
+10.5 + 20.4 − 3.7 + 0.5 = **27.7**, so the advice loses 0.7 — and the refusal's own wording
+("if the rounding is acceptable") says so. Assert **27**, and record 27.7 beside it so the size of
+the compromise is on the record.
+Step 3: `MIN` = **−3**, `MAX` = **20**, `AVG` = 27 / 4 = **6** (truncating) or **6.75** if the
+average is computed in a wider type — record which, and which divisor was used.
+Step 4 must succeed with the same **27**.
+Step 5 = **4**.
+Step 6 must give `u1` → 10 + 20 + 0 = **30**, `u2` → **−3**; 30 + (−3) = 27, matching step 2, which
+is the cross-check between the global and keyed paths.
+Step 7 must show a `ComputeOperator` feeding the aggregate, with the aggregate's argument column
+typed `BIGINT`. That is *why* the rewrite works — `refuseFloatingPointAggregate` inspects the
+aggregate's **input schema**, which is the compute stage's output, not the original column.
+**Vacuity:** step 6's two group totals summing to step 2's global total is the anti-vacuity device:
+two independently computed numbers that a broken accumulator cannot make agree by accident.
