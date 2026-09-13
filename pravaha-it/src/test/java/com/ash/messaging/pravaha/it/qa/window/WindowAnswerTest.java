@@ -640,11 +640,6 @@ class WindowAnswerTest {
     // ================================================================== 9. volume
 
     @Test
-    @Disabled("PRV-WIN defect 3 (blocker): windowed aggregation over volume returns non-deterministic "
-            + "wrong answers. At 100,000 rows the view holds 996-1001 rows where 1,000 exist, SUM(n) "
-            + "comes back as 3,525,325,093,794 against a true 99,999, and a single-key run makes "
-            + "ViewQuery throw 'field 0 (window_start) is NOT NULL and cannot be set null'. Reproduces "
-            + "from 10,000 rows upward, differently on each run, with the query reporting RUNNING.")
     void win121_aHundredThousandRowsIntoTenWindowsOverAHundredKeys(@TempDir Path dir) throws Exception {
         // WIN-121, dataset V(100000, 100). This is the one case in this file that runs at real
         // volume; WIN-119, 120, 122-126 and 131-136 are the same arithmetic at other N and K and

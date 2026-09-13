@@ -632,9 +632,39 @@ public final class QueryExecution implements AutoCloseable {
         return lanes.laneCount();
     }
 
-    /** Advances event time on every lane, firing any window that has completed. */
+    /** How long a watermark advance waits for the lanes to apply it before giving up on this tick. */
+    private static final Duration WATERMARK_ADVANCE_TIMEOUT = Duration.ofSeconds(10);
+
+    /**
+     * Advances event time on every lane, firing any window that has completed.
+     *
+     * <p>Submitted to each lane rather than run here, because firing a window allocates the result
+     * row in that lane's arena and pushes it downstream -- both of which belong to the thread that
+     * owns them. This ran on the watermark clock's own thread, which was a latent violation for as
+     * long as nothing else touched the arena concurrently.
+     *
+     * <p>Then something did: reclaiming the pipeline arena at each batch boundary put the lane
+     * thread on the same memory, and the two together corrupted results rather than merely racing.
+     * A windowed SUM over 100,000 rows returned 3,525,325,093,794 against a true 99,999, the view
+     * held 996 to 1,001 rows where 1,000 existed, and it differed run to run -- from about ten
+     * thousand rows upward, with the query reporting RUNNING throughout.
+     *
+     * <p>Restoring a checkpoint already went through the lane for exactly this reason. This now does
+     * too, which is the fix for both.
+     */
     public void advanceWatermark(long watermarkNanos) {
-        pipelines.forEach(pipeline -> pipeline.advanceWatermark(watermarkNanos));
+        long[] tickets = new long[pipelines.size()];
+        for (int index = 0; index < pipelines.size(); index++) {
+            InterpretedPipeline pipeline = pipelines.get(index);
+            tickets[index] = lanes.lane(index).submitControlTask(() -> pipeline.advanceWatermark(watermarkNanos));
+        }
+        // Waited for, not fired and forgotten. Moving this onto the lane made it asynchronous, and a
+        // caller that advances event time and then reads the result is entitled to see the windows
+        // that advance closed -- two subscription tests said so immediately. Restoring a checkpoint
+        // waits on its ticket for the same reason.
+        for (int index = 0; index < tickets.length; index++) {
+            lanes.lane(index).awaitControlTask(tickets[index], WATERMARK_ADVANCE_TIMEOUT);
+        }
     }
 
     /**
