@@ -4,8 +4,13 @@ The detailed cases live in `cases/<AREA>.md`, one file per area. This is the ind
 owns, the ID range it uses, the dimensions it must enumerate exhaustively, and the case budget it is
 held to. **Nothing is executed until every area's file exists and is reviewed.**
 
-"CQL" throughout means **continuous query** — register, window, watermark, view — not a separate
-language. There is no separate query dialect in this codebase.
+"CQL" throughout means **continuous query** — register, window, watermark, and the **streaming
+result** it delivers — not a separate language. There is no separate query dialect in this codebase.
+
+**A continuous query is judged by what it streams out, not only by what a view holds.** Round 1
+tested the view-read path heavily (`pravaha query`) and the subscription path barely, which is the
+wrong way round: a materialised view answered on demand is the convenience, and the continuous
+stream of changes is the product. Area `STRM` exists for that and is budgeted accordingly.
 
 ## Authoring contract — every case, without exception
 
@@ -37,6 +42,7 @@ Three rules that come from round 1's failures:
 | `TYPE` | 001–150 | 16 types × 11 positions; literals of every type; narrow integers; overflow; null; boundary values; wire serialisation | 150 |
 | `AGG` | 001–110 | 5 aggregate kinds × types × {global, keyed, windowed} × {null, empty, single row, retraction}; COUNT(*) vs COUNT(col) vs COUNT(DISTINCT) across all three operators | 110 |
 | `JOIN` | 001–060 | Inner, lookup `FOR SYSTEM_TIME AS OF`, multi-key, no match, all match, empty sides, late side, lane routing, eviction, refusals | 60 |
+| `STRM` | 001–120 | **Streaming results** — the continuous delivery path, which is what a continuous query is *for*. `pravaha subscribe`, Flight `getStream` on a subscription ticket, `ViewChangeListener`. Every change delivered as it happens: insert, update (retract+insert), retraction, net-zero. Ordering, duplicates, gaps. Slow subscriber, disconnect mid-stream, reconnect, many subscribers on one query, subscriber during pause / drop / restart. Backpressure toward the subscriber. End-to-end latency from row arrival to delivery. Row filters honoured on the stream, not only on the read | 120 |
 | `LIFE` | 001–130 | Continuous query lifecycle: register, pause, resume, drop, re-register, sharing by fingerprint, subscriptions, the 4 read-consistency modes, restart at each point | 130 |
 | `INCR` | 001–070 | Z-set correctness: insert, retract, update, net-zero, out-of-order retraction, retraction of an absent key — per operator. A continuous result must equal a batch recomputation | 70 |
 | `SQLX` | 001–190 | The 77 documented constructs × happy / boundary / null / refusal; hostile and malformed SQL; reserved words; unicode; very large queries | 190 |
@@ -49,7 +55,7 @@ Three rules that come from round 1's failures:
 | `AERO` | 001–045 | Aerospike source/sink/lookup, 4 strategies, pushdown equivalence, exactly-once claims, state tier | 45 |
 | `SECX` | 001–095 | Policy × auth × TLS × row filters × every verb on both transports; lineage; ownership; disclosure through error messages | 95 |
 | `DOCX` | 001–060 | Every documented instruction executed literally; config keys audited both directions; onboarding walked | 60 |
-| | | **Total** | **~1,684** |
+| | | **Total** | **~1,804** |
 
 Existing files (`INGEST`, `SEC`, `DEPLOY`, `SQL`, `DOC`, `CQ`) are round 1's and stay as the record
 of what was true then. The areas above supersede them for coverage purposes.
