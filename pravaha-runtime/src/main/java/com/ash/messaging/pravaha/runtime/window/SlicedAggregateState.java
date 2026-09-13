@@ -86,6 +86,15 @@ public final class SlicedAggregateState {
     public enum Kind {
         COUNT,
         /**
+         * {@code AVG(x)}: the sum and the count of non-null values, divided when the window fires.
+         *
+         * <p>It did not exist. {@code WindowedAggregate} mapped AVG onto {@link #SUM}, and nothing
+         * divided anywhere -- so a windowed AVG returned the SUM, and only a group with more than
+         * one row could reveal it. The keyed and global paths both divide, so the same query
+         * answered differently over a window than over a view.
+         */
+        AVG,
+        /**
          * {@code COUNT(DISTINCT x)}: one entry per distinct value per group per slice.
          *
          * <p>Counted rather than flagged, because a retraction has to be able to remove a value --
@@ -112,6 +121,14 @@ public final class SlicedAggregateState {
 
     private static final class Accumulator {
         final long[] values;
+        /**
+         * Per column, how many non-null values have been accumulated.
+         *
+         * <p>Needed twice over. {@code COUNT(col)} counts non-null values and was counting rows,
+         * and {@code AVG} must divide by the non-null count rather than the row count -- and the
+         * caller flattens a null to 0 before this class ever sees it, so the value cannot say.
+         */
+        final long[] nonNull;
         /** Per distinct-column, how many times each value is currently present. Null unless needed. */
         Map<Long, Long>[] distinct;
 
@@ -121,6 +138,7 @@ public final class SlicedAggregateState {
         @SuppressWarnings("unchecked")
         Accumulator(int columns, boolean[] needsDistinct) {
             this.values = new long[columns];
+            this.nonNull = new long[columns];
             for (int i = 0; i < columns; i++) {
                 if (needsDistinct[i]) {
                     if (distinct == null) {
@@ -163,7 +181,27 @@ public final class SlicedAggregateState {
      * @param values one per aggregate column; ignored for {@code COUNT}
      * @param weight the Z-set weight: {@code +1} for an insert, {@code -1} for a retraction
      */
+    /**
+     * Updates with every value treated as present.
+     *
+     * <p>For a caller that has no nulls to report. The distinction matters only to {@code
+     * COUNT(col)} and {@code AVG}, both of which must ignore nulls and cannot tell from the value --
+     * a null is flattened to 0 before it arrives here.
+     */
     public void update(long keyHigh, long keyLow, Object[] keyValues, long eventTimeNanos, long[] values, long weight) {
+        boolean[] present = new boolean[values.length];
+        java.util.Arrays.fill(present, true);
+        update(keyHigh, keyLow, keyValues, eventTimeNanos, values, present, weight);
+    }
+
+    public void update(
+            long keyHigh,
+            long keyLow,
+            Object[] keyValues,
+            long eventTimeNanos,
+            long[] values,
+            boolean[] present,
+            long weight) {
         if (weight == 0) {
             // A consolidated row contributes nothing and must not be counted. Skipping it here also
             // stops it creating an accumulator, which would otherwise be state held for no data.
@@ -192,7 +230,14 @@ public final class SlicedAggregateState {
         accumulator.count += weight;
         for (int i = 0; i < kinds.length; i++) {
             switch (kinds[i]) {
-                case COUNT -> accumulator.values[i] += weight;
+                case COUNT -> {
+                    // COUNT(*) has no argument and counts rows; COUNT(col) counts non-null values.
+                    // This counted rows either way, so a windowed COUNT(col) contradicted the SUM
+                    // beside it in its own output row.
+                    if (present[i]) {
+                        accumulator.values[i] += weight;
+                    }
+                }
                 case COUNT_DISTINCT -> {
                     // Counted, not flagged. A value seen three times and retracted once is still
                     // present, and a set would have said it had gone.
@@ -204,6 +249,12 @@ public final class SlicedAggregateState {
                     accumulator.values[i] = seen.size();
                 }
                 case SUM -> accumulator.values[i] += values[i] * weight;
+                case AVG -> {
+                    if (present[i]) {
+                        accumulator.values[i] += values[i] * weight;
+                        accumulator.nonNull[i] += weight;
+                    }
+                }
                 case MIN, MAX -> {
                     if (weight < 0) {
                         throw new PravahaException(
@@ -255,13 +306,22 @@ public final class SlicedAggregateState {
             if (accumulator.count != 0) {
                 // A key whose weights cancel to zero within the window has no rows in it. Emitting a
                 // result for it would report an empty group as a present one.
+                long[] emitted = accumulator.values.clone();
+                for (int i = 0; i < kinds.length; i++) {
+                    if (kinds[i] == Kind.AVG) {
+                        // Integer division, matching what the keyed and global paths do over an
+                        // integer column. Dividing here rather than at the writer keeps every
+                        // reader of a WindowResult seeing the answer rather than an intermediate.
+                        emitted[i] = accumulator.nonNull[i] == 0 ? 0 : accumulator.values[i] / accumulator.nonNull[i];
+                    }
+                }
                 results.add(new WindowResult(
                         groupKey.keyHigh(),
                         groupKey.keyLow(),
                         accumulator.keyValues,
                         windowStart,
                         windowEndNanos,
-                        accumulator.values.clone(),
+                        emitted,
                         accumulator.count));
             }
         });
@@ -280,6 +340,10 @@ public final class SlicedAggregateState {
         for (int i = 0; i < kinds.length; i++) {
             switch (kinds[i]) {
                 case COUNT, SUM -> target.values[i] += source.values[i];
+                case AVG -> {
+                    target.values[i] += source.values[i];
+                    target.nonNull[i] += source.nonNull[i];
+                }
                 case COUNT_DISTINCT -> {
                     // Distinct counts do not add across slices: a value in two slices is one distinct
                     // value in the window, not two. The per-value counts have to be merged and the

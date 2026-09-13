@@ -68,6 +68,7 @@ final class WindowedAggregate implements RowProcessor {
     private final BinaryRowWriter writer;
     private final BinaryRowView view;
     private final long[] scratch;
+    private final boolean[] present;
     private final List<Integer> valueOrdinals;
     private final List<com.ash.messaging.pravaha.api.data.TypeName> groupTypes;
     /** Group keys other than the window boundaries: the actual data keys. */
@@ -105,13 +106,15 @@ final class WindowedAggregate implements RowProcessor {
             kinds[i] = switch (operator.aggregates().get(i).kind()) {
                 case COUNT -> SlicedAggregateState.Kind.COUNT;
                 case COUNT_DISTINCT -> SlicedAggregateState.Kind.COUNT_DISTINCT;
-                case SUM, AVG -> SlicedAggregateState.Kind.SUM;
+                case SUM -> SlicedAggregateState.Kind.SUM;
+                case AVG -> SlicedAggregateState.Kind.AVG;
                 case MIN -> SlicedAggregateState.Kind.MIN;
                 case MAX -> SlicedAggregateState.Kind.MAX;
             };
         }
         this.state = new SlicedAggregateState(windows, kinds, operator.maxSlices());
         this.scratch = new long[kinds.length];
+        this.present = new boolean[kinds.length];
         // The window boundaries are group keys in SQL and must NOT be part of the accumulator's key
         // here. The slice dimension already separates windows; including the boundaries as well
         // gives each slice of a window its own accumulator and they never combine -- which is
@@ -157,7 +160,12 @@ final class WindowedAggregate implements RowProcessor {
         long keyLow = compositeKey(row, 0xC2B2AE3D27D4EB4FL);
         for (int i = 0; i < scratch.length; i++) {
             int ordinal = valueOrdinals.get(i);
-            scratch[i] = ordinal < 0 || row.isNull(ordinal) ? 0 : row.getLong(ordinal);
+            // A null flattens to 0 for the arithmetic, and `present` remembers that it was a null.
+            // Without that memory COUNT(col) counts rows and AVG divides by the wrong number, and
+            // neither can tell a genuine zero from an absent value.
+            boolean known = ordinal < 0 || !row.isNull(ordinal);
+            present[i] = known;
+            scratch[i] = known && ordinal >= 0 ? row.getLong(ordinal) : 0;
         }
         // The key's values travel with the accumulator: the result row has to contain them, and a
         // hash can say that a group counted seven without saying which group.
@@ -168,7 +176,7 @@ final class WindowedAggregate implements RowProcessor {
         }
         // The window start is the event time as far as slicing is concerned: the assigner has
         // already placed the row, and using it here keeps the two from disagreeing about a boundary.
-        state.update(keyHigh, keyLow, keyValues, windowStart, scratch, row.weight());
+        state.update(keyHigh, keyLow, keyValues, windowStart, scratch, present, row.weight());
         highestEventTime = Math.max(highestEventTime, row.eventTimestampNanos());
         earliestWindowStart = Math.min(earliestWindowStart, windowStart);
 

@@ -144,6 +144,13 @@ class SqlSupportMatrixTest {
                     "small",
                     "big"),
             Case.answers("text functions", "SELECT UPPER(user_id) || '!' FROM txn WHERE amount = 250", "BOB!"),
+            // status is null for t4, so COUNT(*) is 4 and COUNT(status) is 3. These disagreed in two
+            // of the three aggregate operators, each emitting a row that contradicted its own SUM.
+            Case.answers("COUNT(*) counts rows", "SELECT COUNT(*) FROM txn", "4"),
+            Case.answers("COUNT(col) skips nulls", "SELECT COUNT(status) FROM txn", "3"),
+            // 100 + 250 + 50 + 400 = 800, and 800 / 4 = 200.
+            Case.answers("SUM over a view", "SELECT SUM(amount) FROM txn", "800"),
+            Case.answers("AVG divides", "SELECT AVG(amount) FROM txn", "200"),
             // status is null for cat, and must stay null rather than becoming an empty string.
             Case.answers("null survives a projection", "SELECT status FROM txn WHERE user_id = 'cat'", "NULL"),
             Case.ok("floating arithmetic", "SELECT price / 2 FROM txn"),

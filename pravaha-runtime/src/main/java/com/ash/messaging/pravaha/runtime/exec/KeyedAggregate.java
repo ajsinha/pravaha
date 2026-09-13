@@ -255,7 +255,14 @@ final class KeyedAggregate implements RowProcessor {
             for (int i = 0; i < calls.size(); i++) {
                 AggregateOperator.AggregateCall call = calls.get(i);
                 switch (call.kind()) {
-                    case COUNT -> counts[i] += weight;
+                    case COUNT -> {
+                        // The third of three operators to get this guard. COUNT(*) counts rows;
+                        // COUNT(col) counts non-null values. Counting rows either way makes a
+                        // result row contradict itself -- COUNT 3, SUM 300, AVG 150.
+                        if (call.argumentOrdinal() < 0 || !row.isNull(call.argumentOrdinal())) {
+                            counts[i] += weight;
+                        }
+                    }
                     case COUNT_DISTINCT -> {
                         // Bounded by the scan, exactly like the group map itself. GlobalAggregate
                         // refuses this because a stream never ends; a read does.
