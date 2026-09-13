@@ -260,6 +260,7 @@ like one that has". Report any case where the directory is missing and `checkpoi
 ### LIFE-015 — A name that starts with a digit is refused
 **Intent:** The regex's first character class.
 **Falsifier:** `1v` registers.
+**Setup:** Server up, empty registry.
 **Steps:** Register `1v`, `2024_totals`, `_2024_totals`.
 **Expected:** first two `PRV-8001`; the third **succeeds** (leading underscore is allowed).
 **Vacuity:** The third is the control; without it the case cannot distinguish "digit rejected" from
@@ -269,6 +270,7 @@ like one that has". Report any case where the directory is missing and `checkpoi
 **Intent:** The registry's own threat model — `checkpointDirectoryFor`'s comment about a query named
 `..` writing above the configured root. The regex is the first line of defence.
 **Falsifier:** Any of these registers.
+**Setup:** Server up with `checkpointingTo($QA/ckpt, …)`, plus an in-process registry for the direct encoding check.
 **Steps:** Register `../evil`, `a/b`, `a.b`, `..`, `.`, `a\\b`, `a:b`.
 **Expected:** all `PRV-8001` from the regex, before `checkpointDirectoryFor` is ever reached. Then,
 separately, call `checkpointDirectoryFor` directly (in-process) with `a.b` and `a_b` and assert the
@@ -296,6 +298,7 @@ a stream, not a view), establishing the baseline resolution.
 one name and the second is invisible." The rename exists to prevent it; check it holds for two
 different queries over one stream.
 **Falsifier:** Registering the second makes the first unreadable.
+**Setup:** Server up, `txn` bound to the 20-row CSV whose `amount` values are known.
 **Steps:** Register `va` = `SELECT usr, amount FROM txn WHERE amount > 1 --keys 0` and `vb` =
 `SELECT usr, amount FROM txn WHERE amount > 2 --keys 0`. Read both.
 **Expected:** both readable, each returning its own filtered row set. State the two expected row
@@ -306,6 +309,7 @@ counts from the CSV explicitly.
 **Intent:** The regex admits both cases. Whether `V1` and `v1` are one name or two decides whether a
 duplicate-name refusal can be bypassed by capitalisation, and whether a `FROM` clause resolves.
 **Falsifier:** `V1` registers and then cannot be read, or `v1` and `V1` resolve to each other.
+**Setup:** Server up, empty registry.
 **Steps:** Register `v1`; register `V1` with different SQL; read both, with the name written each
 way in the `FROM` clause (four reads).
 **Expected:** `byName` is a plain `LinkedHashMap`, so `v1` and `V1` are two distinct registrations
@@ -334,6 +338,7 @@ drop it and assert they return. Without that, "unchanged" is what a dead server 
 **Intent:** `PreparedContinuousQuery.of` runs before authorization and before the fingerprint, so a
 parse failure is the first thing that happens.
 **Falsifier:** The registration is accepted and fails later, or the failure carries no PRV code.
+**Setup:** Server up, empty registry; LIFE-020's three baselines recorded.
 **Steps:** Register with `SELECT usr FROM`, `SELEC usr FROM txn`, `SELECT usr FROM txn WHERE`,
 and `''` (empty).
 **Expected:** each a `PravahaException` with a `PRV-2xxx` code and a message naming the position.
@@ -343,6 +348,7 @@ Exit code `EXIT_FAILED`, not `EXIT_USAGE`. `pravaha queries` unchanged.
 ### LIFE-022 — An unknown stream is refused, and the message names what is known
 **Intent:** The most common real mistake, and the one where a good message saves an hour.
 **Falsifier:** The message does not list the available streams.
+**Setup:** Server up with `txn` and `payroll` declared; a principal denied on `payroll` available for the second half.
 **Steps:** Register `SELECT usr FROM txns` (note the `s`).
 **Expected:** refusal naming `txns` as unknown and listing the declared streams. Assert `txn` and
 `payroll` appear in the list. Cross-check against `SECX`: for a principal who may not read `payroll`,
@@ -353,6 +359,7 @@ does this message still disclose it? Record the answer — round 2 found exactly
 ### LIFE-023 — An unwindowed keyed `GROUP BY` is refused as a continuous query
 **Intent:** `SQL_SUPPORT.md` and `PhysicalPlanBuilder` both call this the one asymmetry that matters.
 **Falsifier:** It registers.
+**Setup:** Server up; `v1` already registered and filled, so the view-read half has something to aggregate over.
 **Steps:** Register `SELECT usr, COUNT(*) AS n FROM txn GROUP BY usr --keys 0`.
 **Expected:** `PRV-2050` (`UNBOUNDED_STATE`), message explaining that state grows with distinct keys.
 Then run the *same SQL* as a read against a maintained view (`SELECT usr, COUNT(*) FROM v1 GROUP BY
@@ -362,6 +369,7 @@ usr`) and assert it **succeeds** — same SQL, different answer, which is the do
 ### LIFE-024 — A windowed `GROUP BY` without the window boundaries is refused
 **Intent:** "the unbounded case wearing a window's clothes."
 **Falsifier:** It registers.
+**Setup:** Server up, `txn` declared with `event_time` as its event-time column.
 **Steps:** Register `SELECT usr, SUM(amount) FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time),
 INTERVAL '10' SECOND)) GROUP BY usr`.
 **Expected:** `PRV-2050`, message "add window_start and window_end to the GROUP BY".
@@ -383,6 +391,7 @@ dropping it must return it — proving the counter measures what the case claims
 ### LIFE-026 — A very large query registers or is refused, and says which
 **Intent:** Nothing bounds SQL length. A generated query is a real client behaviour.
 **Falsifier:** The server accepts it and then cannot list it, or dies.
+**Setup:** Server up, empty registry; registration latency recorded for a 1-term control first.
 **Steps:** Register a query whose `WHERE` is a chain of 1 000 `OR amount = <n>` terms; then 10 000.
 **Expected:** a verdict for each: registered, or refused with a code. If registered, assert
 `pravaha queries` still lists it (the LIST action returns the full SQL text in the result, so a
@@ -425,6 +434,7 @@ exposes `avoidableForks()`; none is expected to.
 ### LIFE-029 — No key columns is refused
 **Intent:** "a view with no key is a log, and a point read against it has nothing to look up."
 **Falsifier:** An empty key list registers.
+**Setup:** Server up plus an in-process registry — the CLI cannot express an empty Java list directly, only an empty `--keys` string.
 **Steps:** In-process: `register("v", S1, List.of(), principal)`. Over Flight:
 `pravaha register --name v --sql "$S1" --keys ""` — note `ControlWire`'s decoder skips blank ordinals,
 so the list arrives empty.
@@ -436,6 +446,7 @@ message "a registration needs at least one key column". Over Flight this surface
 ### LIFE-030 — A key column past the end of the output is refused, naming the width
 **Intent:** `start(...)`'s bounds check.
 **Falsifier:** `--keys 5` registers on a two-column output.
+**Setup:** Server up; `S1` has exactly two output columns, `usr` (0) and `amount` (1).
 **Steps:** `--keys 5`, `--keys 2` (one past the end of a two-column output), `--keys -1`.
 **Expected:** all three `IllegalArgumentException`, message "key column N is not in the query's
 output, which has 2 columns". Assert the message contains the actual width, `2`.
@@ -446,6 +457,7 @@ at 2, not at 1.
 **Intent:** `ServerCommand.register` does `Integer.parseInt(ordinal.strip())` with no handling, so a
 `NumberFormatException` escapes into `PravahaCli`'s `RuntimeException` catch.
 **Falsifier:** Exit code `EXIT_USAGE` (2), or a message naming `--keys`.
+**Setup:** Server up; the CLI is invoked directly so its exit code can be read.
 **Steps:** `pravaha register --name v --sql "$S1" --keys usr`.
 **Expected:** `NumberFormatException: For input string: "usr"` printed as
 `NumberFormatException: ...`, exit code `EXIT_FAILED`. The client never contacts the server. Record
@@ -457,6 +469,7 @@ that a plainly-wrong flag value reports a Java exception class name rather than 
 halves are always equal.
 **Falsifier:** The registration is refused (no check exists) — or it succeeds and the view
 double-counts.
+**Setup:** Server up, `txn` bound to the 20-row CSV.
 **Steps:** Register with `--keys 0,0`; feed the 20-row CSV; read.
 **Expected:** registration succeeds. The view's key is `[usr, usr]`, so the row count equals the
 distinct-`usr` count — identical to `--keys 0`. Assert the two produce the same row count, and record
@@ -467,6 +480,7 @@ fingerprint and §10 takes over.
 ### LIFE-033 — Every output column as a key
 **Intent:** The widest legal key. `ServedView.keyOf` builds an `Object[]` per row.
 **Falsifier:** Registration fails, or the view holds fewer rows than the input's distinct rows.
+**Setup:** Server up, `txn` bound to the 20-row CSV; its distinct `(usr, amount)` pair count counted by hand beforehand.
 **Steps:** Register `S1` with `--keys 0,1`; feed the CSV; read; compare against the CSV's distinct
 `(usr, amount)` pairs, counted by hand.
 **Expected:** row count equals the distinct pair count. State the number.
@@ -477,6 +491,7 @@ fingerprint and §10 takes over.
 `Arrays.equals` over the ordinals in the order given, so the tuples differ but the *partition* is
 identical.
 **Falsifier:** They produce different row counts.
+**Setup:** Server up, `txn` bound to the 20-row CSV.
 **Steps:** Register two queries (distinct SQL to avoid sharing) with `--keys 0,1` and `--keys 1,0`;
 compare row counts.
 **Expected:** identical counts. The ordering affects only the key array's internal layout, which
@@ -632,6 +647,7 @@ counter for it.
 **Intent:** `pause()` calls `requireLive("pause")`, which refuses only terminal states. `PAUSED` is
 not terminal, so a second pause is a no-op that returns success.
 **Falsifier:** The second pause raises `PRV-8003`.
+**Setup:** Continuous source; `v1` registered and `RUNNING`.
 **Steps:** `pause v1`; `pause v1` again.
 **Expected:** both print `paused v1`, exit 0. State stays `PAUSED`. Record whether an operator
 scripting `pause` can distinguish "I paused it" from "it was already paused" — they cannot.
@@ -641,6 +657,7 @@ scripting `pause` can distinguish "I paused it" from "it was already paused" —
 **Intent:** `requireLive` refuses `DROPPED`. But `drop` removes the name from `byName` first, so
 `require(name)` fails before `pause()` is ever reached.
 **Falsifier:** `PRV-8003` (`ILLEGAL_TRANSITION`) instead of `PRV-8002` (`NO_SUCH_QUERY`).
+**Setup:** `v1` registered and running; an in-process registry for the second half, so a `RegisteredQuery` reference can be held across the drop.
 **Steps:** `drop v1`; `pause v1`.
 **Expected:** `PRV-8002`, "no query named 'v1' is registered; this node has [...]". The
 `ILLEGAL_TRANSITION` path for a dropped query is therefore **unreachable via the registry** — record
@@ -659,6 +676,8 @@ it. Reach it directly in-process by holding a `RegisteredQuery` reference across
 
 ### LIFE-049 — Pausing a name that does not exist
 **Intent:** The plain error path.
+**Falsifier:** The refusal for a nonexistent name enumerates registered names to a principal who may not see them.
+**Setup:** Server up with three registrations; one allowed and one denied principal available.
 **Steps:** `pravaha pause --name nope`.
 **Expected:** `PRV-8002`, message listing every registered name. Cross-check with `SECX`: the message
 enumerates names the caller may not be entitled to see. `requireAdministrable` runs **before**
@@ -679,6 +698,7 @@ resume, output restarts. Record the gap in wall-clock seconds and whether any ch
 ### LIFE-051 — A new subscription to a paused query is accepted
 **Intent:** `RegisteredQuery.subscribe` refuses only terminal states.
 **Falsifier:** Subscribing to a paused view raises `PRV-8003`.
+**Setup:** Continuous source; `v1` registered, then paused.
 **Steps:** Pause `v1`; then `pravaha subscribe --view v1`.
 **Expected:** the subscription is established and the CLI prints its "subscribed to v1" banner. No
 changes arrive. On resume, changes arrive. `subscriberCount()` is 1 throughout.
@@ -737,6 +757,7 @@ paused.
 ### LIFE-056 — Resuming a running query is accepted silently
 **Intent:** `resume()` refuses only terminal states, so `RUNNING → RUNNING` succeeds.
 **Falsifier:** `PRV-8003`.
+**Setup:** Continuous source; `v1` registered and `RUNNING`.
 **Steps:** `resume v1` while it is running; twice.
 **Expected:** both succeed, printing `resumed v1`; state stays `RUNNING`; ROWS IN keeps climbing
 across both calls (assert it, to show the feed was not disturbed).
@@ -754,6 +775,8 @@ above. State stays `FAILED`.
 
 ### LIFE-058 — Resuming a dropped query reports `NO_SUCH_QUERY`
 **Intent:** Same shape as LIFE-047: the name is gone before the state check.
+**Falsifier:** `PRV-8003` from the registry path, or success.
+**Setup:** `v1` registered; an in-process registry for the held-reference half.
 **Steps:** `drop v1`; `resume v1`.
 **Expected:** `PRV-8002`. In-process, holding the `RegisteredQuery` across the drop and calling
 `resume()` gives `PRV-8003` with "is DROPPED and cannot be resumed". Both recorded.
@@ -879,17 +902,21 @@ drop against an idle query tests nothing.
 
 ### LIFE-068 — Dropping twice reports `NO_SUCH_QUERY` the second time
 **Intent:** Idempotence, or the honest absence of it.
+**Falsifier:** The second drop reports success, so a script cannot tell a real drop from a repeat.
+**Setup:** `v1` registered and listed.
 **Steps:** `drop v1`; `drop v1`.
 **Expected:** first succeeds; second `PRV-8002` listing the remaining names. Exit codes 0 then
 `EXIT_FAILED`. Record that a cleanup script must tolerate the second.
 **Vacuity:** V-before — listed before the first.
 
 ### LIFE-069 — Dropping a name that never existed
+**Intent:** The plain not-found path for `drop`, and the disclosure it carries. `require(name)` builds its message from `names()`, the full set.
+**Falsifier:** The unauthenticated form enumerates the node's queries.
+**Setup:** Server up with three registrations; one allowed and one denied principal available.
 **Steps:** `pravaha drop --name nope`.
 **Expected:** `PRV-8002`, message "no query named 'nope' is registered; this node has [...]" — and
 the listing is the *full* set, as a disclosure. Under a closed policy, `requireAdministrable` runs
 first, so a denied principal gets `FORBIDDEN` with no listing. Run as both and record.
-**Falsifier:** The unauthenticated form enumerates the node's queries.
 **Vacuity:** Two principals, two messages, compared.
 
 ### LIFE-070 — The drop is journalled before anything is released
@@ -917,12 +944,15 @@ of a failed recovery.
 
 ### LIFE-072 — Dropping a paused query works
 **Intent:** `PAUSED` is not terminal; `require(name)` resolves; `close()` sets `DROPPED`.
+**Falsifier:** `PRV-8003` (`ILLEGAL_TRANSITION`) instead of a successful drop.
+**Setup:** `v1` registered, then paused; thread count recorded.
 **Steps:** Pause `v1`; drop `v1`.
 **Expected:** drop succeeds, listing empty, read fails, lane released. No `ILLEGAL_TRANSITION`.
 **Vacuity:** V-before — `PAUSED` shown in the listing immediately before.
 
 ### LIFE-073 — Dropping a failed query works and releases it
 **Intent:** `drop` never calls `requireLive`; `close()` checks only `state != DROPPED`.
+**Falsifier:** The drop is refused because the query is terminal, or the lane thread survives it.
 **Setup:** `v_failed` in `FAILED`.
 **Steps:** `pravaha drop --name v_failed`; listing; thread count; read.
 **Expected:** drop succeeds; the name is gone; the lane thread is released; the view stops answering.
@@ -988,6 +1018,8 @@ warm-up rather than an outage: the views are there immediately and fill as data 
 
 ### LIFE-078 — Re-registering under a *different* name after a drop
 **Intent:** The fingerprint entry was removed, so this is a fresh computation, not a share.
+**Falsifier:** `v2` attaches to the dropped computation and answers immediately with its rows.
+**Setup:** `v1` registered, filled with a known row set, then dropped; listing empty.
 **Steps:** `drop v1`; register the same SQL as `v2`.
 **Expected:** succeeds; one computation; `QueryRegistry.size() == 1`; same fingerprint string as `v1`
 had. `v2` starts empty and fills.
@@ -1059,6 +1091,7 @@ genuinely different SQL and assert threads rise by 1 again, proving the counter 
 ### LIFE-084 — Different text, same plan, same computation
 **Intent:** `CONCEPTS.md` §5's worked example: aliases and whitespace must not fork.
 **Falsifier:** `S1` and `S1'` produce different fingerprints.
+**Setup:** Fresh registry; the base query for `d` is `SELECT usr FROM txn WHERE id > 0 AND amount > 1`.
 **Steps:** Register `a` with `S1`, `b` with `S1'` (`SELECT t.usr, t.amount FROM txn AS t`), `c` with
 `S1` reformatted across five lines with extra whitespace, `d` with a reordered `AND` in the `WHERE`
 (`WHERE amount > 1 AND id > 0` vs `WHERE id > 0 AND amount > 1`, both applied to the same base query).
@@ -1094,6 +1127,7 @@ says nothing about sharing.
 ### LIFE-087 — The second name's schema is renamed to it
 **Intent:** `ViewCatalog.schemas()` re-keys by registered name — the layer the round-2 fix landed in.
 **Falsifier:** `b`'s advertised schema carries `a`'s name.
+**Setup:** `a` and `b` sharing one fingerprint, both `RUNNING`.
 **Steps:** Fetch the Flight SQL catalogue (`getTables` / the SDK's schema listing) and inspect the
 schema name reported for `b`.
 **Expected:** `b`. Both `a` and `b` appear, each with its own name and identical field lists.
@@ -1181,6 +1215,7 @@ no way to tell apart. Assert both rows and their identical fingerprint strings.
 **Intent:** The other terminal state, which cannot normally be reached because `drop` removes the
 fingerprint entry — unless the drop was of one name among several.
 **Falsifier:** A registration attaches to a dropped computation.
+**Setup:** Fresh registry; `a` and `b` registered with `S1`, sharing.
 **Steps:** `a` and `b` sharing. `drop a` (computation survives, held by `b`). `drop b` (released,
 fingerprint removed). Register `c` with the same SQL.
 **Expected:** `c` takes the fresh path, `size() == 1`, starts empty. Assert `byFingerprint` was empty
@@ -1201,6 +1236,7 @@ eleven — the comparison is the case.
 ### LIFE-096 — Ten shares dropped one at a time release on the tenth
 **Intent:** The refcount at scale, and the checkpoint-directory orphan (LIFE-065) at scale.
 **Falsifier:** The lane is released early, or never.
+**Setup:** LIFE-095's ten shared names still registered; checkpointing on; thread count and the checkpoint directory listing recorded.
 **Steps:** From LIFE-095's state, drop `n1 … n10` in order, checking threads, listing and a read of a
 surviving name after each.
 **Expected:** the lane survives drops 1–9; every surviving name still reads; it is released on drop
@@ -1301,6 +1337,7 @@ through the read path.
 ### LIFE-103 — `Latest` after a drop is unreachable
 **Intent:** The view is removed from the catalogue, so there is nothing to call `get` on.
 **Falsifier:** A `Latest` read succeeds after the drop.
+**Setup:** In-process registry so a `ServedView` reference can be held across the drop; `v1` filled and committed first.
 **Steps:** Hold a `ServedView` reference across a drop (in-process) and read it with `Latest`; and
 separately, read by name.
 **Expected:** by name → `PRV-4023`. By held reference → the read **succeeds**, returning whatever the
@@ -1311,6 +1348,7 @@ does.
 
 ### LIFE-104 — `Latest` against a query that has never received a row
 **Intent:** The empty case, which must be "not found", not an error and not a hang.
+**Falsifier:** The read throws, hangs, or reports a key as found.
 **Setup:** Registered query over a stream with no data.
 **Steps:** Read any key with `Latest`.
 **Expected:** `found = false`, `frontier = Long.MIN_VALUE` (`appliedFrontier` initial),
@@ -1342,19 +1380,23 @@ roughly 60 seconds of event time in the same interval. Record the divergence bet
 finding rather than a tautology.
 
 ### LIFE-107 — `Consistent` after a drop
+**Intent:** The `Consistent` cell of the after-drop row. Same mechanism as LIFE-103, and the result is worse: a consistent read is the mode a person acts on.
+**Falsifier:** Any staleness signal distinguishes it.
+**Setup:** In-process registry; `v1` filled, committed, then dropped, with a `ServedView` reference held.
 **Steps:** As LIFE-103 with `Consistent`.
 **Expected:** by name `PRV-4023`; by held reference, the last committed rows are served indefinitely
 with `staleness = 0` and `frontierComplete = true` — the most confident possible presentation of data
 nothing is maintaining.
-**Falsifier:** Any staleness signal distinguishes it.
 **Vacuity:** V-before — the by-name read succeeds beforehand.
 
 ### LIFE-108 — `Consistent` against a query that has never received a row
+**Intent:** The empty case for the default mode, and the only cell in this section a shipped client can actually reach.
+**Falsifier:** An error, or a non-zero row count.
+**Setup:** A registered query over a stream with no data, plus the same query reachable through `pravaha query`.
 **Steps:** Read any key with `Consistent` on a view that has never committed.
 **Expected:** `found = false`; `frontier = Long.MIN_VALUE`; `staleness = Math.max(0, MIN_VALUE -
 MIN_VALUE) = 0`; `frontierComplete = true`. Then run the same read through `pravaha query` (the
 shipped path, which is always `Consistent`) and assert it returns **0 rows** rather than an error.
-**Falsifier:** An error, or a non-zero row count.
 **Vacuity:** Commit one row and re-read through both surfaces.
 
 ### LIFE-109 — `AtLeast` during ingest blocks until the frontier arrives, then reads
@@ -1381,20 +1423,23 @@ checks the deadline before parking, so it should not overshoot.
 must succeed, proving the timeout is not universal.
 
 ### LIFE-111 — `AtLeast` after a drop
+**Intent:** The `AtLeast` cell of the after-drop row, where the bounded wait turns a dead query into a timeout with a misleading cause.
+**Falsifier:** The read returns successfully, or hangs unbounded.
+**Setup:** In-process registry; `v1` filled, committed, then dropped, with a `ServedView` reference held.
 **Steps:** By name → `PRV-4023`. By held reference with `AtLeast(future)` → the frontier will never
 advance, so it times out with `PRV-4021`.
 **Expected:** exactly that. Note the timeout message says "The source may be idle, or behind", which
 is wrong: the query is dead. Record the misleading diagnosis.
-**Falsifier:** The read returns successfully, or hangs unbounded.
 **Vacuity:** V-before — an `AtLeast` at an already-reached frontier succeeds before the drop.
 
 ### LIFE-112 — `AtLeast` against a query that has never received a row
 **Intent:** `committedFrontier` is `Long.MIN_VALUE`, so any `AtLeast(t)` with `t > MIN_VALUE` blocks.
+**Falsifier:** `AtLeast(0)` returns immediately.
+**Setup:** In-process `ServedView` that has never been committed.
 **Steps:** `AtLeast(0)` with a 2-second timeout on a view that has never committed.
 **Expected:** `PRV-4021` after 2 seconds — `MIN_VALUE < 0`, so the wait is entered. Then
 `AtLeast(Long.MIN_VALUE)` returns immediately with `found = false`. Record that the only frontier a
 never-committed view satisfies is `Long.MIN_VALUE`, which no caller would think to pass.
-**Falsifier:** `AtLeast(0)` returns immediately.
 **Vacuity:** Both variants run; the immediate one proves the loop is entered by comparison.
 
 ### LIFE-113 — `AsOf` during ingest is refused with `PRV-4020`
@@ -1412,9 +1457,11 @@ timestamp gets nothing.
 special-case.
 
 ### LIFE-114 — `AsOf` while paused is refused identically
+**Intent:** The `AsOf` cell of the paused row. The refusal is the first statement in the `AsOf` branch, before any state is consulted, so a pause cannot change it — check that it does not.
+**Falsifier:** A different code or message.
+**Setup:** In-process view, committed at 10s, then its query paused.
 **Steps:** `AsOf(committedFrontier)` on a paused view.
 **Expected:** `PRV-4020`. The pause is irrelevant; the refusal precedes any state inspection.
-**Falsifier:** A different code or message.
 **Vacuity:** Compare the message string with LIFE-113's, character for character — one error code with
 two messages is an `ERRC` finding.
 
@@ -1455,6 +1502,7 @@ re-registers from the journal with **authorization checked again**, and state is
 "a restart costs a warm-up rather than an outage".
 
 ### LIFE-117 — Restart with a running query
+**Intent:** The base restart case. The journal carries the registration; state is never journalled, so the query returns and refills.
 **Falsifier:** The query is absent after the restart, or comes back with its state.
 **Setup:** Journal on. `v1` running with a known committed row set.
 **Steps:** Record the row set and ROWS IN. Restart. `pravaha queries`; read `v1` within 100ms; read
@@ -1476,6 +1524,7 @@ across a restart".
 **Vacuity:** V-before — `PAUSED` shown in the listing immediately before the restart.
 
 ### LIFE-119 — Restart with a dropped query
+**Intent:** The drop record in the journal must suppress the registration during replay, which is the whole reason `recordDrop` exists.
 **Falsifier:** The dropped query returns.
 **Setup:** `a` and `b` registered; `drop a`.
 **Steps:** Restart. Listing.
@@ -1575,6 +1624,7 @@ deliver the `-1`. `pravaha queries`.
 frontier it reached, and a read carries `staleness = 0` and `frontierComplete = true` (LIFE-106's
 shape).
 **Falsifier:** The read fails, or the result carries any signal of the failure.
+**Setup:** `v_min` in `FAILED` per LIFE-126, with a known committed row set; a healthy control query running alongside.
 **Steps:** Read `v_min` after LIFE-126. Read again 60 seconds later.
 **Expected:** both reads succeed, identical rows, no warning. The only place the failure is visible is
 `pravaha queries`' STATE column. Record whether the read path, the SDK's `QueryResult`, or the
@@ -1586,6 +1636,7 @@ subscription carries any failure indication — none is expected to.
 **Intent:** `RegisteredQuery.failure()` holds the `PravahaException` that killed the query. The LIST
 action returns name, state, SQL, fingerprint and rowsIn — **not** the failure.
 **Falsifier:** Any CLI, REST or Flight response carries the cause.
+**Setup:** `v_min` in `FAILED` per LIFE-126; server log available; in-process access to the `RegisteredQuery` for the control assertion.
 **Steps:** With `v_min` `FAILED`: `pravaha queries`; the raw Flight LIST result; `/api/v1/queries`
 (which has no listing endpoint); the console API if reachable.
 **Expected:** `FAILED` and nothing more. An operator learns *that* it failed and must go to the server

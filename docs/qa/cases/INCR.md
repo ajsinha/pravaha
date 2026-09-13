@@ -369,6 +369,7 @@ guard runs on the *retracting* row, which is the case the fix was never checked 
 **Falsifier:** `n` counts the NULL row, or the retraction of a NULL row decrements `n`.
 **Setup:** H1, global `COUNT(amount) AS n, COUNT(*) AS all`. Rows: `(u1,100,1s)`, `(u1,NULL,2s)`,
 `(u1,200,3s)`, then retract `(u1,NULL,2s)`.
+**Steps:** Feed the three rows in order, then the retraction of the NULL row. `finish()`; commit; read. Assert `n` and `all` after the third row and again after the retraction.
 **Expected:** `n`: 100 counted, NULL skipped, 200 counted, retraction of a NULL row skipped →
 `1 + 0 + 1 - 0 = 2`. `all`: `1 + 1 + 1 - 1 = 2`. Both 2, and they agree for the right reason. Also
 assert the intermediate: before the retraction `n = 2`, `all = 3`.
@@ -425,6 +426,7 @@ indistinguishable from a broken correction path.
 to diverge; check they have not.
 **Falsifier:** A different error code from `PRV-3020`, or acceptance.
 **Setup:** H1, global `MIN(amount) AS lo`. Feed r1, r3, then ρ3.
+**Steps:** Feed r1 (`amount 100`), then r3 (`amount 200`), then ρ3. Capture the exception at the third call.
 **Expected:** `PRV-3020`. Message: "cannot yet handle a retraction: restoring the previous extreme
 needs an ordered multiset per group, which arrives with the aggregate lift. Use SUM or COUNT for
 now." — note `GlobalAggregate`'s wording differs from `SlicedAggregateState`'s (INCR-010) and from

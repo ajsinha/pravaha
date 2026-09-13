@@ -710,3 +710,394 @@ ROW accepted, or refused by an exception type other than `PravahaException`.
   `cannot compare column 'amt' of type DECIMAL against a constant yet`.
 - `arr`, `m`, `r` — comparison against any literal must refuse with `PRV-2021`. `IS NULL` on all
   six must plan and run, because `IsNull` reads only the null bitmap.
+
+---
+
+## 4. Aggregate argument — the type inside SUM / MIN / MAX / AVG / COUNT (TYPE-033 … TYPE-043)
+
+`GlobalAggregate` accumulates with `row.getLong(argumentOrdinal)` and writes with
+`writer.setLong(i, value)`, **whatever the column's type**. `BinaryRowWriter.setLong` accepts only
+`INT64`, `TIME` and `TIMESTAMP_LTZ` output fields; everything else reaches `RowLayout.checkType` and
+throws. Calcite's `SUM`, `MIN`, `MAX` and `AVG` return the *operand's* type, so the output field is
+`INTEGER` for `SUM(i32)` and `TINYINT` for `SUM(i8)`. `COUNT` always returns `BIGINT`.
+`refuseFloatingPointAggregate` intercepts `FLOAT32`/`FLOAT64` at plan time and exempts `COUNT` and
+`COUNT(DISTINCT)`. Nothing intercepts the narrow integers.
+
+Every case here is a **global** aggregate (no `GROUP BY`), because a keyed aggregate over a stream
+is refused for unbounded state and would mask the type question behind `PRV-2050`.
+
+## TYPE-033 — INT64: the working baseline, all five aggregate kinds
+**Intent:** establish that the aggregate path produces the right numbers for the one type it was
+built for, so every failure below is attributable to the type and not to the operator.
+**Falsifier:** any of the five returning a number other than the hand-computed one; `COUNT(i64)`
+returning 5 (which would mean it counted the NULL row and is `COUNT(*)` in disguise — finding Q-3,
+fixed in `GlobalAggregate`, unverified in the other two operators).
+**Setup:** `types.csv`. `i64` = 9223372036854775807, −9223372036854775808, NULL, 0,
+9007199254740993.
+**Steps:** five runs, each `SELECT <agg> FROM types`, `--out-schema "v:INT64?"`:
+`COUNT(*)`, `COUNT(i64)`, `SUM(i64)`, `MIN(i64)`, `MAX(i64)`, `AVG(i64)`.
+**Expected, by hand.** The four non-null values are 9223372036854775807, −9223372036854775808, 0 and
+9007199254740993.
+- `COUNT(*)` = 5 (rows, nulls included).
+- `COUNT(i64)` = 4.
+- `SUM(i64)`: 9223372036854775807 + (−9223372036854775808) = −1; −1 + 0 = −1;
+  −1 + 9007199254740993 = **9007199254740992**. Assert that exact value. Note the intermediate never
+  overflows, so this must not throw.
+- `MIN(i64)` = −9223372036854775808. `MAX(i64)` = 9223372036854775807.
+- `AVG(i64)`: 9007199254740992 / 4 = **2251799813685248** exactly (the numerator is 2⁵³, divisible
+  by 4). Record whether the engine divides by 4 (non-null count) or by 5 (row count); dividing by 5
+  gives 1801439850948198.4 and, truncated, 1801439850948198 — a wrong answer that looks reasonable.
+**Vacuity:** `COUNT(*)` = 5 and `COUNT(i64)` = 4 differ by exactly the NULL row. If both return 5,
+`COUNT(col)` is `COUNT(*)`; if both return 4, `COUNT(*)` is dropping a row.
+
+## TYPE-034 — INT32 in an aggregate dies at run time, naming an internal schema
+**Intent:** the defect the brief names, pinned in all four value-reading kinds. `SUM(INTEGER)` is
+`INTEGER` in Calcite, so the output field is `INT32`, and `writer.setLong` refuses it — *after* the
+query has planned, started, reported healthy and consumed the input.
+**Falsifier:** the query returning a number (the defect is fixed — verify the number too); or being
+refused at *plan* time with a `PRV-` code, which is the correct behaviour and would also close this.
+**Setup:** `types.csv`. `i32` = 2147483647, −2147483648, NULL, 0, 16777217.
+**Steps:** four runs — `SELECT SUM(i32) FROM types`, `MIN(i32)`, `MAX(i32)`, `AVG(i32)` — with
+`--out-schema "v:INT32?"`; then `SELECT COUNT(i32) FROM types` with `--out-schema "v:INT64?"`.
+**Expected:** the four value-reading kinds fail with
+`java.lang.IllegalArgumentException: field 0 ('EXPR$0') is INT32, not INT64 in schema
+types_aggregated` — reported by the CLI as `IllegalArgumentException: …`, exit 1, **no `PRV-` code**.
+Two separate things are wrong and both must be recorded: (a) the failure is at run time for a
+condition knowable at plan time, and (b) the message leaks `EXPR$0` and `types_aggregated`, neither
+of which appears in the user's query.
+`COUNT(i32)` = **4** and must succeed, because `COUNT` never reads the value and returns `BIGINT`.
+**And the answer that is being denied, computed by hand so the fix can be checked against it:**
+`SUM(i32)` = 2147483647 + (−2147483648) + 0 + 16777217 = **16777216**. `MIN` = −2147483648,
+`MAX` = 2147483647, `AVG` = 16777216 / 4 = **4194304**.
+**Second defect to record while here:** before the write ever fails, `row.getLong(ordinal)` on a
+four-byte `INT32` field reads **eight** bytes. Even if the write is fixed, the accumulation is
+reading `i64`'s first four bytes as the high half. A fix that only changes the output type produces
+a green build and wrong sums; this case must re-check `SUM(i32) = 16777216` after any fix.
+**Vacuity:** `COUNT(i32)` succeeding in the same run proves the plan, the source and the operator
+are all working, so the four failures are about the type and nothing else.
+
+## TYPE-035 — INT16 in an aggregate
+**Intent:** the neighbour nobody tried. Same mechanism as TYPE-034 one width down, and the
+hand-computed sum overflows 16 bits, so a "fix" that narrows the accumulator instead of widening
+the output would pass TYPE-034 and fail here.
+**Falsifier:** a returned value; a refusal naming a different type than `INT16`.
+**Setup:** `types.csv`. `i16` = 32767, −32768, NULL, 0, 1.
+**Steps:** `SUM(i16)`, `MIN(i16)`, `MAX(i16)`, `AVG(i16)`, `COUNT(i16)`.
+**Expected:** the four value kinds fail with `field 0 ('EXPR$0') is INT16, not INT64 in schema
+types_aggregated`. `COUNT(i16)` = 4.
+The denied answers: `SUM` = 32767 + (−32768) + 0 + 1 = **0**; `MIN` = −32768; `MAX` = 32767;
+`AVG` = 0 / 4 = **0**. Note `SUM` is 0, which is also what a broken implementation returns from an
+empty accumulator — so when the fix lands, re-run with a sixth row `6,…,i16=100,…` and assert
+`SUM = 100`, not 0.
+
+## TYPE-036 — INT8 in an aggregate
+**Intent:** the narrowest width, where the sum most obviously does not fit the output type Calcite
+chose. `SUM(TINYINT)` is `TINYINT`, and the true sum here is 0 — but `MAX` alone is 127, which does
+fit, so a partial fix could make `MAX` pass while `SUM` stays wrong.
+**Falsifier:** a returned value; `MAX` succeeding while `SUM` fails after a fix that claimed to
+cover both.
+**Setup:** `types.csv`. `i8` = 127, −128, NULL, 0, 1.
+**Steps:** `SUM(i8)`, `MIN(i8)`, `MAX(i8)`, `AVG(i8)`, `COUNT(i8)`.
+**Expected:** four failures with `field 0 ('EXPR$0') is INT8, not INT64 in schema
+types_aggregated`; `COUNT(i8)` = 4.
+Denied answers: `SUM` = 127 + (−128) + 0 + 1 = **0**; `MIN` = −128; `MAX` = 127; `AVG` = 0.
+**The neighbour that matters after a fix:** if the output is widened to `BIGINT`, `SUM(i8)` over a
+file of 200 rows each holding 127 must be **25400**, not `(byte) 25400 = 56`. Add `i8sum.csv` —
+200 lines of `n,127` with schema `id:INT64,i8:INT8` — and assert 25400.
+
+## TYPE-037 — FLOAT32 in an aggregate is refused at plan time
+**Intent:** the fix for finding Q-2, verified as a *refusal* rather than assumed. The message must
+arrive at registration, name the column, name the type, and give the workaround.
+**Falsifier:** the query planning; the query returning 0 rows under a successful status (the
+original defect); a refusal that names the wrong column or the wrong type.
+**Setup:** `types.csv`.
+**Steps:** `pravaha validate` on `SELECT SUM(f32) FROM types`, `MIN(f32)`, `MAX(f32)`, `AVG(f32)`.
+**Expected:** all four exit 1 with `PRV-2020` and
+`<KIND>(f32) is over a FLOAT32 column, and this engine's aggregates accumulate in 64-bit integers
+only. It is refused rather than answered, because the alternative was no rows and a successful
+status. Cast the column to an integer if the rounding is acceptable -- SUM(CAST(price AS BIGINT)) --
+or aggregate it outside the engine.` — with `<KIND>` being `SUM`, `MIN`, `MAX`, `AVG` respectively
+and the column named as `f32`.
+**Vacuity:** the refusal is at `validate`, which reads no data at all. A case run only through
+`pravaha run` could not distinguish "refused" from "the file was empty".
+
+## TYPE-038 — FLOAT64 in an aggregate is refused at plan time
+**Intent:** as TYPE-037 for the eight-byte width. Kept separate because
+`refuseFloatingPointAggregate` tests the two constants in one condition and a typo affects one.
+**Falsifier:** as TYPE-037; additionally, a message naming `FLOAT32` for a `FLOAT64` column.
+**Setup:** `types.csv`.
+**Steps:** `pravaha validate` on `SUM(f64)`, `MIN(f64)`, `MAX(f64)`, `AVG(f64)`; then
+`SELECT SUM(f64), COUNT(*) FROM types` — a mixed select list, to confirm one refused call refuses
+the whole query rather than being dropped.
+**Expected:** four refusals with `PRV-2020` naming `FLOAT64` and the column `f64`. The mixed select
+list is refused too.
+**The answers being denied, for whoever builds the double accumulator:** `SUM(f64)` =
+1.7976931348623157E308 + 4.9E-324 + 0.0 + 9.007199254740992E15. Adding 4.9E-324 to 1.797…E308
+changes nothing (the addend is ~600 orders of magnitude below the ulp), and so does adding
+9.007…E15, so `SUM` = **1.7976931348623157E308**. `MIN` = 0.0, `MAX` = 1.7976931348623157E308,
+`AVG` = 1.7976931348623157E308 / 4 = **4.494232837155789E307**.
+
+## TYPE-039 — COUNT and COUNT(DISTINCT) over floating point are exempt from the refusal
+**Intent:** the exemption is deliberate and narrow: `COUNT` reads no value. Enumerate both spellings
+against both float widths, because `kindOf` distinguishes them by `call.isDistinct()` and the
+exemption tests two constants.
+**Falsifier:** `COUNT(f64)` refused; `COUNT(DISTINCT f64)` refused; either returning a count that
+includes the NULL row.
+**Setup:** `types.csv`.
+**Steps:** `COUNT(f32)`, `COUNT(f64)`, `COUNT(DISTINCT f32)`, `COUNT(DISTINCT f64)`, `COUNT(*)`.
+**Expected:** `COUNT(f32)` = 4, `COUNT(f64)` = 4, `COUNT(*)` = 5.
+`COUNT(DISTINCT f32)`: the four non-null values are 3.4028235E38, 1.4E-45, 0.0, 1.6777216E7 — all
+different — so **4**. `COUNT(DISTINCT f64)` likewise **4**.
+Finding Q-6 says `COUNT(DISTINCT)` hangs for five minutes over a stream and is refused over a view;
+if the distinct forms hang, record the wall-clock time and treat the case as blocked by Q-6 rather
+than as a type failure — but the two plain `COUNT`s must still pass, and that is the part this case
+owns.
+**Vacuity:** `COUNT(*)` = 5 against `COUNT(f64)` = 4 is the null-aware check; without it, a `COUNT`
+that ignored its argument would pass.
+
+## TYPE-040 — STRING in an aggregate
+**Intent:** `MIN`/`MAX` over text is valid SQL and Calcite types it as `VARCHAR`. The accumulator
+does `row.getLong` on a **variable-width slot**, reading the (offset, length) pair as a 64-bit
+number, and then writes it into a `STRING` output field. Establish which of the two failures
+arrives first, and that `COUNT` still works.
+**Falsifier:** `MIN(s)` returning a string (verify which one); `SUM(s)` planning; `COUNT(s)`
+failing.
+**Setup:** `types.csv`; `s` = `zed`, `ann`, NULL, NULL, `  pad  `.
+**Steps:** `SELECT MIN(s) FROM types`, `MAX(s)`, `COUNT(s)`, `COUNT(DISTINCT s)`, `SUM(s)`,
+`AVG(s)`.
+**Expected:** `SUM(s)` and `AVG(s)` are rejected by Calcite's validator with `PRV-2002` before
+Pravaha sees them — a type mismatch, not an unsupported feature; assert the code.
+`MIN(s)` and `MAX(s)` plan (nothing refuses them) and fail at run time in
+`BinaryRowWriter.setLong` with `field 0 ('EXPR$0') is STRING, not INT64 in schema
+types_aggregated`. Record it as the same class of defect as TYPE-034: run-time, internal names, no
+`PRV-` code.
+`COUNT(s)` = **3** (`zed`, `ann`, `  pad  `; ids 3 and 4 are NULL).
+`COUNT(DISTINCT s)` = **3** — the three are distinct.
+**The denied answers, for the record:** with byte-wise ordering `MIN(s)` = `  pad  ` (leading space,
+U+0020, sorts below any letter) and `MAX(s)` = `zed`. Note that these are exactly the answers the
+codebase refuses to guess at for `<` on text (TYPE-029) — so a future `MIN(s)` must decide the same
+collation question, and this case is where that decision gets written down.
+
+## TYPE-041 — BOOLEAN in an aggregate
+**Intent:** completes the row. `COUNT` must work; `SUM`/`AVG` are a validator error; `MIN`/`MAX`
+over BOOLEAN is accepted by Calcite and must then meet the same `setLong` wall.
+**Falsifier:** `COUNT(b)` = 5; `SUM(b)` planning and returning 2.
+**Setup:** `types.csv`; `b` = true, false, NULL, true, false.
+**Steps:** `COUNT(b)`, `COUNT(DISTINCT b)`, `MIN(b)`, `MAX(b)`, `SUM(b)`, `AVG(b)`.
+**Expected:** `COUNT(b)` = **4**; `COUNT(DISTINCT b)` = **2** (`true` and `false`).
+`SUM(b)` / `AVG(b)` → `PRV-2002` from the validator.
+`MIN(b)` / `MAX(b)` → run-time `field 0 ('EXPR$0') is BOOLEAN, not INT64 in schema
+types_aggregated`. Denied answers: `MIN` = false, `MAX` = true.
+
+## TYPE-042 — BYTES in an aggregate
+**Intent:** completes the row for the second variable-width type, where `row.getLong` on the slot is
+the same hazard as TYPE-040.
+**Falsifier:** `COUNT(bin)` returning 5; `MIN(bin)` returning a value.
+**Setup:** `types.csv`; `bin` = `cafe`, NULL, NULL, `beef`, `ff`.
+**Steps:** `COUNT(bin)`, `COUNT(DISTINCT bin)`, `MIN(bin)`, `MAX(bin)`, `SUM(bin)`.
+**Expected:** `COUNT(bin)` = **3**; `COUNT(DISTINCT bin)` = **3**; `SUM(bin)` → `PRV-2002`;
+`MIN(bin)` / `MAX(bin)` → run-time `field 0 ('EXPR$0') is BYTES, not INT64 in schema
+types_aggregated`.
+**Note:** `COUNT(DISTINCT bin)` compares rows for distinctness. If that comparison reaches
+`RowValues.equal`, BYTES has no case there and raises
+`UnsupportedOperationException: cannot compare 'bin' of type BYTES for row equality yet`. Record
+which of the two exceptions arrives; either is a finding, and they point at different code.
+
+## TYPE-043 — TIMESTAMP_LTZ in an aggregate: the one non-INT64 type that should work
+**Intent:** `setLong` accepts `TIME` and `TIMESTAMP_LTZ` output fields, and `MIN`/`MAX` of a
+timestamp returns a timestamp — so `MIN(ts)` is the single combination in this section that must
+produce a correct answer. It is the positive control for the whole section.
+**Falsifier:** `MIN(ts)`/`MAX(ts)` failing (which would mean `setLong`'s timestamp exemption does
+not reach the aggregate path); or returning a millisecond value.
+**Setup:** `types.csv`; `ts` = 1700000000000000000, 0, NULL, 1700000000000000001, −1.
+**Steps:** `MIN(ts)`, `MAX(ts)`, `COUNT(ts)`, `COUNT(DISTINCT ts)`, `SUM(ts)`, `AVG(ts)` with
+`--out-schema "v:TIMESTAMP?"` for the first two and `"v:INT64?"` for `COUNT`.
+**Expected:** `MIN(ts)` = **−1** (one nanosecond before the epoch; it must beat 0, which is the
+trap — a comparison that treated the epoch as "unset" would return 0). `MAX(ts)` =
+**1700000000000000001**, one nanosecond above id 1's value, which is the nanosecond-precision
+assertion. `COUNT(ts)` = **4**. `COUNT(DISTINCT ts)` = **4**.
+`SUM(ts)` / `AVG(ts)` → `PRV-2002` from the validator (summing instants is not meaningful).
+**Vacuity:** `MIN` = −1 and `MAX` = 1700000000000000001 are both values that exist in exactly one
+row, and the two rows are different. An accumulator stuck on its first or last input cannot produce
+both.
+
+---
+
+## 5. Join key — the type on both sides of an equality (TYPE-044 … TYPE-052)
+
+`JoinKeys.checkJoinable` refuses `FLOAT32`, `FLOAT64` and `DECIMAL` **at plan time**, with a `PRV-`
+code and a suggested rewrite. `JoinKeys.fieldHash` and `sameValue` then handle `BOOLEAN`, `INT8`,
+`INT16`, `INT32`, `DATE`, `INT64`, `TIME`, `TIMESTAMP_LTZ` and `STRING`, and throw for everything
+else — `BYTES`, `ARRAY`, `MAP`, `ROW` — **at run time, on the first row**. That gap is the subject of
+TYPE-051.
+
+A stream-to-stream join needs two declared streams and therefore fixture `S`; `pravaha run` takes
+one `--stream` and cannot express one. Every case here registers a continuous query and reads the
+view. All use an equi-join with a time bound, which is the supported shape
+(`SQL_SUPPORT.md` — "Equi-join with a time bound ✅"), because the bound is what arms eviction.
+
+**Extended join fixtures.** Add to fixture `S`:
+
+```yaml
+    jl: { schema: "id:INT64,kb:BOOLEAN?,k8:INT8?,k16:INT16?,k32:INT32?,k64:INT64?,kf:FLOAT64?,ks:STRING?,kbin:BYTES?,ts:TIMESTAMP" }
+    jr: { schema: "id:INT64,kb:BOOLEAN?,k8:INT8?,k16:INT16?,k32:INT32?,k64:INT64?,kf:FLOAT64?,ks:STRING?,kbin:BYTES?,tag:STRING,ts:TIMESTAMP" }
+```
+
+`jl.csv`
+```
+1,true,7,700,70000,7000000000,1.5,alpha,cafe,1700000000000000000
+2,false,-8,-800,-80000,-8000000000,2.5,beta,beef,1700000001000000000
+3,,,,,,,,,1700000002000000000
+4,true,7,700,70000,7000000000,1.5,alpha,cafe,1700000003000000000
+```
+`jr.csv`
+```
+1,true,7,700,70000,7000000000,1.5,alpha,cafe,L,1700000000500000000
+2,true,9,900,90000,9000000000,3.5,gamma,dead,M,1700000001500000000
+3,,,,,,,,,N,1700000002500000000
+4,false,-8,-800,-80000,-8000000000,2.5,beta,beef,O,1700000003500000000
+```
+
+The join condition throughout is
+`ON l.<k> = r.<k> AND l.ts BETWEEN r.ts - INTERVAL '10' SECOND AND r.ts + INTERVAL '10' SECOND`,
+which puts every pair inside the window so the *key* decides the result and nothing else.
+
+## TYPE-044 — STRING join key
+**Intent:** the commonest key type and the one with the only non-trivial hash (`stringHash`, an
+FNV-1a over Java `char`s). Establish that equal strings on two sides land in the same bucket and
+that the candidate is confirmed by value.
+**Falsifier:** zero rows from a join whose keys plainly match (the classic symptom of a hash that
+picked up an ordinal — `ks` is ordinal 7 on the left and ordinal 7 on the right here, so the case
+adds a second registration with the right-hand columns reordered to make the ordinals differ);
+or a pair emitted whose keys are not equal.
+**Setup:** fixture `S` with `jl`/`jr`.
+**Steps:**
+1. register `jks`: `SELECT l.id AS lid, r.id AS rid, r.tag FROM jl AS l JOIN jr AS r ON l.ks = r.ks
+   AND l.ts BETWEEN r.ts - INTERVAL '10' SECOND AND r.ts + INTERVAL '10' SECOND`, `--keys 0`
+2. `pravaha query --sql "SELECT * FROM jks"`
+3. register the same join against a `jr2` whose schema lists `ks` at a different ordinal, and
+   compare
+**Expected:** by hand, the left `ks` values are `alpha`, `beta`, NULL, `alpha`; the right are
+`alpha`, `gamma`, NULL, `beta`. Matching pairs: l1–r1 (`alpha`), l4–r1 (`alpha`), l2–r4 (`beta`).
+NULL never matches NULL, so l3 and r3 pair with nothing. **3 rows**:
+`1,1,L` / `4,1,L` / `2,4,O`. Step 3 must return the identical three rows.
+**Vacuity:** three rows and not four is the assertion — a join that matched NULL to NULL would
+return four, and one that ignored the value after hashing would return more. Also register the
+inverted control `ON l.ks = r.tag`, which must return **0 rows**; a join returning rows for both is
+not joining on anything.
+
+## TYPE-045 — INT64 join key
+**Intent:** the widest integer key, hashed directly from `row.getLong`.
+**Falsifier:** a value above 2³² colliding with one below it in a way that produces a wrong pair;
+zero rows.
+**Setup:** as TYPE-044, joining on `k64` (7000000000, −8000000000, NULL, 7000000000 on the left;
+7000000000, 9000000000, NULL, −8000000000 on the right). All four magnitudes are outside the 32-bit
+range, deliberately.
+**Steps:** register `jk64` on `l.k64 = r.k64` with the same time bound; read the view.
+**Expected:** **3 rows**: `1,1,L` / `4,1,L` / `2,4,O` — the same pairing as TYPE-044, because the
+columns encode the same grouping. Matching pairings across two different key types is itself the
+check: if `jk64` and `jks` disagree, one of the two hashes is wrong.
+
+## TYPE-046 — INT32 join key
+**Intent:** `fieldHash` reads `INT32` with `row.getInt` — the correct width — while the aggregate
+path reads the same column with `getLong`. Confirm the join path is the one that is right.
+**Falsifier:** a pairing that differs from TYPE-044/045.
+**Setup:** join on `k32` (70000, −80000, NULL, 70000 / 70000, 90000, NULL, −80000).
+**Steps:** register `jk32`; read.
+**Expected:** **3 rows**: `1,1,L` / `4,1,L` / `2,4,O`.
+
+## TYPE-047 — INT8 and INT16 join keys
+**Intent:** the two narrow widths, read by `getByte` and `getShort`. A sign-extension error shows
+here and nowhere else: −8 read as an unsigned byte is 248, which hashes differently on the two sides
+only if one side sign-extends and the other does not.
+**Falsifier:** the `−8` pair (l2–r4) missing while the `7` pairs are present, or the reverse.
+**Setup:** join on `k8` (7, −8, NULL, 7 / 7, 9, NULL, −8), then on `k16` (700, −800, NULL, 700 /
+700, 900, NULL, −800).
+**Steps:** register `jk8` and `jk16`; read both.
+**Expected:** each returns **3 rows**: `1,1,L` / `4,1,L` / `2,4,O`. The `2,4,O` row is the
+sign-extension assertion in both.
+
+## TYPE-048 — BOOLEAN join key
+**Intent:** a one-bit key space. It is legal, it is nearly always a mistake, and the engine must
+still be correct: `fieldHash` maps it to 1 or 0 and `sameValue` compares the booleans.
+**Falsifier:** `false` matching `true`; the NULL row matching either.
+**Setup:** join on `kb` (true, false, NULL, true / true, true, NULL, false).
+**Steps:** register `jkb`; read.
+**Expected:** by hand — left `true` rows are l1, l4; right `true` rows are r1, r2; left `false` is
+l2; right `false` is r4. But the time bound is ±10 s and every row is within 4 s of every other, so
+**every** true-true and false-false pair is inside the window. Pairs: l1–r1, l1–r2, l4–r1, l4–r2,
+l2–r4 = **5 rows**: `1,1,L` / `1,2,M` / `4,1,L` / `4,2,M` / `2,4,O`. l3 and r3 (NULL) pair with
+nothing.
+**Vacuity:** five rows, not six and not three. A boolean key produces a near-cross-product, and that
+is the point: if the count is three, the join is collapsing duplicates it must not collapse; if it
+is six, NULL matched NULL.
+
+## TYPE-049 — TIMESTAMP_LTZ join key
+**Intent:** joining on an instant, which `fieldHash` reads with `getLong` alongside `INT64` and
+`TIME`. Distinct from the *time bound*, which is a different mechanism on the same column.
+**Falsifier:** two timestamps one nanosecond apart treated as equal; the join matching nothing.
+**Setup:** add a column `kts:TIMESTAMP?` to `jl`/`jr`, with left values 1700000000000000000,
+1700000000000000001, NULL, 1700000000000000000 and right values 1700000000000000000,
+1700000000000000002, NULL, 1700000000000000001.
+**Steps:** register `jkts` on `l.kts = r.kts` with the same `ts` time bound; read.
+**Expected:** l1 (…000) matches r1 (…000); l4 (…000) matches r1; l2 (…001) matches r4 (…001). l3
+and r3 are NULL. **3 rows**: `1,1,L` / `4,1,L` / `2,4,O`. If `…001` matched `…000` or `…002`, the
+comparison lost nanosecond resolution.
+
+## TYPE-050 — FLOAT32 and FLOAT64 join keys are refused at plan time
+**Intent:** `checkJoinable`'s refusal, verified as a refusal with an actionable rewrite — not merely
+as "it failed".
+**Falsifier:** the join planning; a refusal arriving at run time rather than registration; a message
+that does not name the column or does not suggest the rewrite.
+**Setup:** fixture `S`; `kf` is FLOAT64 on both sides. Add a FLOAT32 column `kf32` to both for the
+second half.
+**Steps:** register a join on `l.kf = r.kf`; then on `l.kf32 = r.kf32`; then the suggested rewrite
+`ON CAST(l.kf AS BIGINT) = CAST(r.kf AS BIGINT)`.
+**Expected:** both refusals exit non-zero at **registration** with the `UNSUPPORTED_JOIN` code and
+`cannot join on 'kf' (left): it is FLOAT64, and floating-point equality drops rows that differ only
+by rounding. Round or cast to an integer type, or join on a different column.` — the side named
+(`left`/`right`) must match the side that carries the column, and the type named must be `FLOAT32`
+for the second.
+The rewrite must then **work**: `CAST(1.5 AS BIGINT)` is 1 and `CAST(2.5 AS BIGINT)` is 2
+(truncation toward zero), so left keys are 1, 2, NULL, 1 and right keys are 1, 3, NULL, 2 — pairs
+l1–r1, l4–r1, l2–r4 = **3 rows**. A refusal whose suggested rewrite does not work is not actionable.
+
+## TYPE-051 — a BYTES join key plans successfully and dies on the first row
+**Intent:** the gap between `checkJoinable` (three types) and `fieldHash` (nine types). `BYTES`,
+`ARRAY`, `MAP` and `ROW` are in neither list, so the query registers, reports `RUNNING`, and throws
+when a row arrives. This is the dishonest refusal for the join position.
+**Falsifier:** the join refused at plan time (fixed — record it); or the join returning pairs.
+**Setup:** fixture `S`; `kbin` is BYTES on both sides, values `cafe`, `beef`, NULL, `cafe` /
+`cafe`, `dead`, NULL, `beef`.
+**Steps:**
+1. register `jkbin` on `l.kbin = r.kbin` with the time bound
+2. `pravaha queries` immediately afterwards — record the state
+3. wait for the source to deliver, then `pravaha queries` again and `pravaha query --sql "SELECT *
+   FROM jkbin"`
+4. repeat for the programmatic `ARRAY`, `MAP` and `ROW` columns of TYPE-020
+**Expected:** step 1 succeeds — **this is the defect**. Step 2 reports `RUNNING`. Step 3 is the
+measurement: `JoinKeys.fieldHash` raises `UNSUPPORTED_JOIN` with `cannot hash a join key of type
+BYTES`, and the question is where it surfaces. Record (a) whether `pravaha queries` shows the query
+as failed or still `RUNNING`, (b) whether the view answers, with how many rows, and (c) whether the
+lane thread survives. A query that reports `RUNNING` for ever while its first row killed the lane is
+the worst of the three outcomes and is what finding I-6 predicts.
+**The answer being denied:** with byte equality the pairs would be l1–r1, l4–r1, l2–r4 = 3 rows.
+**Vacuity:** the identical join on `ks` (TYPE-044) returns three rows from the same two files, so a
+zero-row result here is attributable to the key type.
+
+## TYPE-052 — a NULL key joins with nothing, on every key type
+**Intent:** `equal` returns false the moment either side is null, and `fieldHash` gives nulls a
+stable constant so the index does not leak. Both halves matter: the first is correctness, the second
+is a slow memory failure.
+**Falsifier:** l3 paired with r3; a null-keyed row pairing with a non-null one; the join's state
+growing with the number of null-keyed rows.
+**Setup:** fixture `S`. `jl` row 3 and `jr` row 3 have every key column NULL.
+**Steps:** for each of the seven working key types (`ks`, `k64`, `k32`, `k16`, `k8`, `kb`, `kts`),
+read the registered view and check l3/r3; then append 10,000 further all-NULL rows to each side and
+re-read.
+**Expected:** for all seven, **no output row has `lid = 3` or `rid = 3`**. After the 10,000 rows,
+the row count of every view is unchanged and the node's heap does not grow monotonically across
+three consecutive reads.
+**Vacuity:** the 10,000-row extension is the anti-vacuity device. A join that dropped null keys at
+ingest rather than at match would pass the first half and fail the second, and the first half alone
+cannot tell them apart.

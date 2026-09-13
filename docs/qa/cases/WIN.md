@@ -1959,3 +1959,331 @@ worth recording: the diagnostic cannot tell an operator how far over the ceiling
 establishes that the ceiling is a **rate** guard rather than a sizing one: four queries whose true
 requirements differ by a factor of 100 all fail at the same row with the same message.
 **Vacuity:** As WIN-116.
+
+---
+
+## 9. Row volume, and the blocker between 210k and 230k
+
+Every case here uses **dataset V(N, K)** unchanged and **no pusher**, so that the close trigger is
+held constant and volume is the only variable. On `s0` the watermark settles at *N* ms, so
+`floor(N / 10,000)` windows fire and they hold `9,999 + 10,000 × (windows − 1)` rows. With K = 100
+every window holds all 100 keys, so `COUNT(*) = 100 × windows` and `SUM(n)` equals the row figure —
+two independent assertions, one that catches key collapse and one that catches lost or duplicated
+rows. The reference values, all computed from those two formulas:
+
+| N | ROWS IN | windows on `s0` | rows emitted | `COUNT(*)` (K=100) | windows on `s10` | `COUNT(*)` on `s10` |
+|---|---|---|---|---|---|---|
+| 1 | 1 | 0 | 0 | 0 | 0 | 0 |
+| 1,000 | 1,000 | 0 | 0 | 0 | 0 | 0 |
+| 100,000 | 100,000 | 10 | 99,999 | 1,000 | 9 | 900 |
+| **200,000** | 200,000 | 20 | 199,999 | 2,000 | **19** | 1,900 |
+| **210,000** | 210,000 | 21 | 209,999 | 2,100 | 20 | 2,000 |
+| **220,000** | 220,000 | 22 | 219,999 | 2,200 | 21 | 2,100 |
+| **230,000** | 230,000 | 23 | 229,999 | 2,300 | 22 | 2,200 |
+| 1,000,000 | 1,000,000 | 100 | 999,999 | 10,000 | 99 | 9,900 |
+
+The reported symptom — "13 windows served where 19 exist" — is measured against the `s10` column at
+N = 200,000. A deficit of 6 windows is 60,000 rows.
+
+### WIN-119 — N = 1
+**Intent:** The floor. One row, one key, and a 10 s window that cannot close because the stream's
+highest event time is 1 ms.
+**Falsifier:** Any row in the view, or an error.
+**Setup:** `s0` bound to V(1, 1) — the single line `1,1,1,0.001`.
+**Steps:** Register Q_T(10) as `v_n1 --keys 0,1,2`; wait 10 s; read ROWS IN and `COUNT(*)`.
+**Expected:** ROWS IN 1, `COUNT(*)` 0. Correct and useless: a one-row stream under a ten-second
+window produces nothing, forever. Repeat with `INTERVAL '0.1' SECOND` and a pusher at 1.000 s to
+show the same row *can* be reported — one window `[0, 0.1)` with `n = 1, total = 1` — so the zero
+above is the close trigger and not the volume.
+**Vacuity:** Defends against a dry source in reverse: ROWS IN must read 1, proving the file was read
+and the emptiness is the window's doing.
+
+### WIN-120 — N = 1,000
+**Falsifier:** Any row in the view.
+**Setup:** `s0` bound to V(1000, 100).
+**Steps:** Register Q_T(10) as `v_n1k --keys 0,1,2`; wait; read.
+**Expected:** ROWS IN 1,000, `COUNT(*)` 0 — the data spans 1 second and the window is 10. With
+`INTERVAL '0.1' SECOND` instead: windows `[0, 0.1)` … `[0.9, 1.0)`; the watermark is 1.000 s so ends
+0.1 … 1.0 fire, i.e. 10 windows; window `[0, 0.1)` holds *i* = 1…99 (99 rows) and the rest hold 100
+each, so `SUM(n) = 99 + 9 × 100 = 999` and `COUNT(*) = 10 × 100 keys = 1,000`. One row — *i* = 1,000
+at t = 1.000 s — is in `[1.0, 1.1)` and is not emitted.
+**Vacuity:** ROWS IN 1,000 and `SUM(n)` 999 together; either alone is satisfied by the wrong engine.
+
+### WIN-121 — N = 100,000
+**Falsifier:** `COUNT(*) ≠ 1000` or `SUM(n) ≠ 99999`.
+**Setup:** `s0` bound to V(100000, 100).
+**Steps:** Register Q_T(10) as `v_n100k --keys 0,1,2`; wait for ROWS IN 100,000 and the view to
+settle; read `COUNT(*)`, `SUM(n)`, `MIN(window_start)`, `MAX(window_start)`, `view.size`.
+**Expected:** `COUNT(*) = 1,000` (10 windows × 100 keys); `SUM(n) = 99,999`;
+`MIN(window_start) = 0`; `MAX(window_start) = 90 s`. Per-key detail: in window `[0,10)` user 0 has
+`n = 99` and users 1…99 have `n = 100` (`99 + 99 × 100 = 9,999`); in every later window all 100 users
+have `n = 100`.
+**Vacuity:** This is the round-1 case, restated. `SUM(n) = 99,999` alone passes while 100,000 rows
+collapse into 100 keys; `COUNT(*) = 1,000` alone passes while every window holds one row. Both, plus
+`MAX(window_start) = 90 s`, are required.
+
+### WIN-122 — N = 200,000 — the reference point for the reported defect
+**Intent:** The exact configuration the blocker was reported against, run on both streams so the
+"19 windows exist" figure is established before any deficit is measured.
+**Falsifier:** On `s10`, anything other than 19 windows and `COUNT(*) = 1900`.
+**Setup:** V(200000, 100), bound to **both** `s0` and `s10`.
+**Steps:** Register Q_T(10) over `s0` as `v_200k_s0` and over `s10` as `v_200k_s10`, both
+`--keys 0,1,2`. For each: watch ROWS IN every second and record the final value and the wall time it
+stopped changing; then read `COUNT(*)`, `SUM(n)`, `COUNT(DISTINCT window_start)`,
+`MIN(window_start)`, `MAX(window_start)`.
+**Expected:** Both reach ROWS IN 200,000.
+`v_200k_s0`: 20 windows, `MIN(window_start) = 0`, `MAX(window_start) = 190 s`, `COUNT(*) = 2,000`,
+`SUM(n) = 199,999`.
+`v_200k_s10`: 19 windows, `MAX(window_start) = 180 s`, `COUNT(*) = 1,900`, `SUM(n) = 189,999`.
+If `v_200k_s10` shows 13 distinct `window_start` values, the reported defect reproduces and the
+deficit is `19 − 13 = 6` windows = 60,000 rows; record the highest `window_start` actually served,
+because that is the row number at which whatever froze, froze.
+**Vacuity:** ROWS IN must reach exactly 200,000 for both. If it stops short, the defect is in ingest
+and the window count is a consequence; if it reaches 200,000 and the window count is short, the
+defect is downstream of ingest. Distinguishing the two is the whole point of watching ROWS IN, and
+round 1's version of this case did not.
+
+### WIN-123 — N = 210,000
+**Falsifier:** On `s0`, anything other than 21 windows and `COUNT(*) = 2100`.
+**Setup:** V(210000, 100) on `s0` and `s10`.
+**Steps:** As WIN-122.
+**Expected:** `s0`: 21 windows, `MAX(window_start) = 200 s`, `COUNT(*) = 2,100`, `SUM(n) = 209,999`.
+`s10`: 20 windows, `MAX(window_start) = 190 s`, `COUNT(*) = 2,000`, `SUM(n) = 199,999`. ROWS IN
+210,000 in both.
+**Vacuity:** As WIN-122.
+
+### WIN-124 — N = 220,000
+**Falsifier:** On `s0`, anything other than 22 windows and `COUNT(*) = 2200`.
+**Setup:** V(220000, 100).
+**Expected:** `s0`: 22 windows, `MAX(window_start) = 210 s`, `COUNT(*) = 2,200`, `SUM(n) = 219,999`.
+`s10`: 21 windows, `COUNT(*) = 2,100`, `SUM(n) = 209,999`. This is the midpoint of the reported
+bracket; if the deficit appears anywhere it should appear here.
+**Vacuity:** As WIN-122.
+
+### WIN-125 — N = 230,000
+**Falsifier:** On `s0`, anything other than 23 windows and `COUNT(*) = 2300`.
+**Setup:** V(230000, 100).
+**Expected:** `s0`: 23 windows, `MAX(window_start) = 220 s`, `COUNT(*) = 2,300`, `SUM(n) = 229,999`.
+`s10`: 22 windows, `COUNT(*) = 2,200`, `SUM(n) = 219,999`.
+**Vacuity:** As WIN-122.
+
+### WIN-126 — N = 1,000,000
+**Falsifier:** `COUNT(*) ≠ 10000` or `SUM(n) ≠ 999999` on `s0`.
+**Setup:** V(1000000, 100). The data spans 1,000 seconds of event time in a file read in one pass.
+**Steps:** As WIN-122, plus record peak heap from `/actuator/metrics/jvm.memory.used` and wall time.
+**Expected:** `s0`: 100 windows, `MAX(window_start) = 990 s`, `COUNT(*) = 10,000`,
+`SUM(n) = 999,999`. `s10`: 99 windows, `COUNT(*) = 9,900`, `SUM(n) = 989,999`. State: 100 keys × at
+most 2 live slices = 200 accumulators, nowhere near the 2,000,000 ceiling — so a failure here is not
+the ceiling.
+**Vacuity:** As WIN-122.
+
+### WIN-127 — Windows served is monotonic in N
+**Intent:** The single assertion the whole bracket rests on. Whatever the engine does, serving fewer
+windows for more rows is a defect by inspection, with no reference implementation needed.
+**Falsifier:** `windows(N₁) > windows(N₂)` for any `N₁ < N₂` in the sweep.
+**Setup:** WIN-119 through WIN-126 run in one server session, in ascending N, each registered under
+its own name and left running.
+**Steps:** Read `COUNT(DISTINCT window_start)` from all eight views; tabulate against the reference.
+**Expected:** 0, 0, 10, 20, 21, 22, 23, 100 on `s0` — strictly non-decreasing, and each equal to
+`floor(N / 10,000)`. Any dip is the blocker, and the N at which it dips is its threshold.
+**Vacuity:** All eight ROWS IN values must equal their N. A view that served fewer windows because
+its file was never fully read is not evidence of this defect.
+
+### WIN-128 — The deficit, quantified per N
+**Intent:** Turn "13 where 19 exist" into a measured function of N, so the threshold has a number.
+**Falsifier:** A deficit that is constant in N (which would mean a fixed-size limit, not a
+wrapping one) — record either way, because the shape of the deficit is what identifies the
+mechanism.
+**Setup:** WIN-127's eight views.
+**Steps:** For each, compute `expected − served` for both windows and rows; also record
+`MAX(window_start)` and derive the highest input row that reached a fired window
+(`(MAX(window_start) + 10 s) / 1 ms`).
+**Expected:** All deficits zero if the blocker has been fixed. If not, the table of
+`(N, served windows, highest row reached)` is the deliverable: a **constant** highest-row-reached
+across N ≥ some threshold means ingest stopped at a fixed row and the window count is a consequence;
+a highest-row-reached that keeps rising while the window count falls means the loss is in firing,
+not in ingest. The two mechanisms need different fixes and the current report does not distinguish
+them.
+**Vacuity:** Requires WIN-127's ROWS IN checks; without them "highest row reached" is unattributable.
+
+### WIN-129 — Does ingest actually freeze, and at which row
+**Intent:** "Ingest frozen" is a claim about ROWS IN, not about the view. Test it directly.
+**Falsifier:** ROWS IN reaching N at every volume in the sweep.
+**Setup:** V(230000, 100) on `s0`.
+**Steps:** Poll `pravaha queries` every 500 ms from registration, logging (wall time, ROWS IN) until
+ROWS IN is unchanged for 60 s. Also poll `/actuator/prometheus` for `pravaha.query.rows.in` and
+`pravaha.query.running`, and tail the server log.
+**Expected:** ROWS IN rises to 230,000 and stops. If it plateaus below 230,000, record the exact
+plateau value and repeat the run three times: a **reproducible** plateau at the same row is a
+deterministic limit (an arena, a ring, a ceiling); a plateau that varies run to run is a race or a
+timing-dependent backpressure stall. `Lane.run` catches any `Throwable`, sets `state = FAILED` and
+returns, and nothing polls the lane's state — so a frozen ROWS IN with `pravaha.query.running = 1`
+is the expected presentation of a dead lane.
+**Vacuity:** The control is V(100000, 100) in the same server run, which must reach ROWS IN 100,000.
+A server that ingests nothing is not demonstrating a volume threshold.
+
+### WIN-130 — Is the threshold a row count or a byte count
+**Intent:** A "wrapped signed-32-bit arena offset" is a **byte** limit; 2³¹ bytes over 220,000 rows
+is about 9,760 bytes per row, which no row in dataset V is close to. If the threshold moves when the
+row width changes and the row count does not, it is bytes; if it does not move, it is rows.
+**Falsifier:** The threshold being identical for both widths (that falsifies the byte hypothesis) or
+scaling exactly inversely with width (that falsifies the row hypothesis).
+**Setup:** Two files at the same row count: V(230000, 100) as usual (~30 bytes/row), and
+V-wide(230000, 100) with a 1,000-character `user_id` string — which needs a widened schema
+`txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP` on a fourth stream `swide`.
+**Steps:** Run WIN-129's polling for both; compare the plateau row numbers.
+**Expected:** Record both. Note the arena constraints this bears on: `RowArena` refuses any single
+row larger than `slabBytes` outright ("row of N bytes exceeds the slab size of 4194304"), and
+`WindowAssign` allocates `layout.rowSize(1024)` per row while `WindowedAggregate.emitRow` allocates
+`layout.rowSize(256)` — so a 1,000-character key is within one allocation and the widened file is a
+legitimate test of bytes-per-row at constant rows.
+**Vacuity:** Both files must reach the same ROWS IN if neither hypothesis holds; a control at
+V(100000) for both widths must complete.
+
+### WIN-131 — Does the threshold depend on key cardinality — K = 1
+**Intent:** The brief asks explicitly. K controls the number of accumulators and therefore the arena
+traffic on the emit side, while leaving ingest identical.
+**Falsifier:** The same plateau at every K (which would exonerate cardinality) or a plateau moving
+with K.
+**Setup:** V(220000, 1) — every row is user 1.
+**Steps:** WIN-129's polling; record ROWS IN plateau, `COUNT(*)`, `SUM(n)`.
+**Expected:** 22 windows on `s0`, `COUNT(*) = 22` (one key per window), `SUM(n) = 219,999`. State: 1
+key × ≤2 slices. Emit traffic: 22 result rows for the whole query.
+**Vacuity:** `COUNT(*) = 22` and `SUM(n) = 219,999` together — this is the maximum-collapse
+configuration and `SUM(n)` is the only thing standing between it and round 1's failure.
+
+### WIN-132 — Key cardinality K = 100
+**Setup:** V(220000, 100). **Expected:** WIN-124's values: 22 windows, `COUNT(*) = 2,200`,
+`SUM(n) = 219,999`. Emit traffic 2,200 result rows.
+**Falsifier / Vacuity:** As WIN-131.
+
+### WIN-133 — Key cardinality K = 10⁴
+**Setup:** V(220000, 10000). **Expected:** 22 windows on `s0`. Window 0 holds *i* = 1…9,999 → 9,999
+distinct keys, `n = 1` each; windows 1…21 hold 10,000 distinct keys each, `n = 1` each. So
+`COUNT(*) = 9,999 + 21 × 10,000 = 219,999` — the result row count equals the input row count, which
+is the worst case for emit traffic and for `ServedView` (219,999 keys, under the 1,000,000 ceiling).
+`SUM(n) = 219,999`. State: ≤ 20,000 accumulators.
+**Falsifier:** `COUNT(*) ≠ 219999`.
+**Vacuity:** Here `COUNT(*)` and `SUM(n)` coincide, so they are not independent: add
+`COUNT(DISTINCT window_start) = 22` and `MAX(n) = 1` as the third and fourth assertions.
+
+### WIN-134 — Key cardinality K = 10⁶
+**Setup:** V(220000, 1000000) — `i mod 10⁶ = i` for every row, so every row is a distinct key.
+**Expected:** Identical to WIN-133 in shape: 22 windows, `COUNT(*) = 219,999`, `SUM(n) = 219,999`,
+`MAX(n) = 1`, and `COUNT(DISTINCT user_id) = 219,999`. The difference is the group digest: 219,999
+distinct 128-bit keys, where `SlicedAggregateState` claims a collision probability around 10⁻²⁷.
+A collision would present as two `user_id` values merged into one row with `n = 2` — so
+`MAX(n) = 1` is also the collision assertion.
+**Falsifier:** Any row with `n > 1`, or `COUNT(DISTINCT user_id) < 219,999`.
+**Vacuity:** As WIN-133.
+
+### WIN-135 — Does the threshold depend on the window size
+**Intent:** Window size changes the number of windows walked, the number of `fire` calls, and the
+`emitted` map size, while leaving ingest identical. If the threshold moves with size, the mechanism
+is in firing (WIN-090's nested scan or WIN-065's map growth); if it does not, it is in ingest.
+**Falsifier:** A threshold independent of size (exonerates firing) or proportional to the window
+count (implicates it).
+**Setup:** V(220000, 100) on `s0`, registered four times: `INTERVAL '0.1' SECOND` (2,200 windows),
+`INTERVAL '1' SECOND` (220), `INTERVAL '10' SECOND` (22), `INTERVAL '1' MINUTE` (3).
+**Steps:** WIN-129's polling for each, one at a time in a fresh server so the runs do not interact.
+**Expected:** Reference answers — 0.1 s: `COUNT(*) = 2,200 × 100 = 220,000`… careful: windows are
+`[0, 0.1)` … and window 0 holds *i* = 1…99 so it has 99 keys… restate: for `INTERVAL '0.1' SECOND`
+there are 2,200 windows, each holding 100 rows over 100 keys except the first which holds 99 rows
+over 99 keys, so `COUNT(*) = 99 + 2,199 × 100 = 219,999` and `SUM(n) = 219,999`. For 1 s: 220 windows
+× 100 keys, `COUNT(*) = 22,000`, `SUM(n) = 219,999`. For 10 s: WIN-124. For 1 minute: 3 windows
+(`floor(220 s / 60 s) = 3`), `COUNT(*) = 300`, `SUM(n) = 9,999 + … ` — window `[0,60)` holds
+*i* = 1…59,999, `[60,120)` and `[120,180)` hold 60,000 each, so `SUM(n) = 59,999 + 120,000 =
+179,999`. Record the plateau for each.
+**Vacuity:** Each run must reach ROWS IN 220,000 or the size comparison is comparing failures.
+
+### WIN-136 — Does the threshold depend on hop versus tumble
+**Intent:** A hop multiplies emit traffic by `S/D` without changing ingest at all — the cleanest
+separation of the two sides available.
+**Falsifier:** The same plateau for TUMBLE 10 s and HOP(1 s, 10 s) (exonerates emit) or a plateau
+`S/D` times lower for the hop (implicates it).
+**Setup:** V(220000, 100) on `s0`, registered as TUMBLE 10 s and as HOP(1 s, 10 s).
+**Expected:** TUMBLE: 22 windows, `COUNT(*) = 2,200`, `SUM(n) = 219,999`. HOP(1,10): every row in 10
+windows → `SUM(n) = 2,199,990`; non-empty ends `1 ≤ e ≤ 229` seconds → 229 windows × 100 keys →
+`COUNT(*) = 22,900`. Emit traffic is 10.4× the tumble's. Record both plateaus.
+**Vacuity:** Both must reach ROWS IN 220,000. Also `SUM(n)` for the hop must be exactly ten times
+the tumble's `SUM(n)` plus the boundary correction — `2,199,990` against `219,999` is exactly 10×,
+which is itself a strong check that no row was lost on either side.
+
+### WIN-137 — Which of the four candidate mechanisms it is
+**Intent:** Four things in this engine produce "stops making progress, no error". Distinguish them,
+because the fix differs and the report names only one.
+**Falsifier:** None of the four signatures matching — that would mean a fifth mechanism.
+**Setup:** The N at which WIN-127 dips, from a fresh server, with the server started under
+`-XX:+HeapDumpOnOutOfMemoryError -Xlog:gc` and with `jcmd <pid> Thread.print` taken at the plateau.
+**Steps:** At the plateau, capture: a thread dump; `jvm.memory.used`; the server log; and
+`pravaha queries`.
+**Expected:** Match against these four signatures.
+
+| mechanism | thread dump | log | heap | view |
+|---|---|---|---|---|
+| Arena exhaustion (`WindowAssign` / `emitRow` get `ArenaHandle.NULL`) | no `pravaha-lane-*` thread | `PRV-3001 RUNTIME_ARENA_EXHAUSTED`, "the window assigner's arena is full" — but only if the lane's `Throwable` is logged | flat | frozen |
+| Slice ceiling | no lane thread | `PRV-3020`, naming a key hash | flat | frozen |
+| Window walk (`windowsCompletedBetween` × `fire`'s nested scan, WIN-090) | lane thread **alive**, stack in `SlicedAggregateState.fire` or `SlicedWindows.windowsCompletedBetween` | silent | rising or flat | frozen |
+| Backpressure stall (`IngestPump` paused at the high watermark, never resumed) | lane thread parked in `WaitStrategy.idle` | silent | flat | frozen |
+
+The third is the only one where the lane is alive and busy, and it is the only one where the
+symptom would be "ingest frozen, no error" with no exception anywhere — which is what was reported.
+`Lane.run`'s catch block records the `Throwable` in a field read only by `Lane.failure()`; nothing
+on the server path calls it, so the first two mechanisms are also silent unless the lane logs on the
+way down. Record whether it does.
+**Vacuity:** The thread dump must show `pravaha-lane-*` threads *before* the plateau for the
+"thread gone" signatures to mean anything; take one at ROWS IN ≈ N/2 as the baseline.
+
+### WIN-138 — Lane count is not a variable for a windowed query
+**Intent:** The brief asks whether the blocker depends on lane count. It cannot: every registered
+query runs on exactly one lane, and a windowed aggregate on more than one is refused outright.
+**Falsifier:** A windowed query running on more than one lane, from any surface.
+**Setup:** Read `QueryRegistry.start` — `QueryExecution.start(plan, 1, laneConfig, …)`, the literal 1
+— and `QueryExecution.refuseUnpartitionedAggregate`, whose `containsKeyedAggregate` returns true for
+every `WindowedAggregateOperator` regardless of its group keys.
+**Steps:** Confirm by grep that no configuration key, CLI flag or REST field sets a lane count. Then,
+from the embedded harness, call `QueryExecution.start(windowedPlan, 4, …)`.
+**Expected:** No surface sets lane count. The embedded 4-lane start is refused with `PRV-3020`:
+"this query groups by a key and runs on 4 lanes, and nothing routes a row to the lane that owns its
+group. Every lane would keep its own partial total for a key it happens to see, and emit it — so one
+group comes out as several rows of partial answers, with no error to say so. Partitioning by a
+grouping key is not built…". Conclusion for the blocker: lane count is fixed at 1 and cannot be a
+factor, and the arena in question is therefore the single lane's — `config.arenaSlabBytes()` ×
+`config.arenaMaxSlabs()`, defaulting to 4 MB × 8 = **32 MB**.
+**Vacuity:** Not stateful.
+
+### WIN-139 — What a user is told when it happens
+**Intent:** "With no error" is the most serious half of the report. Enumerate every surface and
+record what each says at the plateau.
+**Falsifier:** Any surface reporting the failure clearly — that would falsify "no error" and is the
+outcome to hope for.
+**Setup:** The plateau state from WIN-129.
+**Steps:** Check all of: `pravaha queries`; `GET /status`; `GET /actuator/prometheus`
+(`pravaha.query.running`, `rows.in`, `view.size`, `watermark.lag.seconds`); `GET /actuator/health`;
+the server log at INFO and at DEBUG; `pravaha subscribe --view <name>`; the process exit code.
+**Expected, predicted from the code:** `pravaha queries` shows `RUNNING` with a frozen ROWS IN —
+`pravaha.query.running` reads `RegisteredQuery.state()`, not `Lane.state()`, so a dead lane is
+invisible to it. `watermark.lag.seconds` rises without bound, which is the **only** moving signal
+and is indistinguishable from a slow source. `view.size` is frozen. The subscription goes quiet. No
+metric exists for lane state, arena usage, live slices, late records or corrections. Health is up.
+Exit code unchanged. If that is what is observed, the defect to file is not the freeze but the
+silence, and the minimum remedy is a `pravaha.query.lane.state` gauge plus logging `Lane.failure()`
+when it is set.
+**Vacuity:** Not stateful; the falsifier is the content of each surface at a known-bad moment.
+
+### WIN-140 — Bisect to the exact threshold row
+**Intent:** Close the bracket. "Between 210k and 230k" is a 20,000-row interval; a defect is
+reproducible when its threshold is a number.
+**Falsifier:** A threshold that does not reproduce across three runs.
+**Setup:** Binary search on N over [the largest N that completes, the smallest that does not] from
+WIN-127, using V(N, 100) on `s0` with TUMBLE 10 s, each run in a fresh server.
+**Steps:** Eight to fifteen runs to a single-row resolution, or to the resolution at which the
+threshold stops being stable; then three repeat runs at `threshold` and at `threshold − 1`.
+**Expected:** A single N at which the last complete run becomes the first incomplete one, reproduced
+three times. Report the threshold row number, the corresponding event time
+(`threshold ms`), the corresponding window index (`floor(threshold / 10,000)`), and the bytes
+ingested to that point — so the next session can check it against 2³¹, against 32 MB (the lane's
+whole arena), and against 4 MB (one slab), which are the three numbers a "wrapped signed-32-bit
+offset" could plausibly be.
+**Vacuity:** Each run must reach ROWS IN = N or plateau reproducibly; a run whose plateau varies is
+excluded from the search and recorded as evidence of a race rather than a limit.

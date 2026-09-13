@@ -318,3 +318,76 @@ Smaller, all pinned as cases: an `Error` rather than a `RuntimeException` cancel
 silently; `boundedOutOfOrderness` does not saturate and can wrap to a far-future watermark; a
 push-only query's windows fire into a sink nothing ever commits; view retention compares a sequence
 number against an event-time horizon when the source stamps no event time.
+
+---
+
+# Incremental correctness and lifecycle — 200 cases, and the deepest defects yet
+
+Two areas authored by reading the code. These reach further than anything found so far, because they
+ask whether the engine implements its own stated model.
+
+## I-1 (BLOCKER) — the served view is not a Z-set
+
+`ServedView.applyValues` is last-write-wins:
+
+```java
+if (weight < 0) { pending.put(key, null); }   // tombstone
+else            { pending.put(key, values); } // upsert
+```
+
+Two consequences, both silent:
+
+- **A weight of 0 is treated as an insert.** A net-zero weight is supposed to remove the key — it is
+  how a retraction and its insert cancel — and instead the row stands.
+- **A single `-1` deletes a key of accumulated weight 2.** The weight is never summed, so a partial
+  retraction removes the whole key.
+
+The engine's entire model is Z-sets with weights, and the surface that serves the answers does not
+implement them. Everything upstream can be right and the view still wrong.
+
+## I-2 (BLOCKER) — a continuously registered global aggregate never emits anything
+
+`GlobalAggregate` and `KeyedAggregate` emit only at end of input. A stream has no end, so
+`SELECT COUNT(*) FROM txn` registered as a continuous query produces **nothing, for ever**, while
+reporting `RUNNING`. Only the windowed path emits during a stream.
+
+## I-3 (HIGH) — key columns are not in the fingerprint
+
+`QueryFingerprint.of(plan, rowFilters)` omits them and the sharing path returns before `start(...)`
+ever sees them. So `--keys 1` and `--keys 0,1` over identical SQL **share one view, keyed as the
+first registrant asked**. The second caller gets a view keyed differently from what they requested,
+with no error. The same path also skips the key-ordinal bounds check and discards the second
+registrant's retention setting.
+
+## I-4 (HIGH) — `COUNT(DISTINCT <string>)` in a window counts byte lengths
+
+`WindowedAggregate.process` calls `row.getLong(ordinal)` on a variable-width column, which reads the
+packed `(offset, length)` word rather than a value. The offset is constant per schema, so the answer
+is a function of string length. This is the mechanism behind "windowed `COUNT(DISTINCT)` always
+returns 1" — and it is the shape the documentation recommends as the bounded alternative.
+
+## I-5 (HIGH) — a window key that nets to zero is never withdrawn
+
+`emitWindow` retracts a key whose values changed and silently forgets one that has disappeared from
+`state.fire()`. The stale row stands for ever, and no counter records it.
+
+## I-6 (HIGH) — three of the four read-consistency modes never leave the client
+
+`ViewQuery.run` reads `view.scan()` — committed state only — and stamps `writer.weight(1L)`.
+`ServedView.get(Consistency, …)` has no transport caller at all. The Java SDK stores
+`ClientOptions.defaultConsistency`, offers a getter, and references it nowhere else. `Latest`,
+`AtLeast` and `AsOf` are API surface with no implementation behind them.
+
+## Two more of mine
+
+- **`requireName` checks the regex before the null check.** I inserted `requireSayableName(name)` at
+  the top, so a null name now throws a bare `NullPointerException` from `name.matches(...)` instead
+  of the message two lines below it.
+- **`deleteCheckpointsOf` uses the dropped name; `startCheckpointing` used the first registrant's.**
+  For a shared computation these differ, so the drop deletes nothing and orphans a directory. Both
+  are from today's remediation.
+
+Smaller, all pinned: pausing one name of a shared computation pauses every name; a restart silently
+un-pauses a paused query; only the Delta plugin can emit a negative weight at all, so retraction is
+untestable through four of five sources; and `streamSubscription` prints `SRVDBG` debug lines to
+stdout on every subscription and every batch.
