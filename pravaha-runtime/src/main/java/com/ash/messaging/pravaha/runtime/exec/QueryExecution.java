@@ -823,6 +823,9 @@ public final class QueryExecution implements AutoCloseable {
                 // copied, which is the entire reason the inbox holds bytes rather than objects.
                 pipeline.accept(stream, view.wrap(region, (int) offsets[i]));
             }
+            // The batch is done and everything it produced has been pushed downstream, so the rows
+            // this pipeline allocated are unreachable. Without this the arena only ever grew.
+            pipeline.resetArena();
             return count;
         }
 

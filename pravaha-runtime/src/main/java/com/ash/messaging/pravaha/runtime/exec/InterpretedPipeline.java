@@ -494,6 +494,27 @@ public final class InterpretedPipeline implements AutoCloseable {
         return arena;
     }
 
+    /**
+     * Reclaims the rows this pipeline allocated while processing a batch.
+     *
+     * <p>Every stage that produces a row -- project, compute, aggregate, join output -- allocates it
+     * here and pushes it downstream within the same call, so once a batch has been processed none of
+     * that memory is reachable. Nothing ever reclaimed it: this arena is created in {@code compile}
+     * and the lane resets a different one, so a query accumulated its own output until the arena was
+     * exhausted. Measured at 933,033 rows for a projection and 600,129 for a wider one -- 64 MiB
+     * either way -- after which the lane died and the query went on reporting RUNNING.
+     *
+     * <p>Safe at a batch boundary and nowhere else. Anything that must outlive a batch already
+     * copies: the join keeps its own region, the lookup join parks records in a separate one, and
+     * {@code LookupJoin}'s own javadoc describes this arena as the one "which rewinds at the end of
+     * every batch" -- which it did not.
+     */
+    public void resetArena() {
+        if (!abandoned) {
+            arena.reset();
+        }
+    }
+
     @Override
     public void close() {
         joins.forEach(SymmetricHashJoin::close);

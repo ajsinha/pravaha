@@ -28,6 +28,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
+import com.ash.messaging.pravaha.registry.QueryState;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.registry.SourceFeed;
 import com.ash.messaging.pravaha.security.Principal;
@@ -324,6 +325,47 @@ class PluginSourceFeedsTest {
             assertThat(rows.stream().map(r -> r[0]).toList())
                     .as("bob inserted then retracted must not be in the view")
                     .containsExactlyInAnyOrder("ann", "cat");
+        }
+    }
+
+    @Test
+    void aQuerySurvivesPastTheArenaThatUsedToKillIt(@TempDir Path dir) throws Exception {
+        // InterpretedPipeline.compile allocated its own RowArena and nothing ever reset it -- the
+        // lane resets a different one. Every stage that produces a row allocates there, so a query
+        // accumulated its own output until the arena was exhausted: measured at 933,033 rows for a
+        // projection. The lane then died and the query went on reporting RUNNING.
+        //
+        // 1.2M rows is past that ceiling with room to spare. Keyed on user_id -- 100 distinct
+        // values -- deliberately: this asserts rowsIn, which counts ingestion and is exactly what
+        // stops when the arena dies. Keying on the id instead would put 1.2M keys in the view and
+        // trip its million-key ceiling, which is a different and legitimate limit.
+        int rows = 1_200_000;
+        Path data = dir.resolve("long.csv");
+        StringBuilder csv = new StringBuilder(rows * 24);
+        for (int i = 0; i < rows; i++) {
+            csv.append(i).append(",user").append(i % 100).append(',').append(i).append('\n');
+        }
+        Files.writeString(data, csv);
+
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding("txn", "filesystem", Map.of("path", data.toString(), "schema", SCHEMA_SPEC)));
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, TXN).feedingFrom(feeds)) {
+            RegisteredQuery query =
+                    registry.register("long_run", "SELECT user_id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
+
+            long deadline = System.nanoTime() + java.time.Duration.ofMinutes(3).toNanos();
+            while (System.nanoTime() < deadline && query.rowsIn() < rows) {
+                Thread.sleep(50);
+            }
+
+            assertThat(query.state())
+                    .as("a lane that died used to leave this reporting RUNNING")
+                    .isEqualTo(QueryState.RUNNING);
+            assertThat(query.rowsIn())
+                    .as("every row must arrive; the arena used to run out around 933,000")
+                    .isEqualTo(rows);
         }
     }
 
