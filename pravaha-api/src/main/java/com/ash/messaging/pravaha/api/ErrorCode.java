@@ -42,8 +42,10 @@ public record ErrorCode(int number, String name) {
         RUNTIME(3000, 3999),
         STATE(4000, 4999),
         PLUGIN(5000, 5999),
-        CLUSTER(6000, 6999),
-        SECURITY(7000, 7999);
+        FLIGHT(6000, 6999),
+        SECURITY(7000, 7999),
+        REGISTRY(8000, 8999),
+        CLUSTER(9000, 9999);
 
         private final int lo;
         private final int hi;

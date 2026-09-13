@@ -537,8 +537,6 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             CountDownLatch finished = new CountDownLatch(1);
 
             try (VectorSchemaRoot root = VectorSchemaRoot.create(arrow, allocator)) {
-                System.out.println(
-                        "SRVDBG starting subscription on " + viewName + " identity=" + System.identityHashCode(query));
                 listener.start(root);
                 listener.setOnCancelHandler(finished::countDown);
                 try (Subscription subscription = query.subscribe(SubscriptionOptions.DEFAULT, filter, changes -> {
@@ -557,8 +555,6 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         List<com.ash.messaging.pravaha.serving.ViewChange> batch =
                                 handover.poll(200, TimeUnit.MILLISECONDS);
                         if (batch != null && !batch.isEmpty()) {
-                            System.out.println(
-                                    "SRVDBG " + System.currentTimeMillis() % 100000 + " writing " + batch.size());
                             writeBatch(listener, root, schema, batch);
                         }
                     }

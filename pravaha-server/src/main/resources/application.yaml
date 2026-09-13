@@ -32,6 +32,15 @@ management:
       # is merely still restoring state (design 26.2).
       probes:
         enabled: true
+      # The engine indicator has to be IN the readiness group, or the probe an orchestrator actually
+      # polls is not the one that knows whether this node can serve a client. A node with Flight
+      # disabled reported UP on all three until the indicator existed, and would have gone on
+      # reporting ready without this line.
+      group:
+        readiness:
+          include: readinessState,engine
+        liveness:
+          include: livenessState
       show-details: when-authorized
 
 springdoc:

@@ -65,7 +65,11 @@ public class ApiExceptionHandler {
         return switch (code.category()) {
             case CONFIGURATION, PLANNING -> HttpStatus.BAD_REQUEST;
             case SECURITY -> HttpStatus.FORBIDDEN;
-            case PLUGIN, RUNTIME, STATE, CLUSTER -> HttpStatus.INTERNAL_SERVER_ERROR;
+            // REGISTRY is the caller's: a name already in use, no such query, an illegal transition.
+            // These were previously unreachable here -- 8xxx had no category, so category() threw
+            // IllegalStateException from inside this very handler while it built an error response.
+            case REGISTRY -> HttpStatus.BAD_REQUEST;
+            case PLUGIN, RUNTIME, STATE, CLUSTER, FLIGHT -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }
 }

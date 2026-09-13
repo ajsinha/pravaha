@@ -20,6 +20,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ErrorCodeTest {
@@ -39,8 +40,10 @@ class ErrorCodeTest {
         assertThat(new ErrorCode(3999, "x").category()).isEqualTo(ErrorCode.Category.RUNTIME);
         assertThat(new ErrorCode(4000, "x").category()).isEqualTo(ErrorCode.Category.STATE);
         assertThat(new ErrorCode(5500, "x").category()).isEqualTo(ErrorCode.Category.PLUGIN);
-        assertThat(new ErrorCode(6001, "x").category()).isEqualTo(ErrorCode.Category.CLUSTER);
+        assertThat(new ErrorCode(6001, "x").category()).isEqualTo(ErrorCode.Category.FLIGHT);
         assertThat(new ErrorCode(7001, "x").category()).isEqualTo(ErrorCode.Category.SECURITY);
+        assertThat(new ErrorCode(8500, "x").category()).isEqualTo(ErrorCode.Category.REGISTRY);
+        assertThat(new ErrorCode(9001, "x").category()).isEqualTo(ErrorCode.Category.CLUSTER);
     }
 
     @ParameterizedTest
@@ -57,8 +60,17 @@ class ErrorCodeTest {
     }
 
     @Test
-    void codeOutsideEveryRangeHasNoCategory() {
-        assertThatThrownBy(() -> new ErrorCode(8500, "x").category()).isInstanceOf(IllegalStateException.class);
+    void everyCodeTheConstructorAcceptsHasACategory() {
+        // This test used to assert the opposite for 8500, which is how the defect was encoded: the
+        // enum claimed CLUSTER for the Flight range and covered neither 8xxx nor 9xxx, so
+        // ErrorCode.category() threw IllegalStateException for every registry and cluster code --
+        // from inside ApiExceptionHandler, while it was building an error response.
+        for (int number = 1000; number <= 9999; number++) {
+            int code = number;
+            assertThatCode(() -> new ErrorCode(code, "x").category())
+                    .as("PRV-%d is constructible and must belong to a subsystem", code)
+                    .doesNotThrowAnyException();
+        }
     }
 
     @Test

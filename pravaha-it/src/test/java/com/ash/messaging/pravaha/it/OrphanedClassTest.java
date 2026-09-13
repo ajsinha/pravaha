@@ -67,6 +67,7 @@ class OrphanedClassTest {
             Map.entry("StreamController", "Spring @RestController"),
             Map.entry("PravahaMetrics", "Spring @Component"),
             Map.entry("EngineHealthIndicator", "Spring @Component, contributed to /actuator/health"),
+            Map.entry("ApiExceptionHandler", "Spring @RestControllerAdvice"),
             // JMH generates the harness that calls these.
             Map.entry("FalseSharingBenchmark", "JMH harness"),
             Map.entry("MemoryAccessBenchmark", "JMH harness"),

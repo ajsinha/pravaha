@@ -108,7 +108,25 @@ public class SecurityProperties {
 
     /** Whether callers must present a credential. */
     public boolean authenticates() {
-        return "token".equalsIgnoreCase(authentication);
+        return "token".equalsIgnoreCase(trimmedAuthentication());
+    }
+
+    /**
+     * The configured value, validated.
+     *
+     * <p>An authentication setting that fails open on a typo is worse than no setting at all:
+     * "tokens", "basic" and "token " all silently meant `none`, so a deployment that believed it had
+     * switched authentication on had switched nothing on. The neighbouring `policy` key trims and
+     * refuses; this one did neither.
+     */
+    private String trimmedAuthentication() {
+        String value = authentication == null ? "none" : authentication.trim();
+        if (!value.equalsIgnoreCase("none") && !value.equalsIgnoreCase("token")) {
+            throw new IllegalArgumentException("pravaha.security.authentication is '" + authentication
+                    + "'; the values are 'none' and 'token'. A misspelling here would otherwise mean "
+                    + "'none', so a node that looked authenticated would accept every caller.");
+        }
+        return value;
     }
 
     /**

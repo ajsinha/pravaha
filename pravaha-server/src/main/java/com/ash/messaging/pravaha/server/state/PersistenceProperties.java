@@ -76,6 +76,9 @@ public class PersistenceProperties {
         return Configuration.builder()
                 .set("pravaha.checkpoint.interval", checkpoint.interval.toNanos() + "ns")
                 .set("pravaha.checkpoint.keep", String.valueOf(checkpoint.keep))
+                // PeriodicCheckpointer.from reads three keys; this wrote two, so the timeout it
+                // documents was bound to nothing.
+                .set("pravaha.checkpoint.timeout", checkpoint.timeout.toNanos() + "ns")
                 .build();
     }
 
@@ -103,6 +106,15 @@ public class PersistenceProperties {
         private String directory = "";
         private Duration interval = Duration.ofMinutes(1);
         private int keep = 3;
+        private Duration timeout = Duration.ofSeconds(30);
+
+        public Duration getTimeout() {
+            return timeout;
+        }
+
+        public void setTimeout(Duration timeout) {
+            this.timeout = timeout;
+        }
 
         public String getDirectory() {
             return directory;

@@ -121,12 +121,15 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
         // timestamp, path} gave clients two error shapes to parse -- and a client that has to parse
         // two will handle one of them badly, which is the thing this codebase says three times it
         // will not do.
+        // Exactly ApiError's fields, and no more. My first version added the four ApiError carries
+        // on top of a "status" that it does not, so the surface every unauthenticated client meets
+        // first was the one place a strict parser saw a sixth field. It also emitted PRV-0400, a
+        // code the ErrorCode constructor would reject.
         response.getWriter()
                 .write("{\"code\":\"PRV-7001\""
                         + ",\"message\":\"" + reason.replace("\"", "'") + "\""
                         + ",\"helpUrl\":\"" + HELP_URL + "\""
                         + ",\"timestamp\":\"" + java.time.Instant.now() + "\""
-                        + ",\"path\":\"" + String.valueOf(path).replace("\"", "'") + "\""
-                        + ",\"status\":401}");
+                        + ",\"path\":\"" + String.valueOf(path).replace("\"", "'") + "\"}");
     }
 }

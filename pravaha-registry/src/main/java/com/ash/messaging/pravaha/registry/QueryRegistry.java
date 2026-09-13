@@ -718,7 +718,10 @@ public final class QueryRegistry implements AutoCloseable {
             // once nothing holds this one open they are state outliving its owner, and they
             // accumulate for the life of the deployment -- 52 directories for 2 live queries, in a
             // QA run of 50 register/drop cycles.
-            deleteCheckpointsOf(name);
+            // The name the checkpointer was STARTED with, not the one being dropped. For a shared
+            // computation those differ, so deleting by the dropped name removed nothing and left the
+            // directory orphaned. Both are mine, from the same change.
+            deleteCheckpointsOf(query.name());
         }
         // The journal entry was written before anything was released: a drop the client is told
         // failed must not have destroyed the computation, and a drop that succeeded must survive a
@@ -765,10 +768,12 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     private void requireName(String name) {
-        requireSayableName(name);
+        // The null check first. I added requireSayableName above it, so a null name threw a bare
+        // NullPointerException out of name.matches() instead of the message two lines down.
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("a registration needs a name");
         }
+        requireSayableName(name);
         if (byName.containsKey(name)) {
             throw new PravahaException(
                     RegistryErrors.NAME_IN_USE,

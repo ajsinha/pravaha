@@ -160,7 +160,11 @@ public class PravahaNode implements SmartLifecycle {
      * refusal is of running open <em>by default</em>, which is the only version of it nobody chose.
      */
     private void refuseAccidentalOpenServer() {
-        boolean open = !security.authenticates() && !(securityPolicy() instanceof AuthenticatedOnlyPolicy);
+        // An open server is one that serves data to callers it has not identified. That is true
+        // whenever the policy admits anonymous callers, regardless of whether a token mechanism also
+        // exists -- my first version required authentication to be off entirely, which made
+        // allow-anonymous silently dead on exactly the configuration a team reaches by hardening dev.
+        boolean open = !(securityPolicy() instanceof AuthenticatedOnlyPolicy);
         if (open && !security.isAllowAnonymous()) {
             throw new PravahaException(
                     SecurityErrors.FORBIDDEN,
