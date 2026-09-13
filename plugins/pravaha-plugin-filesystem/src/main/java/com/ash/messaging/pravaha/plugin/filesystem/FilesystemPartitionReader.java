@@ -43,7 +43,15 @@ final class FilesystemPartitionReader implements PartitionReader {
     private boolean paused;
     private boolean exhausted;
 
-    FilesystemPartitionReader(Path path, DelimitedCodec codec, boolean skipHeader, SourceOffset resumeFrom) {
+    private final java.util.Set<String> deleteMarkers;
+
+    FilesystemPartitionReader(
+            Path path,
+            DelimitedCodec codec,
+            boolean skipHeader,
+            SourceOffset resumeFrom,
+            java.util.Set<String> deleteMarkers) {
+        this.deleteMarkers = deleteMarkers == null ? java.util.Set.of() : deleteMarkers;
         this.codec = codec;
         try {
             this.reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
@@ -93,8 +101,15 @@ final class FilesystemPartitionReader implements PartitionReader {
                     if (eventTime != Long.MIN_VALUE) {
                         writer.eventTimestampNanos(eventTime);
                     }
-                    // A file is an append-only log of insertions: every row is +1.
-                    writer.rowKind(RowKind.INSERT).sequence(lineNumber).commit();
+                    // A file is an append-only log of insertions *unless* it names an operation
+                    // column. With one, a row can retract what an earlier row inserted, which is
+                    // what makes the engine's Z-set model reachable from a configured source at all.
+                    String operation = codec.lastOperation();
+                    boolean retraction = operation != null && deleteMarkers.contains(operation.strip());
+                    writer.rowKind(retraction ? RowKind.DELETE : RowKind.INSERT)
+                            .weight(retraction ? -1L : 1L)
+                            .sequence(lineNumber)
+                            .commit();
                     produced++;
                 } catch (RuntimeException e) {
                     // One malformed line must not cost the batch. The engine's DLQ handles the

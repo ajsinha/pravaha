@@ -80,9 +80,22 @@ final class DelimitedCodec {
     }
 
     private long lastEventTimeNanos = Long.MIN_VALUE;
+    private String lastOpValue;
+    private int opOrdinal = -1;
+
+    /** Names the column whose value says whether a row is an insertion or a retraction. */
+    void markOperationColumn(String columnName) {
+        this.opOrdinal = columnName == null || columnName.isBlank() ? -1 : schema.indexOf(columnName);
+    }
+
+    /** The operation column's value for the row just decoded, or null when there is no such column. */
+    String lastOperation() {
+        return lastOpValue;
+    }
 
     void decode(String line, long lineNumber, RowWriter writer) {
         lastEventTimeNanos = Long.MIN_VALUE;
+        lastOpValue = null;
         List<String> fields = split(line, delimiter);
         if (fields.size() != schema.fieldCount()) {
             throw new ConfigurationException(
@@ -127,7 +140,12 @@ final class DelimitedCodec {
                 }
                 case FLOAT32 -> writer.setFloat(ordinal, Float.parseFloat(raw));
                 case FLOAT64 -> writer.setDouble(ordinal, Double.parseDouble(raw));
-                case STRING -> writer.setString(ordinal, raw);
+                case STRING -> {
+                    writer.setString(ordinal, raw);
+                    if (ordinal == opOrdinal) {
+                        lastOpValue = raw;
+                    }
+                }
                 case BYTES -> writer.setBytes(ordinal, raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 default ->
                     throw new ConfigurationException(

@@ -282,6 +282,51 @@ class PluginSourceFeedsTest {
         }
     }
 
+    @Test
+    void aSourceCanRetractWhatItInserted(@TempDir Path dir) throws Exception {
+        // The blocker under every Z-set defect. Four of five plugins hard-coded weight +1 and the
+        // schema grammar had no operation column, so no configured source could deliver a negative
+        // weight -- and the whole retraction model was unreachable from a real deployment. Every
+        // defect in it survived because nobody could get a retraction in to find one.
+        Path data = dir.resolve("ops.csv");
+        Files.writeString(data, "1,ann,100,I\n2,bob,250,I\n3,cat,50,I\n2,bob,250,D\n");
+
+        StreamSchema opSchema = StreamSchema.builder("txn")
+                .field("id", Types.int64())
+                .field("user_id", Types.string())
+                .field("amount", Types.int64())
+                .field("op", Types.string())
+                .build();
+
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding(
+                        "txn",
+                        "filesystem",
+                        Map.of(
+                                "path", data.toString(),
+                                "schema", "id:INT64,user_id:STRING,amount:INT64,op:STRING",
+                                "op.column", "op")));
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, opSchema).feedingFrom(feeds)) {
+            RegisteredQuery query =
+                    registry.register("live", "SELECT user_id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
+
+            awaitRows(query, 4);
+            // Three inserted, one retracted, so two survive: ann and cat. bob's insert and his
+            // retraction cancel, which is the whole point.
+            awaitView(views, "SELECT user_id, amount FROM live", 2);
+
+            List<Object[]> rows = new com.ash.messaging.pravaha.serving.ViewQuery(views)
+                    .execute("SELECT user_id FROM live")
+                    .rows();
+            assertThat(rows).hasSize(2);
+            assertThat(rows.stream().map(r -> r[0]).toList())
+                    .as("bob inserted then retracted must not be in the view")
+                    .containsExactlyInAnyOrder("ann", "cat");
+        }
+    }
+
     /** Waits for a view to hold {@code expected} rows, or fails saying what it held. */
     private static void awaitView(ViewCatalog views, String sql, int expected) throws InterruptedException {
         com.ash.messaging.pravaha.serving.ViewQuery reader = new com.ash.messaging.pravaha.serving.ViewQuery(views);

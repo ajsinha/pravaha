@@ -54,6 +54,8 @@ import com.ash.messaging.pravaha.api.plugin.Version;
 public final class FilesystemSourcePlugin implements StreamSourcePlugin {
 
     private Path path;
+    private String opColumn = "";
+    private java.util.Set<String> deleteMarkers = java.util.Set.of();
     private StreamSchema schema;
     private char delimiter;
     private String nullLiteral;
@@ -82,6 +84,15 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
         // when the engine's own copy of the schema knew better. A watermark derived from zero never
         // reaches a window in the present, which is why a windowed query ingested every row and
         // emitted nothing.
+        // Which column says whether a row is an insertion or a retraction, if any does.
+        //
+        // Without this no configurable source could deliver a negative weight: four of five plugins
+        // hard-code +1 and the name:TYPE grammar has no operation column. The whole Z-set model --
+        // retraction, update as retract-plus-insert, a weight netting to zero -- had no route into a
+        // configured deployment, which is why every defect in it survived so long.
+        this.opColumn = context.get("op.column", "");
+        this.deleteMarkers = java.util.Set.of(
+                context.get("op.delete.values", "D,DELETE,-,-1").split(","));
         String eventTime = context.get("event.time", "");
         if (!eventTime.isBlank()) {
             if (!parsed.hasField(eventTime)) {
@@ -200,8 +211,9 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
 
     @Override
     public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
-        return new FilesystemPartitionReader(
-                path, new DelimitedCodec(schema, delimiter, nullLiteral), skipHeader, resumeFrom);
+        DelimitedCodec codec = new DelimitedCodec(schema, delimiter, nullLiteral);
+        codec.markOperationColumn(opColumn);
+        return new FilesystemPartitionReader(path, codec, skipHeader, resumeFrom, deleteMarkers);
     }
 
     StreamSchema schema() {
