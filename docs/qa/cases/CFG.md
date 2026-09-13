@@ -1615,7 +1615,7 @@ and none of the answers"*.
 feeding**, `pravaha queries` and `pravaha query --sql "SELECT * FROM QW"`.
 **Expected:** `pravaha queries` → **1** query, RUNNING. The view → **0 rows**. The WARN at
 `PravahaNode.java:363-365` fired at startup. Then feed `txnA.csv` again and confirm the canonical
-three rows return — the warm-up, not an outage, that `OPERATIONS.md:378-381` describes.
+three rows return — the warm-up, not an outage, that `OPERATIONS.md:367-369` describes.
 **Vacuity:** the read happens **before** any row is fed, so a pass cannot come from re-ingestion.
 
 ## CFG-095 — checkpoint set, journal unset
@@ -1662,7 +1662,7 @@ the next restart of both. Confirm by restarting one.
 **Setup:** journal set and working; after one successful registration, `chmod 400` the journal file.
 **Steps:** register a second query.
 **Expected:** `PRV-8006 REGISTRY_JOURNAL_UNWRITABLE` and **the registration refused** —
-`OPERATIONS.md:387` states acknowledging one that will not survive a restart tells the client
+`OPERATIONS.md:379` states acknowledging one that will not survive a restart tells the client
 something untrue. Confirm `pravaha queries` then shows **1**, not 2. Then `chmod 600` and register
 again: it must succeed, with no residue from the failed attempt.
 **Vacuity:** the count is read after the failure, so a pass requires the refusal to have been total

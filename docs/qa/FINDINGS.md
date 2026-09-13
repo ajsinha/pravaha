@@ -613,3 +613,60 @@ present as unrelated failures.
 The budget is short by about a third — the honest cost of this grid is ~215 cases — and the largest
 untested area is **the code-generated path**, which shares the IR but not the interpreter and would
 pass every case in this file while disagreeing on a narrow integer or on `-0.0`.
+
+---
+
+# API surfaces — 180 cases across CLI, REST and Flight
+
+## P-1 (HIGH) — REST authenticates and never authorizes
+
+Any valid token, from any tenant, reads and writes everything on the HTTP surface. The
+`SecurityPolicy` is consulted by no controller. Earlier this was recorded as partially closed because
+the contradictory configuration is now refused at startup; that closed one hole and left this one.
+
+## P-2 (HIGH) — the listing filter is bypassed on the subscribe path
+
+`pravaha.list` filters by `mayRead`, and three error paths undo it: `PRV-8002`, `PRV-2002` and
+`PRV-4023` all enumerate every view. Worse, **on subscribe `require()` runs before `mayRead`**, so a
+principal whose listing correctly shows nothing is handed every query name by asking for one that
+does not exist.
+
+`drop` is the contrast that proves the mechanism is available: it authorizes first and leaks nothing.
+
+## P-3 (HIGH) — `--token` over `grpc://` ships a bearer token in clear text, silently
+
+`allowInsecureToken` is set by the CLI and enforced by nothing. No warning, no refusal.
+
+## P-4 — no command has help, and one of them makes a network call to say so
+
+`--help` is parsed as a bare flag: six commands report a missing required option, `queries --help`
+**dials the network**, and `version --help` prints the version. There is no way to discover a
+command's flags from the binary.
+
+## P-5 — the API contract has drifted from its own lock file
+
+`POST /api/v1/streams` returns **201** where `openapi.lock.json` records 200. An unknown stream is
+**400, not 404**, and its message enumerates every stream. A malformed schema spec surfaces as
+`PRV-5040 → PLUGIN → HTTP 500` — a caller's typo reported as a server fault.
+
+**Three error shapes reach a strict client**, not one: `ApiError`; my 401, which carries a sixth
+field (`status`) that `ApiError` does not and is still built by string concatenation; and framework
+failures (404/405/415, malformed JSON), which are not `ApiError` at all. The codebase states three
+times that it will not have two error shapes.
+
+## P-6 — Flight is unusable from a SQL client
+
+`getSchema` is `UNIMPLEMENTED` while `getFlightInfo` returns a schema. Every Flight SQL metadata
+command's `getFlightInfo` succeeds and its `getStream` throws `Not implemented.`, so any IDE that
+calls `getTables` first cannot connect. Arrow marks **every** field nullable while REST reports
+`nullable: false` for the same column. `drop`/`pause`/`resume` with an empty body reach the client as
+`INTERNAL` with an array index in the message.
+
+## P-7 — the smallest one, and it ships
+
+`pravaha pause` prints **`pauseped`** and `resume` prints **`resumeped`** — the code is
+`action + "ped"`.
+
+Also: `--lanes` is documented in `QueryRunner`'s javadoc and read by nothing; and QUICKSTART §2's
+`pravaha run` cannot work as written — no `--out-schema`, and a two-field schema against a
+four-column file.

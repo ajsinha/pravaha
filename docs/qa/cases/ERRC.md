@@ -74,14 +74,14 @@ The code under test is `pravaha-api/.../ErrorCode.java` (the record, the `Catego
     - **a configuration value is not a name this node knows** — `PravahaNode.java:290` (policy),
       `:310` (audit);
     - **the two policy holders disagree** — `PravahaFlightServer.java:202` (`requireOnePolicy`).
-    `TROUBLESHOOTING.md:76-82` documents exactly one of these four: *"Authenticated, not authorized
+    `TROUBLESHOOTING.md:73-81` documents exactly one of these four: *"Authenticated, not authorized
     — ask for access; a new credential will not help."* Advice which, for a node that refused to
     start because `pravaha.security.audit` was set to `log`, is wrong in every word.
 11. **`ErrorCode` refuses a number outside 1000–9999 and a blank name**
     (`ErrorCode.java:29-36`). `helpUrl()` is `https://docs.pravaha.io/errors/PRV-nnnn`
     (`ErrorCode.java:27,77-79`) for **all 110**, including the ten that are not documented and the
     nine that cannot be thrown.
-12. `FlightErrors` maps Pravaha failures onto Flight statuses; `TROUBLESHOOTING.md:87-89` states
+12. `FlightErrors` maps Pravaha failures onto Flight statuses; `TROUBLESHOOTING.md:89-94` states
     that `PRV-4026`/`4027`/`4028` all arrive at a client as `RESOURCE_EXHAUSTED` so a driver retries
     them rather than giving up. That mapping is a claim this file checks per code, not once.
 
@@ -381,7 +381,7 @@ have completely different remedies. E4: documented.
 **Setup:** `ORDER BY`, `LIMIT`, `UNION`, an outer join between two streams, and five more chosen to
 hit distinct sites.
 **Expected:** `PRV-2020` each time. E3: the message must name the operator **and** point at
-`SQL_SUPPORT.md`, which `TROUBLESHOOTING.md:50-58` says is checked by a test and therefore true
+`SQL_SUPPORT.md`, which `TROUBLESHOOTING.md:52-62` says is checked by a test and therefore true
 rather than aspirational. Confirm the pointer exists in the message, not only in the document.
 E4: documented.
 **Coverage note for this case:** twenty-four sites and one code. `SQLX` (190 cases) owns which
@@ -392,7 +392,7 @@ duplicate `SQLX` here.
 **Reached through:** nineteen sites across `ExpressionCompiler`, `PredicateCompiler` and
 `Constant.java:72`.
 **Falsifier:** the message names a function the user did not type and says nothing about why.
-**Setup:** `SELECT SQRT(amount) FROM txn` — `TROUBLESHOOTING.md:53-56` states Calcite rewrites this
+**Setup:** `SELECT SQRT(amount) FROM txn` — `TROUBLESHOOTING.md:57-59` states Calcite rewrites this
 to `POWER(x, 0.5)` before the engine reads it, so **the refusal names `POWER` for SQL containing
 `SQRT`**. Also `DECIMAL` arithmetic and three functions the engine does not have.
 **Expected:** `PRV-2021`. **E3 is the case:** the message must either name the function the user
@@ -413,7 +413,7 @@ it turns out to be unreachable from any surface, that is worth saying loudly. E4
 **Reached through:** `PhysicalPlanBuilder.java:782,811`.
 **Falsifier:** `GROUP BY user_id` with no window is accepted against a stream.
 **Setup:** `SELECT usr, SUM(amount) FROM txn GROUP BY usr` (refused); the same SQL against a
-**view** (allowed — `TROUBLESHOOTING.md:44-47`); and the windowed form `QW` (allowed).
+**view** (allowed — `TROUBLESHOOTING.md:48-50`); and the windowed form `QW` (allowed).
 **Expected:** `PRV-2050` for the first only. E3: the message must explain the *time* dimension —
 that it does not fail on the day you deploy it — and offer the windowed rewrite.
 `TROUBLESHOOTING.md:34-48` gives the full rewrite; check how much of it is in the message.
@@ -425,7 +425,7 @@ pass the first assertion and fail these. E4: documented, at length, and correctl
 **Setup:** register `SELECT * FROM txn WHERE usr = ?` with no bound value; via CLI and via Flight
 prepared statement.
 **Falsifier:** an unbound parameter becomes `NULL` and the query matches nothing —
-`TROUBLESHOOTING.md:120-122` warns that `= NULL` matches no rows, which is exactly how this failure
+`TROUBLESHOOTING.md:118-119` warns that `= NULL` matches no rows, which is exactly how this failure
 would hide.
 **Expected:** `PRV-2060`, E3 naming the ordinal. E4: documented.
 **Vacuity:** confirm the same query **with** the parameter bound returns rows, so "no rows" is not
@@ -460,7 +460,7 @@ parameter may stand for a value and not for an identifier or a table. E4: docume
 raise `arena.slab.size`, which is not a configuration key (CFG-048). A message naming an
 inapplicable remedy is worse than one naming none, because the operator spends the afternoon looking.
 Record each of the nine messages verbatim and mark which name `arena.slab.size`. E4: documented,
-with `TROUBLESHOOTING.md:141` saying *"usually a batch far larger than expected"* — which is a cause
+with `TROUBLESHOOTING.md:142` saying *"usually a batch far larger than expected"* — which is a cause
 and not a remedy, and does not mention that the remedy the message names does not exist.
 **Vacuity:** the query must actually exceed the ceiling; compute `512 × width` and show it exceeds
 `8 × 4194304` before running.
@@ -548,7 +548,7 @@ refusal is attributable to size.
 `HEADER_BYTES = 16`, so a row wider than `64 − 16 = 48` bytes will not fit a minimum block.
 **Expected:** `PRV-4001`. E3: `RowStore.java:117-119` says *"raise state.slab.size for this query"*
 — **and `state.slab.size` is not a key (CFG-049)**, so E3(b) fails exactly as ERRC-030 does.
-E4: documented at `TROUBLESHOOTING.md:139` as *"An operator's state passed its ceiling"* — a
+E4: documented at `TROUBLESHOOTING.md:141` as *"An operator's state passed its ceiling"* — a
 restatement of the name, with no remedy. **Both the message and the document fail to give an
 applicable action.**
 
@@ -630,7 +630,7 @@ fires immediately is a different bug wearing this code.
 **Reached through:** `ServedView.java:235`.
 **Falsifier:** a view grows past its ceiling silently.
 **Setup:** an unwindowed view over a high-cardinality key, fed until the ceiling is hit.
-**Expected:** `PRV-4022`. E3: `TROUBLESHOOTING.md:137` states *"Retention is applied before this
+**Expected:** `PRV-4022`. E3: `TROUBLESHOOTING.md:140` states *"Retention is applied before this
 check, so hitting it means either the view keeps everything and should not, or the window genuinely
 holds more rows than the ceiling. **The message says which.**"* That last sentence is the
 assertion: **the message must say which of the two it is.** If it does not, the document is
@@ -643,7 +643,7 @@ that makes a checkable claim about a message.
 **Setup:** `pravaha query --sql "SELECT * FROM nosuch"`; the same after dropping a query that
 existed; the same against a paused query.
 **Expected:** `PRV-4023` for the first two. E3: the message names the views the server **does**
-serve (`TROUBLESHOOTING.md:60-66`), which is the actionable part — confirm the list is present and
+serve (`TROUBLESHOOTING.md:64-70`), which is the actionable part — confirm the list is present and
 correct. The third (paused) must **not** be `PRV-4023`: a paused query keeps answering at the
 frontier it reached. E4: documented, with the three usual causes.
 **Vacuity:** the paused case is the control that distinguishes "no such view" from "view not
@@ -665,7 +665,7 @@ passes the first and fails the second.
 **Reached through:** `ViewQuery.java:580`.
 **Falsifier:** SQL that a view read cannot serve is refused with `PRV-2020` instead, making the
 serving code unreachable.
-**Setup:** SQL valid against a stream and not against a view. `TROUBLESHOOTING.md:44-47` says
+**Setup:** SQL valid against a stream and not against a view. `TROUBLESHOOTING.md:48-50` says
 `GROUP BY` with no window is **allowed** over a view, so that is not the case; look for the reverse.
 **Expected:** `PRV-4025`, E3 distinguishing "not supported against a view" from "not supported at
 all". If no such SQL exists, record the code as unreachable. E4: documented.
@@ -675,7 +675,7 @@ all". If no such SQL exists, record the code as unreachable. E4: documented.
 **Falsifier:** an over-capacity node queues indefinitely rather than rejecting.
 **Setup:** saturate the read path — more concurrent reads than permits and more waiting than the
 queue holds.
-**Expected:** `PRV-4026`. **E3 and the Flight status together:** `TROUBLESHOOTING.md:85-89` states
+**Expected:** `PRV-4026`. **E3 and the Flight status together:** `TROUBLESHOOTING.md:83-94` states
 it arrives as `RESOURCE_EXHAUSTED` so a driver retries with backoff rather than giving up. Assert
 the gRPC status is `RESOURCE_EXHAUSTED` and **not** `INVALID_ARGUMENT`. E3 must say "retry with
 backoff", per the document's own table. E4: documented, in a dedicated three-row table.
@@ -917,7 +917,7 @@ would include the password. Check. E4: documented.
 
 ## ERRC-081 — PRV-5080 AEROSPIKE_CONNECT_FAILED
 **Reached through:** `AerospikeSourcePlugin.java:220`, `AerospikeClients.java:36`.
-**Setup:** seed host nothing listens on; and the containerised case `TROUBLESHOOTING.md:146-150`
+**Setup:** seed host nothing listens on; and the containerised case `TROUBLESHOOTING.md:147-150`
 describes — a node reporting its bridge address, where **the symptom is a hang rather than an
 error**.
 **Expected:** `PRV-5080` for the first. For the second, **the documented symptom is a hang**, so the
@@ -1074,7 +1074,7 @@ with no credential; Flight with a bad credential.
   `path`, `status`); every other error on the surface has **five** (`ApiDtos.ApiError`).
   **Two error shapes on one API, which the comment above the method says three times it will not
   do (fact 7). Finding.**
-- **E3 deliberately says little:** `TROUBLESHOOTING.md:78-82` states the message never says *why* —
+- **E3 deliberately says little:** `TROUBLESHOOTING.md:80-81` states the message never says *why* —
   "expired" versus "unknown" versus "wrong signature" is three bits of an oracle. Confirm all four
   refusals carry the **same** message. **A message that distinguishes them is a security finding,
   not an E3 improvement.**
@@ -1110,7 +1110,7 @@ remedy is actively wrong for two-thirds of its sites.
   the *code* is not, because it cannot tell an operator which of four kinds of problem they have.
   Reaches 4–7 are **startup refusals printed to a log with a security-authorization code**, and
   reaches 1–3 are **runtime 403s**. One number.
-- **E4 fails.** `TROUBLESHOOTING.md:76-82` says: *"Authenticated, not authorized — ask for access;
+- **E4 fails.** `TROUBLESHOOTING.md:73-81` says: *"Authenticated, not authorized — ask for access;
   a new credential will not help."* For reach 7 — a node that will not start because
   `pravaha.security.audit` is `log` — every word of that is wrong. Quote the document's advice
   against reach 7's message in the finding; the contrast is the whole argument.
@@ -1134,7 +1134,7 @@ read was refused rather than narrowed. **The failure mode this guards is the wor
 that quietly does nothing returns more data, not less.** E4: documented.
 **Vacuity:** the same principal against an enforceable view must return the filtered rows, so the
 refusal is attributable to enforceability rather than to the filter matching nothing —
-`TROUBLESHOOTING.md:120-122` warns that a filter can silently match nothing, which is the
+`TROUBLESHOOTING.md:118-119` warns that a filter can silently match nothing, which is the
 indistinguishable case.
 
 ---
@@ -1196,8 +1196,8 @@ applies.
 **Setup:** CFG-020's corrupt-journal variants — a record from a newer version, a record with an
 unknown field, a byte flipped in the middle, and a truncated final record.
 **Expected:** `PRV-8005` for the version case and the mid-file corruption; **the truncated tail must
-NOT fail** — replay keeps everything before it and ignores the tail (`OPERATIONS.md:397-399`).
-E3 must say which record and why, and `TROUBLESHOOTING.md:391` gives *"this version does not
+NOT fail** — replay keeps everything before it and ignores the tail (`OPERATIONS.md:383-384`).
+E3 must say which record and why, and `OPERATIONS.md:378` gives *"this version does not
 understand"* — **refused, not skipped, because skipping would silently drop a registration.**
 Confirm the refusal is of the whole replay or of that record; the document says the registration is
 not skipped, so a partial recovery that omits it would be the finding. E4: documented. **E5:** this
@@ -1209,7 +1209,7 @@ unusual".
 **Reached through:** `RegistryJournal.java:229,276`.
 **Setup:** CFG-100 — journal made read-only under a running node, then a registration.
 **Expected:** `PRV-8006` **and the registration refused** —
-`TROUBLESHOOTING.md:393` states the registration is refused *"because acknowledging one that will
+`OPERATIONS.md:379` states the registration is refused *"because acknowledging one that will
 not survive a restart tells the client something untrue."* Assert `pravaha queries` shows the
 count **unchanged**. E3 names the journal path. E4: documented, correctly and with the reasoning.
 **E5:** reached over Flight from `pravaha register`; determine whether any REST path registers.
@@ -1223,7 +1223,7 @@ count **unchanged**. E3 names the journal path. E4: documented, correctly and wi
 node; change the configuration so `ann` no longer resolves (remove `ann`'s token) or so `ann` is no
 longer permitted; restart and read the recovery log.
 **Expected:** `QueryRegistry.Recovery.refused()` is populated and `PravahaNode.java:410` logs
-*"registration not recovered -- {}"* per entry. `OPERATIONS.md:389-391` documents the two refusal
+*"registration not recovered -- {}"* per entry. `OPERATIONS.md:380-381` documents the two refusal
 strings — *"contract ended"* and *"not a principal this deployment knows"* — as **plain text, not as
 codes**. **So the refusal is real, documented, operationally important, and carries no code**, while
 a code exists for exactly it and is never used.
@@ -1263,7 +1263,7 @@ thing — the code's own name is wrong at one of its three sites. E4: documented
 **Expected:** `PRV-9002` at startup, for both. E3 is the best message in the product — it names the
 mode, the mechanism, the guarantee it lacks, the consequence (*two nodes writing the same
 aggregate… silent and durable*) and **two** remedies. Quote it in full as the E3 benchmark the rest
-of this file is judged against. E4: documented, and `OPERATIONS.md:119-123` documents the refusal
+of this file is judged against. E4: documented, and `OPERATIONS.md:121-123` documents the refusal
 by code. **E5, E6** apply.
 
 ## ERRC-106 — PRV-9003 CLUSTER_COORDINATOR_UNAVAILABLE
@@ -1434,7 +1434,7 @@ kind: it would fail `ErrorCode`'s own constructor, which requires four digits be
 is why this case exists.
 
 ## ERRC-118 — the Flight status every code arrives as
-**Intent:** `FlightErrors.asFlightStatus` decides what a driver does. `TROUBLESHOOTING.md:87-89`
+**Intent:** `FlightErrors.asFlightStatus` decides what a driver does. `TROUBLESHOOTING.md:89-94`
 makes one claim about it — that `PRV-4026`/`4027`/`4028` arrive as `RESOURCE_EXHAUSTED` so a driver
 retries rather than giving up — and none about the other 107.
 **Falsifier:** a retryable failure arrives as `INVALID_ARGUMENT`, or a permanent one as
