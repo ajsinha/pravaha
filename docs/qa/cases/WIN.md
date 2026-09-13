@@ -2287,3 +2287,287 @@ whole arena), and against 4 MB (one slab), which are the three numbers a "wrappe
 offset" could plausibly be.
 **Vacuity:** Each run must reach ROWS IN = N or plateau reproducibly; a run whose plateau varies is
 excluded from the search and recorded as evidence of a race rather than a limit.
+
+---
+
+## 10. Boundary rows and half-open semantics
+
+`SlicedWindows` states the rule: **windows are `[start, end)`**, and "a record whose event time is
+exactly a boundary belongs to the window that *starts* there, never the one that ends". Dataset B
+is built to test it: rows sit at 0, 9.999999999, 10.000000000, 19.999999999, 20.000000000 (twice),
+29.999999999 and 30.000000000, with amounts 1, 2, 4, 8, 16, 32, 64, 128 so that every possible
+mis-assignment produces a sum that appears nowhere in the correct answer.
+
+The correct answer for `b_plus.csv` under Q_T(10) on `s0` (watermark 50 s, ends 10…50 fire):
+
+| window | rows (amounts) | n | total |
+|---|---|---|---|
+| `[0, 10)` | 1, 2 | 2 | `1 + 2 = 3` |
+| `[10, 20)` | 4, 8 | 2 | `4 + 8 = 12` |
+| `[20, 30)` | 16, 32, 64 | 3 | `16 + 32 + 64 = 112` |
+| `[30, 40)` | 128 | 1 | `128` |
+| `[40, 50)` | — | — | not emitted |
+
+### WIN-141 — A row exactly at `window_start` is in the window that starts there
+**Falsifier:** Any of the four boundary rows appearing in the window below.
+**Setup:** `s0` bound to `b_plus.csv`; Q_T(10) registered as `v_b --keys 0,1,2`.
+**Steps:** Read the view; check which window holds each of amounts 1 (t = 0), 4 (t = 10 s), 16 and
+32 (t = 20 s), 128 (t = 30 s).
+**Expected:** amount 1 in `[0,10)`; amount 4 in `[10,20)`; amounts 16 and 32 in `[20,30)`; amount 128
+in `[30,40)`. `sliceStartFor(10 s) = floorDiv(10e9, 10e9) × 10e9 = 10e9` — the window starting at
+10 s, not the one ending there.
+**Vacuity:** Defends against key collapse (`COUNT(*)` must be 4, not 1) and against a dry source
+(ROWS IN 9). The totals are the real assertion: if amount 4 were in `[0,10)` the two windows would
+read 7 and 8 rather than 3 and 12, and both are impossible under the correct rule.
+
+### WIN-142 — A row exactly at `window_end` is **not** in the window that ends there
+**Intent:** The same four rows read the other way, because that is the failure people actually write:
+`t <= end` instead of `t < end`, which double-counts every boundary row.
+**Falsifier:** `SUM(n) > 8`, or any row counted in two windows.
+**Setup:** WIN-141 done.
+**Steps:** Read `SUM(n)` and the per-window `n`.
+**Expected:** `SUM(n) = 2 + 2 + 3 + 1 = 8` — exactly the eight input rows of dataset B, each counted
+once. A closed upper bound would give `SUM(n) = 12` (amounts 1, 4, 16, 32 and 128 each counted
+twice, minus the one at 0 which has no window below) and totals of 7, 28, 240 and 128.
+**Vacuity:** As WIN-141. `SUM(n) = 8` is the load-bearing number here.
+
+### WIN-143 — A row one nanosecond before `window_end` is in that window
+**Falsifier:** amounts 2, 8 or 64 appearing in the window above.
+**Setup:** WIN-141 done.
+**Expected:** amount 2 (t = 9.999999999 s) in `[0,10)`; amount 8 (t = 19.999999999 s) in `[10,20)`;
+amount 64 (t = 29.999999999 s) in `[20,30)`. `floorDiv(9,999,999,999, 10,000,000,000) = 0`.
+**Vacuity:** As WIN-141.
+
+### WIN-144 — Two rows one nanosecond apart across a boundary land in adjacent windows
+**Intent:** The pair is the assertion; either row alone can be right for the wrong reason.
+**Falsifier:** amounts 2 and 4 in the same window.
+**Setup:** WIN-141 done.
+**Expected:** amount 2 (9.999999999 s) in `[0,10)` and amount 4 (10.000000000 s) in `[10,20)` —
+adjacent, disjoint, and the boundary is the same instant for both. Totals 3 and 12 confirm it; 7 and
+8 would mean the boundary moved by one nanosecond in one direction, 1 and 14 in the other.
+**Vacuity:** As WIN-141.
+
+### WIN-145 — Duplicate timestamps at a boundary are two rows, not one
+**Intent:** Rows 5 and 6 are both at exactly 20.000000000 s. A slice map keyed by time, or a dedup
+on (key, timestamp), would keep one.
+**Falsifier:** `[20,30)` showing `n = 2` or `total = 96` (= 32 + 64, i.e. row 5 lost) or `total = 80`
+(= 16 + 64, row 6 lost).
+**Setup:** WIN-141 done.
+**Expected:** `[20,30)`: `n = 3`, `total = 16 + 32 + 64 = 112`.
+**Vacuity:** As WIN-141; `n = 3` is what distinguishes this from WIN-143.
+
+### WIN-146 — Every row of dataset B is counted exactly once, across all windows
+**Intent:** The totality check. `1+2+4+8+16+32+64+128 = 255 = 2^8 − 1`, and the binary property means
+any subset of rows has a unique sum — so a single number proves which rows were included.
+**Falsifier:** `SUM(total) ≠ 255` — and the deficit names the missing row directly.
+**Setup:** WIN-141 done.
+**Steps:** `pravaha query --sql "SELECT SUM(total), SUM(n) FROM v_b"`.
+**Expected:** `SUM(total) = 3 + 12 + 112 + 128 = 255`; `SUM(n) = 8`. If the result is 127, the row
+with amount 128 is missing — which is WIN-165's last-window case if `b.csv` is used instead of
+`b_plus.csv`, and is exactly why both files exist.
+**Vacuity:** The two numbers together. 255 with `SUM(n) = 12` means rows were double-counted with
+compensating errors; 255 with `COUNT(*) = 1` means key collapse.
+
+### WIN-147 — `windowEndsContaining` is half-open at every boundary, ±1 ns
+**Intent:** The arithmetic under WIN-141 to WIN-144, in the form the tests can sweep exhaustively
+rather than sample.
+**Falsifier:** Any cell disagreeing.
+**Setup:** Embedded harness, `tumbling(10 s)`.
+**Steps:** For *t* ∈ {−1 ns, 0, 1 ns, 9,999,999,999, 10^10, 10^10 + 1, 19,999,999,999, 2×10^10}:
+`windowEndsContaining(t)`.
+**Expected:**
+
+| t (ns) | firstEnd = `floorDiv(t, 10^10)·10^10 + 10^10` | result |
+|---|---|---|
+| −1 | `−1·10^10 + 10^10 = 0` | `[0]` |
+| 0 | `0 + 10^10` | `[10^10]` |
+| 1 | `10^10` | `[10^10]` |
+| 9,999,999,999 | `10^10` | `[10^10]` |
+| 10^10 | `10^10 + 10^10 = 2×10^10` | `[2×10^10]` |
+| 10^10 + 1 | `2×10^10` | `[2×10^10]` |
+| 19,999,999,999 | `2×10^10` | `[2×10^10]` |
+| 2×10^10 | `3×10^10` | `[3×10^10]` |
+
+Exactly one end per *t*, and the transition happens at the boundary itself, not one nanosecond
+either side of it.
+**Vacuity:** Pure arithmetic.
+
+### WIN-148 — Negative event times use floor division, not truncation
+**Intent:** "Epoch nanoseconds before 1970 are legal and backfills reach them." Integer division
+truncates toward zero and would put −1 ns in slice 0, i.e. in a window that starts after the event.
+**Falsifier:** `sliceStartFor(−1) == 0`.
+**Setup:** Embedded harness, `tumbling(10 s)`.
+**Steps:** `sliceStartFor(t)` for *t* ∈ {−1, −1 s, −9,999,999,999, −10^10, −10^10 − 1, −15 s}.
+**Expected:** −10^10, −10^10, −10^10, −10^10, −2×10^10, −2×10^10 respectively.
+`floorDiv(−1, 10^10) = −1`, whereas `−1 / 10^10 == 0` in Java. Every value is ≤ its input, which is
+the property that matters: a slice never starts after the event it contains.
+**Vacuity:** Pure arithmetic.
+
+### WIN-149 — A row at exactly the epoch
+**Falsifier:** The row landing in a window that does not start at 0.
+**Setup:** Covered by dataset B's first row; confirm directly.
+**Expected:** `sliceStartFor(0) = 0`; window `[0, 10 s)`; `windowEndsContaining(0) = [10 s]`. The
+epoch is an ordinary boundary and gets no special treatment — which is worth stating, because it is
+also the value every `feedfile` and `delta` row carries (§0.1) and the value that triggers WIN-070.
+**Vacuity:** Pure arithmetic, plus the WIN-141 server run.
+
+### WIN-150 — Rows at negative event times produce windows with negative starts
+**Intent:** Negative event time is legal and a backfill reaches it. The window arithmetic must be
+continuous across zero.
+**Falsifier:** Any negative-time row appearing in `[0, 10)`, or the query failing.
+**Setup:** `neg.csv`: `1,100,1,-15.000000000`; `2,100,2,-10.000000000`;
+`3,100,4,-0.000000001`; `4,100,8,0.000000000`; pusher `5,999,0,30.000000000`. If the CSV decoder
+cannot parse a negative TIMESTAMP, record that as the finding and run the case from the embedded
+harness instead — the arithmetic is the subject either way.
+**Steps:** Register Q_T(10) as `v_neg --keys 0,1,2`; read it.
+**Expected:** Three rows.
+
+| window | rows | n | total |
+|---|---|---|---|
+| `[-20, -10)` | amount 1 (t = −15 s) | 1 | 1 |
+| `[-10, 0)` | amounts 2 (−10 s) and 4 (−1 ns) | 2 | `2 + 4 = 6` |
+| `[0, 10)` | amount 8 | 1 | 8 |
+
+`floorDiv(−15e9, 10e9) = −2 → −20 s`; `floorDiv(−10e9, 10e9) = −1 → −10 s`;
+`floorDiv(−1, 10e9) = −1 → −10 s`. `SUM(total) = 1 + 6 + 8 = 15 = 2^4 − 1`, so all four rows are
+accounted for. The row at exactly −10 s starts a window (half-open again) and the one at −1 ns ends
+in the same window.
+**Vacuity:** Defends against key collapse and against the decoder silently clamping negatives to
+zero: if it does, all four rows land in `[0,10)` with `total = 15` in a single row, which is a
+distinguishable wrong answer rather than an empty one.
+
+### WIN-151 — Event times at the extremes of INT64 overflow the window arithmetic silently
+**Intent:** `sliceStartFor` multiplies a floored quotient back up, and `WindowAssign` writes
+`sliceStart + sliceSizeNanos()`. Neither is checked, so both ends of the `long` range wrap.
+**Falsifier:** A refusal, or a `window_end` greater than `window_start`.
+**Setup:** Embedded harness on `SlicedWindows(tumbling(10 s))` — the values cannot be produced by a
+CSV timestamp.
+**Steps:** `sliceStartFor(Long.MAX_VALUE)`; `sliceStartFor(Long.MIN_VALUE)`; and for each, compute
+`sliceStart + 10^10` as `WindowAssign` does.
+**Expected, by hand:**
+`Long.MAX_VALUE = 9,223,372,036,854,775,807`. `floorDiv(MAX, 10^10) = 922,337,203`; ×10^10 =
+`9,223,372,030,000,000,000`, which fits. But `window_end = 9,223,372,030,000,000,000 + 10^10 =
+9,223,372,040,000,000,000`, which **exceeds** `Long.MAX_VALUE` by 3,145,224,193 and wraps to
+`−9,223,372,033,709,551,616`. A window whose end is 18 exaseconds before its start.
+`Long.MIN_VALUE = −9,223,372,036,854,775,808`. `floorDiv(MIN, 10^10) = −922,337,204`; ×10^10 =
+`−9,223,372,040,000,000,000`, which is **below** `Long.MIN_VALUE` and wraps to
+`+9,223,372,033,709,551,616` — a slice start 584 years *after* an event 584 years before the epoch.
+Both are silent. Record whether any guard exists; there is none in `SlicedWindows`,
+`WindowAssign` or `WindowSpec`.
+**Vacuity:** Pure arithmetic; the falsifier is the sign of the result.
+
+### WIN-152 — A row exactly on a slide boundary under HOP
+**Intent:** The half-open rule applies to both edges of every overlapping window, so a boundary row's
+*set* of windows shifts, it does not grow or shrink.
+**Falsifier:** A boundary row in more or fewer than `count(t)` windows.
+**Setup:** Embedded harness, `hopping(20 s, 10 s)`, plus a server run on `bhop.csv`:
+`1,100,1,9.999999999`; `2,100,2,10.000000000`; pusher `3,999,0,60.000`.
+**Steps:** `windowEndsContaining(9,999,999,999)` and `windowEndsContaining(10^10)`; then register
+Q_H(10, 20) as `v_bhop --keys 0,1,2` and read it.
+**Expected:** `t = 9.999999999 s`: `floor(29.999999999/10) − floor(9.999999999/10) = 2 − 0 = 2` →
+ends `[10 s, 20 s]` → windows `[-10,10)` and `[0,20)`. `t = 10 s`:
+`floor(30/10) − floor(10/10) = 3 − 1 = 2` → ends `[20 s, 30 s]` → windows `[0,20)` and `[10,30)`.
+Both rows are in two windows; they share exactly one, `[0,20)`. The view:
+
+| window | rows | n | total |
+|---|---|---|---|
+| `[-10, 10)` | amount 1 | 1 | 1 |
+| `[0, 20)` | amounts 1, 2 | 2 | 3 |
+| `[10, 30)` | amount 2 | 1 | 2 |
+
+`SUM(n) = 4 = 2 rows × 2 windows`; `SUM(total) = 1 + 3 + 2 = 6 = 1×2 + 2×2`.
+**Vacuity:** Defends against key collapse (3 rows, not 1) and against the two rows being merged
+(`[0,20)` would show `n = 1`).
+
+### WIN-153 — A boundary row under a non-dividing hop shifts between ⌊S/D⌋ and ⌈S/D⌉
+**Intent:** WIN-021's effect located at a boundary, where it is one nanosecond wide.
+**Falsifier:** Both rows in the same number of windows.
+**Setup:** Embedded harness, `hopping(10 s, 3 s)`.
+**Steps:** `windowEndsContaining(2,999,999,999)` and `windowEndsContaining(3×10^9)`.
+**Expected:** `t = 2.999999999 s`: `floor(12.999999999/3) − floor(2.999999999/3) = 4 − 0 = 4` → ends
+3, 6, 9, 12 s. `t = 3 s`: `floor(13/3) − floor(3/3) = 4 − 1 = 3` → ends 6, 9, 12 s. Four windows
+becomes three across one nanosecond, and the window ending at 3 s is the one lost — correctly, since
+`[−7, 3)` is half-open and does not contain 3 s.
+**Vacuity:** Pure arithmetic; the two results must differ in size.
+
+### WIN-154 — `lastWindowEndFor` is inclusive on the watermark, so a slice dies at its last end
+**Intent:** The discard boundary, which decides how long state lives and is the other half of
+WIN-100.
+**Falsifier:** A slice surviving `watermark == lastWindowEndFor(slice)`.
+**Setup:** Embedded harness.
+**Steps:** For `tumbling(10 s)`: `lastWindowEndFor(0)`; for `hopping(20 s, 10 s)`:
+`lastWindowEndFor(0)` and `lastWindowEndFor(10 s)`; for `hopping(10 s, 3 s)`: `lastWindowEndFor(0)`.
+Then call `discardSlicesEndingBefore(thatValue, 0)` and `discardSlicesEndingBefore(thatValue − 1, 0)`.
+**Expected:** `tumbling(10 s)`: `floorDiv(0,10e9)·10e9 + 10e9 = 10 s`; neither `while` loop runs.
+`hopping(20,10)`, slice 0: `0 + 20 s = 20 s`; slice 10 s: `floorDiv(10e9,10e9)·10e9 + 20e9 = 30 s`.
+`hopping(10,3)`, slice 0: `0 + 10 s = 10 s`, then the second loop: `10 + 3 − 10 = 3 ≤ 0`? no → 10 s.
+In every case the discard at `lastEnd − 1` removes nothing and the discard at `lastEnd` removes the
+slice, because the predicate is `lastWindowEndFor(s) + lateness ≤ watermark`.
+**Vacuity:** The two discards must return different counts.
+
+### WIN-155 — `windowsCompletedBetween` is exclusive below and inclusive above
+**Intent:** "Strictly after is what stops a window firing twice: one whose end equals the previous
+watermark fired then." Both halves of the interval are boundary conditions.
+**Falsifier:** A window end equal to the previous watermark being returned, or one equal to the
+current watermark being omitted.
+**Setup:** Embedded harness, `tumbling(10 s)`.
+**Steps:** `windowsCompletedBetween(0, 10 s)`; `(10 s, 10 s)`; `(10 s, 20 s)`;
+`(9,999,999,999, 10 s)`; `(10 s, 19,999,999,999)`; `(0, 0)`.
+**Expected:** `(0, 10 s)` → `[10 s]` (firstEnd = 10 s, `10 s ≤ 10 s` ✓).
+`(10 s, 10 s)` → `[]` (firstEnd = 20 s, `20 s ≤ 10 s` ✗) — the window that fired at watermark 10 s
+does not fire again.
+`(10 s, 20 s)` → `[20 s]`.
+`(9,999,999,999, 10 s)` → firstEnd = `floorDiv(9,999,999,999, 10^10)·10^10 + 10^10 = 10 s` → `[10 s]`.
+`(10 s, 19,999,999,999)` → firstEnd = 20 s, `20 s ≤ 19,999,999,999` ✗ → `[]`.
+`(0, 0)` → firstEnd = 10 s → `[]`.
+**Vacuity:** Pure arithmetic; the six results must not all be the same.
+
+### WIN-156 — A window never fires twice for one watermark, and a non-advancing watermark is a no-op
+**Intent:** `advanceWatermark` returns immediately on `watermarkNanos <= watermark`, and
+`lastFiredWatermark` is what the next scan starts from.
+**Falsifier:** A second call producing any output.
+**Setup:** Embedded harness: `WindowedAggregate` over `tumbling(10 s)`, one key, one row at t = 5 s.
+**Steps:** `advanceWatermark(10 s)` and collect output; `advanceWatermark(10 s)` again;
+`advanceWatermark(9 s)`; `advanceWatermark(20 s)`.
+**Expected:** First call emits one row (`[0,10)`, `n = 1`). Second emits nothing — the early return.
+The 9 s call emits nothing and does **not** move the watermark backwards. The 20 s call emits
+nothing, because `[10,20)` is empty and `fire` returns no result for a key with no data.
+**Vacuity:** The first call must emit exactly one row; if it emits none, every "no duplicate"
+assertion after it is vacuous.
+
+### WIN-157 — A watermark exactly equal to a window end closes that window
+**Intent:** The inclusive half of WIN-155, end to end rather than in arithmetic.
+**Falsifier:** The window not firing at a watermark exactly on its end.
+**Setup:** `s0` (zero lateness) bound to `exact.csv`: `1,100,7,5.000`; `2,999,0,10.000000000` — the
+pusher sits exactly on the boundary.
+**Steps:** Register Q_T(10) as `v_exact --keys 0,1,2`; read it.
+**Expected:** One row: `[0,10)`, user 100, `n = 1`, `total = 7`. The watermark is exactly 10 s
+(zero lateness, highest event time 10 s) and `windowsCompletedBetween` uses `end ≤ watermark`, so
+`[0,10)` fires. The pusher's own row is at exactly 10 s, in `[10,20)`, whose end 20 s exceeds the
+watermark — so it never appears, and `user_id = 999` is absent.
+**Vacuity:** Defends against a dry source (ROWS IN 2) and against the pusher being counted (a row
+with `user_id = 999` would mean the half-open rule failed at the very boundary this case is about).
+
+### WIN-158 — A group whose weights cancel at a boundary leaves its previous result standing
+**Intent:** `fire` correctly skips a key whose `count` is zero — "a key whose weights cancel to zero
+within the window has no rows in it". But `emitWindow` walks only the keys `fire` returned, so a key
+that was emitted before and is absent now gets **no retraction**: the old row stays in the view and
+on the change stream, saying a group exists that does not.
+**Falsifier:** A `-1` change arriving for the vanished group (which would mean the gap is closed).
+**Setup:** Embedded harness — a retraction cannot be injected from a CSV, since
+`FilesystemPartitionReader` hard-codes `rowKind(RowKind.INSERT)`. `WindowedAggregate` over
+`tumbling(10 s)`, allowed lateness raised above 0 so the window can be re-fired.
+**Steps:** (1) row `(key A, amount 5, t = 5 s, weight +1)`; `advanceWatermark(10 s)` → collect output.
+(2) row `(key A, amount 5, t = 5 s, weight −1)` — the retraction, inside the still-open lateness;
+`advanceWatermark(11 s)` → collect output.
+**Expected:** Step 1 emits `[0,10) key A n=1 total=5` with weight +1. Step 2: `state.update` takes
+the accumulator's count to `1 + (−1) = 0` and its sum to `5 − 5 = 0`; `fire(10 s)` returns **no**
+result for key A; `emitWindow` therefore iterates nothing, writes `emitted.put(10 s, {})`, and emits
+**nothing at all** — no `-1` for the row it sent in step 1. The view still shows `n = 1, total = 5`
+for a window that now contains no rows. Defect, and it is the exact inverse of the case the
+`emitted` map was added for.
+**Vacuity:** Step 1 must emit one row, or step 2's silence is not a missing retraction. Also run a
+control where the retraction is partial — `(key A, amount 2, weight −1)` — which leaves
+`count = 0`… no: `count = 1 + (−1) = 0` again but `sum = 5 − 2 = 3`. The group still vanishes from
+`fire`, so the control shows the same silence with a non-zero sum outstanding, which is worse and
+should be recorded separately.

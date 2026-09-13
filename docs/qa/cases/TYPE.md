@@ -1101,3 +1101,520 @@ three consecutive reads.
 **Vacuity:** the 10,000-row extension is the anti-vacuity device. A join that dropped null keys at
 ingest rather than at match would pass the first half and fail the second, and the first half alone
 cannot tell them apart.
+
+---
+
+## 6. GROUP BY key — the type as a grouping column (TYPE-053 … TYPE-059)
+
+Two operators, two type switches. `KeyedAggregate.read` (the bounded, view-read path) handles
+`BOOLEAN INT8 INT16 INT32 DATE INT64 TIME TIMESTAMP_LTZ FLOAT32 FLOAT64 STRING` and refuses the rest
+with `UNSUPPORTED_AGGREGATE` at run time. Note what that list contains that the *aggregate argument*
+list does not: **FLOAT32 and FLOAT64 are legal group keys while being illegal aggregate arguments**.
+That asymmetry is TYPE-055.
+
+A keyed aggregate over a stream is refused for unbounded state (`PRV-2050`) unless it is windowed,
+so the cases here use the bounded shape `SQL_SUPPORT.md` documents: a `GROUP BY` over a **read of a
+maintained view**. Fixture `S` with a registered pass-through view `tv`
+(`SELECT id,b,i8,i16,i32,i64,f32,f64,s,bin,ts FROM types`, `--keys 0`) supplies it.
+
+## TYPE-053 — STRING group key over a bounded view read
+**Intent:** the baseline, and the case that proves the vehicle works before any type is doubted.
+**Falsifier:** a group count other than the hand-computed one; two distinct strings merged.
+**Setup:** fixture `S`, view `tv`. `s` = `zed`, `ann`, NULL, NULL, `  pad  `.
+**Steps:** `pravaha query --sql "SELECT s, COUNT(*) AS n FROM tv GROUP BY s"`.
+**Expected:** **4 groups**: `zed`→1, `ann`→1, `  pad  `→1, NULL→2. The counts sum to 5, which is the
+row count. NULL is a group, not a discarded row — that is SQL's rule and `SQL_SUPPORT.md` states it.
+**Vacuity:** the counts summing to 5 is the assertion. A grouping that dropped the NULL rows would
+give three groups summing to 3 and would still look like a plausible answer on its own.
+
+## TYPE-054 — the four integer widths as group keys
+**Intent:** `read` returns a boxed `Byte`, `Short`, `Integer` or `Long` per width, and `Key` compares
+with `Arrays.equals`, which is `Object.equals` per element. **A `Byte(7)` is not equal to an
+`Integer(7)`.** If any width is read at the wrong size, groups either merge or split, and both look
+like data.
+**Falsifier:** a group count other than the hand-computed one for any width; the same query giving
+different group counts on two runs.
+**Setup:** view `tv`. `i8` = 127, −128, NULL, 0, 1. `i16` = 32767, −32768, NULL, 0, 1.
+`i32` = 2147483647, −2147483648, NULL, 0, 16777217. `i64` = 9223372036854775807,
+−9223372036854775808, NULL, 0, 9007199254740993.
+**Steps:** four queries, `SELECT <col>, COUNT(*) FROM tv GROUP BY <col>` for each width.
+**Expected:** each returns **5 groups** of 1 — every non-null value in every column is distinct, and
+NULL is its own group. Counts sum to 5 in all four.
+Then the merge check: add `6,true,1,1,1,1,0.0,0.0,x,y,0` to `types.csv` and re-run. `i8` now has
+`1` twice, so it must report **5 groups** with the `1` group at count 2 and the others at 1; the
+same for `i16`, `i32` and `i64`. A width read too wide would put row 5 and row 6 in different groups
+for `i8` (127/1 vs a two-byte read picking up `i16`) and the count would stay 6.
+
+## TYPE-055 — FLOAT32 and FLOAT64 are legal group keys and illegal aggregate arguments
+**Intent:** the asymmetry, written as one case because it is only visible when both halves are in
+front of you. `SUM(f64)` is refused at plan time on the grounds that the accumulators are integer;
+`GROUP BY f64` is accepted and boxes a `Double`. Grouping floats has the same rounding hazard the
+join refusal cites — `0.1 + 0.2` is not `0.3` — and is not refused.
+**Falsifier:** `GROUP BY f64` refused (the asymmetry is closed — record it); or `GROUP BY f64`
+merging two distinct doubles; or `-0.0` and `0.0` landing in different groups while comparing equal
+everywhere else.
+**Setup:** view `tv`, plus rows exercising the hazard: append
+`7,true,0,0,0,0,0.1,0.1,g,h,0`, `8,true,0,0,0,0,0.2,0.2,g,h,0`, `9,true,0,0,0,0,0.3,0.30000000000000004,g,h,0`
+and `10,true,0,0,0,0,-0.0,-0.0,g,h,0` to `types.csv`.
+**Steps:**
+1. `SELECT f64, COUNT(*) FROM tv GROUP BY f64`
+2. `SELECT SUM(f64) FROM tv` — to have both answers side by side
+3. `SELECT f64, COUNT(*) FROM tv GROUP BY f64 HAVING COUNT(*) > 1`
+**Expected:** step 1 succeeds. Step 2 is refused with `PRV-2020` and the floating-point message.
+Both facts belong in the log as one finding: the engine will group by a value it will not add.
+Step 1's groups, by hand over the ten rows: `1.7976931348623157E308`→1, `4.9E-324`→1, NULL→1,
+`0.0`→1 (row 4), `9.007199254740992E15`→1, `0.0`→row 6, `0.1`→1, `0.2`→1,
+`0.30000000000000004`→1, `-0.0`→1.
+The two questions the case decides: (a) do rows 4 and 6 (both `0.0`) merge into one group of 2 — they
+must, and if they do the group total is **9 groups**; (b) does `-0.0` join them?
+`Double.valueOf(-0.0).equals(Double.valueOf(0.0))` is **false**, so `-0.0` is a separate group and
+the answer is 9 groups with `0.0` at count 2 and `-0.0` at count 1 — even though `-0.0 == 0.0` is
+true in every comparison the engine performs elsewhere. Record it: the group key and the predicate
+disagree about whether two values are the same value.
+Step 3 must return exactly the `0.0`→2 row.
+**Vacuity:** row 9's value is `0.30000000000000004`, the actual double result of `0.1 + 0.2`. If a
+future build computes `f64` sums and groups them, that row is what shows whether the grouping
+matches the arithmetic.
+
+## TYPE-056 — BOOLEAN group key
+**Intent:** three groups from a two-valued type, because NULL is a group.
+**Falsifier:** two groups (NULL folded into `false`); or `true` and `false` merged.
+**Setup:** view `tv`; `b` = true, false, NULL, true, false.
+**Steps:** `SELECT b, COUNT(*) FROM tv GROUP BY b`; then `SELECT b, COUNT(b) FROM tv GROUP BY b`.
+**Expected:** **3 groups**: `true`→2, `false`→2, NULL→1; counts sum to 5.
+The second query differs in exactly one place: `COUNT(b)` over the NULL group is **0**, not 1,
+because `COUNT(col)` does not count nulls. A group present with a count of zero is correct and is
+the assertion — a build that omitted the group entirely, or reported 1, has confused the two counts.
+
+## TYPE-057 — TIMESTAMP_LTZ group key
+**Intent:** grouping by an instant at nanosecond resolution. Distinct from grouping by a window,
+which is a different mechanism.
+**Falsifier:** the two timestamps one nanosecond apart merging; the epoch (`0`) merging with NULL.
+**Setup:** view `tv`; `ts` = 1700000000000000000, 0, NULL, 1700000000000000001, −1.
+**Steps:** `SELECT ts, COUNT(*) FROM tv GROUP BY ts`.
+**Expected:** **5 groups** of 1. Rows 1 and 4 differ by one nanosecond and must not merge; row 2
+(the epoch) and row 3 (NULL) must not merge; row 5 is negative.
+**Vacuity:** five groups over five rows is what a *broken* grouping also produces if it hashes the
+row rather than the key. Pair it: add `11,true,0,0,0,0,0.0,0.0,x,y,0` (`ts` = 0, same as row 2) and
+re-run — the answer must become 5 groups with the `0` group at count 2, not 6 groups.
+
+## TYPE-058 — BYTES and DECIMAL group keys are refused at run time
+**Intent:** `read`'s `default ->` branch. The refusal has a `PRV-` code and names the type, which is
+better than the join path, but it still arrives when the first row is read rather than at planning.
+**Falsifier:** `GROUP BY bin` returning groups; a refusal with no code or no type name; a refusal at
+plan time (fixed — record it).
+**Setup:** view `tv` for BYTES; the programmatic schema of TYPE-019 for DECIMAL, DATE and TIME.
+**Steps:** `SELECT bin, COUNT(*) FROM tv GROUP BY bin`; then the same for the programmatic `amt`
+(DECIMAL), `d` (DATE) and `t` (TIME).
+**Expected:** `GROUP BY bin` fails with `UNSUPPORTED_AGGREGATE` and `cannot group by a column of
+type BYTES yet`. `amt` fails the same way naming `DECIMAL`. `d` and `t` **succeed** — `DATE` and
+`TIME` are in `read`'s switch — and must produce one group per distinct value; that pair is the
+positive control proving the switch, not the operator, is what refuses BYTES.
+**The denied answer:** `bin` = `cafe`, NULL, NULL, `beef`, `ff` → 4 groups, NULL at count 2.
+
+## TYPE-059 — NULL is a group, and a multi-column key with NULLs in it
+**Intent:** SQL's rule that `GROUP BY` treats NULL as a value while a comparison treats it as
+UNKNOWN, extended to a composite key where `Arrays.equals` must treat two `null` elements as equal.
+**Falsifier:** rows with a NULL in any key column vanishing; two rows with NULLs in *different*
+columns grouped together.
+**Setup:** view `tv`. Composite key `(b, s)`: row 1 `(true,'zed')`, row 2 `(false,'ann')`,
+row 3 `(NULL,NULL)`, row 4 `(true,NULL)`, row 5 `(false,'  pad  ')`.
+**Steps:**
+1. `SELECT b, s, COUNT(*) FROM tv GROUP BY b, s`
+2. `SELECT COUNT(*) FROM tv` — the control total
+3. `SELECT b, s, COUNT(s) FROM tv GROUP BY b, s`
+**Expected:** step 1 gives **5 groups** of 1. The load-bearing pair is rows 3 and 4: both have a
+NULL `s`, and they must *not* merge, because their `b` differs (NULL vs true). `Arrays.equals`
+compares `null` to `Boolean.TRUE` and finds them different — assert that the two appear separately.
+Step 2 = 5. Step 3: `COUNT(s)` is 0 for the row-3 group and 0 for the row-4 group, 1 for the other
+three; the five counts sum to 3, which is `COUNT(s)` over the whole table.
+**Vacuity:** 5 groups summing to 5 rows, and `COUNT(s)` summing to 3. Two independent totals that a
+grouping which silently drops NULL-keyed rows cannot both satisfy.
+
+---
+
+## 7. Window boundary — the type of the event-time column, and of window_start/window_end (TYPE-060 … TYPE-064)
+
+`PhysicalPlanBuilder.appendBoundaries` adds `window_start` and `window_end` as
+`Types.timestamp()` — `TIMESTAMP_LTZ`, precision 9, **NOT NULL**. `WindowAssign` reads the event-time
+column with `row.getLong(eventTimeOrdinal)`, unconditionally, so a window over a column that is not
+eight bytes reads bytes it does not own.
+
+Every case here needs a firing window, which needs a watermark, which needs `event.time` on the
+source binding — so all of them use fixture `S` and **none** can be reproduced with `pravaha run`.
+
+## TYPE-060 — TIMESTAMP as the event-time column: the supported shape
+**Intent:** the positive control for the section, and the regression guard for finding Q-1 (windowed
+aggregation emitted nothing, ever, silently).
+**Falsifier:** zero rows out of a window whose data is complete and whose watermark has passed —
+which is exactly how Q-1 presented, under a `RUNNING` status.
+**Setup:** fixture `S`, stream `types` bound with `event.time: ts`. To make the arithmetic simple,
+use `win.csv` — schema `id:INT64,u:STRING,amt:INT64,ts:TIMESTAMP` — with
+`1,u1,100,1700000000000000000` / `2,u1,102,1700000001000000000` /
+`3,u2,7,1700000002000000000` / `4,u1,1,1700000305000000000`.
+**Steps:** register `wv`:
+`SELECT STREAM TUMBLE_END(ts, INTERVAL '10' SECOND) AS window_end, u, COUNT(*) AS n, SUM(amt) AS
+total FROM win GROUP BY TUMBLE(ts, INTERVAL '10' SECOND), u`, `--keys 1`; then
+`pravaha query --sql "SELECT * FROM wv"`.
+**Expected:** the first three rows are at t+0 s, t+1 s and t+2 s, inside the ten-second window
+[1700000000000000000, 1700000010000000000). Row 4 is at t+305 s, which advances the watermark past
+that window's end and closes it. **2 groups** from the first window:
+`u1` → n = 2, total = 100 + 102 = **202**; `u2` → n = 1, total = **7**.
+Row 4's own window has not closed and must not appear.
+**Vacuity:** the case cannot pass with windowing removed, because without a close nothing is emitted
+at all and the view is empty — which is precisely the failure mode being guarded. Assert **2 rows**
+present and `total = 202`, not merely "some rows".
+
+## TYPE-061 — an INT64 column as the event-time column
+**Intent:** epoch nanoseconds in a `BIGINT` column is what a lot of real data looks like. `TUMBLE`
+takes a `DESCRIPTOR`/time column that Calcite validates as temporal, so this must be refused — and
+the refusal must not be a wrong-window answer.
+**Falsifier:** `TUMBLE(n, INTERVAL '10' SECOND)` over a `BIGINT n` planning and producing windows.
+**Setup:** fixture `S` with `winl` — schema `id:INT64,u:STRING,amt:INT64,n:INT64` — the same four
+rows with `n` holding the same nanosecond values.
+**Steps:** register the TYPE-060 query with `n` in place of `ts`.
+**Expected:** refused at registration. Record which code arrives: Calcite's validator (`PRV-2002`,
+a type mismatch on `TUMBLE`) is the expected and correct outcome. `PRV-2020` naming the windowing
+function is also acceptable. **Planning successfully is the failure**, because `WindowAssign` would
+then read the column with `getLong`, get the right number by accident, and produce windows over a
+column nothing declared as time — a correct-looking answer that no watermark arms.
+
+## TYPE-062 — window_start and window_end are TIMESTAMP and NOT NULL
+**Intent:** the boundary columns are synthesised, not user-declared, so their type and nullability
+are decided in one line of `appendBoundaries` and are never checked by anything the user writes.
+Downstream, `BinaryRowWriter.setNull` **throws** for a NOT NULL field, so a boundary that is ever
+null is a crash rather than an empty cell.
+**Falsifier:** either column reported as nullable; either reported as anything but a
+nanosecond-precision timestamp; `window_end − window_start` differing from the declared size.
+**Setup:** fixture `S` with `win.csv` as TYPE-060.
+**Steps:**
+1. `pravaha validate --stream win --schema "<win schema>" --sql "<the TYPE-060 SQL>"` and read the
+   printed output column types
+2. register, then `SELECT window_end FROM wv`
+3. register a variant selecting `TUMBLE_START` as well, and compute the difference
+**Expected:** step 1 prints `window_end` as a timestamp type, not nullable. Step 2 returns
+**1700000010000000000** — the exclusive end of the first ten-second window,
+1700000000000000000 + 10 × 1 000 000 000 = 1700000010000000000. Step 3: `window_end − window_start`
+= 10000000000 ns exactly, for every emitted row.
+**Vacuity:** the value 1700000010000000000 is not present in any input row; it can only have been
+computed by the window assigner. A case asserting merely "a timestamp appears" would pass on a
+copied event time.
+
+## TYPE-063 — the window boundaries on the wire: the zoned-vector regression
+**Intent:** `ArrowSchemas` declares `Timestamp(NANOSECOND, "UTC")`, whose Arrow vector is
+`TimeStampNanoTZVector`. The code once cast it to the *unzoned* vector, and the cast never fired
+because no query had ever put a timestamp on the wire — one bug hid the other. This is the
+regression case, and it is the only place `window_end` meets a client.
+**Falsifier:** a `ClassCastException` mentioning `TimeStampNanoVector` or `TimeStampNanoTZVector` at
+serialisation; a timestamp arriving at the client with the wrong magnitude (microseconds or
+milliseconds instead of nanoseconds); a timestamp arriving with no timezone on the field.
+**Setup:** fixture `S` with the TYPE-060 registration `wv`, and a Flight client (the Python SDK is
+sufficient: `client.query("SELECT * FROM wv")`).
+**Steps:**
+1. `pravaha query --sql "SELECT * FROM wv"` through the CLI
+2. the same through the Flight SDK, and print the Arrow schema of the result
+3. `pravaha subscribe --view wv`, then deliver a row that closes a second window
+**Expected:** step 1 returns the two rows of TYPE-060. Step 2's Arrow schema reports `window_end` as
+`timestamp[ns, tz=UTC]`, and the value is **1700000010000000000** nanoseconds — in pandas,
+`2023-11-14 22:13:30+00:00`. Step 3 delivers the same value on the streaming path.
+**Vacuity:** the case is meaningless unless a window actually closes, which is why it is built on
+TYPE-060 rather than on a view of raw rows. Assert two rows on the wire, not "no exception".
+
+## TYPE-064 — a STRING, BOOLEAN or FLOAT column named as the window's time column
+**Intent:** complete the window row of the grid for the types that are plainly not time. The refusal
+must arrive at registration; `WindowAssign`'s unconditional `getLong` means anything that gets
+through reads eight bytes of whatever is there.
+**Falsifier:** any of the three planning.
+**Setup:** fixture `S` with `winx` — schema `id:INT64,u:STRING,amt:INT64,s:STRING,b:BOOLEAN,f:FLOAT64,ts:TIMESTAMP`.
+**Steps:** register the TYPE-060 query three times with `TUMBLE(s, …)`, `TUMBLE(b, …)` and
+`TUMBLE(f, …)`; then the `TABLE(TUMBLE(TABLE winx, DESCRIPTOR(s), INTERVAL '10' SECOND))` spelling,
+which reaches `descriptorOrdinal` — a **name match with no type check at all**.
+**Expected:** the three `GROUP BY TUMBLE(col, …)` forms are refused by the validator with
+`PRV-2002`. The `DESCRIPTOR` spelling is the one to watch: `descriptorOrdinal` resolves the name
+case-insensitively against the schema and returns an ordinal **without consulting the type**, so if
+Calcite's own validation does not stop it first, a `STRING` column becomes the event-time ordinal
+and `WindowAssign` reads its (offset, length) slot as a nanosecond instant. Record exactly which
+layer refuses it. If nothing does, this is a wrong-answer defect, not a missing feature.
+
+---
+
+## 8. ORDER — refused, and verified rather than assumed (TYPE-065 … TYPE-067)
+
+`SQL_SUPPORT.md` lists `ORDER BY` and `LIMIT`/`OFFSET` as ❌ with `PRV-2020`, and explains why: a
+total order over rows that have not all arrived is not a thing. The brief asks for this to be
+*verified*, because a documented refusal that does not happen is worse than an undocumented one.
+
+## TYPE-065 — ORDER BY is refused, on every type, with PRV-2020
+**Intent:** verify the refusal exists, carries the documented code, and does not depend on the
+column's type — a refusal implemented in the type switch rather than in the operator would let some
+types through.
+**Falsifier:** `ORDER BY` planning for any type; a code other than `PRV-2020`; a refusal that
+arrives at run time.
+**Setup:** `types.csv` and the CLI — no server needed, since this is a plan-time question.
+**Steps:** `pravaha validate --stream types --schema "<types schema>" --sql "SELECT id FROM types
+ORDER BY <col>"` for each of the ten declarable columns `id b i8 i16 i32 i64 f32 f64 s bin ts`;
+then `ORDER BY id DESC`, `ORDER BY 1`, `ORDER BY s, id`, and `ORDER BY id` inside a derived table
+(`SELECT * FROM (SELECT id FROM types ORDER BY id) x`).
+**Expected:** all fifteen exit 1 with `PRV-2020`, and the message names the relational operator
+(`Sort`) rather than the column. Assert the code on every one; a single type that plans is the
+finding. The derived-table form is the one most likely to slip through, because Calcite may push the
+`Sort` somewhere the builder does not look.
+**Vacuity:** `pravaha validate` reads no rows, so "refused" cannot be confused with "no data".
+
+## TYPE-066 — ORDER BY over a bounded read of a view
+**Intent:** `SQL_SUPPORT.md` says ordering "is meaningful over a *bounded* read of a maintained
+view, and that is where it would land if it is added". Check whether it has landed, and check the
+weaker promise the same document makes: *"Row order is stable between identical reads."*
+**Falsifier:** `ORDER BY` accepted over a view but producing an order that is not the one asked for
+(worse than refusing); or two identical reads of the same unchanged view returning rows in different
+orders.
+**Setup:** fixture `S`, view `tv` (5 rows), quiesced.
+**Steps:**
+1. `pravaha query --sql "SELECT id FROM tv ORDER BY id"`
+2. `pravaha query --sql "SELECT id FROM tv"` ten times in a row, with no writes in between
+3. `pravaha query --sql "SELECT s, COUNT(*) FROM tv GROUP BY s ORDER BY 2 DESC"`
+**Expected:** step 1 is refused with `PRV-2020` — the feature has not landed, and the message should
+not claim it has. Step 2 must return the **same order all ten times**; record the order. Step 3 is
+refused for the same reason. If step 1 succeeds, assert the order is genuinely ascending `1,2,3,4,5`
+and reclassify the case as a feature check.
+**Vacuity:** step 2 over five rows could pass by luck if the order were random but stable within a
+process. Repeat it once after a node restart; the documented promise is between identical reads and
+the restart tests whether it survives one.
+
+## TYPE-067 — LIMIT, OFFSET, and the constructs that reach the same refusal
+**Intent:** the neighbours of `ORDER BY` in the same documented table, which share a code path and
+are individually unverified.
+**Falsifier:** any of them planning; or a refusal carrying `PRV-2021` where the document promises
+`PRV-2020` (they mean different things: an operator versus an expression).
+**Setup:** `types.csv`, CLI.
+**Steps:** `pravaha validate` on: `SELECT id FROM types LIMIT 3`; `… OFFSET 2`;
+`… LIMIT 3 OFFSET 2`; `SELECT id FROM types UNION SELECT id FROM types`;
+`… UNION ALL …`; `… INTERSECT …`; `… EXCEPT …`; `VALUES (1)`;
+`SELECT ROW_NUMBER() OVER (ORDER BY id) FROM types`;
+`SELECT id FROM types WHERE id IN (SELECT id FROM types)`.
+**Expected:** ten refusals. Per `SQL_SUPPORT.md`: `LIMIT`, `OFFSET`, the four set operators and
+`VALUES` carry **`PRV-2020`**; `ROW_NUMBER() OVER` and the `IN (subquery)` form carry **`PRV-2021`**.
+Assert the exact code for each — this case is the only place the document's two-column promise is
+checked against the build.
+
+---
+
+## 9. Wire serialisation to a client (TYPE-068 … TYPE-079)
+
+Two switches in series, and they do not agree. `ServedView.value` turns a `RowView` field into a
+Java object and ends `default -> row.getString(ordinal)`; `ArrowSchemas.write` then puts that object
+into a typed Arrow vector and ends `default -> ((VarCharVector) vector).setSafe(…)`. A type handled
+by neither default correctly — `BYTES` is the clearest — is a `ClassCastException` at serialisation.
+`ArrowSchemas.toArrow` refuses `DECIMAL`, `ARRAY`, `MAP` and `ROW` outright with
+`FlightErrors.UNSUPPORTED_TYPE`.
+
+All of these use fixture `S` with view `tv`, read over Flight. `pravaha query` is the CLI's Flight
+client; the Python SDK is used wherever the Arrow *schema* itself has to be inspected.
+
+## TYPE-068 — BOOLEAN on the wire
+**Intent:** `Bool` → `BitVector`, and the NULL row must arrive as a null, not as `false`.
+**Falsifier:** `b` arriving as `0`/`1` integers, as the strings `"true"`/`"false"`, or with the NULL
+row rendered `false`.
+**Setup:** fixture `S`, view `tv`.
+**Steps:** `client.query("SELECT id, b FROM tv")` through the Python SDK; print the Arrow schema and
+the five values with their null mask.
+**Expected:** field `b` has Arrow type `bool`, nullable. Values `True, False, None, True, False` in
+id order. The null mask has exactly one bit clear, at id 3.
+**Vacuity:** five rows asserted, with the null mask checked separately from the values. A client
+library that renders `None` as `False` would pass a values-only assertion.
+
+## TYPE-069 — INT8, INT16, INT32 and INT64 on the wire
+**Intent:** four distinct Arrow widths from one switch. Each extreme is chosen so that a value
+serialised at the wrong width is visibly wrong rather than plausibly wrong.
+**Falsifier:** `i8 = 127` arriving as `-1` (unsigned/signed confusion); `i32 = 2147483647` arriving
+as `-1`; `i64 = 9223372036854775807` arriving as `9.223372036854776e18` (a float in disguise);
+any of the four declared with the wrong bit width in the Arrow schema.
+**Setup:** fixture `S`, view `tv`.
+**Steps:** `client.query("SELECT id, i8, i16, i32, i64 FROM tv")`; print the schema and the values.
+**Expected:** the schema reports `int8`, `int16`, `int32`, `int64`, each **signed** and nullable —
+`ArrowSchemas` builds `new ArrowType.Int(n, true)`, and the `true` is the signedness.
+Values in id order:
+`i8`: 127, −128, None, 0, 1.
+`i16`: 32767, −32768, None, 0, 1.
+`i32`: 2147483647, −2147483648, None, 0, 16777217.
+`i64`: 9223372036854775807, −9223372036854775808, None, 0, 9007199254740993.
+The last is the assertion that nothing on the wire is a double: 2⁵³+1 survives only as an integer.
+`ServedView.value` boxes these as `Byte`, `Short`, `Integer`, `Long` and `ArrowSchemas.write`
+narrows each with `((Number) value).byteValue()` and friends — so a boxing mistake in the view would
+truncate here and show as a wrong value, not as an error.
+
+## TYPE-070 — FLOAT32 and FLOAT64 on the wire
+**Intent:** `SINGLE` → `Float4Vector`, `DOUBLE` → `Float8Vector`, via `((Number) value).floatValue()`.
+A FLOAT64 routed through `floatValue()` would lose the exponent range silently.
+**Falsifier:** `f64 = 1.7976931348623157E308` arriving as `inf` (which is what a `float` narrowing
+produces); `f32 = 1.4E-45` arriving as `0.0`; either declared with the wrong precision.
+**Setup:** fixture `S`, view `tv`.
+**Steps:** `client.query("SELECT id, f32, f64 FROM tv")`; print schema and values with full repr.
+**Expected:** schema reports `float` and `double`. Values:
+`f32`: 3.4028235e38, 1.4e-45, None, 0.0, 16777216.0.
+`f64`: 1.7976931348623157e308, 5e-324, None, 0.0, 9007199254740992.0.
+`f64`'s first value is the one that matters: it is `Double.MAX_VALUE`, and it must not be `inf`.
+Note `4.9E-324` prints as `5e-324` in Python — the same bit pattern, the minimum subnormal; compare
+by `struct.pack` if the text form is ambiguous.
+
+## TYPE-071 — STRING on the wire, including unicode above the BMP
+**Intent:** `Utf8` → `VarCharVector`, filled from `String.valueOf(value).getBytes(UTF_8)`. The
+double conversion (bytes → `String` in `ServedView`, `String` → bytes in `ArrowSchemas`) must be
+lossless for every code point.
+**Falsifier:** `straße` arriving as `straÃŸe` or `stra?e`; `👍ok` arriving as two replacement
+characters or as a lone surrogate; `  pad  ` arriving trimmed; the NULL rows arriving as `""`.
+**Setup:** fixture `S` with a second view `txv` over `text.csv`, and view `tv`.
+**Steps:** `client.query("SELECT id, s FROM txv")` and `client.query("SELECT id, s FROM tv")`;
+compare each value's **UTF-8 byte length** as well as its text.
+**Expected:** from `txv`, eight rows: `hello world` (11 bytes), `  padded  ` (10), None,
+`a.com` (5), `straße` (**7** bytes, not 6 — `ß` is two bytes), `👍ok` (**6** bytes, 3 code points,
+5 UTF-16 units), `100%` (4), `axcom` (5).
+From `tv`: `zed`, `ann`, None, None, `  pad  ` — with rows 3 and 4 both `None`, distinguished only
+by the null mask being set for both, which is correct here.
+
+## TYPE-072 — BYTES on the wire: a String is handed to a VarBinaryVector
+**Intent:** the live defect this section exists to find. `ServedView.value` has **no `BYTES` case**
+and falls to `default -> row.getString(ordinal)`, producing a `String`. `ArrowSchemas.write` has an
+explicit `case BYTES -> ((VarBinaryVector) vector).setSafe(index, (byte[]) value)`. A `String` cast
+to `byte[]` is a `ClassCastException`, every time, for every non-null BYTES value.
+**Falsifier:** the query returning bytes (the defect is fixed — then assert the bytes are
+`63 61 66 65` for `cafe`); or failing for a reason other than the cast.
+**Setup:** fixture `S`, view `tv`; `bin` is `cafe`, NULL, NULL, `beef`, `ff`.
+**Steps:**
+1. `pravaha query --sql "SELECT id, bin FROM tv"`
+2. `client.query("SELECT id, bin FROM tv")` through the SDK
+3. `pravaha query --sql "SELECT id, bin FROM tv WHERE bin IS NULL"` — only the two NULL rows
+4. `pravaha query --sql "SELECT id FROM tv"` — the control, no BYTES column
+5. `pravaha subscribe --view tv` — the streaming path, same rows
+**Expected:** steps 1 and 2 fail with
+`java.lang.ClassCastException: class java.lang.String cannot be cast to class [B`, raised inside
+`ArrowSchemas.write`. Record how it reaches the client: a Flight `INTERNAL` status, a generic error,
+or a dropped connection — and whether the server thread survives.
+Step 3 is the diagnostic: with only NULL values the `value == null` branch short-circuits before the
+cast, so it is expected to **succeed** and return two rows. A BYTES column that works only while it
+is empty is the signature of this defect.
+Step 4 must succeed, proving the view and the transport are fine.
+Step 5 establishes whether the streaming path shares the fault.
+**The answer being denied:** `cafe` → `b'cafe'` (4 bytes `63 61 66 65`), `beef` → `b'beef'`,
+`ff` → `b'ff'`.
+**Vacuity:** step 4's success is what makes steps 1–2's failure attributable to the type. Without it
+a broken server looks the same.
+
+## TYPE-073 — TIMESTAMP_LTZ on the wire
+**Intent:** the type whose serialisation was the fourth of the four defects in finding Q-1. It must
+go out as nanoseconds, zoned UTC, through `TimeStampNanoTZVector`.
+**Falsifier:** a `ClassCastException` naming a timestamp vector; the value divided by 1 000 or
+1 000 000; the field arriving with `tz=None`; the two timestamps one nanosecond apart arriving equal.
+**Setup:** fixture `S`, view `tv`.
+**Steps:** `client.query("SELECT id, ts FROM tv")`; print the Arrow field and the raw integer values
+(not the rendered datetimes).
+**Expected:** field `ts` is `timestamp[ns, tz=UTC]`, nullable. Raw values:
+1700000000000000000, 0, None, 1700000000000000001, −1.
+Rows 1 and 4 differ by exactly 1; row 2 is the epoch and is **not** null; row 5 is negative —
+1969-12-31T23:59:59.999999999Z — and a client that clamps it to the epoch has lost a nanosecond.
+**Vacuity:** the pair (row 1, row 4) cannot both be right unless nanosecond resolution survived the
+whole path. A single-timestamp case would pass at millisecond resolution.
+
+## TYPE-074 — TIME on the wire is indistinguishable from TIMESTAMP
+**Intent:** `ArrowSchemas.arrowTypeOf` maps `TIME` and `TIMESTAMP_LTZ` to the **same** Arrow type,
+`Timestamp(NANOSECOND, "UTC")`. A `TIME` value is nanoseconds since *midnight*; a client reading it
+as a timestamp sees 1970-01-01 plus that offset. The mapping is not a rounding choice, it is a
+category error, and it is currently unreachable only because TIME cannot be declared (TYPE-004).
+**Falsifier:** `TIME` mapped to an Arrow `Time` type (fixed — record it); or a `TIME` column that
+serialises with a different magnitude from the same number held as a timestamp.
+**Setup:** a programmatic schema with `t TIME` holding 3 600 000 000 000 (01:00:00) and
+`ts TIMESTAMP_LTZ` holding the same number, exposed as a view over the embedded server.
+**Steps:** query both columns; print the Arrow schema and the rendered values.
+**Expected:** both fields report `timestamp[ns, tz=UTC]` and both render as
+`1970-01-01 01:00:00+00:00`. The two columns are **identical on the wire** despite being different
+types in the engine. Record it as a wire-contract defect: a client cannot recover a time of day, and
+the correct mapping is `Time(NANOSECOND, 64)`.
+
+## TYPE-075 — DATE on the wire
+**Intent:** `Date(DateUnit.DAY)` → `DateDayVector`, written from `((Number) value).intValue()` —
+correct, and unreachable from configuration (TYPE-003). Establish the mapping is right so that
+making DATE declarable does not need this checked again.
+**Falsifier:** DATE arriving as a timestamp; as milliseconds; as a string.
+**Setup:** the programmatic schema of TYPE-019, `d` = 19723.
+**Steps:** query `SELECT id, d FROM n`; print the Arrow field and the value.
+**Expected:** field `d` is `date32[day]`, nullable; the value renders as `2024-01-01` and the raw
+integer is **19723**. Check the arithmetic: 1970-01-01 to 2024-01-01 is 54 years with 13 leap days
+(1972, 76, 80, 84, 88, 92, 96, 2000, 04, 08, 12, 16, 20) → 54 × 365 + 13 = 19710 + 13 = **19723**.
+
+## TYPE-076 — DECIMAL on the wire is refused, and refused before anything is read
+**Intent:** `ArrowSchemas.arrowTypeOf` throws `FlightErrors.UNSUPPORTED_TYPE` for DECIMAL, with a
+message that explains the decision. The refusal must come from `toArrow` — i.e. when the *schema* is
+built, before a row is touched — and must not be reachable only after the first row.
+**Falsifier:** a DECIMAL column arriving as a float or a string; a refusal arriving per row rather
+than per query; a refusal with no message.
+**Setup:** the programmatic DECIMAL column of TYPE-019, exposed as a view.
+**Steps:** `getFlightInfo` for `SELECT id, amt FROM n` (schema only, no data); then `getStream`;
+then `SELECT id FROM n` as the control.
+**Expected:** `getFlightInfo` already fails with `UNSUPPORTED_TYPE` and
+`DECIMAL is not something Pravaha puts on the wire yet. DECIMAL in particular is refused rather than
+sent as a float, because the rounding decision belongs to whoever owns the ledger and not to a
+serialiser.` `SELECT id FROM n` succeeds.
+**And the second failure hiding behind the first:** if `toArrow` is ever fixed, `ServedView.value`
+still has no DECIMAL case and falls to `row.getString(ordinal)`, which reads the **16-byte decimal
+slot as an (offset, length) pair**. The first eight bytes of `123.45` at scale 2 are the high word
+`0`, so the offset reads as 0 and the length as 0 — an empty string — but any decimal with a
+non-zero high word produces an arbitrary length and either a bounds failure from `MemoryRegion`, a
+`NegativeArraySizeException`, or a multi-gigabyte allocation. **Test it directly**: write
+`setDecimal(1, 1L, 0L)` (high = 1) and call `ServedView`'s value path through the REST read, which
+does not go through `toArrow`. Record what happens. This is the most dangerous single line in the
+type system and it is currently masked by a refusal one layer up.
+
+## TYPE-077 — ARRAY, MAP and ROW on the wire are refused
+**Intent:** complete the wire row of the grid. These three never reach `ArrowSchemas` under normal
+operation because `TypeMapping` fails first (TYPE-020), so the case establishes which layer refuses
+and whether the message is the useful one.
+**Falsifier:** any of the three serialised; a refusal that names neither the type nor the column.
+**Setup:** the programmatic nested schema of TYPE-020, exposed as a view.
+**Steps:** `getFlightInfo` for `SELECT id, arr FROM n`, then `m`, then `r`; then `SELECT * FROM n`;
+then `SELECT id FROM n` as the control.
+**Expected:** each fails. Record **which** failure arrives: `TypeMapping.baseFromCalcite`'s bare
+`IllegalArgumentException` (from planning), or `ArrowSchemas`' `UNSUPPORTED_TYPE`. The latter is the
+honest one — it names the type and says it is not on the wire *yet*. The former names a class.
+`SELECT id FROM n` succeeds.
+
+## TYPE-078 — NULL of every type on the wire
+**Intent:** `ArrowSchemas.write` short-circuits on `value == null` before the type switch, so NULL is
+the one value whose path is type-independent — and therefore the one place a null-bitmap fault would
+show identically for all types. Every field is declared `FieldType.nullable(...)` regardless of the
+column's declared nullability, which is a deliberate choice worth pinning.
+**Falsifier:** a NOT NULL column arriving as non-nullable in the Arrow schema (which would make a
+future nullable value unrepresentable); a NULL arriving as a type default (0, `false`, `""`).
+**Setup:** fixture `S`, view `tv`. Row 3 is NULL in all ten nullable columns; `id` is NOT NULL.
+**Steps:** `client.query("SELECT * FROM tv")`; inspect the Arrow schema's nullability for every
+field, and row 3's null mask for every column.
+**Expected:** **every** field in the Arrow schema is nullable, `id` included — `toArrow` calls
+`FieldType.nullable(...)` unconditionally. Row 3 has the null bit set for `b i8 i16 i32 i64 f32 f64
+s bin ts` — ten nulls — and `id = 3` present. No column renders a type default.
+Note the consequence and record it: the Arrow schema **cannot express** that `id` is NOT NULL, so a
+client cannot distinguish a column that may be null from one that may not. That is a lossy contract,
+not a defect, but it is undocumented.
+**Vacuity:** ten null bits in one row, asserted individually. A single-column null check would pass
+on nine broken columns.
+
+## TYPE-079 — the parameter schema's types
+**Intent:** `ArrowSchemas.parameterSchema` runs the same `arrowTypeOf` over a prepared statement's
+placeholders, names them `param_1` upward, and declares them all nullable. A placeholder whose
+column type is DECIMAL, ARRAY, MAP or ROW therefore refuses **at prepare time**, which is a different
+moment from every other case in this section.
+**Falsifier:** placeholders numbered from zero; a placeholder typed from the wrong column; a DECIMAL
+placeholder accepted and then failing at bind.
+**Setup:** fixture `S`, view `tv`, and the programmatic view `n` of TYPE-019.
+**Steps:**
+1. prepare `SELECT id FROM tv WHERE s = ? AND i64 > ?` and read the parameter schema
+2. prepare `SELECT id FROM tv WHERE b = ?`, `… ts > ?`, `… bin = ?`
+3. prepare `SELECT id FROM n WHERE amt = ?`
+4. bind NULL to `?1` in step 1's statement and execute
+**Expected:** step 1 reports two fields, `param_1` of type `utf8` and `param_2` of type `int64`,
+both nullable. Step 2: `b` → `bool`; `ts` → `timestamp[ns, tz=UTC]`; `bin` — `bin` is BYTES, which
+`arrowTypeOf` maps to `binary`, so the *schema* succeeds while `PredicateCompiler.compare` refuses
+BYTES with `PRV-2021` (TYPE-031); record which error the client sees and at which call.
+Step 3 refuses with `UNSUPPORTED_TYPE` naming DECIMAL, at **prepare**, not at execute.
+Step 4: binding NULL makes the predicate `Predicate.False` by design (ADR-032's stated position),
+so the result is **0 rows** — not an error, and not the rows where `s IS NULL`. Assert zero rows and
+pair it with `WHERE s IS NULL`, which must return **2** rows (ids 3 and 4); the two differing is the
+whole point of that design decision.

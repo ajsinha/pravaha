@@ -731,3 +731,538 @@ is why (a) is the discriminating case. (d) SQL says a start below 1 counts the s
 length, so `FROM 0 FOR 2` yields 1 character: `u / u / u / u / u / ü`. (e) six empty strings.
 (f) six empty strings.
 **Vacuity:** C1 on each. For (a), assert the output file's bytes are `F0 9F 98 80`, not `EF BF BD`.
+
+---
+
+## §3 — `WHERE`: the predicate compiler
+
+### §3.1 — A comparison on every type
+
+Twelve types, one case each, in the position `TYPE` does not own: a filter. `PredicateCompiler.compare`
+switches on `TypeName` and has a distinct branch per family — `CompareInt` for INT8/INT16/INT32/DATE,
+`CompareLong` for INT64/TIME/TIMESTAMP_LTZ, `CompareDouble` for FLOAT32/FLOAT64, `CompareString`,
+`CompareBoolean`, and a `default` that refuses. Every branch and the default are exercised here.
+All twelve use **Fixture S2** and `all.csv`, three rows.
+
+### SQLX-049 — BOOLEAN in a predicate
+**Intent:** `CompareBoolean` is built as `constant.asBoolean() == (op == EQ)`, which collapses `= TRUE`
+and `<> FALSE` into one flag. An inversion returns exactly the complement and looks like data.
+**Falsifier:** `WHERE b = TRUE` returns the `false` row.
+**Setup:** S2, `all.csv` (`b` = true, false, true).
+**Steps:** H-RUN four queries: `WHERE b = TRUE`, `WHERE b = FALSE`, `WHERE b <> TRUE`, `WHERE b`.
+**Expected:** rows 1 and 3 (2 rows); row 2 (1 row); row 2 (1 row); rows 1 and 3 (2 rows).
+**Vacuity:** C2 — `2 + 1 = 3`, and the unfiltered control returns 3.
+
+### SQLX-050 — INT8 in a predicate
+**Intent:** `compare` casts to `(int)` for INT8; a byte column compared against a literal outside a
+byte's range must not wrap. Round 2 found narrow-type literals throwing raw `ClassCastException`.
+**Falsifier:** `WHERE i8 > 200` matches a row (no INT8 value can exceed 127), or throws without a code.
+**Setup:** S2, `all.csv` (`i8` = 1, -1, 0).
+**Steps:** H-RUN `WHERE i8 > 0`, `WHERE i8 < 0`, `WHERE i8 = 0`, `WHERE i8 >= -1`, `WHERE i8 > 200`.
+**Expected:** 1 row (r1); 1 row (r2); 1 row (r3); 3 rows; 0 rows. The last must be **0 rows with a
+success status**, not an error and not 3.
+**Vacuity:** C2 — `1 + 1 + 1 = 3`.
+
+### SQLX-051 — INT16 in a predicate
+**Intent:** Same branch as INT8, different width; a shared `(int)` cast makes a width bug invisible
+in one and not the other.
+**Falsifier:** `WHERE i16 = 100` misses r1.
+**Setup:** S2, `all.csv` (`i16` = 100, -100, 0).
+**Steps:** H-RUN `WHERE i16 = 100`, `WHERE i16 <> 100`, `WHERE i16 BETWEEN -100 AND 0`.
+**Expected:** 1 row; 2 rows; 2 rows (r2 `-100` and r3 `0`; r1 `100` is above the upper bound).
+**Vacuity:** C2 — `1 + 2 = 3`.
+
+### SQLX-052 — INT32 in a predicate
+**Falsifier:** `WHERE i32 >= 1000` misses r1.
+**Setup:** S2, `all.csv` (`i32` = 1000, -1000, 0).
+**Steps:** H-RUN `WHERE i32 >= 1000`, `WHERE i32 <= -1000`, `WHERE i32 = 0`, `WHERE 1000 = i32`.
+**Expected:** 1, 1, 1, 1 row. The fourth is the `flip(op)` path — `literal OP column` must mean the
+same as `column flip(OP) literal`.
+**Vacuity:** C2 — `1 + 1 + 1 = 3`; and queries one and four return the identical row.
+
+### SQLX-053 — INT64 in a predicate, including the extremes
+**Falsifier:** `WHERE i64 > 9223372036854775806` matches nothing when a row holds `Long.MAX_VALUE`.
+**Setup:** S2, `all.csv` plus a fourth row with `i64 = 9223372036854775807` and a fifth with
+`i64 = -9223372036854775808`.
+**Steps:** H-RUN `WHERE i64 = 9223372036854775807`, `WHERE i64 = -9223372036854775808`,
+`WHERE i64 > 0`, `WHERE i64 < 0`.
+**Expected:** 1 row each for the first two — a `(int)` cast anywhere on this path would truncate both
+to `-1` and `0` and match the wrong rows. Then 2 rows (`10000`, `MAX`) and 2 rows (`-10000`, `MIN`).
+**Vacuity:** C2 — `2 + 2 + 1` (the `0` row) `= 5`.
+
+### SQLX-054 — FLOAT32 in a predicate
+**Intent:** `CompareDouble` holds a `double`; a FLOAT32 column widened per row must compare against a
+literal that was narrowed the same way, or `f32 = 1.5` fails on a value that prints as `1.5`.
+**Falsifier:** `WHERE f32 = 1.5` returns 0 rows.
+**Setup:** S2, `all.csv` (`f32` = 1.5, -1.5, 0.0). `1.5` is exact in both widths, which is why it
+was chosen; a case at `0.1` belongs to `TYPE`.
+**Steps:** H-RUN `WHERE f32 = 1.5`, `WHERE f32 < 0`, `WHERE f32 = 0.0`, `WHERE f32 <> 1.5`.
+**Expected:** 1, 1, 1, 2 rows.
+**Vacuity:** C2 — `1 + 2 = 3`.
+
+### SQLX-055 — FLOAT64 in a predicate
+**Falsifier:** `WHERE f64 >= 2.5` misses r1.
+**Setup:** S2, `all.csv` (`f64` = 2.5, -2.5, 0.0).
+**Steps:** H-RUN `WHERE f64 >= 2.5`, `WHERE f64 <= -2.5`, `WHERE f64 > -2.5 AND f64 < 2.5`.
+**Expected:** 1, 1, 1 row (r3, the zero).
+**Vacuity:** C2 — `1 + 1 + 1 = 3`.
+
+### SQLX-056 — STRING equality and inequality in a predicate
+**Intent:** `=` and `<>` are the only text operators supported; both are `CompareString`.
+**Falsifier:** `WHERE s = 'alpha'` matches `beta`, or is case-insensitive.
+**Setup:** S2, `all.csv` (`s` = alpha, beta, gamma).
+**Steps:** H-RUN `WHERE s = 'alpha'`, `WHERE s <> 'alpha'`, `WHERE s = 'ALPHA'`, `WHERE s = ''`.
+**Expected:** 1; 2; **0** (comparison is case-sensitive, matching the planner's own case-sensitive
+identifier handling); 0.
+**Vacuity:** C2 — `1 + 2 = 3`.
+
+### SQLX-057 — BYTES in a predicate
+**Intent:** `TypeName.BYTES` reaches `compare`'s `default` branch, so it must refuse with a code —
+"cannot compare column '…' of type BYTES against a constant yet". Nothing in the matrix has a
+`VARBINARY` column, and `SQL_SUPPORT.md` lists `VARBINARY` under supported types.
+**Falsifier:** a raw exception with no `PRV-` code, or it plans and returns arbitrary rows.
+**Setup:** S2, `all.csv`.
+**Steps:** H-VAL `SELECT s FROM allt WHERE bin = X'51'`; also `WHERE bin IS NULL`.
+**Expected:** the comparison is `PRV-2021` naming `bin` and `BYTES`. `IS NULL` uses `Predicate.IsNull`
+and is type-independent, so it must **plan** — the two together show the refusal is about comparison
+and not about the column existing.
+**Vacuity:** C3 on the refusal.
+**Finding if it plans:** `SQL_SUPPORT.md` lists `VARBINARY` as a supported type with no caveat;
+if the comparison refuses, the Types paragraph needs the caveat.
+
+### SQLX-058 — DATE in a predicate
+**Intent:** DATE shares `CompareInt` with the narrow integers — days since epoch held in an `int`.
+A date literal must be converted to the same units, or every comparison is off by decades.
+**Falsifier:** `WHERE d = DATE '2022-01-01'` returns 0 rows when `d = 19000` is 2022-01-08.
+**Setup:** S2, `all.csv` (`d` = 19000, 19001, 19002; 19000 days after 1970-01-01 is **2022-01-08**).
+**Steps:** H-RUN `WHERE d = DATE '2022-01-08'`, `WHERE d > DATE '2022-01-08'`, `WHERE d = 19000`.
+**Expected:** 1 row; 2 rows; and the third is the interesting one — an integer literal against a
+DATE column either plans and matches r1, or refuses with a code. Record which.
+**Vacuity:** C2 — `1 + 2 = 3`.
+
+### SQLX-059 — TIME in a predicate
+**Intent:** TIME shares `CompareLong` with INT64 and TIMESTAMP. `all.csv` holds milliseconds
+(`DelimitedCodec` parses TIME with `Long.parseLong`), and a `TIME` literal arrives from Calcite in
+milliseconds too — but the engine works in nanoseconds throughout (ADR-012), so a units mismatch here
+is a factor of 1 000 000.
+**Falsifier:** `WHERE tm = TIME '01:00:00'` returns 0 rows while `tm = 3600000` returns 1.
+**Setup:** S2, `all.csv` (`tm` = 3600000, 7200000, 0 — i.e. 01:00:00, 02:00:00, 00:00:00 in ms).
+**Steps:** H-RUN `WHERE tm = TIME '01:00:00'`, `WHERE tm = 3600000`, `WHERE tm > TIME '00:00:00'`.
+**Expected:** the first two must return **the same single row**. If they disagree, the units are
+inconsistent between the codec and the literal and that is the finding. Third: 2 rows.
+**Vacuity:** C2 — the disagreement between query one and query two is itself the assertion, so both
+must be run in the same session over the same file.
+
+### SQLX-060 — TIMESTAMP in a predicate
+**Intent:** Round 2: "a `TIMESTAMP` comparison throws an `AssertionError` that kills a Flight worker
+thread". A killed worker is not a refusal.
+**Falsifier:** an `AssertionError`, or a thread death, or 0 rows where 2 are expected.
+**Setup:** S2, `all.csv` (`ts` = 1000000000, 2000000000, 3000000000 ns = 1 s, 2 s, 3 s after epoch).
+**Steps:** H-RUN `WHERE ts > 1000000000`, `WHERE ts = 1000000000`,
+`WHERE ts > TIMESTAMP '1970-01-01 00:00:01'`. Then the same three through H-VIEW over a view of
+`allt`, which is the Flight path round 2 saw die.
+**Expected:** 2 rows; 1 row; and the third either agrees with the first (2 rows) or refuses with a
+code. **No `AssertionError` on any path, and no worker thread death** — after the H-VIEW runs, a
+fourth `pravaha query` in the same session must still be answered.
+**Vacuity:** C1, plus the follow-up query after the H-VIEW runs, which is what proves the server
+survived.
+
+### §3.2 — Boolean structure: AND, OR, NOT and their nesting
+
+### SQLX-061 — `AND` of two comparisons
+**Intent:** `Predicate.And` over `compileAll`. Documented ✅.
+**Falsifier:** the result is the union rather than the intersection.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE amount > 0 AND flagged`.
+**Expected:** `amount > 0` is r1, r2, r5, r6; `flagged` is r1, r4, r6. The intersection is
+`{1, 2, 5, 6} ∩ {1, 4, 6} = {1, 6}` — **2 rows**, `txn_id` 1 and 6.
+**Vacuity:** C2 — the two halves return 4 and 3 in the same session; `2 < min(4, 3)` shows the
+conjunction narrowed.
+
+### SQLX-062 — `OR` of two comparisons
+**Falsifier:** the result is the intersection, or double-counts.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE amount > 100 OR flagged`.
+**Expected:** `{2} ∪ {1, 4, 6} = {1, 2, 4, 6}` — **4 rows**. No `txn_id` appears twice.
+**Vacuity:** C2 — the halves return 1 and 3; `1 + 3 = 4` and the sets are disjoint, so the union
+count is exactly the sum here, which is the arithmetic.
+
+### SQLX-063 — `NOT` over a single comparison
+**Intent:** `negate` turns `NOT (a > b)` into `a <= b` rather than wrapping a Java `!`, precisely so
+a null operand stays dropped.
+**Falsifier:** `NOT (amount > 0)` returns 4 rows (the complement of the kept set including nulls).
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE NOT (amount > 0)`.
+**Expected:** `amount` is non-null everywhere in D1, so this is the exact complement:
+`6 - 4 = 2` rows, `txn_id` 3 (`-50`) and 4 (`0`).
+**Vacuity:** C2 — `4 + 2 = 6`.
+
+### SQLX-064 — De Morgan over `AND`
+**Intent:** `NOT (A AND B)` is compiled as `Or(negate A, negate B)`. A missed inversion returns the
+conjunction's complement of one side only.
+**Falsifier:** the count is not 4.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE NOT (amount > 0 AND flagged)`.
+**Expected:** SQLX-061 kept `{1, 6}`; over non-null columns this is the complement,
+`{2, 3, 4, 5}` — **4 rows**. `6 - 2 = 4`.
+**Vacuity:** C2 against SQLX-061 run in the same session.
+
+### SQLX-065 — De Morgan over `OR`
+**Falsifier:** the count is not 2.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE NOT (amount > 100 OR flagged)`.
+**Expected:** SQLX-062 kept `{1, 2, 4, 6}`; the complement is `{3, 5}` — **2 rows**. `6 - 4 = 2`.
+**Vacuity:** C2 against SQLX-062.
+
+### SQLX-066 — `NOT NOT`
+**Intent:** `case NOT -> compile(operand)`. Double negation must be the identity, including over the
+null-bearing column where a naive `!!` is also the identity and a wrongly-lowered one is not.
+**Falsifier:** `NOT (NOT (status = 'ok'))` returns other than 4.
+**Setup:** S, D1.
+**Steps:** H-RUN `WHERE status = 'ok'` and `WHERE NOT (NOT (status = 'ok'))`.
+**Expected:** both return **4 rows** (r1, r3, r5, r6) and the identical `txn_id` set. Row 2's NULL is
+dropped by both.
+**Vacuity:** C2 — the single-`NOT` form `WHERE NOT (status = 'ok')` returns **1** (r4, `flagged`),
+not 2. That gap of one row is row 2's UNKNOWN and is what makes the double negation meaningful.
+
+### SQLX-067 — eight levels of interleaved AND/OR/NOT
+**Intent:** The brief asks for nesting. `compile`/`negate` recurse in tandem and a mistake deep in an
+odd number of negations flips one leaf.
+**Falsifier:** a count other than the hand-computed one.
+**Setup:** S, D1.
+**Steps:** H-RUN
+`SELECT txn_id FROM txn WHERE NOT (amount < 0 OR (flagged AND NOT (user_id = 'u1' OR (amount > 200 AND NOT (status = 'ok')))))`.
+**Expected, computed row by row:**
+inner₃ `= status = 'ok'`; inner₂ `= amount > 200 AND NOT inner₃`; inner₁ `= user_id = 'u1' OR inner₂`;
+mid `= flagged AND NOT inner₁`; outer `= NOT (amount < 0 OR mid)`.
+| row | amount | flagged | user_id | status | inner₃ | inner₂ | inner₁ | mid | amount<0 | **kept** |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 100 | T | u1 | ok | T | F | T | F | F | **yes** |
+| 2 | 250 | F | u2 | NULL | UNK | F(¹) | F | F | F | **yes** |
+| 3 | -50 | F | u1 | ok | T | F | T | F | T | no |
+| 4 | 0 | T | u3 | flagged | F | F | F | T | F | no |
+| 5 | 7 | F | u2 | ok | T | F | F | F | F | **yes** |
+| 6 | 7 | T | ünïcødé | ok | T | F | F | T | F | no |
+(¹) `250 > 200` is TRUE and `NOT UNKNOWN` is UNKNOWN, so inner₂ is UNKNOWN; the two-valued IR drops
+it to FALSE, which reaches the same answer here — that agreement is itself worth recording.
+**Result: 3 rows — `txn_id` 1, 2, 5.**
+**Vacuity:** C2 — the negation of the whole predicate must return the other 3 (`txn_id` 3, 4, 6) in
+the same session, and `3 + 3 = 6`.
+
+### SQLX-068 — a predicate that is always true
+**Intent:** `case LITERAL -> Predicate.True()`. A constant-folded `1 = 1` must keep every row, and a
+`Predicate.False` here silently empties the result.
+**Falsifier:** fewer than 6 rows.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE 1 = 1`.
+**Expected:** `ok  6 in, 6 out`, `txn_id` 1..6.
+**Vacuity:** C1, and C2 against SQLX-069 — `6 + 0 = 6`.
+
+### SQLX-069 — a predicate that is always false
+**Intent:** The mirror. A `True` here returns everything, which looks like a working query.
+**Falsifier:** any row is emitted.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE 1 = 0`.
+**Expected:** `ok  6 in, 0 out`; `out.csv` empty.
+**Vacuity:** **C1 is mandatory here.** `6 in` must be printed. `0 in, 0 out` means the file was never
+read and the case proves nothing — this is precisely round 1's pause test that passed because the
+source ran dry.
+
+### SQLX-070 — bare `WHERE TRUE` and `WHERE FALSE`
+**Intent:** The literal reaches `compile`'s `LITERAL` branch directly rather than through a folded
+comparison, which is a different path from SQLX-068/069.
+**Falsifier:** `PRV-2021`, or the two behave alike.
+**Setup:** S, D1.
+**Steps:** H-RUN `WHERE TRUE` then `WHERE FALSE`.
+**Expected:** 6 rows then 0 rows, `6 in` on both.
+**Vacuity:** C1 on both; C2 — `6 + 0 = 6`.
+
+### SQLX-071 — a bare boolean column
+**Intent:** Documented ✅ "A bare boolean column — `WHERE flagged`". `case INPUT_REF` builds
+`CompareBoolean(idx, name, true)`.
+**Falsifier:** `PRV-2021`, or the complement.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE flagged`.
+**Expected:** 3 rows, `txn_id` 1, 4, 6.
+**Vacuity:** C2 — `WHERE NOT flagged` returns `txn_id` 2, 3, 5 and `3 + 3 = 6`.
+
+### SQLX-072 — `NOT` on a bare boolean column that may be NULL
+**Intent:** The `negate` `INPUT_REF` branch says "NOT flagged is TRUE only where flagged is present
+and false". `flagged` is non-nullable in S, so this needs a nullable one.
+**Falsifier:** the NULL row is kept by both `WHERE f` and `WHERE NOT f`, which would mean 3 + 3 = 7.
+**Setup:** S with `flagged:BOOLEAN?`; a file of 3 rows with `flagged` = true, false, empty(NULL).
+**Steps:** H-RUN `WHERE flagged`, `WHERE NOT flagged`, `WHERE flagged IS NULL`.
+**Expected:** 1, 1, 1 row. `1 + 1 = 2 ≠ 3`: the NULL row is dropped by **both**, and only
+`IS NULL` finds it. That shortfall of one is the assertion.
+**Vacuity:** C1 (`3 in` on each) and C2 (the census `1 + 1 + 1 = 3` closes only with `IS NULL`).
+
+### SQLX-073 — column against column, both numeric
+**Intent:** Documented ✅ "Column against column — `WHERE a > b` | Both numeric". Neither operand is
+a literal, so this takes `compareExpressions`, a different code path from every case above.
+**Falsifier:** `PRV-2021`, or the wrong row set.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE amount > txn_id`.
+**Expected:** `amount` vs `txn_id`: `100>1` T, `250>2` T, `-50>3` F, `0>4` F, `7>5` T, `7>6` T —
+**4 rows**, `txn_id` 1, 2, 5, 6.
+**Vacuity:** C2 — `WHERE amount <= txn_id` returns 2 (`txn_id` 3, 4) and `4 + 2 = 6`.
+
+### SQLX-074 — column against column where one side is text
+**Intent:** `rejectText` refuses when either compiled side has `TypeName.STRING`. Documented ❌ "Text
+ordering — `WHERE status > user_id` | `PRV-2021`".
+**Falsifier:** it plans, and two texts are ordered by whatever the long underneath happens to be.
+**Setup:** S.
+**Steps:** H-VAL `SELECT txn_id FROM txn WHERE status > user_id`; and `WHERE status = user_id`.
+**Expected:** the first is `PRV-2021` — expect the message "compares text inside a larger expression"
+or "only = and <> are supported on text column". The second is the interesting half: `=` between two
+**columns** also reaches `compareExpressions` (the fast path needs a literal), so it is refused too,
+while `SQL_SUPPORT.md` says "`=` and `<>` on text do work". Record the outcome; if `=` between two
+text columns is refused, the document's caveat is incomplete.
+**Vacuity:** C3.
+
+### SQLX-075 — arithmetic inside a predicate
+**Intent:** Documented ✅ `amount * 2 > 100`. `compareExpressions` again, with a computed left side.
+**Falsifier:** the row set matches `amount > 100` instead, i.e. the `* 2` was dropped.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE amount * 2 > 100`.
+**Expected:** doubled amounts are `200, 500, -100, 0, 14, 14`; `> 100` is true for r1 and r2 —
+**2 rows**, `txn_id` 1 and 2.
+**Vacuity:** C2 — `WHERE amount > 100` returns **1** row in the same session. `2 ≠ 1` proves the
+multiplication happened; that difference is the whole case.
+
+### §3.3 — Three-valued logic
+
+Four cases over one column, because the document's claim — "a comparison with NULL is UNKNOWN, and a
+filter keeps only rows where the predicate is TRUE" — is only checkable as a set of counts that do
+**not** add to six.
+
+### SQLX-076 — `= 'ok'` drops the NULL row
+**Falsifier:** 5 rows.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE status = 'ok'`.
+**Expected:** 4 rows — `txn_id` 1, 3, 5, 6. Row 2 is NULL (UNKNOWN, dropped); row 4 is `flagged`.
+**Vacuity:** C1 (`6 in`).
+
+### SQLX-077 — `<> 'ok'` also drops the NULL row
+**Intent:** The pair is the point. If `<>` were implemented as "not equal, nulls included", this
+returns 2 and the two counts add to six, which is exactly the wrong behaviour.
+**Falsifier:** 2 rows.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE status <> 'ok'`.
+**Expected:** **1 row** — `txn_id` 4. Row 2's NULL is UNKNOWN under `<>` too.
+**Vacuity:** C2 with SQLX-076 — `4 + 1 = 5 ≠ 6`. The missing row is row 2, and its absence from both
+sides is the assertion.
+
+### SQLX-078 — `NOT (status = 'ok')` is not the complement
+**Intent:** `PredicateCompiler.negate`'s own javadoc: wrapping in a Java `!` "turns the dropped row
+into a kept one". This is the case that catches that regression.
+**Falsifier:** 2 rows.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE NOT (status = 'ok')`.
+**Expected:** **1 row** — `txn_id` 4 only. Identical to SQLX-077, because `NOT (x = y)` is `x <> y`.
+**Vacuity:** C2 with SQLX-076 — `4 + 1 = 5`, and the complement of 4 out of 6 would be 2.
+
+### SQLX-079 — the census closes only when `IS NULL` is added
+**Intent:** The affirmative statement of the three preceding cases, as one arithmetic identity.
+**Falsifier:** the three counts add to anything but 6, or `IS NULL` returns other than 1.
+**Setup:** S, D1.
+**Steps:** H-RUN three queries in one session: `WHERE status = 'ok'`, `WHERE status <> 'ok'`,
+`WHERE status IS NULL`.
+**Expected:** `4 + 1 + 1 = 6`. Exactly.
+**Vacuity:** C1 on each (`6 in` three times). This is the case that makes SQLX-076–078 non-vacuous:
+without it, three small numbers could all be small because the source was empty.
+
+### §3.4 — `IN`
+
+### SQLX-080 — an empty `IN` list
+**Intent:** The brief asks for it. `IN ()` is not valid SQL; the question is whether the refusal is a
+clean `PRV-2001` with a position or something internal.
+**Falsifier:** an exception with no code, or a plan.
+**Setup:** S.
+**Steps:** H-VAL `SELECT txn_id FROM txn WHERE user_id IN ()`.
+**Expected:** `PRV-2001`, with Calcite's line and column preserved ("Encountered \")\" at line 1,
+column …"). The document's error table promises exactly that for 2001.
+**Vacuity:** C3.
+
+### SQLX-081 — a one-element `IN` list
+**Intent:** Documented ✅ "Expanded to a chain of equalities" — a chain of one.
+**Falsifier:** `PRV-2021`, or a count other than 2.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE user_id IN ('u1')`.
+**Expected:** 2 rows — `txn_id` 1 and 3.
+**Vacuity:** C2 — `WHERE user_id = 'u1'` returns the same 2 rows in the same session. The two forms
+must agree exactly.
+
+### SQLX-082 — a many-element `IN` list
+**Falsifier:** a count other than 5.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE user_id IN ('u1','u2','u3','nobody')`.
+**Expected:** `u1` → r1, r3; `u2` → r2, r5; `u3` → r4; `nobody` → none. **5 rows**, `txn_id`
+1, 2, 3, 4, 5. Only r6 (`ünïcødé`) is excluded.
+**Vacuity:** C2 — `WHERE user_id NOT IN ('u1','u2','u3','nobody')` returns 1 row and `5 + 1 = 6`.
+
+### SQLX-083 — an `IN` list with duplicates
+**Intent:** A chain of equalities with a repeated term must not emit a row twice.
+**Falsifier:** more than 2 rows, or a `txn_id` appearing twice.
+**Setup:** S, D1.
+**Steps:** H-RUN `SELECT txn_id FROM txn WHERE user_id IN ('u1','u1','u1')`.
+**Expected:** 2 rows, `txn_id` 1 and 3, each once. Identical output to SQLX-081.
+**Vacuity:** C1 (`6 in, 2 out`) — the `out` count is the assertion, so it must be read from the
+command's own line and not only from the file.
+
+### SQLX-084 — an `IN` list of 19 terms
+**Intent:** Round-1 SQL-054 found `IN` lists of 20 or more terms refused, because Calcite converts a
+long `IN` into a `SEARCH` over a `Sarg` and `PredicateCompiler` has no `SEARCH` branch — it falls to
+`default -> throw unsupported(node)`. `SQL_SUPPORT.md` documents `IN` with no limit. 19 is the
+boundary below.
+**Falsifier:** 19 terms is refused.
+**Setup:** S, D1.
+**Steps:** H-RUN `WHERE user_id IN ('u1','x2','x3',…,'x19')` — `u1` plus 18 non-matching values.
+**Expected:** it plans and returns **2 rows**, `txn_id` 1 and 3.
+**Vacuity:** C1.
+
+### SQLX-085 — an `IN` list of 20 and of 21 terms
+**Intent:** The boundary itself. If it refuses, the document has an undocumented limit; the exact
+number is what a user needs.
+**Falsifier:** 20 behaves differently from 19 **and** the document still claims no limit.
+**Setup:** S, D1.
+**Steps:** H-VAL with 20 terms, then 21, then 50, then 200. Record the first term count that refuses.
+**Expected (if the limit is real):** `PRV-2021` from `unsupported(node)`, whose text is "cannot
+compile the expression '<the whole SEARCH node>' (SEARCH) yet". **Two findings to record:** the
+undocumented limit itself, and that the message interpolates the entire value list — round 1 saw
+48 KB of SQL produce a **99 KB error message**. Measure the message length at 200 terms.
+**Vacuity:** C3, and SQLX-084 as the control showing 19 works in the same session.
+
+### SQLX-086 — `IN` with NULL among the terms
+**Intent:** `IN (a, NULL)` is `x = a OR x = NULL`; the second disjunct is UNKNOWN for every row, and
+`compare` returns `Predicate.False()` for a null constant. A non-matching row must therefore be
+dropped rather than kept — which is where SQL's `NOT IN` with a NULL famously returns nothing.
+**Falsifier:** `NOT IN ('u1', NULL)` returns 4 rows.
+**Setup:** S, D1.
+**Steps:** H-RUN `WHERE user_id IN ('u1', NULL)` and `WHERE user_id NOT IN ('u1', NULL)`.
+**Expected:** the first returns 2 (r1, r3). The second, in standard SQL, returns **0** — every row is
+UNKNOWN. If the two-valued IR returns 4 instead, that is a wrong answer, not a refusal, and is the
+most valuable thing this section can find.
+**Vacuity:** C1 on both (`6 in`), and C2 — `2 + 0 = 2 ≠ 6` is the expected shortfall.
+
+### §3.5 — `IS NULL`, `BETWEEN`, `LIKE`
+
+### SQLX-087 — `IS NULL` and `IS NOT NULL` on a bare column
+**Intent:** Documented ✅. `Predicate.IsNull` is total — never UNKNOWN — so its two forms must
+partition the input exactly.
+**Falsifier:** the two counts do not add to 6.
+**Setup:** S, D1.
+**Steps:** H-RUN `WHERE status IS NULL` then `WHERE status IS NOT NULL`.
+**Expected:** 1 row — `txn_id` **2**, the only NULL `status` in D1 — and 5 rows: `txn_id` 1, 3, 4,
+5, 6. `1 + 5 = 6`.
+**Vacuity:** C2, which is the `1 + 5 = 6` identity itself.
+
+### SQLX-088 — `IS NULL` over an expression
+**Intent:** Round-1 SQL-028: `nullCheck` requires `operands.get(0) instanceof RexInputRef`, so
+`(a || b) IS NULL` is `PRV-2021` while `SQL_SUPPORT.md` lists `IS NULL` as ✅ with no caveat.
+**Falsifier:** it plans (in which case the finding is closed and the document is right).
+**Setup:** S.
+**Steps:** H-VAL, each of: `WHERE (user_id || status) IS NULL`, `WHERE (amount * 2) IS NULL`,
+`WHERE UPPER(status) IS NULL`, `WHERE CASE WHEN flagged THEN status END IS NULL`.
+**Expected:** `PRV-2021` for each, from `unsupported(call)` — "cannot compile the expression … yet.
+Supported: … IS [NOT] NULL …", a message that lists the construct it just refused. **Finding:** the
+document needs "on a bare column" against the `IS NULL` row.
+**Vacuity:** C3, with `WHERE status IS NULL` planning in the same session as the control.
+
+### SQLX-089 — `BETWEEN` is inclusive at both ends
+**Intent:** Documented ✅ "Expanded to `>= AND <=`". An exclusive end silently loses boundary rows,
+which is the classic off-by-one nobody notices.
+**Falsifier:** a boundary row is missing.
+**Setup:** S, D1.
+**Steps:** H-RUN `WHERE amount BETWEEN -50 AND 100`, and `WHERE amount BETWEEN 7 AND 7`.
+**Expected:** first — `-50, 0, 7, 7, 100` are all in range; `250` is not. **5 rows**, `txn_id`
+1, 3, 4, 5, 6. Both endpoints (`-50` at r3 and `100` at r1) are present, which is the assertion.
+Second — **2 rows**, `txn_id` 5 and 6, a degenerate range that is not empty.
+**Vacuity:** C2 — `WHERE amount NOT BETWEEN -50 AND 100` returns 1 (`txn_id` 2) and `5 + 1 = 6`.
+
+### SQLX-090 — an inverted `BETWEEN`
+**Intent:** `BETWEEN 100 AND -50` expands to `>= 100 AND <= -50`, which no row satisfies. It must be
+an empty result rather than a swap-and-succeed.
+**Falsifier:** rows are returned.
+**Setup:** S, D1.
+**Steps:** H-RUN `WHERE amount BETWEEN 100 AND -50`.
+**Expected:** `ok  6 in, 0 out`.
+**Vacuity:** **C1 mandatory** — `6 in` must appear, for the same reason as SQLX-069.
+
+### SQLX-091 — `LIKE` patterns, each hand-evaluated
+**Intent:** Documented ✅ against a literal pattern, compiled once at registration.
+`Predicate.Like.toRegex` quotes everything that is not `%` or `_`, so a `.` in a pattern is a literal
+dot — a promise nothing tests.
+**Falsifier:** `LIKE '%.com'` matches `axcom`.
+**Setup:** S, a file of 6 rows with `user_id` = `u1`, `u2`, `user`, `a.com`, `axcom`, `ünïcødé`.
+**Steps:** H-RUN, one per pattern: `'u%'`, `'%1'`, `'%se%'`, `'u_'`, `'%.com'`, `'ü%'`, `'u1'`, `'%'`.
+**Expected:** `'u%'` → `u1, u2, user` (3). `'%1'` → `u1` (1). `'%se%'` → `user` (1).
+`'u_'` → `u1, u2` (2) — `user` is four characters and `u_` matches two. `'%.com'` → `a.com` only
+(1), **not** `axcom`. `'ü%'` → `ünïcødé` (1). `'u1'` → `u1` (1). `'%'` → all 6.
+**Vacuity:** C1 on each (`6 in`), and `'%'` returning 6 as the control that the filter is not simply
+rejecting everything.
+
+### SQLX-092 — `LIKE` with `_` against an astral character, and `NOT LIKE` against NULL
+**Intent:** `toRegex` maps `_` to a regex `.`, which matches one **UTF-16 code unit**, while
+`SUBSTRING` is documented as counting **code points**. An emoji is two code units, so `_` and
+`SUBSTRING` disagree about what one character is. Separately, `Like.test` returns `false` when the
+column is null — so `LIKE` and `NOT LIKE` both drop the NULL row, which is right and is not stated.
+**Falsifier:** `'😀x' LIKE '_x'` returns true (one `_` consumed a surrogate pair), or
+`status NOT LIKE 'z%'` keeps D1's row 2.
+**Setup:** S, `edge.csv` row 10 (`user_id = 😀x`) and D1.
+**Steps:** H-RUN `WHERE user_id LIKE '_x'`, `WHERE user_id LIKE '__x'` over row 10;
+`WHERE status LIKE 'o%'` and `WHERE status NOT LIKE 'o%'` over D1.
+**Expected:** `'_x'` → **0 rows** and `'__x'` → **1 row**, because `😀` is two code units. Record it:
+`_` counts code units while `SUBSTRING` counts code points, and the document promises code points
+only for `SUBSTRING`. Over D1: `LIKE 'o%'` → 4 (r1, r3, r5, r6); `NOT LIKE 'o%'` → **1** (r4), not 2.
+`4 + 1 = 5 ≠ 6`, and the missing row is the NULL.
+**Vacuity:** C1 and C2 (the `5 ≠ 6` shortfall).
+
+### §3.6 — The four documented `WHERE` refusals
+
+### SQLX-093 — `LIKE … ESCAPE` is refused
+**Intent:** Documented ❌ `PRV-2021` with a reason: "Without it, `%` and `_` are always wildcards and
+cannot be matched literally". The refusal fires on operand count (`operands.size() != 2`).
+**Falsifier:** it plans, or the message does not explain the consequence.
+**Setup:** S.
+**Steps:** H-VAL `SELECT txn_id FROM txn WHERE user_id LIKE 'u!%' ESCAPE '!'`.
+**Expected:** `PRV-2021`, message contains "uses LIKE with an ESCAPE clause, which is not built" and
+the sentence about `%` and `_`. Length > 40 characters.
+**Vacuity:** C3, with `WHERE user_id LIKE 'u%'` planning in the same session.
+
+### SQLX-094 — `LIKE` against a non-literal pattern is refused
+**Intent:** Documented ❌ — "the pattern is compiled once when the query is registered, not once per
+row — so `LIKE status` is refused".
+**Falsifier:** it plans.
+**Setup:** S.
+**Steps:** H-VAL `WHERE user_id LIKE status`; also `WHERE user_id LIKE ?` (ADR-032's row).
+**Expected:** `PRV-2021` with "uses a pattern that is not a literal. The pattern is compiled once
+when the query is registered; one that varies per row would be compiled per row." — a message that
+says what to do instead (write a literal).
+**Finding:** ADR-032's position table says of `WHERE col LIKE ?`: "LIKE is not implemented at all;
+`LIKE 'u%'` is refused too". SQLX-091 shows `LIKE 'u%'` **works**. The ADR is stale.
+**Vacuity:** C3.
+
+### SQLX-095 — text ordering is refused, and `=` still plans
+**Intent:** Documented ❌ `PRV-2021` with the reason stated: "`>` on text needs a collation, and
+assuming one gives wrong answers that look right". A blanket ban on text predicates would be a
+different, worse behaviour.
+**Falsifier:** `status > 'ok'` plans, or `status = 'ok'` is refused alongside it.
+**Setup:** S.
+**Steps:** H-VAL `WHERE status > 'ok'`, `WHERE status >= 'ok'`, `WHERE status < 'ok'`,
+`WHERE status <= 'ok'`, and the two controls `WHERE status = 'ok'`, `WHERE status <> 'ok'`.
+**Expected:** the four ordering forms are `PRV-2021` — "only = and <> are supported on text column
+'status'; > needs a collation…" with the **correct operator** in the message for each of the four.
+The two controls plan.
+**Vacuity:** C3 on the four; the two controls are the targeting proof.
+
+### SQLX-096 — comparing text to a number is refused
+**Intent:** Documented ❌ `PRV-2021`. Calcite inserts a `CAST` and `ExpressionCompiler.cast` refuses
+it because one side is not numeric.
+**Falsifier:** it plans, and a string is compared as whatever long sits underneath.
+**Setup:** S.
+**Steps:** H-VAL `WHERE amount > txn_id` is the **control** (both numeric, must plan);
+then `WHERE amount > user_id`, `WHERE user_id = 1`, `WHERE status < 5`.
+**Expected:** the control plans (SQLX-073's query). The three others are `PRV-2021` naming the
+conversion: "converts between STRING and INT32; Pravaha evaluates numeric conversions only", or
+"has SQL type VARCHAR, which Pravaha cannot compute with yet".
+**Vacuity:** C3.

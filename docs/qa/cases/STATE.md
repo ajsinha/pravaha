@@ -452,3 +452,246 @@ directory contains one such file fails to construct the checkpointer**, and sinc
 replays and `recover` then lists under `refused`.
 **Vacuity:** the three good files are present throughout, so "no checkpoints" cannot explain the
 failure; the store is unusable *because of* the fourth name.
+
+### C. A directory per query, and names that fight over it (STATE-023–035)
+
+`QueryRegistry.checkpointingTo` gives each computation its own store, because one shared store would
+make pruning global and a busy query would evict a quiet one's only fallback. The name reaches the
+filesystem, so it is encoded rather than trusted: `checkpointDirectoryFor`
+(`QueryRegistry.java:455`–`:473`) keeps `[A-Za-z0-9-]` and rewrites every other byte as `_` plus two
+lowercase hex digits. It is injective by construction, which the comment says was arrived at after a
+`_`-substitution scheme collided on `a#!b` and `a"@b`.
+
+Two things gate what can reach it. `requireSayableName` (`:745`) demands
+`[A-Za-z_][A-Za-z0-9_]*` *and* that Calcite can parse `SELECT 1 FROM <name>`. So `..`, `.`, `a.b`,
+`a b` and `a#!b` cannot arrive through `register` at all. The encoder cases below therefore reach
+`checkpointDirectoryFor` by reflection, and STATE-031 establishes that the public door is shut.
+
+## STATE-023 — each registered computation gets its own directory, created at registration
+**Intent:** the per-query store, and that it exists before the first checkpoint (the
+`FileCheckpointStore` constructor calls `Files.createDirectories`).
+**Falsifier:** two queries share one directory, or no directory appears until the first checkpoint.
+**Setup:** `H-REG` over `H-WIN`'s registry, `interval=1h` so no checkpoint fires. Register
+`w` (`TUMBLE(ts, INTERVAL '10' SECOND)`) and `w2` with *different* SQL (`INTERVAL '20' SECOND`) so
+the fingerprints differ and they are two computations.
+**Steps:** 1. Register both. 2. List `root`.
+**Expected:** `root` contains exactly two directories, named `w` and `w2` — both are already
+`[A-Za-z0-9-]`-clean, so the encoding is the identity. Both are empty of `checkpoint-*.bin`.
+**Vacuity:** using different SQL rather than different names is what makes them two computations; two
+names on one fingerprint would share one directory legitimately (STATE-035).
+
+## STATE-024 — the directory name is the encoding, not the raw name
+**Intent:** pin the encoding on a name that survives `requireSayableName` and still contains a byte
+the encoder rewrites: the underscore.
+**Falsifier:** the directory is literally `my_view`.
+**Setup:** `H-REG`, `interval=1h`. Register `my_view`.
+**Steps:** 1. List `root`.
+**Expected:** one directory named `my_5fview` — `m`,`y` pass through, underscore is byte `0x5f` so it
+becomes `_5f`, then `v`,`i`,`e`,`w`. Not `my_view`, and not `myview`.
+**Vacuity:** underscore is the only non-alphanumeric character `requireSayableName` permits, so this
+is the only name shape that can distinguish encoded from raw through the public API.
+
+## STATE-025 — `q_1` and `q1` do not share a directory
+**Intent:** the encoder's own stated reason for encoding underscore as well: otherwise `a_b` and
+`a b` would still meet. Through the public API the reachable version of that collision is a name
+containing an underscore against the name with the underscore removed.
+**Falsifier:** one directory exists after registering both, or the two directories are the same path.
+**Setup:** `H-REG`, `interval=1h`. Register `q_1` and `q1`, with different SQL so they are two
+computations.
+**Steps:** 1. Register both. 2. List `root`.
+**Expected:** two directories: `q_5f1` (`q`, underscore to `_5f`, `1`) and `q1`. They differ.
+**Vacuity:** if underscore were passed through unencoded the first would be `q_1`, still distinct from
+`q1` — so this case alone does not prove the encoder injective. STATE-027 does that; this one proves
+the observable separation the product depends on.
+
+## STATE-026 — `Q` and `q` are two directories on a case-sensitive filesystem and one on a case-insensitive one
+**Intent:** `requireSayableName` permits both cases and `byName` is a case-sensitive map, so `Q` and
+`q` are two registrations. The encoder preserves case, so they are `Q/` and `q/`. On APFS with the
+default settings, or on NTFS, those are the **same directory** — two computations sharing one
+checkpoint id sequence, each pruning the other's fallbacks. The encoder cannot fix this; recording it
+is the point.
+**Falsifier:** on Linux/ext4, one directory. On macOS default APFS, two.
+**Setup:** `H-REG`, `interval=1h`. Register `Q` and `q` with different SQL.
+**Steps:** 1. Register both. 2. `Files.list(root).count()`. 3. Force a checkpoint on each by calling
+`checkpointNow()` on each query's checkpointer. 4. List each directory.
+**Expected (Linux, ext4/xfs):** step 2 is `2`. Step 4: `Q/checkpoint-1.bin` and `q/checkpoint-1.bin`,
+independent id sequences. **Expected (macOS APFS default, Windows NTFS):** step 2 is `1`. Step 3's
+second `checkpointNow()` writes `checkpoint-1.bin` into the same directory as the first and its
+`store` call **replaces** it (`StandardCopyOption.REPLACE_EXISTING`, `FileCheckpointStore.java:107`),
+so one computation's checkpoint is silently overwritten by the other's. Record which platform was
+used.
+**Vacuity:** the two expected results differ in the directory count, so the case reports a fact about
+the platform rather than passing on either.
+
+## STATE-027 — the encoder is injective across a hostile corpus
+**Intent:** the comment claims injectivity and says a hash-suffix scheme was tried and collided. Prove
+the claim rather than trusting it.
+**Falsifier:** any two distinct inputs produce the same output.
+**Setup:** reflective access to `QueryRegistry.checkpointDirectoryFor(String)` (`private static`).
+Corpus, 24 entries: the empty string, `.`, `..`, `a`, `A`, `a.b`, `a_b`, `a b`, `a-b`, `ab`,
+`a#!b`, `a"@b`, `../../etc/passwd`, `..\..\etc`, `a/b`, `a\b`, `a%2eb`, `a_2eb`, `q`, `q1`,
+`q_1`, `q-1`, `é`, and a single space.
+**Steps:** 1. Encode all 24. 2. Put them in a `Set`.
+**Expected:** the set has 24 elements. Specific values, hand-computed from the rule (keep
+`[A-Za-z0-9-]`, else underscore plus lowercase hex of the UTF-8 byte):
+
+| name | directory |
+|---|---|
+| empty string | empty string |
+| `.` | `_2e` |
+| `..` | `_2e_2e` |
+| `a.b` | `a_2eb` |
+| `a_b` | `a_5fb` |
+| `a b` | `a_20b` |
+| `a-b` | `a-b` |
+| `a#!b` | `a_23_21b` |
+| `a"@b` | `a_22_40b` |
+| `../../etc/passwd` | `_2e_2e_2f_2e_2e_2fetc_2fpasswd` |
+| `a%2eb` | `a_252eb` |
+| `a_2eb` | `a_5f2eb` |
+| `é` (U+00E9, UTF-8 `c3 a9`) | `_c3_a9` |
+| single space | `_20` |
+
+Note `a_2eb` in column 2 arises from input `a.b`, and input `a_2eb` produces `a_5f2eb` — the escape
+character is itself escaped, which is why the scheme is injective and a hash-suffix scheme was not.
+**Vacuity:** the corpus deliberately contains the pair (`a.b`, `a_2eb`) whose images would collide
+under any scheme that does not escape the escape, so a broken encoder fails here rather than passing
+on 24 unrelated strings.
+
+## STATE-028 — `..` and `.` cannot escape the checkpoint root
+**Intent:** the stated purpose: "a query named `..` cannot write above the configured root".
+**Falsifier:** `root.resolve(checkpointDirectoryFor(".."))` normalises to `root`'s parent.
+**Setup:** reflection as STATE-027, `root = /tmp/ckroot/a/b`.
+**Steps:** 1. For each of `.`, `..`, `../..`, `/etc`, `a/../..`: compute
+`root.resolve(encoded).normalize()`.
+**Expected:** every result starts with `/tmp/ckroot/a/b/` and has exactly one path element beyond it.
+For `..` that element is `_2e_2e`; for `../..` it is `_2e_2e_2f_2e_2e`; for `/etc` it is `_2fetc`
+(the leading separator is encoded, so `resolve` cannot treat it as absolute). `normalize()` changes
+nothing, because no result contains a literal `.` or `..` element.
+**Vacuity:** `normalize()` is applied after `resolve`, which is where a traversal would show up; a
+case that only compared strings would miss an absolute-path resolve.
+
+## STATE-029 — two names that sanitise alike keep separate directories and do not prune each other
+**Intent:** the concrete harm the encoder prevents, demonstrated rather than argued: two stores on
+one directory share an id sequence and `prune(keep)` counts across both.
+**Falsifier:** with separate directories, one query's checkpoints disappear when the other prunes.
+**Setup:** two `FileCheckpointStore`s. Arm A: both on the *same* directory `shared/`. Arm B: on
+`enc("a.b") = a_2eb` and `enc("a_b") = a_5fb`.
+**Steps:** For each arm: 1. Store ids 1, 2, 3 through store X. 2. Store ids 4, 5, 6 through store Y.
+3. `X.prune(3)`. 4. `X.availableIds()` and `Y.availableIds()`.
+**Expected:** **Arm A** — after step 2 the single directory holds `[6,5,4,3,2,1]`. `X.prune(3)`
+returns `6 - 3 = 3` and leaves `[6, 5, 4]`: X has deleted **all three** of its own checkpoints and
+kept all three of Y's. X now has zero fallbacks. **Arm B** — `X.availableIds()` is `[3, 2, 1]` before
+and `[3, 2, 1]` after (`3 - 3 = 0` removed); `Y.availableIds()` is `[6, 5, 4]`, untouched.
+**Vacuity:** Arm A is the control that shows the shared-directory failure is real and not theoretical,
+so Arm B's pass is meaningful. Using disjoint id ranges (1–3 vs 4–6) means "X's checkpoints" is
+decidable from the listing alone.
+
+## STATE-030 — a unicode view name is refused before it reaches the filesystem
+**Intent:** `requireSayableName`'s regex is ASCII-only (`[A-Za-z_][A-Za-z0-9_]*`), so `café` never
+gets a directory. Worth a case because the encoder handles UTF-8 bytes and an executor may expect it
+to be reachable.
+**Falsifier:** a directory named `caf_c3_a9` appears under `root`.
+**Setup:** `H-REG`.
+**Steps:** 1. `registry.register("café", "SELECT user_id, amount FROM txn", List.of(0), DANA)`.
+2. List `root`.
+**Expected:** step 1 throws `PravahaException` with code **PRV-8001** (`REGISTRY_NAME_IN_USE` — the
+code is reused for "not a sayable name", which ERRC should note) and a message containing
+`cannot be used as a view name: a name is written in a FROM clause, so it must be a plain identifier`.
+Step 2 lists zero new directories.
+**Vacuity:** step 2 rules out the query being refused *after* `startCheckpointing` had already
+created the directory — the ordering in `register` (`requireName` at `:274`, `startCheckpointing` at
+`:549`) is what the listing confirms.
+
+## STATE-031 — hostile names are refused at the public door, so the encoder is defence in depth
+**Intent:** enumerate the refusals, so that the encoder cases above are understood as second-line and
+not as the only guard. Also pins one ordering defect: `requireName` calls `requireSayableName(name)`
+*before* its own null check (`:768`–`:770`), so a null name is an NPE rather than the intended
+message.
+**Falsifier:** any of these registers successfully, or a directory appears for one.
+**Setup:** `H-REG`.
+**Steps:** register each of: `..`, `.`, `a.b`, `a b`, `a#!b`, `../../etc`, `1q`, `q-1`, the empty
+string, three spaces, `null`, `select`, `from`.
+**Expected:** `..`, `.`, `a.b`, `a b`, `a#!b`, `../../etc`, `1q`, `q-1`, the empty string and the
+three spaces all throw `PravahaException` PRV-8001 with the `cannot be used as a view name` message —
+`1q` because a name must start with a letter or underscore, `q-1` because the hyphen is not in the
+character class, and the two blank forms because they do not match at all. `select` and `from` match
+the regex and are refused by the Calcite check with
+`is a reserved word in SQL, so no query could read the view.` `null` throws
+**`NullPointerException`** from `name.matches(...)`, *not* the `a registration needs a name`
+`IllegalArgumentException` the line below it intends — record this. After all thirteen, `root`
+contains zero directories.
+**Vacuity:** the final listing is the non-vacuity: a refusal that happened after the directory was
+created would leave evidence.
+
+## STATE-032 — a hand-edited journal naming `../../etc` is refused at replay, not traversed
+**Intent:** the journal is a file an operator can edit and a backup can carry. `recover` goes through
+`registerWithoutJournalling` to `register` to `requireName`, so the same gate applies — but that is a
+property to verify, not assume, because it is the one path where a name arrives from disk rather than
+from a client.
+**Falsifier:** a directory appears outside `root`, or the entry recovers.
+**Setup:** write a journal by hand with
+`new RegistryJournal(f).recordRegistration("../../etc", "SELECT user_id, amount FROM txn",
+List.of(0), "dana", Retention.DEFAULT, List.of())`. Note `RegistryJournal.recordRegistration` itself
+validates nothing. Then a fresh registry with `journalTo(f)` and `checkpointingTo(root, cfg)`.
+**Steps:** 1. `Recovery r = registry.recover(id -> Optional.of(DANA))`. 2. List `root` and
+`root.getParent().getParent()`.
+**Expected:** `r.recovered()` is empty. `r.refused()` has one entry whose text begins
+`../../etc: ` and contains `cannot be used as a view name`. `r.complete()` is `false`.
+`root` contains zero directories; nothing was written above it.
+**Vacuity:** `recordRegistration` accepting the name proves the journal is not the gate, so the
+refusal must come from `register` — which is the thing being tested.
+
+## STATE-033 — the checkpoint root is created if absent, and a file where it should be is a hard failure
+**Intent:** `FileCheckpointStore`'s constructor throws `UncheckedIOException("cannot create the
+checkpoint directory " + directory)` (`:65`). That happens inside `register`, so it fails the
+registration.
+**Falsifier:** registration succeeds and checkpoints are silently not written.
+**Setup:** `H-REG` with `root = tmp/ck`. Arm A: `tmp/ck` does not exist. Arm B: `tmp/ck` exists as a
+regular **file**. Arm C: `tmp/ck` is a directory with mode `0500`.
+**Steps:** for each arm, register `w`, then list.
+**Expected:** **A** — `register` succeeds, `tmp/ck/w/` exists. **B** — `register` throws
+`UncheckedIOException` whose message contains `cannot create the checkpoint directory` and the path
+`tmp/ck/w`; `registry.names()` does not contain `w`. **C** — same failure (cannot create a child in a
+non-writable directory), same message prefix. Restore `0700` afterwards.
+**Vacuity:** arm A is the control; without it, B and C could be failing for a reason unrelated to the
+root.
+
+## STATE-034 — dropping a query deletes its checkpoint directory
+**Intent:** `deleteCheckpointsOf` (`QueryRegistry.java:448`) runs when the last name is removed. The
+comment records the failure it fixes: "52 directories for 2 live queries, in a QA run of 50
+register/drop cycles."
+**Falsifier:** `root/w` still exists after `drop("w")`.
+**Setup:** `H-REG` over `H-WIN`, `interval=1h`. Register `w`; force three checkpoints with the
+query's checkpointer via `checkpointNow()`.
+**Steps:** 1. Confirm `root/w/` holds `checkpoint-1.bin` through `checkpoint-3.bin`. 2.
+`registry.drop("w")`. 3. List `root`.
+**Expected:** step 3 lists zero entries. Both the three files and the directory itself are gone
+(`Files.deleteIfExists` per entry, then on the directory, `:453`–`:457`).
+**Vacuity:** step 1 establishes the files existed, so an empty listing at step 3 is a deletion and not
+an absence.
+
+## STATE-035 — dropping the last name of a *shared* computation deletes the wrong directory
+**Intent:** `startCheckpointing(name, ...)` is called with the name that **created** the computation
+(`:549`), so the directory is `enc(firstName)`. `drop(name)` calls
+`deleteCheckpointsOf(name)` with whichever name happened to be dropped last (`:711`). When a second
+registration shares the fingerprint, those are different names — so the drop removes a directory that
+was never created and leaks the one that was. This is the same accumulation the comment at `:707`
+says was fixed.
+**Falsifier:** after dropping both names, `root` is empty.
+**Setup:** `H-REG` over `H-WIN`, `interval=1h`. Register `alpha` with the windowed SQL. Register
+`beta` with **byte-identical** SQL, same key columns, same principal — `QueryRegistry.register`
+resolves it to the same `RegisteredQuery` via `byFingerprint` (`:330`–`:334`). Force three
+checkpoints.
+**Steps:** 1. List `root`. 2. `registry.drop("alpha")`. 3. List `root`. 4. `registry.drop("beta")`.
+5. List `root`.
+**Expected:** step 1 lists exactly one directory, `alpha`, holding three files — `beta` never got a
+checkpointer because no new computation was created. Step 3 still lists `alpha` with three files:
+`removeName("alpha")` returns `false` (one name left), so nothing is deleted. Step 5 lists **`alpha`,
+still holding three files** — `deleteCheckpointsOf("beta")` resolved `root/beta`, which does not
+exist, `Files.list` threw `NoSuchFileException`, and the `catch (IOException)` at `:458` swallowed it.
+The computation is closed and its checkpoint directory outlives it.
+**Vacuity:** step 1 proves only one directory was ever made, and it is named for the first
+registrant; without that, step 5's leftover could be mistaken for a directory `beta` that was
+correctly kept. Repeat the register/drop pair 50 times to reproduce the "52 directories" shape: expect
+50 leaked directories, one per pair.
