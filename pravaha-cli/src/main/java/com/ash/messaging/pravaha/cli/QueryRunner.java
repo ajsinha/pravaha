@@ -130,11 +130,28 @@ public final class QueryRunner {
                     // Pump until the source is exhausted. A pump returns zero both when the source
                     // has nothing right now and when it has nothing ever, and a file source is the
                     // one case where those are the same thing.
+                    // pumpOnce returns 0 for two different things: the source has nothing right
+                    // now, and the source has nothing ever. A file source fills the lane's inbox
+                    // faster than the lane drains it, so the first zero usually means "full" -- and
+                    // stopping there truncated the run silently. Five runs of one command over one
+                    // 20,000-row file returned 17,664, 9,472, 7,424, 6,400 and 4,608 rows, every one
+                    // reporting ok and exiting zero.
+                    //
+                    // So a zero is not an ending. It is a reason to let the lane drain and ask
+                    // again, and only a zero that survives a drained lane means the source is spent.
                     int moved;
                     do {
                         moved = pump.pumpOnce(256);
                         rowsRead += moved;
                         execution.checkHealth();
+                        if (moved == 0) {
+                            // Let the lane catch up, then confirm. awaitQuiescent rethrows a lane
+                            // failure, so a dead lane ends the loop with its cause rather than
+                            // looking like an exhausted source.
+                            execution.awaitQuiescent(java.time.Duration.ofSeconds(30));
+                            moved = pump.pumpOnce(256);
+                            rowsRead += moved;
+                        }
                     } while (moved > 0);
 
                     if (!execution.awaitQuiescent(java.time.Duration.ofMinutes(5))) {

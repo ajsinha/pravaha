@@ -267,6 +267,50 @@ class ExamplesTest {
                 .doesNotContain("did not finish within five minutes");
     }
 
+    @Test
+    void runReadsEveryRowOfALargeFileEveryTime(@TempDir Path dir) throws IOException {
+        // pumpOnce returns 0 both when the source has nothing right now and when it has nothing
+        // ever, and a file fills the lane's inbox faster than the lane drains it -- so the loop
+        // stopped at the first full inbox and called it the end of the file. Five runs of one
+        // command over one 20,000-row file returned 17,664, 9,472, 7,424, 6,400 and 4,608 rows,
+        // every one reporting ok and exiting zero.
+        //
+        // Run repeatedly, because the defect was non-deterministic: a single run could be right by
+        // luck, and it is the disagreement between runs that proves the bug.
+        int rows = 20_000;
+        Path input = dir.resolve("many.csv");
+        StringBuilder csv = new StringBuilder(rows * 16);
+        for (int i = 0; i < rows; i++) {
+            csv.append("u").append(i % 7).append(',').append(i).append('\n');
+        }
+        Files.writeString(input, csv);
+
+        for (int attempt = 0; attempt < 3; attempt++) {
+            Path output = dir.resolve("out" + attempt + ".csv");
+            Result result = run(
+                    "run",
+                    "--sql",
+                    "SELECT k, n FROM t",
+                    "--schema",
+                    "k:STRING,n:INT64",
+                    "--out-schema",
+                    "k:STRING,n:INT64",
+                    "--in",
+                    input.toString(),
+                    "--out",
+                    output.toString(),
+                    "--stream",
+                    "t");
+
+            assertThat(result.exitCode())
+                    .as("attempt %d: %s%s", attempt, result.out(), result.err())
+                    .isZero();
+            assertThat(Files.readAllLines(output))
+                    .as("attempt %d truncated the file and reported ok", attempt)
+                    .hasSize(rows);
+        }
+    }
+
     // ------------------------------------------------------------------ harness
 
     private record Result(int exitCode, String out, String err) {}
