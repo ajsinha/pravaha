@@ -23,9 +23,6 @@ package com.ash.messaging.pravaha.registry;
  * difference between "resume it" and "find out why".
  */
 public enum QueryState {
-    // This is the one the engine produces. There is a second enum of the same name in
-    // com.ash.messaging.pravaha.api with fourteen constants, declared by a DTO that nothing
-    // populates; see its warning.
 
     /** Registered and maintaining its view. */
     RUNNING,

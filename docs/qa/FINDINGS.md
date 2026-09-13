@@ -205,17 +205,19 @@ query with extra steps.
   refuses outright when a query reads more than one stream. So a join could be registered, would
   report `RUNNING`, and nothing could ever reach it from the push path. The overload is exposed now.
 
-## Open — needs a product decision
+## Resolved by decision
 
-**Two enums named `QueryState`.** `com.ash.messaging.pravaha.registry.QueryState` has four constants
-and is the only one anything produces. `com.ash.messaging.pravaha.api.QueryState` has fourteen,
-including `BACKFILLING`, `DEGRADED` and `SCHEMA_CONFLICT`, and is declared by exactly one thing:
-`ApiDtos.QuerySummary`, which has no producer and no consumer anywhere in the repository.
+**Two enums named `QueryState` — the dead one is deleted.**
+`com.ash.messaging.pravaha.registry.QueryState` has four constants and is the only one anything
+produces. `com.ash.messaging.pravaha.api.QueryState` had fourteen — including `BACKFILLING`,
+`DEGRADED` and `SCHEMA_CONFLICT` — and was declared by exactly one thing: `ApiDtos.QuerySummary`,
+which had no producer and no consumer anywhere.
 
-Importing the wrong one compiles, reads correctly, and fails at run time with `expected RUNNING but
-was RUNNING`. It cost this session twenty minutes; it will cost a user more, because they will not
-suspect the type. Both are annotated now, which makes it discoverable rather than fixed. Which
-survives — and whether the nine aspirational states are built or deleted — is yours to decide.
+Importing the wrong one compiled, read correctly, and failed at run time with `expected RUNNING but
+was RUNNING`. The enum, `QuerySummary` and the equally unused `RegisterQueryRequest` are gone, and
+the design document's sketch of the REST controller now says which of its endpoints exist. Nine
+aspirational states are not a description of behaviour, and leaving them standing cost this QA
+cycle an afternoon.
 
 # Aerospike and the state tier — the area round 1 never scoped
 

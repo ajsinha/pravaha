@@ -3246,12 +3246,18 @@ Enforced by Lighthouse CI and a bundle-size gate in the pipeline (§5 of the imp
 
 ### 23.17 Backend design — a BFF, not a second engine
 
+> **Built so far:** `POST /validate` and `POST /explain`. Registration and lifecycle are on the
+> Flight surface (`register`, `queries`, `pause`, `resume`, `drop`), not here — the sketch below is
+> the intended shape of this controller, not a description of it. The DTOs for the unbuilt endpoints
+> were deleted rather than left standing: an unpopulated `QuerySummary` carrying a fourteen-state
+> enum nothing produced was read as a description of behaviour and cost a QA cycle an afternoon.
+
 ```java
 @RestController
 @RequestMapping("/api/v1/queries")
 class QueryController {
 
-    @PostMapping
+    @PostMapping                                  // NOT BUILT -- registration is a Flight action
     ResponseEntity<QueryDto> register(@Valid @RequestBody RegisterQueryRequest r) { … }
 
     @PostMapping("/validate")                     // < 50 ms target, called on every keystroke burst

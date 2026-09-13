@@ -17,9 +17,6 @@ package com.ash.messaging.pravaha.server.api;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
-
-import com.ash.messaging.pravaha.api.QueryState;
 
 /**
  * The wire types of the public API.
@@ -40,21 +37,6 @@ public final class ApiDtos {
     public record StreamSummary(String name, int version, int fieldCount, List<FieldInfo> fields) {}
 
     public record FieldInfo(String name, String type, boolean nullable, int ordinal) {}
-
-    /** A registered query. */
-    public record QuerySummary(
-            String id,
-            String name,
-            QueryState state,
-            String sql,
-            Instant createdAt,
-            /**
-             * What the engine can honestly promise for this query, computed as the weakest link
-             * across source, engine and sinks (design section 14.4). Surfaced rather than hidden,
-             * because a query silently running at a weaker guarantee than the operator believes is
-             * how data loss goes unnoticed.
-             */
-            String effectiveGuarantee) {}
 
     /** A validation result. Deliberately not an error response: an invalid query is a normal answer. */
     public record ValidationResult(
@@ -86,9 +68,6 @@ public final class ApiDtos {
             List<PluginStatus> plugins) {}
 
     public record PluginStatus(String name, String version, String health, String detail) {}
-
-    /** A registration request. */
-    public record RegisterQueryRequest(String name, String sql, String stream, Map<String, String> options) {}
 
     /** The standard error body. Every non-2xx response is one of these and nothing else. */
     public record ApiError(String code, String message, String helpUrl, Instant timestamp, String path) {}
