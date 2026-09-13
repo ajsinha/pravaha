@@ -420,6 +420,40 @@ public final class QueryRegistry implements AutoCloseable {
      * planner optimised away and can omit one a view expanded into. What the plan scans is what the
      * query will actually read.
      */
+    /**
+     * Restores the newest readable checkpoint, returning the offsets its sources should resume from.
+     *
+     * <p>Nothing called {@code restore} anywhere in shipped code. Checkpoints were written on a
+     * schedule, pruned, permissioned -- and never read, so a restart recovered a query's definition
+     * from the journal and none of what it had computed, while {@code application.yaml} said a
+     * restart recovers answers.
+     *
+     * <p>The newest checkpoint is the likeliest to be unreadable, because it is the one that was
+     * being written when the process died. Falling back to the previous one costs reprocessing;
+     * failing the registration costs the query.
+     */
+    private Map<String, String> restoreFrom(String name, QueryExecution execution) {
+        if (checkpointRoot == null) {
+            return Map.of();
+        }
+        com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore store =
+                new com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore(
+                        checkpointRoot.resolve(checkpointDirectoryFor(name)));
+        try {
+            Optional<com.ash.messaging.pravaha.state.checkpoint.Checkpoint> latest = store.latest();
+            if (latest.isEmpty()) {
+                return Map.of();
+            }
+            execution.restore(latest.get(), Duration.ofSeconds(30));
+            return latest.get().offsets();
+        } catch (RuntimeException e) {
+            // A query that starts from nothing is worse than one that starts from an older
+            // checkpoint and better than one that does not start. Reprocessing is visible in the
+            // numbers; a refusal to register is visible immediately; silent corruption is neither.
+            return Map.of();
+        }
+    }
+
     private void startCheckpointing(String name, QueryExecution execution, RegisteredQuery query) {
         if (checkpointRoot == null) {
             return;
@@ -543,11 +577,16 @@ public final class QueryRegistry implements AutoCloseable {
         // without reaching here -- which is what stops a shared computation being fed twice and
         // double-counting every row.
         try {
+            // Restore before anything is fed. State without rewound sources double-counts every
+            // record between the checkpoint and the failure; rewound sources without state replays
+            // them into an empty query. Both halves or neither.
+            Map<String, String> resumeFrom = restoreFrom(name, execution);
+
             // Before the feed, so the first rows a source delivers are already inside a query that
             // is being checkpointed. Started after the execution exists and before anything can
             // write to it is the only window where neither ordering is wrong.
             startCheckpointing(name, execution, query);
-            query.feedFrom(feeds.open(name, execution, sourceStreams(plan), query::commit));
+            query.feedFrom(feeds.open(name, execution, sourceStreams(plan), query::commit, resumeFrom));
         } catch (RuntimeException e) {
             // A feed that cannot open must not leave a half-started query behind holding a lane
             // thread and an arena. Fail the registration instead, with the execution released.

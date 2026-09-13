@@ -142,6 +142,27 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
         return builder.build();
     }
 
+    /**
+     * {@code DECIMAL(p,s)}, or a refusal naming what can be written.
+     *
+     * <p>ARRAY, MAP and ROW are deliberately still refused rather than added. They map to Calcite's
+     * {@code ANY}, whose inverse throws an exception naming an internal class, and a nested column
+     * can be null-tested but never selected -- so accepting one here would move the failure from a
+     * sentence at startup to an internal error at the first row.
+     */
+    private static PravahaType decimalOrRefusal(String original, String upper) {
+        java.util.regex.Matcher decimal = java.util.regex.Pattern.compile("^DECIMAL\\((\\d+),\\s*(\\d+)\\)$")
+                .matcher(upper);
+        if (decimal.matches()) {
+            return Types.decimal(Integer.parseInt(decimal.group(1)), Integer.parseInt(decimal.group(2)));
+        }
+        throw new ConfigurationException(
+                DelimitedCodec.DECODE_FAILED,
+                "unknown type '" + original + "'. Supported: BOOLEAN, INT8, INT16, INT32, INT64, FLOAT32, "
+                        + "FLOAT64, STRING, BYTES, DATE, TIME, TIMESTAMP, DECIMAL(p,s). Suffix with ? for "
+                        + "nullable. ARRAY, MAP and ROW are not supported by this engine at all.");
+    }
+
     private static PravahaType typeFor(String name) {
         String upper = name.toUpperCase(Locale.ROOT);
         boolean nullable = upper.endsWith("?");
@@ -160,11 +181,14 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
                     case "STRING", "VARCHAR", "TEXT" -> Types.string();
                     case "BYTES", "BINARY" -> Types.bytes();
                     case "TIMESTAMP" -> Types.timestamp();
-                    default ->
-                        throw new ConfigurationException(
-                                DelimitedCodec.DECODE_FAILED,
-                                "unknown type '" + name + "'. Supported: BOOLEAN, INT8, INT16, INT32, INT64, "
-                                        + "FLOAT32, FLOAT64, STRING, BYTES, TIMESTAMP. Suffix with ? for nullable.");
+                    // DATE and TIME were absent, and this parser is the only way a schema is
+                    // declared -- it is behind pravaha.streams.*.schema, POST /api/v1/streams,
+                    // --schema and --out-schema alike. So six of the engine's sixteen types
+                    // could not be named anywhere, and every line handling them downstream was
+                    // dead code from a configured node's point of view.
+                    case "DATE" -> Types.date();
+                    case "TIME" -> Types.time();
+                    default -> decimalOrRefusal(name, upper);
                 };
         return nullable ? type.withNullable(true) : type;
     }

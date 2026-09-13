@@ -130,6 +130,16 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <!-- The QA conversions in WindowAnswerTest, EventTimeTest, IncrementalTest and
+           SubscriptionAnswerTest drive the configured server ingestion path (PluginSourceFeeds
+           and SourceBinding), because that is the path a deployment actually has. Test scope:
+           this module has no main sources and publishes nothing. -->
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-server</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>com.tngtech.archunit</groupId>
       <artifactId>archunit-junit5</artifactId>
       <scope>test</scope>

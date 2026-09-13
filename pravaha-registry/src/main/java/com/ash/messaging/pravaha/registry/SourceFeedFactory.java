@@ -29,12 +29,16 @@ import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 public interface SourceFeedFactory {
 
     /** A factory that attaches nothing, which is the default and correct for an embedded engine. */
-    SourceFeedFactory NONE = (queryName, execution, sourceStreams, afterDelivery) -> SourceFeed.NONE;
+    SourceFeedFactory NONE = (queryName, execution, sourceStreams, afterDelivery, resumeFrom) -> SourceFeed.NONE;
 
     /**
      * Attaches data to this execution's inputs.
      *
      * @param sourceStreams the streams the query reads, in plan order
+     * @param resumeFrom the source offsets a restored checkpoint recorded, keyed {@code
+     *     partition-N} in the order the feed created its readers. Empty for a fresh registration.
+     *     Restoring state without rewinding the sources double-counts every record between the
+     *     checkpoint and the failure, which is the exact failure a checkpoint exists to prevent
      * @param afterDelivery run after rows have been handed over, to publish what the query has
      *     applied. Without it the rows arrive, the lanes process them, and every reader sees an
      *     empty view: a served view shows its committed frontier, and nothing on the ingest path
@@ -42,5 +46,10 @@ public interface SourceFeedFactory {
      * @return a feed, or {@link SourceFeed#NONE} when nothing is bound to any of them. Never null:
      *     a registry that had to null-check every feed would eventually forget to
      */
-    SourceFeed open(String queryName, QueryExecution execution, List<String> sourceStreams, Runnable afterDelivery);
+    SourceFeed open(
+            String queryName,
+            QueryExecution execution,
+            List<String> sourceStreams,
+            Runnable afterDelivery,
+            java.util.Map<String, String> resumeFrom);
 }

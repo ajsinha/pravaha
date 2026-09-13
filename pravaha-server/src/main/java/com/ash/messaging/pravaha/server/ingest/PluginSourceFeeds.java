@@ -87,7 +87,11 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
 
     @Override
     public SourceFeed open(
-            String queryName, QueryExecution execution, List<String> sourceStreams, Runnable afterDelivery) {
+            String queryName,
+            QueryExecution execution,
+            List<String> sourceStreams,
+            Runnable afterDelivery,
+            Map<String, String> resumeFrom) {
         // Distinct, because a self-join names one stream twice and opening two feeds for it would
         // deliver every row twice to a query that asked for it once.
         List<String> bound =
@@ -108,7 +112,12 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 List<SourcePartition> partitions = plugin.partitions(stream);
                 partitionCounts.put(stream, partitions.size());
                 for (SourcePartition partition : partitions) {
-                    PartitionReader reader = plugin.createReader(partition, SourceOffset.BEGINNING);
+                    // Resume where the checkpoint left off, when there is one. Reading from the
+                    // beginning after a restore would replay every record between the checkpoint and
+                    // the failure on top of the state that already counted them.
+                    String token = resumeFrom.get("partition-" + pumps.size());
+                    SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
+                    PartitionReader reader = plugin.createReader(partition, from);
                     resources.add(reader);
                     // Lane 0: a registered query is compiled onto one lane today. When that
                     // changes, the partition index is what chooses the lane -- it is already the
