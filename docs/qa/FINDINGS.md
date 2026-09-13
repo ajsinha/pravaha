@@ -870,3 +870,65 @@ Also: `-Pbench` is inert, there is no CI regression gate, and `lane-scaling.json
 method that no longer exists. Every throughput case is specified to run at `K = N` **and** `K = 500`
 keys and to assert the answer beside the rate — the direct correction for round 1's
 200,000-rows-into-500-keys pass.
+
+## Lifecycle (LIFE) — found executing `docs/qa/cases/LIFE.md`
+
+Cases run as real JUnit tests under `pravaha-it`'s new `qa.lifecycle` package, driving
+`QueryRegistry` in-process. Verdicts and evidence for every LIFE-nnn case are in
+`docs/qa/logs/LIFE.md`; this section is the defects only.
+
+### L-1 (HIGH) — `pause()` and `resume()` check the raw `state` field, not the reconciling getter
+
+`RegisteredQuery.state()` is reactive: when the raw `state` field is still `RUNNING` but
+`execution.laneFailure()` is present, it *reports* `FAILED` — the fix for the round-1 defect where
+ten surfaces said RUNNING over a dead lane. But that fix lives entirely in the getter.
+`RegisteredQuery.pause()` and `.resume()` call `requireLive`, which tests `state.isTerminal()` on the
+**raw field directly**, never through `state()`. A query whose lane died from an uncaught row error
+(LIFE-126's path — `MIN` refusing a retraction, in `SlicedAggregateState`) never has `fail()` called
+on it, so the raw field is still `RUNNING` when `pause()`/`resume()` inspect it.
+
+Consequence, reproduced in `LifePauseTest.life048` and `LifeResumeTest.life057` (both `@Disabled`
+with this note, so the suite stays green over a documented defect rather than hiding it):
+
+- `pravaha queries` / `state()` reports the query `FAILED` (confirmed passing in
+  `life048_aLaneFailureIsVisibleThroughStateBeforeAnyPauseIsAttempted`).
+- `pause("v_min")` on that same query **succeeds** instead of raising `PRV-8003`. It sets the raw
+  field to `PAUSED`. Because the getter's override only fires when the raw field is `RUNNING`, the
+  query now *reports* `PAUSED` — a dead lane relabelled as something an operator would expect to
+  resume, hiding the failure for as long as it stays "paused".
+- `resume("v_min")` on the same starting state **also succeeds** instead of raising the documented
+  refusal ("a failed query is not restarted in place ... restarting over it hides the cause"). It
+  sets the raw field back to `RUNNING`, at which point the getter's condition (`state == RUNNING &&
+  laneFailure().isPresent()`) is true again and `state()` reports `FAILED` once more — so the
+  masking in the previous bullet is specific to the paused window, not permanent, but the refusal
+  itself never happens either way.
+
+Fix shape: `requireLive` (and anywhere else in `RegisteredQuery` that reads the raw `state` field for
+a transition decision) should consult `state()` instead of `state`, or `fail()` should be invoked
+from the same place `state()` currently detects a lane failure reactively, so the raw field and the
+reported field never disagree. Not applied here — small in theory (`state()` instead of `state`
+in `requireLive`), but changing what a terminal-state check reads is exactly the kind of change this
+audit was asked to record rather than make.
+
+### L-2 — two LIFE cases document behaviour the product no longer has, in the safe direction
+
+`LIFE-011` assumes an ASCII-only name regex (`café_velocity` refused); the shipped regex is
+`[\p{L}_][\p{L}\p{N}_]*` — Unicode letter classes — and its own comment explains why: an earlier,
+stricter version refused a name the planner resolves fine. `LIFE-013` assumes `requireSayableName`'s
+`name.matches()` runs before `requireName`'s null check, so a null name throws a bare
+`NullPointerException`; the shipped `requireName` puts the null/blank check first, and says so in its
+own comment, so a null name now gets `IllegalArgumentException("a registration needs a name")`. Both
+are fixes that landed after the case was authored. Recorded here rather than as failures because the
+tests (`LifeNamesTest.life011`, `.life013`) assert the current, correct behaviour and pass; the QA
+case document itself is what is out of date, and is the same kind of rot `docs/HANDOVER.md` and the
+doc-rot build check exist to catch.
+
+### L-3 — `LIFE-040` reconfirms a round-2 finding still holds
+
+`SecurityPolicy.mayAdminister`'s default delegates to `mayRead`. Under `SecurityPolicy.PERMISSIVE`
+(and under any policy that does not override `mayAdminister` explicitly), a principal who may only
+read a view may also pause, resume and drop it. `LifeAuthorizationTest.life040` drops a query as a
+bare "reader" principal to prove it, rather than reading the javadoc and taking its word for it. This
+is a documented default with a stated rationale ("the weakest defensible rule"), not a silent bug —
+recorded here because round 2 flagged it as the most consequential authorization gap left open, and
+nothing in this round's reading found it closed.

@@ -134,6 +134,25 @@ abstract class LifecycleTestSupport {
         return new ViewQuery(catalog).execute(sql).rows();
     }
 
+    /**
+     * Registers a windowed MIN and drives it to FAILED with a retraction, the way LIFE-126 says to:
+     * MIN cannot invert a retraction (a query cannot restore a withdrawn extreme without an ordered
+     * multiset), so the row is refused, the lane dies, and the query's reactive {@code state()}
+     * reports FAILED from then on.
+     */
+    void driveToFailedByMinRetraction(String name) {
+        registry.register(
+                name,
+                "SELECT usr, MIN(amount) AS lo FROM txn GROUP BY TUMBLE(event_time, INTERVAL '1' SECOND), usr",
+                List.of(0),
+                Principal.ANONYMOUS);
+        push(name, 1, "ann", 100, 1, 100_000_000L);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> push(name, 1, "ann", 100, -1, 100_000_000L))
+                .as("MIN cannot invert a retraction")
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("MIN cannot handle a retraction");
+    }
+
     static final Principal GUEST = Principal.of("guest");
     static final Principal ALICE = Principal.of("alice");
     static final Principal HR = Principal.of("hr");
