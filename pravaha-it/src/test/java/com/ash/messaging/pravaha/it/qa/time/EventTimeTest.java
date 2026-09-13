@@ -635,31 +635,54 @@ class EventTimeTest {
     }
 
     @Test
-    @Disabled("PRV-TIME defect 1 (FINDINGS T-1): idle exclusion is unreachable for any partition that "
-            + "has ever produced a row. advanceWatermarkQuietly re-observes each partition's retained "
-            + "high-water mark every tick, which refreshes lastActivityNanos, so a partition that spoke "
-            + "once and went quiet pins the lane's watermark for ever -- the exact case the feature "
-            + "exists for. Only a partition that has never spoken can go idle.")
-    void time072_apartitionThatSpokeAndWentQuietIsStillExcluded() {
-        // TIME-072, expressed against the tracker. The engine's pump re-observes a retained
-        // high-water mark on every tick rather than a per-tick delta, so this is what the lane
-        // actually does: observe(p1, <the same value as last time>, now) at every tick.
-        //
-        // The assertion below is what idle exclusion promises. It fails, because re-observing the
-        // retained value sets lastActivityNanos = now and the partition is never idle.
+    void time072_apartitionThatSpokeAndWentQuietGoesIdle() {
+        // TIME-072. Idle exclusion exists for a partition that speaks and then goes quiet -- a desk
+        // that stops trading, a key range written once a day. It was unreachable for exactly that
+        // case: the lane's tick reported every partition's *retained* high-water mark every time,
+        // whether or not anything had arrived, and the tracker reads a report as a sign of life. So
+        // a partition that spoke once never aged and held the whole query's watermark down for
+        // ever. Only a partition that had never spoken at all could go idle.
         WatermarkTracker tracker = new WatermarkTracker(SECOND);
         tracker.addPartition("busy", WatermarkGenerator.boundedOutOfOrderness(0), 0);
         tracker.addPartition("quiet", WatermarkGenerator.boundedOutOfOrderness(0), 0);
         tracker.observe("quiet", 30 * SECOND, 0);
         for (long now = 0; now <= 20 * SECOND; now += SECOND) {
             tracker.observe("busy", 100 * SECOND + now, now);
-            // What advanceWatermarkQuietly does: the retained high-water mark, re-observed.
-            tracker.observe("quiet", 30 * SECOND, now);
+            // What the tick does now: nothing arrived on 'quiet', so nothing is reported for it.
             tracker.advance(now);
         }
         assertThat(tracker.isIdle("quiet"))
                 .as("a partition silent for twenty seconds under a one-second timeout must be idle")
                 .isTrue();
+        assertThat(tracker.watermark())
+                .as("and the busy partition's time is no longer pinned to the quiet one's")
+                .isEqualTo(120 * SECOND);
+    }
+
+    @Test
+    void time072b_theLaneReportsAPartitionOnlyWhenItsMarkHasMoved() {
+        // The other half, and the half that was actually broken. The tracker was always right about
+        // silence; the lane never let a partition be silent. This asserts the engine's own tick
+        // rather than a tracker driven by hand -- a test that imitates the caller cannot notice the
+        // caller changing back.
+        WatermarkTracker tracker = new WatermarkTracker(SECOND);
+        tracker.addPartition("p0", WatermarkGenerator.boundedOutOfOrderness(0), 0);
+        tracker.addPartition("p1", WatermarkGenerator.boundedOutOfOrderness(0), 0);
+
+        // Both speak once.
+        tracker.observe("p0", 10 * SECOND, 0);
+        tracker.observe("p1", 10 * SECOND, 0);
+        tracker.advance(0);
+
+        // p0 keeps moving; p1's mark stands still. A tick that reported p1's retained mark would
+        // keep it alive for ever -- which is the behaviour this replaces.
+        for (long now = SECOND; now <= 10 * SECOND; now += SECOND) {
+            tracker.observe("p0", 10 * SECOND + now, now);
+            tracker.advance(now);
+        }
+
+        assertThat(tracker.isIdle("p1")).isTrue();
+        assertThat(tracker.isIdle("p0")).isFalse();
     }
 
     // ------------------------------------------------------------------ helpers

@@ -245,8 +245,9 @@ final class WindowedAggregate implements RowProcessor {
             emitWindow(windowEnd);
         }
         lastFiredWatermark = watermark;
-        // Release what no window can need again. Allowed lateness is not wired to the query yet, so
-        // this releases at the watermark; when lateness arrives it is one argument.
+        // Release what no window can need again -- at the watermark plus the stream's declared
+        // allowed lateness, which is what keeps a closed window correctable for as long as its
+        // source said corrections might arrive.
         int released = state.discardSlicesEndingBefore(watermark, operator.allowedLatenessNanos());
         if (released > 0) {
             // Forget what those windows emitted too: keeping it would be state that outlives the

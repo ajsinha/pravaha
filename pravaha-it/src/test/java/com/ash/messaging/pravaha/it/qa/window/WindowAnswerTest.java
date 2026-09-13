@@ -23,7 +23,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -838,8 +837,6 @@ class WindowAnswerTest {
     }
 
     @Test
-    @Disabled("PRV-WIN defect 2: windowed MIN over a column containing NULL returns 0, because the "
-            + "NULL's scratch value 0 is folded in by Math.min. SQL says 5.")
     void win200_windowedMinIgnoresNulls(@TempDir Path dir) throws Exception {
         // WIN-200. MIN(amount) over 5, 5, 7 and NULL is 5 by SQL. The engine reads the NULL row's
         // scratch as 0 and answers 0 -- which is also what it answers over an all-positive column

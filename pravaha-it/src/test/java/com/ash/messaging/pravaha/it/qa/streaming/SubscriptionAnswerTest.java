@@ -25,7 +25,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -1042,10 +1041,6 @@ class SubscriptionAnswerTest {
     }
 
     @Test
-    @Disabled("PRV-STRM defect 1 (FINDINGS T-3): allowed lateness is the constant zero for every "
-            + "TUMBLE query the planner builds, and no key, flag or clause sets it -- so a late row "
-            + "inside a closed window is dropped rather than reaching a subscriber as a retract/insert "
-            + "pair. CONCEPTS.md and StreamSchema's javadoc both state the opposite.")
     void strm119_lateDataReopeningAWindowReachesTheSubscriberAsARetractAndInsertPair() {
         // STRM-119. u1's window holds 100 and 102, published as 202. A late row of 50 for the same
         // window must arrive as -1 carrying 202 and +1 carrying 100 + 102 + 50 = 252, so that a
@@ -1080,6 +1075,9 @@ class SubscriptionAnswerTest {
                 .field("amount", Types.int64())
                 .field("event_time", Types.timestamp())
                 .eventTime("event_time")
+                // Declared, because the default is zero and a window is then final when it closes.
+                // A stream that wants late rows applied says so; before this there was no way to.
+                .allowedLateness(java.time.Duration.ofSeconds(30))
                 .build();
         ViewCatalog ownViews = new ViewCatalog();
         List<List<ViewChange>> batches = new ArrayList<>();

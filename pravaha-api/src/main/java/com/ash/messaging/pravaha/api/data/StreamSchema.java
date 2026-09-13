@@ -38,6 +38,8 @@ public final class StreamSchema {
     private final int version;
     private final int eventTimeOrdinal;
     private final Duration outOfOrderness;
+
+    private final Duration allowedLateness;
     private final List<String> primaryKey;
 
     /**
@@ -53,14 +55,36 @@ public final class StreamSchema {
      */
     public static final Duration DEFAULT_OUT_OF_ORDERNESS = Duration.ofSeconds(10);
 
+    /**
+     * How long a closed window's state is kept so a late row can still correct it.
+     *
+     * <p>Zero was the only value the planner ever used, and nothing could change it -- so a row that
+     * arrived after its window closed was dropped, while this class's own javadoc said such a row
+     * "is still applied, as a retraction and a correction, which is what Z-set weights are for".
+     * The mechanism existed and was reachable by no configuration.
+     *
+     * <p>The default is zero, which means a window is final when it closes. That is the behaviour
+     * every deployment has had, and it is kept deliberately rather than improved by default: a
+     * non-zero lateness turns a windowed query from append-only into one that retracts and revises,
+     * which changes what sinks it may be written to. {@code ChangelogAnalysis} refuses an
+     * append-only sink for a revising query -- correctly, and at registration -- so raising this
+     * silently would break working deployments at their next restart.
+     *
+     * <p>Declare it on the stream to accept corrections. That is the choice this used to deny: the
+     * mechanism was complete in {@code WindowedAggregate} and reachable by no configuration at all.
+     */
+    public static final Duration DEFAULT_ALLOWED_LATENESS = Duration.ZERO;
+
     private StreamSchema(
             String name,
             List<Field> fields,
             int version,
             int eventTimeOrdinal,
             List<String> primaryKey,
-            Duration outOfOrderness) {
+            Duration outOfOrderness,
+            Duration allowedLateness) {
         this.outOfOrderness = outOfOrderness == null ? DEFAULT_OUT_OF_ORDERNESS : outOfOrderness;
+        this.allowedLateness = allowedLateness == null ? DEFAULT_ALLOWED_LATENESS : allowedLateness;
         this.name = name;
         this.fields = fields;
         this.version = version;
@@ -103,12 +127,30 @@ public final class StreamSchema {
      * nothing in common here, and a single engine-wide number has to be wrong for one of them.
      *
      * <p>This is <em>out-of-orderness</em>, not allowed lateness. It decides how long the engine
-     * waits before declaring a window complete. It does not decide what happens to a row that turns
-     * up after that: such a row is still applied, as a retraction and a correction, which is what
-     * Z-set weights are for.
+     * waits before declaring a window complete. What happens to a row that turns up after that is
+     * {@link #allowedLateness()}'s answer: within it the row is applied, as a retraction of the
+     * published answer plus the corrected one, which is what Z-set weights are for; beyond it the
+     * window's state is gone and the row is counted as late.
+     *
+     * <p>That second sentence used to say a late row "is still applied" without qualification. It
+     * was not true of any query the planner built, because allowed lateness was the constant zero
+     * and nothing could change it.
      */
     public Duration outOfOrderness() {
         return outOfOrderness;
+    }
+
+    /**
+     * How long after a window closes its state is kept, so a row that turns up late can correct it.
+     *
+     * <p>The other half of {@link #outOfOrderness()}. That one decides how long to wait before
+     * declaring a window complete; this decides what happens to a row that arrives after that --
+     * within this window it is applied as a retraction of the published answer plus an insert of
+     * the corrected one, and beyond it the state is gone and the row is counted as late rather
+     * than silently dropped.
+     */
+    public Duration allowedLateness() {
+        return allowedLateness;
     }
 
     public OptionalInt eventTimeOrdinal() {
@@ -161,6 +203,7 @@ public final class StreamSchema {
         if (eventTimeOrdinal >= 0) {
             b.eventTime(fields.get(eventTimeOrdinal).name());
             b.outOfOrderness(outOfOrderness);
+            b.allowedLateness(allowedLateness);
         }
         primaryKey.forEach(b::primaryKeyField);
         return b.build();
@@ -173,6 +216,7 @@ public final class StreamSchema {
         if (eventTimeOrdinal >= 0 && eventTimeOrdinal < newFields.size()) {
             b.eventTime(newFields.get(eventTimeOrdinal).name());
             b.outOfOrderness(outOfOrderness);
+            b.allowedLateness(allowedLateness);
         }
         primaryKey.forEach(b::primaryKeyField);
         return b.build();
@@ -189,6 +233,7 @@ public final class StreamSchema {
         return version == other.version
                 && eventTimeOrdinal == other.eventTimeOrdinal
                 && outOfOrderness.equals(other.outOfOrderness)
+                && allowedLateness.equals(other.allowedLateness)
                 && name.equals(other.name)
                 && fields.equals(other.fields)
                 && primaryKey.equals(other.primaryKey);
@@ -196,7 +241,7 @@ public final class StreamSchema {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, fields, version, eventTimeOrdinal, primaryKey, outOfOrderness);
+        return Objects.hash(name, fields, version, eventTimeOrdinal, primaryKey, outOfOrderness, allowedLateness);
     }
 
     @Override
@@ -221,6 +266,8 @@ public final class StreamSchema {
         private int version = 1;
         private String eventTimeField;
         private Duration outOfOrderness;
+
+        private Duration allowedLateness;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "name");
@@ -263,6 +310,22 @@ public final class StreamSchema {
             return this;
         }
 
+        /**
+         * How long a closed window is kept correctable for this stream.
+         *
+         * <p>Zero means a window is final the moment it closes: a later row for it is late and is
+         * counted rather than applied. That is a legitimate choice for a feed whose corrections are
+         * worthless, and it was the only behaviour available.
+         */
+        public Builder allowedLateness(Duration lateness) {
+            if (lateness == null || lateness.isNegative()) {
+                throw new IllegalArgumentException("allowed lateness must not be negative, got " + lateness
+                        + ". Zero means a window is final when it closes.");
+            }
+            this.allowedLateness = lateness;
+            return this;
+        }
+
         public Builder primaryKeyField(String fieldName) {
             primaryKey.add(fieldName);
             return this;
@@ -282,7 +345,8 @@ public final class StreamSchema {
             for (String pk : primaryKey) {
                 ordinalOf(frozen, pk, "primary-key field");
             }
-            return new StreamSchema(name, frozen, version, etOrdinal, List.copyOf(primaryKey), outOfOrderness);
+            return new StreamSchema(
+                    name, frozen, version, etOrdinal, List.copyOf(primaryKey), outOfOrderness, allowedLateness);
         }
 
         private static int ordinalOf(List<Field> fs, String fieldName, String what) {

@@ -282,7 +282,16 @@ public final class SlicedAggregateState {
                     }
                     accumulator.values[i] = accumulator.distinct[i].size();
                 }
-                case SUM -> accumulator.values[i] += values[i] * weight;
+                case SUM -> {
+                    // Also guarded by presence. A null flattens to 0, which adds nothing, so the
+                    // total was right either way -- but nonNull is what MIN and MAX now seed from,
+                    // and a SUM that did not maintain it would leave them seeding off a count that
+                    // no longer meant what they thought.
+                    if (present[i]) {
+                        accumulator.values[i] += values[i] * weight;
+                        accumulator.nonNull[i] += weight;
+                    }
+                }
                 case AVG -> {
                     if (present[i]) {
                         accumulator.values[i] += values[i] * weight;
@@ -297,7 +306,20 @@ public final class SlicedAggregateState {
                                         + "an ordered multiset per group, which arrives with the aggregate lift. "
                                         + "Use SUM or COUNT, or drop the retraction.");
                     }
-                    if (accumulator.count == weight) {
+                    // NULL is not a value SQL's MIN or MAX considers, and this folded it in: a
+                    // null flattens to 0 on the way in, so MIN over {5, 5, 7, NULL} answered 0 --
+                    // which is also what it answers over an all-positive column that was never
+                    // seeded, so the value carried no information about the data at all. MAX was
+                    // right only by luck, because zero is below every positive amount.
+                    if (!present[i]) {
+                        break;
+                    }
+                    // Seeded from the first non-null value, not the first row. accumulator.count is
+                    // the row count, so a group whose first row was null seeded the extreme to that
+                    // null's zero and then compared every real value against it.
+                    boolean firstValue = accumulator.nonNull[i] == 0;
+                    accumulator.nonNull[i] += weight;
+                    if (firstValue) {
                         accumulator.values[i] = values[i];
                     } else if (kinds[i] == Kind.MIN) {
                         accumulator.values[i] = Math.min(accumulator.values[i], values[i]);
@@ -366,14 +388,17 @@ public final class SlicedAggregateState {
     }
 
     private void merge(Accumulator target, Accumulator source) {
-        boolean targetWasEmpty = target.count == 0;
         if (target.keyValues == null) {
             target.keyValues = source.keyValues;
         }
         target.count += source.count;
         for (int i = 0; i < kinds.length; i++) {
             switch (kinds[i]) {
-                case COUNT, SUM -> target.values[i] += source.values[i];
+                case COUNT -> target.values[i] += source.values[i];
+                case SUM -> {
+                    target.values[i] += source.values[i];
+                    target.nonNull[i] += source.nonNull[i];
+                }
                 case AVG -> {
                     target.values[i] += source.values[i];
                     target.nonNull[i] += source.nonNull[i];
@@ -386,10 +411,28 @@ public final class SlicedAggregateState {
                     source.distinct[i].forEach((value, seenCount) -> merged.merge(value, seenCount, Long::sum));
                     target.values[i] = merged.size();
                 }
-                case MIN ->
-                    target.values[i] = targetWasEmpty ? source.values[i] : Math.min(target.values[i], source.values[i]);
-                case MAX ->
-                    target.values[i] = targetWasEmpty ? source.values[i] : Math.max(target.values[i], source.values[i]);
+                // Merged on the non-null count, not on whether the target held any rows: a
+                // slice of nothing but nulls has rows and no extreme, and treating it as seeded
+                // would merge its zero in as though it were a value.
+                case MIN -> {
+                    if (source.nonNull[i] > 0) {
+                        target.values[i] = target.nonNull[i] == 0
+                                ? source.values[i]
+                                : Math.min(target.values[i], source.values[i]);
+                    }
+                    // After the comparison, never before: the test above asks whether the target
+                    // had an extreme yet, and adding first would answer it with the source's own
+                    // rows.
+                    target.nonNull[i] += source.nonNull[i];
+                }
+                case MAX -> {
+                    if (source.nonNull[i] > 0) {
+                        target.values[i] = target.nonNull[i] == 0
+                                ? source.values[i]
+                                : Math.max(target.values[i], source.values[i]);
+                    }
+                    target.nonNull[i] += source.nonNull[i];
+                }
             }
         }
     }

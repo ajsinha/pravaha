@@ -793,7 +793,7 @@ public final class PhysicalPlanBuilder {
                     boundaries[0],
                     boundaries[1],
                     DEFAULT_MAX_SLICES,
-                    DEFAULT_ALLOWED_LATENESS_NANOS);
+                    allowedLatenessOf(input));
         }
 
         AggregateOperator operator = new AggregateOperator(input, output, groupKeys, calls);
@@ -874,7 +874,38 @@ public final class PhysicalPlanBuilder {
      * {@code EMIT CHANGES WITH ('allowed.lateness' = ...)} clause of design 11.2 is where a real
      * value will come from.
      */
-    private static final long DEFAULT_ALLOWED_LATENESS_NANOS = 0L;
+    /**
+     * The allowed lateness the input stream declared.
+     *
+     * <p>This was the constant zero, and nothing anywhere could change it -- so every windowed query
+     * the planner built discarded a row that arrived after its window closed, while CONCEPTS.md and
+     * StreamSchema's own javadoc both said such a row is applied as a retraction plus a correction.
+     * The machinery to do that was already in WindowedAggregate, complete and unreachable.
+     */
+    private static long allowedLatenessOf(PhysicalOperator input) {
+        // Read from the scan, not from the operator directly beneath. Lateness is the source's
+        // property, and a projection or a window table function between the scan and the aggregate
+        // builds a fresh schema for the shape it produces -- so asking the immediate input gets
+        // whatever default that rebuild carried, which is how this silently stayed at zero after
+        // being wired up.
+        return scanBeneath(input)
+                .map(scan -> scan.outputSchema().allowedLateness().toNanos())
+                .orElse(0L);
+    }
+
+    /** The first scan under {@code operator}, which is where the source's own settings live. */
+    private static java.util.Optional<PhysicalOperator> scanBeneath(PhysicalOperator operator) {
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.ScanOperator) {
+            return java.util.Optional.of(operator);
+        }
+        for (PhysicalOperator input : operator.inputs()) {
+            java.util.Optional<PhysicalOperator> found = scanBeneath(input);
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return java.util.Optional.empty();
+    }
 
     /** The window assignment feeding this aggregate, looking through projections. */
     /**

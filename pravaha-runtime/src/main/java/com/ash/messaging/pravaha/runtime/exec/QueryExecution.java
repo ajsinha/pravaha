@@ -94,6 +94,17 @@ public final class QueryExecution implements AutoCloseable {
 
     private final Map<String, AtomicLong> partitionHighWater = new LinkedHashMap<>();
 
+    /**
+     * What each partition's high-water mark was at the last tick that reported it.
+     *
+     * <p>The tick used to report every partition's retained high-water every time, whether or not
+     * anything had arrived. {@code observe} takes that as activity and refreshes the partition's
+     * clock -- so a partition that spoke once and went quiet never aged, and held the whole query's
+     * watermark down for ever. Only a partition that had never spoken at all could go idle, which
+     * is the one case the feature is not for.
+     */
+    private final Map<String, Long> lastReportedHighWater = new LinkedHashMap<>();
+
     private ScheduledExecutorService watermarkClock;
     private final List<PartitionedIngestPump> partitionedPumps = new ArrayList<>();
     private final PhysicalOperator plan;
@@ -416,7 +427,13 @@ public final class QueryExecution implements AutoCloseable {
             // stops holding the watermark back.
             partitionHighWater.forEach((partition, highest) -> {
                 long seen = highest.get();
-                if (seen != Long.MIN_VALUE) {
+                if (seen == Long.MIN_VALUE) {
+                    return;
+                }
+                // Reported only when it has moved. Re-reporting an unchanged mark is not news, and
+                // the tracker reads every report as a sign of life.
+                Long previous = lastReportedHighWater.put(partition, seen);
+                if (previous == null || previous != seen) {
                     watermarks.observe(partition, seen, now);
                 }
             });
