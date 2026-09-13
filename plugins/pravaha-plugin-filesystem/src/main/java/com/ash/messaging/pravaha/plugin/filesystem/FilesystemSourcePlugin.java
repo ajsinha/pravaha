@@ -60,6 +60,10 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
     private char delimiter;
     private String nullLiteral;
     private boolean skipHeader;
+
+    /** Whether end of file means end of stream. See configure's `follow`. */
+    private boolean follow;
+
     private String instanceName = "filesystem";
 
     @Override
@@ -115,6 +119,14 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
         this.delimiter = d.charAt(0);
         this.nullLiteral = context.get("null.literal", "");
         this.skipHeader = Boolean.parseBoolean(context.get("skip.header", "false"));
+        // tail -f. Off by default, because a bounded read is what every existing binding means by a
+        // file and a source that stopped ending would change what those queries do.
+        //
+        // With it on, end of file stops being end of stream: the reader returns what it has, is
+        // polled again, and picks up whatever has been appended since -- which is what a continuous
+        // query over a file needs and did not have. Without it the reader latched exhausted at the
+        // first null read and the query kept a view it would never update again.
+        this.follow = Boolean.parseBoolean(context.get("follow", "false"));
     }
 
     /**
@@ -237,7 +249,7 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
     public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
         DelimitedCodec codec = new DelimitedCodec(schema, delimiter, nullLiteral);
         codec.markOperationColumn(opColumn);
-        return new FilesystemPartitionReader(path, codec, skipHeader, resumeFrom, deleteMarkers);
+        return new FilesystemPartitionReader(path, codec, skipHeader, resumeFrom, deleteMarkers, follow);
     }
 
     StreamSchema schema() {

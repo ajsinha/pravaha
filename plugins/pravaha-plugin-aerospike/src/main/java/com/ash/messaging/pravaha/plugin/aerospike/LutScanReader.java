@@ -90,6 +90,9 @@ final class LutScanReader implements PartitionReader {
     private long scans;
     private boolean paused;
 
+    /** The ordinal of the event-time column, or -1 when the deployment named none. */
+    private final int eventTimeOrdinal;
+
     LutScanReader(
             IAerospikeClient client,
             String namespace,
@@ -113,6 +116,10 @@ final class LutScanReader implements PartitionReader {
         this.totalTimeoutMillis = totalTimeoutMillis;
         this.request = request == null ? ReadRequest.NOTHING : request;
         this.watermarkNanos = parse(resumeFrom);
+        // The column the schema marked as event time, if any. Resolved once here rather than per
+        // record: a name lookup on the ingest path is the sort of thing that does not show up until
+        // the throughput graph does.
+        this.eventTimeOrdinal = schema.eventTimeOrdinal().orElse(-1);
     }
 
     private static long parse(SourceOffset offset) {
@@ -147,18 +154,35 @@ final class LutScanReader implements PartitionReader {
             Record record = buffered.poll();
             RowWriter writer = sink.beginRow();
             AerospikeSchemas.copyInto(record, schema, writer);
-            // The scan's start time, not the record's own. The client does not expose a record's
-            // last-update time -- it is only readable through an expression, which a scan has no
-            // place to attach -- so the honest event time available here is "seen by the scan that
-            // began at T". A query that needs the record's own time should declare the bin that
-            // holds it and use that column.
+            // The record's own time when a bin holds it, the scan's start time otherwise.
+            //
+            // The scan time alone was not a neutral default: a windowed query assigns rows by a
+            // column and the watermark came from wall-clock, so every window was already long
+            // closed when its rows arrived and every record was dropped as late. The view stayed
+            // empty and the query reported RUNNING.
+            //
+            // The client does not expose a record's last-update time -- it is readable only through
+            // an expression, which a scan has no place to attach -- so where no bin holds a time,
+            // "seen by the scan that began at T" remains the honest answer.
             writer.weight(1L)
-                    .eventTimestampNanos(scanStartedNanos)
+                    .eventTimestampNanos(eventTimeOf(record))
                     .sequence(++recordsRead)
                     .commit();
             emitted++;
         }
         return emitted;
+    }
+
+    /** A record's event time: its declared bin, or the scan's start when none was declared. */
+    private long eventTimeOf(Record record) {
+        if (eventTimeOrdinal < 0) {
+            return scanStartedNanos;
+        }
+        Object value = record.bins.get(schema.field(eventTimeOrdinal).name());
+        // A record whose event-time bin is absent or not a number falls back to the scan's time
+        // rather than to zero. Zero would place it in the first window of 1970 and hold the
+        // watermark of every partition down to it.
+        return value instanceof Number number ? number.longValue() : scanStartedNanos;
     }
 
     /**

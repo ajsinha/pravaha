@@ -284,6 +284,42 @@ class PluginSourceFeedsTest {
     }
 
     @Test
+    void aFollowedFileKeepsFeedingAQueryThatIsAlreadyRunning(@TempDir Path dir) throws Exception {
+        // tail -f, end to end. A file source stopped at end of file, so a registered query over one
+        // was a batch query wearing a continuous query's clothes: it reached an answer, kept a view
+        // it would never update again, and reported RUNNING for ever.
+        Path data = dir.resolve("live.csv");
+        Files.writeString(data, "1,ann,100\n2,bob,250\n");
+
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding(
+                        "txn", "filesystem", Map.of("path", data.toString(), "schema", SCHEMA_SPEC, "follow", "true")));
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, TXN).feedingFrom(feeds)) {
+            RegisteredQuery query =
+                    registry.register("live", "SELECT id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
+            awaitRows(query, 2);
+            awaitView(views, "SELECT id, amount FROM live", 2);
+
+            // Appended while the query is running. Nothing is restarted, re-registered or told.
+            Files.writeString(data, "3,cat,50\n", java.nio.file.StandardOpenOption.APPEND);
+
+            awaitRows(query, 3);
+            awaitView(views, "SELECT id, amount FROM live", 3);
+            assertThat(query.rowsIn())
+                    .as("the source kept reading past the end of the file it started with")
+                    .isEqualTo(3);
+
+            Files.writeString(data, "4,dee,7\n", java.nio.file.StandardOpenOption.APPEND);
+            awaitView(views, "SELECT id, amount FROM live", 4);
+            assertThat(query.state().isTerminal())
+                    .as("and is still running, rather than having finished at the first end of file")
+                    .isFalse();
+        }
+    }
+
+    @Test
     void aRegisteredQueryOffersItsFiltersToTheSource() {
         // Pushdown is the claim the whole cost story rests on, and the server path never made it.
         // PluginSourceFeeds called the two-argument createReader, so a registered query -- the only

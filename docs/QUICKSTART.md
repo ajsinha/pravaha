@@ -130,6 +130,31 @@ pravaha:
         schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"
 ```
 
+**A file that keeps growing.** By default a file source is a bounded read: it ends where the file
+ends, and a query over it reaches an answer and stops changing. `follow: true` makes it `tail -f`
+instead — end of file stops being end of stream, and rows appended while the query runs arrive
+without anything being restarted:
+
+```yaml
+  sources:
+    txn:
+      plugin: filesystem
+      options:
+        path: /var/lib/pravaha/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time      # which column holds the row's own time
+        follow: true
+```
+
+A followed file that is rotated or rewritten is picked up from the start of its replacement, and a
+line is a row only once its newline has arrived — so a writer caught mid-line does not produce half
+a record.
+
+**If the query is windowed, name the event-time column.** `event.time` tells the source which column
+holds each row's own time. Without it every row carries the time it was *read*, the watermark runs at
+wall-clock, and every row is dropped as late — an empty view under a query reporting `RUNNING`. The
+same option exists on the Aerospike source, and matters there for the same reason.
+
 With that file, the whole loop works from the command line:
 
 ```bash

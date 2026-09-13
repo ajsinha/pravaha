@@ -34,16 +34,43 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
  * legible in a checkpoint and in a log, and for a plugin whose main job is to make other things
  * testable, being readable when something goes wrong is worth more than the byte offset's
  * efficiency.
+ *
+ * <p><strong>Following</strong> ({@code follow: true}) is {@code tail -f}: end of file stops being
+ * end of stream. Without it a continuous query over a file is a batch query -- the reader latched
+ * exhausted at the first null read and never looked again, so the query kept a view it would never
+ * update, and reported RUNNING while doing it.
+ *
+ * <p>Following also handles the file being replaced under it, which is what log rotation and an
+ * atomic rewrite both look like. A shrunk file, or one whose identity changed, is a new file: the
+ * reader reopens from the start rather than sitting on a handle to something nobody can see any
+ * more. A file that merely grew is read on from where it was.
  */
 final class FilesystemPartitionReader implements PartitionReader {
 
     private final DelimitedCodec codec;
-    private final BufferedReader reader;
+    private BufferedReader reader;
     private long lineNumber;
     private boolean paused;
     private boolean exhausted;
 
     private final java.util.Set<String> deleteMarkers;
+
+    /** Whether end of file means end of stream. */
+    private final boolean follow;
+
+    private final Path path;
+    private final boolean skipHeader;
+
+    /**
+     * The size and identity of the file as of the last read, so a replacement can be recognised.
+     *
+     * <p>Size alone is not enough: a rotated file is often replaced by one of a similar size, and a
+     * reader comparing only length would read the new file's bytes as a continuation of the old
+     * one's -- silently interleaving two files' rows into one stream.
+     */
+    private long lastSize;
+
+    private Object lastIdentity;
 
     FilesystemPartitionReader(
             Path path,
@@ -51,13 +78,27 @@ final class FilesystemPartitionReader implements PartitionReader {
             boolean skipHeader,
             SourceOffset resumeFrom,
             java.util.Set<String> deleteMarkers) {
+        this(path, codec, skipHeader, resumeFrom, deleteMarkers, false);
+    }
+
+    FilesystemPartitionReader(
+            Path path,
+            DelimitedCodec codec,
+            boolean skipHeader,
+            SourceOffset resumeFrom,
+            java.util.Set<String> deleteMarkers,
+            boolean follow) {
         this.deleteMarkers = deleteMarkers == null ? java.util.Set.of() : deleteMarkers;
         this.codec = codec;
+        this.follow = follow;
+        this.path = path;
+        this.skipHeader = skipHeader;
         try {
             this.reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot open " + path, e);
         }
+        rememberFile();
         try {
             if (skipHeader) {
                 reader.readLine();
@@ -74,17 +115,127 @@ final class FilesystemPartitionReader implements PartitionReader {
         }
     }
 
+    /** Notes the file's current size and identity, for spotting a replacement later. */
+    private void rememberFile() {
+        try {
+            java.nio.file.attribute.BasicFileAttributes attributes =
+                    Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes.class);
+            lastSize = attributes.size();
+            lastIdentity = attributes.fileKey() != null ? attributes.fileKey() : attributes.creationTime();
+        } catch (IOException e) {
+            // Gone, or unreadable. Nothing to remember, and the next poll will find out properly.
+            lastSize = -1;
+            lastIdentity = null;
+        }
+    }
+
+    /**
+     * Reopens when the file underneath has been replaced. Returns true if it was.
+     *
+     * <p>Replaced means a different identity, or a smaller size than we have already read past --
+     * truncation and rotation both look like that. A file that only grew is the ordinary case and
+     * is left alone, because reopening it would replay every row we have already delivered.
+     */
+    private boolean reopenIfReplaced() {
+        java.nio.file.attribute.BasicFileAttributes attributes;
+        try {
+            attributes = Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes.class);
+        } catch (IOException e) {
+            // The file is momentarily absent -- mid-rotation, most likely. Not an error: the next
+            // poll looks again, and a source that died because a log rotated would be worse than
+            // one that waits.
+            return false;
+        }
+        Object identity = attributes.fileKey() != null ? attributes.fileKey() : attributes.creationTime();
+        boolean replaced = lastIdentity != null && !lastIdentity.equals(identity);
+        boolean truncated = attributes.size() < lastSize;
+        if (!replaced && !truncated) {
+            lastSize = attributes.size();
+            return false;
+        }
+        try {
+            reader.close();
+        } catch (IOException e) {
+            // Closing the handle to a file that is already gone is not a failure worth reporting.
+        }
+        try {
+            reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot reopen " + path, e);
+        }
+        lineNumber = 0;
+        // Whatever was half-read belonged to the file that has just gone.
+        partial.setLength(0);
+        if (skipHeader) {
+            try {
+                reader.readLine();
+                lineNumber++;
+            } catch (IOException e) {
+                throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot read header of " + path, e);
+            }
+        }
+        rememberFile();
+        rotations++;
+        return true;
+    }
+
+    private long rotations;
+
+    /**
+     * A line the writer has not finished yet.
+     *
+     * <p>{@code readLine} returns whatever is there at end of file, terminated or not -- so tailing
+     * a file being appended to would read half a line as a record, decode it against the schema,
+     * and then read the other half as a second record. Both would be wrong and neither would look
+     * it. In follow mode a line is a record only once its newline has arrived.
+     */
+    private final StringBuilder partial = new StringBuilder();
+
+    /**
+     * The next complete line, or null when the writer has not finished one.
+     *
+     * <p>Character at a time, through the buffer the reader already has. Only in follow mode: the
+     * bounded read keeps {@code readLine}, where a trailing unterminated line is the last line of a
+     * finished file rather than a line still being written.
+     */
+    private String readCompleteLine() throws IOException {
+        int c;
+        while ((c = reader.read()) != -1) {
+            if (c == '\n') {
+                String line = partial.toString();
+                partial.setLength(0);
+                // A file written on Windows ends its lines \r\n, and the \r is not data.
+                return line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
+            }
+            partial.append((char) c);
+        }
+        return null;
+    }
+
+    /** How many times the file was replaced underneath this reader. */
+    long rotationCount() {
+        return rotations;
+    }
+
     @Override
     public int poll(RecordSink sink, int maxRecords) {
         if (paused || exhausted) {
             return 0;
         }
+        if (follow) {
+            reopenIfReplaced();
+        }
         int produced = 0;
         try {
             while (produced < maxRecords) {
-                String line = reader.readLine();
+                String line = follow ? readCompleteLine() : reader.readLine();
                 if (line == null) {
-                    exhausted = true;
+                    // Following means end of file is not end of stream: the writer may not have
+                    // finished the line, or may not have written it yet. Returning what we have and
+                    // being polled again is the whole of `tail -f`.
+                    if (!follow) {
+                        exhausted = true;
+                    }
                     break;
                 }
                 lineNumber++;

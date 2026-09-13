@@ -374,6 +374,124 @@ class FilesystemPluginTest {
     }
 
     /** Collects decoded rows into an arena, as a lane would. */
+    // ------------------------------------------------------------------ follow (tail -f)
+
+    private static final String SMALL = "id:INT64,user:STRING";
+
+    /** Drains everything available right now, returning the ids read. */
+    private static List<Long> drainIds(PartitionReader reader, StreamSchema schema) {
+        List<Long> ids = new ArrayList<>();
+        try (Collector out = new Collector(schema)) {
+            while (reader.poll(out, 100) > 0) {
+                // keep draining
+            }
+            out.rows.forEach(row -> ids.add(row.getLong(0)));
+        }
+        return ids;
+    }
+
+    @Test
+    void followingSeesRowsAppendedAfterTheReaderCaughtUp(@TempDir Path dir) throws IOException {
+        // The whole point. Without follow the reader latches exhausted at the first null read, so a
+        // continuous query over a file kept a view it would never update again -- and reported
+        // RUNNING while doing it.
+        Path input = dir.resolve("live.csv");
+        Files.writeString(input, "1,ann\n2,bob\n");
+
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SMALL, "follow", "true")));
+            source.open();
+            try (PartitionReader reader =
+                    source.createReader(source.partitions("txn").get(0), null)) {
+                assertThat(drainIds(reader, source.schema())).containsExactly(1L, 2L);
+
+                // Caught up. A non-following reader is finished for ever at this point.
+                assertThat(drainIds(reader, source.schema())).isEmpty();
+
+                Files.writeString(input, "3,cat\n", java.nio.file.StandardOpenOption.APPEND);
+                assertThat(drainIds(reader, source.schema()))
+                        .as("appended after the reader caught up, and still delivered")
+                        .containsExactly(3L);
+            }
+        }
+    }
+
+    @Test
+    void followingWaitsForTheNewlineRatherThanReadingHalfALine(@TempDir Path dir) throws IOException {
+        // readLine returns whatever is there at end of file, terminated or not. Tailing a file
+        // being appended to would therefore read half a line as a record, decode it against the
+        // schema, and read the other half as a second record -- both wrong, neither looking it.
+        Path input = dir.resolve("live.csv");
+        Files.writeString(input, "1,ann\n");
+
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SMALL, "follow", "true")));
+            source.open();
+            try (PartitionReader reader =
+                    source.createReader(source.partitions("txn").get(0), null)) {
+                assertThat(drainIds(reader, source.schema())).containsExactly(1L);
+
+                // A writer mid-line: the row is not finished, so it is not a row yet.
+                Files.writeString(input, "2,bo", java.nio.file.StandardOpenOption.APPEND);
+                assertThat(drainIds(reader, source.schema()))
+                        .as("half a line is not a record")
+                        .isEmpty();
+
+                Files.writeString(input, "b\n", java.nio.file.StandardOpenOption.APPEND);
+                assertThat(drainIds(reader, source.schema()))
+                        .as("and the line arrives whole, once, when its newline does")
+                        .containsExactly(2L);
+            }
+        }
+    }
+
+    @Test
+    void followingPicksUpAFileThatWasRotatedUnderneathIt(@TempDir Path dir) throws IOException {
+        // Log rotation and an atomic rewrite look the same from here: the path now names a
+        // different file. A reader holding the old handle would sit on something nobody can see any
+        // more and deliver nothing for ever, which is the failure mode tailing exists to avoid.
+        Path input = dir.resolve("live.csv");
+        Files.writeString(input, "1,ann\n2,bob\n");
+
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SMALL, "follow", "true")));
+            source.open();
+            try (PartitionReader reader =
+                    source.createReader(source.partitions("txn").get(0), null)) {
+                assertThat(drainIds(reader, source.schema())).containsExactly(1L, 2L);
+
+                Files.move(input, dir.resolve("live.csv.1"));
+                Files.writeString(input, "7,zoe\n");
+
+                assertThat(drainIds(reader, source.schema()))
+                        .as("the replacement is read from its start, not from the old file's offset")
+                        .containsExactly(7L);
+            }
+        }
+    }
+
+    @Test
+    void followingIsOffByDefaultSoABoundedReadStillEnds(@TempDir Path dir) throws IOException {
+        // Every existing binding means a bounded read by "a file", and a source that stopped ending
+        // would change what those queries do. Opt in, or nothing changes.
+        Path input = dir.resolve("once.csv");
+        Files.writeString(input, "1,ann\n");
+
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SMALL)));
+            source.open();
+            try (PartitionReader reader =
+                    source.createReader(source.partitions("txn").get(0), null)) {
+                assertThat(drainIds(reader, source.schema())).containsExactly(1L);
+
+                Files.writeString(input, "2,bob\n", java.nio.file.StandardOpenOption.APPEND);
+                assertThat(drainIds(reader, source.schema()))
+                        .as("a bounded read is finished when the file ends, and stays finished")
+                        .isEmpty();
+            }
+        }
+    }
+
     private static final class Collector implements PartitionReader.RecordSink, AutoCloseable {
         private final RowLayout layout;
         private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 16, 32);

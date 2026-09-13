@@ -222,6 +222,147 @@ class AerospikeContinuousQueryIT {
     }
 
     @Test
+    void theReadmesQueryRunsOverAerospikeThroughTheDeploymentPath() {
+        // The test below drives the engine through its own API: it compiles a pipeline by hand,
+        // drains the reader once, advances the watermark itself, and writes nothing while it runs.
+        // That proves the plan is right. It does not prove a continuous query over Aerospike works,
+        // because nothing a deployment uses appears in it -- no registry, no feed, no discovery,
+        // no lookup binding, and no record written while the query is live.
+        //
+        // This one uses only the deployment path, and writes to Aerospike after the query is
+        // running. Every one of those pieces was broken at some point in this QA cycle, and each
+        // was invisible from the test below.
+        com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds feeds =
+                new com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds()
+                        .bind(new com.ash.messaging.pravaha.server.ingest.SourceBinding(
+                                "txn_stream",
+                                "aerospike",
+                                Map.of(
+                                        "hosts",
+                                        hosts,
+                                        "namespace",
+                                        NAMESPACE,
+                                        "set",
+                                        "txn",
+                                        "stream",
+                                        "txn_stream",
+                                        "event.time",
+                                        "event_time",
+                                        "schema",
+                                        "txn_id:INT64,user_id:STRING,amount:INT64,"
+                                                + "status:STRING,event_time:TIMESTAMP")));
+
+        AerospikeLookupPlugin profiles = new AerospikeLookupPlugin();
+        profiles.configure(new Ctx(
+                "user_profile",
+                new HashMap<>(Map.of(
+                        "hosts", hosts,
+                        "namespace", NAMESPACE,
+                        "set", "profile",
+                        "stream", "user_profile",
+                        "schema", "user_id:STRING,tier:STRING?",
+                        "key.bin", "user_id",
+                        "cache.seconds", "0"))));
+        profiles.open();
+
+        // The engine's own copy of the schema marks the event-time column too. Both sides need it:
+        // the plugin stamps each row from that bin, and the engine derives the watermark from the
+        // column. Either one missing and the windows close against the wrong clock.
+        StreamSchema txnStream = StreamSchema.builder("txn_stream")
+                .field("txn_id", Types.int64())
+                .field("user_id", Types.string())
+                .field("amount", Types.int64())
+                .field("status", Types.string())
+                .field("event_time", Types.timestamp())
+                .eventTime("event_time")
+                .build();
+
+        com.ash.messaging.pravaha.serving.ViewCatalog views = new com.ash.messaging.pravaha.serving.ViewCatalog();
+        try (com.ash.messaging.pravaha.registry.QueryRegistry registry =
+                        new com.ash.messaging.pravaha.registry.QueryRegistry(views, txnStream)
+                                .lookingUp(profiles)
+                                .feedingFrom(feeds)
+                                // A node always turns these on; a registry constructed by hand does
+                                // not, and without them no window ever closes.
+                                .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50));
+                AerospikeLookupPlugin closing = profiles) {
+            com.ash.messaging.pravaha.registry.RegisteredQuery query = registry.register(
+                    "user_volume", SQL, List.of(1), com.ash.messaging.pravaha.security.Principal.ANONYMOUS);
+
+            // The six records loaded before registration. The PENDING one is filtered by Aerospike
+            // and must never arrive, so five is the number and six would mean pushdown is off.
+            awaitRowsIn(query, 5);
+            assertThat(query.rowsIn())
+                    .as("the PENDING transaction is filtered in the store; six rows here means the "
+                            + "WHERE clause was not pushed on the registry path")
+                    .isEqualTo(5);
+
+            // Written while the query is running. Nothing is restarted or re-registered, and the
+            // event time is past the first window's end -- which is what closes it.
+            txn(7, "u1", 42, "COMPLETED", 25 * SECOND);
+            txn(8, "u2", 9999, "PENDING", 26 * SECOND);
+            awaitRowsIn(query, 6);
+            assertThat(query.rowsIn())
+                    .as("the new PENDING record is filtered in the store as the first one was")
+                    .isEqualTo(6);
+
+            // The first window closes because event time moved past it, from a record that arrived
+            // after the query started. No hand-advanced watermark anywhere.
+            awaitView(views, "SELECT user_id FROM user_volume", 3);
+
+            List<Object[]> rows = new com.ash.messaging.pravaha.serving.ViewQuery(views)
+                    .execute("SELECT user_id, tier, txn_count, total_volume FROM user_volume")
+                    .rows();
+            Map<String, Object[]> byUser = new HashMap<>();
+            rows.forEach(row -> byUser.put(String.valueOf(row[0]), row));
+
+            assertThat(byUser).containsKeys("u1", "u2", "u3");
+            assertThat(byUser.get("u1")[1])
+                    .as("u1's tier came from the Aerospike dimension table, through the registry")
+                    .isEqualTo("gold");
+            assertThat(byUser.get("u1")[2])
+                    .as("u1's transaction count in [0,10)")
+                    .isEqualTo(2L);
+            assertThat(byUser.get("u1")[3])
+                    .as("100 + 200, with the 9999 PENDING filtered")
+                    .isEqualTo(300L);
+            assertThat(byUser.get("u3")[1])
+                    .as("u3 has no profile, and a LEFT join says so with a null rather than dropping the row")
+                    .isNull();
+            assertThat(query.state().isTerminal())
+                    .as("still running: an Aerospike source re-scans, so there is no end to reach")
+                    .isFalse();
+        }
+    }
+
+    private static void awaitRowsIn(com.ash.messaging.pravaha.registry.RegisteredQuery query, long atLeast) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+        while (System.nanoTime() < deadline && query.rowsIn() < atLeast) {
+            sleep(50);
+        }
+        assertThat(query.failure()).as("the lane must not have died").isEmpty();
+        assertThat(query.rowsIn())
+                .as("the feed delivered %d rows in sixty seconds; %d were expected", query.rowsIn(), atLeast)
+                .isGreaterThanOrEqualTo(atLeast);
+    }
+
+    private static void awaitView(com.ash.messaging.pravaha.serving.ViewCatalog views, String sql, int expected) {
+        com.ash.messaging.pravaha.serving.ViewQuery reader = new com.ash.messaging.pravaha.serving.ViewQuery(views);
+        long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+        int size = -1;
+        while (System.nanoTime() < deadline) {
+            size = reader.execute(sql).size();
+            if (size >= expected) {
+                return;
+            }
+            sleep(50);
+        }
+        assertThat(size)
+                .as("the view held %d rows after sixty seconds; %d were expected", size, expected)
+                .isGreaterThanOrEqualTo(expected);
+    }
+
+    @Test
     void theReadmesQueryRunsOverAerospikeEndToEnd() {
         PhysicalOperator plan = new PhysicalPlanBuilder()
                 .build(SqlPlanner.withLookups(txnSchema(), profileSchema()).plan(SQL));

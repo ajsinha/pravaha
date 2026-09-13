@@ -86,6 +86,10 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
     private String set;
     private String streamName;
     private StreamSchema schema;
+
+    /** The bin holding each row's own event time, or blank for the scan's time. See configure. */
+    private String eventTimeColumn = "";
+
     private AerospikeStrategy strategy;
     private int partitions;
     private int recordsPerSecond;
@@ -112,7 +116,31 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
         this.namespace = context.require("namespace");
         this.set = context.require("set");
         this.streamName = context.get("stream", set);
-        this.schema = AerospikeSchemas.parse(streamName, context.require("schema"));
+        StreamSchema parsed = AerospikeSchemas.parse(streamName, context.require("schema"));
+        // Which bin holds the row's own event time, if the deployment names one.
+        //
+        // Without this the reader reported the scan's start time as every row's event time, and a
+        // windowed query over an Aerospike source dropped every record as late: the watermark ran
+        // at wall-clock while the window assigner read a column holding the record's real time, so
+        // every window was already long closed by the time its rows arrived. The view stayed empty
+        // and the query reported RUNNING -- the same shape of defect the filesystem plugin had, in
+        // the connector this product leads with.
+        this.eventTimeColumn = context.get("event.time", "");
+        if (!eventTimeColumn.isBlank()) {
+            if (!parsed.hasField(eventTimeColumn)) {
+                throw new ConfigurationException(
+                        AerospikeErrors.BAD_CONFIGURATION,
+                        "event.time names '" + eventTimeColumn + "', which is not a column of stream '"
+                                + streamName + "'. Its columns are "
+                                + parsed.fields().stream()
+                                        .map(com.ash.messaging.pravaha.api.data.Field::name)
+                                        .toList());
+            }
+            StreamSchema.Builder builder = StreamSchema.builder(streamName);
+            parsed.fields().forEach(field -> builder.field(field.name(), field.type()));
+            parsed = builder.eventTime(eventTimeColumn).build();
+        }
+        this.schema = parsed;
         this.strategy = AerospikeStrategy.parse(context.get("strategy", AerospikeStrategy.LUT_SCAN.configName()));
         this.partitions = Integer.parseInt(context.get("partitions", "1"));
         if (partitions < 1 || partitions > 4096) {
