@@ -270,10 +270,13 @@ window expressed differently". Two syntaxes that produce different answers is wo
 `status` dropped (the quickstart's own schema has no `event_time`, which DOC-011 already recorded).
 **Steps:** `pravaha register --name user_volume --sql-file velocity.sql --keys 1`; `pravaha queries`;
 `pravaha query --sql "SELECT * FROM user_volume"`.
-**Expected:** Record the exact outcome. Three distinct failures are predicted and each is a separate
-defect: `TUMBLE_END` in the projection hits the `PRV-2020` refusal above; `--keys 1` keys the view
-on `user_id` alone so windows overwrite one another (§0.5.1); and `SELECT STREAM` is not in
-`docs/SQL_SUPPORT.md`'s construct list at all.
+**Expected:** Record the exact outcome. `SELECT STREAM` is fine — `SqlPlanner.dropStreamKeyword`
+strips it and treats it as an ordinary `SELECT`, deliberately — though it appears nowhere in
+`docs/SQL_SUPPORT.md`'s construct list, so a reader cannot know that. The other two are defects:
+`TUMBLE_END` in the projection hits the `PRV-2020` refusal above ("sits beside a windowing function
+in the same projection"), and `--keys 1` keys the view on `user_id` alone so each window overwrites
+the last (§0.5.1) — so even if the SQL were accepted the view would hold one row per user rather
+than one per (window, user).
 **Vacuity:** Defends against a dry source: ROWS IN must be 6 before the view content is read, or the
 empty view proves nothing about the syntax.
 
@@ -313,6 +316,7 @@ values, both present in a single row of output.
 parses with no literal operand.
 **Falsifier:** A `NullPointerException`, an `IndexOutOfBoundsException`, or a stack trace with no
 `PRV` code.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "SELECT * FROM TABLE(TUMBLE(TABLE s0, DESCRIPTOR(event_time)))" --schema "…"`.
 **Expected:** Either Calcite's own arity error at validation, or `PRV-2020` with the text
 `TUMBLE needs 1 interval argument(s); got 0`. Both are acceptable; a raw Java exception is not.
@@ -324,6 +328,7 @@ positive, got 0")` — a plain Java exception, not a `PravahaException`, so it c
 and `ERRC` cannot enumerate it.
 **Falsifier:** A `PRV` code appearing (that would mean the guard moved and this case is stale), or a
 window of width 0 being accepted.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "…TUMBLE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '0' SECOND)…"`.
 **Expected:** Refused. Record the exact rendering the CLI gives an `IllegalArgumentException` thrown
 from inside the planner — whether it reaches the user as a message or as a stack trace is the point
@@ -334,6 +339,7 @@ of the case.
 **Intent:** Same guard, the other side. `INTERVAL '-10' SECOND` gives `sizeNanos = -10e9`.
 **Falsifier:** Acceptance. A negative size makes `Math.floorDiv(t, -10e9)` produce slice starts above
 the event time and `slicesOfWindowEnding` loop zero times, so every window is empty and nothing errors.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "…INTERVAL '-10' SECOND…"`.
 **Expected:** Refused with "window size must be positive, got -10000000000".
 **Vacuity:** Not stateful.
@@ -368,6 +374,7 @@ second file is appended after the drop.
 place a human reads the window back is the one place it is not in nanoseconds.
 **Falsifier:** A label showing a size that does not match the SQL, or integer-truncating a
 sub-millisecond size to `0ms`.
+**Setup:** `qt10.sql` from WIN-001; no server state needed — `explain` takes the schema on the command line.
 **Steps:** `pravaha explain --sql-file qt10.sql --schema "…" --level physical`.
 **Expected:** `WindowAssign(TUMBLING size=10000ms slide=10000ms on event_time)` and
 `WindowedAggregate(TUMBLING 10000ms, keys=[…], 2 aggregate(s))`. Compare with WIN-054, where a
@@ -469,6 +476,7 @@ pusher (t=40) → 40 s. Each is `floorDiv(t, 10 s)·10 s`.
 wrong width that still fire plausibly". A test that only checks totals cannot tell 20/10 from 10/20,
 because a row count is symmetric under the swap in some datasets.
 **Falsifier:** `EXPLAIN` reporting `size=10000ms slide=20000ms` for `HOP(…, INTERVAL '10' SECOND, INTERVAL '20' SECOND)`.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha explain --sql "SELECT window_start, window_end, COUNT(*) FROM TABLE(HOP(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND, INTERVAL '20' SECOND)) GROUP BY window_start, window_end" --schema "…" --level physical`.
 **Expected:** `WindowAssign(HOPPING size=20000ms slide=10000ms on event_time)`. The first interval in
 the SQL text is the slide, the second is the size.
@@ -479,6 +487,7 @@ the SQL text is the slide, the second is the size.
 20 over size 10, which `WindowSpec` refuses as gapped — so the swap is caught here by luck rather
 than by validation. A user who swaps 10 and 20 gets an error about gaps, not about argument order.
 **Falsifier:** Acceptance.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "…HOP(TABLE s0, DESCRIPTOR(event_time), INTERVAL '20' SECOND, INTERVAL '10' SECOND)…"`.
 **Expected:** Refused with "a hop of 20000000000 ns over a window of 10000000000 ns leaves gaps:
 records between windows would belong to none. Use a smaller slide, or express the gap as a filter."
@@ -655,6 +664,7 @@ No row has `total = 110`, `330` or `220`; those are what a collapsed key would g
 **Intent:** The window must be visible in the plan rather than buried in an aggregate's
 configuration — that is the stated reason assignment and aggregation are separate operators.
 **Falsifier:** A plan that names only the size, or that names TUMBLING.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha explain --sql-file qh10_20.sql --schema "…" --level physical`.
 **Expected:** `WindowAssign(HOPPING size=20000ms slide=10000ms on event_time)` and
 `WindowedAggregate(HOPPING 20000ms, keys=[…], 2 aggregate(s))`. Note the aggregate's label prints
@@ -677,6 +687,7 @@ WIN-034 pin the refusals; WIN-035 to WIN-042 pin the semantics the refusal is de
 **Intent:** `docs/SQL_SUPPORT.md` says "`SESSION` windows ❌ `PRV-2020` — implemented in the runtime,
 no SQL surface yet". Check that the code says the same thing, in the same code, with a reason.
 **Falsifier:** Acceptance, a different code, or a message that does not say the runtime has it.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "SELECT window_start, window_end, user_id, COUNT(*) FROM TABLE(SESSION(TABLE s0, DESCRIPTOR(event_time), INTERVAL '30' SECOND)) GROUP BY window_start, window_end, user_id" --schema "…"`.
 **Expected:** `PRV-2020` with "SESSION windows exist in the runtime but are not wired to SQL yet:
 their state is a per-key interval set rather than a slice grid, so they need the keyed state store.
@@ -688,6 +699,7 @@ Use TUMBLE or HOP." Matches the documentation row exactly.
 whose `switch` has no SESSION arm and falls to `default`. Two syntaxes for one unbuilt feature
 produce two different explanations, and only one of them tells the reader the runtime has it.
 **Falsifier:** The two messages being identical (then this case is stale and should be deleted).
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "SELECT user_id, COUNT(*) FROM s0 GROUP BY SESSION(event_time, INTERVAL '30' SECOND), user_id" --schema "…"`.
 **Expected:** `PRV-2020` with "GROUP BY SESSION is not supported; use TUMBLE or HOP" — the same code,
 a strictly less useful message, and no mention that the implementation exists. Defect: one refusal,
@@ -706,8 +718,10 @@ decided by the data, not by the clock, so there is no fixed interval that never 
 **Vacuity:** Not stateful.
 
 ### WIN-034 — A session gap of zero or negative is refused — **blocked-by-syntax**
+**Intent:** The gap is carried in the `sizeNanos` slot, so two different constructors guard it with two different messages; and a zero gap makes every record its own session, so the merging logic that is the whole of `SessionWindows` never runs.
 **Falsifier:** Acceptance. A zero gap makes every record its own session with `end == start`, so
 `closedBy` fires them all immediately and the merge logic never runs.
+**Setup:** Embedded harness on `SessionWindows` and `WindowSpec` directly; nothing is registered.
 **Steps:** `new SessionWindows(0)`; `new SessionWindows(-1)`; `WindowSpec.session(0)`.
 **Expected:** `IllegalArgumentException("session gap must be positive, got 0")` from `SessionWindows`,
 and "window size must be positive, got 0" from `WindowSpec`. Two different messages for the same
@@ -775,6 +789,7 @@ and this is the case that exercises the side that is not the first.
 **Vacuity:** Distinguishes correct (2 sessions) from over-merging (1) and under-merging (3).
 
 ### WIN-039 — Sessions are per key and never merge across keys — **blocked-by-syntax**
+**Intent:** State is per key. A shared interval structure would merge two users' activity into one session and report a duration nobody had.
 **Falsifier:** `sessionsOf(2)` reflecting records written under key 1.
 **Setup:** `SessionWindows(30 s)`.
 **Steps:** `record(1, 0)`; `record(2, 10 s)`; `record(1, 20 s)`; `sessionsOf(1)`; `sessionsOf(2)`;
@@ -838,7 +853,9 @@ is refused by Pravaha rather than by Calcite. The four cases below establish tha
 places a user would meet it.
 
 ### WIN-043 — `TABLE(CUMULATE(...))` is refused with a code
+**Intent:** Establish that CUMULATE is reachable from SQL — Calcite 1.40 defines it — and refused by Pravaha rather than by the parser, so a user meets a Pravaha error and not a syntax one.
 **Falsifier:** Acceptance, or a raw Java exception instead of `PRV-2020`.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "SELECT window_start, window_end, user_id, COUNT(*) FROM TABLE(CUMULATE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '2' SECOND, INTERVAL '10' SECOND)) GROUP BY window_start, window_end, user_id" --schema "…"`.
 **Expected:** `PRV-2020` "unsupported windowing function CUMULATE" — the `default` arm of
 `buildWindowAssign`'s switch. The message names the function but, unlike the SESSION arm, offers no
@@ -849,6 +866,7 @@ alternative and does not say whether it is unbuilt or unsupported-on-purpose.
 **Intent:** `isWindowFunction` does not list CUMULATE, so `groupedWindowCall` returns null and the
 `$CUMULATE` call is handed to `ExpressionCompiler` as an ordinary scalar expression.
 **Falsifier:** The same `PRV-2020` as WIN-043 (then the two paths agree and this case is stale).
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "SELECT user_id, COUNT(*) FROM s0 GROUP BY CUMULATE(event_time, INTERVAL '2' SECOND, INTERVAL '10' SECOND), user_id" --schema "…"`.
 **Expected:** Whatever `ExpressionCompiler` says about an unknown operator — record it verbatim. A
 message about an unsupported *expression* for what is actually an unsupported *window* is a
@@ -861,6 +879,7 @@ file (WIN-031, WIN-032, WIN-043).
 reader concludes those are the three window kinds that exist. CUMULATE is a SQL:2016 windowing table
 function that Calcite accepts, so a user can type it, and the document has no row for it.
 **Falsifier:** Finding a CUMULATE row.
+**Setup:** The checked-out tree at `develop`; no server.
 **Steps:** `grep -ni cumulate docs/SQL_SUPPORT.md docs/USER_GUIDE.md docs/CONCEPTS.md docs/system_design.md`.
 **Expected:** No matches. Defect: the supported-construct table is not closed over what the parser
 accepts, so "not listed" and "refused" are not the same set. Recommend a `CUMULATE ❌ PRV-2020` row
@@ -901,6 +920,7 @@ is caught here.
 **Intent:** The enum is the engine's complete list of window kinds; anything else is a plan-time
 refusal by construction.
 **Falsifier:** A fourth constant.
+**Setup:** Embedded harness / source reading on `WindowSpec.Kind`; no server.
 **Steps:** Read `WindowSpec.Kind`.
 **Expected:** `TUMBLING`, `HOPPING`, `SESSION`. No `CUMULATING`, no `SLIDING` alias.
 **Vacuity:** Not stateful.
@@ -909,6 +929,7 @@ refusal by construction.
 **Intent:** The `default` arm must catch anything Calcite lets through, including a user-defined
 table function with a windowing-looking name.
 **Falsifier:** A query with `TABLE(WINDOW(...))` or `TABLE(TUMBLING(...))` planning to a scan.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate` with `TABLE(TUMBLING(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND))`
 and with `TABLE(SLIDE(...))`.
 **Expected:** Refused — by Calcite as an unknown function, or by `PRV-2020` "unsupported windowing
@@ -919,6 +940,7 @@ function …". Record which layer answers, because a Calcite-layer error carries
 **Intent:** `buildWindowAssign` upper-cases the operator name; `isWindowFunction` upper-cases and
 strips `$`. A case difference must not change whether a window is recognised.
 **Falsifier:** `tumble(...)` planning differently from `TUMBLE(...)`.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha explain` for `TABLE(tumble(...))`, `TABLE(Tumble(...))`, `TABLE(TUMBLE(...))`,
 and for `GROUP BY hop(...)`.
 **Expected:** Identical physical plans in all four. The upper-casing uses `Locale.ROOT`, so this also
@@ -947,6 +969,7 @@ that occurs nowhere else in the expected set. The pusher at `10U` puts the water
 empty and emit nothing.
 
 ### WIN-051 — TUMBLE 100 ms assigns and totals correctly
+**Intent:** The 100 ms scale of the size sweep. Sub-second is where the interval-literal conversion (Calcite milliseconds → engine nanoseconds) is closest to its floor, so an assignment that is right here is right for every coarser size.
 **Falsifier:** Any total other than 3, 12, 16; any fourth non-empty window; any `window_end -
 window_start ≠ 100,000,000 ns`.
 **Setup:** `s0` bound to `s100ms.csv` = S(100 ms): rows at 0.000, 0.050, 0.100, 0.199999999, 0.200;
@@ -965,6 +988,7 @@ means every row landed in one window.
 **millisecond** normalisation and multiplies by 1,000,000. That conversion is the only place a
 window size can be silently wrong by a factor of a thousand.
 **Falsifier:** `EXPLAIN` showing `size=0ms` or `size=100000ms`.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha explain --sql "…INTERVAL '0.1' SECOND…" --level physical`; also try the
 equivalent spellings `INTERVAL '100' MILLISECOND` (if Calcite accepts it in this position) and
 `INTERVAL '0.100' SECOND`.
@@ -998,6 +1022,7 @@ rather than a shutdown flush).
 below 1 is **0**. The engine's finest expressible window is one millisecond, and asking for finer
 gives an error about positivity rather than about precision.
 **Falsifier:** A 100-microsecond window being accepted and producing 100 µs windows.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "…TUMBLE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '0.0001' SECOND)…"`;
 repeat with `'0.0005'`, `'0.000999'` and `'0.001'`.
 **Expected:** `0.0001`, `0.0005` and `0.000999` all truncate to 0 ms and are refused with
@@ -1008,6 +1033,7 @@ size of 999,999 ns would render as `0ms` in `EXPLAIN` even if it could be built.
 **Vacuity:** Not stateful.
 
 ### WIN-055 — TUMBLE 1 s assigns and totals correctly
+**Intent:** The 1 s scale. The reference point the other four are compared against, and the size at which the watermark tick and the window are within an order of magnitude of each other.
 **Falsifier:** Any total other than 3, 12, 16; any width ≠ 1,000,000,000 ns.
 **Setup:** `s0` bound to `s1s.csv` = S(1 s): rows at 0.000, 0.500, 1.000, 1.999999999, 2.000;
 pusher at 10.000.
@@ -1020,6 +1046,7 @@ pusher at 10.000.
 **Intent:** A window size is the most consequential literal in a continuous query and there are four
 ways to write it.
 **Falsifier:** Any two spellings producing different `EXPLAIN` output or different rows.
+**Setup:** `s0` bound to `s1s.csv` for the register half; the schema on the command line for the `explain` half.
 **Steps:** `EXPLAIN` and register each of `INTERVAL '1' SECOND`, `INTERVAL '1.0' SECOND`,
 `INTERVAL '1000' MILLISECOND`, `INTERVAL '0:01' MINUTE TO SECOND`.
 **Expected:** `size=1000ms slide=1000ms` for every spelling Calcite accepts, and the same three rows
@@ -1059,6 +1086,7 @@ COUNT(*) FROM v_dense1s` must read 11 while `SUM(n)` reads 10,000. Both assertio
 either alone is passable with the feature broken.
 
 ### WIN-059 — TUMBLE 1 m assigns and totals correctly
+**Intent:** The 1 m scale — the size `docs/QUICKSTART.md` and every case study use, so the one an operator is most likely to run first.
 **Falsifier:** Any total other than 3, 12, 16; any width ≠ 60,000,000,000 ns.
 **Setup:** `s0` bound to `s1m.csv` = S(1 m): rows at 0, 30 s, 60 s, 119.999999999 s, 120 s; pusher at
 600 s.
@@ -1070,6 +1098,7 @@ either alone is passable with the feature broken.
 **Intent:** Calcite normalises both to 60,000 ms. If they differed, a query rewritten by a reviewer
 would change its answer.
 **Falsifier:** Different `EXPLAIN` sizes, or different rows.
+**Setup:** `s0` bound to `s1m.csv` (dataset S(1 m)) for the register half; the schema on the command line for `explain`.
 **Steps:** `EXPLAIN` both; register both; compare.
 **Expected:** `size=60000ms` for both; identical three rows. Also confirm the two produce the same
 **fingerprint** or not — if they do not, `pravaha queries` shows two computations for one
@@ -1107,6 +1136,7 @@ slow query.
 subject, so the control is `v_1m` from WIN-059 in the same run, which has a pusher and is complete.
 
 ### WIN-063 — TUMBLE 1 h assigns and totals correctly
+**Intent:** The 1 h scale, where the number of windows walked per unit of event time drops by 3,600× and the per-window cost starts to dominate the per-row cost.
 **Falsifier:** Any total other than 3, 12, 16; any width ≠ 3,600,000,000,000 ns.
 **Setup:** `s0` bound to `s1h.csv` = S(1 h): rows at 0, 1,800 s, 3,600 s, 7,199.999999999 s, 7,200 s;
 pusher at 36,000 s.
@@ -1169,6 +1199,7 @@ a `WIN` setup.
 not running and "low CPU" means "nothing is happening", which is not the claim.
 
 ### WIN-067 — TUMBLE 1 d assigns and totals correctly
+**Intent:** The 1 d scale, which is where the window size and the default view retention become the same number (WIN-068) and where a single window holds a day of state.
 **Falsifier:** Any total other than 3, 12, 16; any width ≠ 86,400,000,000,000 ns.
 **Setup:** `s0` bound to `s1d.csv` = S(1 d): rows at 0, 43,200 s, 86,400 s, 172,799.999999999 s,
 172,800 s; pusher at 864,000 s (ten days).
@@ -1204,6 +1235,7 @@ the five-argument `register` accept a `Retention`, and **no** shipped surface re
 is no `--retention` flag (`PravahaCli` usage lists `register --name --sql-file [--keys] [--url]`),
 no field in the REST register body, and no `pravaha.*` key. Every registration gets `Retention.DEFAULT`.
 **Falsifier:** Finding any of the three.
+**Setup:** The checked-out tree, plus a running server on `win.yaml` for the REST probe.
 **Steps:** `pravaha register --help`; `grep -rn retention` over `pravaha-cli`, `pravaha-server`,
 `pravaha-flight` main sources and over `application.yaml`; POST a register body with a `retention`
 field and see whether it is honoured or rejected.
@@ -1279,6 +1311,7 @@ seconds, and each *t* ∈ {0, 1 ns, 1 s, 2 s, 5 s, S−1 ns, S, S+1 ns, −1 ns,
 **Vacuity:** Pure arithmetic, no state.
 
 ### WIN-072 — Slide 5 s over a 20 s window puts each row in exactly four windows
+**Intent:** The ratio-4 case, chosen because 4 is the first overlap where a mis-ordered (slide, size) pair, a degenerate hop and a doubled store all give three different wrong answers.
 **Falsifier:** `SUM(n) ≠ 12`, or any window's total differing from the table.
 **Setup:** `s0` bound to `c_plus.csv` (amounts 10, 20, 30 at 5.000, 15.000, 25.000; pusher 60.000).
 **Steps:** Register Q_H(5, 20) as `v_h5_20 --keys 0,1,2`; read it ordered by `window_start`.
@@ -1314,6 +1347,7 @@ correct answer rather than a duplication bug.
 which is exactly the wrong answer this case exists to catch.
 
 ### WIN-074 — Slide 1 s over a 100 s window: one row, one hundred windows
+**Intent:** The ratio-100 case: one input row producing one hundred result rows, which is the amplification the documentation's bare `HOP ✅` does not mention.
 **Falsifier:** A row count other than 100.
 **Setup:** `one100.csv`: `1,100,7,50.000`; pusher `2,999,0,300.000`.
 **Steps:** Register Q_H(1, 100) as `v_h1_100 --keys 0,1,2`; read it; `SELECT COUNT(*)`.
@@ -1324,6 +1358,7 @@ windows ✅" row warns about.
 **Vacuity:** As WIN-073.
 
 ### WIN-075 — Slide 1 s over a 1000 s window: one row, one thousand windows
+**Intent:** The ratio-1000 case, and the configuration §7 uses to hold a thousand windows open at once. It is also the point where the per-window work becomes measurable against a single row of input.
 **Falsifier:** A row count other than 1000, or the query failing.
 **Setup:** `one1000.csv`: `1,100,7,500.000`; pusher `2,999,0,3000.000`.
 **Steps:** Register Q_H(1, 1000) as `v_h1_1000 --keys 0,1,2`; read `SELECT COUNT(*)`; record the
@@ -1451,6 +1486,7 @@ every other user one hundred), windows 1…9 give every user exactly `n = 100`. 
 double-count would keep `COUNT(*)` right and `SUM(n)` wrong. Both are required.
 
 ### WIN-082 — `gcd(S, S) = S` so a degenerate hop holds one slice per window
+**Intent:** The arithmetic that makes the degenerate hop degenerate: if `gcd(S, S)` were anything but `S`, the equality in WIN-079 to WIN-081 would hold by luck.
 **Falsifier:** `slicesPerWindow() ≠ 1` or `sliceSizeNanos() ≠ S`.
 **Setup:** Embedded harness.
 **Steps:** For S ∈ {100 ms, 1 s, 10 s, 1 m, 1 h, 1 d}: `WindowSpec.hopping(S, S).sliceSizeNanos()`
@@ -1463,6 +1499,7 @@ and `.slicesPerWindow()`; compare with `WindowSpec.tumbling(S)`.
 **Intent:** Having established the answers are identical, establish what is *not*: the plan label
 and, consequently, whether the two share a computation.
 **Falsifier:** `EXPLAIN` reporting TUMBLING for the hop form.
+**Setup:** `s0` bound to `a_plus.csv`, with both registrations of WIN-079 live.
 **Steps:** `pravaha explain` both forms; `pravaha queries` with both registered.
 **Expected:** `WindowAssign(TUMBLING size=10000ms slide=10000ms …)` versus
 `WindowAssign(HOPPING size=10000ms slide=10000ms …)` — same numbers, different kind. Two distinct
@@ -1472,6 +1509,7 @@ a fingerprint share one computation" is a headline property.
 **Vacuity:** Not stateful.
 
 ### WIN-084 — Each row lands in exactly one window when slide = size, including on boundaries
+**Intent:** The membership half of the degeneracy, at the boundaries where a tumble and a hop would be most likely to disagree.
 **Falsifier:** Any *t* with `count(t) ≠ 1`.
 **Setup:** Embedded harness, `hopping(10 s, 10 s)`.
 **Steps:** For *t* ∈ {0, 1 ns, 5 s, 9.999999999 s, 10 s, 10 s + 1 ns, −1 ns, −10 s, −10 s − 1 ns}:
@@ -1489,6 +1527,7 @@ negative cases land below rather than above.
 records belong to no window: "That is almost always a typo — and when it is not, it is a filter
 followed by a tumble, which says what it means."
 **Falsifier:** Acceptance.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
 **Steps:** `pravaha validate --sql "SELECT window_start, window_end, COUNT(*) FROM TABLE(HOP(TABLE s0, DESCRIPTOR(event_time), INTERVAL '60' SECOND, INTERVAL '10' SECOND)) GROUP BY window_start, window_end"`.
 **Expected:** Refused with "a hop of 60000000000 ns over a window of 10000000000 ns leaves gaps:
 records between windows would belong to none. Use a smaller slide, or express the gap as a filter."
@@ -1605,6 +1644,7 @@ pusher `121,999,0,2000.000`. Used unchanged for all four configurations, so the 
 (size, slide) pair.
 
 ### WIN-091 — One open window: TUMBLE 10 s
+**Intent:** The floor of the open-window dimension, and the control every other configuration in §7 is compared against: same data, same watermark, one window open at a time.
 **Falsifier:** `view.size ≠ 13`, or `SUM(n) ≠ 120`.
 **Setup:** `s0` bound to `open.csv`.
 **Steps:** Register Q_T(10) as `v_open1 --keys 0,1,2`; wait for ROWS IN 121 and the view to settle;
@@ -1623,6 +1663,7 @@ read `COUNT(*)`, `SUM(n)`, and the first and last rows.
 `COUNT(*) = 13` is the load-bearing assertion — and against a dry source (ROWS IN 121).
 
 ### WIN-092 — Ten open windows: HOP(1 s, 10 s)
+**Intent:** Ten windows open simultaneously, the first configuration where the slice combining actually combines anything and where a per-window store would hold ten times the state.
 **Falsifier:** `COUNT(*) ≠ 129` or `SUM(n) ≠ 1200`.
 **Setup:** As WIN-091.
 **Steps:** Register Q_H(1, 10) as `v_open10 --keys 0,1,2`; read `COUNT(*)` and `SUM(n)`.
@@ -1634,7 +1675,9 @@ empty.
 store gives `COUNT(*) = 129` with `SUM(n) = 12,000`. Key collapse gives `COUNT(*) = 1`.
 
 ### WIN-093 — One hundred open windows: HOP(1 s, 100 s)
+**Intent:** One hundred open windows. The state per key is now two orders of magnitude above the tumbling case for identical input, which is the claim `keys × open windows` is making.
 **Falsifier:** `COUNT(*) ≠ 219` or `SUM(n) ≠ 12000`.
+**Setup:** As WIN-091 — `s0` bound to `open.csv`.
 **Steps:** Register Q_H(1, 100) as `v_open100 --keys 0,1,2`; read both.
 **Expected:** `count(t) = 100` for every row → `SUM(n) = 120 × 100 = 12,000`. Non-empty ends are
 `2 ≤ e ≤ 220` → `COUNT(*) = 219`. One hundred and twenty input rows become twelve thousand counted
@@ -1642,7 +1685,9 @@ memberships and two hundred and nineteen result rows; the amplification is `S/D`
 **Vacuity:** As WIN-092.
 
 ### WIN-094 — One thousand open windows: HOP(1 s, 1000 s)
+**Intent:** One thousand open windows — the top of the dimension the index names, and the point at which the per-window work per watermark advance is large enough to measure.
 **Falsifier:** `COUNT(*) ≠ 1119` or `SUM(n) ≠ 120000`, or the query failing.
+**Setup:** As WIN-091 — `s0` bound to `open.csv`.
 **Steps:** Register Q_H(1, 1000) as `v_open1000 --keys 0,1,2`; read both; record settle time.
 **Expected:** `count(t) = 1000` for every row → `SUM(n) = 120 × 1,000 = 120,000`. Non-empty ends are
 `2 ≤ e ≤ 1,120` → `COUNT(*) = 1,119`. Two thousand ends are walked
@@ -1659,6 +1704,7 @@ view keyed only on `user_id` would hold one row and the whole amplification woul
 **Setup:** Embedded harness. For each of TUMBLE 10 s, HOP(1,10), HOP(1,100), HOP(1,1000): feed
 dataset O's 120 rows for one key, calling `advanceWatermark(t)` after each row, then read
 `liveSlices()`.
+**Steps:** For each configuration, build the operator in the harness, feed dataset O's 120 rows calling `advanceWatermark(t)` after each, then read `liveSlices()` and `peakSlices()`. Repeat the HOP(1,1000) run with 1,200 seconds of data.
 **Expected:** After the last row (*t* = 120 s, watermark 120 s), live slices are those with
 `s > W − S`:
 
@@ -1809,6 +1855,7 @@ The window configurations are the four of §7: TUMBLE 10 s (1 open), HOP(1 s, 10
 HOP(1 s, 1000 s).
 
 ### WIN-103 — 1 key × 1 open window
+**Intent:** The origin of the 4 × 4 grid: the smallest state a windowed aggregate can hold, and the baseline the other fifteen cells are read against.
 **Falsifier:** `COUNT(*) ≠ 13` or `SUM(n) ≠ 120` or `liveSlices() > 2`.
 **Setup:** K(1, 120) = dataset O. TUMBLE 10 s.
 **Steps:** Register as `v_k1w1 --keys 0,1,2`; read `COUNT(*)`, `SUM(n)`, `view.size`.
@@ -1817,24 +1864,34 @@ accumulator, measured at 1–2 (the filling slice and, briefly, the firing one).
 **Vacuity:** Key collapse gives 1 row; a dry source gives 0. Both must be excluded.
 
 ### WIN-104 — 1 key × 10 open windows
+**Intent:** Row 1, column 2 of the grid: the open-window count rises tenfold and the key count does not, so any state growth is attributable to the geometry alone.
 **Falsifier:** `COUNT(*) ≠ 129` or `SUM(n) ≠ 1200`.
-**Setup:** K(1, 120), HOP(1 s, 10 s). **Expected:** As WIN-092: 129 rows, `SUM(n) = 1,200`; state
+**Setup:** K(1, 120), HOP(1 s, 10 s).
+**Steps:** Register Q_H(1, 10) as `v_k1w10 --keys 0,1,2`; read `COUNT(*)`, `SUM(n)` and `view.size`.
+**Expected:** As WIN-092: 129 rows, `SUM(n) = 1,200`; state
 `1 × 10 = 10` live accumulators.
 **Vacuity:** As WIN-103.
 
 ### WIN-105 — 1 key × 100 open windows
+**Intent:** Row 1, column 3 of the grid.
 **Falsifier:** `COUNT(*) ≠ 219` or `SUM(n) ≠ 12000`.
-**Setup:** K(1, 120), HOP(1 s, 100 s). **Expected:** As WIN-093; state `1 × 100 = 100`.
+**Setup:** K(1, 120), HOP(1 s, 100 s).
+**Steps:** Register Q_H(1, 100) as `v_k1w100 --keys 0,1,2`; read `COUNT(*)`, `SUM(n)` and `view.size`.
+**Expected:** As WIN-093; state `1 × 100 = 100`.
 **Vacuity:** As WIN-103.
 
 ### WIN-106 — 1 key × 1000 open windows
+**Intent:** Row 1, column 4 of the grid, and the cell where the data supplies fewer slices than the geometry allows — so the bound is `min(S/D, slices with data)` and not `S/D`.
 **Falsifier:** `COUNT(*) ≠ 1119` or `SUM(n) ≠ 120000`.
-**Setup:** K(1, 120), HOP(1 s, 1000 s). **Expected:** As WIN-094; state is
+**Setup:** K(1, 120), HOP(1 s, 1000 s).
+**Steps:** Register Q_H(1, 1000) as `v_k1w1000 --keys 0,1,2`; read `COUNT(*)`, `SUM(n)` and `view.size`.
+**Expected:** As WIN-094; state is
 `1 × min(120, 1000) = 120` because only 120 seconds of data exists — the geometry allows 1,000 and
 the data supplies 120, and the smaller wins.
 **Vacuity:** As WIN-103.
 
 ### WIN-107 — 100 keys × 1 open window
+**Intent:** Column 1 with a hundred keys: the key count rises hundredfold and the geometry does not, the mirror image of WIN-104.
 **Falsifier:** `COUNT(*) ≠ 1300` or `SUM(n) ≠ 12000`.
 **Setup:** K(100, 120) = 12,000 rows, one row per key per second for 120 s; pusher at 140 s.
 TUMBLE 10 s.
@@ -1849,24 +1906,30 @@ So `COUNT(*) = 12 × 100 = 1,200` and `SUM(n) = 12,000` = every row. Predicted s
 window collapse gives 12 and 12,000; a lost window gives 1,100 and 11,000.
 
 ### WIN-108 — 100 keys × 10 open windows
+**Intent:** The first cell where both factors are above one, so a state bound that used either alone would be wrong here and right on the axes.
 **Falsifier:** `COUNT(*) ≠ 12800` or `SUM(n) ≠ 120000`.
 **Setup:** K(100, 120), HOP(1 s, 10 s). Rows at seconds 0…119.
+**Steps:** Register Q_H(1, 10) as `v_k100w10 --keys 0,1,2`; read `COUNT(*)` and `SUM(n)`.
 **Expected:** `count(t) = 10` per row → `SUM(n) = 12,000 × 10 = 120,000`. Non-empty ends: *e* with
 some *t* ∈ [0,119] and `e − 10 ≤ t < e` → `1 ≤ e ≤ 129` → 129 ends, each holding 100 keys →
 `COUNT(*) = 12,900`. Predicted state `100 × 10 = 1,000`.
 **Vacuity:** As WIN-107, with both numbers.
 
 ### WIN-109 — 100 keys × 100 open windows
+**Intent:** Product 10,000, and the first cell where the result row count exceeds the input row count.
 **Falsifier:** `COUNT(*) ≠ 21900` or `SUM(n) ≠ 1200000`.
 **Setup:** K(100, 120), HOP(1 s, 100 s).
+**Steps:** Register Q_H(1, 100) as `v_k100w100 --keys 0,1,2`; read `COUNT(*)` and `SUM(n)`.
 **Expected:** `SUM(n) = 12,000 × 100 = 1,200,000`. Non-empty ends `1 ≤ e ≤ 219` → 219, × 100 keys →
 `COUNT(*) = 21,900`. Predicted state `100 × 100 = 10,000`. Note `COUNT(*)` is now 1.8× the input row
 count: 12,000 rows in, 21,900 rows out.
 **Vacuity:** As WIN-107.
 
 ### WIN-110 — 100 keys × 1000 open windows
+**Intent:** Product 100,000, and a 9.3× output amplification — still under both ceilings, so this is the largest cell that must simply work.
 **Falsifier:** `COUNT(*) ≠ 111900` or `SUM(n) ≠ 12000000`, or the view refusing.
 **Setup:** K(100, 120), HOP(1 s, 1000 s); pusher at 2,200 s.
+**Steps:** Register Q_H(1, 1000) as `v_k100w1000 --keys 0,1,2`; read `COUNT(*)`, `SUM(n)` and `view.evicted`.
 **Expected:** `SUM(n) = 12,000 × 1,000 = 12,000,000`. Non-empty ends `1 ≤ e ≤ 1,119` → 1,119,
 × 100 keys → `COUNT(*) = 111,900`. Predicted state `100 × min(120, 1000) = 12,000`. The view holds
 111,900 rows for 12,000 rows of input — a 9.3× amplification, still under the 1,000,000 `maxKeys`
@@ -1875,8 +1938,10 @@ ceiling.
 event time, so retention must not be what limits `view.size`.
 
 ### WIN-111 — 10⁴ keys × 1 open window
+**Intent:** Ten thousand keys in one open window: the key space, not the geometry, is the whole of the state here.
 **Falsifier:** `COUNT(*) ≠ 120000` or `SUM(n) ≠ 120000`.
 **Setup:** K(10000, 12) = 120,000 rows (10,000 keys × 12 seconds); pusher at 40 s. TUMBLE 10 s.
+**Steps:** Register Q_T(10) as `v_k1e4w1 --keys 0,1,2`; read `COUNT(*)`, `SUM(n)` and `COUNT(DISTINCT user_id)`.
 **Expected:** Seconds 0…11. Window `[0,10)` holds seconds 0…9 → every key `n = 10`; `[10,20)` holds
 seconds 10…11 → every key `n = 2`. `COUNT(*) = 2 × 10,000 = 20,000`; `SUM(n) = 10,000×10 +
 10,000×2 = 120,000` = every row. Predicted state `10,000 × 1 = 10,000`.
@@ -1884,8 +1949,10 @@ seconds 10…11 → every key `n = 2`. `COUNT(*) = 2 × 10,000 = 20,000`; `SUM(n
 collapsing into a few keys — is caught by `COUNT(*)`; a duplicated store is caught by `SUM(n)`.
 
 ### WIN-112 — 10⁴ keys × 10 open windows
+**Intent:** Product 100,000 reached from the other direction than WIN-110, so the two together show the bound is the product and not either factor.
 **Falsifier:** `COUNT(*) ≠ 210000` or `SUM(n) ≠ 1200000`.
 **Setup:** K(10000, 12), HOP(1 s, 10 s).
+**Steps:** Register Q_H(1, 10) as `v_k1e4w10 --keys 0,1,2`; read `COUNT(*)` and `SUM(n)`.
 **Expected:** `SUM(n) = 120,000 × 10 = 1,200,000`. Non-empty ends `1 ≤ e ≤ 21` → 21, × 10,000 keys →
 `COUNT(*) = 210,000`. Predicted state `10,000 × min(12, 10) = 100,000`.
 **Vacuity:** As WIN-111.
@@ -1895,6 +1962,7 @@ collapsing into a few keys — is caught by `COUNT(*)`; a duplicated store is ca
 **Falsifier:** A refusal (the product is under the slice ceiling), or a view exceeding 1,000,000 keys
 without the `ServedView` guard firing.
 **Setup:** K(10000, 100) = 1,000,000 rows (10,000 keys × 100 s); pusher at 300 s. HOP(1 s, 100 s).
+**Steps:** Register Q_H(1, 100) as `v_k1e4w100 --keys 0,1,2`; watch the log, `pravaha queries` and `view.size` as it fills; record which ceiling is reported and at what `view.size`.
 **Expected:** `SUM(n) = 1,000,000 × 100 = 100,000,000`. Non-empty ends `1 ≤ e ≤ 199` → 199, ×
 10,000 keys → `COUNT(*) = 1,990,000`, which is **past** `ServedView`'s `maxKeys` of 1,000,000. So the
 slice ceiling is not reached (state is `10,000 × 100 = 1,000,000`, half of 2,000,000) and the
@@ -1927,6 +1995,7 @@ and equals the view's whole `maxKeys`, and it is also where the 128-bit group di
 refusal from the slice ceiling.
 **Setup:** K(1000000, 2) = 2,000,000 rows (1,000,000 keys × 2 seconds, both inside `[0,10)`);
 pusher at 40 s. TUMBLE 10 s.
+**Steps:** Register Q_T(10) as `v_k1e6w1 --keys 0,1,2`; read `COUNT(*)`, `SUM(n)`, `COUNT(DISTINCT user_id)` and `MAX(n)`.
 **Expected:** One non-empty window `[0,10)` holding 1,000,000 keys with `n = 2, total = 2` each.
 `SUM(n) = 2,000,000` = every row. `COUNT(*) = 1,000,000` — exactly `maxKeys`, and the guard is
 `visible.size() > maxKeys`, so 1,000,000 passes and 1,000,001 would not. State
@@ -1935,8 +2004,10 @@ pusher at 40 s. TUMBLE 10 s.
 one key counted two million times, which is precisely the round-1 collapse.
 
 ### WIN-116 — 10⁶ keys × 10 open windows — refused
+**Intent:** Product 10,000,000, five times the slice ceiling, reached by key count rather than by geometry.
 **Falsifier:** Completion, or an out-of-memory kill.
 **Setup:** K(1000000, 3) = 3,000,000 rows; pusher at 60 s. HOP(1 s, 10 s).
+**Steps:** Register Q_H(1, 10) as `v_k1e6w10 --keys 0,1,2`; poll ROWS IN every 500 ms; record the row at which the refusal is logged.
 **Expected:** Each second adds 1,000,000 new slices and nothing is discarded until the watermark
 passes `slice + 10 s`, so the ceiling is crossed during second 2: `PRV-3020` at the 2,000,001st
 `(key, slice)`, i.e. at row 2,000,001. Product would have been 10,000,000.
@@ -1944,16 +2015,20 @@ passes `slice + 10 s`, so the ceiling is crossed during second 2: `PRV-3020` at 
 (product 1,000,000) must complete, which is WIN-115's shape.
 
 ### WIN-117 — 10⁶ keys × 100 open windows — refused
+**Intent:** Product 10⁸. The point of running it alongside WIN-116 is that the refusal arrives at the same row for both, which says something about the diagnostic.
 **Falsifier:** Completion.
 **Setup:** K(1000000, 3), HOP(1 s, 100 s); pusher at 300 s.
+**Steps:** Register Q_H(1, 100) as `v_k1e6w100 --keys 0,1,2`; poll ROWS IN; record the refusal row and compare with WIN-116's.
 **Expected:** Identical refusal at the same row, 2,000,001 — the refusal depends on the accumulation
 rate, not on the eventual product, so 10⁸ and 10⁷ are indistinguishable from the message. That is
 worth recording: the diagnostic cannot tell an operator how far over the ceiling they are.
 **Vacuity:** As WIN-116.
 
 ### WIN-118 — 10⁶ keys × 1000 open windows — refused
+**Intent:** Product 10⁹ — five hundred times the ceiling — and the fourth data point for WIN-118's conclusion that the ceiling is a rate guard rather than a sizing one.
 **Falsifier:** Completion.
 **Setup:** K(1000000, 3), HOP(1 s, 1000 s); pusher at 2,100 s.
+**Steps:** Register Q_H(1, 1000) as `v_k1e6w1000 --keys 0,1,2`; poll ROWS IN; record the refusal row and compare with WIN-116's and WIN-117's.
 **Expected:** The same `PRV-3020` at row 2,000,001, for a query whose full state would have been
 10⁹ accumulators — five hundred times the ceiling. Together with WIN-114, WIN-116 and WIN-117 this
 establishes that the ceiling is a **rate** guard rather than a sizing one: four queries whose true
@@ -1999,6 +2074,7 @@ above is the close trigger and not the volume.
 and the emptiness is the window's doing.
 
 ### WIN-120 — N = 1,000
+**Intent:** A thousand rows spanning one second under a ten-second window: a volume at which a query runs, ingests everything, and produces nothing, forever.
 **Falsifier:** Any row in the view.
 **Setup:** `s0` bound to V(1000, 100).
 **Steps:** Register Q_T(10) as `v_n1k --keys 0,1,2`; wait; read.
@@ -2010,6 +2086,7 @@ at t = 1.000 s — is in `[1.0, 1.1)` and is not emitted.
 **Vacuity:** ROWS IN 1,000 and `SUM(n)` 999 together; either alone is satisfied by the wrong engine.
 
 ### WIN-121 — N = 100,000
+**Intent:** The volume at which round 1's row-count assertion passed while the rows collapsed into a handful of keys. Restated with the two assertions that would have caught it.
 **Falsifier:** `COUNT(*) ≠ 1000` or `SUM(n) ≠ 99999`.
 **Setup:** `s0` bound to V(100000, 100).
 **Steps:** Register Q_T(10) as `v_n100k --keys 0,1,2`; wait for ROWS IN 100,000 and the view to
@@ -2044,6 +2121,7 @@ defect is downstream of ingest. Distinguishing the two is the whole point of wat
 round 1's version of this case did not.
 
 ### WIN-123 — N = 210,000
+**Intent:** The lower edge of the reported blocker's bracket.
 **Falsifier:** On `s0`, anything other than 21 windows and `COUNT(*) = 2100`.
 **Setup:** V(210000, 100) on `s0` and `s10`.
 **Steps:** As WIN-122.
@@ -2053,21 +2131,26 @@ round 1's version of this case did not.
 **Vacuity:** As WIN-122.
 
 ### WIN-124 — N = 220,000
+**Intent:** The midpoint of the reported bracket — the volume at which the deficit, if it exists, should be unambiguous.
 **Falsifier:** On `s0`, anything other than 22 windows and `COUNT(*) = 2200`.
 **Setup:** V(220000, 100).
+**Steps:** As WIN-122: poll ROWS IN to a plateau, then read `COUNT(*)`, `SUM(n)`, `COUNT(DISTINCT window_start)`, `MIN(window_start)`, `MAX(window_start)` on both streams.
 **Expected:** `s0`: 22 windows, `MAX(window_start) = 210 s`, `COUNT(*) = 2,200`, `SUM(n) = 219,999`.
 `s10`: 21 windows, `COUNT(*) = 2,100`, `SUM(n) = 209,999`. This is the midpoint of the reported
 bracket; if the deficit appears anywhere it should appear here.
 **Vacuity:** As WIN-122.
 
 ### WIN-125 — N = 230,000
+**Intent:** The upper edge of the reported bracket.
 **Falsifier:** On `s0`, anything other than 23 windows and `COUNT(*) = 2300`.
 **Setup:** V(230000, 100).
+**Steps:** As WIN-122.
 **Expected:** `s0`: 23 windows, `MAX(window_start) = 220 s`, `COUNT(*) = 2,300`, `SUM(n) = 229,999`.
 `s10`: 22 windows, `COUNT(*) = 2,200`, `SUM(n) = 219,999`.
 **Vacuity:** As WIN-122.
 
 ### WIN-126 — N = 1,000,000
+**Intent:** A million rows and a hundred windows: an order of magnitude past the bracket, to establish whether the threshold is a ceiling that is crossed once or a rate that degrades.
 **Falsifier:** `COUNT(*) ≠ 10000` or `SUM(n) ≠ 999999` on `s0`.
 **Setup:** V(1000000, 100). The data spans 1,000 seconds of event time in a file read in one pass.
 **Steps:** As WIN-122, plus record peak heap from `/actuator/metrics/jvm.memory.used` and wall time.
@@ -2153,12 +2236,19 @@ key × ≤2 slices. Emit traffic: 22 result rows for the whole query.
 configuration and `SUM(n)` is the only thing standing between it and round 1's failure.
 
 ### WIN-132 — Key cardinality K = 100
-**Setup:** V(220000, 100). **Expected:** WIN-124's values: 22 windows, `COUNT(*) = 2,200`,
+**Intent:** The middle of the key-cardinality sweep at fixed volume, and the configuration §9's reference table is built on.
+**Setup:** V(220000, 100).
+**Steps:** WIN-129's polling; record the ROWS IN plateau, `COUNT(*)` and `SUM(n)`.
+**Expected:** WIN-124's values: 22 windows, `COUNT(*) = 2,200`,
 `SUM(n) = 219,999`. Emit traffic 2,200 result rows.
 **Falsifier / Vacuity:** As WIN-131.
+**Vacuity:** As WIN-131: `COUNT(*) = 2,200` and `SUM(n) = 219,999` together. Key collapse gives 22; a lost window gives 2,100 and 209,999.
 
 ### WIN-133 — Key cardinality K = 10⁴
-**Setup:** V(220000, 10000). **Expected:** 22 windows on `s0`. Window 0 holds *i* = 1…9,999 → 9,999
+**Intent:** Ten thousand keys at 220,000 rows — one result row per input row, the worst case for emit traffic and for the view.
+**Setup:** V(220000, 10000).
+**Steps:** WIN-129's polling; record the plateau, `COUNT(*)`, `SUM(n)`, `COUNT(DISTINCT window_start)` and `MAX(n)`.
+**Expected:** 22 windows on `s0`. Window 0 holds *i* = 1…9,999 → 9,999
 distinct keys, `n = 1` each; windows 1…21 hold 10,000 distinct keys each, `n = 1` each. So
 `COUNT(*) = 9,999 + 21 × 10,000 = 219,999` — the result row count equals the input row count, which
 is the worst case for emit traffic and for `ServedView` (219,999 keys, under the 1,000,000 ceiling).
@@ -2168,7 +2258,9 @@ is the worst case for emit traffic and for `ServedView` (219,999 keys, under the
 `COUNT(DISTINCT window_start) = 22` and `MAX(n) = 1` as the third and fourth assertions.
 
 ### WIN-134 — Key cardinality K = 10⁶
+**Intent:** Every row a distinct key at 220,000 rows: the maximum emit traffic the volume allows, and the configuration in which a group-digest collision would be visible.
 **Setup:** V(220000, 1000000) — `i mod 10⁶ = i` for every row, so every row is a distinct key.
+**Steps:** WIN-129's polling; record the plateau, `COUNT(*)`, `SUM(n)`, `COUNT(DISTINCT user_id)` and `MAX(n)`.
 **Expected:** Identical to WIN-133 in shape: 22 windows, `COUNT(*) = 219,999`, `SUM(n) = 219,999`,
 `MAX(n) = 1`, and `COUNT(DISTINCT user_id) = 219,999`. The difference is the group digest: 219,999
 distinct 128-bit keys, where `SlicedAggregateState` claims a collision probability around 10⁻²⁷.
@@ -2202,6 +2294,7 @@ separation of the two sides available.
 **Falsifier:** The same plateau for TUMBLE 10 s and HOP(1 s, 10 s) (exonerates emit) or a plateau
 `S/D` times lower for the hop (implicates it).
 **Setup:** V(220000, 100) on `s0`, registered as TUMBLE 10 s and as HOP(1 s, 10 s).
+**Steps:** Register both in the same server run; poll ROWS IN for each to a plateau; read `COUNT(*)` and `SUM(n)` from both.
 **Expected:** TUMBLE: 22 windows, `COUNT(*) = 2,200`, `SUM(n) = 219,999`. HOP(1,10): every row in 10
 windows → `SUM(n) = 2,199,990`; non-empty ends `1 ≤ e ≤ 229` seconds → 229 windows × 100 keys →
 `COUNT(*) = 22,900`. Emit traffic is 10.4× the tumble's. Record both plateaus.
@@ -2309,6 +2402,7 @@ The correct answer for `b_plus.csv` under Q_T(10) on `s0` (watermark 50 s, ends 
 | `[40, 50)` | — | — | not emitted |
 
 ### WIN-141 — A row exactly at `window_start` is in the window that starts there
+**Intent:** The stated rule — "a record whose event time is exactly a boundary belongs to the window that *starts* there" — tested on all four boundary rows of dataset B at once.
 **Falsifier:** Any of the four boundary rows appearing in the window below.
 **Setup:** `s0` bound to `b_plus.csv`; Q_T(10) registered as `v_b --keys 0,1,2`.
 **Steps:** Read the view; check which window holds each of amounts 1 (t = 0), 4 (t = 10 s), 16 and
@@ -2332,8 +2426,10 @@ twice, minus the one at 0 which has no window below) and totals of 7, 28, 240 an
 **Vacuity:** As WIN-141. `SUM(n) = 8` is the load-bearing number here.
 
 ### WIN-143 — A row one nanosecond before `window_end` is in that window
+**Intent:** The inside edge of the half-open interval. One nanosecond below the end must be in the window, which is the assertion that stops an over-correction of WIN-142.
 **Falsifier:** amounts 2, 8 or 64 appearing in the window above.
 **Setup:** WIN-141 done.
+**Steps:** Read `v_b` and locate amounts 2, 8 and 64.
 **Expected:** amount 2 (t = 9.999999999 s) in `[0,10)`; amount 8 (t = 19.999999999 s) in `[10,20)`;
 amount 64 (t = 29.999999999 s) in `[20,30)`. `floorDiv(9,999,999,999, 10,000,000,000) = 0`.
 **Vacuity:** As WIN-141.
@@ -2342,6 +2438,7 @@ amount 64 (t = 29.999999999 s) in `[20,30)`. `floorDiv(9,999,999,999, 10,000,000
 **Intent:** The pair is the assertion; either row alone can be right for the wrong reason.
 **Falsifier:** amounts 2 and 4 in the same window.
 **Setup:** WIN-141 done.
+**Steps:** Read `v_b` and compare the windows holding amounts 2 and 4, and the two windows' totals.
 **Expected:** amount 2 (9.999999999 s) in `[0,10)` and amount 4 (10.000000000 s) in `[10,20)` —
 adjacent, disjoint, and the boundary is the same instant for both. Totals 3 and 12 confirm it; 7 and
 8 would mean the boundary moved by one nanosecond in one direction, 1 and 14 in the other.
@@ -2353,6 +2450,7 @@ on (key, timestamp), would keep one.
 **Falsifier:** `[20,30)` showing `n = 2` or `total = 96` (= 32 + 64, i.e. row 5 lost) or `total = 80`
 (= 16 + 64, row 6 lost).
 **Setup:** WIN-141 done.
+**Steps:** Read `v_b`'s `[20,30)` row and check `n` and `total`.
 **Expected:** `[20,30)`: `n = 3`, `total = 16 + 32 + 64 = 112`.
 **Vacuity:** As WIN-141; `n = 3` is what distinguishes this from WIN-143.
 
@@ -2404,8 +2502,10 @@ the property that matters: a slice never starts after the event it contains.
 **Vacuity:** Pure arithmetic.
 
 ### WIN-149 — A row at exactly the epoch
+**Intent:** The epoch gets no special treatment, which is worth stating because it is also the event time every `feedfile` and `delta` row carries and the value that triggers WIN-070.
 **Falsifier:** The row landing in a window that does not start at 0.
 **Setup:** Covered by dataset B's first row; confirm directly.
+**Steps:** From the embedded harness: `sliceStartFor(0)` and `windowEndsContaining(0)` for `tumbling(10 s)`. From WIN-141's server run: confirm the row with amount 1 is in `[0,10)`.
 **Expected:** `sliceStartFor(0) = 0`; window `[0, 10 s)`; `windowEndsContaining(0) = [10 s]`. The
 epoch is an ordinary boundary and gets no special treatment — which is worth stating, because it is
 also the value every `feedfile` and `delta` row carries (§0.1) and the value that triggers WIN-070.
@@ -2571,3 +2671,1012 @@ control where the retraction is partial — `(key A, amount 2, weight −1)` —
 `count = 0`… no: `count = 1 + (−1) = 0` again but `sum = 5 − 2 = 3`. The group still vanishes from
 `fire`, so the control shows the same silence with a non-zero sum outstanding, which is worse and
 should be recorded separately.
+
+---
+
+## 11. Close triggers
+
+Four are claimed: watermark advance, idle-partition exclusion, end of input, and — the one the plan
+flags as broken — the last window of a bounded source. The wiring, read from the code:
+
+- `QueryExecution.advanceWatermarkQuietly` runs on a `pravaha-watermark` thread every
+  `pravaha.watermark.tick`, feeds each partition's highest event time to `WatermarkTracker`, takes
+  the minimum across non-idle partitions, and calls `advanceWatermark` on every lane's pipeline.
+- `PumpingFeed.publishPeriodically` commits the sink every 20 ms on the **feed** thread, so a closed
+  window becomes readable within 20 ms of firing.
+- `InterpretedPipeline.finish()` is called only from `LanePipelineProcessor.close()`, i.e. at lane
+  shutdown, i.e. when the query is dropped.
+- `RegisteredQuery.close()` sets `state = DROPPED`, closes the **feed first**, then the execution.
+  `RegisteredQuery.commit()` returns early unless `state == RUNNING`.
+
+Those last two together are the mechanism behind the reported defect, and WIN-167 and WIN-168 pin it.
+
+### WIN-159 — A window closes when the watermark passes its end, and not before
+**Intent:** The primary close trigger, observed both as a final state on the server and step by step in the harness, so "it closed" and "it closed then" are separate assertions.
+**Falsifier:** A window's results readable while the watermark is below its end.
+**Setup:** `s0` bound to `step.csv`: `1,100,5,5.000`; `2,100,7,15.000`; `3,100,9,25.000`. No pusher.
+Rows are written as three separate one-line files appended to a directory? No — the filesystem source
+reads one file once, so instead register the query against a file already containing all three rows
+and observe the *final* state; the per-step observation is done from the embedded harness, where
+`advanceWatermark` is callable.
+**Steps:** Server: register Q_T(10) as `v_step --keys 0,1,2`; read the view. Embedded: feed the same
+three rows, calling `advanceWatermark(t)` after each and collecting output.
+**Expected:** Server: watermark 25 s; ends 10 s and 20 s fire; two rows — `[0,10) n=1 total=5` and
+`[10,20) n=1 total=7`. `[20,30)` does not fire. Embedded, step by step: after row 1 and
+`advanceWatermark(5 s)` → nothing (firstEnd for `from = 0 − 10 s = −10 s` is 0, and `0 ≤ 5 s`, so
+window `[-10,0)` fires empty and emits nothing). After row 2 and `advanceWatermark(15 s)` → `[0,10)`
+fires with `n=1 total=5`. After row 3 and `advanceWatermark(25 s)` → `[10,20)` fires with
+`n=1 total=7`. Each window's result appears exactly one step after its data.
+**Vacuity:** Defends against an unarmed watermark: the server run must show `watermark.lag.seconds`
+finite, and the embedded run must show the output arriving in three distinct steps rather than all
+at the end.
+
+### WIN-160 — A window does not close one nanosecond early
+**Intent:** The other side of WIN-159: `windowsCompletedBetween` uses `end ≤ watermark`, so one nanosecond below the end must produce nothing.
+**Falsifier:** `[0,10)` firing at watermark 9,999,999,999.
+**Setup:** Embedded harness, `tumbling(10 s)`, one row at 5 s.
+**Steps:** `advanceWatermark(9,999,999,999)` → collect; `advanceWatermark(10^10)` → collect.
+**Expected:** First call emits nothing (`windowsCompletedBetween(−10 s, 9,999,999,999)` gives
+`[0]` — the window `[-10, 0)`, which is empty). Second emits one row, `[0,10) n=1`. One nanosecond
+is the whole difference.
+**Vacuity:** The second call must emit; if neither does, the row was never stored.
+
+### WIN-161 — A windowed query has exactly one watermark partition, so "minimum across partitions" is untested by design
+**Intent:** `WatermarkTracker` takes the minimum across partitions and excludes idle ones — the
+subtlest logic in the engine. A windowed aggregate cannot reach it: it needs one stream (a
+stream-to-stream join is refused above a window by `windowBelow`, which deliberately will not walk
+through one), and `FilesystemSourcePlugin.partitions` returns exactly one partition per file.
+**Falsifier:** Any windowed query on the server with more than one watermark partition.
+**Setup:** `s0` bound to `a_plus.csv`; Q_T(10) registered.
+**Steps:** Read the partition name `QueryExecution.trackEventTimeOf` constructs
+(`streamName + "#" + laneIndex + "/" + pumps.size() + partitionedPumps.size()`) from a debug log or
+the embedded harness; count partitions in the tracker. Also attempt a windowed aggregate over a
+stream-to-stream join and record the refusal.
+**Expected:** One partition, named `s0#0/00`. The join attempt is refused — `windowBelow` returns
+null through a `JoinOperator`, so the aggregate is treated as unwindowed and refused with `PRV-2050`
+"GROUP BY … has no bound on its key space". Conclusion: for area `WIN`, the minimum-across-partitions
+rule and idle exclusion are **not reachable**, and every case about them belongs to `TIME`. Recorded
+here so the gap is a gap rather than an absence.
+**Vacuity:** Not stateful.
+
+### WIN-162 — The tick is what advances event time, and a coarse tick delays every close by up to one tick
+**Intent:** "A watermark derived only from arriving rows cannot notice that rows have stopped
+arriving." The tick sets the granularity of every close in the query.
+**Falsifier:** Windows closing at a latency unrelated to the tick.
+**Setup:** Three server runs on the same `a_plus.csv` and Q_T(10), with
+`pravaha.watermark.tick` = 100 ms, 1 s and 5 s (and `idle-after` raised to 10 s so the
+tick ≤ idle-after guard holds).
+**Steps:** For each, `pravaha subscribe --view v_tick --limit 10` attached first, then register;
+record the wall-clock delay from registration to the first change.
+**Expected:** Delay bounded by tick + the 20 ms publish interval + read time, in all three. Results
+identical in every run — 5 rows per WIN-079. A tick of 5 s must not change any number, only when it
+arrives. Also confirm the guard: setting `tick: 30s` with `idle-after: 1s` must be refused at
+startup with "the watermark tick (PT30S) is longer than the idle timeout (PT1S), so a partition
+could not be noticed idle until long after it was."
+**Vacuity:** Defends against a dry source; ROWS IN 7 in each run before the latency is attributed to
+the tick.
+
+### WIN-163 — Idle-partition exclusion cannot close a window on this path
+**Intent:** The plan lists idle exclusion as a close trigger. For a windowed query it is not one:
+with a single partition, exclusion does not raise the watermark — `WatermarkTracker.advance` returns
+`current` unchanged when every partition is idle, explicitly so it does not "jump to infinity".
+**Falsifier:** A window closing because a partition went idle.
+**Setup:** `s0` bound to `a.csv` (dataset A, no pusher); `idle-after: 1s`, `tick: 100ms`.
+**Steps:** Register Q_T(10) as `v_idle --keys 0,1,2`; wait for ROWS IN 6; then wait 60 s (60 ×
+`idle-after`); read the view; read `WatermarkTracker.isIdle` via the embedded harness on the same
+sequence, and `pravaha.query.watermark.lag.seconds` at 5 s and at 60 s.
+**Expected:** The partition is marked idle after 1 s of quiet. The watermark stays at 25 s
+(dataset A's highest event time, zero lateness) for ever. Four rows — WIN-001's — and never the
+fifth. `watermark.lag.seconds` grows by ~55 s over the wait. Idle exclusion did what it is for
+(stopping one quiet partition holding others back) and, with one partition, that is nothing.
+**Vacuity:** ROWS IN must be 6 and the four rows must be present, or "no fifth row" is
+indistinguishable from "no rows".
+
+### WIN-164 — Every partition idle freezes the watermark rather than releasing it
+**Intent:** The explicit code path — "Everything is idle. The watermark stays where it is rather than
+jumping to infinity" — is the one that makes every bounded source incomplete. State it as a case so
+the behaviour is a decision on the record rather than an accident.
+**Falsifier:** The watermark advancing past the highest event time seen.
+**Setup:** Embedded harness on `WatermarkTracker(1 s)` directly, plus the server run of WIN-163.
+**Steps:** `addPartition("p", boundedOutOfOrderness(0), t0)`; `observe("p", 25 s, t0)`;
+`advance(t0)` → 25 s; then `advance(t0 + 2 s)` with no further `observe`.
+**Expected:** `isIdle("p")` becomes true; `advance` returns 25 s unchanged, and `idleExclusions`
+increments. It never returns `Long.MAX_VALUE` or the wall clock. Correct for an unbounded stream
+that has merely gone quiet; fatal for a bounded one that has ended, and the tracker cannot tell the
+two apart because nothing tells it.
+**Vacuity:** `advance` must return 25 s and not `NOT_YET`, or the partition never contributed.
+
+### WIN-165 — The last window of a bounded source is never emitted — 10,001 of 60,000 rows
+**Intent:** The headline defect, reproduced with the reported numbers.
+**Falsifier:** `SUM(n)` reaching 60,000, or `COUNT(*)` reaching 600.
+**Setup:** V(60000, 100) bound to **`s10`** (the engine-default 10 s lateness). No pusher.
+**Steps:** Register Q_T(10) as `v_60k --keys 0,1,2`; wait for ROWS IN 60,000 and for the view to
+stop changing for 60 s; read `COUNT(*)`, `SUM(n)`, `MAX(window_start)`, `COUNT(DISTINCT window_start)`.
+**Expected:** Highest event time 60,000 ms = 60 s; watermark `60 − 10 = 50 s`; window ends that are
+multiples of 10 s and ≤ 50 s are 10, 20, 30, 40, 50 → **5 windows**, `[0,10)` … `[40,50)`.
+Rows in them: `9,999 + 4 × 10,000 = 49,999`. So `COUNT(*) = 5 × 100 = 500`,
+`SUM(n) = 49,999`, `MAX(window_start) = 40 s`. **Never emitted: `60,000 − 49,999 = 10,001` rows** —
+the 10,000 in `[50,60)` and the single row at 60.000 s in `[60,70)`. ROWS IN says 60,000 and nothing
+anywhere says 10,001 of them produced no output. This is the reported "10,000 of 60,000 rows
+silently never emitted", to the row.
+**Vacuity:** ROWS IN must read exactly 60,000 — that is what makes the deficit a *loss* rather than
+an unread file. `COUNT(*) = 500` also defends against key collapse, which would give 100.
+
+### WIN-166 — The same deficit at 200,000 rows is one window on `s0` and two on `s10`
+**Intent:** Tie §9's reference table to the close trigger, so a window-count deficit can be split
+into "lost to the trigger" and "lost to something else".
+**Falsifier:** Either stream serving more windows than its formula allows.
+**Setup:** V(200000, 100) bound to both `s0` and `s10`, no pusher.
+**Steps:** As WIN-122.
+**Expected:** `s0`: watermark 200 s → 20 windows, `SUM(n) = 199,999`, 1 row unemitted (the row at
+exactly 200.000 s). `s10`: watermark 190 s → 19 windows, `SUM(n) = 189,999`, 10,001 rows unemitted.
+The difference between the two is exactly the 10 s lateness, one window's worth. Any further
+shortfall below these figures is **not** the close trigger and belongs to §9.
+**Vacuity:** ROWS IN 200,000 for both.
+
+### WIN-167 — `finish()` would fire the last windows, and runs only at lane shutdown
+**Intent:** The fix exists in the code — `WindowedAggregate.finish()` advances to
+`highestEventTime + size + slide`, which is past the end of every window that can hold the highest
+event time — and is unreachable while the query is alive.
+**Falsifier:** Finding any caller of `InterpretedPipeline.finish()` other than
+`LanePipelineProcessor.close()` on the production path.
+**Setup:** Source reading plus the embedded harness.
+**Steps:** `grep -rn "\.finish()" --include=*.java` over main sources. Then, from the embedded
+harness, feed dataset A's six rows, call `advanceWatermark(25 s)`, collect; then call `finish()` and
+collect again.
+**Expected:** Two callers only: `ViewQuery` (the bounded view-read path) and
+`LanePipelineProcessor.close()`. In the harness, `advanceWatermark(25 s)` emits WIN-001's four rows;
+`finish()` advances to `25 s + 10 s + 10 s = 45 s`, firing ends 30 s and 40 s, and emits the fifth
+row — `[20,30) user 100 n=1 total=60`. So the missing row is one method call away and the method is
+wired to shutdown.
+**Vacuity:** The four rows must arrive before `finish()` or the fifth is not attributable to it.
+
+### WIN-168 — Dropping the query runs `finish()` and discards what it produces
+**Intent:** The obvious workaround — drop the query to flush it — cannot work, because
+`RegisteredQuery.close()` sets `state = DROPPED` before closing the execution, the feed thread that
+commits is closed first, and `RegisteredQuery.commit()` returns early unless the state is `RUNNING`.
+The final windows are computed on the lane thread, applied into `ServedView.pending`, and never
+committed.
+**Falsifier:** The dropped view's last window appearing anywhere — in a final commit, in the change
+stream, or in a checkpoint.
+**Setup:** WIN-165's `v_60k` running, holding 500 rows.
+**Steps:** Attach `pravaha subscribe --view v_60k --limit 500`; then `pravaha drop --name v_60k`;
+capture everything the subscriber receives before the stream ends; then `pravaha query --sql
+"SELECT * FROM v_60k"`.
+**Expected:** No further changes — in particular no `[50,60)` window, which `finish()` does compute.
+The query after the drop fails with a view-not-found error. The 10,000 rows of `[50,60)` are
+aggregated into a result that is written into the arena by the lane thread, staged into
+`ServedView.pending`, and thrown away when the view is released. Record whether anything is logged.
+**Vacuity:** The subscriber must have received the 500 existing rows first, or "no further changes"
+is trivially satisfied by a subscription that never worked.
+
+### WIN-169 — The deficit as a function of declared lateness
+**Intent:** Quantify what an operator can buy by changing the one setting that is actually wired
+(`pravaha.streams.<n>.out-of-orderness`), so the trade-off is a number rather than a feeling.
+**Falsifier:** The deficit not decreasing as lateness decreases.
+**Setup:** V(60000, 100) bound to four streams identical except for `out-of-orderness`: 0 s, 1 s,
+10 s (the default) and 60 s. No pusher.
+**Steps:** Register Q_T(10) over each; read `COUNT(DISTINCT window_start)` and `SUM(n)`.
+**Expected:** Watermark = `60 s − L`; windows = `floor((60 s − L) / 10 s)`; rows =
+`9,999 + 10,000 × (windows − 1)`.
+
+| lateness L | watermark | windows | `SUM(n)` | rows never emitted |
+|---|---|---|---|---|
+| 0 s | 60 s | 6 | 59,999 | 1 |
+| 1 s | 59 s | 5 | 49,999 | 10,001 |
+| 10 s | 50 s | 5 | 49,999 | 10,001 |
+| 60 s | 0 s | 0 | 0 | 60,000 |
+
+Note the cliff between 0 s and 1 s: one second of declared lateness costs ten thousand rows, because
+it moves the watermark below a window boundary. The relationship is a step function of
+`L mod window_size`, not a smooth trade — which is worth documenting beside the key.
+**Vacuity:** All four must read ROWS IN 60,000.
+
+### WIN-170 — A correction is emitted before the newly completed windows
+**Intent:** "Corrections first: a consumer applying results in arrival order should see the fix for
+an old window before the results of newer ones." It is the one place `advanceWatermark` emits out of
+window-end order, and WIN-098's monotonicity claim has to be qualified by it.
+**Falsifier:** A correction arriving after a window whose end is greater.
+**Setup:** Embedded harness — a late record that re-opens a fired window needs allowed lateness above
+zero, which no SQL can request (WIN-173). `WindowedAggregate` over `tumbling(10 s)` with
+`allowedLatenessNanos = 30 s`.
+**Steps:** (1) row `(A, 5, t = 5 s)`; `advanceWatermark(10 s)` → collect. (2) row `(A, 3, t = 25 s)`;
+row `(A, 100, t = 7 s)` — late, but within 30 s of lateness; `advanceWatermark(30 s)` → collect.
+**Expected:** Step 1 emits `[0,10) A n=1 total=5` weight +1. Step 2 emits, in this order:
+first the correction for `[0,10)` — a `-1` row carrying the old values `n=1 total=5`, then a `+1`
+row carrying `n=2 total=105` — and only then the newly completed windows `[10,20)` (empty, nothing)
+and `[20,30)` (`A n=1 total=3`). So the arrival order is end 10 s, end 10 s, end 30 s: not monotonic,
+and deliberately so. `5 + 100 = 105` is the arithmetic.
+**Vacuity:** Step 1 must emit; and the `-1` row's values must equal step 1's exactly, or the
+retraction does not cancel and a retract-mode consumer holds both.
+
+### WIN-171 — A record later than the allowed lateness is routed to a sink that discards it
+**Intent:** "Never silently dropped and never allowed to produce a result that contradicts one
+already sent." The routing exists; the default sink is `row -> {}`.
+**Falsifier:** The late record changing an already-emitted window (which would be worse), or any
+shipped surface reporting it (which would falsify "silently").
+**Setup:** Embedded harness, `tumbling(10 s)`, `allowedLatenessNanos = 0` — the production default.
+**Steps:** (1) row `(A, 5, t = 5 s)`; `advanceWatermark(10 s)`. (2) row `(A, 100, t = 7 s)`;
+`advanceWatermark(20 s)`. Read `lateRecords()`. Then repeat with `lateOutput(sink)` wired to a
+collector.
+**Expected:** Step 2's row is rejected in `process`: `lastWindowEndFor(sliceStart(7 s)) = 10 s` and
+`10 s + 0 ≤ 10 s` is true, so it never reaches the state. `lateRecords()` = 1. No output changes;
+`[0,10)` still reads `n=1 total=5` and not `n=2 total=105`. With a collector wired, the row arrives
+there intact. Without one — which is the production configuration, since nothing calls
+`InterpretedPipeline.lateOutput` outside tests — it is dropped.
+**Vacuity:** `lateRecords()` must be 0 before step 2 and 1 after; a counter that never moves means
+the record took a different path.
+
+### WIN-172 — Neither `lateRecords` nor `corrections` is observable from any shipped surface
+**Intent:** The counters are the engine's own answer to "how do you know the lateness is set right",
+and they reach nobody. `"The number that says whether the lateness is set right"` is the javadoc on
+`lateRecords()`.
+**Falsifier:** Finding either on any surface.
+**Setup:** A server on `win.yaml` with `v_t10` from WIN-001 running, so there is a windowed query for the surfaces to report on.
+**Steps:** Check `PravahaMetrics` (registers exactly `rows.in`, `view.size`, `view.evicted`,
+`view.updates`, `view.removals`, `watermark.lag.seconds`, `running`); `GET /status`;
+`GET /actuator/prometheus | grep -i late`; `pravaha queries`; the REST query-detail endpoint; the
+console.
+**Expected:** Nothing. `QueryExecution.lateRecords()` exists and is called by no production code.
+Defect: a query silently discarding 0.2 % of its records is indistinguishable from one discarding
+none, and the design says the whole point of the side output is that "a missing record is not a
+diagnosis". Minimum remedy: a `pravaha.query.late.records` and `pravaha.query.window.corrections`
+gauge alongside the existing seven.
+**Vacuity:** Not stateful.
+
+### WIN-173 — Allowed lateness is hard-wired to zero and cannot be set from SQL or configuration
+**Intent:** `DEFAULT_ALLOWED_LATENESS_NANOS = 0L` is passed to every `WindowedAggregateOperator` the
+planner builds, and the javadoc names the clause that would change it —
+`EMIT CHANGES WITH ('allowed.lateness' = …)` from design §11.2 — as not yet existing. Every case in
+this section that needs lateness above zero is therefore embedded-only, and that fact is itself the
+finding.
+**Falsifier:** Any SQL, flag or config key that reaches the parameter.
+**Setup:** The checked-out tree, plus `pravaha validate` with the standing schema.
+**Steps:** `pravaha validate` with `… GROUP BY window_start, window_end, user_id EMIT CHANGES WITH
+('allowed.lateness' = '30' SECOND)`; grep for `allowed.lateness` and `ALLOWED_LATENESS` across the
+repository; check `application.yaml`.
+**Expected:** The SQL is a parse error (Calcite does not know the clause); the only occurrences of
+the constant are its declaration and its single use. Consequences to record: late-data **correction**
+— the feature `WindowedAggregate` spends `emitted`, `dirty` and the whole retract-and-reinsert path
+implementing — is unreachable in production; every late record is discarded (WIN-171); and
+`corrections()` is therefore always zero on a server, which is the least useful way for a counter to
+be unobservable.
+**Vacuity:** Not stateful.
+
+### WIN-174 — With lateness above zero, a corrected window retracts exactly and only what changed
+**Intent:** The correction path, specified so it is ready when WIN-173's clause lands.
+**Falsifier:** A retraction carrying values other than the previously emitted ones, or a retraction
+for a key whose values did not change.
+**Setup:** Embedded harness, `tumbling(10 s)`, `allowedLatenessNanos = 30 s`, two keys A and B.
+**Steps:** (1) `(A, 5, t=5 s)`, `(B, 9, t=6 s)`; `advanceWatermark(10 s)` → collect.
+(2) `(A, 100, t=7 s)` — late, within lateness; `advanceWatermark(11 s)` → collect.
+**Expected:** Step 1 emits two `+1` rows: `[0,10) A n=1 total=5` and `[0,10) B n=1 total=9`.
+Step 2 re-fires `[0,10)`. For key A the values changed (`n: 1→2`, `total: 5→105`), so a `-1` row
+carrying `n=1 total=5` and a `+1` row carrying `n=2 total=105`. For key B the values are unchanged,
+and `emitWindow` compares with `Arrays.equals` and emits **nothing** — "two rows that consolidate to
+nothing, which is arithmetically harmless and pure noise on the wire". Exactly two changes in step 2,
+both for key A, netting `+1` row with `total = 105`.
+**Vacuity:** Step 1 must emit two rows. If B also produces a retract/insert pair, the `Arrays.equals`
+short-circuit is not working, and the case detects it; if step 2 emits nothing at all, the lateness
+was not applied and the record went to the late output instead.
+
+---
+
+## 12. Empty windows — what correct is, and what the code does
+
+**The decision, stated so it can be argued with.** A windowed aggregate is a `GROUP BY`, and SQL's
+`GROUP BY` produces **no group for rows that do not exist**. `SELECT window_start, user_id, COUNT(*)
+… GROUP BY window_start, user_id` over an interval with no rows has no `user_id` to emit a zero
+*for*: the key space is not enumerable, and inventing one row per key seen anywhere would make the
+output unbounded in exactly the way windowing exists to prevent. The same holds when the only group
+keys are the window boundaries: `GROUP BY` over zero rows yields zero groups — it is only an
+**ungrouped** `SELECT COUNT(*)` that returns a single 0 over an empty input, and that is the
+`GlobalAggregate` operator, not this one.
+
+**So: emit nothing. And that is what the code does** — `SlicedAggregateState.fire` builds `combined`
+only from slices that exist, and skips any key whose weights cancel to zero. What the code *also*
+does, and should not, is charge for every empty window anyway: `advanceWatermark` walks every window
+end between watermarks, calls `emitWindow` on each, and records an entry in `emitted` for each
+(WIN-065, WIN-180, WIN-181).
+
+### WIN-175 — A window with no rows emits nothing
+**Intent:** The decision above, executed: a window that fires with no data in it must produce no row at all, not a row of zeroes and not a row omitted from the firing.
+**Falsifier:** Any result row with `n = 0`, or any row for a window between two non-adjacent
+populated ones.
+**Setup:** `s0` bound to `holey.csv`: `1,100,5,1.000`; `2,100,7,41.000`; pusher `3,999,0,90.000` —
+one row in `[0,10)`, one in `[40,50)`, and everything between empty.
+**Steps:** Register Q_T(10) as `v_holey --keys 0,1,2`; read it ordered by `window_start`.
+**Expected:** Exactly two rows: `[0,10) n=1 total=5` and `[40,50) n=1 total=7`. No rows for
+`[10,20)`, `[20,30)` or `[30,40)` — those windows fire (their ends 20, 30 and 40 are ≤ the watermark
+of 90 s) and produce nothing, which is the correct behaviour.
+**Vacuity:** Defends against a dry source (ROWS IN 3) and against the query not firing at all: the
+two rows that *are* expected must be present, or "no empty windows" is satisfied by no windows.
+
+### WIN-176 — A windowed aggregate keyed only by the window is also empty, where a global aggregate is not
+**Intent:** The contrast that makes the decision principled rather than incidental.
+**Falsifier:** Either query emitting the opposite of the table below.
+**Setup:** `s0` bound to `holey.csv`.
+**Steps:** Register (a) `SELECT window_start, window_end, COUNT(*) AS n FROM TABLE(TUMBLE(TABLE s0,
+DESCRIPTOR(event_time), INTERVAL '10' SECOND)) GROUP BY window_start, window_end` as `v_wonly
+--keys 0,1`; and (b) `SELECT COUNT(*) AS n FROM s0` as `v_global --keys` (no key columns).
+**Expected:** `v_wonly` holds two rows — `[0,10) n=1` and `[40,50) n=1` — and nothing for the three
+empty windows in between. `v_global` holds one row, `n = 3` (all three input rows including the
+pusher), because a global aggregate is one group by construction and produces a row over any input,
+empty or not. Same engine, two operators, two correct and opposite answers to "what does empty
+mean".
+**Vacuity:** Defends against key collapse on `v_wonly` (`COUNT(*)` must be 2) and against `v_global`
+being empty for an unrelated reason (its `n` must be 3).
+
+### WIN-177 — `fire()` on an empty window returns nothing and still records an `emitted` entry
+**Intent:** Separate the correct output from the incorrect bookkeeping.
+**Falsifier:** `fire` returning a result, or `emitted` not growing.
+**Setup:** Embedded harness, `tumbling(10 s)`, one row at t = 5 s.
+**Steps:** `advanceWatermark(10 s)`; `advanceWatermark(50 s)`; then read the collected output and
+`emitted.size()`.
+**Expected:** Output is one row only (`[0,10)`). `emitted` holds **five** entries — ends 10, 20, 30,
+40 and 50 s — four of them mapping to empty maps. Four entries of pure bookkeeping for four windows
+that produced nothing, released only when a later advance also discards a slice (WIN-065).
+**Vacuity:** The one real row must be present; `emitted.size() == 0` with no output means nothing
+fired.
+
+### WIN-178 — A key present in one window and absent from the next produces no row and no retraction
+**Intent:** The correct half of WIN-158. A key simply not appearing in a window is not a change to
+the previous window, so nothing should be emitted for it — and nothing is.
+**Falsifier:** A `-1` change for key B at the second window.
+**Setup:** `s0` bound to `keygap.csv`: `1,100,5,1.000`; `2,200,7,2.000`; `3,100,9,11.000`; pusher
+`4,999,0,40.000`.
+**Steps:** `pravaha subscribe --view v_keygap --limit 20` attached first; register Q_T(10) as
+`v_keygap --keys 0,1,2`; capture the changes.
+**Expected:** Three changes, all `+1`: `[0,10) user 100 n=1 total=5`; `[0,10) user 200 n=1 total=7`;
+`[10,20) user 100 n=1 total=9`. No change for user 200 in `[10,20)` — not a zero row and not a
+retraction. The view holds three rows, and the two windows are independent keys in it, so user 200's
+`[0,10)` row is untouched by the second window.
+**Vacuity:** Defends against key collapse — with `--keys 2` the second window's user-100 row would
+overwrite the first, and user 200 would look like it had persisted, which is the opposite reading of
+the same data.
+
+### WIN-179 — An entirely empty stream produces no windows and no state
+**Intent:** The degenerate input. Nothing arrives, so nothing is observed, no watermark advances and no window end is ever walked — the one configuration where the empty-window walk is free.
+**Falsifier:** Any row, or any watermark advance.
+**Setup:** `sempty` bound to a zero-byte file.
+**Steps:** Register Q_T(10) as `v_empty --keys 0,1,2`; wait 60 s; read `COUNT(*)`, ROWS IN,
+`view.size`, `watermark.lag.seconds`, and from the embedded harness `liveSlices()` and
+`peakSlices()`.
+**Expected:** Everything zero. `firstWindowStart()` returns 0 because `earliestWindowStart` is still
+`Long.MAX_VALUE` — but no advance happens either, because `WatermarkTracker.advance` returns
+`current` for a partition that "has produced nothing yet [and] is not idle and not ready". So no
+window end is ever walked, which is the one case where the empty-window walk costs nothing.
+**Vacuity:** The control is `v_holey` in the same run, which must hold two rows.
+
+### WIN-180 — Every empty window between two populated ones is walked and charged for
+**Intent:** Correct output, incorrect cost. Quantify it before WIN-181 makes it fatal.
+**Falsifier:** Work proportional to populated windows rather than to elapsed windows.
+**Setup:** `s0` bound to `wide_gap.csv`: `1,100,5,1.000`; `2,100,7,86401.000` (one row, then one a
+day later); pusher `3,999,0,90000.000`. Q_T(10).
+**Steps:** Register as `v_widegap --keys 0,1,2`; record wall time to settle and peak heap.
+**Expected:** Two result rows — `[0,10) n=1 total=5` and `[86400, 86410) n=1 total=7`. Window ends
+walked: `firstWindowStart = 0 − 10 s = −10 s`, `firstEnd = 0`, then every 10 s to 90,000 s →
+**9,001 ends**, of which 8,999 are empty. Each builds a one-element slice list and scans the slice
+map, and each adds an `emitted` entry. Two rows of output for nine thousand `emitWindow` calls.
+Record the settle time.
+**Vacuity:** ROWS IN 3 and both rows present.
+
+### WIN-181 — A million empty windows
+**Intent:** The same effect one order of magnitude past comfortable, which is where it stops being a
+cost and becomes the freeze.
+**Falsifier:** The query settling in bounded time and memory.
+**Setup:** `s0` bound to `wide_gap.csv` as above, registered with `INTERVAL '0.1' SECOND` — 900,000
+window ends between the same two rows — and again with `INTERVAL '0.001' SECOND` (1 ms, the finest
+expressible per WIN-054) — 90,000,000 ends.
+**Steps:** Register each in a fresh server; record settle time, peak heap, and whether ROWS IN
+reaches 3.
+**Expected:** At 100 ms: 900,001 ends, 900,001 `emitted` entries each holding an empty
+`HashMap`, walked in a single `advanceWatermark` call on the lane thread. Estimate the heap: an
+empty `HashMap` is ~48 bytes plus a `Long` key and a map entry, so roughly 900,000 × ~100 bytes ≈
+90 MB of bookkeeping for two rows of data. At 1 ms: 90,000,000 ends — the `ArrayList` from
+`windowsCompletedBetween` alone is ~1.4 GB of boxed `Long`s before a single window fires. Expect the
+1 ms run to die or hang; record which, and whether anything is logged (WIN-139's answer applies).
+**Vacuity:** The 100 ms run must reach ROWS IN 3 and produce the two rows, or the 1 ms run's failure
+is not attributable to the window count.
+
+### WIN-182 — Nothing documents that an empty window emits nothing
+**Intent:** The decision is defensible and undocumented, which makes it indistinguishable from a bug
+to the person who needs a zero in a time series.
+**Falsifier:** Finding it stated anywhere.
+**Setup:** The checked-out tree; no server.
+**Steps:** `grep -ni "empty window" docs/*.md docs/adr/*.md`; read `docs/SQL_SUPPORT.md` §Aggregation
+and `docs/CONCEPTS.md`.
+**Expected:** No statement. Record the gap and the remedy a user needs: to see zeros they must
+generate the window grid themselves and outer-join to it, which this engine cannot do — there is no
+`LEFT JOIN` without a time bound and no way to materialise a calendar table. So "emit nothing" is
+not only undocumented, it is unworkaroundable, and a dashboard that needs a flat line at zero cannot
+get one from a continuous query today. That is the finding, not the emptiness.
+**Vacuity:** Not stateful.
+
+---
+
+## 13. Restart — mid-window, between windows, with and without checkpoints
+
+**Configuration `$QA/conf/win-persist.yaml`** is `win.yaml` plus:
+
+```yaml
+pravaha:
+  registry: { journal: "$QA/journal.log" }
+  checkpoint: { directory: "$QA/ckpt", interval: 10s, keep: 3 }
+```
+
+Both default to `""` in the shipped `application.yaml`, and the node warns at startup when they are
+unset — "a restart recovers their definitions from the journal and none of their answers".
+
+**Restart procedure**, used by every case: note ROWS IN and the view contents; `kill -TERM <pid>`;
+wait for exit; restart with the same config and the same data files; wait 30 s; read again.
+
+**Mid-window versus between windows** is controlled by the data, not by timing: the filesystem source
+reads the whole file in one pass, so "mid-window" means the last window in the file is partial
+(V(N, K) with N not a multiple of 10,000) and "between windows" means it is exactly full
+(N a multiple of 10,000 and a pusher at N ms, so the last full window has closed).
+
+### WIN-183 — Restart mid-window with no checkpoint loses the window's state
+**Intent:** The default configuration — both `pravaha.registry.journal` and `pravaha.checkpoint.directory` are `""` in the shipped `application.yaml` — with a window half full when the process dies.
+**Falsifier:** The partial window's accumulated rows surviving.
+**Setup:** `win.yaml` (journal and checkpoint both unset). `s0` bound to V(25000, 100) — 25,000 rows,
+so windows `[0,10)` and `[10,20)` are complete and `[20,30)` holds *i* = 20,000…25,000, i.e. 5,001
+rows, partially filled.
+**Steps:** Register Q_T(10) as `v_mid --keys 0,1,2`; wait for ROWS IN 25,000; read
+(`COUNT(*)`, `SUM(n)`); restart; read again.
+**Expected:** Before: watermark 25 s → ends 10 s and 20 s fire → 2 windows × 100 keys =
+`COUNT(*) = 200`, `SUM(n) = 9,999 + 10,000 = 19,999`. The partial `[20,30)` holds 5,001 rows of state
+and has not fired. After restart with no journal: the query **does not exist** — `pravaha queries`
+is empty, and the node logged the warning at startup. Every one of the 25,000 rows is gone, not just
+the partial window's.
+**Vacuity:** The before-reading must show 200 and 19,999. A restart that loses nothing because there
+was nothing is not evidence.
+
+### WIN-184 — Restart between windows with no checkpoint loses just as much
+**Intent:** The control for WIN-183: the loss is total either way, so "mid-window" is not the
+variable people think it is when nothing is persisted.
+**Falsifier:** Any difference between this and WIN-183.
+**Setup:** As WIN-183 but V(20000, 100) with a pusher at 30.000 s, so `[0,10)` and `[10,20)` are
+complete, fired, and nothing is partial.
+**Steps:** As WIN-183: read before, restart, read after.
+**Expected:** Before: `COUNT(*) = 200`, `SUM(n) = 19,999`. After: the query does not exist. Identical
+outcome to WIN-183.
+**Vacuity:** As WIN-183.
+
+### WIN-185 — With a journal and no checkpoint, the question comes back and the answer does not
+**Intent:** The exact phrase `application.yaml` uses — "a node with a journal and no checkpoint
+directory comes back knowing every question and none of the answers" — executed.
+**Falsifier:** Any window surviving.
+**Setup:** `win-persist.yaml` with `checkpoint.directory: ""` and the journal set. V(25000, 100).
+**Steps:** As WIN-183.
+**Expected:** Before: 200 rows, `SUM(n) = 19,999`. After restart: `pravaha queries` shows `v_mid`
+`RUNNING` with its original SQL and fingerprint. The view is **empty at first**, then refills —
+because the filesystem source is re-created and, unless the offset was persisted, re-reads the file
+from the beginning. Record whether ROWS IN returns to 25,000 (a full re-read) or stays at 0 (a
+resumed offset with nothing left to read). Either is a defensible design; they are very different
+and only one of them reproduces the answer.
+**Vacuity:** The before-reading must show 200; and `pravaha queries` after the restart must show the
+query, or this is WIN-183 again.
+
+### WIN-186 — Nothing on the server path restores a checkpoint
+**Intent:** `QueryExecution.restore(Checkpoint, Duration)` exists and is complete — it submits
+`pipeline.restoreState` as a control task on each lane and waits. It has **no production caller**.
+**Falsifier:** Finding one.
+**Setup:** The checked-out tree at `develop`; source reading only.
+**Steps:** `grep -rn "\.restore(" --include=*.java .` excluding `target` and test sources; then
+inspect `QueryRegistry.start`, `QueryRegistry.replay`/journal recovery, and `PravahaNode.start` for
+any `CheckpointStore.latest()` call.
+**Expected:** The only callers are `CheckpointRecoveryTest`, `JoinRecoveryTest`, `StreamJoinTest` and
+`PartitionHandoffTest` — all tests. `QueryRegistry.checkpointingTo` constructs a
+`PeriodicCheckpointer` that **writes** checkpoints and nothing reads them back. Defect, and it is
+the one that makes every case in this section have the same answer: a windowed query's state does
+not survive a restart on any shipped path, whatever is configured. Record it once here and reference
+it from WIN-187 to WIN-192 rather than repeating it.
+**Vacuity:** Not stateful.
+
+### WIN-187 — A checkpoint is nevertheless written for a windowed query
+**Intent:** Half the loop works; establish that it does, so the gap is exactly one call.
+**Falsifier:** No files under `$QA/ckpt`.
+**Setup:** `win-persist.yaml` with `checkpoint.interval: 10s`. V(25000, 100), Q_T(10) registered as
+`v_ckpt`.
+**Steps:** Wait 40 s; `ls -R $QA/ckpt`; record file names, sizes and count; wait another 60 s and
+check that pruning keeps 3.
+**Expected:** A directory per query beneath `$QA/ckpt` ("Each query checkpoints into its own
+directory beneath this one"), containing at most 3 checkpoints, each non-empty. Size should scale
+with live accumulators: 100 keys × ~2 slices × (2 longs of key + 1 slice start + count + 2 aggregate
+values + key values) — a few kilobytes, not a few bytes and not megabytes.
+**Vacuity:** The query must be running with ROWS IN 25,000; a checkpoint of an empty operator is
+also non-empty and proves nothing about the state, so the size assertion is required.
+
+### WIN-188 — The checkpoint contains the windowed state and what each window emitted
+**Intent:** `WindowedAggregate.writeTo` writes `watermark`, `lastFiredWatermark`, `highestEventTime`,
+`earliestWindowStart`, `lateRecords`, `corrections`, then the whole `emitted` map, then
+`SlicedAggregateState`. The `emitted` map is the part that is easy to leave out and wrong to: "the
+first correction after a restore emits a new answer with no retraction of the old one".
+**Falsifier:** A round-trip losing any of the six scalars or any `emitted` entry.
+**Setup:** Embedded harness. Build a `WindowedAggregate` over `tumbling(10 s)` with lateness 30 s;
+feed dataset A's six rows; `advanceWatermark(25 s)`; `writeTo` to a byte array; build a fresh
+operator; `readFrom`.
+**Steps:** Compare the two operators' `lateRecords()`, `corrections()`, `liveSlices()`, and then feed
+a late record to both and compare the emitted corrections.
+**Expected:** Identical. In particular, the restored operator must emit a `-1` carrying the original
+values when the late record changes `[0,10)` — which it can only do from the restored `emitted` map.
+`SlicedAggregateState.writeTo` writes a `FORMAT_VERSION` of 1 and the aggregate kinds by name, so
+the round trip is self-describing.
+**Vacuity:** The pre-restore operator must have a non-empty `emitted` map and non-zero
+`liveSlices()`, or the round trip is transporting nothing.
+
+### WIN-189 — A checkpoint from a different query shape is refused, not guessed at
+**Intent:** Three guards in `SlicedAggregateState.readFrom` — format version, column count, and
+per-column aggregate kind — each of which is the difference between a refused restore and a wrong
+answer that looks right.
+**Falsifier:** Any of the three accepting a mismatch.
+**Setup:** Embedded harness. Write a checkpoint from `COUNT(*), SUM(amount)` over `tumbling(10 s)`.
+**Steps:** Attempt `readFrom` into (a) an operator with `COUNT(*)` only; (b) one with
+`SUM(amount), COUNT(*)` — same kinds, swapped order; (c) one with `COUNT(*), MIN(amount)`; (d) a
+byte stream whose leading `FORMAT_VERSION` int has been changed to 2.
+**Expected:** (a) `IOException("checkpoint holds 2 aggregate columns and this operator has 1: the
+query changed since the checkpoint was taken")`. (b) `IOException("checkpoint column 0 is a COUNT and
+this operator's is a SUM…")`. (c) the same at column 1. (d) `IOException("checkpoint is format
+version 2, this engine writes 1. Refusing to guess at the difference.")`. Note what is **not**
+checked: the window spec. A checkpoint taken under `tumbling(10 s)` restores cleanly into an operator
+running `tumbling(1 m)` — the slice starts are just longs — and the restored slices are then combined
+into windows they were never part of. Record that as a gap in the guard set.
+**Vacuity:** A control restore into a matching operator must succeed, or all four failures are
+explained by something else.
+
+### WIN-190 — Restart and re-read: the same rows arrive twice, or not at all
+**Intent:** Even with state restored, the source has to resume at the right place or the windows are
+wrong in one of two directions. `FilesystemPartitionReader.position()` returns the line number and
+`seek` skips that many lines, so the mechanism exists; whether the offset is persisted and handed
+back at registration is the question.
+**Falsifier:** `SUM(n)` after a restart differing from before by anything other than genuinely new
+rows.
+**Setup:** `win-persist.yaml`; V(20000, 100) with a pusher at 30.000 s. Register, let it settle at
+`COUNT(*) = 200`, `SUM(n) = 19,999`. Restart.
+**Steps:** After the restart, read `COUNT(*)` and `SUM(n)`, and ROWS IN.
+**Expected:** Three outcomes are possible and each is a different defect. (i) ROWS IN returns to
+20,001 and `SUM(n)` is 19,999 — a full re-read with state lost, which happens to give the right
+answer because the input is deterministic and the aggregate is recomputed from scratch. (ii) ROWS IN
+returns to 20,001 with state **restored** — every row double-counted, `SUM(n) = 39,998`. (iii) ROWS
+IN stays at 0 with state lost — an empty view for ever. Given WIN-186, (i) is expected. Record which,
+because (ii) is the outcome that a restore without offset persistence would produce, and it is the
+one that makes checkpointing actively harmful.
+**Vacuity:** The before-reading must show 200 and 19,999.
+
+### WIN-191 — The view's committed frontier after a restart
+**Intent:** "A view shows its *committed* frontier. Rows arriving and rows being readable are
+different events." After a restart the frontier restarts too, and `ServedView.commit` throws if the
+frontier goes backwards.
+**Falsifier:** `IllegalArgumentException("frontier went backwards: …")` reaching a user, or a view
+answering from a frontier it never reached.
+**Setup:** WIN-190's run.
+**Steps:** Before the restart, read `pravaha.query.view.size` and note the highest `window_end` in the
+view. After, poll both every second for 30 s.
+**Expected:** The view starts empty and refills monotonically. No frontier-backwards exception,
+because the view is a fresh object. But during the refill a consistent read returns a **prefix** of
+the eventual answer with no indication that it is one — the same view name, answering a question
+correctly at a frontier the caller cannot see. Record the window during which a reader gets fewer
+rows than before the restart, and whether any of the four read-consistency modes distinguishes it.
+**Vacuity:** The pre-restart reading must be 200.
+
+### WIN-192 — Re-registering the same windowed SQL after a restart reuses the fingerprint and not the state
+**Intent:** Whether the fingerprint's sharing promise reaches across a restart. It does not, and the documentation should not be read as saying it does.
+**Falsifier:** The re-registered query starting with the previous run's windows populated.
+**Setup:** `win.yaml` (no journal). Register Q_T(10) over V(20000, 100) as `v_re`; let it settle;
+restart; register the identical SQL under the same name.
+**Steps:** Read the view before the restart; restart; register the identical SQL under the same name; `pravaha queries` for the fingerprint; read the view as it refills.
+**Expected:** The same fingerprint (the fingerprint is over the query text and schema, not over
+state), a fresh `SlicedAggregateState`, and a view that refills from the re-read file to the same
+200 rows. The fingerprint's promise — "registrations sharing a fingerprint share one computation and
+one copy of state" — is about concurrent registrations in one process and says nothing across a
+restart; confirm the documentation does not imply otherwise.
+**Vacuity:** As WIN-190.
+
+### WIN-193 — Pause and resume across a window boundary
+**Intent:** Not a restart, but the same question about in-flight window state, and the one round 1
+got wrong by pausing a source that had already run dry.
+**Falsifier:** A window's total changing across a pause, or the pause having no observable effect
+because there was nothing to pause.
+**Setup:** `s0` bound to V(100000, 100) — 100,000 rows, enough that the read takes measurable time.
+**Steps:** Register Q_T(10) as `v_pause --keys 0,1,2`; **while ROWS IN is still rising**, issue
+`pravaha pause --name v_pause`; record ROWS IN and `COUNT(*)` twice, 10 s apart; then
+`pravaha resume --name v_pause`; wait for settle; read.
+**Expected:** ROWS IN frozen while paused and identical across the two readings — and strictly
+between 0 and 100,000, which is the vacuity condition. After resume, ROWS IN reaches 100,000 and the
+final answer is WIN-121's exactly: `COUNT(*) = 1,000`, `SUM(n) = 99,999`. A pause mid-window must
+not lose the partial window's accumulators, and must not double-count on resume.
+**Vacuity:** The paused ROWS IN must be **strictly less than 100,000**. Round 1's version of this
+case passed because the source had already finished, so "frozen" was trivially true. If the read
+completes before the pause lands, enlarge the file and retry rather than accepting the run.
+
+### WIN-194 — What a correct restore must preserve, specified for when WIN-186 is fixed
+**Intent:** Write the acceptance criteria now, so the fix is testable when it lands rather than
+declared done.
+**Falsifier:** A restore satisfying fewer than all five.
+**Setup:** Specification case; run from the embedded harness against `QueryExecution.restore`.
+**Steps / Expected:** After a restore from a checkpoint taken at watermark W, the operator must
+satisfy all five:
+1. `liveSlices()` equals the count at checkpoint time, and every accumulator's `count` and values
+   match — so a window that was half full is still half full.
+2. `watermark` and `lastFiredWatermark` are restored, so no already-fired window fires again
+   (WIN-156's guard depends on `lastFiredWatermark`, which is written and read).
+3. The `emitted` map is restored, so the first correction after the restore retracts the right values
+   (WIN-188).
+4. The **source offset** is restored to the position the checkpoint was taken at, so rows before W
+   are not replayed into slices that already hold them — the gap WIN-190 outcome (ii) describes.
+5. `earliestWindowStart` is restored, so `firstWindowStart()` does not restart the window walk from
+   a fresh minimum and re-walk history (WIN-070's hazard, arriving through recovery).
+Items 1, 2, 3 and 5 are written by `WindowedAggregate.writeTo` today. Item 4 is not part of the
+operator's state at all and is what a correct restore needs in addition.
+**Vacuity:** Not executable until WIN-186 is fixed; recorded as blocked, with the five criteria as
+the definition of done.
+
+---
+
+## 14. Aggregates inside a window, and the windowed `GROUP BY` refusals
+
+Five aggregate kinds reach `WindowedAggregate`, and the constructor maps them onto four
+`SlicedAggregateState.Kind` values:
+
+```java
+case COUNT          -> COUNT;
+case COUNT_DISTINCT -> COUNT_DISTINCT;
+case SUM, AVG       -> SUM;      //  <-- AVG and SUM become the same accumulator
+case MIN            -> MIN;
+case MAX            -> MAX;
+```
+
+`emitRow` writes `values[i]` straight into the output row. There is no division anywhere in
+`WindowedAggregate` or `SlicedAggregateState`, and `SqlPlanner` runs **no rule set** — it returns
+`planner.rel(validated).project()` with no `transform`, so Calcite never reduces `AVG` to
+`SUM / COUNT`. `WindowResult.count` is carried and never used. WIN-203 and WIN-204 are about what
+that means.
+
+The dataset for §14 is `agg.csv` on a schema with a nullable amount —
+`txn_id:INT64,user_id:INT64,amount:INT64?,event_time:TIMESTAMP` on stream `sn` (event-time
+`event_time`, `out-of-orderness: 0s`):
+
+| txn_id | user_id | amount | event_time |
+|---|---|---|---|
+| 1 | 100 | 5 | 1.000 |
+| 2 | 100 | 5 | 2.000 |
+| 3 | 100 | 7 | 3.000 |
+| 4 | 100 | *NULL* | 4.000 |
+| 5 | 200 | 11 | 5.000 |
+| 6 | 999 | 0 | 40.000 (pusher) |
+
+Window `[0,10)` for user 100 holds amounts 5, 5, 7 and NULL; for user 200 it holds 11. Watermark
+40 s, so ends 10…40 fire and `[0,10)` is the only non-empty window.
+**Expected:** See the five criteria under **Steps / Expected** above; a restore satisfying fewer than all five is not a restore. Items 1, 2, 3 and 5 are already written by `WindowedAggregate.writeTo`; item 4 is not part of the operator's state and is the addition a correct restore needs.
+
+### WIN-195 — `COUNT(*)` in a window
+**Intent:** The simplest aggregate in a window, and the control for WIN-196: `COUNT(*)` counts rows, including rows whose columns are null.
+**Falsifier:** `n ≠ 4` for user 100 or `n ≠ 1` for user 200.
+**Setup:** `sn` bound to `agg.csv` (§14 preamble).
+**Steps:** Register `SELECT window_start, window_end, user_id, COUNT(*) AS n FROM TABLE(TUMBLE(TABLE sn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) GROUP BY window_start, window_end, user_id` as `v_cstar --keys 0,1,2`; read it.
+**Expected:** Two rows: user 100 `n = 4` (the NULL row counts — `COUNT(*)` counts rows, and the row
+exists), user 200 `n = 1`. `AggregateCall.argumentOrdinal` is −1 for `COUNT(*)` and
+`state.update` does `values[i] += weight` unconditionally, which is right here.
+**Vacuity:** Defends against key collapse (2 rows) and a dry source (ROWS IN 6). `n = 4` and not 3
+is the assertion that separates this from WIN-196.
+
+### WIN-196 — `COUNT(amount)` in a window counts NULLs — wrong answer, no error
+**Intent:** SQL says `COUNT(col)` counts non-null values. The windowed accumulator's `COUNT` arm is
+`values[i] += weight` with no null test, and the `scratch` array's null handling
+(`ordinal < 0 || row.isNull(ordinal) ? 0 : …`) only zeroes the *value*, which `COUNT` never reads.
+**Falsifier:** `n = 3` for user 100 — that would mean the null is excluded and the defect is fixed.
+**Setup:** `sn` bound to `agg.csv`.
+**Steps:** Register the same query with `COUNT(amount)` as `v_ccol --keys 0,1,2`; read it.
+**Expected, SQL:** user 100 `n = 3` (5, 5, 7 — the NULL excluded). **Expected, this engine:** `n = 4`.
+Record the observed value. A `COUNT(*)` and a `COUNT(amount)` returning the same number over a column
+with nulls is a silently wrong answer of exactly the kind the brief names.
+**Vacuity:** Run WIN-195 in the same server session: if both read 4, the defect is confirmed; if
+`COUNT(*)` also reads 3, something else is dropping the null row and the diagnosis is different.
+
+### WIN-197 — `COUNT(DISTINCT amount)` in a window
+**Intent:** The one aggregate with real per-slice structure — a per-value multiset that merges across
+slices by map union rather than by addition, because "a value in two slices is one distinct value in
+the window, not two".
+**Falsifier:** `n = 3` for user 100 where the distinct values are 5 and 7.
+**Setup:** `sn` bound to `agg.csv`; plus, for the hop half, `agghop.csv` — the same amounts placed at 1.000 and 15.000 so one value falls in each slice of a 20 s window.
+**Steps:** Register with `COUNT(DISTINCT amount)` as `v_cdist --keys 0,1,2`; read it. Then repeat
+over `hopping(20 s, 10 s)` with a dataset placing the same value in two different slices.
+**Expected, SQL:** user 100 → distinct non-null amounts {5, 7} → `n = 2`; user 200 → `n = 1`.
+**Expected, this engine:** the NULL row contributes `values[i] = 0` to the distinct map, so the map
+is {5, 7, 0} and `n = 3`. Record it. The zero is indistinguishable from a genuine `amount = 0`: add
+row `7,100,0,6.000` and the count stays 3, where SQL says it becomes 3 too — a coincidence, not
+agreement, and `{5, 7, NULL}` giving 3 against SQL's 2 is the case that separates them.
+For the hop: a value present in slices `[0,10)` and `[10,20)` of one 20 s window must count once, not
+twice — `merge` does `merged.merge(value, seenCount, Long::sum)` then `values[i] = merged.size()`.
+**Vacuity:** The hop sub-case must have a window spanning two populated slices, or the map-union path
+is never exercised and a naive addition would pass.
+
+### WIN-198 — `SUM` in a window
+**Intent:** `SUM` in a window, including what the null row contributes — which is zero, and is the right answer for SUM by accident rather than by a null check.
+**Falsifier:** user 100's total ≠ 17.
+**Setup:** `sn` bound to `agg.csv`.
+**Steps:** Register with `SUM(amount)` as `v_sum --keys 0,1,2`; read it.
+**Expected:** user 100 `total = 5 + 5 + 7 = 17` (the NULL contributes `scratch = 0`, which is the
+right answer for SUM by accident rather than by a null check). user 200 `total = 11`.
+**Vacuity:** As WIN-195.
+
+### WIN-199 — `SUM` over a window where every value is NULL returns 0, not NULL
+**Intent:** SQL says `SUM` over no non-null values is NULL. The accumulator returns 0, and 0 and NULL
+are different answers to "how much did this customer spend".
+**Falsifier:** A NULL in the output.
+**Setup:** `allnull.csv` on `sn`: `1,300,,1.000`; `2,300,,2.000`; pusher `3,999,0,40.000` — user 300
+has two rows, both with a NULL amount.
+**Steps:** Register `v_sumnull` with `COUNT(*), SUM(amount)`; read the user-300 row.
+**Expected, SQL:** `n = 2, total = NULL`. **Expected, this engine:** `n = 2, total = 0` — the
+accumulator is a `long[]` and `writer.setLong` writes 0 with the null bit clear. Record it. Note the
+group is *not* skipped: `fire` skips a key only when `accumulator.count == 0`, and the count here is
+2.
+**Vacuity:** The row must exist with `n = 2`; if the group is missing entirely the diagnosis is the
+zero-count skip, not the null handling.
+
+### WIN-200 — `MIN` in a window, and what a NULL does to it
+**Intent:** `MIN` in a window. The null row's `scratch` value is 0, and `MIN` is the aggregate for which that is not harmless.
+**Falsifier:** user 100's MIN ≠ 5 under SQL semantics.
+**Setup:** `sn` bound to `agg.csv`.
+**Steps:** Register with `MIN(amount)` as `v_min --keys 0,1,2`; read it.
+**Expected, SQL:** user 100 `MIN = 5` (NULL ignored); user 200 `MIN = 11`.
+**Expected, this engine:** the NULL row contributes `scratch = 0`, and the MIN arm takes
+`Math.min(accumulator.values[i], 0) = 0`. So user 100 reads **0** — a minimum that is not any value
+in the column. Record it. The row order matters to the diagnosis: rows arrive 5, 5, 7, NULL, so the
+accumulator is initialised to 5 on the first row (`accumulator.count == weight`) and dragged to 0 by
+the fourth.
+**Vacuity:** user 200's `MIN = 11` must be right in the same run, or the whole aggregate is broken
+rather than the null path.
+
+### WIN-201 — `MAX` in a window
+**Intent:** `MAX` in a window, where the null row's zero is harmless over positive amounts and is not over negative ones — so the case carries both.
+**Falsifier:** user 100's MAX ≠ 7.
+**Setup:** `sn` bound to `agg.csv`, extended with `7,400,-3,7.000` and `8,400,,8.000` for the negative sub-case.
+**Steps:** Register with `MAX(amount)` as `v_max --keys 0,1,2`; read it.
+**Expected:** user 100 `MAX = 7` (`max(max(max(5,5),7), 0) = 7` — the NULL's zero is harmless for MAX
+over positive values, and would not be for a column with negative amounts; add
+`7,400,-3,7.000` and `8,400,,8.000` to show user 400 reading `MAX = 0` where SQL says −3).
+user 200 `MAX = 11`.
+**Vacuity:** The negative sub-case is what makes this non-vacuous; without it MAX and a broken MAX
+agree.
+
+### WIN-202 — `MIN`/`MAX` under a retraction is refused
+**Intent:** "Knowing the current extreme does not tell you the previous one once it is retracted."
+The refusal is a `PravahaException` thrown from the accumulator on the lane thread, mid-batch.
+**Falsifier:** A retraction being accepted and a stale extreme emitted.
+**Setup:** Embedded harness — no shipped source produces a `-1` row.
+**Steps:** `SlicedAggregateState` with kinds `{MIN}`; `update(key, 5, weight +1)`; then
+`update(key, 5, weight −1)`.
+**Expected:** `PRV-3020`: "MIN cannot handle a retraction: restoring the previous extreme needs an
+ordered multiset per group, which arrives with the aggregate lift. Use SUM or COUNT, or drop the
+retraction." Same for MAX. Note where it is thrown: inside `update`, on the lane thread, after
+`accumulator.count` has **already** been incremented by the negative weight — so the accumulator is
+left inconsistent and the lane dies with it. Record whether the partial mutation matters, i.e.
+whether anything can observe the state afterwards.
+**Vacuity:** The `+1` must succeed first; a refusal on the insert is a different defect.
+
+### WIN-203 — **`AVG` in a window returns the SUM**
+**Intent:** The mapping `case SUM, AVG -> SlicedAggregateState.Kind.SUM` with no division anywhere,
+and no Calcite rule set to rewrite `AVG` into `SUM/COUNT`. This is a silently wrong answer in the
+engine's headline feature.
+**Falsifier:** user 100's `avg` reading 5 — `(5 + 5 + 7) / 3 = 17 / 3 = 5` in integer arithmetic,
+which is what `KeyedAggregate` returns for the same amounts — since that would mean the mapping is
+compensated somewhere.
+**Setup:** `sn` bound to `agg.csv`.
+**Steps:** Register `SELECT window_start, window_end, user_id, COUNT(*) AS n, SUM(amount) AS total, AVG(amount) AS avg FROM TABLE(TUMBLE(TABLE sn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) GROUP BY window_start, window_end, user_id` as `v_avg --keys 0,1,2`; read it.
+**Expected, SQL:** user 100 — the NULL is excluded from AVG, so `AVG = (5 + 5 + 7) / 3 = 17 / 3 = 5`
+in integer arithmetic. user 200 — `AVG = 11 / 1 = 11`.
+**Expected, this engine:** user 100's `avg` column reads **17**, identical to `total`; user 200's
+reads 11, identical to its total and therefore indistinguishable from correct. Record both. The
+single-row group is why this survived: a group of one has `AVG == SUM`, and dataset A's user 200 is
+exactly such a group — so a test written against dataset A alone would have passed.
+**Vacuity:** `total` and `avg` must be read in the **same row** of the same query; comparing them
+across two queries would let a different defect explain the equality. And user 100's group must have
+`n ≥ 2`, which is the entire reason `agg.csv` gives it four rows.
+
+### WIN-204 — The same `AVG` over a view is computed correctly, which localises the defect
+**Intent:** `KeyedAggregate` and `GlobalAggregate` both carry a per-column `counts[]` and emit
+`counts[i] == 0 ? 0 : sums[i] / counts[i]` — "Integer division, matching SQL's AVG over an integer
+column". Only `WindowedAggregate` omits it. Showing the two side by side turns WIN-203 from "AVG is
+broken" into "AVG is broken in one of three operators", which is a one-line fix and a much easier
+argument.
+**Falsifier:** The view read also returning the sum (then the defect is wider than the windowed
+operator).
+**Setup:** WIN-203's `v_avg` running, holding the raw amounts? — it does not, so use a second
+registration: `v_raw` = `SELECT user_id, amount FROM sn` with `--keys 0,1`, then read
+`SELECT user_id, COUNT(*), SUM(amount), AVG(amount) FROM v_raw GROUP BY user_id`. A keyed `GROUP BY`
+over a **view** is supported precisely because the scan ends.
+**Steps:** Run both reads; compare the `avg` columns.
+**Expected:** The view read gives user 100 `AVG = 5` and the windowed query gives 17, over the same
+amounts. One engine, two operators, two answers. (`v_raw` keyed on `(user_id, amount)` holds one row
+per distinct pair, so the duplicate 5 collapses — key the view on `txn_id` instead, `--keys 0`, with
+`SELECT txn_id, user_id, amount FROM sn`, to keep all four rows.)
+**Vacuity:** The two reads must be over the same four amounts; the `--keys` note above is what makes
+that true, and without it the view read averages {5, 7, NULL} and the comparison is meaningless.
+
+### WIN-205 — Several aggregates in one window are accumulated independently
+**Intent:** One pass, one accumulator array, five columns — a bug in the loop shows as one column
+contaminating another.
+**Falsifier:** Any column's value matching what a different column's kind would produce.
+**Setup:** `sn` bound to `agg.csv`.
+**Steps:** Register `COUNT(*) AS n, SUM(amount) AS s, MIN(amount) AS mn, MAX(amount) AS mx, COUNT(DISTINCT amount) AS d` as `v_multi --keys 0,1,2`; read the user-100 row.
+**Expected, with the engine's known null handling:** `n = 4`, `s = 17`, `mn = 0`, `mx = 7`, `d = 3`.
+All five differ from each other, so a column reading another column's value is visible. Also confirm
+the **output column order** matches the SELECT list: `emitRow` writes the group keys in
+`operator.groupKeys()` order and then the aggregates in order, so `window_start, window_end,
+user_id, n, s, mn, mx, d`.
+**Vacuity:** All five values must be distinct in the expected answer, which they are; a dataset where
+two coincide would make the contamination check vacuous.
+
+### WIN-206 — A floating-point column in a windowed aggregate is refused, except for COUNT
+**Intent:** `refuseFloatingPointAggregate` refuses SUM/MIN/MAX/AVG over FLOAT32/FLOAT64 with
+`PRV-2020`, and exempts COUNT and COUNT(DISTINCT) — which then read the column through
+`row.getLong(ordinal)`, i.e. as raw IEEE-754 bits.
+**Falsifier:** `SUM` over a FLOAT64 being accepted (that is the round-1 defect the refusal was added
+for), or `COUNT(DISTINCT)` over a FLOAT64 being refused.
+**Setup:** Stream `sf` with `txn_id:INT64,user_id:INT64,price:FLOAT64,event_time:TIMESTAMP`, bound to
+`float.csv`: prices 1.5, 1.5, 2.5, and `-0.0` and `0.0` as two further rows, at 1…5 s; pusher at 40 s.
+**Steps:** Register each of `SUM(price)`, `MIN(price)`, `MAX(price)`, `AVG(price)`, `COUNT(price)` and
+`COUNT(DISTINCT price)` windowed.
+**Expected:** The first four refused with `PRV-2020` "SUM(price) is over a FLOAT64 column, and this
+engine's aggregates accumulate in 64-bit integers only… Cast the column to an integer if the rounding
+is acceptable — SUM(CAST(price AS BIGINT)) — or aggregate it outside the engine." `COUNT(price)` and
+`COUNT(DISTINCT price)` accepted. `COUNT(DISTINCT price)` over {1.5, 1.5, 2.5, −0.0, 0.0} reads the
+raw bit patterns: `1.5 → 0x3FF8000000000000`, `2.5 → 0x4004000000000000`, `0.0 → 0`,
+`−0.0 → 0x8000000000000000`. Distinct bit patterns: 4. SQL says `COUNT(DISTINCT price)` over those
+five values is **3**, because `−0.0 = 0.0`. Record the discrepancy — a distinct-count that
+distinguishes negative zero from zero.
+**Vacuity:** The `−0.0`/`0.0` pair must be in the data; without it the raw-bits path and a correct
+path agree.
+
+### WIN-207 — An aggregate over an expression inside a window
+**Intent:** `SUM(amount * 2)` becomes a `ComputeOperator` between the assigner and the aggregate, and
+`windowBelow` walks through it — a case added after "`SUM(amount * 2) … GROUP BY window_start,
+window_end` was refused as an unbounded aggregate: a correct-looking refusal for an entirely ordinary
+query."
+**Falsifier:** `PRV-2050` for a windowed query with a computed aggregate argument.
+**Setup:** `s0` bound to `a_plus.csv`.
+**Steps:** Register `SELECT window_start, window_end, user_id, SUM(amount * 2) AS total FROM TABLE(TUMBLE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) GROUP BY window_start, window_end, user_id` as `v_expr --keys 0,1,2`; `pravaha explain` it; read it.
+**Expected:** Accepted. `EXPLAIN` shows `WindowedAggregate` above a `Compute` above `WindowAssign`.
+Five rows, totals doubled from WIN-079: `[0,10)` user 100 `= (10 + 20) × 2 = 60`; `[0,10)` user 200
+`= 60`; `[10,20)` user 100 `= 80`; `[10,20)` user 200 `= 100`; `[20,30)` user 100 `= 120`.
+`SUM(total) = 60+60+80+100+120 = 420 = 2 × 210`, and 210 is the sum of dataset A's amounts.
+**Vacuity:** Defends against key collapse, and against the doubling being applied twice (`SUM(total)`
+would be 840) or not at all (210).
+
+### WIN-208 — `HAVING` on a windowed aggregate
+**Intent:** `HAVING` becomes a `Filter` above the aggregate, which is after the window has fired —
+so it filters results, not rows, and must not affect which windows close.
+**Falsifier:** A filtered-out group's absence changing another group's numbers, or a window not
+firing because everything in it was filtered.
+**Setup:** `s0` bound to `a_plus.csv`.
+**Steps:** Register `… COUNT(*) AS n … GROUP BY window_start, window_end, user_id HAVING COUNT(*) > 1`
+as `v_having --keys 0,1,2`; read it; compare with `v_t10p` from WIN-079.
+**Expected:** One row — `[0,10)` user 100 `n = 2` — out of WIN-079's five, because it is the only
+group with more than one row. The other four groups all have `n = 1`. Every window still fires; the
+filtering is above the aggregate and invisible to the window state.
+**Vacuity:** `v_t10p` must hold 5 rows in the same run, or "one row" is indistinguishable from a
+broken query.
+
+### WIN-209 — A windowed `GROUP BY` that omits the boundaries is refused with `PRV-2050`
+**Intent:** "Grouping by a windowed stream *without* putting `window_start` and `window_end` in the
+`GROUP BY` is refused too — that is the unbounded case wearing a window's clothes."
+`buildAggregate` calls `windowBoundaryOrdinals` and refuses when it returns null.
+**Falsifier:** Acceptance, or a different code.
+**Setup:** No server state needed — `validate`/`explain` take the schema on the command line: `--schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP"`.
+**Steps:** `pravaha validate --sql "SELECT user_id, COUNT(*) FROM TABLE(TUMBLE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) GROUP BY user_id" --schema "…"`.
+**Expected:** `PRV-2050` with "this GROUP BY is over a windowed stream but does not group by the
+window: add window_start and window_end to the GROUP BY. Without them the aggregate spans every
+window at once, which is the unbounded case wearing a window's clothes." Exactly the text
+`docs/SQL_SUPPORT.md` promises.
+**Vacuity:** Not stateful.
+
+### WIN-210 — `GROUP BY window_start` alone is accepted; `GROUP BY window_end` alone is refused
+**Intent:** `windowBoundaryOrdinals` returns null only when the **start** is missing from the group
+keys; a missing end is recovered by scanning the input schema by name. The two boundaries determine
+each other exactly, so the asymmetry is arbitrary — and the refusal message in WIN-209 asks for both,
+which is stricter than the rule the code enforces.
+**Falsifier:** Both accepted, or both refused (either would mean the asymmetry is gone).
+**Setup:** `s0` bound to `a_plus.csv`.
+**Steps:** (a) Register `SELECT window_start, user_id, COUNT(*) AS n FROM TABLE(TUMBLE(…)) GROUP BY
+window_start, user_id` as `v_startonly --keys 0,1`. (b) Register the same with `window_end` in place
+of `window_start` as `v_endonly --keys 0,1`. (c) `pravaha explain` both.
+**Expected:** (a) **Accepted.** `windowBoundaryOrdinals` finds `window_start` among the group keys and
+then finds `window_end` by name anywhere in the aggregate's input schema, so the operator gets both
+ordinals. The output has three columns — `window_start, user_id, n` — because "it emits one output
+column per group key, so a boundary that is not grouped is simply not emitted". Five rows, the same
+`n` values as WIN-079, with no `window_end` column. (b) **Refused** with `PRV-2050`, the WIN-209 text,
+because `start < 0`. Record the asymmetry as a defect of the message rather than of the rule: the
+refusal tells the user to add *both* boundaries, and adding only the start is sufficient while adding
+only the end is not, and nothing says so.
+**Vacuity:** (a) must produce 5 rows with `--keys 0,1`, which is the right key set for its
+three-column output; using `--keys 0,1,2` here would key on `n` and is a test error, not an engine
+one.
+
+---
+
+## Coverage note
+
+**Budget met exactly: 210 cases, WIN-001 to WIN-210**, in the ID range the index assigns. The
+distribution against the index's dimensions:
+
+| dimension | cases | section |
+|---|---|---|
+| Kind — TUMBLE | 12 | §1 |
+| Kind — HOP | 18 | §2 |
+| Kind — SESSION (blocked-by-syntax) | 12 | §3 |
+| Kind — CUMULATE (existence) | 8 | §4 |
+| Size — 100 ms, 1 s, 1 m, 1 h, 1 d | 20 | §5 |
+| HOP slide vs size — `<`, `=`, `>` | 20 | §6 |
+| Open windows at once — 1, 10, 100, 1000 | 12 | §7 |
+| Key cardinality × windows — 4 × 4 grid | 16 | §8 |
+| Row volume, and the 210k–230k blocker | 22 | §9 |
+| Boundary rows and half-open semantics | 18 | §10 |
+| Close triggers | 16 | §11 |
+| Empty windows | 8 | §12 |
+| Restart | 12 | §13 |
+| Aggregates in a window, and the refusals | 16 | §14 |
+| | **210** | |
+
+**Four things the brief asked for that the product cannot do, recorded as answers rather than as
+gaps:**
+
+1. **CUMULATE does not exist**, anywhere — not in `WindowSpec.Kind`, not in
+   `PhysicalPlanBuilder.isWindowFunction`, not in the documentation, not in any test. Calcite 1.40
+   parses it, so it is reachable and refused (WIN-043), and `docs/SQL_SUPPORT.md` has no row saying
+   so (WIN-045).
+2. **`slide > size` cannot be tested as a behaviour** — `WindowSpec`'s constructor refuses it, with a
+   message and no `PRV` code (WIN-085). WIN-086 proves by arithmetic what it is refusing: at size
+   10 s and slide 60 s, 50 of every 60 seconds belongs to no window.
+3. **Lane count is not a variable.** Every registered query runs on one lane, and a windowed
+   aggregate on more than one is refused outright (WIN-138). The brief's question "does the blocker
+   depend on lane count" has the answer "it cannot", and the arena in question is therefore one
+   lane's 4 MB × 8 slabs.
+4. **Idle-partition exclusion is not a close trigger for a windowed query** (WIN-161, WIN-163). A
+   windowed aggregate needs one stream, `filesystem` gives one partition per file, and a
+   stream-to-stream join cannot sit below a window. The minimum-across-partitions rule belongs
+   entirely to `TIME`.
+
+**Defects predicted from the source, each with a case that will confirm or refute it.** These were
+read out of the code while writing and are the reason several cases have an "expected, SQL" and an
+"expected, this engine" line:
+
+| finding | case |
+|---|---|
+| **Windowed `AVG` returns the SUM.** `case SUM, AVG -> Kind.SUM`, no division anywhere, and `SqlPlanner` runs no rule set so Calcite never reduces AVG | WIN-203, WIN-204 |
+| Windowed `COUNT(col)` counts NULLs | WIN-196 |
+| Windowed `MIN` over a column with a NULL returns 0 | WIN-200, WIN-201 |
+| Windowed `COUNT(DISTINCT col)` counts NULL as the value 0 | WIN-197 |
+| Windowed `SUM` over an all-NULL group returns 0 where SQL says NULL | WIN-199 |
+| A bare `TABLE(HOP(...))` with no aggregate emits **slice** boundaries and does not replicate the row into its windows | WIN-016 |
+| A group whose weights cancel to zero leaves its previous result standing, with no retraction | WIN-158 |
+| The last window of a bounded source never closes; `finish()` runs only at shutdown and what it produces is never committed | WIN-165, WIN-167, WIN-168 |
+| `QueryExecution.restore` has no production caller: no windowed state survives a restart | WIN-186 |
+| `lateRecords` and `corrections` are on no shipped surface | WIN-172 |
+| Allowed lateness is hard-wired to 0, so late-data correction is unreachable from SQL | WIN-173 |
+| Retention is 24 h and settable from no shipped surface; a 1 d window is evicted a window after it lands | WIN-068, WIN-069 |
+| Sub-millisecond intervals truncate to 0 and are refused as "not positive" | WIN-054 |
+| `emitted` grows one entry per fired window and is pruned only when a slice is also discarded | WIN-065, WIN-177 |
+| `fire()` scans the whole slice map once per slice — `O(slicesPerWindow × liveSlices)` per window | WIN-090 |
+| One row at event time 0 beside present-day rows walks every window since 1970 | WIN-070 |
+| `sliceStartFor` and the assigner's `sliceStart + sliceSize` both overflow silently at the ends of INT64 | WIN-151 |
+| `GROUP BY window_start` alone is accepted while `GROUP BY window_end` alone is refused, and the message asks for both | WIN-210 |
+| A lane that dies is not reported: `pravaha.query.running` reads the registration's state, not the lane's | WIN-129, WIN-137, WIN-139 |
+
+**On the blocker between 210k and 230k.** The report gives one mechanism ("a wrapped signed-32-bit
+arena offset"). Reading the code, four distinct things in this engine produce "stops making progress,
+no error", and three of them are not arena offsets: the slice ceiling (`PRV-3020`), the window walk
+(`windowsCompletedBetween` × `fire`'s nested scan), and a backpressure stall. WIN-137 gives each a
+distinguishing signature and WIN-140 bisects to a reproducible row number, because "between 210k and
+230k" is a 20,000-row interval and a defect is only fixed when its threshold is a number. Both
+`RowInbox` and `SpscRowRing` already guard their own 2 GB limits explicitly, and `ArenaHandle` packs
+a slab index and an offset that cannot exceed a 4 MB slab — so the literal reading of the report does
+not obviously correspond to code that exists on `develop` today, and WIN-137 is written to find out
+what does.
+
+**Execution order.** §0's setup, then §1 and §10 (they establish that the arithmetic is right at
+all), then §11 (because the close trigger determines what every other section can observe), then
+§14 (the aggregate defects are independent of volume and cheap to find), then §5–§8, then §9 and
+§13 last — §9's large files and §13's restarts are the slowest and the most likely to leave a server
+in a state the next case inherits.
