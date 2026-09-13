@@ -437,7 +437,28 @@ public final class ServedView {
             case FLOAT32 -> row.getFloat(ordinal);
             case FLOAT64 -> row.getDouble(ordinal);
             case STRING -> row.getString(ordinal);
-            default -> row.getString(ordinal);
+            case BYTES -> {
+                // Not getString. A BYTES column fell through to the string branch, and
+                // ArrowSchemas.write then cast that String to byte[] -- a ClassCastException on
+                // every non-null value, which passed only while the column was entirely NULL.
+                byte[] bytes = new byte[0];
+                com.ash.messaging.pravaha.api.data.MutableSlice slice =
+                        new com.ash.messaging.pravaha.api.data.MutableSlice();
+                row.getBytes(ordinal, slice);
+                if (!slice.isEmpty()) {
+                    bytes = row.getString(ordinal).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                }
+                yield bytes;
+            }
+            default ->
+                throw new PravahaException(
+                        ServingErrors.UNSUPPORTED_QUERY,
+                        "view '" + name + "' has a "
+                                + schema.field(ordinal).type().typeName() + " column ('"
+                                + schema.field(ordinal).name()
+                                + "'), which this engine cannot serve. Falling through to the string reader "
+                                + "produced a value of the wrong class at the wire, which surfaced as an "
+                                + "internal error rather than as this sentence.");
         };
     }
 

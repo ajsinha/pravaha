@@ -746,9 +746,11 @@ public final class QueryRegistry implements AutoCloseable {
      * the name is still holding it.
      */
     private static void requireSayableName(String name) {
-        if (!name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+        // Unicode letters, not ASCII only. My first version refused a name like 金额 that the
+        // planner resolves perfectly well -- a validation stricter than the thing it was protecting.
+        if (!name.matches("[\\p{L}_][\\p{L}\\p{N}_]*")) {
             throw new PravahaException(
-                    RegistryErrors.NAME_IN_USE,
+                    RegistryErrors.NAME_UNUSABLE,
                     "'" + name + "' cannot be used as a view name: a name is written in a FROM clause, so it "
                             + "must be a plain identifier -- a letter or underscore, then letters, digits or "
                             + "underscores.");
@@ -761,7 +763,7 @@ public final class QueryRegistry implements AutoCloseable {
                     .parseQuery();
         } catch (org.apache.calcite.sql.parser.SqlParseException | RuntimeException e) {
             throw new PravahaException(
-                    RegistryErrors.NAME_IN_USE,
+                    RegistryErrors.NAME_UNUSABLE,
                     "'" + name + "' is a reserved word in SQL, so no query could read the view. Choose a name "
                             + "that can appear in a FROM clause unquoted.");
         }

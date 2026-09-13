@@ -30,6 +30,15 @@ public final class RegistryErrors {
     /** A name is already taken by a different computation. */
     public static final ErrorCode NAME_IN_USE = new ErrorCode(8001, "REGISTRY_NAME_IN_USE");
 
+    /**
+     * A name cannot be used for a view, whatever else is true of it.
+     *
+     * <p>Distinct from {@link #NAME_IN_USE}, which it was first folded into. "already taken" and
+     * "cannot be a name at all" call for different actions, and a code that means both tells the
+     * reader neither.
+     */
+    public static final ErrorCode NAME_UNUSABLE = new ErrorCode(8008, "REGISTRY_NAME_UNUSABLE");
+
     /** No registered query answers to that name. */
     public static final ErrorCode NO_SUCH_QUERY = new ErrorCode(8002, "REGISTRY_NO_SUCH_QUERY");
 

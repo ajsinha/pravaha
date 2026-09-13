@@ -49,6 +49,15 @@ public final class JoinKeys {
      */
     public static void checkJoinable(StreamSchema schema, int ordinal, String side) {
         TypeName type = schema.field(ordinal).type().typeName();
+        if (type == TypeName.BYTES || type == TypeName.ARRAY || type == TypeName.MAP || type == TypeName.ROW) {
+            // Refused at planning rather than at the first row. These have no key encoding, so a
+            // query on such a column planned, reported RUNNING, and then died on the first row it
+            // received -- a failure that looks like a runtime fault rather than an unsupported one.
+            throw new PravahaException(
+                    RuntimeErrors.UNSUPPORTED_JOIN,
+                    "cannot join on '" + schema.field(ordinal).name() + "' (" + side + "): it is " + type
+                            + ", which has no key encoding in this engine. Join on a scalar column.");
+        }
         if (type == TypeName.FLOAT32 || type == TypeName.FLOAT64) {
             throw new PravahaException(
                     RuntimeErrors.UNSUPPORTED_JOIN,

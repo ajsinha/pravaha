@@ -542,7 +542,17 @@ public sealed interface Expression {
                 // -- banker's rounding -- so it made ROUND(2.5) into 2 and ROUND(-2.5) into -2,
                 // disagreeing with Calcite, Postgres, MySQL and Oracle. Every value it produced was
                 // plausible, which is why nobody notices until an invoice is out by a penny.
-                case ROUND -> Math.signum(value) * Math.floor(Math.abs(value) + 0.5);
+                // BigDecimal, not floor(abs(x)+0.5). That idiom -- mine -- is wrong three ways,
+                // each computed rather than guessed: ROUND(0.49999999999999994) gives 1.0 because
+                // 0.5-2^-54 + 0.5 ties up to exactly 1.0; ROUND(4503599627370497.0) changes a whole
+                // number because x+0.5 is unrepresentable above 2^52; and ROUND(-0.4) yields -0.0,
+                // which Double.compare says is less than zero.
+                case ROUND ->
+                    Double.isFinite(value)
+                            ? java.math.BigDecimal.valueOf(value)
+                                    .setScale(0, java.math.RoundingMode.HALF_UP)
+                                    .doubleValue()
+                            : value;
             };
         }
 

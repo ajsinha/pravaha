@@ -281,7 +281,10 @@ public final class QueryExecution implements AutoCloseable {
         }
         // One partition per pump, named so an idle one can be identified and excluded rather
         // than left holding the whole query's watermark down.
-        String partition = streamName + "#" + laneIndex + "/" + pumps.size() + partitionedPumps.size();
+        // Separated, because concatenating two integers made (1,0) and (10,anything) the same
+        // string -- and two partitions sharing a name means one silently replaces the other in the
+        // tracker, so the minimum-across-partitions rule is computed over the wrong set. Mine.
+        String partition = streamName + "#" + laneIndex + "/" + pumps.size() + ":" + partitionedPumps.size();
         // The stream's own lateness, not one number for the whole engine. A topic fed by
         // mobile clients and a scan of data already at rest have nothing in common here, and
         // whichever single value were chosen would be wrong for one of them.

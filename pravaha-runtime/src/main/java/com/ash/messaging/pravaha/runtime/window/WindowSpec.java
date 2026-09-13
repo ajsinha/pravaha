@@ -46,6 +46,11 @@ public record WindowSpec(Kind kind, long sizeNanos, long slideNanos) {
         if (sizeNanos <= 0) {
             throw new IllegalArgumentException("window size must be positive, got " + sizeNanos);
         }
+        if (kind != Kind.SESSION && slideNanos > sizeNanos) {
+            throw new IllegalArgumentException("a window slide of " + slideNanos + "ns is larger than the window "
+                    + "size of " + sizeNanos + "ns, which leaves gaps: rows falling between windows would "
+                    + "belong to none and be silently dropped. Use a slide no larger than the size.");
+        }
         if (kind != Kind.SESSION && slideNanos <= 0) {
             throw new IllegalArgumentException("window slide must be positive, got " + slideNanos);
         }

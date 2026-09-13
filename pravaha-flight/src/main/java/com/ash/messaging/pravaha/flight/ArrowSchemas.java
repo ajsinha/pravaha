@@ -107,7 +107,10 @@ final class ArrowSchemas {
             case DATE -> new ArrowType.Date(DateUnit.DAY);
             // Nanoseconds, because that is what the engine holds. Truncating here would throw away
             // precision the whole engine is built to preserve.
-            case TIME, TIMESTAMP_LTZ -> new ArrowType.Timestamp(TimeUnit.NANOSECOND, "UTC");
+            // Distinct Arrow types. Both mapped to a zoned timestamp, so a TIME column arrived at a
+            // client indistinguishable from an instant and a time of day could not be recovered.
+            case TIME -> new ArrowType.Time(TimeUnit.NANOSECOND, 64);
+            case TIMESTAMP_LTZ -> new ArrowType.Timestamp(TimeUnit.NANOSECOND, "UTC");
             default ->
                 throw new PravahaException(
                         FlightErrors.UNSUPPORTED_TYPE,
