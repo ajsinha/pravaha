@@ -2354,3 +2354,345 @@ subscriber` with `n >= 1`. The subscriber's received row count is strictly less 
 the difference is accounted for by the dropped batches.
 **Vacuity:** assert `rowsIn == 10_000` **and** `received < 10_000` **and** `n >= 1` together; any
 one of the three alone is satisfiable by a source that ran dry or a subscriber that kept up.
+
+### E. Prepared statements (API-161–171)
+
+The server keeps **nothing** between these calls: the handle carries the SQL and, once bound, the
+client's own Arrow IPC bytes. Every case here is also a case about what statelessness costs.
+
+## API-161 — `createPreparedStatement` returns both schemas before any value is bound
+**Intent:** the dataset schema lets a client lay out a grid while the user is still typing; the
+parameter schema tells it which types to send so it never has to guess.
+**Falsifier:** either schema absent; a parameter schema whose field count disagrees with the
+placeholders in the SQL; or a handle that does not decode.
+**Setup:** `H-FL`.
+**Steps:** `client.prepare("SELECT user_id, total FROM user_volume WHERE user_id = ? AND total > ?")`.
+**Expected:** one `Result`. `datasetSchema` has two fields (`user_id` Utf8, `total` Int(64)).
+`parameterSchema` has **two** fields named `param_1` and `param_2`, both `FieldType.nullable` (every
+parameter is nullable by construction — "a caller is allowed to bind NULL to any placeholder"), with
+types matching the inferred placeholder types. The handle decodes via `StatementHandle.decode` to
+version `1`, the original SQL, and no bound parameters.
+
+## API-162 — `createPreparedStatement` on SQL that will not plan
+**Intent:** preparation plans, so an invalid statement must fail here rather than at fetch.
+**Falsifier:** a handle being issued for SQL that cannot be planned.
+**Setup:** `H-FL`.
+**Steps:** prepare `SELECT nope FROM user_volume`, then `SELECT * FROM absent_view`, then `not sql
+at all`, then `""`.
+**Expected:** each fails through `listener.onError` with the engine's own code:
+`PRV-2002` → `INVALID_ARGUMENT` for the unknown column (message ending
+`. Known streams: [user_volume]`), likewise for the absent view, `PRV-2001` → `INVALID_ARGUMENT`
+for the nonsense and the empty string. No handle is returned in any of the four.
+
+## API-163 — `getFlightInfoPreparedStatement` re-plans from the handle
+**Intent:** the handle carries SQL, so this call plans again — which is what makes the second call
+able to reach a different node. It also means a policy change between `prepare` and `getFlightInfo`
+takes effect, since `queries.prepare(handle.sql(), principalOf(context))` re-authorizes.
+**Falsifier:** a cached plan being reused (visible as a revoked principal still getting a schema).
+**Setup:** `H-FLA`, dana prepares `SELECT user_id, tier, total FROM user_volume`.
+**Steps:** (1) dana calls `getFlightInfo` with the handle → expect success. (2) Replace the policy
+so dana is denied (rebuild the server, or use a policy whose answer depends on a flag), then call
+again with the **same** handle.
+**Expected:** (1) a `FlightInfo` whose schema matches API-161's dataset schema. (2)
+`UNAUTHORIZED` with `PRV-7002` — the handle does not carry an entitlement, so revocation is
+effective immediately. That is the property statelessness buys and it should be asserted, not
+assumed.
+
+## API-164 — `getStreamPreparedStatement` with nothing bound
+**Intent:** `handle.boundParameters()` empty → `BoundParameters.none()`. A statement with no
+placeholders must simply run.
+**Falsifier:** a refusal for the unbound case, or an empty result.
+**Setup:** `H-FL`; prepare `SELECT user_id, total FROM user_volume` (no placeholders).
+**Steps:** `getFlightInfo` with the handle, then `getStream` on its ticket.
+**Expected:** `3` rows, identical to API-148's — the prepared path and the plain path must return
+the same rows for the same SQL, and this is the assertion that keeps `emit` shared between them.
+
+## API-165 — `acceptPutPreparedStatementQuery` binds values and hands back an updated handle
+**Intent:** the DoPut on this transport binds **parameters, not data**. There is no ingest path
+here, and the mechanism that keeps the values on the client's side of the wire is the updated
+handle.
+**Falsifier:** the server retaining the values (visible as the original handle working for the
+fetch); or no `PutResult` metadata coming back.
+**Setup:** `H-FL`; prepare `SELECT user_id, total FROM user_volume WHERE user_id = ?`.
+**Steps:** bind one row with `user_id = 'u1'` via the stock client's
+`PreparedStatement.setParameters(root)` + `execute()`; capture the returned handle; then fetch.
+**Expected:** exactly one `PutResult` carrying a `DoPutPreparedStatementResult` whose
+`preparedStatementHandle` decodes to the **same SQL** and now carries non-empty
+`boundParameters`, byte-identical to the Arrow IPC the client wrote. The fetch on the updated handle
+returns `1` row, `u1|300`. The fetch on the **original** (unbound) handle returns `3` rows — proof
+the server stored nothing.
+
+## API-166 — parameter values are checked against the placeholders
+**Intent:** `ArrowParameters.decode` enforces three rules: at least one batch, exactly one row, and
+exactly as many columns as placeholders.
+**Falsifier:** a binding with the wrong arity being accepted and silently matching nothing.
+**Setup:** `H-FL`; prepare `SELECT user_id, total FROM user_volume WHERE user_id = ? AND total > ?`
+(two placeholders).
+**Steps:** bind, in turn: zero rows; two rows; one row with one column; one row with three columns;
+one row with two columns of the right types (control).
+**Expected:**
+- zero rows → `PRV-6102` `the bound parameters carried no rows` → `NOT_FOUND`.
+- two rows → `a binding must carry exactly one row of values and this one has 2. Binding several
+  rows means running the statement several times, which is a different call`.
+- one column → `this statement has 2 placeholders and 1 were bound`.
+- three columns → `this statement has 2 placeholders and 3 were bound`.
+- the control → rows returned. With `('u1', 100)`: `300 > 100` so `1` row; with `('u1', 1000)`:
+  `300 > 1000` false so `0` rows and one empty batch (API-151's n=0 line).
+
+## API-167 — a Utf8 parameter arrives as a `String`, not as Arrow's `Text`
+**Intent:** `normalise` exists because a `Text` is a `CharSequence` whose `equals` against a
+`String` is false — "a filter that matches nothing, with no error anywhere". The falsifier is
+silence, so the case must assert a **non-empty** result.
+**Falsifier:** zero rows for a binding that should match — which is exactly what the un-normalised
+code produced.
+**Setup:** `H-FL`; prepare `SELECT user_id, total FROM user_volume WHERE user_id = ?`.
+**Steps:** bind `'u1'`, `'u2'`, `'u3'`, and `'nope'` in four separate executions.
+**Expected:** `1`, `1`, `1` and `0` rows respectively — `u1|300`, `u2|50`, `u3|7`. The three
+non-empty results are the assertion; a build without `normalise` returns `0, 0, 0, 0` and would pass
+any test that only checked "no error".
+
+## API-168 — `closePreparedStatement` succeeds and the handle keeps working afterwards
+**Intent:** the method is an empty `onCompleted` — "there was never anything held" — so a closed
+handle is indistinguishable from an open one. A client that closes and then (wrongly) reuses gets
+rows rather than an error, and a client that never closes leaks nothing.
+**Falsifier:** `closePreparedStatement` returning an error; or a handle being refused after close
+(which would mean state was being held after all).
+**Setup:** `H-FL`; a bound handle from API-165.
+**Steps:** `close` the prepared statement, then `getFlightInfo` and `getStream` with the same handle
+bytes; then `close` the same handle a second time; then `close` a handle that was never issued
+(random bytes).
+**Expected:** every call succeeds. The post-close fetch returns the same `1` row as before the
+close. The double close succeeds. The close of a fabricated handle also succeeds — `closePreparedStatement`
+never decodes its argument, so it cannot refuse anything. Record that: it means a client cannot
+detect a handle mix-up by closing.
+
+## API-169 — a handle from another session, or another server
+**Intent:** statelessness means a handle is a bearer token for a **query**, not a session. Any
+principal holding the bytes can fetch with them — subject to re-authorization at fetch time, which
+is what makes it safe.
+**Falsifier:** a handle issued to dana being usable by sam **without** a fresh policy check; or a
+handle being rejected purely because a different connection issued it (which would mean hidden
+state).
+**Setup:** `H-FLA`. Dana prepares `SELECT user_id, tier, total FROM user_volume` and the handle
+bytes are copied out.
+**Steps:** (1) a second connection, also as dana, fetches with the handle. (2) sam fetches with
+dana's handle. (3) ravi fetches with dana's handle. (4) an unauthenticated connection fetches with
+it.
+**Expected:** (1) `3` rows — handles are portable across connections by design. (2)
+`UNAUTHORIZED` (`PRV-7002`) — `getStreamPreparedStatement` calls `queries.prepare(handle.sql(),
+principalOf(context))`, so the policy runs on the fetching principal, not the issuing one. (3) `1`
+row (`u1|gold|300`), ravi's row filter applied to the re-planned statement. (4)
+`UNAUTHENTICATED`. The handle confers no authority; it only names a query.
+
+## API-170 — a malformed, truncated or future-version handle
+**Intent:** `StatementHandle.decode` bounds-checks every read and answers `PRV-6102`, which maps to
+`NOT_FOUND` precisely so the client's move is "prepare the statement again".
+**Falsifier:** an exception with an index in it; or a handle with a negative length being acted on.
+**Setup:** `H-FL`.
+**Steps:** `getFlightInfoPreparedStatement` with each of: 0 bytes; 1 byte (`0x01`); a valid handle
+truncated at 6 bytes; a valid handle with the version byte set to `2`; a valid handle with the SQL
+length set to `-1`; the same with the SQL length set past the end; a valid handle with 4 trailing
+junk bytes.
+**Expected:** version `2` → `NOT_FOUND` with `this handle was issued by a different version of the
+server; prepare the statement again`. Every other malformed input → `NOT_FOUND` with
+`this prepared-statement handle is malformed`. None produces `INTERNAL`, and none produces a stack
+trace in the description. The trailing-junk case is the interesting one: the decoder reads the
+declared lengths and ignores the remainder, so it is expected to **succeed** — record it, because a
+handle that decodes with unread bytes left over is a place where a future field would be
+silently dropped.
+
+## API-171 — a binding larger than the 1 MiB ceiling
+**Intent:** `MAX_PARAMETER_BYTES = 1 << 20 = 1_048_576`, enforced in `boundTo`, because the handle
+travels on every call that uses it and a large binding is paid for repeatedly.
+**Falsifier:** a 2 MiB binding being accepted; or the ceiling being enforced somewhere the message
+does not explain.
+**Setup:** `H-FL`; prepare `SELECT user_id, total FROM user_volume WHERE user_id = ?`.
+**Steps:** bind a single Utf8 value of length 1024 (control); then 1_048_000 bytes (just under);
+then 2_097_152 bytes (twice the ceiling).
+**Expected:** the control and the just-under binding succeed — the IPC envelope adds a few hundred
+bytes, so a payload of `1_048_000` may or may not cross `1_048_576`; record the exact encoded size
+from the error message when it does. The 2 MiB binding fails with `PRV-6103`
+(`FLIGHT_PARAMETERS_TOO_LARGE`) whose message states the actual byte count and the ceiling and
+recommends sending the values as data. `PRV-6103` is not in `statusFor`'s table, so the client sees
+`INVALID_ARGUMENT` — correct here, and worth recording next to `PRV-6102`'s `NOT_FOUND`.
+
+### F. Flight SQL's catalog and metadata commands (API-172–177)
+
+`PravahaFlightSqlProducer` extends `BasicFlightSqlProducer`, which **implements `getFlightInfo` for
+every metadata command** and leaves every corresponding `getStream*` to `NoOpFlightSqlProducer`,
+which throws `UNIMPLEMENTED`. So metadata discovery appears to work and then fails at fetch. These
+six cases enumerate that, because a JDBC or ADBC client issues these calls unprompted.
+
+## API-172 — `getSqlInfo`
+**Intent:** the first call many Flight SQL clients make at connect time, to learn what the server
+supports.
+**Falsifier:** `getFlightInfo` failing (which would at least be honest), or `getStream` succeeding
+(which would mean it was implemented).
+**Setup:** `H-FL`.
+**Steps:** `client.getSqlInfo()` → returns a `FlightInfo`; then `client.getStream(ticket)`.
+**Expected:** `getFlightInfo` succeeds with `Schemas.GET_SQL_INFO_SCHEMA` and one endpoint;
+`getStream` throws `UNIMPLEMENTED` with the description `Not implemented.` Record the sequence: a
+client is told a stream exists and then refused it.
+
+## API-173 — `getCatalogs` and `getDbSchemas`
+**Intent:** the two calls a JDBC browser makes to populate a tree.
+**Falsifier:** either `getStream` returning rows (retire the case), or `getFlightInfo` throwing.
+**Setup:** `H-FL`.
+**Steps:** `client.getCatalogs()` then `getStream`; `client.getSchemas(null, null)` then `getStream`.
+**Expected:** both `getFlightInfo` calls return a `FlightInfo` with the standard schema
+(`GET_CATALOGS_SCHEMA`, `GET_SCHEMAS_SCHEMA`); both `getStream` calls throw `UNIMPLEMENTED`
+(`Not implemented.`). An empty result set would be a better answer than a refusal and is the obvious
+fix; note it.
+
+## API-174 — `getTables` and `getTableTypes`
+**Intent:** the calls that would list `user_volume` if this server answered them — which is the one
+place where implementing the metadata path would actually surface the view catalogue.
+**Falsifier:** `getTables(includeSchema = true)` and `(false)` behaving identically at
+`getFlightInfo` (they must return different schemas), or either `getStream` succeeding.
+**Setup:** `H-FL`.
+**Steps:** `client.getTables(null, null, null, null, false)` and the same with `true`; then
+`getStream` on each; then `client.getTableTypes()` and `getStream`.
+**Expected:** `includeSchema=false` → `GET_TABLES_SCHEMA_NO_SCHEMA`; `includeSchema=true` →
+`GET_TABLES_SCHEMA` (one extra binary `table_schema` column) — the two differ, which proves the
+`BasicFlightSqlProducer` branch runs. All three `getStream` calls throw `UNIMPLEMENTED`. So a client
+cannot discover `user_volume` through the standard catalogue; the only listing is
+`pravaha.list`, which is a Pravaha-specific action.
+
+## API-175 — the key-metadata commands
+**Intent:** four commands with no meaning for a streaming view, enumerated so the answer is uniform.
+**Falsifier:** any of them answering with rows, or any of them failing at `getFlightInfo` while the
+others fail at `getStream` — an inconsistency a client would trip over.
+**Setup:** `H-FL`.
+**Steps:** `getPrimaryKeys`, `getExportedKeys`, `getImportedKeys`, `getCrossReference`, each
+followed by `getStream`.
+**Expected:** all four `getFlightInfo` calls succeed with their standard schemas; all four
+`getStream` calls throw `UNIMPLEMENTED` with `Not implemented.` Four for four, no exceptions.
+
+## API-176 — `getXdbcTypeInfo`
+**Intent:** the type catalogue a driver uses to map SQL types. Pravaha has sixteen types and a
+documented Arrow mapping (`ArrowSchemas.arrowTypeOf`), so this is the one metadata command with a
+real answer available.
+**Falsifier:** `getStream` succeeding but returning a type list that disagrees with
+`ArrowSchemas.arrowTypeOf` — a wrong answer being worse than none.
+**Setup:** `H-FL`.
+**Steps:** `client.getXdbcTypeInfo()` then `getStream`; also the filtered form for one data type.
+**Expected:** `getFlightInfo` succeeds with `GET_TYPE_INFO_SCHEMA`; `getStream` throws
+`UNIMPLEMENTED`. If it ever returns rows, assert every entry against the sixteen types and
+their Arrow forms — `BOOLEAN→Bool`, `INT8/16/32/64→Int(n, signed)`, `FLOAT32→FloatingPoint(SINGLE)`,
+`FLOAT64→FloatingPoint(DOUBLE)`, `STRING→Utf8`, `BYTES→Binary`, `DATE→Date(DAY)`,
+`TIME`/`TIMESTAMP_LTZ→Timestamp(NANOSECOND, "UTC")`, and the types `arrowTypeOf` refuses with
+`PRV-6100`.
+
+## API-177 — what a stock JDBC/ADBC client does on connect, end to end
+**Intent:** the composite of API-172–176, from the client the protocol was chosen for. ADR-030's
+whole argument is that the clients are somebody else's work; this case checks that argument.
+**Falsifier:** the JDBC driver failing to establish a connection at all, or `DatabaseMetaData`
+throwing where a Flight SQL server is expected to answer.
+**Setup:** `H-FL`, plus the Arrow Flight SQL JDBC driver at the same Arrow version (19.0.0), URL
+`jdbc:arrow-flight-sql://localhost:<port>/?useEncryption=false`.
+**Steps:** open a connection; call `DatabaseMetaData.getDatabaseProductName()`, `getTables(...)`,
+`getTypeInfo()`; then `Statement.executeQuery("SELECT user_id, total FROM user_volume")` and read
+the rows; then the same through a `PreparedStatement` with one parameter.
+**Expected:** the connection opens, and the two **query** paths return `3` rows and `1` row
+respectively — the paths Pravaha implements work through an unmodified third-party driver, which is
+the claim being tested. The three `DatabaseMetaData` calls fail or return empty; record exactly
+which, because a tool that calls `getTables` before allowing a query (most SQL IDEs do) is unusable
+against this server, and that is a product finding rather than a bug in a case.
+
+### G. Concurrency and disclosure (API-178–180)
+
+## API-178 — concurrent calls of every kind against one server
+**Intent:** the producer holds no per-call state except the allocator and the registry, and both are
+shared. This is the case that would find a `VectorSchemaRoot` reused across threads or a registry
+map mutated during iteration.
+**Falsifier:** any `INTERNAL` status; any batch containing another caller's rows; any
+`ConcurrentModificationException`; any allocator leak at the end.
+**Setup:** `H-FLR` with `q_alpha`, `q_beta`, `q_gamma`, a view of 10 000 rows, and a steady feed.
+**Steps:** for 60 s, run concurrently: 8 threads issuing `execute` + `getStream` on the 10 000-row
+view; 4 threads doing `prepare` + bind + fetch; 2 threads calling `pravaha.list` in a loop; 1
+thread cycling `pravaha.pause`/`pravaha.resume` on `q_beta`; 2 long-lived subscribers on `q_alpha`;
+1 thread registering and dropping `q_tmp_<n>` repeatedly.
+**Expected:** every read returns exactly `10_000` rows (`2 × 4096 + 1808`, i.e. three batches);
+every `pravaha.list` returns a well-formed 5-field result per registered name; the pause/resume
+cycle never yields a state other than `PAUSED`/`RUNNING`; the subscribers receive only `q_alpha`'s
+rows. Afterwards: `allocator.getAllocatedMemory()` returns to its pre-run value, and the registry
+holds exactly the three original names.
+**Vacuity:** the exact row count per read is the assertion — "no exception was thrown" would pass
+against a server that returned short results under contention, which is the failure mode this
+arrangement actually produces.
+
+## API-179 — the subscription path prints debug lines to the server's stdout
+**Intent:** `streamSubscription` contains two `System.out.println("SRVDBG …")` calls — one per
+subscription start, one **per batch written** — carrying the view name, an identity hash and a batch
+size. On a busy node that is one stdout write per commit per subscriber, in the path the design
+says must not be slowed, and it goes to a container's log stream rather than the logger.
+**Falsifier:** no `SRVDBG` line appearing (it was removed — retire the case).
+**Setup:** `H-FLR`, server stdout captured to a file.
+**Steps:** attach one subscriber to `q_beta`; commit 1 000 batches; count `SRVDBG` lines; then
+attach 10 subscribers and repeat.
+**Expected:** `1` start line plus `1_000` write lines for the single subscriber, and
+`10 + 10_000 = 10_010` lines for ten — the count grows with commits × subscribers. The lines are on
+**stdout**, not through SLF4J, so no log level suppresses them. Measure the commit-to-delivery
+latency with the prints present and with stdout redirected to `/dev/null`, and record the
+difference.
+
+## API-180 — the filtered `LIST` is undone by the error messages
+**Intent:** the disclosure the brief names, assembled in one case. `pravaha.list` deliberately
+filters by `mayRead` so "a principal sees the queries they could read, and does not learn that the
+others exist". But three messages enumerate everything, to anyone who can reach them:
+`PRV-8002` from `QueryRegistry.require` appends `this node has [every name]`; `PRV-2002` from
+`SqlPlanner.plan` appends `. Known streams: [every view]`; `PRV-4023` from `ViewQuery.execute`
+appends `this server serves [every view]`. And on the subscription path `require()` runs **before**
+`mayRead`, so the disclosure precedes the authorization that was supposed to prevent it.
+**Falsifier:** any of the three messages returning a policy-filtered list. That is the fix, and this
+case is written so the fix is what makes it pass.
+**Setup:** `H-FLA` with three registrations and a view per registration; called as **sam**, who
+`pravaha.list` correctly shows nothing (API-140).
+**Steps:** as sam, in one session:
+1. `doAction("pravaha.list", …)` — record the names returned.
+2. `getStream(subscribeTicket("aaaa", List.of()))` — record the error description.
+3. `execute("SELECT * FROM aaaa")` — record the error description.
+4. `doAction("pravaha.drop", ControlWire.encode("aaaa"))` — record the error description.
+**Expected:**
+- step 1 returns **zero** names. `0` of `3`.
+- step 2 returns `INVALID_ARGUMENT` with `no query named 'aaaa' is registered; this node has
+  [q_alpha, q_beta, q_gamma]` — **all three names**, to the principal step 1 correctly told nothing.
+- step 3 returns `INVALID_ARGUMENT` with `PRV-2002 … . Known streams: [<every view>]`.
+- step 4 returns `UNAUTHORIZED` with `PRV-7002` and **no** name list — because
+  `requireAdministrable` runs before `required.drop`, so the drop verb is the one that does not
+  leak. That contrast is the proof that the ordering is the mechanism: the same registry lookup
+  discloses or does not depending on whether the authorization check precedes it.
+**Vacuity:** step 1's empty listing is asserted in the same run as steps 2 and 3, so the case cannot
+pass by the node simply having nothing registered — and dana's listing of three in the same session
+confirms the three exist.
+
+---
+
+## Coverage note
+
+Budget 180, written 180, numbered `API-001`–`API-180` with no gaps: CLI `001`–`075` (75), REST
+`076`–`125` (50), Flight and Flight SQL `126`–`180` (55), which matches the split the brief asked
+for.
+
+Three things the wave that executes this should know.
+
+**The CLI's `--help` is nine cases because it is nine behaviours.** API-009–017 look repetitive and
+are not: `isHelp` is consulted for `args[0]` only, so six commands report a missing required option,
+`queries` opens a network connection, `version` prints the version, and only the top-level form
+helps. One fix changes all nine expectations at once, which is exactly why each is written down.
+
+**Several cases pin behaviour that is wrong.** API-021 (a `--sql` value beginning with `--` becomes
+the string `true`), API-063 (`pauseped`, `resumeped`), API-080 (201 against a lock file that says
+200), API-097 (a caller's typo returned as HTTP 500), API-099 (a missing resource returned as 400),
+API-123 (an error code outside every category makes the error handler throw), API-142 (an array
+index reaching a client), API-149 (`getSchema` unimplemented while `getFlightInfo` answers),
+API-150 (Arrow says nullable where REST says not null), API-179 (`SRVDBG` on stdout) and API-180
+(the disclosure) are written to **record the current answer** so that a fix shows up as a diff in
+this file. They are not assertions that the current answer is right.
+
+**Three cases need a second body of work to be conclusive.** API-092 and API-174/177 depend on a
+stock third-party client and on Tomcat defaults this repository does not set; API-109 (the
+`OPEN_PREFIXES` prefix match) needs a route to exist beyond one of the five prefixes before it can
+be more than a probe — today every probe is expected to 404, and the case's value is that it will
+stop being a 404 the moment someone adds a path under `/api/docs…` or `/actuator/health…`. If that
+never happens the case stays cheap; if it does, it is the one that catches it.
