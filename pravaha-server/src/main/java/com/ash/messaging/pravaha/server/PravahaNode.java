@@ -21,7 +21,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -403,7 +402,7 @@ public class PravahaNode implements SmartLifecycle {
 
         journalPath.ifPresent(path -> {
             registry.journalTo(new RegistryJournal(path));
-            QueryRegistry.Recovery recovery = registry.recover(PravahaNode::principalNamed);
+            QueryRegistry.Recovery recovery = registry.recover(this::principalNamed);
             log.info(
                     "registry recovered {} of {} queries from {}",
                     recovery.recovered().size(),
@@ -492,10 +491,24 @@ public class PravahaNode implements SmartLifecycle {
      * everything as an administrator. A deployment with a real directory should replace this, which
      * is why recovery takes the resolver as an argument rather than doing it itself.
      */
-    private static Optional<Principal> principalNamed(String id) {
-        return id == null || id.isBlank()
-                ? Optional.empty()
-                : Optional.of(new Principal(id, "unknown", Set.of(), java.util.Map.of()));
+    private Optional<Principal> principalNamed(String id) {
+        if (id == null || id.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<Principal> configured = security.principalFor(id);
+        if (configured.isPresent()) {
+            return configured;
+        }
+        if (security.authenticates()) {
+            // An owner this node cannot identify is one whose entitlements it cannot check, so the
+            // registration is refused and named in the recovery report rather than resurrected under
+            // an invented identity. Refusing is visible; inventing is not.
+            return Optional.empty();
+        }
+        // No identity source configured at all, so there is nothing to reconstruct from and nothing
+        // that could be checked against it either. The anonymous principal is honest about that,
+        // where a fabricated one with a made-up tenant was not.
+        return Optional.of(Principal.ANONYMOUS);
     }
 
     /** For a status endpoint: what this node is currently doing. */

@@ -113,7 +113,7 @@ public final class SlicedWindows {
         // it is called out here rather than quietly deleted.
         long firstEnd =
                 Math.floorDiv(previousWatermarkNanos, spec.slideNanos()) * spec.slideNanos() + spec.slideNanos();
-        for (long end = firstEnd; end <= watermarkNanos; end += spec.slideNanos()) {
+        for (long end = firstEnd; end < watermarkNanos; end += spec.slideNanos()) {
             ends.add(end);
         }
         return ends;

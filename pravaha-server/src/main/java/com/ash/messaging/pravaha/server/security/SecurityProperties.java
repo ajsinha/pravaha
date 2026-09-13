@@ -161,6 +161,34 @@ public class SecurityProperties {
         return verifier;
     }
 
+    /**
+     * The configured identity with this id, if one is configured.
+     *
+     * <p>For journal recovery, which has only the owner's id and must reconstruct the identity the
+     * registration was made under. The node used to fabricate one -- a role-less principal in tenant
+     * "unknown" -- which any policy that inspects either correctly refused, so no query survived a
+     * restart on a secured node. Fabricating an identity is the wrong failure: it either grants
+     * authority nobody conferred, or, as here, silently denies everything.
+     *
+     * <p>Empty when the id is unknown here. The caller must then refuse the recovery rather than
+     * invent a principal, because an owner this node cannot identify is one whose entitlements it
+     * cannot check.
+     */
+    public java.util.Optional<Principal> principalFor(String id) {
+        if (id == null || id.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        for (Map.Entry<String, TokenSpec> entry : tokens.entrySet()) {
+            TokenSpec spec = entry.getValue();
+            String configured = spec.getId() == null ? entry.getKey() : spec.getId();
+            if (id.equals(configured)) {
+                return java.util.Optional.of(
+                        new Principal(configured, spec.getTenant(), new LinkedHashSet<>(spec.getRoles()), Map.of()));
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
     /** One credential and the identity it stands for. */
     public static class TokenSpec {
 

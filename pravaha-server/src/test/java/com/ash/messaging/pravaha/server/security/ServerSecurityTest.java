@@ -229,4 +229,32 @@ class ServerSecurityTest {
         persistence.getRegistry().setJournal(journal == null ? "" : journal);
         return persistence;
     }
+
+    @Test
+    void recoveryReconstructsTheConfiguredIdentityRatherThanInventingOne() {
+        // The journal records an owner id and nothing else, so recovery has to resolve it. The node
+        // fabricated instead: a role-less principal in tenant "unknown", which any policy that
+        // inspects either correctly refused -- so on a secured node no query survived a restart, and
+        // the re-authorization that recovery does right was the thing that made it fail.
+        SecurityProperties security = new SecurityProperties();
+        security.setAuthentication("token");
+        SecurityProperties.TokenSpec ann = new SecurityProperties.TokenSpec();
+        ann.setId("ann");
+        ann.setTenant("acme");
+        ann.setRoles(List.of("reader"));
+        security.setTokens(Map.of("a-token", ann));
+
+        assertThat(security.principalFor("ann"))
+                .as("the identity the registration was made under, reconstructed")
+                .hasValueSatisfying(principal -> {
+                    assertThat(principal.id()).isEqualTo("ann");
+                    assertThat(principal.tenant()).isEqualTo("acme");
+                    assertThat(principal.hasRole("reader")).isTrue();
+                });
+
+        assertThat(security.principalFor("nobody"))
+                .as("an owner this node cannot identify must not be resurrected under an invented "
+                        + "identity: refusing is visible, inventing is not")
+                .isEmpty();
+    }
 }

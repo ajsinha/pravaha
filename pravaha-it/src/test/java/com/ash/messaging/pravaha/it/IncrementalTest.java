@@ -325,11 +325,19 @@ class IncrementalTest {
                 Thread.sleep(10);
             }
             assertThat(query.rowsIn()).isEqualTo(20);
-            query.commit();
-            query.commit();
-            List<Object[]> rows =
-                    new ViewQuery(views).execute("SELECT * FROM n").rows();
-            assertThat(rows).hasSize(1);
+            // Commit until it has published rather than guessing how many passes that takes: the
+            // emission runs on the lane's thread and the commit picks it up on the next pass.
+            List<Object[]> rows = List.of();
+            for (int pass = 0; pass < 50 && rows.isEmpty(); pass++) {
+                query.commit();
+                rows = new ViewQuery(views).execute("SELECT * FROM n").rows();
+                if (rows.isEmpty()) {
+                    Thread.sleep(20);
+                }
+            }
+            assertThat(rows)
+                    .as("a continuous global aggregate must publish, not sit at RUNNING for ever")
+                    .hasSize(1);
             assertThat(rows.get(0)[0]).isEqualTo(20L);
             assertThat(rows.get(0)[1]).isEqualTo(210L); // 1 + 2 + ... + 20 = 20 * 21 / 2
         }
