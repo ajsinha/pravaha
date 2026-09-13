@@ -514,8 +514,9 @@ is the point.
 **Setup:** `H-REG`, `interval=1h`. Register `Q` and `q` with different SQL.
 **Steps:** 1. Register both. 2. `Files.list(root).count()`. 3. Force a checkpoint on each by calling
 `checkpointNow()` on each query's checkpointer. 4. List each directory.
-**Expected (Linux, ext4/xfs):** step 2 is `2`. Step 4: `Q/checkpoint-1.bin` and `q/checkpoint-1.bin`,
-independent id sequences. **Expected (macOS APFS default, Windows NTFS):** step 2 is `1`. Step 3's
+**Expected:** **on a case-sensitive filesystem (Linux, ext4/xfs)** — step 2 is `2`; step 4 shows
+`Q/checkpoint-1.bin` and `q/checkpoint-1.bin` with independent id sequences.
+**On a case-insensitive one (macOS APFS default, Windows NTFS)** — step 2 is `1`. Step 3's
 second `checkpointNow()` writes `checkpoint-1.bin` into the same directory as the first and its
 `store` call **replaces** it (`StandardCopyOption.REPLACE_EXISTING`, `FileCheckpointStore.java:107`),
 so one computation's checkpoint is silently overwritten by the other's. Record which platform was
@@ -1295,7 +1296,7 @@ engine" — seven tags, and the values are account numbers and customer ids, whi
 `null`, `new byte[]{1,2,-1}`, `42L`, `42`, `(short) 42`, `3.5d`, `3.5f`, `Boolean.TRUE`,
 `Boolean.FALSE`, `"hello"`, `""`, `"i:12"`, `"x:y"`, a 64 KiB string.
 **Steps:** 1. Read the raw encodings from the file. 2. Replay and compare each decoded value.
-**Expected, encoding then decoding:**
+**Expected:** encoding then decoding —
 
 | in | encoded | decoded | type |
 |---|---|---|---|
