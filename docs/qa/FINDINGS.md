@@ -542,3 +542,74 @@ internal schema name and no code. A NULL-keyed left row in a LEFT join is never 
 as SQL requires, and nothing counts it. Retention is 24 hours and settable from nowhere, so a
 one-day window is evicted one window after it lands. Sub-millisecond intervals truncate to zero and
 are refused as "not positive".
+
+---
+
+# Types and expressions — 150 cases, and six of sixteen types that cannot be declared
+
+## Y-1 (BLOCKER) — only 10 of the 16 types can be declared from any configured surface
+
+`FilesystemSourcePlugin.typeFor` is the parser behind **all four** schema surfaces —
+`pravaha.streams.*.schema`, `POST /api/v1/streams`, `--schema` and `--out-schema` — and it has no
+case for **DECIMAL, DATE, TIME, ARRAY, MAP or ROW**. Every line handling those types in
+`TypeMapping`, `JoinKeys`, `ArrowSchemas` and `BinaryRowWriter` is dead code from a configured node's
+point of view.
+
+ARRAY, MAP and ROW map to Calcite's `ANY`, whose inverse throws a bare `IllegalArgumentException`
+naming a class — the dishonest refusal. A nested column can be `IS NULL`-tested but never selected.
+
+## Y-2 (HIGH) — a live `ClassCastException` on every non-null BYTES value over Flight
+
+`ServedView.value` ends `default -> row.getString(ordinal)`. For BYTES that produces a `String`,
+which `ArrowSchemas.write` then casts to `byte[]`. It succeeds only while the column is entirely
+NULL. For DECIMAL the same default reads the 16-byte slot as an `(offset, length)` pair — currently
+masked by the refusal one layer up.
+
+## Y-3 (HIGH) — the engine will group by a value it refuses to add
+
+`GROUP BY f64` is accepted while `SUM(f64)` is refused. And `JoinKeys.checkJoinable` guards only
+FLOAT32/FLOAT64/DECIMAL, so a **BYTES join key plans, reports RUNNING, and dies on the first row**.
+
+`ArrowSchemas` maps TIME and TIMESTAMP_LTZ to the same Arrow type, so a client cannot recover a time
+of day.
+
+## Y-4 — my ROUND fix, computed to the bit
+
+The agent did the floating-point arithmetic rather than asserting:
+
+- `ROUND(0.49999999999999994)` = **1.0**, because `0.5 − 2⁻⁵⁴ + 0.5` ties-to-even up to exactly 1.0.
+- `ROUND(4503599627370497.0)` = **4503599627370498.0**, because `x + 0.5` is unrepresentable above
+  2⁵² and ties to even — while the same value as INT64 rounds to itself.
+- `ROUND(-0.4)` yields **`-0.0`**, and `Double.compare(-0.0, 0.0)` is −1, so it may not compare equal
+  to zero.
+
+`BigDecimal.setScale(0, HALF_UP)` — named in the original report, which I did not use — has none of
+these.
+
+## Y-5 — two refusal messages of mine that give advice the engine rejects
+
+- **`||`'s refusal recommends `CAST(… AS VARCHAR)`, which the engine also refuses.** I wrote that
+  message this morning.
+- **`a * 2.5` over a BIGINT column is refused as "DECIMAL arithmetic"** while `x * 2.5` over a DOUBLE
+  is not. Neither query mentions decimals.
+
+Verified the other way, and worth recording: the float-aggregate refusal's advice —
+`SUM(CAST(price AS BIGINT))` — **does** work, at a cost of 27 versus 27.7 on the fixture.
+
+## Y-6 — `LIKE` and `SUBSTRING` disagree about the length of a string
+
+`LIKE`'s `_` counts UTF-16 units; `SUBSTRING` counts code points. The two give different answers for
+`👍ok`. Both are mine, from the same day's work — I made `SUBSTRING` code-point-correct and left
+`LIKE` on the regex default.
+
+## Y-7 — an operational note for the execution wave
+
+TYPE-030 (the `TIMESTAMP`-literal `AssertionError`) must run **last, or on an isolated node**: it
+kills a Flight worker thread, so anything scheduled after it on that node is invalidated and will
+present as unrelated failures.
+
+## Y-8 — the honest coverage gap, named by the author
+
+The budget is short by about a third — the honest cost of this grid is ~215 cases — and the largest
+untested area is **the code-generated path**, which shares the IR but not the interpreter and would
+pass every case in this file while disagreeing on a narrow integer or on `-0.0`.
