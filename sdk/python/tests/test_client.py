@@ -24,7 +24,7 @@ import pytest
 pyarrow = pytest.importorskip("pyarrow", reason="the transport needs the 'flight' extra")
 
 from pravaha import connect  # noqa: E402
-from pravaha.client import QueryError, ReadError  # noqa: E402
+from pravaha.client import QueryError, ReadError, _weighted_rows_of  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 FLIGHT_CLASSES = REPO_ROOT / "pravaha-flight" / "target" / "test-classes"
@@ -304,6 +304,59 @@ def test_a_subscription_can_be_opened_and_filtered(client):
         stream.close()
     finally:
         client.drop("py_sub")
+
+
+def _subscription_batch(rows, *, weighted=True):
+    """An Arrow batch shaped exactly as the server sends one for a subscription."""
+    import pyarrow as pa
+
+    fields = [
+        pa.field("trade_id", pa.string()),
+        pa.field("product_type", pa.string()),
+    ]
+    arrays = [
+        pa.array([r[0] for r in rows]),
+        pa.array([r[1] for r in rows]),
+    ]
+    if weighted:
+        fields.append(
+            pa.field("_pravaha_weight", pa.int64(), nullable=False,
+                     metadata={b"pravaha.weight": b"true"})
+        )
+        arrays.append(pa.array([r[2] for r in rows], type=pa.int64()))
+    return pa.Table.from_arrays(arrays, schema=pa.schema(fields))
+
+
+def test_a_retraction_arrives_as_a_retraction():
+    """The weight decoded off the wire, which is what tells a correction from a copy.
+
+    A retraction carries identical bytes in every column the view selected. A consumer
+    keeping its own total that could not see the weight would apply the correction as a
+    second copy of the value being corrected, and drift from the view permanently.
+    """
+    rows = _weighted_rows_of(_subscription_batch([("T-1", "SWAP", 1), ("T-1", "SWAP", -1)]))
+
+    assert [r.weight for r in rows] == [1, -1]
+    assert [r.is_retraction for r in rows] == [False, True]
+
+
+def test_the_weight_column_is_not_mistaken_for_one_of_the_views_own():
+    rows = _weighted_rows_of(_subscription_batch([("T-1", "SWAP", 1)]))
+
+    assert list(rows[0].columns) == ["trade_id", "product_type"]
+    assert rows[0].to_dict() == {"trade_id": "T-1", "product_type": "SWAP"}
+    # Positional reads have to stay positional: a caller reading row[1] must get the
+    # view's second column, not the engine's bookkeeping.
+    assert rows[0][1] == "SWAP"
+
+
+def test_an_unweighted_batch_reads_as_every_row_present():
+    """A server that sends no weight column is read as all inserts rather than refused."""
+    rows = _weighted_rows_of(_subscription_batch([("T-1", "SWAP")], weighted=False))
+
+    assert rows[0].weight == 1
+    assert rows[0].is_retraction is False
+    assert list(rows[0].columns) == ["trade_id", "product_type"]
 
 
 def test_a_filter_naming_an_unknown_column_is_refused(client):

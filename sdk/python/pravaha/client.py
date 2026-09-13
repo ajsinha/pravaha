@@ -86,11 +86,14 @@ class Row:
     anybody who cares.
     """
 
-    __slots__ = ("_columns", "_values")
+    __slots__ = ("_columns", "_values", "_weight")
 
-    def __init__(self, columns: Sequence[str], values: Sequence[Any]) -> None:
+    def __init__(
+        self, columns: Sequence[str], values: Sequence[Any], weight: int = 1
+    ) -> None:
         self._columns = columns
         self._values = values
+        self._weight = weight
 
     def __getitem__(self, key: Any) -> Any:
         if isinstance(key, int):
@@ -116,6 +119,26 @@ class Row:
     def columns(self) -> Sequence[str]:
         return self._columns
 
+    @property
+    def weight(self) -> int:
+        """How this row changes the view: ``+1`` appearing, ``-1`` being withdrawn.
+
+        A correction arrives as a retraction of the old row followed by an insert of the
+        new one, so a consumer keeping its own running total must add the weight rather
+        than count rows -- the retraction is what cancels the value being corrected. A
+        consumer that only wants the current state can overwrite by key and skip
+        negatives.
+
+        An ordinary query answer has no weights: every row in it is a row that is
+        present, so this is ``1`` there. Only a subscription carries real ones.
+        """
+        return self._weight
+
+    @property
+    def is_retraction(self) -> bool:
+        """Whether this withdraws a row rather than adding one."""
+        return self._weight < 0
+
     def to_dict(self) -> dict:
         return dict(zip(self._columns, self._values))
 
@@ -135,6 +158,39 @@ class Row:
     def __repr__(self) -> str:
         return f"Row({self.to_dict()!r})"
 
+
+_WEIGHT_METADATA_KEY = b"pravaha.weight"
+
+
+def _weight_column_of(schema: Any) -> int:
+    """The ordinal of the subscription weight column, or -1 when there is not one."""
+    for ordinal in range(len(schema)):
+        metadata = schema.field(ordinal).metadata
+        if metadata and metadata.get(_WEIGHT_METADATA_KEY) == b"true":
+            return ordinal
+    return -1
+
+
+def _weighted_rows_of(table: Any) -> list[Row]:
+    """One commit's Arrow batch as rows, with the weight lifted off the wire.
+
+    The weight column is found by its metadata mark, not its name. A view may select a
+    column called whatever the engine's happens to be called, and a subscriber that
+    guessed by name would read that column's values as weights -- and would also hand
+    the caller a column it never selected.
+    """
+    weight_at = _weight_column_of(table.schema)
+    ordinals = [i for i in range(table.num_columns) if i != weight_at]
+    columns = [table.schema.names[i] for i in ordinals]
+    weights = None if weight_at < 0 else table.column(weight_at)
+    return [
+        Row(
+            columns,
+            [table.column(i)[r].as_py() for i in ordinals],
+            1 if weights is None else weights[r].as_py(),
+        )
+        for r in range(table.num_rows)
+    ]
 
 class QueryResult:
     """An answer, iterated as it arrives.
@@ -389,6 +445,11 @@ class Client:
         than ignored -- a filter quietly dropped would leave you receiving everything
         while believing you had asked for a slice.
 
+        Each row carries a ``weight``: ``+1`` for a row appearing, ``-1`` for one being
+        withdrawn. A window corrected by late data arrives as a retraction of the old row
+        followed by an insert of the new one, so a consumer maintaining its own total must
+        apply ``row.weight`` rather than count rows.
+
         This is a generator and it does not end on its own: stop iterating, or close the
         client, when you have had enough.
         """
@@ -406,12 +467,7 @@ class Client:
             raise QueryError(_message_of(exc)) from exc
         try:
             for chunk in reader:
-                table = chunk.data
-                columns = table.schema.names
-                rows = [
-                    Row(columns, [table.column(i)[r].as_py() for i in range(table.num_columns)])
-                    for r in range(table.num_rows)
-                ]
+                rows = _weighted_rows_of(chunk.data)
                 if rows:
                     yield rows
         except (KeyboardInterrupt, GeneratorExit):

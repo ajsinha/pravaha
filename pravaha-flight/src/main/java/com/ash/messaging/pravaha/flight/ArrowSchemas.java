@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.flight;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
@@ -67,6 +68,39 @@ final class ArrowSchemas {
         for (com.ash.messaging.pravaha.api.data.Field field : schema.fields()) {
             fields.add(new Field(field.name(), FieldType.nullable(arrowTypeOf(field)), null));
         }
+        return new Schema(fields);
+    }
+
+    /**
+     * The name of the column a subscription carries its weight in.
+     *
+     * <p>Underscore-prefixed and namespaced, because it shares an Arrow schema with whatever columns
+     * the view selected and a collision would be silent: a view with its own {@code weight} column
+     * would have it overwritten by the engine's.
+     */
+    static final String WEIGHT_COLUMN = "_pravaha_weight";
+
+    /** Metadata marking the weight column, so a client finds it by contract rather than by name. */
+    static final String WEIGHT_METADATA_KEY = "pravaha.weight";
+
+    /**
+     * The Arrow schema a subscriber sees: the view's columns, then the weight.
+     *
+     * <p>The weight is the difference between a row arriving and a row being withdrawn, and without
+     * it on the wire the two are byte-identical. A subscriber maintaining its own total against a
+     * view that corrects a window would drift from the view silently and permanently -- the
+     * retraction that should have cancelled the old value would land as a second copy of it.
+     *
+     * <p>Last, and marked in field metadata rather than recognised by name. Last so every existing
+     * ordinal keeps its meaning; marked so a client that wants the weight does not have to trust a
+     * name that a view could also have chosen.
+     */
+    static Schema subscriptionSchema(StreamSchema schema) {
+        List<Field> fields = new ArrayList<>(toArrow(schema).getFields());
+        fields.add(new Field(
+                WEIGHT_COLUMN,
+                new FieldType(false, new ArrowType.Int(64, true), null, Map.of(WEIGHT_METADATA_KEY, "true")),
+                null));
         return new Schema(fields);
     }
 

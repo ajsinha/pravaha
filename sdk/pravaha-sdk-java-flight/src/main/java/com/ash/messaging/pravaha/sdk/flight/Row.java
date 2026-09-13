@@ -35,11 +35,17 @@ public final class Row {
 
     private final VectorSchemaRoot root;
     private final List<String> columns;
+    private final int weightOrdinal;
     private int index;
 
     Row(VectorSchemaRoot root, List<String> columns) {
+        this(root, columns, -1);
+    }
+
+    Row(VectorSchemaRoot root, List<String> columns, int weightOrdinal) {
         this.root = root;
         this.columns = columns;
+        this.weightOrdinal = weightOrdinal;
     }
 
     Row at(int rowIndex) {
@@ -123,6 +129,30 @@ public final class Row {
 
     public Object get(String column) {
         return get(ordinalOf(column));
+    }
+
+    /**
+     * How this row changes the view: {@code +1} a row appearing, {@code -1} a row being withdrawn,
+     * larger magnitudes several of either.
+     *
+     * <p>A correction arrives as a retraction of the old row followed by an insert of the new one,
+     * so a consumer keeping its own running total must add the weight rather than count rows -- the
+     * retraction is what cancels the value it is correcting. A consumer that only wants the current
+     * state can overwrite by key and skip negatives.
+     *
+     * <p>An ordinary query answer has no weights: every row in it is a row that is present, so this
+     * reports {@code 1} there rather than failing. Only a subscription carries real ones.
+     */
+    public long weight() {
+        if (weightOrdinal < 0) {
+            return 1L;
+        }
+        return ((Number) root.getVector(weightOrdinal).getObject(index)).longValue();
+    }
+
+    /** Whether this withdraws a row rather than adding one. */
+    public boolean isRetraction() {
+        return weight() < 0;
     }
 
     /** A copy that outlives the iteration. */

@@ -521,7 +521,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     : SubscriptionFilter.matching(query.outputSchema(), equals);
 
             StreamSchema schema = query.outputSchema();
-            Schema arrow = ArrowSchemas.toArrow(schema);
+            Schema arrow = ArrowSchemas.subscriptionSchema(schema);
 
             // Committed batches are handed over through a queue, and every Arrow write happens on
             // this call's own thread. Two reasons, and the second is the important one.
@@ -596,9 +596,16 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             return;
         }
         root.clear();
+        org.apache.arrow.vector.BigIntVector weights = (org.apache.arrow.vector.BigIntVector)
+                root.getVector(schema.fields().size());
         int index = 0;
         for (com.ash.messaging.pravaha.serving.ViewChange change : changes) {
-            ArrowSchemas.write(root, index++, change.values(), schema);
+            ArrowSchemas.write(root, index, change.values(), schema);
+            // The weight, not just the values. A retraction and an insert carry the same bytes in
+            // every other column, so without this a subscriber correcting its own total would
+            // double-count the correction instead of cancelling it (design section 9.2).
+            weights.setSafe(index, change.weight());
+            index++;
         }
         root.setRowCount(index);
         listener.putNext();

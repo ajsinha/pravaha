@@ -133,7 +133,24 @@ for batch in client.subscribe("trade_feed", {"product_type": "SWAP"}):
 pravaha subscribe --view trade_feed --filter product_type=SWAP
 ```
 
-Four things to know:
+Five things to know:
+
+**Every row carries a weight.** `+1` is a row appearing, `-1` is one being withdrawn. A window
+corrected by late data arrives as a retraction of the old row followed by an insert of the new one,
+so a consumer keeping its own running total must **apply the weight** rather than count rows -- the
+retraction is what cancels the value being corrected. A consumer that only wants current values can
+overwrite by key and skip the negatives.
+
+```java
+batch.forEach(row -> total += row.weight() * row.getLong("amount"));
+```
+```python
+for row in batch:
+    total += row.weight * row["amount"]
+```
+
+The weight is not one of the view's columns: `row.columns()` lists what the query selected, and a
+positional read gets the column it always got.
 
 **A batch is a commit.** Never a partial window. Between commits the view holds a half-applied batch,
 so a consumer woken per row could act on a total still being assembled.

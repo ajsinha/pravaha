@@ -90,6 +90,10 @@ class JavaSdkRegistryTest {
     }
 
     private void feed(String name, String tradeId, String product) {
+        feed(name, tradeId, product, 1L);
+    }
+
+    private void feed(String name, String tradeId, String product, long weight) {
         var query = registry.require(name);
         RowLayout layout = RowLayout.of(TRADE);
         BinaryRowWriter writer = new BinaryRowWriter(layout);
@@ -99,7 +103,7 @@ class JavaSdkRegistryTest {
         writer.setString(0, tradeId);
         writer.setString(1, product);
         writer.setString(2, "{\"id\":\"" + tradeId + "\"}");
-        writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
+        writer.weight(weight).eventTimestampNanos(0).sequence(0).commit();
         arena.trimTo(handle, writer.sizeSoFar());
         query.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
         // The lane applies the row on its own thread, so committing first would publish a frontier
@@ -176,6 +180,70 @@ class JavaSdkRegistryTest {
             assertThat(seen).contains("T-1", "T-2");
         }
         assertThat(subscription.batches()).isPositive();
+        subscription.close();
+        reader.join(5_000);
+        awaitDetached("feed");
+    }
+
+    @Test
+    void aRetractionReachesASubscriberAsARetraction() throws Exception {
+        // The whole point of a weighted view. A retraction and an insert carry identical bytes in
+        // every column the view selected, so if the weight does not cross the wire a subscriber
+        // maintaining its own total applies the correction as a second copy of the thing being
+        // corrected -- and drifts from the view permanently, with nothing to notice it by.
+        client.register("feed", SQL, List.of(0));
+
+        List<String> seen = new ArrayList<>();
+        CountDownLatch got = new CountDownLatch(2);
+        Subscription subscription = client.subscribe("feed", batch -> {
+            for (Row row : batch) {
+                synchronized (seen) {
+                    seen.add(row.getString("trade_id") + "@" + row.weight());
+                }
+                got.countDown();
+            }
+        });
+        Thread reader = Thread.ofVirtual().start(subscription::run);
+
+        awaitAttached("feed");
+        feed("feed", "T-1", "SWAP");
+        feed("feed", "T-1", "SWAP", -1L);
+
+        assertThat(got.await(30, TimeUnit.SECONDS)).isTrue();
+        synchronized (seen) {
+            assertThat(seen).containsExactly("T-1@1", "T-1@-1");
+        }
+        subscription.close();
+        reader.join(5_000);
+        awaitDetached("feed");
+    }
+
+    @Test
+    void theWeightColumnIsNotMistakenForOneOfTheViewsOwn() throws Exception {
+        // The weight travels as a real Arrow column, and a subscriber that saw it among the view's
+        // own columns would find an extra field it never selected -- and, reading positionally,
+        // read the wrong one.
+        client.register("feed", SQL, List.of(0));
+
+        List<List<String>> columns = new ArrayList<>();
+        CountDownLatch got = new CountDownLatch(1);
+        Subscription subscription = client.subscribe("feed", batch -> {
+            for (Row row : batch) {
+                synchronized (columns) {
+                    columns.add(row.columns());
+                }
+                got.countDown();
+            }
+        });
+        Thread reader = Thread.ofVirtual().start(subscription::run);
+
+        awaitAttached("feed");
+        feed("feed", "T-1", "SWAP");
+
+        assertThat(got.await(30, TimeUnit.SECONDS)).isTrue();
+        synchronized (columns) {
+            assertThat(columns.get(0)).containsExactly("trade_id", "product_type", "trade_json");
+        }
         subscription.close();
         reader.join(5_000);
         awaitDetached("feed");

@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.sdk.flight;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -33,6 +34,9 @@ import org.apache.arrow.vector.VectorSchemaRoot;
  * for an application that has its own.
  */
 public final class Subscription implements AutoCloseable {
+
+    /** The Arrow field metadata marking the weight column. Matches the server's ArrowSchemas. */
+    private static final String WEIGHT_METADATA_KEY = "pravaha.weight";
 
     private final FlightStream stream;
     private final Consumer<ChangeBatch> onBatch;
@@ -60,12 +64,27 @@ public final class Subscription implements AutoCloseable {
         try {
             while (!closed.get() && stream.next()) {
                 VectorSchemaRoot root = stream.getRoot();
-                List<String> columns = root.getSchema().getFields().stream()
-                        .map(field -> field.getName())
-                        .toList();
+                List<org.apache.arrow.vector.types.pojo.Field> fields =
+                        root.getSchema().getFields();
+                // The weight column is found by its metadata mark, not its name. A view is allowed
+                // to select a column called whatever the engine's happens to be called, and a
+                // subscriber that guessed by name would read that column's values as weights.
+                int weightOrdinal = -1;
+                for (int ordinal = 0; ordinal < fields.size(); ordinal++) {
+                    Map<String, String> metadata = fields.get(ordinal).getMetadata();
+                    if (metadata != null && "true".equals(metadata.get(WEIGHT_METADATA_KEY))) {
+                        weightOrdinal = ordinal;
+                    }
+                }
+                List<String> columns = new ArrayList<>(fields.size());
+                for (int ordinal = 0; ordinal < fields.size(); ordinal++) {
+                    if (ordinal != weightOrdinal) {
+                        columns.add(fields.get(ordinal).getName());
+                    }
+                }
                 List<Row> batch = new ArrayList<>(root.getRowCount());
                 for (int i = 0; i < root.getRowCount(); i++) {
-                    batch.add(new Row(root, columns).at(i));
+                    batch.add(new Row(root, columns, weightOrdinal).at(i));
                 }
                 if (!batch.isEmpty()) {
                     batches.incrementAndGet();
