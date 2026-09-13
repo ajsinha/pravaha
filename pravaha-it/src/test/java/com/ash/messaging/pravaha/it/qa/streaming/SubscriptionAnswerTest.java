@@ -13,7 +13,7 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
-package com.ash.messaging.pravaha.it;
+package com.ash.messaging.pravaha.it.qa.streaming;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -68,6 +69,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * of the previous answer and an insert of the new one. STRM-013, 014, 031, 045, 046 and 082 are
  * unreachable as written for the same reason and are recorded rather than converted.
  */
+@Tag("qa")
 class SubscriptionAnswerTest {
 
     private static final StreamSchema TXN = StreamSchema.builder("txn")

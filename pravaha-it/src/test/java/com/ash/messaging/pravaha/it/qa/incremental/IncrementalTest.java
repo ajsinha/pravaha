@@ -13,7 +13,7 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
-package com.ash.messaging.pravaha.it;
+package com.ash.messaging.pravaha.it.qa.incremental;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -74,6 +75,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * r4 = (u3, 7, 30s). W1 is TUMBLE 10 SECOND over [0s, 10s), and r4 exists only to push the
  * watermark past its end. The retractions are rho3 = r3 at weight -1 and rho1 = r1 at weight -1.
  */
+@Tag("qa")
 class IncrementalTest {
 
     private static final long SECOND = 1_000_000_000L;

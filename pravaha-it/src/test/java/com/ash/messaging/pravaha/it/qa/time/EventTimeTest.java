@@ -13,7 +13,7 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
-package com.ash.messaging.pravaha.it;
+package com.ash.messaging.pravaha.it.qa.time;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -59,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * check -- minimum across partitions, exclusion of a quiet one, refusal to regress -- have no
  * shipped surface at all. FINDINGS T-1 and T-2 are both in that group, and both are mine.
  */
+@Tag("qa")
 class EventTimeTest {
 
     private static final long MS = 1_000_000L;
@@ -767,7 +769,7 @@ class EventTimeTest {
     }
 
     private static void awaitRowsIn(RegisteredQuery query, long atLeast) throws InterruptedException {
-        long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         while (System.nanoTime() < deadline && query.rowsIn() < atLeast) {
             Thread.sleep(10);
         }
