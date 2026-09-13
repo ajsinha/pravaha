@@ -50,6 +50,15 @@ final class GlobalAggregate implements RowProcessor {
 
     private final long[] sums;
     private final long[] counts;
+
+    /**
+     * Per aggregate, the distinct values seen. Null unless that aggregate counts them.
+     *
+     * <p>A set, not a weighted map as the windowed form uses. This runs over a bounded read, which
+     * has no retractions to invert: every row arrives once and the scan ends.
+     */
+    private final java.util.Set<Object>[] distincts;
+
     private final boolean[] seen;
     private long rowCount;
     private long lastTimestamp;
@@ -79,6 +88,9 @@ final class GlobalAggregate implements RowProcessor {
         int n = operator.aggregates().size();
         this.sums = new long[n];
         this.counts = new long[n];
+        @SuppressWarnings("unchecked")
+        java.util.Set<Object>[] sets = new java.util.Set[n];
+        this.distincts = sets;
         this.seen = new boolean[n];
     }
 
@@ -106,11 +118,19 @@ final class GlobalAggregate implements RowProcessor {
                         counts[i] += weight;
                     }
                 }
-                case COUNT_DISTINCT ->
-                    throw new PravahaException(
-                            RuntimeErrors.UNSUPPORTED_AGGREGATE,
-                            "COUNT(DISTINCT ...) over an unwindowed stream is unbounded state: one entry per "
-                                    + "distinct value, kept forever. Put it in a window.");
+                case COUNT_DISTINCT -> {
+                    // Bounded by the scan, exactly as KeyedAggregate's is. The refusal this used to
+                    // throw belongs at planning time, where it can tell a continuous registration
+                    // from a finite read; thrown here it also refused the bounded read, so a
+                    // construct SQL_SUPPORT.md marks supported could not be run on the only surface
+                    // that was supposed to support it.
+                    if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
+                        if (distincts[i] == null) {
+                            distincts[i] = new java.util.HashSet<>();
+                        }
+                        distincts[i].add(read(row, call.argumentOrdinal()));
+                    }
+                }
                 case SUM, AVG -> {
                     if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
                         sums[i] += row.getLong(call.argumentOrdinal()) * weight;
@@ -208,12 +228,31 @@ final class GlobalAggregate implements RowProcessor {
             case SUM, MIN, MAX -> sums[i];
             // Integer division, matching SQL's AVG over an integer column.
             case AVG -> counts[i] == 0 ? 0 : sums[i] / counts[i];
-            case COUNT_DISTINCT ->
+            case COUNT_DISTINCT -> distincts[i] == null ? 0 : distincts[i].size();
+        };
+    }
+
+    /** One column as itself, so a distinct set holds values rather than slot bits. */
+    private Object read(RowView row, int ordinal) {
+        return switch (operator.input().outputSchema().field(ordinal).type().typeName()) {
+            case BOOLEAN -> row.getBoolean(ordinal);
+            case INT8 -> row.getByte(ordinal);
+            case INT16 -> row.getShort(ordinal);
+            case INT32, DATE -> row.getInt(ordinal);
+            case INT64, TIME, TIMESTAMP_LTZ -> row.getLong(ordinal);
+            case FLOAT32 -> row.getFloat(ordinal);
+            case FLOAT64 -> row.getDouble(ordinal);
+            case STRING -> row.getString(ordinal);
+            default ->
                 throw new PravahaException(
                         RuntimeErrors.UNSUPPORTED_AGGREGATE,
-                        "COUNT(DISTINCT ...) over an unwindowed stream holds one entry per distinct "
-                                + "value forever, which is unbounded state by another name. Put it in a "
-                                + "window.");
+                        "COUNT(DISTINCT ...) over a "
+                                + operator.input()
+                                        .outputSchema()
+                                        .field(ordinal)
+                                        .type()
+                                        .typeName()
+                                + " column is not supported");
         };
     }
 
@@ -232,12 +271,7 @@ final class GlobalAggregate implements RowProcessor {
                         case SUM, MIN, MAX -> sums[i];
                         // Integer division, matching SQL's AVG over an integer column.
                         case AVG -> counts[i] == 0 ? 0 : sums[i] / counts[i];
-                        case COUNT_DISTINCT ->
-                            throw new PravahaException(
-                                    RuntimeErrors.UNSUPPORTED_AGGREGATE,
-                                    "COUNT(DISTINCT ...) over an unwindowed stream holds one entry per distinct "
-                                            + "value forever, which is unbounded state by another name. Put it in a "
-                                            + "window.");
+                        case COUNT_DISTINCT -> distincts[i] == null ? 0 : distincts[i].size();
                     };
             writer.setLong(i, value);
         }

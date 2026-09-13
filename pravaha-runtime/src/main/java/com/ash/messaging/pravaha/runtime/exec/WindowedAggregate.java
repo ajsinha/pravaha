@@ -69,6 +69,16 @@ final class WindowedAggregate implements RowProcessor {
     private final BinaryRowView view;
     private final long[] scratch;
     private final boolean[] present;
+
+    /**
+     * The distinct columns' values as themselves, or null when no aggregate needs them.
+     *
+     * <p>Null when nothing is distinct, so the ordinary windowed aggregate allocates and reads
+     * nothing extra: this exists for COUNT(DISTINCT), which is the only thing that cares what a
+     * value <em>is</em> rather than what it adds up to.
+     */
+    private final Object[] distinctScratch;
+
     private final List<Integer> valueOrdinals;
     private final List<com.ash.messaging.pravaha.api.data.TypeName> groupTypes;
     /** Group keys other than the window boundaries: the actual data keys. */
@@ -115,6 +125,11 @@ final class WindowedAggregate implements RowProcessor {
         this.state = new SlicedAggregateState(windows, kinds, operator.maxSlices());
         this.scratch = new long[kinds.length];
         this.present = new boolean[kinds.length];
+        boolean anyDistinct = false;
+        for (SlicedAggregateState.Kind kind : kinds) {
+            anyDistinct |= kind == SlicedAggregateState.Kind.COUNT_DISTINCT;
+        }
+        this.distinctScratch = anyDistinct ? new Object[kinds.length] : null;
         // The window boundaries are group keys in SQL and must NOT be part of the accumulator's key
         // here. The slice dimension already separates windows; including the boundaries as well
         // gives each slice of a window its own accumulator and they never combine -- which is
@@ -160,6 +175,21 @@ final class WindowedAggregate implements RowProcessor {
         long keyLow = compositeKey(row, 0xC2B2AE3D27D4EB4FL);
         for (int i = 0; i < scratch.length; i++) {
             int ordinal = valueOrdinals.get(i);
+            // The value itself, for anything counting distinct values. scratch holds getLong of
+            // the slot, which over a STRING column is its (offset, length) pair rather than its
+            // text -- so distinctness was computed over storage addresses.
+            if (distinctScratch != null) {
+                distinctScratch[i] = ordinal >= 0 && !row.isNull(ordinal)
+                        ? readKey(
+                                row,
+                                ordinal,
+                                operator.input()
+                                        .outputSchema()
+                                        .field(ordinal)
+                                        .type()
+                                        .typeName())
+                        : null;
+            }
             // A null flattens to 0 for the arithmetic, and `present` remembers that it was a null.
             // Without that memory COUNT(col) counts rows and AVG divides by the wrong number, and
             // neither can tell a genuine zero from an absent value.
@@ -176,7 +206,7 @@ final class WindowedAggregate implements RowProcessor {
         }
         // The window start is the event time as far as slicing is concerned: the assigner has
         // already placed the row, and using it here keeps the two from disagreeing about a boundary.
-        state.update(keyHigh, keyLow, keyValues, windowStart, scratch, present, row.weight());
+        state.update(keyHigh, keyLow, keyValues, windowStart, scratch, present, distinctScratch, row.weight());
         highestEventTime = Math.max(highestEventTime, row.eventTimestampNanos());
         earliestWindowStart = Math.min(earliestWindowStart, windowStart);
 

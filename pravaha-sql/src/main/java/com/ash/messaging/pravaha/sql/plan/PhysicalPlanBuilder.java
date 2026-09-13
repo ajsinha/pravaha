@@ -806,6 +806,25 @@ public final class PhysicalPlanBuilder {
         // finite set of rows and stops, so the accumulators are bounded by the scan and released
         // when it ends. KeyedAggregate executes those, capped at a group count that refuses rather
         // than grows -- because "bounded by the scan" is only true if the scan is.
+        // COUNT(DISTINCT) holds one entry per distinct value. Over a stream that is unbounded and
+        // has to be refused; over a bounded read it is bounded by the scan, exactly as the group map
+        // is. The refusal used to live in GlobalAggregate, which cannot tell the two apart -- so it
+        // refused the bounded read too, and a construct SQL_SUPPORT.md marks supported could not be
+        // run on the only surface that was supposed to support it.
+        if (!boundedInput) {
+            for (AggregateOperator.AggregateCall call : calls) {
+                if (call.kind() == AggregateOperator.AggregateCall.Kind.COUNT_DISTINCT) {
+                    throw new PravahaException(
+                            SqlErrors.UNBOUNDED_STATE,
+                            "COUNT(DISTINCT ...) over an unwindowed stream holds one entry per distinct value "
+                                    + "for ever, which is unbounded state by another name.\n"
+                                    + "  Bound it with a window -- GROUP BY TUMBLE(event_time, INTERVAL '1' "
+                                    + "MINUTE) -- so the entries are released when each window closes.\n"
+                                    + "Refusing now rather than exhausting memory later.");
+                }
+            }
+        }
+
         if (!groupKeys.isEmpty() && !boundedInput) {
             throw new PravahaException(
                     SqlErrors.UNBOUNDED_STATE,

@@ -18,7 +18,6 @@ package com.ash.messaging.pravaha.it.qa.sql;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -491,9 +490,6 @@ class SqlAnswerTest {
     // ===========================================================================================
 
     @Test
-    @Disabled("PRV-3020 defect 6 (AGG-020, SQLX-107): windowed COUNT(DISTINCT) over a STRING column "
-            + "counts distinct longs read out of the string's (offset, length) slot, so W1's four "
-            + "rows over three distinct users report 1")
     void windowedCountDistinctOverAStringColumn() {
         // W1 holds u1, u2, u1, u3 -- three distinct users in four rows. W2 holds u2 and ünïcødé.
         assertThat(answerOf("SELECT window_start, COUNT(DISTINCT user_id) AS d, COUNT(*) AS n" + TUMBLE, false, 0L))
@@ -501,8 +497,6 @@ class SqlAnswerTest {
     }
 
     @Test
-    @Disabled("PRV-3020 defect 7 (AGG-023): windowed COUNT(DISTINCT) counts NULL as a distinct "
-            + "value, and counts two equal strings as two, so W1 reports 3 where SQL says 2")
     void windowedCountDistinctExcludesNull() {
         // W1's statuses are ok, NULL, ok, flagged. SQL counts distinct non-null values: {ok,
         // flagged} = 2. W2's are ok and ok, so 1.
@@ -511,9 +505,6 @@ class SqlAnswerTest {
     }
 
     @Test
-    @Disabled("PRV-3020 defect 8 (AGG-025): keyed COUNT(DISTINCT) over an INT64 column calls "
-            + "row.getString on it, and dies with a raw NegativeArraySizeException: -1 -- no PRV "
-            + "code, no column named, on the documented-supported bounded read path")
     void keyedCountDistinctOverAnInt64Column() {
         // u1's amounts are {100, -50}, u2's are {250, 7}, u3's is {0}, ünïcødé's is {7}.
         assertThat(answerOf("SELECT user_id, COUNT(DISTINCT amount) AS d FROM txn GROUP BY user_id", true, 0L))
@@ -521,10 +512,6 @@ class SqlAnswerTest {
     }
 
     @Test
-    @Disabled("PRV-3020 defect 9 (FINDINGS Q-6, still OPEN; SQLX-108, AGG-031): a global "
-            + "COUNT(DISTINCT) is refused even on the bounded read path, where the state it warns "
-            + "about is bounded by the scan -- so a construct SQL_SUPPORT.md marks supported cannot "
-            + "be run on the only surface that was supposed to support it")
     void globalCountDistinctOverABoundedRead() {
         // Four distinct user_ids over six rows; 4 != 6 is the assertion.
         assertThat(answerOf("SELECT COUNT(DISTINCT user_id) AS d, COUNT(*) AS n FROM txn", true, 0L))

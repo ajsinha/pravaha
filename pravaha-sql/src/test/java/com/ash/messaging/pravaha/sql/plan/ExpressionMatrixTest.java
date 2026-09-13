@@ -853,13 +853,17 @@ class ExpressionMatrixTest {
                     "SELECT SUM(CASE WHEN amount > 50 THEN 'big' ELSE 0 END) FROM txn",
                     "PRV-2021"),
 
-            // --- Queries that plan, compile, accept rows, and then throw -----------------------
-            // AGG-012: the refusal lives in GlobalAggregate.process, so it fires on the first row
-            // rather than at plan time. A user typing this gets a started query that dies.
-            Case.fails(
-                    "AGG-012 global COUNT(DISTINCT) is refused at the first row",
+            // AGG-012: refused at plan time now. It used to live in GlobalAggregate.process and fire
+            // on the first row, so a user typing this got a started query that died -- and, because
+            // that operator cannot tell a stream from a finite read, the same throw refused the
+            // bounded read where the state is bounded by the scan. The refusal belongs where the
+            // two can be told apart.
+            Case.refused(
+                    "AGG-012 global COUNT(DISTINCT) over a stream is refused at plan time",
                     "SELECT COUNT(DISTINCT user_id) FROM txn",
-                    "PRV-3020"),
+                    "PRV-2050"),
+
+            // --- Queries that plan, compile, accept rows, and then throw -----------------------
             // AGG-047/TYPE-047: MIN over a STRING column plans, and dies at emit naming a schema
             // the user never wrote.
             Case.fails("AGG-047 MIN over a STRING column dies at emit", "SELECT MIN(user_id) FROM txn", "not INT64"),

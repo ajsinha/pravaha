@@ -111,7 +111,7 @@ final class KeyedAggregate implements RowProcessor {
             }
             return new Group(operator.aggregates().size());
         });
-        group.accumulate(row, weight, operator.aggregates());
+        group.accumulate(row, weight, operator.aggregates(), ordinal -> read(row, ordinal));
     }
 
     /** Emits one row per surviving group. Called when the input ends. */
@@ -247,7 +247,11 @@ final class KeyedAggregate implements RowProcessor {
             }
         }
 
-        void accumulate(RowView row, long weight, List<AggregateOperator.AggregateCall> calls) {
+        void accumulate(
+                RowView row,
+                long weight,
+                List<AggregateOperator.AggregateCall> calls,
+                java.util.function.IntFunction<Object> valueAt) {
             rowCount += weight;
             lastTimestamp = row.eventTimestampNanos();
             lastSequence = row.sequence();
@@ -270,7 +274,11 @@ final class KeyedAggregate implements RowProcessor {
                             if (distincts.get(i) == null) {
                                 distincts.set(i, new HashSet<>());
                             }
-                            distincts.get(i).add(row.getString(call.argumentOrdinal()));
+                            // Read by the column's declared type, not as text. getString over an
+                            // INT64 column read the slot's bits as a (offset, length) pair and died
+                            // with a raw NegativeArraySizeException: -1 -- no code, no column named,
+                            // on the read path SQL_SUPPORT.md marks supported.
+                            distincts.get(i).add(valueAt.apply(call.argumentOrdinal()));
                         }
                     }
                     case SUM, AVG -> {

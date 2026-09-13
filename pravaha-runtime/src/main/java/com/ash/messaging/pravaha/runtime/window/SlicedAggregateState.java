@@ -129,8 +129,16 @@ public final class SlicedAggregateState {
          * caller flattens a null to 0 before this class ever sees it, so the value cannot say.
          */
         final long[] nonNull;
-        /** Per distinct-column, how many times each value is currently present. Null unless needed. */
-        Map<Long, Long>[] distinct;
+        /**
+         * Per distinct-column, how many times each value is currently present. Null unless needed.
+         *
+         * <p>Keyed by the value itself, not by a long. It was keyed by a long, and the caller
+         * filled that long with {@code row.getLong(ordinal)} whatever the column's type -- so over
+         * a STRING column it counted distinct <em>(offset, length)</em> pairs read out of the
+         * string's slot. Four rows over three distinct users reported one, and two equal strings
+         * written at different offsets counted as two.
+         */
+        Map<Object, Long>[] distinct;
 
         Object[] keyValues;
         long count;
@@ -202,6 +210,26 @@ public final class SlicedAggregateState {
             long[] values,
             boolean[] present,
             long weight) {
+        update(keyHigh, keyLow, keyValues, eventTimeNanos, values, present, null, weight);
+    }
+
+    /**
+     * Folds one record in, with the distinct columns' values as themselves.
+     *
+     * @param distinctValues one per aggregate column, or null when nothing needs distinctness. Only
+     *     the {@code COUNT_DISTINCT} entries are read. Separate from {@code values} because
+     *     distinctness is about the value and the rest of the arithmetic is about its number: a
+     *     string has no number, and reading its slot as one counts storage offsets.
+     */
+    public void update(
+            long keyHigh,
+            long keyLow,
+            Object[] keyValues,
+            long eventTimeNanos,
+            long[] values,
+            boolean[] present,
+            Object[] distinctValues,
+            long weight) {
         if (weight == 0) {
             // A consolidated row contributes nothing and must not be counted. Skipping it here also
             // stops it creating an accumulator, which would otherwise be state held for no data.
@@ -239,14 +267,20 @@ public final class SlicedAggregateState {
                     }
                 }
                 case COUNT_DISTINCT -> {
-                    // Counted, not flagged. A value seen three times and retracted once is still
-                    // present, and a set would have said it had gone.
-                    Map<Long, Long> seen = accumulator.distinct[i];
-                    long remaining = seen.merge(values[i], weight, Long::sum);
-                    if (remaining <= 0) {
-                        seen.remove(values[i]);
+                    // NULL is not a value SQL counts. It used to be: a null flattens to 0 on its
+                    // way in, and counting it made COUNT(DISTINCT status) over {ok, NULL, ok,
+                    // flagged} report three where SQL says two.
+                    if (present[i]) {
+                        // Counted, not flagged. A value seen three times and retracted once is
+                        // still present, and a set would have said it had gone.
+                        Object value = distinctValues == null ? values[i] : distinctValues[i];
+                        Map<Object, Long> seen = accumulator.distinct[i];
+                        long remaining = seen.merge(value, weight, Long::sum);
+                        if (remaining <= 0) {
+                            seen.remove(value);
+                        }
                     }
-                    accumulator.values[i] = seen.size();
+                    accumulator.values[i] = accumulator.distinct[i].size();
                 }
                 case SUM -> accumulator.values[i] += values[i] * weight;
                 case AVG -> {
@@ -348,7 +382,7 @@ public final class SlicedAggregateState {
                     // Distinct counts do not add across slices: a value in two slices is one distinct
                     // value in the window, not two. The per-value counts have to be merged and the
                     // size taken afterwards, which is why the maps travel rather than the numbers.
-                    Map<Long, Long> merged = target.distinct[i];
+                    Map<Object, Long> merged = target.distinct[i];
                     source.distinct[i].forEach((value, seenCount) -> merged.merge(value, seenCount, Long::sum));
                     target.values[i] = merged.size();
                 }
@@ -463,22 +497,45 @@ public final class SlicedAggregateState {
             return;
         }
         for (Object value : keyValues) {
-            if (value == null) {
-                out.writeByte(0);
-            } else if (value instanceof String string) {
-                out.writeByte(1);
-                out.writeUTF(string);
-            } else if (value instanceof Double || value instanceof Float) {
-                out.writeByte(2);
-                out.writeDouble(((Number) value).doubleValue());
-            } else if (value instanceof Boolean flag) {
-                out.writeByte(3);
-                out.writeBoolean(flag);
-            } else {
-                out.writeByte(4);
-                out.writeLong(((Number) value).longValue());
-            }
+            writeTagged(out, value);
         }
+    }
+
+    /**
+     * One value, tagged with its shape.
+     *
+     * <p>Shared by the group keys and the distinct sets, which hold the same kinds of value for the
+     * same reason. A distinct set used to be longs, so this did not apply to it; keying it by the
+     * value rather than by the slot's bits made the two the same problem.
+     */
+    private static void writeTagged(java.io.DataOutput out, Object value) throws java.io.IOException {
+        if (value == null) {
+            out.writeByte(0);
+        } else if (value instanceof String string) {
+            out.writeByte(1);
+            out.writeUTF(string);
+        } else if (value instanceof Double || value instanceof Float) {
+            out.writeByte(2);
+            out.writeDouble(((Number) value).doubleValue());
+        } else if (value instanceof Boolean flag) {
+            out.writeByte(3);
+            out.writeBoolean(flag);
+        } else {
+            out.writeByte(4);
+            out.writeLong(((Number) value).longValue());
+        }
+    }
+
+    private static Object readTagged(java.io.DataInput in) throws java.io.IOException {
+        byte tag = in.readByte();
+        return switch (tag) {
+            case 0 -> null;
+            case 1 -> in.readUTF();
+            case 2 -> in.readDouble();
+            case 3 -> in.readBoolean();
+            case 4 -> in.readLong();
+            default -> throw new java.io.IOException("unknown key-value tag " + tag + " in the checkpoint");
+        };
     }
 
     private static Object[] readKeyValues(java.io.DataInput in) throws java.io.IOException {
@@ -488,15 +545,7 @@ public final class SlicedAggregateState {
         }
         Object[] values = new Object[length];
         for (int i = 0; i < length; i++) {
-            byte tag = in.readByte();
-            values[i] = switch (tag) {
-                case 0 -> null;
-                case 1 -> in.readUTF();
-                case 2 -> in.readDouble();
-                case 3 -> in.readBoolean();
-                case 4 -> in.readLong();
-                default -> throw new java.io.IOException("unknown key-value tag " + tag + " in the checkpoint");
-            };
+            values[i] = readTagged(in);
         }
         return values;
     }
@@ -506,10 +555,10 @@ public final class SlicedAggregateState {
             if (!needsDistinct[i]) {
                 continue;
             }
-            Map<Long, Long> seen = accumulator.distinct[i];
+            Map<Object, Long> seen = accumulator.distinct[i];
             out.writeInt(seen.size());
-            for (Map.Entry<Long, Long> entry : seen.entrySet()) {
-                out.writeLong(entry.getKey());
+            for (Map.Entry<Object, Long> entry : seen.entrySet()) {
+                writeTagged(out, entry.getKey());
                 out.writeLong(entry.getValue());
             }
         }
@@ -521,9 +570,9 @@ public final class SlicedAggregateState {
                 continue;
             }
             int entries = in.readInt();
-            Map<Long, Long> seen = accumulator.distinct[i];
+            Map<Object, Long> seen = accumulator.distinct[i];
             for (int e = 0; e < entries; e++) {
-                seen.put(in.readLong(), in.readLong());
+                seen.put(readTagged(in), in.readLong());
             }
         }
     }
