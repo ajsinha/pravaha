@@ -2116,3 +2116,241 @@ mapping table) with `this server does not answer the action 'pravaha.frobnicate'
 `PRAVAHA.list` does **not** match the prefix (case-sensitive) so it goes to Flight SQL and comes
 back `UNIMPLEMENTED` or "Unknown action" — a different status for what a user will read as the same
 mistake. `CancelFlightInfo` and `""` are Flight SQL's to answer; record what they return.
+
+### C. The statement path: `getFlightInfo`, `getStream`, `getSchema` (API-147–153)
+
+## API-147 — `getFlightInfo` plans without executing and returns a schema and a ticket
+**Intent:** the design's central claim for this path: the query is planned twice and executed once,
+and the ticket carries the SQL rather than a handle to a materialised result, so the server holds
+nothing between the two calls.
+**Falsifier:** the rows being produced at `getFlightInfo` time (visible as the call's latency
+scaling with view size); a ticket that is not a `TicketStatementQuery`; or an endpoint list with a
+length other than 1.
+**Setup:** `H-FL`.
+**Steps:** `FlightInfo info = client.execute("SELECT user_id, total FROM user_volume")` and inspect
+`info.getSchema()`, `info.getEndpoints()`, and the ticket bytes.
+**Expected:** one endpoint, whose location is the server's own. The ticket is
+`Any.pack(TicketStatementQuery)` whose `statementHandle` is the UTF-8 of the SQL — so
+`new String(ticket, UTF_8)` contains `SELECT user_id, total FROM user_volume`. **Record that**: the
+ticket is the query text in the clear, which a proxy or a log may retain. The schema has two fields,
+`user_id` and `total`.
+
+## API-148 — `getStream` on that ticket returns the rows
+**Intent:** the fetch half, and the exact contents.
+**Falsifier:** a row count other than 3, a null rendered as an empty string, or the rows arriving in
+more batches than API-151 predicts.
+**Setup:** `H-FL` (three committed rows: `u1/gold/300`, `u2/silver/50`, `u3/null/7`).
+**Steps:** iterate `client.getStream(info.getEndpoints().get(0).getTicket())`.
+**Expected:** `3` rows: `u1|300`, `u2|50`, `u3|7`. With `SELECT user_id, tier, total` instead, the
+third row's `tier` is **null** (`vector.isNull(2)` true), not the empty string. One record batch of
+3 rows, then the final batch of 0 (API-151).
+
+## API-149 — `getSchema` is not implemented, though `getFlightInfo` returns a schema
+**Intent:** `PravahaFlightSqlProducer` overrides neither `getSchemaStatement` nor
+`getSchemaPreparedStatement`, so `FlightSqlProducer.getSchema` dispatches into
+`NoOpFlightSqlProducer` and throws. A client that asks for a schema the cheap way is refused, while
+the same schema is available from `getFlightInfo` — and `FlightSqlClient.getExecuteSchema` is the
+documented way to ask.
+**Falsifier:** `getSchema` returning a schema (which would mean it was implemented — retire this
+case), or returning a schema that differs from `getFlightInfo`'s.
+**Setup:** `H-FL`.
+**Steps:** `client.getExecuteSchema("SELECT user_id, total FROM user_volume")`; then the prepared
+equivalent `client.getExecuteSchema(preparedStatement)`.
+**Expected:** both throw `FlightRuntimeException` with `CallStatus.UNIMPLEMENTED` and the
+description `Not implemented.` — Arrow's own words, carrying no PRV code and no hint that
+`getFlightInfo` would have answered. Record it as a gap in the surface, not as a bug in a case.
+
+## API-150 — the Arrow schema marks every field nullable, including NOT NULL ones
+**Intent:** `ArrowSchemas.toArrow` builds each field with `FieldType.nullable(arrowTypeOf(field))`
+unconditionally, discarding the Pravaha type's nullability. REST reports the same schema with
+`nullable: false` (API-078). Two surfaces, one schema, two answers.
+**Falsifier:** the Arrow schema carrying `nullable = false` for `user_id`/`total` — which would mean
+it was fixed and API-078 agrees.
+**Setup:** `H-FL`.
+**Steps:** from API-147's `FlightInfo`, read `schema.getFields()` and each field's
+`isNullable()`; compare with `GET /api/v1/streams/...` on an equivalent stream.
+**Expected:** all three Arrow fields report `isNullable() == true`, including `user_id` (STRING NOT
+NULL) and `total` (INT64 NOT NULL). Arrow types: `Utf8`, `Utf8`, `Int(64, signed)`. A client
+generating a DDL or a dataframe schema from this gets every column nullable, so a downstream
+`NOT NULL` constraint cannot be derived from the wire.
+
+## API-151 — batch boundaries at the 4096-row constant
+**Intent:** `BATCH_ROWS = 4096`, and the code emits a final `putNext` unconditionally — so a result
+that is an exact multiple of 4096 ends with an empty batch, and a result of zero rows is one empty
+batch. Enumerated, because "it streams" is not a contract and the row counts per batch are.
+**Falsifier:** a client seeing fewer rows than the view holds; or zero batches for an empty result,
+which leaves a client waiting for data that will never come.
+**Setup:** `H-FL` variants whose view holds `n` rows for
+`n` in `{0, 1, 4095, 4096, 4097, 8192}`, built by `applyValues` over keys `u00001…` and one
+`commit`.
+**Steps:** for each `n`, run `SELECT user_id, total FROM user_volume` and record
+`(batch count, rows per batch, total rows)`.
+**Expected:**
+
+| n | batches | rows per batch | total |
+|---|---|---|---|
+| 0 | 1 | 0 | 0 |
+| 1 | 1 | 1 | 1 |
+| 4095 | 1 | 4095 | 4095 |
+| 4096 | 2 | 4096, 0 | 4096 |
+| 4097 | 2 | 4096, 1 | 4097 |
+| 8192 | 3 | 4096, 4096, 0 | 8192 |
+
+Arithmetic: `4097 = 4096 + 1`; `8192 = 4096 + 4096 + 0`. The totals must equal `n` exactly in all
+six.
+**Vacuity:** the totals are checked as well as the batch counts, so a build that emitted one giant
+batch would fail the batch-count column while a build that dropped the tail would fail the total —
+neither can pass by accident.
+
+## API-152 — an unknown view gives two different errors depending on whether anything is registered
+**Intent:** `ViewQuery.relFor` short-circuits to `PRV-4023` when the catalog is **empty**, and
+otherwise hands the SQL to the planner, which fails with `PRV-2002` and appends
+`. Known streams: [every view]`. Same mistake by the user, two codes, two Flight statuses, and one
+of them enumerates the catalogue.
+**Falsifier:** both cases producing the same code — which would be an improvement, and would retire
+half of this case.
+**Setup:** (a) `H-FL` with its one view; (b) the same server built on an **empty** `ViewCatalog`.
+**Steps:** `client.execute("SELECT * FROM nope")` on each, and iterate the stream.
+**Expected:** (a) `CallStatus.INVALID_ARGUMENT`, description carrying `PRV-2002` and ending
+`. Known streams: [user_volume]`. (b) `CallStatus.NOT_FOUND` (PRV-4023), description
+`no views are registered, so there is nothing to query. A view is created by registering a
+continuous query that serves one.` Record both — a client branching on status alone sees a
+retryable-looking `NOT_FOUND` in one deployment and a terminal `INVALID_ARGUMENT` in the other.
+
+## API-153 — the statement path under authentication and authorization
+**Intent:** the same three principals against the read path, including the one whose access is
+conditional — `ViewQuery.execute` ANDs the row filter into the plan, so ravi gets fewer rows rather
+than a refusal.
+**Falsifier:** ravi seeing a row whose `tier` is not `gold`; sam seeing any row; an unauthenticated
+caller reaching the planner at all.
+**Setup:** `H-FLA`, with the `user_volume` view of `H-FL` also registered (`u1/gold/300`,
+`u2/silver/50`, `u3/null/7`).
+**Steps:** `execute("SELECT user_id, tier, total FROM user_volume")` then `getStream`, four times:
+no credential, as dana, as ravi, as sam.
+**Expected:**
+- no credential → `UNAUTHENTICATED` at `getFlightInfo`, before any planning.
+- dana → `3` rows: `u1|gold|300`, `u2|silver|50`, `u3|null|7`.
+- ravi → `1` row: `u1|gold|300`. The filter `tier = 'gold'` matches row 1 only; `silver` fails and
+  `null` fails (`NULL = 'gold'` is not true). `3 - 2 = 1`.
+- sam → `UNAUTHORIZED` (`PRV-7002`), `sam may not read 'user_volume': only analysts read
+  user_volume`, and **zero** batches delivered.
+**Vacuity:** ravi's single row is the load-bearing observation: it distinguishes "filter applied"
+from "filter dropped" (3 rows) and from "denied" (0 rows), which no assertion of the form "ravi got
+a successful response" can do.
+
+### D. Tickets (API-154–160)
+
+## API-154 — a ticket that is not ours
+**Intent:** `ControlWire.isOurs` checks the magic before anything tries to parse the bytes as
+protobuf — "guessing is not telling". What happens after the fall-through is Arrow's business, and
+a client deserves to know which.
+**Falsifier:** a ticket with our magic being handed to Flight SQL, or a foreign ticket being handed
+to `streamSubscription`.
+**Setup:** `H-FLR`.
+**Steps:** `getStream` with each of: 0 bytes; 4 bytes; 8 random bytes; a valid `Any` packing an
+unrelated message; a ticket copied from a **different** Pravaha server's `getFlightInfo` (same
+build, different process, same SQL); a ticket whose first four bytes are the magic but whose
+remainder is garbage.
+**Expected:** the last one is recognised as ours and refused with `PRV-6102`
+(`this Pravaha request is malformed` or `this is not a subscription ticket`) → `NOT_FOUND`. The
+random and empty ones go to `FlightSqlProducer.getStream`, whose `Any.parseFrom` failure is passed
+to `listener.error(e)` — record the status the client actually sees (expected `UNKNOWN` or
+`INTERNAL`, **not** a PRV code), because that is the one path on this transport where a malformed
+request is not answered with a code. The other server's ticket **succeeds**, because the ticket
+carries only SQL and this server has the same view — statelessness means a ticket is portable
+between nodes, which is by design and worth writing down.
+
+## API-155 — a subscription ticket for a query that does not exist, or was dropped
+**Intent:** `streamSubscription` calls `required.require(viewName)` **before** `policy.mayRead`, so
+the `PRV-8002` message — which enumerates every registered name — is produced for a caller who has
+not yet been authorized for anything.
+**Falsifier:** the refusal arriving before the name list is built; or a dropped query's ticket still
+streaming.
+**Setup:** `H-FLA`, three registrations, called as **sam** (denied everything).
+**Steps:**
+1. `getStream(ControlWire.subscribeTicket("no_such_view", List.of()))` as sam.
+2. Drop `q_gamma` as dana, then `getStream(subscribeTicket("q_gamma", List.of()))` as dana.
+**Expected:** (1) `INVALID_ARGUMENT` (PRV-8002 is outside the mapping table) with the description
+`no query named 'no_such_view' is registered; this node has [q_alpha, q_beta, q_gamma]` — **sam,
+who may read nothing, is told every query name.** (2) the same code for `q_gamma` after the drop,
+now listing `[q_alpha, q_beta]`, so repeated probing also reveals the inventory changing over time.
+
+## API-156 — a query dropped while a subscription is streaming ends the stream
+**Intent:** the loop condition includes `!query.state().isTerminal()`, so a drop must end the call
+rather than leaving a subscriber attached to a computation that no longer exists.
+**Falsifier:** the stream continuing after the drop; or the client hanging; or the server thread
+staying alive (visible as a leaked thread over repetitions).
+**Setup:** `H-FLR`, `q_alpha` RUNNING, a subscriber attached and receiving.
+**Steps:** attach a subscriber to `q_alpha`; feed rows until at least two batches have been
+received; issue `pravaha.drop` for `q_alpha`; observe the subscriber.
+**Expected:** the subscriber's stream completes (or errors) within one poll interval — the loop
+polls the handover queue with a 200 ms timeout, so within about `200 ms + the commit cadence`. No
+further batch arrives after the drop. Repeat 50 times and confirm the process's thread count returns
+to its starting value ±2.
+**Vacuity:** rows must be flowing before the drop (assert at least two batches received), otherwise
+a subscription that had already ended for want of data would "pass".
+
+## API-157 — the subscription ticket's happy path, with and without a filter
+**Intent:** the ticket's framing (`["subscribe", view, col, val, …]`), one batch per commit, and the
+filter's effect.
+**Falsifier:** a batch spanning two commits; the filter being ignored; or a filter on an unknown
+column being accepted.
+**Setup:** `H-FLR`, `q_beta` (`SELECT user_id, status FROM txn`, keys `[0]`).
+**Steps:**
+1. `getStream(subscribeTicket("q_beta", List.of()))`, then commit two changes in one commit and one
+   in the next.
+2. `getStream(subscribeTicket("q_beta", List.of("status", "COMPLETED")))` with a mixed feed.
+3. `getStream(subscribeTicket("q_beta", List.of("nosuchcol", "x")))`.
+**Expected:** (1) two record batches, of `2` and `1` rows — "a batch boundary is a commit boundary".
+(2) only rows whose `status` is exactly `COMPLETED`; feed 3 `COMPLETED` and 2 `PENDING` and receive
+exactly `3`. (3) a refusal from `SubscriptionFilter.matching` naming the unknown column, with a PRV
+code, before any batch is delivered.
+
+## API-158 — a subscriber whose access is conditional is refused, not over-served
+**Intent:** the `PRV-7003` path. A subscription has no plan to AND a row filter into, and the code
+fails closed rather than delivering every row to a principal entitled to some of them.
+**Falsifier:** ravi receiving any batch at all. This is the falsifier that matters: a silent
+over-serve here is an entitlement breach that looks like success.
+**Setup:** `H-FLA`, as **ravi** (`allowWithRowFilter("tier = 'gold'")`).
+**Steps:** `getStream(subscribeTicket("q_alpha", List.of()))` as ravi.
+**Expected:** `CallStatus.UNAUTHORIZED` (PRV-7003 maps there alongside 7002), with the long
+explanation beginning `ravi may not subscribe to 'q_alpha' because their access to it is conditional
+on the row filter 'tier = 'gold''` and ending with the two suggested remedies. **Zero** batches
+delivered. Then confirm the contrast in one run: dana subscribes to the same view and receives
+batches, sam is refused with `PRV-7002`, ravi is refused with `PRV-7003` — three principals, three
+outcomes, three codes.
+
+## API-159 — cancellation mid-stream
+**Intent:** `listener.setOnCancelHandler(finished::countDown)` and the `!listener.isCancelled()`
+checks in both the loop and `writeBatch`. Without them a subscription outlives its subscriber and
+the query keeps assembling batches for nobody.
+**Falsifier:** the server continuing to write after cancellation; the `Subscription` not being
+closed (its `close()` runs in the try-with-resources); or a leaked thread per cancelled call.
+**Setup:** `H-FLR`, `q_beta`, a steady feed of 100 rows/s.
+**Steps:** attach a subscriber, receive at least 3 batches, call `stream.cancel("client done",
+null)`, keep feeding for 5 s, then inspect the server: thread count, the query's subscriber count,
+and the audit sink.
+**Expected:** the server-side call returns within ~200 ms of the cancel (one poll interval); the
+query has zero subscribers afterwards; thread count returns to baseline; and no further
+`putNext` is attempted. Repeat the cycle 100 times: the final thread count and the allocator's
+outstanding-byte count must match the values recorded before the loop.
+**Vacuity:** the continued feed after the cancel is what makes this real — a source that had run dry
+would produce the same quiet server whether or not cancellation worked.
+
+## API-160 — a slow subscriber loses batches and the loss is recorded, not hidden
+**Intent:** the handover queue is `SUBSCRIPTION_HANDOVER_BATCHES = 64` and the producer calls
+`offer`, never `put` — "a full queue means this subscriber is slower than the query, and the answer
+is to lose its batches rather than the engine's pace". The count is written to the audit sink on
+close.
+**Falsifier:** the engine's commit thread blocking on a slow subscriber (visible as the query's
+`rowsIn` stalling); or batches being dropped with no audit record.
+**Setup:** `H-FLR` with an `AuditSink.InMemory`; a subscriber that sleeps 500 ms per batch; a feed
+fast enough to commit more than 64 batches during one sleep.
+**Steps:** attach the slow subscriber to `q_beta`; feed 10 000 rows at the fastest rate the source
+allows; close the subscriber; read the audit sink.
+**Expected:** the query's `rowsIn` reaches `10_000` — the engine was never slowed. The audit sink
+holds one event with action `subscribe.dropped` whose detail is `<n> batches dropped for a slow
+subscriber` with `n >= 1`. The subscriber's received row count is strictly less than `10_000`, and
+the difference is accounted for by the dropped batches.
+**Vacuity:** assert `rowsIn == 10_000` **and** `received < 10_000` **and** `n >= 1` together; any
+one of the three alone is satisfiable by a source that ran dry or a subscriber that kept up.

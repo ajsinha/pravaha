@@ -3312,3 +3312,71 @@ typed `BIGINT`. That is *why* the rewrite works — `refuseFloatingPointAggregat
 aggregate's **input schema**, which is the compute stage's output, not the original column.
 **Vacuity:** step 6's two group totals summing to step 2's global total is the anti-vacuity device:
 two independently computed numbers that a broken accumulator cannot make agree by accident.
+
+---
+
+## Coverage note
+
+**150 cases, the budget the index gives this area, and the budget is too small by roughly a third.**
+This is what had to be compressed to fit, and what a later wave should expand.
+
+### What the grid actually costs
+
+The index describes `TYPE` as "16 types × 11 positions". Written out literally that is 176 cases
+before a single expression is tested, and the brief also requires the expression layer in full:
+five arithmetic operators over every numeric pair, `CASE WHEN` in six aspects, four numeric
+functions including two known rounding defects, five text functions, `LIKE` in five aspects, and
+`CAST` between every pair of types. Costed honestly that is about **215 cases**. Sections 1–12 here
+carry 101 of them and sections 13–19 carry 49.
+
+### Where enumeration was compressed, and how
+
+The authoring contract says a combination is a case. Where a position's sixteen types share **one
+line of code** and differ only in the value, the sixteen have been enumerated **inside** one case —
+as a table or an explicit list, with each type's own value and its own expected result — rather than
+gestured at. The enumeration is still written down; it just costs one ID instead of sixteen. That
+applies to:
+
+- **TYPE-069** (four integer widths on the wire), **TYPE-070** (two float widths),
+  **TYPE-047** (INT8 and INT16 join keys), **TYPE-054** (four integer group keys),
+  **TYPE-105** (INT16 and INT8 arithmetic), **TYPE-145** (thirty-six numeric CAST pairs).
+- **ARRAY, MAP and ROW** are treated as one type throughout, in TYPE-005, TYPE-020, TYPE-032,
+  TYPE-051 and TYPE-077. They share `TypeMapping`'s single `case ARRAY, MAP, ROW -> ANY` and there
+  is no code path on which they differ. If one is ever implemented separately, this collapses and
+  the three need splitting.
+
+### What is not covered here at all, and who should own it
+
+- **DECIMAL arithmetic semantics** — precision, scale, rounding mode, the 128-bit two-word
+  representation, `Decimals.toBigInteger`. Everything decimal in this file stops at a refusal,
+  because that is where the product stops. When the arithmetic is built it needs its own area.
+- **The code-generated path.** Every case here exercises `InterpretedPipeline`.
+  `PredicateSource`/`FilterProjectGenerator` emit Java from the same IR, and the differential tests
+  that compare the two are the thing that makes the IR's dual-consumer design worth having. A
+  generated path that disagrees with the interpreted one on a narrow integer or on `-0.0` would pass
+  every case in this file. **This is the single largest gap** and it is worth an area of its own.
+- **Checkpoint and restore round trips per type.** `SlicedAggregateState.writeKeyValues` serialises
+  boxed key values; whether a `Byte` key survives a checkpoint as a `Byte` and not as an `Integer`
+  decides whether groups merge after a restart. That belongs to `STATE`, but nobody will write it
+  there unless it is named here.
+- **Per-type behaviour under retraction.** `RowValues.equal` refuses `BYTES`, `ARRAY`, `MAP` and
+  `ROW` for row equality, so a retraction of a row containing any of them cannot cancel its insert
+  and state grows for ever. `INCR` owns it; TYPE-042 touches the edge of it.
+- **The JDBC, Aerospike and Delta source plugins' own type mappings.** `JdbcTypes` has a `DECIMAL`
+  case that the filesystem plugin does not, so the reachable type set differs by plugin. `AERO` and
+  `INGEST` own that; it means the answer to "which types can be declared" in TYPE-002 through
+  TYPE-005 is *plugin-specific* and this file measures only the filesystem plugin.
+- **`STRING(n)` and `BYTES(n)` length bounds.** TYPE-134 establishes that nothing enforces them;
+  a full treatment (are they carried through a projection? through the wire schema? through a
+  checkpoint?) needs about six more cases.
+
+### Two things worth flagging to whoever schedules the execution wave
+
+1. **TYPE-030 should be run last, or in an isolated node.** If the `AssertionError` from a
+   `TIMESTAMP` literal does kill a Flight worker thread, every case scheduled after it on the same
+   node is invalidated, and the invalidation will look like unrelated failures.
+2. **Six of the sixteen types cannot be reached without writing Java.** TYPE-019, TYPE-020,
+   TYPE-032, TYPE-058, TYPE-074, TYPE-075, TYPE-076 and TYPE-077 all need a programmatic
+   `StreamSchema` and an embedded node. If that harness is not built, those eight cases are blocked
+   and the coverage of `DECIMAL`, `DATE`, `TIME`, `ARRAY`, `MAP` and `ROW` drops to "cannot be
+   declared" — which is a true finding but a thin one.
