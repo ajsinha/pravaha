@@ -161,6 +161,19 @@ W1 = [T0+0,T0+5) = 1+2+3+4+5 = **15**; W2 = [T0+5,T0+10) = 6+7+8+9+10 = **40**;
 W3 = [T0+10,T0+15) = 11+12 = **23**, never complete. Highest event time T0+11, so `d = 2s` gives a
 final watermark of T0+9 and fires **W1 only**; `d = 0` gives T0+11 and fires **W1 and W2**.
 
+## Two standard procedures, so the cases can be terse
+
+**S1 — the standard run.** `bin/pravaha-server --spring.config.location=$QA/conf/<file>`; wait for
+the `watermarks: idle-after=…, tick=…` line; `pravaha register --name w --sql "<the case's query,
+Q10 unless it names another>" --keys 0`; poll `pravaha queries` until `ROWS IN` stops changing, then
+wait five ticks; `pravaha query --sql "SELECT * FROM w ORDER BY window_start"`. Record the row
+count, every `n`, every `total`, and the `ROWS IN` the query finished on.
+
+**S2 — the standard refusal.** `bin/pravaha-server --spring.config.location=$QA/conf/<file>`.
+Record: the exit status, the complete error text including any stack trace, whether 18300 or 19300
+ever accept a connection, and `/actuator/health` if anything answers. Then correct the offending
+line and repeat, to prove the rest of the configuration is sound.
+
 ## Two levels, and why both
 
 Cases marked **[E2E]** run against a started server through `bin/pravaha` (Flight, 19300), the HTTP
@@ -283,6 +296,7 @@ check were on the storage rather than the declared type, this would work by acci
 doing what `StreamSchema.java:277` says.
 **Setup:** `conf/int-et.yaml`: `ev.schema: "id:INT64,usr:STRING,amount:INT64,event_time:INT64"`,
 `event-time: event_time`, same `evB.csv`.
+**Steps:** S2, then S1 with the type token changed back to `TIMESTAMP`.
 **Expected:** Refused at startup: `event-time field 'event_time' must be TIMESTAMP, got BIGINT`.
 The values are identical to TIME-001's; only the declared type differs.
 **Vacuity:** Switching that one type token back to `TIMESTAMP` gives TIME-001 and 11 windows.
@@ -294,6 +308,7 @@ exact-match index (`StreamSchema.java:118-120`). SQL elsewhere in this engine is
 **Falsifier:** The node starts — meaning the lookup is case-insensitive after all, which contradicts
 the code and would be worth knowing.
 **Setup:** `ev.event-time: EVENT_TIME`.
+**Steps:** S2, then S1 with `event-time: event_time`.
 **Expected:** `PRV-2002 ... has no such column. Its columns are [id, usr, amount, event_time].`
 Record it as a usability trap: the refusal is correct, and the message does not say "did you mean
 event_time".
@@ -307,6 +322,7 @@ and every row is stamped zero.
 **Falsifier:** Startup refusal, or startup success with an empty view — the latter meaning one of
 the two strips is missing.
 **Setup:** `ev.event-time: "  event_time  "`.
+**Steps:** S1. Compare the output row for row with TIME-001's.
 **Expected:** Starts. 11 windows, totals 45…1045, identical to TIME-001 row for row.
 **Vacuity:** TIME-002 shows what a stream whose stamp never arrives looks like: 121 rows in, 0 out.
 
@@ -315,6 +331,8 @@ the two strips is missing.
 (`PravahaNode.java:232`). An operator who typed the key meant to declare something.
 **Falsifier:** A refusal (good — record it as better than expected), or windows firing.
 **Setup:** `ev.event-time: ""` with `out-of-orderness: 10s` still present.
+**Steps:** S1, extended: after the view reads empty, wait 120s and read it again; grep the whole
+startup log for `event-time` and for `out-of-orderness`.
 **Expected:** Node starts, no warning, query RUNNING, `ROWS IN` = 121, view empty for ever — TIME-002
 with a key present in the file. The presence of `out-of-orderness` beside it is also ignored
 (TIME-029). Record whether any log line mentions the blank declaration.
@@ -369,6 +387,8 @@ of the schema are the exact drift `withDeclaredEventTime`'s javadoc says it exis
 **Setup:** `ev.event-time: event_time` and the `ev` binding carrying
 `options: { event.time: id, ... }`. `id` is INT64 — so the plugin's own
 `StreamSchema.Builder.eventTime("id")` must itself refuse at `configure` time.
+**Steps:** S2 (the node may start; record whether it does), then register `Q10` and record where the
+failure surfaces — startup, registration, or first row. Then repeat with the two spellings agreeing.
 **Expected:** Predicted: the plugin refuses during `configure`, and the failure surfaces as
 `PRV-1xxx the 'filesystem' plugin could not be opened for stream 'ev'` at first registration rather
 than at startup — because bindings are opened lazily in `PluginSourceFeeds.open`. Record whether the
@@ -427,8 +447,10 @@ no event time, whatever the configuration says.
 `DelimitedCodec.lastEventTimeNanos()` when it is not `Long.MIN_VALUE`
 (`FilesystemPartitionReader.java:92-95`).
 **Falsifier:** An empty view with a non-zero `ROWS IN`.
-**Setup / Steps / Expected:** TIME-001, re-stated here as the plugin matrix's first row: 11 windows,
-45…1045.
+**Setup:** Standing setup, `ev` bound to `evB.csv` with `event-time: event_time`.
+**Steps:** S1.
+**Expected:** 11 windows, totals 45…1045 — TIME-001's result, re-stated here as the plugin matrix's
+first row so the matrix can be read without leaving this section.
 **Vacuity:** TIME-002.
 
 ## TIME-017 — filesystem with a declared column the codec never reaches [E2E]
@@ -502,6 +524,7 @@ differently.
 exactly as in TIME-001.
 **Falsifier:** Anything other than 11 windows with totals 45…1045.
 **Setup:** As TIME-020, `watermark.column: event_time`.
+**Steps:** S1 against the jdbc binding.
 **Expected:** 11 windows, 45…1045 — the jdbc plugin's only correct event-time configuration, and it
 is correct by coincidence of units.
 **Vacuity:** TIME-020 in the same run is empty.
@@ -513,6 +536,7 @@ millis or micros, not nanos, and `eventTimestampNanos(watermark)` does no conver
 **Setup:** As TIME-021 but `event_time_ms` = `(T0 + k·10^9)/10^6` = 1767225600000 + k·1000, and
 `watermark.column: event_time_ms`. The stream's `event-time` names the nanos column so assignment is
 unchanged.
+**Steps:** S1 against the jdbc binding, then TIME-021's configuration in the same session.
 **Expected:** Stamps around 1.767×10^12 ns = 1970-01-01T00:29:27Z. Assignment is in 2026. No window
 fires; the view is empty; nothing warns. Record the two clocks side by side — this is the shape of
 "an event-time bug that looks like a hang".
@@ -639,6 +663,7 @@ inert twice over. Record that neither key produces any diagnostic.
 the highest event time seen. Over an in-order file this fires everything the data supports.
 **Falsifier:** Fewer than 12 windows, or a 13th.
 **Setup:** `ev.out-of-orderness: 0s`, `evB.csv` in order.
+**Steps:** S1.
 **Expected:** **12** rows. Watermark T0+120; windows ending T0+10…T0+120 all satisfy `end <=
 watermark` (fact 10), so window 12 (total 1145) fires and window 13 (the lone row k=120, total 120)
 does not — its end is T0+130.
@@ -664,6 +689,7 @@ not lost, it is lost *to this setting*. Run both in the same session.
 duration survive parsing and reach the tracker as nanos".
 **Falsifier:** 12 windows (the 1ms was rounded to zero) or 11 (it was rounded to a second).
 **Setup:** `ev.out-of-orderness: 1ms`.
+**Steps:** S1, then TIME-030's configuration in the same session, and compare the two counts.
 **Expected:** Watermark T0+119.999s. Window 12 ends at exactly T0+120 > T0+119.999, so it does
 **not** fire: **11** rows, last total 1045. The distinction from TIME-030 is one millisecond and one
 window.
@@ -676,6 +702,7 @@ source of the ten seconds everybody quotes.
 **Falsifier:** Any window count other than 11.
 **Setup:** `ev.event-time: event_time` with no `out-of-orderness` anywhere in the file — remove the
 `pravaha.watermark.out-of-orderness` line too.
+**Steps:** S1.
 **Expected:** 11 rows, last total 1045, identical to TIME-001.
 **Vacuity:** TIME-027 shows the value is settable, so 11 here is a default and not a constant.
 
@@ -684,6 +711,7 @@ source of the ten seconds everybody quotes.
 output rather than memory.
 **Falsifier:** More than 6 windows.
 **Setup:** `ev.out-of-orderness: 1m`.
+**Steps:** S1, then repeat with `60s` and confirm the two spellings agree.
 **Expected:** **6** rows, 45…545. Same arithmetic as TIME-027 (60s), written with the other
 spelling: confirm `1m` and `60s` parse identically.
 **Vacuity:** TIME-033's 11 in the same session.
@@ -693,6 +721,7 @@ spelling: confirm `1m` and `60s` parse identically.
 indistinguishable from TIME-002 from the outside.
 **Falsifier:** Any window firing.
 **Setup:** `ev.out-of-orderness: 10m`.
+**Steps:** S1, then wait a further 300s and read the view again.
 **Expected:** **0** rows. Watermark `T0+120 − 600 = T0−480`, which is before every window this
 query has. `ROWS IN` = 121. No warning. Write down how an operator distinguishes this from a missing
 event-time declaration: predicted answer, they cannot.
@@ -704,6 +733,7 @@ and `WatermarkGenerator.boundedOutOfOrderness` refuses one again (`WatermarkGene
 Which fires, and does the operator get a `PRV-` code?
 **Falsifier:** The node starting.
 **Setup:** `ev.out-of-orderness: -1s`.
+**Steps:** S2.
 **Expected:** Startup failure from `StreamSchema.Builder` (it is reached first, inside
 `PravahaNode.withEventTime`): `out-of-orderness must not be negative, got PT-1S. Zero means the
 source is strictly ordered…`. As in TIME-005, record whether it carries a `PRV-` code and names the
@@ -716,6 +746,7 @@ Ten years of tolerance is accepted, and the result is a query that will fire its
 2036.
 **Falsifier:** A refusal, or a clamp, or an arithmetic fault.
 **Setup:** `ev.out-of-orderness: 87600h`.
+**Steps:** S1, and record the computed watermark if any surface exposes it.
 **Expected:** Node starts. `ROWS IN` = 121. 0 windows. `maxSeen − d` = `1767225720·10^9 − 3.1536×10^17`
 = about `1.4519×10^18` ns = 2016-01-04 — still a positive, sane long, so no overflow and no error.
 Record the case for a maximum on lateness by the same argument `WatermarkTracker.MAXIMUM_IDLE_TIMEOUT`
@@ -743,6 +774,7 @@ the whole finding.
 own length, so `d` larger than the window means at least one whole window is always open.
 **Falsifier:** The number of open (unfired) windows not matching `ceil(d / size)`.
 **Setup:** `ev.out-of-orderness: 25s`, `Q10` (10s windows).
+**Steps:** S1, then repeat at `10s` and `0s` in the same session.
 **Expected:** Watermark T0+95; windows ending 10…90 fire, so **9** rows, last total 845. Windows
 10, 11, 12, 13 stay open — `ceil(25/10) = 3` fully-populated open windows plus the partial one.
 **Vacuity:** `d = 10s` gives 11, `d = 0s` gives 12, on the identical file.
@@ -815,6 +847,7 @@ by `@Value` into `Duration`. Three spellings of one value must give one behaviou
 configuration surface has a trap in it.
 **Falsifier:** Two spellings of the same duration producing different window counts.
 **Setup:** Three runs: `ev.out-of-orderness:` `60s`, then `PT1M`, then `60000ms`.
+**Steps:** S1 three times, once per spelling, recording the window count each time.
 **Expected:** All three give **6** windows, 45…545. Record any spelling Spring rejects — a rejection
 is acceptable, a silent misparse (e.g. `60` read as 60 **ms**) is not.
 **Vacuity:** A fourth run at `10s` gives 11 in the same harness.
@@ -824,6 +857,7 @@ is acceptable, a silent misparse (e.g. `60` read as 60 **ms**) is not.
 **milliseconds** unless a `@DurationUnit` says otherwise, and nothing here says otherwise.
 **Falsifier:** It being read as seconds, or refused.
 **Setup:** `ev.out-of-orderness: 60`.
+**Steps:** S1, then S1 with `60s`, and compare.
 **Expected:** Predicted: 60ms, so the watermark is `T0+119.94` and **11** windows fire — visually
 identical to the correct configuration and 1000× off. An operator who meant 60 seconds gets 11
 windows instead of 6 and has no way to tell. If instead startup fails, record that as the better
@@ -854,6 +888,7 @@ the idle timeout does not change the arithmetic on a single well-behaved partiti
 **Falsifier:** The node starting, or clamping to 1s, or failing with a message that does not name
 the bound.
 **Setup:** `idle-after: 999ms`, `tick: 100ms`.
+**Steps:** S2.
 **Expected:** The process dies before opening a port.
 `PRV-2002 pravaha.watermark.idle-after is PT0.999S, which this engine will not accept: an idle
 timeout of PT0.999S is below the minimum of PT1S. Below a second, ordinary jitter -- a rebalance, a
@@ -869,6 +904,8 @@ assembled from two places (`PravahaNode.java:381-386` wrapping `WatermarkTracker
 are written in two files and nothing ties them together.
 **Falsifier:** The logged value differing between "key absent" and "key set to 30s".
 **Setup:** Run A with the whole `pravaha.watermark` block deleted; run B with `idle-after: 30s`.
+**Steps:** Start each run (both should start); then S1 in each, comparing the logged duration and
+the window count.
 **Expected:** Both log `watermarks: idle-after=PT30S, tick=PT1S`. Both give 11 windows.
 **Vacuity:** Run C at `idle-after: 5m` logs `PT5M`, so the log line is not a constant string.
 
@@ -876,6 +913,7 @@ are written in two files and nothing ties them together.
 **Intent:** `> MAXIMUM` is the refusal (`WatermarkTracker.java:100`), so exactly ten minutes passes.
 **Falsifier:** Startup failure.
 **Setup:** `idle-after: 10m`, `tick: 1s`.
+**Steps:** S1.
 **Expected:** Starts, logs `idle-after=PT10M`, 11 windows.
 **Vacuity:** TIME-050 refuses at one millisecond more.
 
@@ -883,6 +921,7 @@ are written in two files and nothing ties them together.
 **Intent:** The upper boundary, exactly.
 **Falsifier:** The node starting.
 **Setup:** `idle-after: 600001ms`.
+**Steps:** S2, then repeat at `600000ms` and at `10m`.
 **Expected:** Dies with `PRV-2002 … is above the maximum of PT10M …` carrying the tracker's full
 explanation (`WatermarkTracker.java:100-108`).
 **Vacuity:** `600000ms` in the same harness starts (TIME-049 in its millisecond spelling — run both
@@ -910,6 +949,7 @@ of what it would do.
 **Falsifier:** The node starting; or a different error from TIME-047's.
 **Setup:** `idle-after: 0s`, `tick: 0s` (a 0 tick would otherwise exceed it and hit a different
 check — record which check fires first).
+**Steps:** S2.
 **Expected:** The same `below the minimum of PT1S` refusal as TIME-047, naming `PT0S`.
 **Vacuity:** TIME-046.
 
@@ -920,6 +960,7 @@ without saying it is negative.
 **Falsifier:** The node starting, or a `NumberFormatException`/parse failure that hides the real
 problem.
 **Setup:** `idle-after: -5s`.
+**Steps:** S2.
 **Expected:** Refused with the minimum message naming `PT-5S`. Record whether the message is
 actionable for someone who typed a minus sign by accident.
 **Vacuity:** TIME-046.
@@ -931,6 +972,8 @@ not just the message.
 **Falsifier:** A node that starts and then fails each registration individually.
 **Setup:** `idle-after: 1h`; the journal holding three queries; and a client script that attempts
 five further registrations after startup.
+**Steps:** S2, with the five extra registrations attempted from a script that logs each attempt and
+its error. Count the total number of distinct failures the system produced.
 **Expected:** Zero registrations are attempted because nothing is listening. Exactly one error is
 produced by the whole system. Compare and contrast with TIME-056, where the *other* watermark bound
 behaves the old way.
@@ -942,6 +985,8 @@ produces N failures and a healthy-looking node.
 **Falsifier:** A message that omits the key name (`pravaha.watermark.idle-after`), the offending
 value, or the legal range.
 **Setup:** The four refusing values from TIME-047, TIME-050, TIME-052, TIME-053.
+**Steps:** S2 four times, once per value, and tabulate which of the five required elements each
+message contains.
 **Expected:** All four messages contain the key name, the rejected duration in ISO form, the bound
 that was violated, its value, and the consequence sentence. Record any that do not. None of them
 should print a stack trace as the primary output.
@@ -972,6 +1017,8 @@ the worst legal setting — a partition is noticed idle up to one whole idle-per
 whether anything warns.
 **Falsifier:** A refusal at equality, or a warning where the code has none.
 **Setup:** `tick: 30s`, `idle-after: 30s`.
+**Steps:** S1, recording the wall-clock delay between `ROWS IN` settling and the first row appearing
+in the view; then `tick: 31s` and record the registration failure.
 **Expected:** Accepted, no warning, registrations succeed. With `Q10` the first watermark advance
 happens 30s after registration, so windows appear in one burst; record the delay to first output.
 **Vacuity:** `tick: 31s` must be refused per registration (TIME-056's shape), proving the comparison
@@ -985,6 +1032,8 @@ recovery, which is why recovered queries get watermarks at all — an ordering w
 lacking one.
 **Setup:** [UNIT] A `QueryRegistry` with a feed factory. Register `q_before`; call
 `generatingWatermarks(30s, 1s)`; register `q_after`.
+**Steps:** [UNIT] as in Setup; assert on both executions. Then confirm the E2E ordering by reading
+`PravahaNode.start` and the startup log: `watermarks:` must precede `recovered N of M`.
 **Expected:** `q_before.execution.watermarkNanos()` is `OptionalLong.empty()`; `q_after`'s is
 present. Then assert the E2E consequence: on the server the call precedes both journal recovery and
 `feedingFrom`, so every query on a node shares one setting and no query can ever be missing it.
@@ -995,6 +1044,7 @@ present. Then assert the E2E consequence: on the server the call precedes both j
 which makes it a better-behaved key than `out-of-orderness`.
 **Falsifier:** `PT30S` and `30s` logging different values.
 **Setup:** Three runs: `30s`, `PT30S`, `30000ms`.
+**Steps:** S1 for the three legal spellings, recording the logged duration; S2 for the unitless one.
 **Expected:** All three log `idle-after=PT30S`. Also run `idle-after: 30` (unitless): predicted 30ms,
 which is **below the minimum** and therefore **refused** — the bound catches the unit trap that
 TIME-045 shows `out-of-orderness` has no defence against. Record that contrast; it is the argument
@@ -1007,7 +1057,8 @@ for bounding lateness too.
 drift: the message the server prints must be the tracker's own string.
 **Falsifier:** A clamp anywhere, or a bound expressed as a literal in `PravahaNode`.
 **Setup:** [UNIT] `new WatermarkTracker(999_000_000L)` and `new WatermarkTracker(600_000_000_001L)`.
-**Steps:** Assert both throw `IllegalArgumentException`; assert `new WatermarkTracker(1_000_000_000L)`
+**Steps:** Assert both throw `IllegalArgumentException`; assert `new
+WatermarkTracker(1_000_000_000L)`
 and `new WatermarkTracker(600_000_000_000L)` do not; assert `idleTimeoutNanos` is stored unmodified
 by checking that a partition goes idle at exactly that boundary (TIME-069).
 **Expected:** All five assertions hold. Grep `PravahaNode.java` for the literals `1` second and
@@ -1093,6 +1144,7 @@ watermark it has ever reached, and a genuine regression is countable and reporta
 **Falsifier:** `watermark()` decreasing, or `regressions()` staying at zero while it happens.
 **Setup:** TIME-064's second sub-case, extended: after the regression, `observe("p1", 300s, 80s)`;
 `advance(80s)`.
+**Steps:** As in Setup, asserting `watermark()` and `regressions()` after each `advance`.
 **Expected:** Minimum `min(198, 298) = 198s` — still `p0`. Watermark 198s. `regressions()` stays 1;
 a repeat below the current counts again only when it happens again. Then `observe("p0", 400s, 90s)`;
 `advance(90s)` → `min(398, 298) = 298s`, watermark 298s, regressions still 1.
@@ -1370,6 +1422,8 @@ iterations per second of event time, per tick.
 of its end being crossed by the watermark.
 **Falsifier:** Latency to first output above one tick plus the 20ms publish interval.
 **Setup:** `tick: 100ms`, `idle-after: 1s`, `ev.out-of-orderness: 0s`, `INTERVAL '1' SECOND`.
+**Steps:** S1 with the 1s window, and record the delay from each window end being crossed to its row
+being readable.
 **Expected:** **120** windows (ends T0+1…T0+120), `n = 1`, `total(i) = i−1` for window ending
 `T0+i`. Window `[T0+120, T0+121)` does not fire.
 **Vacuity:** TIME-081's 50ms window and this 1s window read the same file and differ in count.
@@ -1379,6 +1433,8 @@ of its end being crossed by the watermark.
 **Falsifier:** One of each pair of windows missing.
 **Setup:** `tick: 1s`, `idle-after: 30s`, `ev.out-of-orderness: 0s`,
 `INTERVAL '0.5' SECOND` (or the parser's nearest legal spelling, recorded).
+**Steps:** S1 with the sub-second window; record the parser's response to the interval spelling
+before anything else.
 **Expected:** 240 window ends in the file's span, 120 of them non-empty (one row per second lands in
 the `[T0+k, T0+k+0.5)` half), so **120** rows with `n = 1`. The other 120 are empty and must not be
 emitted.
@@ -1390,6 +1446,7 @@ each window fires on the tick immediately after its end is crossed.
 **Falsifier:** Anything but 12 windows, or a first-output latency above ~1.02s after the watermark
 crosses T0+10.
 **Setup:** Standing setup with `ev.out-of-orderness: 0s`.
+**Steps:** S1, plus the latency measurement described in Expected.
 **Expected:** 12 rows, 45…1145. Measure and record the delay between a window's end being crossed
 and its row being readable: bounded by `tick (1s) + PUBLISH_INTERVAL (20ms)`.
 **Vacuity:** TIME-086's 5m tick over the same data must show a delay three hundred times larger.
@@ -1418,6 +1475,7 @@ latency is bounded by the window instead.
 **Falsifier:** Output arriving more than one tick after a window's end is crossed.
 **Setup:** `tick: 5m`, `idle-after: 10m`, `INTERVAL '10' MINUTE`, and `evVeryLong.csv` — 7201 rows,
 one per second, ids 0…7200, event times T0+0…T0+7200 (two hours).
+**Steps:** S1 over `evVeryLong.csv`, sampling the view every 30s for 20 minutes.
 **Expected:** 12 windows, each `n = 600`, `total(i) = 600·(600i−600) + (0+…+599) =
 360000i − 360000 + 179700`. Window 1 = 179700; window 12 = 360000·12 − 360000 + 179700 =
 **4139700**. Ingestion of 7201 rows from a file completes in well under a tick, so all 12 fire on
@@ -1445,6 +1503,8 @@ difference.
 second and got 1000, with no warning.
 **Falsifier:** A refusal, or 2000 ticks a second.
 **Setup:** `tick: 500us` (record whether Spring parses `us`/`µs`; if not, `PT0.0005S`).
+**Steps:** S1; record the logged `tick=` value and, as in TIME-087, the watermark thread's CPU time
+over 60s.
 **Expected:** Starts, logs `tick=PT0.0005S` — the *logged* value is the configured one, not the
 effective one, so the log actively misreports what the engine is doing. That discrepancy is the
 finding; the window results are unaffected (11 rows).
@@ -1456,6 +1516,7 @@ effective period.
 `tick.compareTo(idleAfter) > 0` is false for a negative, so nothing refuses it.
 **Falsifier:** A refusal (better), or a `scheduleWithFixedDelay` failure.
 **Setup:** `tick: -1s`, `idle-after: 30s`.
+**Steps:** S1; record whether startup, registration or the scheduler complains.
 **Expected:** Starts, registrations succeed, the clock runs at 1ms. Record it beside TIME-053
 (`idle-after: -5s`, refused): two duration keys in the same block, one bounded and one not.
 **Vacuity:** TIME-056 shows the tick *is* validated, but only against `idle-after` — so the
@@ -1467,6 +1528,8 @@ inside `advance`, which runs only on a tick, so the effective detection delay is
 `idle-after + up to one tick`.
 **Falsifier:** Detection at exactly `idle-after` with a coarse tick.
 **Setup:** [UNIT] tracker with `idle-after = 30s`; drive `advance` at 0, 25s, 50s (a 25s tick).
+**Steps:** [UNIT] drive `advance` at 0, 25s and 50s with no observations after 0, asserting
+`isIdle("p1")` at each.
 **Expected:** `p1` becomes idle only at the `advance(50s)` call — 20 seconds after it qualified.
 Assert `isIdle` false at 25s and true at 50s, and note that with `tick = idle-after` (TIME-057) the
 worst-case detection delay is 2× `idle-after`.
@@ -1577,6 +1640,8 @@ only in the window function.
 row is dropped.
 **Falsifier:** A correction of a window whose slices have been released.
 **Setup:** As TIME-096; inject `905,u0,500,T0+95` after the watermark has reached T0+115.
+**Steps:** As TIME-096, with the injection delayed until the watermark has reached T0+115; subscribe
+throughout and record every change delivered.
 **Expected:** No correction. Windows ending T0+100 (1790) and T0+110 (ids 90…109,
 `(90+109)·20/2 = 1990`) are both unchanged. `lateRecords` 1. Note that
 `state.discardSlicesEndingBefore(watermark, 0)` has already released the slice, so the correction is
@@ -1606,6 +1671,8 @@ rows fed are silently discarded.
 unchanged, so the only consequence is the row itself.
 **Falsifier:** The watermark regressing, or the row landing in a 1970 window that then fires.
 **Setup:** As TIME-098 but inject `907,u0,1,0` (the epoch) after T0+59.
+**Steps:** As TIME-098, with the past row in place of the future one; sample the view after the
+injection and at the end.
 **Expected:** Watermark unchanged (`observe` keeps the maximum). The row's window is
 `[0, 10·10^9)` in 1970, whose `lastWindowEndFor` is 10^10 ns, far below the watermark of ≈T0+49, so
 it is dropped immediately. Final view: the normal **11** windows, 45…1045. `lateRecords` 1.
@@ -1650,6 +1717,9 @@ site passes the constant 0. Search every surface for a way to set it.
 **Falsifier:** Any config key, SQL clause or API parameter that changes it.
 **Setup:** Full-text search of `application.yaml`, `docs/`, the CLI's flags, the REST request DTOs
 and the SQL grammar.
+**Steps:** `grep -rn "allowed.lateness\|allowedLateness" --include=*.java --include=*.yaml
+--include=*.md .`, then read the CLI flags, the REST DTOs and the SQL grammar for anything that
+reaches `WindowedAggregateOperator`'s last argument.
 **Expected:** None. Record that the engine has a working late-data correction path and no way to
 turn it on, and that `ChangelogAnalysis` contains a branch (`allowedLatenessNanos() > 0`) that is
 therefore dead. This is the missing key that makes TIME-094 through TIME-101 unavoidable.
@@ -1662,6 +1732,8 @@ has not yet closed is perfectly ordinary data.
 **Falsifier:** Such a row being treated as late.
 **Setup:** `out-of-orderness: 10s`, FIFO-paced. Feed up to T0+105 (watermark T0+95), then inject
 `908,u0,500,T0+92`.
+**Steps:** Feed to T0+105, inject, then let the feed continue to T0+120 so the window fires; read
+window `[T0+90, T0+100)`.
 **Expected:** The row's window is `[T0+90, T0+100)`, whose end T0+100 > watermark T0+95, so it is
 accepted. When the window later fires: `n = 11`, `total = 945 + 500 = 1445`. No retraction is
 needed, because the window had not fired yet.
@@ -1674,6 +1746,8 @@ legal `TIMESTAMP` value and also the initial value of `partitionHighWater`
 **Falsifier:** A partition whose only row is at `Long.MIN_VALUE` producing a watermark.
 **Setup:** [UNIT] `boundedOutOfOrderness(0)`, `observe(Long.MIN_VALUE)`, read `watermark()`.
 [E2E] a one-row file with `event_time = -9223372036854775808`.
+**Steps:** [UNIT] observe each sentinel value and assert `watermark()`. [E2E] S1 over the one-row
+file, then wait 120s and read the view again.
 **Expected:** [UNIT] `maxSeen` is assigned `Long.MIN_VALUE` and `watermark()` returns `NOT_YET` —
 the row is indistinguishable from no row at all, so the partition holds the whole lane back
 (TIME-066) and is eventually excluded as never-active. [E2E] `ROWS IN` = 1, view empty for ever, no
@@ -1693,9 +1767,10 @@ tolerance covers the disorder.
 ## TIME-105 — In order [E2E]
 **Intent:** The control. `evB.csv` as written.
 **Falsifier:** Anything but TIME-001's result.
-**Setup / Expected:** 11 windows, 45…1045, `Σ total = 45+145+…+1045 = (45+1045)·11/2 = 5995`; the
-missing `7260 − 5995 = 1265` is windows 12 (1145) and 13 (120), still open. Both numbers are
-asserted.
+**Setup:** Standing setup, `evB.csv` as written, `ev.out-of-orderness: 10s`.
+**Steps:** S1.
+**Expected:** 11 windows, 45…1045, `Σ total = 45+145+…+1045 = (45+1045)·11/2 = 5995`; the missing
+`7260 − 5995 = 1265` is windows 12 (1145) and 13 (120), still open. Both numbers are asserted.
 **Vacuity:** The arithmetic ties every ordering case below to the same total.
 
 ## TIME-106 — Exactly reversed [E2E]
@@ -1705,6 +1780,8 @@ every subsequent row is behind it.
 **Falsifier:** The reversed file producing the same output as the in-order one.
 **Setup:** `evRev.csv`, `out-of-orderness: 10s`, fed through a FIFO at one row per 50ms so ticks
 interleave with rows.
+**Steps:** S1 over `evRev.csv` through the FIFO, sampling the view every second and recording the
+highest `window_end` ever present.
 **Expected:** Row 1 is `120,…,T0+120` → watermark T0+110 on the first tick. Windows ending
 T0+10…T0+110 fire **empty** (they hold no state yet, so nothing is emitted) and are released. Every
 row from T0+109 downward then has `lastWindowEndFor <= T0+110` and is dropped. Only rows whose
@@ -1733,6 +1810,7 @@ so duplicates neither advance nor hold back the clock.
 **Falsifier:** Rows lost, or windows firing differently from the in-order case.
 **Setup:** `evDup.csv` — every event time floored to a multiple of 10s, so exactly ten rows share
 each of T0+0, T0+10, …, T0+120. Ids and amounts unchanged. `out-of-orderness: 0s`.
+**Steps:** S1 over `evDup.csv`.
 **Expected:** Window `[T0+10i−10, T0+10i)` now holds the ten rows stamped `T0+10i−10`, so
 `n = 10` and the totals are unchanged — each window still holds ids 10(i−1)…10i−1. 12 windows,
 45…1145. Row 120 alone is stamped T0+120 and stays in the open window.
@@ -1746,6 +1824,8 @@ is T0+70.
 **Falsifier:** Any window firing.
 **Setup:** `evSame.csv` — all 121 rows at T0+60, amounts unchanged. `out-of-orderness: 0s`,
 `idle-after: 1s`, `tick: 100ms`. Wait 300s.
+**Steps:** S1 over `evSame.csv`; wait 300s; read the view; then append a row at T0+80 and read it
+again.
 **Expected:** Watermark T0+60, constant. The only populated window is `[T0+60, T0+70)` with
 `n = 121` and `total = 7260`, and it never fires because `T0+70 > T0+60`. View empty for ever;
 `ROWS IN` = 121. This is TIME-075 with the whole file in one window, and it is the cleanest possible
@@ -1760,6 +1840,8 @@ behaviour of any partition and impose it on all of them". Prove the per-partitio
 **Falsifier:** One partition's disorder affecting the other's watermark.
 **Setup:** [UNIT] `p0` strictly ascending T0+0, T0+10, T0+20 with `d = 0`; `p1` wildly out of order
 T0+100, T0+5, T0+50 with `d = 60s`. Observe them alternately.
+**Steps:** [UNIT] observe the six values in the stated order, asserting each generator's
+`watermark()` and the tracker's `advance` after the last one.
 **Expected:** After all six observations: `p0.watermark() = T0+20` (ascending, no allowance);
 `p1.watermark() = T0+100 − 60 = T0+40` (maximum seen, minus its own tolerance). Lane watermark
 `min(T0+20, T0+40) = T0+20`. `p1`'s disorder costs `p1` forty seconds and costs `p0` nothing; the
@@ -1771,3 +1853,240 @@ distinguishes them.
 ---
 
 ## Clock health
+
+## TIME-111 — The watermark thread exists, is named, and is a daemon [E2E]
+**Intent:** One thread per `QueryExecution` (`QueryExecution.java:348-352`), which is one per
+registered *computation*. Round 1 counted nine `pravaha-watermark` threads for nine queries
+(`docs/qa/logs/DEPLOY.md:1748`). Establish the count, the name and the daemon flag, because every
+other case in this section depends on being able to find the thread.
+**Falsifier:** No such thread on a node with registered queries; a non-daemon thread; or a count
+that does not match the number of distinct fingerprints.
+**Setup:** Standing setup; register five queries, two of which share a fingerprint (identical SQL,
+different names).
+**Steps:** `jcmd <pid> Thread.print | grep pravaha-watermark`.
+**Expected:** **4** threads for 5 registrations (the shared fingerprint has one execution), each
+daemon, each named exactly `pravaha-watermark` — note they are indistinguishable from one another in
+a thread dump, which is a diagnosis problem worth recording. Dropping a query must remove its
+thread: `close()` calls `watermarkClock.shutdownNow()` before stopping the lanes
+(`QueryExecution.java:766-769`).
+**Vacuity:** A node with no registrations has none of these threads.
+
+## TIME-112 — An `Error` on the watermark thread cancels the clock silently [UNIT]
+**Intent:** `advanceWatermarkQuietly` catches `RuntimeException`
+(`QueryExecution.java:424`). `ScheduledExecutorService.scheduleWithFixedDelay` **cancels the task**
+if it throws anything at all, and an `Error` — `OutOfMemoryError`, `StackOverflowError`, an
+`ExceptionInInitializerError` from a lazily-loaded class — is not a `RuntimeException`. The clock
+stops, the future holds the throwable, nobody reads the future, and the query reports RUNNING.
+**Falsifier:** The clock continuing to tick after an `Error`, or the query failing.
+**Setup:** [UNIT] A `QueryExecution` whose pipeline's `advanceWatermark` throws `new
+StackOverflowError()` on the third tick.
+**Steps:** Drive four ticks' worth of real time; read `watermarkNanos()` before and after; assert
+the executor's task is cancelled.
+**Expected:** Ticks 1 and 2 advance the watermark; tick 3 throws; tick 4 never runs. `watermarkNanos()`
+is frozen at tick 2's value. No log line — the `catch` did not match. `QueryExecution.checkHealth()`
+does not consult the watermark task, so nothing reports it. Windows stop closing for ever.
+**Vacuity:** With a `RuntimeException` instead, tick 4 runs and the clock recovers (TIME-113). The
+two differ only in the throwable's supertype.
+
+## TIME-113 — A swallowed `RuntimeException` costs one tick, and nothing counts it [UNIT + E2E]
+**Intent:** The known defect the brief names. `advanceWatermarkQuietly` logs at WARNING and returns;
+the next tick tries again. So one occurrence is survivable and a *persistent* one is a stopped clock
+that logs once per tick and is reported nowhere (TIME-114).
+**Falsifier:** The clock dying after one exception, or the exception escaping.
+**Setup:** [UNIT] a pipeline whose `advanceWatermark` throws `IllegalStateException` on tick 3 only.
+[E2E] TIME-079's concurrent-registration load, which produces the real thing.
+**Steps:** [UNIT] drive four ticks and assert the watermark after each. [E2E] TIME-079's load,
+counting WARN lines and correlating each with a missed advance.
+**Expected:** [UNIT] ticks 1, 2 advance; tick 3 logs `WARN could not advance the watermark:
+java.lang.IllegalStateException: …` and does not advance; tick 4 advances and the watermark catches
+up in one step (no event time is lost, because the high-waters are retained). [E2E] the log count
+from TIME-079, with no corresponding metric. Record: there is no counter of swallowed advances, no
+`lastSuccessfulTick` timestamp, and no health signal.
+**Vacuity:** A run with no injected exception shows a monotone tick cadence; the missing tick is
+visible only by comparing the two traces.
+
+## TIME-114 — A persistently failing advance: RUNNING for ever, one WARN per tick [E2E]
+**Intent:** The shape that matters operationally. A permanent failure inside
+`InterpretedPipeline.advanceWatermark` — a closed pipeline, an exhausted arena, a lane that has
+already died — produces an unbounded stream of identical WARN lines and a query that reports
+RUNNING, has a growing `ROWS IN`, and will never emit again.
+**Falsifier:** The query transitioning to FAILED, or the log rate-limiting itself, or any metric
+moving.
+**Setup:** Standing setup with a query whose lane is killed by an arena exhaustion (round 1's
+DEFECT-13 recipe: a windowed aggregate over 50 000 keys), `tick: 100ms`, left running for 10
+minutes.
+**Steps:** Count `could not advance the watermark` lines; read state, `ROWS IN`, the view and every
+gauge at 1-minute intervals.
+**Expected:** ≈ 6000 WARN lines in ten minutes (10 per second). State RUNNING throughout. View
+frozen. `pravaha_query_running` = 1. `pravaha_query_rows_in` still climbing. The log volume is the
+only signal, and it is the kind that gets filtered. Record the exact line so a log alert could be
+written, since that is the only mitigation available today.
+**Vacuity:** A healthy query in the same process produces zero such lines while its view grows.
+
+## TIME-115 — Shutdown order: the clock stops before the lanes do [E2E + UNIT]
+**Intent:** `close()` shuts the watermark clock down first, so a tick cannot arrive at a closed
+pipeline (`QueryExecution.java:765-769`) — which would be exactly TIME-114's persistent failure,
+manufactured by the shutdown path.
+**Falsifier:** Any `could not advance the watermark` line emitted during a drop or a clean shutdown.
+**Setup:** Standing setup; 20 queries registered and ingesting; `tick: 10ms` to maximise the race.
+**Steps:** Drop all 20 in a tight loop; then stop the node. Grep the log for watermark warnings and
+for exceptions naming closed lanes or arenas.
+**Expected:** Zero. `shutdownNow()` interrupts the in-flight tick, so assert also that an interrupted
+tick does not log a spurious warning (an `InterruptedException` wrapped as a `RuntimeException`
+would). Record anything that appears.
+**Vacuity:** TIME-114 shows what such a line looks like when it is real, so a clean log here is a
+meaningful negative.
+
+---
+
+## Interaction — the other bounds the watermark arms
+
+Windows are the visible consumer of event time. Joins and views are the expensive ones, and both are
+driven from the same `advanceWatermark` call (`InterpretedPipeline.java:329-344`).
+
+## TIME-116 — The watermark evicts join state at `watermark − matchWithin` [E2E]
+**Intent:** `SymmetricHashJoin.advanceWatermark` computes `horizon = watermark − window` and evicts
+both sides below it (`SymmetricHashJoin.java:306-320`). Without a clock this never runs and the join
+grows until a ceiling fails the query — the claim in `CONCEPTS.md:84-88` that unbounded state, not
+"no output", is the real cost of a stopped watermark.
+**Falsifier:** Join state not shrinking as the watermark advances; or rows being evicted before the
+horizon.
+**Setup:** Two streams `jl`, `jr`, each 121 rows T0+0…T0+120, joined on `id` with
+`AND jl.event_time BETWEEN jr.event_time - INTERVAL '5' SECOND AND jr.event_time`. Both
+`out-of-orderness: 0s`, `tick: 1s`. Feed `jl` fully, then feed `jr` slowly (one row per second) so
+the left side accumulates and is then evicted underneath the arriving right rows.
+**Steps:** Sample the emitted pair count and, if reachable, `SymmetricHashJoin.evicted()`; otherwise
+infer from the pairs that stop appearing.
+**Expected:** With the watermark at `T0+t`, the horizon is `T0+t−5`, so left rows older than that
+are gone. A right row arriving at T0+t can only match left rows in `[T0+t−5, T0+t]` — six ids — and
+every earlier left row is unmatchable by then. Count the pairs: the first right rows match, and from
+the point where the watermark overtakes the left side the match count per right row drops to the
+window's width. Assert the exact per-row counts for the first ten right rows and the last ten.
+**Vacuity:** The identical setup on a stream with no event-time declaration (so the watermark never
+advances) must produce **every** pair and a monotonically growing state — run it and record the
+memory difference. That comparison is the case; the pair counts alone could be produced by a broken
+join.
+
+## TIME-117 — The watermark drives view retention through the committed frontier [E2E]
+**Intent:** `Retention` is event time (`Retention.java:68-77`), the frontier comes from the emitted
+rows' event times (`ViewSink.java:229-238`), and a windowed result is stamped with its window end
+(`WindowedAggregate.java:299`). So retention is armed by the watermark at one remove, and a query
+whose watermark is frozen never evicts anything.
+**Falsifier:** Eviction happening on wall-clock time, or not happening as the frontier advances.
+**Setup:** A query over `evVeryLong.csv` (two hours of event time, TIME-086) registered with
+`Retention.ofAge(10 minutes)` — record how a client actually sets this; if the Flight `register` has
+no retention parameter, the default of 24h applies and the case becomes "prove the default is
+unreachable within the data's span", which is itself worth recording.
+**Steps:** Read `pravaha_query_view_evicted` and the view size as the watermark crosses each
+10-minute boundary of event time.
+**Expected:** With a 10-minute retention and 1-minute windows, the view holds at most 10 rows once
+steady: as the frontier reaches `T0+t`, rows written at a frontier below `T0+t−600s` are removed.
+Assert the view size at three sample points and the `evicted` counter's increments (10 per 10
+minutes of event time). With the default 24h retention over two hours of data, `evicted` stays **0**
+and the view holds all 120 windows — round 1 observed exactly that (`evicted=0` on 1400+ commits).
+**Vacuity:** A wall-clock implementation would evict on a replay of old data differently from a live
+run; run the same file twice, once with the rows' event times shifted forward by a year, and the
+evicted counts must be identical.
+
+## TIME-118 — With no event time, the frontier is a sequence number compared against an event-time horizon [E2E]
+**Intent:** `ViewSink.commit` uses `Math.max(eventTime, sequence)` as the frontier
+(`ViewSink.java:231,237`). For a feedfile or delta source (event time 0, sequence 1…N) the frontier
+is a **row counter**, and `Retention.horizonFor` then subtracts a duration in **nanoseconds** from
+it. The two are not the same quantity.
+**Falsifier:** The units agreeing, or a refusal.
+**Setup:** Stream `ff` (feedfile, event time 0) with 1 000 000 rows and a projection view keyed on a
+unique id, registered with the default 24h retention.
+**Steps:** Read the view size and `pravaha_query_view_evicted` as the row count climbs.
+**Expected:** Frontier after N rows = N. Horizon = `N − 86400·10^9`, hugely negative for any N a
+real node will reach, so **nothing is ever evicted** and the view grows to the `maxKeys` ceiling and
+then throws `VIEW_TOO_LARGE`. Compute the crossover: retention would begin to bite at
+`N = 8.64×10^13` rows. Record it as "retention is inoperative on any source without event time".
+**Vacuity:** The same query over `ev` (real event times) evicts as TIME-117 shows.
+
+## TIME-119 — The watermark thread mutates pipeline state the lane thread owns [UNIT + E2E]
+**Intent:** The single-writer principle is the engine's stated foundation
+(`QueryExecution.java:55-68`: "the cost is that a stateful query's state is partitioned across
+lanes"), and restore goes through `lane.submitControlTask` for exactly that reason
+(`QueryExecution.java:732`). `advanceWatermarkQuietly` instead calls
+`QueryExecution.advanceWatermark` → `pipelines.forEach(InterpretedPipeline::advanceWatermark)`
+directly on the `pravaha-watermark` thread, which mutates `WindowedAggregate.watermark`,
+`emitted`, `dirty` and the slice map while the lane thread is inside `process(row)` on the same
+objects.
+**Falsifier:** The advance being marshalled onto the lane (it is not, on this reading), or a lock
+protecting the state.
+**Setup:** [UNIT] A `QueryExecution` with one lane, `tick: 1ms`, fed 2 000 000 rows across 100 000
+windows from the test thread while the clock ticks. [E2E] the same shape on a server, run for 30
+minutes with `tick: 10ms`.
+**Steps:** Watch for `ConcurrentModificationException`, `ArrayIndexOutOfBoundsException`, arena
+corruption, lost windows, and window totals that do not reconcile with a batch recomputation of the
+same file.
+**Expected:** Any of the above is the finding. A clean run is **not** proof of safety and must be
+reported as "not reproduced in N rows over M minutes", with N and M stated — this is a data race,
+and the visible-window check is the real assertion: every emitted window's total must equal the
+hand-computed one for that file, and `Σ total + Σ open = Σ input`.
+**Vacuity:** Feeding the identical file with the clock disabled and calling `advanceWatermark`
+manually from the feeding thread must reconcile exactly; the two runs differ only in which thread
+advances time.
+
+## TIME-120 — A query with no bound source: windows fire and are never published [E2E]
+**Intent:** The last link. `advanceWatermarkQuietly` calls `QueryExecution.advanceWatermark`, which
+does **not** commit the `ViewSink` — `RegisteredQuery.advanceWatermark` (which does, and which also
+updates the lag gauge) is never called by the clock, and the only other committer is
+`PumpingFeed.publishPeriodically`, which exists only when a source is bound
+(`PluginSourceFeeds.open` returns `SourceFeed.NONE` for an unbound stream). So a query fed by
+`accept()` — a client pushing rows over Flight `DoPut` or the REST ingest path — has a watermark
+that fires windows into a sink that is never published.
+**Falsifier:** The view showing rows after a push-only ingest and a tick. That would mean something
+else commits.
+**Setup:** Stream `push` declared under `pravaha.streams` with `event-time: event_time` and **no**
+`pravaha.sources` entry. Register `Q10` over it. Push 121 rows through whichever client path reaches
+`RegisteredQuery.accept`, with the same timestamps as `evB.csv`.
+**Steps:** Wait 60s (60 ticks). Read `ROWS IN`, the view, and
+`pravaha_query_watermark_lag_seconds`.
+**Expected:** `ROWS IN` = 121. `appliedFrontier` has moved (the sink's writer ran) but
+`committedFrontier` has not, so the view holds **0** rows — computed, correct, and unreadable. The
+lag gauge is `NaN` because `RegisteredQuery.watermarkNanos` was never written. Confirm by then
+binding a source to the same stream and observing the identical rows become visible.
+**Vacuity:** The same query with `ev` bound (TIME-001) shows 11 rows in the same process, so the
+computation and the read path both work; the missing piece is the commit.
+
+---
+
+## Coverage note
+
+120 cases, the budget exactly. Four remarks on how they are distributed and what a later wave should
+expect.
+
+**The quiet-partition section is split deliberately.** Ten of its twenty cases are [UNIT], not
+because the tracker is easier to test there but because the engine cannot reach the tracker's
+interesting states. `advanceWatermarkQuietly` re-observes every partition's retained high-water on
+every tick, and `WatermarkTracker.observe` resets that partition's activity clock — so on a running
+server a partition that has produced at least one row can never be excluded for idleness, and the
+mechanism `WatermarkTracker`'s class comment calls "mandatory" is reachable only by partitions that
+have produced nothing at all. If that reading survives execution, TIME-072 and TIME-074 together are
+the most important pair in this file: a partition that produced one row and stopped is *worse off*
+than one that never spoke, and round 1's DEFECT-18 is a symptom of it rather than the disease.
+
+**The two `out-of-orderness` keys are separated by a single number.** TIME-026 and TIME-027 set the
+identical duration in the identical spelling one level apart in the configuration tree and expect
+11 windows and 6. Neither case is worth running alone. Note also that the engine-level key has no
+bounds, no reader and no warning, while `idle-after` — the key one line below it in
+`application.yaml` — has all three; TIME-045 and TIME-059 show what that difference costs an
+operator who writes a unitless number.
+
+**Lateness is thinner than the brief implies, and the reason is a constant.**
+`DEFAULT_ALLOWED_LATENESS_NANOS = 0` with no way to change it (TIME-102), so "late but within the
+allowance" exists only in the geometry of overlapping windows (TIME-096). Six of the twelve lateness
+cases are about what happens to the row instead, and one (TIME-101) is filed against the
+documentation rather than the code, because the code's behaviour is defensible and its description
+is not.
+
+**What is deliberately not here.** Session windows (`PRV-2020`, no SQL surface) are WIN's. Checkpoint
+and restore of `WindowedAggregate.watermark`/`lastFiredWatermark` are STATE's, though TIME-042's
+immutability check touches the edge of it. The per-error-code audit of every message quoted above is
+ERRC's; this file records message text as evidence and judges only whether it is actionable.
+`PartitionedIngestPump` appears only in TIME-077 because the server never calls
+`pumpPartitionedInto` — every registered query is compiled onto one lane
+(`QueryRegistry.java:528`) and fed through `pumpInto`; the partitioned path is reachable from an
+embedder alone, and a later wave that switches lanes on will need this section re-run rather than
+re-read.
