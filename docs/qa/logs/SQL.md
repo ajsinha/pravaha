@@ -1450,3 +1450,912 @@ narrower integer types deserve the same treatment.
 **Codegen.** Everything above ran on the interpreted pipeline. `explain --level codegen` exists and
 the design says the generated path is asserted against the interpreted one by differential tests;
 none of that was checked here, so every verdict is a verdict about the interpreted operators.
+
+---
+
+## Re-QA 2026-09-12
+
+Re-run after the remediation commit `ab0eca3` ("Remediate what QA found: 18 defects, 4 of them
+silent-wrong"), against the rebuilt artefacts. Server on HTTP **18400** / Flight **19400**, PID
+recorded and killed by number; no `pkill`. Streams `w`, `ws`, `wni`, `lt`, `lt2`, `wn`, `agg`, `nt`
+declared, all bound to the filesystem plugin; `w`, `ws`, `lt`, `lt2`, `wn` carry
+`event-time: et` and `out-of-orderness: 1s`. `pravaha.watermark.idle-after: 2s`, `tick: 200ms`.
+
+**The tree moved while this pass ran, and that qualifies every verdict below.** The remediation is
+still in progress: at the time of writing the working tree carries uncommitted changes to
+`QueryRunner`, `QueryExecution`, `PravahaNode`, `QueryRegistry`, `ViewCatalog` and `StreamSchema`,
+and the CLI artefact was rebuilt underneath this pass at 22:03. Where a verdict depends on which
+build produced it, the section says so. Every server-side result below came from the application jar
+as delivered; the CLI results split across the rebuild and the affected case (SQL-005) is re-run and
+re-timed against the current build.
+
+
+**Windowing data, and why the numbers below are checkable by hand.** Stream `w` is nine rows at
+`T0 = 1757700000000000000` ns, a multiple of both 5 s and 10 s, so every window boundary is a round
+number:
+
+```
+id  k  amt  event time
+ 1  a    1  T0+0s      4  a    4  T0+9s      7  a  200  T0+19s
+ 2  a    2  T0+3s      5  a  100  T0+11s     8  a    7  T0+25s
+ 3  b   10  T0+5s      6  b   50  T0+12s     9  z    0  T0+95s
+```
+
+The file is written with its **lines shuffled** (4, 2, 7, 1, 6, 3, 5, 8, 9) so that correct output
+also proves the engine buckets by event time and not by arrival. `ws` is the identical data in
+timestamp order, as the control. Row 9 exists only to push the watermark to T0+94 s so that the
+windows ending at +10, +20 and +30 close; its own window `[T0+90, T0+100)` must **not** close, which
+is what stops an "everything fired" result from passing vacuously.
+
+Hand-computed TUMBLE(10 s) answer: `[0,10) a` = 3 rows, 1+2+4 = **7**; `[0,10) b` = 1, **10**;
+`[10,20) a` = 2, 100+200 = **300**; `[10,20) b` = 1, **50**; `[20,30) a` = 1, **7**. Five rows.
+
+---
+
+### SQL-039 — PARTIALLY FIXED
+
+The server path, with an event-time column declared, now works and the answers are right.
+
+```
+$ pravaha register --name tum --sql-file tumble.sql --keys 0,1,2 --url grpc://localhost:19400
+registered tum  state=RUNNING  fingerprint=a1488f03f6d8
+$ pravaha queries
+tum	RUNNING	a1488f03f6d8	9
+$ pravaha query --sql "SELECT * FROM tum"
+window_start	window_end	k	c	total
+1757700000000000000	1757700010000000000	b	1	10
+1757700000000000000	1757700010000000000	a	3	7
+1757700010000000000	1757700020000000000	b	1	50
+1757700010000000000	1757700020000000000	a	2	300
+1757700020000000000	1757700030000000000	a	1	7
+5 rows
+```
+
+Every value matches the hand computation above. The `[T0+90, T0+100)` window is absent, as it must
+be. The identical query over `ws` (the same rows in timestamp order) returns byte-identical output,
+so window assignment is by event time, not arrival order — the out-of-order case passes.
+
+The `GROUP BY TUMBLE(...)` form documented in `QUICKSTART.md` §4 also works and agrees:
+
+```
+$ pravaha query --sql "SELECT * FROM gbw"     (SELECT STREAM ... GROUP BY TUMBLE(et, INTERVAL '10' SECOND), k)
+window_end	k	c	total
+1757700010000000000	b	1	10
+1757700010000000000	a	3	7
+1757700020000000000	b	1	50
+1757700020000000000	a	2	300
+1757700030000000000	a	1	7
+```
+
+**What is still broken.** Three of the four ways a user reaches this feature still emit nothing:
+
+1. **`pravaha run` is unchanged.** The CLI has no way to name an event-time column — the `name:TYPE`
+   schema spec still has no syntax for it, there is no `--event-time` flag, and `QueryRunner` still
+   never calls `generatingWatermarks`. Both were named as causes in the original SQL-039 and only
+   the server half was addressed:
+
+   ```
+   $ pravaha run --sql "SELECT window_start, window_end, k, COUNT(*) AS c, SUM(amt) AS total
+                        FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(et), INTERVAL '10' SECOND))
+                        GROUP BY window_start, window_end, k" \
+                 --schema 'id:INT64,k:STRING,amt:INT64,et:TIMESTAMP' --in wsorted.csv ...
+   ok  9 in, 0 out
+   --- out.csv --- (empty)
+   ```
+
+   Exit 0, `ok`, no output, no warning. The original defect, intact, on the path the documentation
+   opens with.
+
+2. **A stream with no `event-time:` line behaves exactly as before the fix.** See SQL-071.
+
+3. **Only the filesystem plugin honours the new option.** See SQL-076.
+
+And the server path that does work breaks above roughly 210 000 rows — see **SQL-066**, which is a
+blocker in its own right.
+
+### SQL-040 — VERIFIED FIXED (was BLOCKED)
+
+```
+$ pravaha query --sql "SELECT * FROM hp"    (HOP, 5 s slide, 10 s size, over w)
+window_start	window_end	k	c	total
+1757699995000000000	1757700005000000000	a	2	3
+1757700000000000000	1757700010000000000	b	1	10
+1757700000000000000	1757700010000000000	a	3	7
+1757700005000000000	1757700015000000000	b	2	60
+1757700005000000000	1757700015000000000	a	2	104
+1757700010000000000	1757700020000000000	b	1	50
+1757700010000000000	1757700020000000000	a	2	300
+1757700015000000000	1757700025000000000	a	1	200
+1757700020000000000	1757700030000000000	a	1	7
+1757700025000000000	1757700035000000000	a	1	7
+10 rows
+```
+
+Hand-checked against the property this case exists for — **each row lands in exactly two windows**.
+Row `a@+9s (amt 4)` is in `[0,10)` and `[5,15)` and in no others; `[5,15) a` = 4 + 100 = **104**,
+which is the arithmetic that proves the overlap rather than merely asserting it. `b@+5 (10)` and
+`b@+12 (50)` share `[5,15)` = **60** and appear singly in `[0,10)` and `[10,20)`. Every one of the
+ten rows was computed independently before the query was run and every one matches.
+
+### SQL-037 — VERIFIED FIXED for floating point, and the same hole is open one type away
+
+```
+$ pravaha query --sql "SELECT SUM(d)  AS v FROM av"   (d is FLOAT64)
+PRV-1041  PRV-2020  SUM(d) is over a FLOAT64 column, and this engine's aggregates accumulate in
+64-bit integers only. It is refused rather than answered, because the alternative was no rows and a
+successful status. Cast the column to an integer if the rounding is acceptable --
+SUM(CAST(price AS BIGINT)) -- or aggregate it outside the engine.
+```
+
+Identical refusals for `AVG(d)`, `MIN(d)`, `MAX(d)`, and for `SUM/AVG/MIN/MAX(f)` where `f` is
+FLOAT32 — eight of eight. It fires on every path that reaches an aggregate:
+
+```
+over a view                SELECT SUM(d) FROM av                     refused
+keyed over a view          SELECT g, SUM(d) FROM av GROUP BY g       refused
+in HAVING                  ... GROUP BY g HAVING SUM(d) > 0          refused
+registered/streaming       register TUMBLE ... SUM(d) over wn        refused at registration
+```
+
+`COUNT` is exempt and still answers, and the count is now right:
+
+```
+$ pravaha query --sql "SELECT COUNT(d) AS cd, COUNT(f) AS cf, COUNT(*) AS t FROM av"
+cd	cf	t
+4	4	5          (one NULL in each float column, five rows)
+```
+
+Integer aggregates are unaffected and every value is correct:
+
+```
+$ pravaha query --sql "SELECT SUM(n) AS s, AVG(n) AS a, MIN(n) AS mn, MAX(n) AS mx, COUNT(n) AS c FROM av"
+s	a	mn	mx	c
+28	7	-7	20	4      (n = 10, NULL, -7, 20, 5: sum 28, avg 28/4 = 7)
+```
+
+**Adversarial probes — the refusal holds.** Eleven attempts to get a floating-point aggregate past
+it, all refused or otherwise stopped: `SUM(d * 2)`, `SUM(d + 0)`, `SUM(CAST(n AS DOUBLE))`,
+`AVG(CAST(n AS DOUBLE))`, `MIN(ABS(d))`, `SUM(ROUND(d))`, `HAVING SUM(d) > 0`, `SUM(n / 2.0)`
+(caught earlier by the DECIMAL refusal), `SUM(d)` in a window. The guard reads the aggregate's
+**input schema**, so an expression pushed into the projection below is still a FLOAT64 column when
+the check runs, which is why none of the rewrites get through.
+
+The workaround the message recommends is real and works, which is what makes the message
+actionable rather than merely polite:
+
+```
+$ pravaha query --sql "SELECT SUM(CAST(d AS BIGINT)) AS v FROM av"
+v
+3          (2.5, 3.5, -2.5, NULL, 0.0 truncated toward zero: 2 + 3 - 2 + 0)
+```
+
+**Two things the fix did not cover.**
+
+* When the argument is an expression the message names Calcite's synthetic field —
+  `SUM($f0) is over a FLOAT64 column` — not the user's `SUM(d * 2)`. Same family as SQL-014/048;
+  low severity, and the rest of the sentence still gets the user unstuck.
+* **`INT8`, `INT16` and `INT32` were left out, and for those the original SQL-037 symptom is
+  unchanged.** See **SQL-070**. The guard tests for `FLOAT32` and `FLOAT64` only.
+
+### SQL-007 — PARTIALLY FIXED: one of the three aggregate operators
+
+`GlobalAggregate` is fixed, on both the file path and the server path:
+
+```
+$ pravaha run --sql "SELECT SUM(n) AS s, COUNT(n) AS c, COUNT(*) AS t, MIN(n) AS mn, MAX(n) AS mx, AVG(n) AS a FROM txn" --in num.csv
+ok  5 in, 1 out
+9007199254740996,4,5,-7,9007199254740993,2251799813685249
+                 ^ COUNT(n) is 4 where it was 5; COUNT(*) is still 5
+$ pravaha query --sql "SELECT COUNT(*) AS t, COUNT(n) AS cn, COUNT(s) AS cs, SUM(n) AS sn FROM av"
+t	cn	cs	sn
+5	4	4	28
+```
+
+Both columns have exactly one NULL in five rows, `COUNT(*)` counts all five, `SUM` is unchanged and
+correct. Not vacuous: the two counts now differ, which is precisely what they could not do before.
+
+**`KeyedAggregate` and `WindowedAggregate` have the same bug and were not touched.** Logged as
+**SQL-067** and **SQL-068**. The remediation commit's own message says "the SUM and MIN/MAX branches
+beside it had the check all along" — that is true of all three operators, and the check was added
+to one of them.
+
+### SQL-012 — PARTIALLY FIXED: the reported cases are right, two new wrong answers arrived with the fix
+
+```
+$ pravaha run --sql "SELECT id, d, ROUND(d) AS r FROM txn" --in round.csv
+ok  12 in, 12 out
+1,2.5,3.0                    <- was 2.0
+2,-2.5,-3.0                  <- was -2.0
+3,0.5,1.0
+4,-0.5,-1.0
+5,2.4,2.0
+6,3.5,4.0
+7,-3.5,-4.0
+8,-0.4,-0.0
+12,1.5,2.0
+```
+
+Every case named in the brief is correct, and integer `ROUND` is untouched and still exact above
+2^53:
+
+```
+$ pravaha run --sql "SELECT FLOOR(n) AS f, CEIL(n) AS c, ROUND(n) AS r FROM txn WHERE id = 5" --in num.csv
+9007199254740993,9007199254740993,9007199254740993
+```
+
+**But the new implementation, `Math.signum(v) * Math.floor(Math.abs(v) + 0.5)`, is wrong on two
+inputs that `Math.rint` got right.** Both are in the same output above:
+
+```
+9,0.49999999999999994,1.0        <- correct answer: 0
+10,4.503599627370497E15,4.503599627370498E15   <- correct answer: itself
+```
+
+`0.49999999999999994` is the largest double **below** one half; it must round to 0. Adding 0.5 to it
+produces exactly `1.0` in binary, and the floor of that is 1. This is the textbook `Math.round`
+defect the JDK itself fixed in Java 7. `4503599627370497.0` is 2^52 + 1, an exact whole number;
+`ROUND` of a whole number is itself. Adding 0.5 lands exactly halfway between two representable
+doubles, ties-to-even rounds it up, and `ROUND` now **changes an integer value**. Every double at or
+above 2^52 with an odd mantissa is affected.
+
+Logged as **SQL-072**. The verdict on the fix: it corrects the reported symptom and reproduces its
+shape — an off-by-one in a plausible-looking number that nobody checks — on a different set of
+inputs. `BigDecimal.setScale(0, RoundingMode.HALF_UP)` has neither problem, and was named as the
+alternative in the original report.
+
+### SQL-010 — VERIFIED FIXED, and the failure is visible
+
+```
+$ pravaha run --sql "SELECT ABS(n) AS a FROM txn" --in min.csv   (n = -9223372036854775808)
+PRV-3010  lane 0 stopped after a failure: java.lang.ArithmeticException: ABS(-9223372036854775808)
+has no representable result: the range of a 64-bit integer is asymmetric, so the magnitude of its
+smallest value is one larger than its largest.
+  https://docs.pravaha.io/errors/PRV-3010
+EXIT=1                            ELAPSED 4.80 s
+```
+
+On the brief's question — what the user actually sees: **a clear error**. A `PRV-` code with a
+documentation link, the real exception message naming the value and the reason, exit 1, in under
+five seconds. Nothing is swallowed and nothing hangs. `ABS` of ordinary values is unchanged
+(SQL-009 re-run below).
+
+### SQL-005, SQL-006, SQL-043 (stream half) — FIXED, by a change that is not in the commit under test
+
+All three produced a five-minute stall in the original run. All three now fail in about a second
+with the real reason:
+
+```
+$ pravaha run --sql "SELECT id, 100 / n AS q FROM txn" --in num.csv        (one row has n = 0)
+PRV-3010  lane 0 stopped after a failure: java.lang.ArithmeticException: division by zero in a
+projection; the record is routed to the DLQ rather than given a value that could be mistaken for an
+answer
+exit=1   ELAPSED 1.04 s      (three consecutive runs: 1.04, 1.03, 1.03 s, exit 1, 0 rows out)
+
+$ pravaha run --sql "SELECT n + 1 AS a FROM txn" --in max.csv              (n = Long.MAX_VALUE)
+PRV-3010  lane 0 stopped after a failure: java.lang.ArithmeticException: long overflow
+exit=1
+
+$ pravaha run --sql "SELECT COUNT(DISTINCT n) AS d FROM txn" --in num.csv
+PRV-3010  lane 0 stopped after a failure: com.ash.messaging.pravaha.api.PravahaException:
+PRV-3020  COUNT(DISTINCT ...) over an unwindowed stream is unbounded state: one entry per distinct
+value, kept forever. Put it in a window.
+exit=1
+```
+
+Five further runs of each of the first two, to check the non-determinism SQL-006 reported: ten of
+ten failed loudly, none produced the `ok  1 in, 0 out` / exit 0 outcome, none took anywhere near
+five minutes.
+
+**Where the fix is matters, and it is not in `ab0eca3`.** That commit touches two files in the whole
+runtime and CLI:
+
+```
+$ git show --name-only --format="" ab0eca3 | grep -E "pravaha-runtime|pravaha-cli"
+pravaha-runtime/src/main/java/com/ash/messaging/pravaha/runtime/exec/GlobalAggregate.java
+pravaha-runtime/src/main/java/com/ash/messaging/pravaha/runtime/plan/Expression.java
+```
+
+The change that actually does this is **uncommitted in the working tree** as this log is written —
+`QueryExecution.awaitQuiescent` now polls in fifty-millisecond slices and calls `checkHealth()`
+inside the loop instead of waiting out the whole timeout, and `QueryRunner` calls `checkHealth()`
+after `close()`. Its own comment names the defect exactly: "the real cause, an
+`ArithmeticException` from a division by zero or an overflow, sat in the lane's `failure` field the
+whole time, unread."
+
+So: the diagnosis in SQL-005 was right, the fix is right, and the fix is in flight rather than in the
+release under test. Verified against the build of 22:03, which carries it.
+
+**What the fix does not address, and what therefore still stands:**
+
+* **Every row in the batch is still lost**, not just the offending one. Rows 1, 3 and 5 of
+  `num.csv` have perfectly good answers and `out.csv` is empty.
+* **The message still says "the record is routed to the DLQ"** and no record is routed anywhere. The
+  lane stops, the run dies, nothing is quarantined. The sentence describes a design, not what
+  happens.
+* The contract's promise — "A query Pravaha cannot run is refused when it is planned … It is never
+  accepted and then approximated" — is still not kept for `COUNT(DISTINCT)`: it plans, it registers,
+  it runs, and then it throws. It now throws quickly and legibly, which is a large improvement and
+  not the thing that was promised.
+
+### SQL-043 (view half) — STILL FAILING, and a new error alongside it
+
+```
+$ pravaha query --sql "SELECT COUNT(DISTINCT g) AS d FROM av"
+PRV-1041  PRV-3020  COUNT(DISTINCT ...) over an unwindowed stream is unbounded state: one entry per
+distinct value, kept forever. Put it in a window.
+```
+
+`av` is a view and the read is bounded, exactly the shape `SQL_SUPPORT.md` says is supported
+("`KeyedAggregate` answers it — including … `COUNT(DISTINCT)`"). Unchanged, message still wrong about
+what the input is. The keyed form now fails differently — see **SQL-078** — and the windowed form,
+which the refusal above tells the user to reach for, returns wrong numbers — see **SQL-069**.
+
+### SQL-008 — STILL FAILING
+
+```
+$ pravaha validate --sql "SELECT id, -n AS neg FROM txn"
+PRV-2021  '-($1)' has 1 operands; only the two-operand form is supported (unary minus included,
+which Calcite normalises to 0 - x).
+$ pravaha validate --sql "SELECT id, 0 - n AS neg FROM txn"        -> valid
+```
+
+Unchanged, including the refusal's claim that the thing it is refusing is supported.
+
+### SQL-055 — STILL FAILING
+
+```
+depth  100: valid
+depth 1000: PRV-2001  null
+depth 2000: PRV-2001  null
+```
+
+### SQL-056 — STILL FAILING, both halves
+
+```
+$ pravaha validate --sql "SELECT * FROM nosuchstream" --stream txn
+PRV-2002  Object 'nosuchstream' not found. Known streams: [txn]          (PRV-2003 still unused)
+
+$ pravaha query --sql "SELECT * FROM w"                                  (w IS a declared stream)
+PRV-1041  PRV-2002  Object 'w' not found. Known streams: [wnw, av, lwc, lw]
+$ pravaha query --sql "SELECT * FROM agg"
+PRV-1041  PRV-2002  Object 'agg' not found. Known streams: [wnw, av, lwc, lw]
+```
+
+The node logged `streams declared in configuration: [w, ws, wni, lt, lt2, wn, agg, nt, fw]` at
+startup. "Known streams" still names the registered views and omits every one of them.
+
+### SQL-060 — STILL FAILING
+
+```
+$ pravaha validate --sql "$(printf -- '-- a comment\nSELECT id FROM txn')"
+PRV-2001  Non-query expression encountered in illegal context
+$ pravaha validate --sql "$(printf 'SELECT id\n-- middle\nFROM txn')"      -> valid
+```
+
+Any `--sql` value beginning with `--` is still replaced by the string `true` and planned as that.
+
+### SQL-061 — STILL FAILING
+
+```
+$ cd examples/01-filter-and-project
+$ pravaha run --sql "SELECT user_id, amount FROM txn WHERE amount > 100" \
+              --schema "user_id:STRING,amount:INT64" --stream txn --in transactions.csv --out out.csv
+--out-schema is required. Supplied: [sql, schema, stream, in, out]
+```
+
+All three errors stand: the missing `--out-schema`, the `--schema` that does not describe
+`transactions.csv` (`txn_id,user_id,amount,status`), and the documented three-line output that
+omits `carol,900`.
+
+### SQL-062 — STILL FAILING
+
+`SqlSupportMatrixTest.java` is not in `ab0eca3`'s file list and `outcomeOf` is unchanged: every case
+still reduces to `"OK"` or an eight-character code, and no value is ever compared. Of the defects
+this pass found, `ROUND(0.49999999999999994) = 1`, `COUNT(col)` counting NULLs in two of three
+operators, windowed `COUNT(DISTINCT)` over a string returning 1, and INT32 arithmetic wrapping
+would all still plan, build and compile perfectly, and none would fail the build.
+
+### SQL-065 — STILL FAILING
+
+```
+$ pravaha run --sql "SELECT id, n % 3 AS m FROM txn" --out-schema 'id:INT64,m:INT64?'
+ok  5 in, 5 out
+3,4294967295        <- -7 % 3, read at the wrong width, under a green ok
+```
+
+### SQL-047 — STILL BLOCKED
+
+`grep -rn "lookups\|registerLookup" pravaha-server/src/main/java/` returns nothing. There is still
+no configuration surface for declaring a lookup table, so the documented ✅ is still unreachable from
+a configured node.
+
+---
+
+## Regression hunt
+
+Chosen because they run through the two files the remediation changed —
+`Expression.java` (every projection and predicate in the engine) and `GlobalAggregate.java` (every
+unkeyed aggregate) — plus the narrow types and DATE/TIME the original log flagged as untested.
+
+| Re-run | Result |
+|---|---|
+| SQL-001 arithmetic projection | identical output to the original, including 2^53+1 |
+| SQL-009 `ABS`/`FLOOR`/`CEIL` over INT64 and FLOAT64 | byte-identical to the original; the `ABS` change affects only `Long.MIN_VALUE` |
+| SQL-007 projection half (NULL propagation, `n * 0` over NULL) | identical |
+| SQL-011 integer `FLOOR`/`CEIL`/`ROUND` above 2^53 | identical, still exact |
+| SQL-038 global `COUNT(*)` | one group, one row, 5 |
+| text functions: `UPPER`, `LOWER`, `TRIM`, `SUBSTRING`, `\|\|` | identical, including the untrimmed interior spaces of `"  spaced  "` |
+| `TRIM` over tab and mixed whitespace | identical — tabs still not trimmed, as before |
+| `LIKE 'ann%'` | 2 of 5 rows, correct |
+| `LIKE '%.com'` over `mail.com` / `mailxcom` / `a+b` / `ab` | 1 row; `.` still literal, not a metacharacter |
+| `CASE WHEN` over integers and text with an `IS NULL` arm | identical |
+| integer `SUM`/`MIN`/`MAX`/`AVG` on the stream path | identical; only `COUNT(col)` changed, and changed correctly |
+
+No regression found in any of them. The two changed files did what they say and nothing more.
+
+**Narrow integer types and DATE/TIME, tested for the first time**, because the original log said
+"given what turned up in `FLOAT64`, the narrower integer types deserve the same treatment". They
+did. Four new defects came out of it: **SQL-070**, **SQL-073**, **SQL-074**, and the fact that
+`DATE` and `TIME` cannot be declared in a schema spec at all
+(`PRV-5040  unknown type 'DATE'. Supported: BOOLEAN, INT8, INT16, INT32, INT64, FLOAT32, FLOAT64,
+STRING, BYTES, TIMESTAMP`) while `SQL_SUPPORT.md` lists both as supported types.
+
+---
+
+## New defects
+
+Numbered continuing the original sequence.
+
+### SQL-066 — FAIL, **blocker**: a windowed query above ~210 000 rows corrupts itself and reports RUNNING
+
+The windowing fix holds on nine rows and on two hundred thousand. Past roughly 210 000 it breaks, in
+one of two ways, and the query goes on saying `RUNNING` either way.
+
+All rows are `k='f', amt=1`, one per millisecond of event time, so every answer is arithmetic:
+a 10-second window holds exactly `rows / span_seconds * 10` rows and its `SUM` equals its `COUNT`.
+
+```
+rows     event-time span  windows  ROWS IN reached   SELECT * FROM <view>
+ 60 000   60 s             6        60 000            5 rows, correct
+200 000  200 s             20       200 000           19 rows, correct
+200 000  1200 s            120      200 000           119 rows, correct
+210 000  200 s             20       210 000           19 rows, correct
+230 000  200 s             20       149 388  STALLED  13 rows -- SILENTLY SHORT, no error
+262 000  200 s             20       262 000           PRV-1041  field 0 ('window_start') is NOT NULL and cannot be set null
+262 000  262 s             27       262 000           same error
+270 000  270 s             27       263 822  STALLED  same error
+300 000  300 s             30       263 647  STALLED  same error
+600 000  600 s             60       263 810  STALLED  same error
+600 001  600 s + 1 late    60       263 830  STALLED  same error
+```
+
+Two hundred thousand rows spread over 120 windows is fine and two hundred and thirty thousand over
+20 windows is not, so **the trigger is the row count, not the window count, the window width or the
+event-time span.** The threshold is between 210 000 and 230 000.
+
+The 230 000-row case is the worst shape in the table, because nothing at all says it went wrong:
+
+```
+$ pravaha queries
+th230000	RUNNING	e7665d9a86bd	149388          <- of 230 000; frozen, still frozen 30 s later
+$ pravaha query --sql "SELECT * FROM th230000"
+... 13 rows ...
+1757700120000000000	1757700130000000000	f	9439	9439    <- last window: 9 439 rows where 11 500 belong
+```
+
+Nineteen windows should have closed and thirteen did; the thirteenth is short by 2 061 rows. The
+read succeeds, returns a number, and the number is wrong. A dashboard would show it without a mark.
+
+The server log carries one line per failed query and nothing else:
+
+```
+WARN [pravaha-watermark] c.a.m.p.runtime.exec.QueryExecution : could not advance the watermark:
+    java.lang.IndexOutOfBoundsException: Index 59 out of bounds for length 59
+WARN [pravaha-watermark] c.a.m.p.runtime.exec.QueryExecution : could not advance the watermark:
+    java.lang.IndexOutOfBoundsException: Index 47 out of bounds for length 47
+WARN [pravaha-watermark] c.a.m.p.runtime.exec.QueryExecution : could not advance the watermark:
+    java.lang.IndexOutOfBoundsException: Range [-1897170280, -1897170280 + 409246480) out of bounds for length 1048576
+WARN [pravaha-watermark] c.a.m.p.runtime.exec.QueryExecution : could not advance the watermark:
+    java.lang.IndexOutOfBoundsException: Range [-1508780288, -1508780288 + 409246438) out of bounds for length 1048576
+WARN [pravaha-watermark] c.a.m.p.runtime.exec.QueryExecution : could not advance the watermark:
+    java.lang.IndexOutOfBoundsException: Range [-422436344, -422436344 + 409246475) out of bounds for length 1048576
+```
+
+**A negative offset into a 1 MiB arena, and a length of 409 million.** That is a signed 32-bit
+offset that has wrapped, computed against an off-heap buffer. The `Range [...]` form is the one that
+leaves `window_start` null on read, which is consistent: a row was written at a nonsense offset and
+what comes back is not the row that was written.
+
+Exactly one warning is logged per query and then the watermark for that query never advances again —
+`advanceWatermarkQuietly` catches it, logs, and the clock is dead. Its comment says "Never let the
+clock die: a watermark that stops advancing stops every window in the query, and it does it
+silently." The catch achieves the opposite of what the comment intends: it converts a crash into
+exactly the silent stop it warns about.
+
+**Blast radius is one query, not the node** — a windowed query registered afterwards emits correctly,
+and the `pravaha-watermark` threads are still alive. But the affected query reports `RUNNING`
+for ever, its `ROWS IN` stops, and there is no way for a client to learn any of this: Flight's
+listing exposes name, state, fingerprint and rows-in only, and the feed's `describe()` — which the
+remediation extended to record a dead feed — is not on the wire at all. In this failure the feed did
+not die, so `describe()` would have said nothing regardless.
+
+Severity: **blocker**. This is the engine's headline feature, on a volume any real deployment passes
+inside a minute, producing a wrong answer under a green status. It was unreachable before this
+release because no window ever closed; it is reachable now.
+
+### SQL-067 — FAIL, high: `KeyedAggregate` still counts NULLs in `COUNT(col)`
+
+```
+$ pravaha query --sql "SELECT g, COUNT(*) AS t, COUNT(n) AS cn, SUM(n) AS sn FROM av GROUP BY g"
+g	t	cn	sn
+k1	3	3	15          <- k1's n values are 10, NULL, 5.  COUNT(n) must be 2.
+k2	2	2	13
+```
+
+`SUM(n) = 15` from two values while `COUNT(n) = 3` on the same row: the operator's own output
+contradicts itself. `KeyedAggregate.accumulate` line 258 is `case COUNT -> counts[i] += weight;`,
+unchanged, while the `SUM, AVG`, `MIN, MAX` and `COUNT_DISTINCT` branches immediately below it all
+test `row.isNull(call.argumentOrdinal())`. This is the keyed path — the one
+`SQL_SUPPORT.md` points a dashboard at.
+
+### SQL-068 — FAIL, high: `WindowedAggregate` still counts NULLs in `COUNT(col)`
+
+Stream `wn`, window `[T0, T0+10s)`, key `a`, holds `amt` = 10, NULL, 20:
+
+```
+$ pravaha query --sql "SELECT * FROM wnw"
+window_start	window_end	k	t	ca	sa
+1757700000000000000	1757700010000000000	b	1	1	5
+1757700000000000000	1757700010000000000	a	3	3	30      <- COUNT(amt) must be 2; SUM is 30, from two values
+1757700010000000000	1757700020000000000	a	2	2	7       <- amt = 7, NULL: COUNT(amt) must be 1
+```
+
+And over a FLOAT64 column, where `COUNT` is the one aggregate still allowed:
+
+```
+$ pravaha query --sql "SELECT * FROM wfw2"    (COUNT(d); W1/a holds d = 1.5, 2.5, NULL; W2/a holds NULL, NULL)
+1757700000000000000	1757700010000000000	a	3      <- must be 2
+1757700010000000000	1757700020000000000	a	2      <- must be 0
+```
+
+`SlicedAggregateState` line 195 is `case COUNT -> accumulator.values[i] += weight;`. Same defect,
+same shape, third operator. The exemption written into `refuseFloatingPointAggregate` — "COUNT is
+exempt: it counts rows and nulls, and never reads the value" — describes the bug as though it were
+the specification. `COUNT(col)` is not supposed to count nulls.
+
+### SQL-069 — FAIL, high: windowed `COUNT(DISTINCT col)` over a non-integer column always returns 1
+
+This is the construct the `COUNT(DISTINCT)` refusal explicitly tells the user to use ("Put it in a
+window") and the one `SQL_SUPPORT.md` §windowing says the feature exists for.
+
+```
+$ pravaha query --sql "SELECT * FROM cdw2"
+window_start	window_end	damt	dk	c
+1757700000000000000	1757700010000000000	4	1	4     <- k = a,a,b,a : 2 distinct.  damt over INT64 is right.
+1757700010000000000	1757700020000000000	3	1	3     <- k = a,b,a   : 2 distinct
+1757700020000000000	1757700030000000000	1	1	1     <- k = a       : 1, right by accident
+```
+
+`COUNT(DISTINCT amt)` over the INT64 column is correct in all three windows (4, 3, 1 — hand-checked
+against 1/2/10/4, 100/50/200, 7). `COUNT(DISTINCT k)` over the STRING column is 1 in every window,
+whatever the data. `SlicedAggregateState` keys its multiset on `values[i]`, a `long` the window
+operator fills from `row.getLong(ordinal)`, so every string collapses to the same key. A silent
+wrong answer, always low, in the one shape the documentation recommends.
+
+### SQL-070 — FAIL, high: every aggregate over `INT8`, `INT16` or `INT32` dies with a raw internal error
+
+The SQL-037 fix covers `FLOAT32` and `FLOAT64`. The narrow integers have the same defect and no
+guard:
+
+```
+$ pravaha run --sql "SELECT SUM(t8)  AS v FROM txn"   (t8 is INT8)
+PRV-3010  lane 0 stopped after a failure: java.lang.IllegalArgumentException: field 0 ('v') is INT8,
+not INT64 in schema txn_projected_aggregated
+```
+
+Identical for `SUM(t16)`, `SUM(t32)`, `MIN(t8)`, `MAX(t16)`, `MIN(t32)`, `AVG(t32)` — seven of
+seven. `COUNT(t8)` works and is correct (4, one NULL skipped). `validate` reports the plan as
+`valid  output: [s INT16, mn INT32, mx INT8, c INT64 NOT NULL, t INT64 NOT NULL]`, so this is
+accepted at plan time and killed at run time — the opposite of what the float fix established as the
+right behaviour one type away, and a leaked generated schema name in the message.
+
+`SQL_SUPPORT.md` lists `TINYINT`/`SMALLINT`/`INTEGER` among the supported types and
+`COUNT/SUM/MIN/MAX/AVG` as ✅ with no type restriction.
+
+### SQL-071 — FAIL, high: a window over a stream with no `event-time` declared is accepted and never fires
+
+Stream `wni` is the same file and the same schema as `ws`, with the `event-time:` line omitted —
+the single mistake the new configuration key invites.
+
+```
+$ pravaha register --name tumni --sql-file tumble_wni.sql --keys 0,1,2
+registered tumni  state=RUNNING  fingerprint=eba7b2e2b2af
+$ pravaha queries
+tumni	RUNNING	eba7b2e2b2af	9
+$ pravaha query --sql "SELECT * FROM tumni"     (at +4 s and again at +30 s)
+0 rows
+```
+
+This is SQL-039's original symptom, unchanged, reachable by forgetting one line. **It should be
+refused at plan time.** The query says `DESCRIPTOR(et)` and the planner holds the stream's schema; it
+can see that `et` is not the stream's event-time column and that no watermark can ever advance. The
+information needed for the refusal is on hand at the moment the plan is built.
+
+What it does instead is accept, register, ingest and stay empty for ever — and `QUICKSTART.md`'s
+note at §6, "Nothing appearing? Almost certainly correct", is the guidance a user will find when
+they go looking.
+
+### SQL-072 — FAIL, medium: the new `ROUND` is wrong on two inputs the old one got right
+
+Detailed under SQL-012 above. `ROUND(0.49999999999999994)` returns 1 where the correct answer is 0,
+and `ROUND(4503599627370497.0)` returns 4503599627370498 where the correct answer is the input
+itself. Both are the documented failure modes of `floor(abs(x) + 0.5)`.
+
+### SQL-073 — FAIL, high: `INT32` and `INT16` arithmetic wraps silently, where `INT64` refuses
+
+```
+$ pravaha run --sql "SELECT id, t8 + 1 AS a8, t16 + 1 AS a16, t32 + 1 AS a32 FROM txn" --in nt.csv
+ok  5 in, 5 out
+1,128,32768,-2147483648        <- t32 = 2147483647.  2147483647 + 1 reported as -2147483648
+$ pravaha run --sql "SELECT id, t32 * 2 AS m FROM txn" --in nt.csv
+ok  5 in, 5 out
+1,-2                           <- 2147483647 * 2 reported as -2
+2,0                            <- -2147483648 * 2 reported as 0
+```
+
+Control, the same expression in 64 bits:
+
+```
+$ pravaha run --sql "SELECT id, CAST(t32 AS BIGINT) + 1 AS wide FROM txn" --in nt.csv
+1,2147483648                   <- the right answer
+```
+
+`SELECT n + 1` on an INT64 column at `Long.MAX_VALUE` throws (SQL-006 above, `Math.addExact`). The
+same expression on an INT32 column at `Integer.MAX_VALUE` returns a negative number under `ok`. The
+engine's stated policy — an overflow must never be mistaken for an answer, which is why `ABS` was
+made to throw in this very release — is enforced for one integer width and not the other three.
+
+### SQL-074 — FAIL, high: a typed literal throws a raw JDK exception, and on the server it kills a Flight worker thread
+
+`ExpressionCompiler` line 101 is `BigDecimal value = (BigDecimal) literal.getValue4();`, reached for
+every literal that is not an interval or a string. Calcite hands back a `Double` for a DOUBLE
+literal, an `Integer` for DATE and TIME, and a `Long` for TIMESTAMP.
+
+```
+$ pravaha validate --sql "SELECT CASE WHEN n > 0 THEN d ELSE 0.0 END AS x FROM agg"
+ClassCastException: class java.lang.Double cannot be cast to class java.math.BigDecimal
+$ pravaha validate --sql "SELECT CASE WHEN n > 0 THEN d ELSE CAST(0 AS DOUBLE) END AS x FROM agg"
+ClassCastException: class java.lang.Double cannot be cast to class java.math.BigDecimal
+$ pravaha validate --sql "SELECT DATE '2026-09-12' AS d FROM txn"
+ClassCastException: class java.lang.Integer cannot be cast to class java.math.BigDecimal
+$ pravaha validate --sql "SELECT TIME '12:34:56' AS t FROM txn"
+ClassCastException: class java.lang.Integer cannot be cast to class java.math.BigDecimal
+$ pravaha validate --sql "SELECT TIMESTAMP '2026-09-12 12:34:56' AS ts FROM txn"
+ClassCastException: class java.lang.Long cannot be cast to class java.math.BigDecimal
+```
+
+`SELECT d + 0.0` is fine, because there the literal stays DECIMAL; it is the branches of a `CASE`,
+an explicit `CAST`, and the typed literal syntaxes that force the type and hit the cast.
+
+Worse in a `WHERE` clause, where the same value goes through `Constant$OfLiteral.asLong`:
+
+```
+$ pravaha validate --sql "SELECT id FROM txn WHERE et > TIMESTAMP '2020-01-01 00:00:00'"
+Exception in thread "main" java.lang.AssertionError: cannot convert TIMESTAMP literal to class java.math.BigDecimal
+	at org.apache.calcite.rex.RexLiteral.getValueAs(RexLiteral.java:1228)
+	at com.ash.messaging.pravaha.sql.plan.Constant$OfLiteral.asLong(Constant.java:65)
+```
+
+The CLI does not refuse it; it crashes with a stack trace. Over Flight the same statement takes a
+server worker thread with it:
+
+```
+$ pravaha query --sql "SELECT window_start FROM wnw WHERE window_end > TIMESTAMP '2020-01-01 00:00:00'"
+PRV-1041  Application error processing RPC
+
+server log:
+Exception in thread "flight-server-default-executor-4" java.lang.AssertionError: cannot convert
+TIMESTAMP literal to class java.math.BigDecimal
+	at com.ash.messaging.pravaha.sql.plan.Constant$OfLiteral.asLong(Constant.java:65)
+	at com.ash.messaging.pravaha.sql.plan.PredicateCompiler.compare(PredicateCompiler.java:226)
+	at com.ash.messaging.pravaha.serving.ViewQuery.schemaOf(ViewQuery.java:273)
+```
+
+An `AssertionError` escaping onto a server executor thread is not a refusal, it is an unhandled
+error on a shared pool; the node survived because the pool replaces the thread. The client gets
+`Application error processing RPC` with no `PRV-` code. `SELECT CAST(1 AS DOUBLE)` over Flight gives
+`PRV-1041  There was an error servicing your request.` and the server logs nothing at all.
+
+This is not a regression — nothing in `ab0eca3` touches literal compilation — but it means
+`WHERE event_time > TIMESTAMP '...'`, the most ordinary predicate a streaming engine is asked for,
+crashes rather than refuses. With windowing now working, users will write it.
+
+### SQL-075 — FAIL, high: one malformed source row kills the whole run with "Report this"
+
+```
+$ printf '1,a,notanumber,5\n' > bad.csv
+$ pravaha run --sql "SELECT id FROM txn" --schema 'id:INT64,k:STRING,amt:INT64,et:TIMESTAMP' --in bad.csv
+UnsupportedOperationException: a plugin aborted a row mid-write, which the ingest path cannot yet
+undo: the claimed inbox cell would stay unpublished and stall this lane. Report this -- it needs a
+cancel path on RowInbox, not a workaround here.
+```
+
+Identical for a file with more columns than the declared schema, and for one with fewer. The codec's
+own message — `line 1, column 'amt' (INT64): 'notanumber' is not a number` — never reaches the user,
+and `FilesystemPartitionReader`'s comment ("One malformed line must not cost the batch. The engine's
+DLQ handles the record") is not what happens: the run dies and no record is quarantined. A user who
+mistypes a schema gets an internal error asking them to file a bug. Overlaps the INGEST area;
+recorded here because it is what a `--schema` typo produces.
+
+### SQL-076 — FAIL, high (code read, not executed): `event-time` is honoured by one source plugin of four
+
+`pravaha.streams.<n>.event-time` is forwarded into the source binding by `PravahaNode`, and
+`FilesystemSourcePlugin` was taught to use it. No other file-shaped plugin was:
+
+```
+plugins/pravaha-plugin-feedfile/.../FeedFilePartitionReader.java:128    .eventTimestampNanos(0L)
+plugins/pravaha-plugin-delta/.../DeltaPartitionReader.java:272          .eventTimestampNanos(0L)
+```
+
+`QUICKSTART.md` line 127 offers "filesystem, feedfile, jdbc or delta" as the choice of plugin. Two
+of those four still stamp every row with event time zero, which is the exact condition the original
+SQL-039 identified as making windows never close. A deployment that reads dropped files — the
+feedfile plugin's whole purpose, and the realistic shape of the thing — still cannot window.
+
+Not executed: the server's application jar ships only the filesystem plugin
+(`PRV-5090  no source plugin named 'feedfile' is on the classpath ... Available: [filesystem]`), so
+this is a code reading and is labelled as one. It should be cheap to confirm or refute.
+
+### SQL-077 — FAIL, medium: the last window of a stream that stops never closes, silently
+
+Every windowed query in this pass is missing its final window, consistently and by design:
+
+```
+stream w   rows to T0+95s, windows to [T0+90,T0+100)   -> 5 rows; [90,100) never appears, ever
+lwc        rows to T0+60s, 6 windows                   -> 5 rows
+tg         rows over 1200 s, 120 windows               -> 119 rows
+```
+
+`WatermarkTracker.advance` excludes an idle partition, but when **every** partition is idle it
+returns `current` unchanged — "the watermark stays where it is rather than jumping to infinity". A
+filesystem source is one partition, so once the file is exhausted the watermark freezes for ever and
+the last window's rows are held and never emitted.
+
+The conservatism is defensible for a live stream in a lull. The consequence is not defensible as it
+stands: over a finite source the tail of the data is silently withheld, and there is nothing in the
+product — no log line, no state, no metric a client can read — that says "one window is still open
+and will never close". On the brief's question about idle-partition exclusion: with a single source
+partition it cannot close a window at all, because all-idle is the case the tracker deliberately
+does not act on. The exclusion only helps a query whose other partitions are still moving.
+
+### SQL-078 — FAIL, medium: a keyed `COUNT(DISTINCT)` returns the error message `-1`
+
+```
+$ pravaha query --sql "SELECT g, COUNT(DISTINCT n) AS d FROM av GROUP BY g"
+PRV-1041  -1
+```
+
+A transport code and the two characters `-1`. Worse than SQL-055's `PRV-2001  null`: there is not
+even an engine code to look up.
+
+### SQL-079 — FAIL, medium: a second name for a shared computation is listed but cannot be read
+
+```
+$ pravaha register --name lwbig --sql-file late.sql --keys 0,1,2
+registered lw  state=RUNNING  fingerprint=82d8e513bdad      <- prints the FIRST name
+a query with the same fingerprint is the same computation, shared
+$ pravaha queries
+lwbig	RUNNING	82d8e513bdad	60001                        <- listed as RUNNING
+$ pravaha query --sql "SELECT * FROM lwbig"
+PRV-1041  PRV-2002  Object 'lwbig' not found. Known streams: [wnw, cdw2, av, cdw, lwc, lw, gbw]
+```
+
+Still not found ten minutes later. `ab0eca3` says "a shared computation's second name is journalled
+and registered as a view"; in this shape it is listed and not registered, so the name exists
+everywhere except where a user would use it. Also note the confirmation line prints `registered lw`
+when the user asked for `lwbig`. Primarily the registry area's finding; recorded because it was hit
+here and it defeats a documented feature. `QueryRegistry` has further uncommitted work in the tree
+as this is written, so this one is worth re-checking against the next build before it is actioned.
+
+### SQL-080 — FAIL, medium (documentation): the release's own new configuration is undocumented, and the type table is now wrong
+
+* `pravaha.streams.<n>.event-time` and `pravaha.streams.<n>.out-of-orderness` — without which no
+  window ever fires — appear in **no** user-facing document. `grep -rn "event-time" docs/*.md`
+  finds only three unrelated prose uses. `QUICKSTART.md` §3's stream declaration has no event-time
+  column and no `event-time:` key, and §4's `velocity.sql` groups by `TUMBLE(t.event_time, ...)`, so
+  the documented end-to-end flow still cannot produce a row.
+* `SQL_SUPPORT.md` line 112 still lists `COUNT, SUM, MIN, MAX, AVG` as ✅ with no type restriction,
+  and line 234 lists `REAL` and `DOUBLE` among the supported types. Aggregates over both are now
+  refused at plan time. The refusal is the right behaviour; the document now describes an engine
+  that no longer exists.
+* Lines 51 and 54 (`CAST(x AS DOUBLE)` ✅, `ROUND` ✅) carry no note about the rounding mode or about
+  `DATE`/`TIME` being undeclarable in a schema spec.
+
+---
+
+## Re-QA summary
+
+### The 15 FAILs and 2 BLOCKED, re-run
+
+| Case | Verdict | What remains |
+|---|---|---|
+| SQL-039 `TUMBLE` | **PARTIALLY FIXED** | Works on the server with `event-time:` declared, hand-checked. `pravaha run` still emits nothing silently; a stream without `event-time:` still emits nothing silently (SQL-071); only one plugin of four honours it (SQL-076); breaks above ~210 000 rows (SQL-066) |
+| SQL-040 `HOP` | **VERIFIED FIXED** | — ten windows, every value hand-checked, overlap proved |
+| SQL-037 float aggregates | **VERIFIED FIXED** | Refusal fires for SUM/AVG/MIN/MAX over FLOAT32 and FLOAT64 on stream, view, keyed, windowed and HAVING paths; unbypassable by eleven rewrites; COUNT exempt and correct; integers unaffected; the recommended workaround works. `INT8/16/32` were left out and still fail with a raw internal error (SQL-070); the message names `$f0` for an expression argument |
+| SQL-007 `COUNT(col)` | **PARTIALLY FIXED** | `GlobalAggregate` fixed and hand-checked. `KeyedAggregate` (SQL-067) and `WindowedAggregate` (SQL-068) have the identical bug, untouched |
+| SQL-012 `ROUND` | **PARTIALLY FIXED** | 2.5→3, −2.5→−3, 0.5→1, −0.5→−1, 2.4→2 all correct; integer ROUND still exact above 2^53. Two new wrong answers introduced (SQL-072) |
+| SQL-010 `ABS(Long.MIN_VALUE)` | **VERIFIED FIXED** | Clear `PRV-3010`, real message, exit 1, under 5 s. Nothing hung and nothing was swallowed |
+| SQL-005 integer `/ 0` | **FIXED, but not by `ab0eca3`** | Fails in ~1 s with the real `ArithmeticException` and exit 1. The fix is an uncommitted working-tree change to `QueryExecution.awaitQuiescent`/`QueryRunner`. Whole-batch loss and the false "routed to the DLQ" claim remain |
+| SQL-006 overflow | **FIXED, but not by `ab0eca3`** | Same fix; ten of ten runs failed loudly, the `ok` / exit 0 variant never appeared |
+| SQL-043 `COUNT(DISTINCT)` | **PARTIALLY FIXED** | Stream half now fails fast with the real `PRV-3020` reason (same in-flight fix), though still at run time rather than at plan time; view half unchanged and still contradicts the document; keyed form now returns `PRV-1041  -1` (SQL-078); the windowed form it recommends is wrong (SQL-069) |
+| SQL-008 unary minus | **STILL FAILING** | Unchanged, message still claims the feature is present |
+| SQL-055 deep nesting | **STILL FAILING** | `PRV-2001  null` |
+| SQL-056 unknown stream | **STILL FAILING** | `PRV-2003` still unused; "Known streams" still lists views and omits every configured stream |
+| SQL-060 `--sql` starting `--` | **STILL FAILING** | Unchanged |
+| SQL-061 QUICKSTART §2 | **STILL FAILING** | All three errors unchanged |
+| SQL-062 matrix compares no value | **STILL FAILING** | Test file untouched; none of this pass's answer defects would fail the build either |
+| SQL-065 `--out-schema` mismatch | **STILL FAILING** | Unchanged |
+| SQL-047 lookup join | **STILL BLOCKED** | No `pravaha.lookups` anywhere in the server |
+
+**3 verified fixed, 2 fixed by an in-flight change outside the commit under test, 4 partially
+fixed, 7 still failing, 1 still blocked.**
+
+### New defects, worst first
+
+| | Case | What is wrong | Severity |
+|---|---|---|---|
+| 1 | SQL-066 | A windowed query above ~210 000 rows corrupts an off-heap offset, wedges ingestion and either becomes unreadable or returns a **silently short answer**, while reporting `RUNNING` for ever | **Blocker** |
+| 2 | SQL-067, SQL-068 | `COUNT(col)` still counts NULLs in the keyed and windowed operators — the fix went into one of the three. Each row contradicts its own `SUM` | **High** |
+| 3 | SQL-069 | Windowed `COUNT(DISTINCT col)` over any non-integer column always returns **1**, in the one shape the documentation recommends | **High** |
+| 4 | SQL-070 | Every `SUM`/`MIN`/`MAX`/`AVG` over `INT8`/`INT16`/`INT32` dies at run time with a raw type error and a leaked schema name — SQL-037's defect, one type family away from the fix | **High** |
+| 5 | SQL-071 | A window over a stream that forgot `event-time:` is accepted and never fires: SQL-039's symptom, one missing config line away, refusable at plan time | **High** |
+| 6 | SQL-073 | `INT32`/`INT16` arithmetic wraps silently where `INT64` throws; `2147483647 + 1` is reported as `-2147483648` under `ok` | **High** |
+| 7 | SQL-074 | A DOUBLE, DATE, TIME or TIMESTAMP literal throws a raw `ClassCastException`; in a `WHERE` clause an `AssertionError` crashes the CLI and kills a Flight worker thread | **High** |
+| 8 | SQL-075 | One malformed source row kills the entire run with `UnsupportedOperationException ... Report this`; the codec's real diagnosis never reaches the user | **High** |
+| 9 | SQL-076 | `event-time` is honoured by the filesystem plugin only; feedfile and delta still stamp zero, so windowing still cannot work for the plugin built for arriving files (code read) | **High** |
+| 10 | SQL-072 | The new `ROUND` returns 1 for `0.49999999999999994` and changes the whole number 2^52+1 | **Medium** |
+| 11 | SQL-077 | The last window of a stream that stops producing never closes and nothing says so; with one source partition idle-exclusion cannot fire at all | **Medium** |
+| 12 | SQL-078 | A keyed `COUNT(DISTINCT)` fails with the message `-1` | **Medium** |
+| 13 | SQL-079 | A shared computation's second name is listed as `RUNNING` and is not resolvable in `SELECT` | **Medium** |
+| 14 | SQL-080 | The two configuration keys this release added are in no user-facing document, and `SQL_SUPPORT.md` still advertises the aggregates the release now refuses | **Medium** (doc) |
+
+### On the fixes themselves
+
+Three of the seven code fixes are clean and hold up under attack: the float-aggregate refusal, the
+`ABS` throw, and the windowing work on the server path — that last one genuinely closed four defects
+in a row, and the numbers it now produces are right.
+
+Two are **partial in a way the commit message does not acknowledge**. `COUNT(col)` was fixed in
+`GlobalAggregate` while the same three-line bug sat in `KeyedAggregate` and `SlicedAggregateState`;
+the commit message even says the neighbouring branches "had the check all along", which is true of
+all three operators. The float refusal was written to cover the types QA happened to report and not
+the types the same accumulator mishandles — the guard's own Javadoc says the operators "accumulate
+through `row.getLong` and write through `writer.setLong`, whatever the column's type", which is
+exactly why `INT16` fails too.
+
+One **papers over the symptom**: `ROUND`. `floor(abs(x) + 0.5)` is the implementation with the known
+half-ulp and tie-to-even defects, and it introduced both while curing the reported one. The original
+report named `BigDecimal.setScale(0, HALF_UP)` as the alternative.
+
+And one **fix opened a blocker**. Windowing could not be wrong before, because it never emitted. Now
+it emits, and above a couple of hundred thousand rows it emits a wrong answer under a green status
+(SQL-066). That is not an argument against the fix; it is an argument that the fix arrived without a
+volume test, and that `SqlSupportMatrixTest`, which never compares a value (SQL-062), would not have
+caught it at any volume.
+
+### What this pass could not cover
+
+* **The precise threshold in SQL-066**, beyond bounding it between 210 000 and 230 000 rows, and
+  whether it depends on key cardinality, lane count, or the row width. Every test here used one key
+  and a four-column row.
+* **`out-of-orderness` as a value.** Rows arriving out of order are handled correctly, but a row
+  arriving *past* the declared tolerance could not be produced: a filesystem source is one partition
+  that reads its file faster than the watermark tick, and once it is exhausted the watermark freezes
+  (SQL-077), so there is no window in which a row can be late. Every attempt either landed before
+  the first watermark or ran into SQL-066. Late-data handling — the side output, the lateness
+  counter, `allowedLateness` — remains untested through the product.
+* **SQL-076** is a code reading. The server's application jar ships only the filesystem plugin, so
+  feedfile and delta could not be exercised.
+* **Session windows**, `CUMULATE`, and windowed joins: not reached.
+* **Codegen.** Everything above is the interpreted pipeline, as before.
+* **The matrix test was read, not run**, for the same reason as last time.
