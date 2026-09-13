@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import pathlib
 import subprocess
+import threading
 import time
 
 import pytest
@@ -61,30 +62,73 @@ def server():
         text=True,
     )
 
-    port = None
+    # Drained on a thread for the whole run, not read until the port appears and then abandoned.
+    # A pipe nobody reads fills, and the next thing the server writes blocks it for ever -- which
+    # looks exactly like a subscription that never delivers, and cost an afternoon to tell apart.
+    found = {}
+    drained = []
+
+    def drain():
+        # readline, not iteration. Iterating a pipe uses read-ahead buffering and blocks until the
+        # buffer fills, so the port line sat unread for ninety seconds and every streaming test
+        # skipped with "the server did not start" -- a green run that had tested nothing.
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                return
+            drained.append(line)
+            if line.startswith("PRAVAHA_FLIGHT_PORT="):
+                found["port"] = int(line.strip().split("=", 1)[1])
+            elif line.startswith("PRAVAHA_FEED_FILE="):
+                found["feed"] = line.strip().split("=", 1)[1]
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+
+    # Both markers, not just the port. Waiting for one and then reading the other races the
+    # draining thread, and the loser is a feed fixture that skips -- so every streaming test
+    # reported "skipped" and the run was green.
     deadline = time.time() + 90
-    while time.time() < deadline:
-        line = process.stdout.readline()
-        if not line:
-            break
-        if line.startswith("PRAVAHA_FLIGHT_PORT="):
-            port = int(line.strip().split("=", 1)[1])
-            break
+    while time.time() < deadline and not ("port" in found and "feed" in found):
+        time.sleep(0.05)
+    port = found.get("port")
+    feed_file = found.get("feed")
     if port is None:
         process.kill()
         pytest.skip("the Pravaha server did not start; is the module built?")
 
-    yield port
+    yield port, feed_file
     process.kill()
     process.wait(timeout=30)
 
 
 @pytest.fixture
 def client(server):
+    port, _ = server
     # "grpc://" is plaintext. Omitting the scheme means TLS, which is the right default
     # for a client and the reason this is spelled out.
-    with connect(f"grpc://localhost:{server}") as connected:
+    with connect(f"grpc://localhost:{port}") as connected:
         yield connected
+
+
+@pytest.fixture
+def feed(server):
+    """Appends rows to the stream the fixture server is tailing.
+
+    This is what makes a streaming test possible from Python at all. Without it a subscription
+    could be opened and never delivered anything, so the tests asserted the shape of the call --
+    that a ticket was built and the server accepted it -- and called that a subscription test.
+    """
+    _, feed_file = server
+    if feed_file is None:
+        pytest.skip("the server did not report a feed file; rebuild pravaha-flight's test classes")
+
+    def append(trade_id, product_type, payload="{}", weight=1):
+        with open(feed_file, "a", encoding="utf-8") as handle:
+            handle.write(f"{trade_id},{product_type},{payload},{weight}\n")
+            handle.flush()
+
+    return append
 
 
 def test_a_script_queries_and_iterates(client):
@@ -357,6 +401,126 @@ def test_an_unweighted_batch_reads_as_every_row_present():
     assert rows[0].weight == 1
     assert rows[0].is_retraction is False
     assert list(rows[0].columns) == ["trade_id", "product_type"]
+
+
+def _collect(stream, wanted, rows, ready):
+    """Drains a subscription on its own thread until it has `wanted` rows.
+
+    On a thread because `subscribe` is a generator: nothing is sent to the server until it is
+    iterated. Feeding first and iterating afterwards misses every commit that happened in between,
+    which is a subscriber that appears to hang -- and is how a consumer written from the docstring
+    would get it wrong too.
+    """
+
+    def run():
+        for batch in stream:
+            if not ready.is_set():
+                ready.set()
+            rows.extend(batch)
+            if len(rows) >= wanted:
+                return
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    return worker
+
+
+def test_a_continuous_query_delivers_rows_to_python_over_the_network(client, feed):
+    """A continuous query registered, fed and delivered, all from Python, all over Flight.
+
+    Everything below this line used to be untestable from Python: nothing fed the stream, so the
+    subscription test asserted that a ticket was built and the server accepted it. An API that
+    accepts a subscription and never delivers one passes that test.
+    """
+    client.register("py_live", TRADE_SQL, [0])
+    stream = client.subscribe("py_live")
+    try:
+        rows, ready = [], threading.Event()
+        worker = _collect(stream, 2, rows, ready)
+        time.sleep(1.0)
+
+        feed("T-1", "SWAP")
+        feed("T-2", "EQUITY")
+        worker.join(30)
+
+        assert sorted(row["trade_id"] for row in rows) == ["T-1", "T-2"]
+        assert sorted(row["product_type"] for row in rows) == ["EQUITY", "SWAP"]
+        assert all(row.weight == 1 for row in rows)
+    finally:
+        stream.close()
+        client.drop("py_live")
+
+
+def test_a_retraction_reaches_python_as_a_retraction_over_the_network(client, feed):
+    """The weight, end to end and across a language boundary.
+
+    A retraction carries identical bytes in every column the view selected. A Python consumer
+    maintaining its own total that could not see the weight would apply a correction as a second
+    copy of the value being corrected. The unit tests above prove the decoder; this proves that the
+    whole path -- engine, wire, decoder -- agrees with it.
+    """
+    client.register("py_retract", TRADE_SQL, [0])
+    stream = client.subscribe("py_retract")
+    try:
+        rows, ready = [], threading.Event()
+        worker = _collect(stream, 2, rows, ready)
+        time.sleep(1.0)
+
+        feed("T-9", "SWAP")
+        feed("T-9", "SWAP", weight=-1)
+        worker.join(30)
+
+        assert [row.weight for row in rows] == [1, -1]
+        assert [row.is_retraction for row in rows] == [False, True]
+        assert all(row["trade_id"] == "T-9" for row in rows)
+    finally:
+        stream.close()
+        client.drop("py_retract")
+
+
+def test_a_python_subscriber_filters_at_the_tap_and_receives_only_its_slice(client, feed):
+    client.register("py_filtered", TRADE_SQL, [0])
+    stream = client.subscribe("py_filtered", {"product_type": "SWAP"})
+    try:
+        rows, ready = [], threading.Event()
+        worker = _collect(stream, 2, rows, ready)
+        time.sleep(1.0)
+
+        feed("T-20", "EQUITY")
+        feed("T-21", "SWAP")
+        feed("T-22", "EQUITY")
+        feed("T-23", "SWAP")
+        worker.join(30)
+
+        # Rows the filter excludes never cross the network, so they cannot appear here at all.
+        assert sorted(row["trade_id"] for row in rows) == ["T-21", "T-23"]
+    finally:
+        stream.close()
+        client.drop("py_filtered")
+
+
+def test_a_python_client_reads_the_view_of_its_own_continuous_query(client, feed):
+    """Register, feed, then ask the engine what the query holds -- all over the wire.
+
+    The other half of a continuous query's contract: not only that changes are pushed, but that the
+    maintained view can be read as a table whenever a client wants it.
+    """
+    client.register("py_view", TRADE_SQL, [0])
+    try:
+        feed("T-30", "SWAP")
+        feed("T-31", "EQUITY")
+
+        deadline = time.time() + 30
+        rows = []
+        while time.time() < deadline:
+            rows = [row.to_dict() for row in client.query("SELECT trade_id, product_type FROM py_view")]
+            if len(rows) >= 2:
+                break
+            time.sleep(0.1)
+
+        assert sorted(row["trade_id"] for row in rows) == ["T-30", "T-31"]
+    finally:
+        client.drop("py_view")
 
 
 def test_a_filter_naming_an_unknown_column_is_refused(client):
