@@ -35,6 +35,7 @@ import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 
@@ -430,5 +431,52 @@ class QueryRegistryTest {
         } catch (ReflectiveOperationException e) {
             throw new AssertionError("could not simulate a lane failure", e);
         }
+    }
+
+    @Test
+    void theViewSumsWeightsRatherThanTakingTheLastSign() {
+        // The engine is Z-sets and the surface that serves the answers did not implement them.
+        // ServedView branched on the sign of whichever weight arrived last, so a key inserted twice
+        // was removed by a single retraction, and a weight of 0 -- the row that says two changes
+        // cancelled -- was stored as an insert.
+        RegisteredQuery query = registry.register("zset", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        ServedView view = query.view();
+
+        // +1, +1 leaves the key present with net weight 2.
+        view.applyValues(new Object[] {"u1", 10L}, 1L, 1L);
+        view.applyValues(new Object[] {"u1", 10L}, 1L, 2L);
+        view.commit(view.appliedFrontier());
+        assertThat(view.size()).isEqualTo(1);
+
+        // One retraction takes it to 1. It must still be there.
+        view.applyValues(new Object[] {"u1", 10L}, -1L, 3L);
+        view.commit(view.appliedFrontier());
+        assertThat(view.size())
+                .as("a key of accumulated weight 2 survives a single retraction")
+                .isEqualTo(1);
+
+        // The second takes it to 0, and it goes.
+        view.applyValues(new Object[] {"u1", 10L}, -1L, 4L);
+        view.commit(view.appliedFrontier());
+        assertThat(view.size())
+                .as("weights summing to zero means the key is gone")
+                .isZero();
+    }
+
+    @Test
+    void anUpdateArrivingAsARetractionAndAnInsertLeavesOneRow() {
+        RegisteredQuery query = registry.register("upd", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        ServedView view = query.view();
+
+        view.applyValues(new Object[] {"u1", 10L}, 1L, 1L);
+        view.commit(view.appliedFrontier());
+
+        // An update is a retraction of the old row and an insert of the new one.
+        view.applyValues(new Object[] {"u1", 10L}, -1L, 2L);
+        view.applyValues(new Object[] {"u1", 99L}, 1L, 3L);
+        view.commit(view.appliedFrontier());
+
+        assertThat(view.size()).as("one key, not zero and not two").isEqualTo(1);
+        assertThat(view.scan().get(0)[1]).as("and it holds the new value").isEqualTo(99L);
     }
 }

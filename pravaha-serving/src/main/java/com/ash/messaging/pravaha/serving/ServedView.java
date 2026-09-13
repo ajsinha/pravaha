@@ -107,6 +107,21 @@ public final class ServedView {
      */
     private final Map<Key, Long> pendingTime = new LinkedHashMap<>();
 
+    /**
+     * Net weight per key, committed and pending.
+     *
+     * <p>The engine is Z-sets: a row carries a weight, an update is a retraction plus an insert, and
+     * a key is present exactly while its weights sum to something positive. This class did not sum
+     * them. It branched on the sign of whichever weight arrived last, so a weight of 0 -- the
+     * consolidated row that means "these cancelled" -- was stored as an insert, and a single −1
+     * removed a key that three inserts had put there.
+     *
+     * <p>Guarded by {@code this}, with the maps above.
+     */
+    private final Map<Key, Long> weights = new LinkedHashMap<>();
+
+    private final Map<Key, Long> pendingWeight = new LinkedHashMap<>();
+
     private volatile long committedFrontier = Long.MIN_VALUE;
     private volatile long appliedFrontier = Long.MIN_VALUE;
     private long updates;
@@ -164,16 +179,32 @@ public final class ServedView {
      */
     public synchronized void apply(RowView row, long frontier) {
         Key key = keyOf(row);
-        if (row.weight() < 0) {
+        applyWeighted(key, valuesOf(row), row.weight(), frontier);
+        appliedFrontier = Math.max(appliedFrontier, frontier);
+    }
+
+    /**
+     * Adds one weighted change to the overlay.
+     *
+     * <p>The key is present exactly while its weights sum positive. Everything else follows: an
+     * update arrives as −1 then +1 and nets to the new values; a retraction of a key inserted twice
+     * leaves it present with weight 1; and a weight of 0 changes nothing, because it is the row that
+     * says two changes cancelled.
+     */
+    private void applyWeighted(Key key, Object[] values, long weight, long frontier) {
+        if (weight == 0) {
+            return;
+        }
+        long net = weights.getOrDefault(key, 0L) + pendingWeight.merge(key, weight, Long::sum);
+        if (net <= 0) {
             // A tombstone, kept in the overlay so a consistent read does not see the removal early.
             pending.put(key, null);
             removals++;
         } else {
-            pending.put(key, valuesOf(row));
+            pending.put(key, values);
             pendingTime.put(key, frontier);
             updates++;
         }
-        appliedFrontier = Math.max(appliedFrontier, frontier);
     }
 
     /**
@@ -188,14 +219,7 @@ public final class ServedView {
             keyValues[i] = values[keyOrdinals[i]];
         }
         Key key = new Key(keyValues);
-        if (weight < 0) {
-            pending.put(key, null);
-            removals++;
-        } else {
-            pending.put(key, values.clone());
-            pendingTime.put(key, frontier);
-            updates++;
-        }
+        applyWeighted(key, values, weight, frontier);
         appliedFrontier = Math.max(appliedFrontier, frontier);
     }
 
@@ -214,6 +238,7 @@ public final class ServedView {
             if (values == null) {
                 visible.remove(key);
                 writtenAt.remove(key);
+                weights.remove(key);
             } else {
                 // Removed first so the re-insert puts this key at the back: "oldest" has to mean
                 // least recently written, or a hot key would be evicted while stale ones survived.
@@ -226,8 +251,15 @@ public final class ServedView {
                 writtenAt.put(key, pendingTime.getOrDefault(key, frontier));
             }
         });
+        pendingWeight.forEach((key, delta) -> {
+            long net = weights.merge(key, delta, Long::sum);
+            if (net <= 0) {
+                weights.remove(key);
+            }
+        });
         pending.clear();
         pendingTime.clear();
+        pendingWeight.clear();
         committedFrontier = frontier;
         evict();
         if (visible.size() > maxKeys) {
@@ -365,6 +397,10 @@ public final class ServedView {
                 if (written != null && written < horizon) {
                     entries.remove();
                     writtenAt.remove(key);
+                    // The weight goes with the row. Leaving it behind would mean a key that is
+                    // evicted and then inserted again starts from its old count rather than from
+                    // nothing, and a later retraction would not be enough to remove it.
+                    weights.remove(key);
                     evicted++;
                 }
             }
