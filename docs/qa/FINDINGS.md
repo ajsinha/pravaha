@@ -243,3 +243,78 @@ not infrastructure — the plugin has no configuration surface to point at one);
 for partition-parallel scanning, rebalance during a scan and node loss mid-scan; and scale, since
 every scan here was under ten records and `LutScanReader` buffers a whole scan on heap unbounded.
 Each has a run-this recipe at the end of `logs/AERO.md`.
+
+---
+
+# Event time and partition quiet time — 120 cases, and the disease behind a known symptom
+
+## T-1 (BLOCKER) — idle exclusion is unreachable, and I made it so
+
+`advanceWatermarkQuietly` re-observes every partition's **retained** high-water mark on every tick:
+
+```java
+partitionHighWater.forEach((partition, highest) -> {
+    long seen = highest.get();              // retained: never reset
+    if (seen != Long.MIN_VALUE) {
+        watermarks.observe(partition, seen, now);   // sets lastActivityNanos = now, idle = false
+    }
+});
+```
+
+`highest` is a high-water mark, not a per-tick delta, so for any partition that has *ever* produced a
+row the condition is permanently true and `observe` permanently refreshes its activity clock.
+
+**Only a partition that has never produced a single row can ever go idle.** One that produced a row
+and then went quiet pins the query's watermark for ever — which is the exact case idle exclusion
+exists to handle. A partition that spoke once is worse off than one that never spoke.
+
+This is mine. The `AtomicLong` high-water was how I fixed a `ConcurrentModificationException` in the
+watermark path — the tracker documents itself as thread-confined, and observing from each pump broke
+that. The fix was correct about threading and quietly disabled the feature.
+
+"The last window of a bounded source never closes" — reported separately, twice — is a symptom of
+this, not a defect of its own.
+
+## T-2 (HIGH) — watermark partition names are built by concatenating two integers
+
+```java
+String partition = streamName + "#" + laneIndex + "/" + pumps.size() + partitionedPumps.size();
+```
+
+`(1, 0)` and `(10, …)` produce the same string. Two partitions sharing a name means one silently
+replaces the other in the tracker, and the minimum-across-partitions rule is then computed over the
+wrong set. Also mine, from the same change.
+
+## T-3 (HIGH) — allowed lateness is the constant zero, with no way to change it
+
+No key, flag or clause sets it. So "late data arrives as a retraction and a correction" — stated in
+`CONCEPTS.md` and in `StreamSchema`'s javadoc — is **false for every TUMBLE query the planner
+builds**. The correction path is reachable only through HOP's overlapping windows. `lateRecords`
+stops at `QueryExecution` and reaches no metric, so the drops are invisible too.
+
+## T-4 (HIGH) — `advanceWatermark` mutates window and join state from the wrong thread
+
+State is mutated from the `pravaha-watermark` thread rather than the lane that owns it. Restore goes
+through `lane.submitControlTask`; this does not. The same class of defect as the `ServedView` race,
+one tier down, and not yet observed only because the window under contention is narrow.
+
+## T-5 — per-plugin event time, measured
+
+| Plugin | Behaviour |
+|---|---|
+| filesystem | Honours the declared column |
+| feedfile | Hard-codes `eventTimestampNanos(0L)` |
+| delta | Hard-codes `eventTimestampNanos(0L)` |
+| jdbc | Uses `watermark.column` raw and unconverted — an epoch-millis column is out by 10⁶, silently |
+| aerospike | Stamps every row of a scan with the scan's start time |
+
+## T-6 — the two out-of-orderness keys, separated by one number
+
+`pravaha.watermark.out-of-orderness` still has no reader. `pravaha.streams.<n>.out-of-orderness`
+works — and is silently dropped if `event-time` is not also declared, because `withEventTime` returns
+early. Same spelling, one level apart in the tree: 11 windows fire versus 6.
+
+Smaller, all pinned as cases: an `Error` rather than a `RuntimeException` cancels the scheduled tick
+silently; `boundedOutOfOrderness` does not saturate and can wrap to a far-future watermark; a
+push-only query's windows fire into a sink nothing ever commits; view retention compares a sequence
+number against an event-time horizon when the source stamps no event time.

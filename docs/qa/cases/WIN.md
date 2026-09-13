@@ -1244,3 +1244,718 @@ reported:** `Lane.run` catches the `Throwable`, sets `state = FAILED`, and sibli
 **Vacuity:** Defends against "the file was never read": ROWS IN for `v_epoch_1h` must reach 3. The
 control is `v_1h` from WIN-063, identical SQL over data with no epoch row, which must settle
 immediately — so the difference is attributable to the one row and not to the window size.
+
+---
+
+## 6. HOP — slide versus size
+
+The governing arithmetic, used by every case in this section. The windows containing an event at *t*
+are those whose end *e* satisfies `t < e ≤ t + S`, and ends are the multiples of *D*, so
+
+> **count(t) = floor((t + S) / D) − floor(t / D)**
+
+which equals `S/D` exactly when *D* divides *S*, and otherwise alternates between `⌊S/D⌋` and
+`⌈S/D⌉` depending on where *t* sits within a slide. The slice width is `gcd(S, D)` and the number of
+slices per window is `S / gcd(S, D)` — which is `S/D` only when *D* divides *S*, and is larger
+otherwise.
+
+### 6a. slide < size (overlapping)
+
+### WIN-071 — The per-row window count formula holds across a grid of (size, slide) and *t*
+**Intent:** Establish the arithmetic before any of it is used to predict a result, so a later
+mismatch is attributable to the engine and not to the prediction.
+**Falsifier:** Any cell where `windowEndsContaining(t).size()` differs from the formula.
+**Setup:** Embedded harness on `SlicedWindows` only.
+**Steps:** For each (S, D) ∈ {(20,10), (20,5), (10,1), (100,1), (1000,1), (10,3), (7,2), (10,10)}
+seconds, and each *t* ∈ {0, 1 ns, 1 s, 2 s, 5 s, S−1 ns, S, S+1 ns, −1 ns, −S}: compare
+`windowEndsContaining(t).size()` with `floorDiv(t+S, D) − floorDiv(t, D)`.
+**Expected:** Equal in every cell. Spot values, computed by hand:
+`(20,10), t=5 s: floor(25/10) − floor(5/10) = 2 − 0 = 2`.
+`(20,5), t=5 s: floor(25/5) − floor(5/5) = 5 − 1 = 4`.
+`(10,3), t=0: floor(10/3) − 0 = 3`; `(10,3), t=2 s: floor(12/3) − floor(2/3) = 4 − 0 = 4`.
+`(7,2), t=0: floor(7/2) − 0 = 3`; `(7,2), t=1 s: floor(8/2) − floor(1/2) = 4 − 0 = 4`.
+`(10,10), any t: 1`.
+`(20,10), t=−1 ns: floor((20 s−1 ns)/10 s) − floor(−1 ns/10 s) = 1 − (−1) = 2`.
+**Vacuity:** Pure arithmetic, no state.
+
+### WIN-072 — Slide 5 s over a 20 s window puts each row in exactly four windows
+**Falsifier:** `SUM(n) ≠ 12`, or any window's total differing from the table.
+**Setup:** `s0` bound to `c_plus.csv` (amounts 10, 20, 30 at 5.000, 15.000, 25.000; pusher 60.000).
+**Steps:** Register Q_H(5, 20) as `v_h5_20 --keys 0,1,2`; read it ordered by `window_start`.
+**Expected:** Eight rows.
+
+| window | rows | n | total |
+|---|---|---|---|
+| `[-10, 10)` | 10 | 1 | 10 |
+| `[-5, 15)` | 10 | 1 | 10 |
+| `[0, 20)` | 10, 20 | 2 | `10 + 20 = 30` |
+| `[5, 25)` | 10, 20 | 2 | 30 |
+| `[10, 30)` | 20, 30 | 2 | `20 + 30 = 50` |
+| `[15, 35)` | 20, 30 | 2 | 50 |
+| `[20, 40)` | 30 | 1 | 30 |
+| `[25, 45)` | 30 | 1 | 30 |
+
+`SUM(n) = 1+1+2+2+2+2+1+1 = 12 = 3 rows × 4 windows` — and `count(5 s) = floor(25/5) − floor(5/5) =
+4` confirms the 4. Slice width `gcd(20, 5) = 5 s`, so four slices per window and each row is stored
+once.
+**Vacuity:** Defends against key collapse (8 rows vs 1 under `--keys 2`) and against degeneration to
+tumble (`SUM(n)` would be 3) or to a doubled store (`SUM(n)` would be 24 with halved totals).
+
+### WIN-073 — Slide 1 s over a 10 s window: one row, ten windows, same total in each
+**Intent:** The ratio-10 case, and the shape that makes "the same number appearing ten times" the
+correct answer rather than a duplication bug.
+**Falsifier:** Fewer or more than 10 windows; any window with `n ≠ 1` or `total ≠ 7`.
+**Setup:** `one10.csv`: `1,100,7,5.000`; pusher `2,999,0,60.000`.
+**Steps:** Register Q_H(1, 10) as `v_h1_10 --keys 0,1,2`; read it.
+**Expected:** Exactly 10 rows, windows ending at 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 seconds — i.e.
+`[-4,6)`, `[-3,7)`, … , `[5,15)` — each `n = 1, total = 7`. `count(5 s) = floor(15/1) − floor(5/1) =
+15 − 5 = 10 = ⌈10/1⌉`. Windows ending at 5 s and at 16…60 s fire empty.
+**Vacuity:** Defends against key collapse: `--keys 2` would collapse all ten to one row of `n=1`,
+which is exactly the wrong answer this case exists to catch.
+
+### WIN-074 — Slide 1 s over a 100 s window: one row, one hundred windows
+**Falsifier:** A row count other than 100.
+**Setup:** `one100.csv`: `1,100,7,50.000`; pusher `2,999,0,300.000`.
+**Steps:** Register Q_H(1, 100) as `v_h1_100 --keys 0,1,2`; read it; `SELECT COUNT(*)`.
+**Expected:** 100 rows, windows ending at 51…150 s, each `n=1 total=7`.
+`count(50 s) = floor(150/1) − floor(50/1) = 100`. The view holds 100 keys for one input row —
+a 100× amplification that is correct and that nothing in `docs/SQL_SUPPORT.md`'s "`HOP` (sliding)
+windows ✅" row warns about.
+**Vacuity:** As WIN-073.
+
+### WIN-075 — Slide 1 s over a 1000 s window: one row, one thousand windows
+**Falsifier:** A row count other than 1000, or the query failing.
+**Setup:** `one1000.csv`: `1,100,7,500.000`; pusher `2,999,0,3000.000`.
+**Steps:** Register Q_H(1, 1000) as `v_h1_1000 --keys 0,1,2`; read `SELECT COUNT(*)`; record the
+wall time to settle and `pravaha.query.view.size`.
+**Expected:** 1,000 rows, windows ending 501…1500 s, each `n=1 total=7`. State: slice width
+`gcd(1000,1) = 1 s`, `slicesPerWindow = 1000`, and one key, so at most 1,000 live accumulators —
+well under `DEFAULT_MAX_SLICES` of 2,000,000. Work: `windowsCompletedBetween(499 s, 3000 s)` walks
+2,502 ends, and `fire()` is called for each, each call building a 1,000-element slice list and
+scanning the whole slice map — so roughly `2,502 × 1,000 × liveSlices` comparisons. Record the
+settle time; it is the baseline for WIN-090.
+**Vacuity:** Defends against key collapse; `view.size` must read 1,000, not 1.
+
+### WIN-076 — A slide that does not divide the size gives both ⌊S/D⌋ and ⌈S/D⌉ in one dataset
+**Intent:** Size 7 s, slide 2 s. `⌈7/2⌉ = 4`, `⌊7/2⌋ = 3`, `gcd(7,2) = 1 s` so seven slices per
+window. Asserting "⌈size/slide⌉ windows per row" as a universal would fail a correct engine here.
+**Falsifier:** Both rows landing in the same number of windows, or `SUM(n) ≠ 7`.
+**Setup:** `d72.csv`: `1,100,1,0.000`; `2,100,2,1.000`; pusher `3,999,0,30.000`.
+**Steps:** Register Q_H(2, 7) as `v_h2_7 --keys 0,1,2`; read it.
+**Expected:** Four rows.
+
+| window | rows | n | total |
+|---|---|---|---|
+| `[-5, 2)` | 1, 2 | 2 | 3 |
+| `[-3, 4)` | 1, 2 | 2 | 3 |
+| `[-1, 6)` | 1, 2 | 2 | 3 |
+| `[1, 8)` | 2 | 1 | 2 |
+
+`count(0) = floor(7/2) − floor(0/2) = 3 − 0 = 3`; `count(1 s) = floor(8/2) − floor(1/2) = 4 − 0 = 4`.
+`SUM(n) = 2+2+2+1 = 7 = 3 + 4`.
+**Vacuity:** Defends against key collapse and against a rounded slide: `gcd` rounded to 2 s would
+give 3 slices (7/2 truncated) and a different, plausible set of windows.
+
+### WIN-077 — Slices per window follow `size / gcd(size, slide)`, not `size / slide`
+**Intent:** State size is `keys × live slices`, and the two formulas differ for every non-dividing
+pair — so a state estimate built on `size/slide` understates a 7/2 hop by 3.5×.
+**Falsifier:** Any disagreement with the table.
+**Setup:** Embedded harness on `WindowSpec`.
+**Steps:** Read `sliceSizeNanos()` and `slicesPerWindow()` for each pair; compare with `size/slide`.
+**Expected:**
+
+| size | slide | gcd | slices/window | `size/slide` | understated by |
+|---|---|---|---|---|---|
+| 20 s | 10 s | 10 s | 2 | 2 | — |
+| 20 s | 5 s | 5 s | 4 | 4 | — |
+| 10 s | 1 s | 1 s | 10 | 10 | — |
+| 1000 s | 1 s | 1 s | 1000 | 1000 | — |
+| 10 s | 3 s | 1 s | **10** | 3 | 3.3× |
+| 7 s | 2 s | 1 s | **7** | 3 | 2.3× |
+| 60 s | 45 s | 15 s | **4** | 1 | 4× |
+| 10 s | 9.999 s | 1 ms | **10,000** | 1 | 10,000× |
+
+The last row is the cliff WIN-088 takes.
+**Vacuity:** Pure arithmetic.
+
+### WIN-078 — An overlapping hop stores each row once, whatever the overlap
+**Intent:** "O(1) per record instead of O(6), and six times less state" is the entire justification
+for slicing. A row in ten windows must produce one accumulator update, not ten.
+**Falsifier:** `liveSlices()` growing with the overlap ratio for a fixed input.
+**Setup:** Embedded harness: `SlicedAggregateState` over `hopping(S, 1 s)` for S ∈ {10 s, 100 s, 1000 s}.
+**Steps:** For each S, feed 1,000 rows for one key at event times 0, 1 s, …, 999 s; read
+`liveSlices()` and `peakSlices()` before any `discardSlicesEndingBefore`.
+**Expected:** `liveSlices() == 1000` in all three cases — one accumulator per (key, 1 s slice),
+independent of S. A per-window implementation would give 10,000, 100,000 and 1,000,000 respectively.
+Then `fire(1000 s)` must combine `slicesOfWindowEnding(1000 s)` = the S/1 s slices below 1000 s and
+return one result whose `count` equals the number of rows in those slices: for S = 10 s that is 10
+(`n = 10, total = 10`), for S = 100 s it is 100, for S = 1000 s it is 1000.
+**Vacuity:** Defends against "nothing was stored": `peakSlices()` must be 1,000 in each run before
+`fire` is believed. Zero live slices and an empty result would otherwise pass a "not per-window"
+assertion trivially.
+
+### 6b. slide = size (degenerates to tumble)
+
+### WIN-079 — `HOP(size, size)` returns exactly what `TUMBLE(size)` returns
+**Intent:** The brief's requirement, stated as an equality rather than as a resemblance. `WindowSpec`
+allows `slide == size` (only `slide > size` is refused), `gcd(S,S) = S`, `slicesPerWindow = 1`, and
+every line of `SlicedWindows` reduces to the tumbling case.
+**Falsifier:** Any row present in one view and absent from the other, or any differing value.
+**Setup:** `s0` bound to `a_plus.csv`.
+**Steps:** Register `v_t10p` = Q_T(10) and `v_h10_10` = Q_H(10, 10), both `--keys 0,1,2`; read both
+ordered by `window_start, user_id`; diff.
+**Expected:** Both hold exactly these 5 rows, and the diff is empty:
+
+| window | user | n | total |
+|---|---|---|---|
+| `[0,10)` | 100 | 2 | `10 + 20 = 30` |
+| `[0,10)` | 200 | 1 | 30 |
+| `[10,20)` | 100 | 1 | 40 |
+| `[10,20)` | 200 | 1 | 50 |
+| `[20,30)` | 100 | 1 | 60 |
+
+`SUM(n) = 6`, which is every row of dataset A and not the pusher (the pusher at 40.000 is in
+`[40,50)`, which never fires because the watermark is 40.000 and the test is `end ≤ watermark` on an
+end of 50.000).
+**Vacuity:** Defends against key collapse in both views, and against the two views being the same
+view: `pravaha queries` must show two names. If the fingerprints match, one computation is serving
+both and the equality is trivially true — record that as the answer to WIN-083 rather than as a pass
+here.
+
+### WIN-080 — The degenerate hop agrees with tumble on the boundary dataset too
+**Intent:** WIN-079 uses data away from boundaries. Equality that holds only away from boundaries is
+the equality that matters least.
+**Falsifier:** Any differing row.
+**Setup:** `s0` bound to `b_plus.csv`.
+**Steps:** Register `v_t10b` = Q_T(10) and `v_h10_10b` = Q_H(10, 10), both `--keys 0,1,2`; diff.
+**Expected:** Both hold exactly four rows: `[0,10)` `n=2 total=1+2=3`; `[10,20)` `n=2 total=4+8=12`;
+`[20,30)` `n=3 total=16+32+64=112`; `[30,40)` `n=1 total=128`. `3+12+112+128 = 255 = 2^8 − 1`, so
+every one of the eight rows is counted once and only once. Diff empty.
+**Vacuity:** As WIN-079, plus: `SUM(n)` must be 8, the exact row count of dataset B.
+
+### WIN-081 — The degenerate hop agrees with tumble at 100,000 rows
+**Intent:** Equality at volume, where a difference in slice handling would show as a handful of
+mismatched windows rather than as a wrong shape.
+**Falsifier:** Any window present in one and absent from the other, or any differing `n`.
+**Setup:** `s0` bound to `v_100000_100.csv` — dataset V(100,000, 100).
+**Steps:** Register `v_tvol` = Q_T(10) and `v_hvol` = Q_H(10, 10), both `--keys 0,1,2`; wait for both
+to settle; compare `COUNT(*)`, `SUM(n)`, and a full row-by-row diff.
+**Expected:** Both hold `10 windows × 100 users = 1,000` rows. `SUM(n) = 99,999` (window 0 holds
+9,999 rows, windows 1…9 hold 10,000 each: `9,999 + 9 × 10,000 = 99,999`). Per row: window 0's users
+each have `n = 99` or `100` (9,999 rows over 100 users: user *k* for *k* = 1…99 gets 100 rows and one
+user gets 99 — specifically `i mod 100` over *i* = 1…9,999 gives user 0 ninety-nine occurrences and
+every other user one hundred), windows 1…9 give every user exactly `n = 100`. `total = n` because
+`amount = 1`. Diff empty.
+**Vacuity:** Defends against the round-1 failure directly: `COUNT(*)` must be 1,000 **and**
+`SUM(n)` must be 99,999. A collapse to 100 keys would keep `SUM(n)` right and `COUNT(*)` wrong; a
+double-count would keep `COUNT(*)` right and `SUM(n)` wrong. Both are required.
+
+### WIN-082 — `gcd(S, S) = S` so a degenerate hop holds one slice per window
+**Falsifier:** `slicesPerWindow() ≠ 1` or `sliceSizeNanos() ≠ S`.
+**Setup:** Embedded harness.
+**Steps:** For S ∈ {100 ms, 1 s, 10 s, 1 m, 1 h, 1 d}: `WindowSpec.hopping(S, S).sliceSizeNanos()`
+and `.slicesPerWindow()`; compare with `WindowSpec.tumbling(S)`.
+**Expected:** Identical in every case: slice = S, one slice per window. Also
+`slicesOfWindowEnding(e)` returns a single-element list `[e − S]` for both kinds.
+**Vacuity:** Pure arithmetic.
+
+### WIN-083 — The two forms differ only in what `EXPLAIN` and the fingerprint say
+**Intent:** Having established the answers are identical, establish what is *not*: the plan label
+and, consequently, whether the two share a computation.
+**Falsifier:** `EXPLAIN` reporting TUMBLING for the hop form.
+**Steps:** `pravaha explain` both forms; `pravaha queries` with both registered.
+**Expected:** `WindowAssign(TUMBLING size=10000ms slide=10000ms …)` versus
+`WindowAssign(HOPPING size=10000ms slide=10000ms …)` — same numbers, different kind. Two distinct
+fingerprints, so two computations, two `SlicedAggregateState` instances and two copies of state for
+one answer. Not a correctness defect; a cost one, and worth recording because "registrations sharing
+a fingerprint share one computation" is a headline property.
+**Vacuity:** Not stateful.
+
+### WIN-084 — Each row lands in exactly one window when slide = size, including on boundaries
+**Falsifier:** Any *t* with `count(t) ≠ 1`.
+**Setup:** Embedded harness, `hopping(10 s, 10 s)`.
+**Steps:** For *t* ∈ {0, 1 ns, 5 s, 9.999999999 s, 10 s, 10 s + 1 ns, −1 ns, −10 s, −10 s − 1 ns}:
+`windowEndsContaining(t)`.
+**Expected:** A single end in every case. `t = 0 → [10 s]`; `t = 9.999999999 s → [10 s]`;
+`t = 10 s → [20 s]` (half-open: the window ending at 10 s does not contain 10 s);
+`t = −1 ns → [0]`; `t = −10 s → [0]`; `t = −10 s − 1 ns → [−10 s]`. Floor division is what makes the
+negative cases land below rather than above.
+**Vacuity:** Pure arithmetic.
+
+### 6c. slide > size (gapped — refused)
+
+### WIN-085 — A hop whose slide exceeds its size is refused
+**Intent:** `WindowSpec`'s constructor refuses it outright, with the reasoning that gaps mean some
+records belong to no window: "That is almost always a typo — and when it is not, it is a filter
+followed by a tumble, which says what it means."
+**Falsifier:** Acceptance.
+**Steps:** `pravaha validate --sql "SELECT window_start, window_end, COUNT(*) FROM TABLE(HOP(TABLE s0, DESCRIPTOR(event_time), INTERVAL '60' SECOND, INTERVAL '10' SECOND)) GROUP BY window_start, window_end"`.
+**Expected:** Refused with "a hop of 60000000000 ns over a window of 10000000000 ns leaves gaps:
+records between windows would belong to none. Use a smaller slide, or express the gap as a filter."
+Thrown as `IllegalArgumentException` from a record's compact constructor, so it carries **no `PRV`
+code** and `ERRC` cannot enumerate it. Record exactly how the CLI renders it — message only, or a
+stack trace.
+**Vacuity:** Not stateful.
+
+### WIN-086 — The rows that would belong to no window, counted
+**Intent:** The refusal's justification made concrete, so the decision can be judged rather than
+taken on trust.
+**Falsifier:** Finding any *t* in the gap that `windowEndsContaining` places in a window.
+**Setup:** Embedded harness, constructing `SlicedWindows` around a `WindowSpec` built by reflection
+or by a test-visible constructor that bypasses the guard — the arithmetic is what is under test,
+not the guard.
+**Steps:** For S = 10 s, D = 60 s, evaluate `windowEndsContaining(t)` for *t* = 0, 5 s, 9.999999999 s,
+10 s, 30 s, 59.999999999 s, 60 s.
+**Expected:** `t = 0` → `firstEnd = floorDiv(0, 60)·60 + 60 = 60 s`; the loop condition is
+`end − S ≤ t`, i.e. `50 s ≤ 0`, false → **empty list**. Same for 5 s, 10 s, 30 s and 59.999999999 s.
+Only `t = 60 s` is in a window: `firstEnd = 120 s`, `120 − 10 = 110 ≤ 60`? No — also empty. In fact
+*every* *t* is in an empty list under this arithmetic, because `firstEnd` is the first multiple of
+*D* strictly above *t* and `firstEnd − S ≤ t` requires `firstEnd ≤ t + 10 s`, which for D = 60 s
+holds only when *t* is within 10 s below a multiple of 60 s. Enumerate: *t* ∈ [50 s, 60 s) is in the
+window ending at 60 s; everything else is in none. **50 of every 60 seconds — 83.3 % of a uniform
+stream — belongs to no window and would be silently discarded.** The refusal is correct.
+**Vacuity:** Pure arithmetic.
+
+### WIN-087 — The refusal's suggested workaround is executable and gives the intended answer
+**Intent:** A refusal that names a workaround is only useful if the workaround works. "Express the
+gap as a filter" means a `WHERE` on the event time followed by a tumble.
+**Falsifier:** The rewrite being refused, or giving a different answer from the gapped hop's
+intent.
+**Setup:** `s0` bound to `gap.csv`: one row per second for 180 s — `i,100,1,<i s>` for *i* = 1…180 —
+plus pusher `181,999,0,600.000`.
+**Steps:** Register
+`SELECT window_start, window_end, user_id, COUNT(*) FROM TABLE(TUMBLE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) WHERE MOD(CAST(event_time AS BIGINT) / 1000000000, 60) < 10 GROUP BY window_start, window_end, user_id`
+as `v_gap --keys 0,1,2` — or whatever expression `docs/SQL_SUPPORT.md` supports for the same
+predicate; record if none does.
+**Expected:** Three windows survive the filter: `[0,10)` holds rows at 1…9 s → `n = 9`; `[60,70)`
+holds 60…69 s → `n = 10`; `[120,130)` holds 120…129 s → `n = 10`. `9 + 10 + 10 = 29` of 180 rows,
+which is the 10-in-60 the gapped hop intended. If the predicate is not expressible, that is the
+finding: the refusal recommends something the SQL surface cannot do.
+**Vacuity:** Defends against a dry source (ROWS IN 181) and against the filter matching everything
+(the unfiltered control `v_gap_all` must show 18 windows and `SUM(n) = 180`).
+
+### WIN-088 — Slide one millisecond below the size is accepted and costs 10,000 slices per window
+**Intent:** The cliff beside the refusal. `slide > size` is refused; `slide = size − 1 ms` is
+accepted, and `gcd(10,000 ms, 9,999 ms) = 1 ms` makes every window 10,000 slices wide. The guard
+protects against the typo that loses data and not against the typo that exhausts memory.
+**Falsifier:** `slicesPerWindow()` reporting anything but 10,000, or the query registering and
+surviving a real key count.
+**Setup:** `s0` bound to `keys200.csv`: 200 users × one row per second for 60 s = 12,000 rows,
+`i,<i mod 200>,1,<(i/200) s>`; pusher at 600 s.
+**Steps:** `pravaha explain` for `HOP(…, INTERVAL '9.999' SECOND, INTERVAL '10' SECOND)`; then
+register it as `v_cliff --keys 0,1,2`; watch `pravaha queries` and the logs.
+**Expected:** `EXPLAIN` gives `size=10000ms slide=9999ms`, and `slicesPerWindow() = 10,000,000,000 /
+1,000,000 = 10,000`. State: 200 keys × 10,000 slices = **2,000,000**, exactly `DEFAULT_MAX_SLICES`,
+so the 2,000,000th distinct `(key, slice)` is refused with `PRV-3020` naming the key and the event
+time — "this windowed aggregate is holding 2000000 (key, slice) accumulators, its configured
+ceiling…". Before that, `fire()` builds a 10,000-element slice list per window and scans the whole
+2,000,000-entry map for each of the 10,000 slices — `2 × 10^10` comparisons per window fired.
+Record whether the refusal or the wall-clock arrives first.
+**Vacuity:** Defends against a dry source: ROWS IN must reach a non-trivial fraction of 12,001
+before the refusal is attributed to state rather than to nothing having arrived.
+
+### WIN-089 — The gap guard applies to HOPPING only, and the other kinds route around it
+**Intent:** The guard is `if (kind == Kind.HOPPING && slideNanos > sizeNanos)`. `tumbling()` and
+`session()` set slide = size so they cannot trip it — but a direct `new WindowSpec(TUMBLING, 10 s,
+60 s)` is constructible, and `SESSION` is exempt from the positive-slide check entirely
+(`if (kind != Kind.SESSION && slideNanos <= 0)`).
+**Falsifier:** `new WindowSpec(Kind.TUMBLING, 10 s, 60 s)` throwing.
+**Setup:** Embedded harness.
+**Steps:** Construct `new WindowSpec(TUMBLING, 10 s, 60 s)`; read `sliceSizeNanos()` (= `gcd(10,60) =
+10 s`) and `slicesPerWindow()` (= 1); build `SlicedWindows` on it and call `windowEndsContaining(30 s)`.
+Separately construct `new WindowSpec(SESSION, 30 s, 0)` and `new WindowSpec(SESSION, 30 s, -1)`.
+**Expected:** The TUMBLING/60 s-slide spec is **accepted** and behaves as the gapped hop WIN-086
+proved loses 83 % of rows — `windowEndsContaining(30 s)` returns empty. No SQL reaches it today
+(`tumbling()` is the only constructor the planner calls) so it is a latent hazard rather than a live
+one; record it as such. The SESSION specs with slide 0 and slide −1 are both accepted, because the
+positivity check exempts SESSION — harmless while sessions are unsliced, and a trap for whoever
+wires them up.
+**Vacuity:** Not stateful.
+
+### WIN-090 — `slicesOfWindowEnding` pre-allocates one entry per slice, per fire
+**Intent:** `new ArrayList<>(spec.slicesPerWindow())` allocates the whole list capacity before the
+loop, and `fire()` then nests a full scan of the slice map inside the slice loop. Both costs are
+linear in `slicesPerWindow`, which WIN-077 showed can be 10,000 for an innocuous-looking pair.
+**Falsifier:** Fire cost independent of `slicesPerWindow`.
+**Setup:** Embedded harness. For (S, D) ∈ {(10 s, 10 s), (10 s, 1 s), (10 s, 100 ms), (10 s, 1 ms)}
+— slices per window 1, 10, 100, 10,000 — feed the same 10,000 rows for 100 keys and time
+`fire(windowEnd)`.
+**Steps:** Record wall time and allocation per `fire` call at each ratio.
+**Expected:** Cost rising linearly in slices per window for the list, and as
+`slicesPerWindow × slices.size()` for the scan, because `fire` iterates
+`for (sliceStart : sliceStarts) for (entry : slices.entrySet())` rather than indexing. At 10,000
+slices and 10,000 live accumulators that is 10^8 comparisons per window fired, on the lane thread,
+with the ingest pump blocked behind it. Record the measured figures; this is the most plausible
+mechanism for "ingest frozen, no error" in §9 that does not involve memory at all.
+**Vacuity:** Defends against an empty state: `liveSlices()` must be non-zero at each ratio, or
+`fire` is timing an empty map.
+
+---
+
+## 7. Open windows at once — 1, 10, 100, 1000
+
+**Definition, and why it is `S/D`.** A slice starting at *s* is discarded when
+`lastWindowEndFor(s) + lateness ≤ watermark`, and for a slide that divides the size
+`lastWindowEndFor(s) = s + S`. So the live slices at watermark *W* are those with `s > W − S`, and
+the window ends not yet fired are those in `(W, W + S]` — `S/D` of them. Open windows and live
+slices per key are the same number, and it is set by the window geometry, not by the data.
+
+**Dataset O** (`open.csv`): 120 rows, one per second — `i,100,1,<i seconds>` for *i* = 1…120 — plus
+pusher `121,999,0,2000.000`. Used unchanged for all four configurations, so the only variable is the
+(size, slide) pair.
+
+### WIN-091 — One open window: TUMBLE 10 s
+**Falsifier:** `view.size ≠ 13`, or `SUM(n) ≠ 120`.
+**Setup:** `s0` bound to `open.csv`.
+**Steps:** Register Q_T(10) as `v_open1 --keys 0,1,2`; wait for ROWS IN 121 and the view to settle;
+read `COUNT(*)`, `SUM(n)`, and the first and last rows.
+**Expected:** Watermark 2,000 s; ends 10, 20, …, 2,000 fire (200 of them), of which 13 are non-empty:
+
+| window | rows | n |
+|---|---|---|
+| `[0,10)` | *i* = 1…9 | 9 |
+| `[10,20)` … `[110,120)` | 10 each, 11 windows | 10 |
+| `[120,130)` | *i* = 120 | 1 |
+
+`COUNT(*) = 13`. `SUM(n) = 9 + 11×10 + 1 = 120` — every row of dataset O, once. The pusher at
+2,000 s is in `[2000, 2010)`, whose end 2,010 s exceeds the watermark, so it never appears.
+**Vacuity:** Defends against key collapse — `--keys 2` gives 1 row and `SUM(n) = 120` still, so
+`COUNT(*) = 13` is the load-bearing assertion — and against a dry source (ROWS IN 121).
+
+### WIN-092 — Ten open windows: HOP(1 s, 10 s)
+**Falsifier:** `COUNT(*) ≠ 129` or `SUM(n) ≠ 1200`.
+**Setup:** As WIN-091.
+**Steps:** Register Q_H(1, 10) as `v_open10 --keys 0,1,2`; read `COUNT(*)` and `SUM(n)`.
+**Expected:** `count(t) = floor((t+10)/1) − floor(t/1) = 10` for every row, so
+`SUM(n) = 120 × 10 = 1,200`. Non-empty windows are those ending at *e* with some *t* ∈ [1,120]
+satisfying `e − 10 ≤ t < e`, i.e. `2 ≤ e ≤ 130` → `COUNT(*) = 129`. The ends 1 and 131…2,000 fire
+empty.
+**Vacuity:** Both numbers are required. A degeneration to tumble gives `SUM(n) = 120`; a duplicated
+store gives `COUNT(*) = 129` with `SUM(n) = 12,000`. Key collapse gives `COUNT(*) = 1`.
+
+### WIN-093 — One hundred open windows: HOP(1 s, 100 s)
+**Falsifier:** `COUNT(*) ≠ 219` or `SUM(n) ≠ 12000`.
+**Steps:** Register Q_H(1, 100) as `v_open100 --keys 0,1,2`; read both.
+**Expected:** `count(t) = 100` for every row → `SUM(n) = 120 × 100 = 12,000`. Non-empty ends are
+`2 ≤ e ≤ 220` → `COUNT(*) = 219`. One hundred and twenty input rows become twelve thousand counted
+memberships and two hundred and nineteen result rows; the amplification is `S/D` and is correct.
+**Vacuity:** As WIN-092.
+
+### WIN-094 — One thousand open windows: HOP(1 s, 1000 s)
+**Falsifier:** `COUNT(*) ≠ 1119` or `SUM(n) ≠ 120000`, or the query failing.
+**Steps:** Register Q_H(1, 1000) as `v_open1000 --keys 0,1,2`; read both; record settle time.
+**Expected:** `count(t) = 1000` for every row → `SUM(n) = 120 × 1,000 = 120,000`. Non-empty ends are
+`2 ≤ e ≤ 1,120` → `COUNT(*) = 1,119`. Two thousand ends are walked
+(`firstWindowStart = 1 s − 1 s = 0`, `firstEnd = 1 s`, then 1…2,000 s), each building a
+1,000-element slice list and scanning the slice map — so about `2,000 × 1,000 × 120 = 2.4 × 10^8`
+comparisons for one hundred and twenty rows of input. Record the settle time.
+**Vacuity:** As WIN-092. Additionally, `pravaha.query.view.size` must reach 1,119 and not 120: a
+view keyed only on `user_id` would hold one row and the whole amplification would be invisible.
+
+### WIN-095 — Live slices per key equals the open-window count, measured
+**Intent:** The state claim, measured rather than inferred. `SlicedAggregateState.liveSlices()` and
+`peakSlices()` are the numbers; neither is on a shipped surface, so this is the embedded harness.
+**Falsifier:** Live slices scaling with the row count rather than with `S/D`.
+**Setup:** Embedded harness. For each of TUMBLE 10 s, HOP(1,10), HOP(1,100), HOP(1,1000): feed
+dataset O's 120 rows for one key, calling `advanceWatermark(t)` after each row, then read
+`liveSlices()`.
+**Expected:** After the last row (*t* = 120 s, watermark 120 s), live slices are those with
+`s > W − S`:
+
+| config | S | live slices | peak |
+|---|---|---|---|
+| TUMBLE 10 s | 10 s | 1 (slice starting 120 s) | 2 |
+| HOP(1,10) | 10 s | 10 (slices 111…120 s) | 10 |
+| HOP(1,100) | 100 s | 100 (slices 21…120 s) | 100 |
+| HOP(1,1000) | 1000 s | 120 (all of them — fewer than 1,000 because only 120 s of data exists) | 120 |
+
+The last row is the important one: the bound is `min(S/D, slices with data)`, so a wide window over
+a short stream holds less than the geometry allows. Feeding 1,200 seconds of data instead of 120
+must take HOP(1,1000) to exactly 1,000 live slices and hold it there.
+**Vacuity:** `peakSlices()` must be non-zero before `liveSlices()` is believed; an operator that
+never stored anything reports 0 for both and passes a "state stayed small" assertion trivially.
+
+### WIN-096 — The open-window set is exactly the ends in `(watermark, watermark + S]`
+**Intent:** The definition, checked against the implementation, so §8's state predictions rest on
+something measured.
+**Falsifier:** A window end outside that half-open interval still holding live slices.
+**Setup:** Embedded harness, HOP(1 s, 10 s), watermark held at 50 s with data to 120 s.
+**Steps:** Call `discardSlicesEndingBefore(50 s, 0)`; then for each remaining slice start *s*, compute
+`lastWindowEndFor(s)` and check it is `> 50 s`; and enumerate `windowEndsContaining(120 s)`.
+**Expected:** Remaining slices are *s* = 41…120 s — `lastWindowEndFor(41 s) = 51 s > 50 s`, while
+`lastWindowEndFor(40 s) = 50 s ≤ 50 s` so slice 40 was discarded. Unfired ends run from 51 s
+upwards; the newest row at 120 s is in ends 121…130, ten of them, `= S/D`.
+**Vacuity:** The discard must actually remove something: `discardSlicesEndingBefore` returns a
+non-zero count. A no-op discard makes every "the right slices survived" assertion vacuous.
+
+### WIN-097 — A thousand windows closing on one watermark advance arrive as one commit
+**Intent:** `advanceWatermark` fires every window completed since the last call in a single pass on
+the lane thread, and `ViewSink` publishes a whole batch per commit. A subscriber must see one group,
+not a thousand.
+**Falsifier:** Partial windows visible to a consistent read, or a commit containing a window whose
+end exceeds the watermark.
+**Setup:** `s0` bound to `open.csv`; Q_H(1, 1000) registered as in WIN-094.
+**Steps:** `pravaha subscribe --view v_open1000 --limit 5000` attached before registration; count
+changes per blank-line-separated group.
+**Expected:** The file is read in one pass, so the watermark goes from `NOT_YET` to 2,000 s in one or
+two ticks and all 1,119 non-empty windows fire in those ticks. Expect one group of 1,119 changes, or
+a small number of groups totalling 1,119, every change an insert with weight +1, and no group
+containing a window whose end exceeds the watermark at that commit.
+**Vacuity:** Defends against the subscription attaching late (the banner must print before
+`register`) and against key collapse (1,119 distinct changes, not 1).
+
+### WIN-098 — Windows fire in increasing end order and each fires exactly once
+**Intent:** "Windows fire in order and each fires once, because a consumer applying two results for
+one window in arrival order keeps whichever arrived last."
+**Falsifier:** Any window end appearing twice in the change stream, or any end preceded by a larger
+one.
+**Setup:** WIN-097's capture.
+**Steps:** Extract `window_end` from each change in arrival order; check monotonicity and
+uniqueness per `(window_end, user_id)`.
+**Expected:** Non-decreasing `window_end` across the whole stream, and exactly one change per
+`(window_end, user_id)`. `windowsCompletedBetween` builds the list in increasing order and
+`advanceWatermark` iterates it in order, so this is a property of the loop and not of the data.
+Corrections, which `advanceWatermark` deliberately emits **before** the newly completed windows and
+therefore out of end order, cannot occur here: no late record arrives, so `dirty` stays empty.
+WIN-170 covers the ordering when it does not.
+**Vacuity:** Defends against an empty stream; the change count must be 1,119.
+
+### WIN-099 — A thousand open windows over one row of data
+**Intent:** The bound is geometric. One row must make `S/D` windows exist, each holding that row.
+**Falsifier:** Fewer than 1,000 result rows.
+**Setup:** `one1000b.csv`: `1,100,7,1000.000`; pusher `2,999,0,3000.000`.
+**Steps:** Register Q_H(1, 1000) as `v_one1000 --keys 0,1,2`; read `COUNT(*)` and `SUM(n)`.
+**Expected:** 1,000 rows, ends 1,001…2,000 s, each `n = 1, total = 7`. `SUM(n) = 1,000`.
+`count(1000 s) = floor(2000/1) − floor(1000/1) = 1,000`. Live slices: **one** — the single slice at
+1,000 s — because the state is per slice and one row is one slice, whatever 1,000 windows read it.
+That contrast, 1,000 output rows from 1 accumulator, is the slicing optimisation stated as an
+observable.
+**Vacuity:** Both `COUNT(*) = 1000` and `liveSlices() = 1` (embedded, on the same input) are
+required; the first alone is satisfied by a per-window store and the second alone by an empty one.
+
+### WIN-100 — A slice is released exactly one window-width after it stops being needed
+**Intent:** "A slice's lifetime is exactly the width of one window plus whatever lateness the query
+allows." Allowed lateness is hard-wired to 0 (`DEFAULT_ALLOWED_LATENESS_NANOS`), so the lifetime is
+exactly one window.
+**Falsifier:** A slice surviving past `sliceStart + S`, or being released before it.
+**Setup:** Embedded harness, HOP(1 s, 10 s); one row at *t* = 0 for one key.
+**Steps:** Call `discardSlicesEndingBefore(W, 0)` for `W` = 9.999999999 s, then 10 s; read
+`liveSlices()` after each.
+**Expected:** `lastWindowEndFor(0) = 10 s`. At `W = 9.999999999 s` the predicate
+`10 s + 0 ≤ 9.999999999 s` is false → 1 live slice, discard returns 0. At `W = 10 s` it is true →
+0 live slices, discard returns 1. One nanosecond apart, and the boundary is inclusive on the
+watermark side.
+**Vacuity:** The two calls must return different counts; a discard that returns 0 both times is
+proving nothing about the boundary.
+
+### WIN-101 — One thousand open windows against the slice ceiling
+**Intent:** Where the geometric bound meets `DEFAULT_MAX_SLICES` = 2,000,000. At 1,000 open windows
+the ceiling is reached at 2,000 keys, which is a small number for a production stream.
+**Falsifier:** More than 2,000,000 live accumulators, or an out-of-memory kill instead of a refusal.
+**Setup:** `s0` bound to dataset K(2000, 1200) — 2,000 keys × one row per second for 1,200 s =
+2,400,000 rows; pusher at 4,000 s.
+**Steps:** Register Q_H(1, 1000) as `v_ceiling --keys 0,1,2`; watch `pravaha queries`, the server
+log, and `/actuator/prometheus`.
+**Expected:** Live accumulators grow toward `2,000 keys × 1,000 slices = 2,000,000`. The 2,000,000th
+distinct `(key, slice)` is admitted and the 2,000,001st is refused with `PRV-3020`:
+"this windowed aggregate is holding 2000000 (key, slice) accumulators, its configured ceiling, and
+key <high>:<low> at event time <nanos> needs another. Either the key space is unbounded — which no
+window can fix — or the window is too wide for the key count. Raise the limit deliberately, narrow
+the window, or add a key predicate." The message names the key as a **hash pair**, not as the
+`user_id` the query was written with, so the advice "add a key predicate" cannot be acted on from
+the message alone. Record that as a diagnostic defect beside the correct refusal.
+**Vacuity:** Defends against the refusal arriving for the wrong reason: ROWS IN must exceed
+2,000,000 before the refusal, and the same query at 1,000 keys (dataset K(1000, 1200), product
+1,000,000) must complete — otherwise the refusal is about volume, not about the ceiling.
+
+### WIN-102 — Open windows and view rows are different bounds, and only one of them is bounded
+**Intent:** "State is bounded by keys times open windows" is a claim about the **operator**. The
+`ServedView` above it accumulates one row per fired window per key and releases them only at the
+24-hour retention horizon, so the memory a user actually observes is `keys × windows fired in the
+last 24 h of event time`, which is not what the design sentence says.
+**Falsifier:** `view.size` staying at `keys × open windows`.
+**Setup:** `s0` bound to `open.csv`; Q_H(1, 10) registered as `v_open10`.
+**Steps:** Read `pravaha.query.view.size` and, from the embedded harness on the same input,
+`liveSlices()`.
+**Expected:** `liveSlices()` settles at 10 (one key × 10 open windows); `view.size` settles at
+**129**, and would keep growing with a live stream until the retention horizon. The two differ by
+more than 12× on 120 rows of input. Both bounds should be documented; today only the operator one
+is, in `WindowedAggregateOperator`'s javadoc.
+**Vacuity:** Both numbers must be non-zero. A dead query reports 0 for both, which satisfies "they
+are different" only in the trivial sense.
+
+---
+
+## 8. Key cardinality × open windows
+
+`keys × open windows` is the state bound the design claims, and `DEFAULT_MAX_SLICES` = 2,000,000 is
+where the claim becomes a refusal. The sixteen cells of {1, 100, 10⁴, 10⁶ keys} × {1, 10, 100, 1000
+open windows} are written out below with the predicted product and the predicted outcome. Twelve
+complete; four must refuse.
+
+| keys \ open | 1 | 10 | 100 | 1000 |
+|---|---|---|---|---|
+| 1 | 1 (WIN-103) | 10 (WIN-104) | 100 (WIN-105) | 1,000 (WIN-106) |
+| 100 | 100 (WIN-107) | 1,000 (WIN-108) | 10,000 (WIN-109) | 100,000 (WIN-110) |
+| 10⁴ | 10,000 (WIN-111) | 100,000 (WIN-112) | 1,000,000 (WIN-113) | **10,000,000 ✗** (WIN-114) |
+| 10⁶ | 1,000,000 (WIN-115) | **10,000,000 ✗** (WIN-116) | **10⁸ ✗** (WIN-117) | **10⁹ ✗** (WIN-118) |
+
+**Dataset K(K, T)** (`k_<K>_<T>.csv`): `i, i mod K, 1, <(i div K) seconds>` for *i* = 0…(K·T − 1) —
+K keys, one row per key per second, for T seconds, `K·T` rows. Plus a pusher at `(T + 2S)` seconds.
+Live slices settle at `K × min(T, S/D)`. Where a cell's product exceeds 2,000,000 the dataset is
+sized so the refusal is reached in a few million rows rather than by building the full product.
+
+The window configurations are the four of §7: TUMBLE 10 s (1 open), HOP(1 s, 10 s), HOP(1 s, 100 s),
+HOP(1 s, 1000 s).
+
+### WIN-103 — 1 key × 1 open window
+**Falsifier:** `COUNT(*) ≠ 13` or `SUM(n) ≠ 120` or `liveSlices() > 2`.
+**Setup:** K(1, 120) = dataset O. TUMBLE 10 s.
+**Steps:** Register as `v_k1w1 --keys 0,1,2`; read `COUNT(*)`, `SUM(n)`, `view.size`.
+**Expected:** Identical to WIN-091: 13 rows, `SUM(n) = 120`. Predicted state 1 × 1 = 1 live
+accumulator, measured at 1–2 (the filling slice and, briefly, the firing one).
+**Vacuity:** Key collapse gives 1 row; a dry source gives 0. Both must be excluded.
+
+### WIN-104 — 1 key × 10 open windows
+**Falsifier:** `COUNT(*) ≠ 129` or `SUM(n) ≠ 1200`.
+**Setup:** K(1, 120), HOP(1 s, 10 s). **Expected:** As WIN-092: 129 rows, `SUM(n) = 1,200`; state
+`1 × 10 = 10` live accumulators.
+**Vacuity:** As WIN-103.
+
+### WIN-105 — 1 key × 100 open windows
+**Falsifier:** `COUNT(*) ≠ 219` or `SUM(n) ≠ 12000`.
+**Setup:** K(1, 120), HOP(1 s, 100 s). **Expected:** As WIN-093; state `1 × 100 = 100`.
+**Vacuity:** As WIN-103.
+
+### WIN-106 — 1 key × 1000 open windows
+**Falsifier:** `COUNT(*) ≠ 1119` or `SUM(n) ≠ 120000`.
+**Setup:** K(1, 120), HOP(1 s, 1000 s). **Expected:** As WIN-094; state is
+`1 × min(120, 1000) = 120` because only 120 seconds of data exists — the geometry allows 1,000 and
+the data supplies 120, and the smaller wins.
+**Vacuity:** As WIN-103.
+
+### WIN-107 — 100 keys × 1 open window
+**Falsifier:** `COUNT(*) ≠ 1300` or `SUM(n) ≠ 12000`.
+**Setup:** K(100, 120) = 12,000 rows, one row per key per second for 120 s; pusher at 140 s.
+TUMBLE 10 s.
+**Steps:** Register as `v_k100w1 --keys 0,1,2`; read `COUNT(*)`, `SUM(n)`.
+**Expected:** Each key has one row per second, so each of the 13 non-empty windows of WIN-091 now
+holds 100 keys: `COUNT(*) = 13 × 100 = 1,300`. Per key, `n` is 9 in `[0,10)`… — careful: with
+`event_time = (i div 100)` seconds and *i* = 0…11,999, second *q* holds keys 0…99, so window `[0,10)`
+holds seconds 0…9 → every key has `n = 10`. Windows `[0,10)` through `[110,120)` each hold
+100 keys × `n = 10`. That is 12 windows; second 120 does not exist (the last row is at second 119).
+So `COUNT(*) = 12 × 100 = 1,200` and `SUM(n) = 12,000` = every row. Predicted state `100 × 1 = 100`.
+**Vacuity:** `COUNT(*) = 1,200` and `SUM(n) = 12,000` together. Key collapse gives 100 and 12,000;
+window collapse gives 12 and 12,000; a lost window gives 1,100 and 11,000.
+
+### WIN-108 — 100 keys × 10 open windows
+**Falsifier:** `COUNT(*) ≠ 12800` or `SUM(n) ≠ 120000`.
+**Setup:** K(100, 120), HOP(1 s, 10 s). Rows at seconds 0…119.
+**Expected:** `count(t) = 10` per row → `SUM(n) = 12,000 × 10 = 120,000`. Non-empty ends: *e* with
+some *t* ∈ [0,119] and `e − 10 ≤ t < e` → `1 ≤ e ≤ 129` → 129 ends, each holding 100 keys →
+`COUNT(*) = 12,900`. Predicted state `100 × 10 = 1,000`.
+**Vacuity:** As WIN-107, with both numbers.
+
+### WIN-109 — 100 keys × 100 open windows
+**Falsifier:** `COUNT(*) ≠ 21900` or `SUM(n) ≠ 1200000`.
+**Setup:** K(100, 120), HOP(1 s, 100 s).
+**Expected:** `SUM(n) = 12,000 × 100 = 1,200,000`. Non-empty ends `1 ≤ e ≤ 219` → 219, × 100 keys →
+`COUNT(*) = 21,900`. Predicted state `100 × 100 = 10,000`. Note `COUNT(*)` is now 1.8× the input row
+count: 12,000 rows in, 21,900 rows out.
+**Vacuity:** As WIN-107.
+
+### WIN-110 — 100 keys × 1000 open windows
+**Falsifier:** `COUNT(*) ≠ 111900` or `SUM(n) ≠ 12000000`, or the view refusing.
+**Setup:** K(100, 120), HOP(1 s, 1000 s); pusher at 2,200 s.
+**Expected:** `SUM(n) = 12,000 × 1,000 = 12,000,000`. Non-empty ends `1 ≤ e ≤ 1,119` → 1,119,
+× 100 keys → `COUNT(*) = 111,900`. Predicted state `100 × min(120, 1000) = 12,000`. The view holds
+111,900 rows for 12,000 rows of input — a 9.3× amplification, still under the 1,000,000 `maxKeys`
+ceiling.
+**Vacuity:** As WIN-107. Also confirm `view.evicted` is 0: the whole run spans under 24 hours of
+event time, so retention must not be what limits `view.size`.
+
+### WIN-111 — 10⁴ keys × 1 open window
+**Falsifier:** `COUNT(*) ≠ 120000` or `SUM(n) ≠ 120000`.
+**Setup:** K(10000, 12) = 120,000 rows (10,000 keys × 12 seconds); pusher at 40 s. TUMBLE 10 s.
+**Expected:** Seconds 0…11. Window `[0,10)` holds seconds 0…9 → every key `n = 10`; `[10,20)` holds
+seconds 10…11 → every key `n = 2`. `COUNT(*) = 2 × 10,000 = 20,000`; `SUM(n) = 10,000×10 +
+10,000×2 = 120,000` = every row. Predicted state `10,000 × 1 = 10,000`.
+**Vacuity:** `COUNT(*) = 20,000` and `SUM(n) = 120,000`. The round-1 failure — 120,000 rows
+collapsing into a few keys — is caught by `COUNT(*)`; a duplicated store is caught by `SUM(n)`.
+
+### WIN-112 — 10⁴ keys × 10 open windows
+**Falsifier:** `COUNT(*) ≠ 210000` or `SUM(n) ≠ 1200000`.
+**Setup:** K(10000, 12), HOP(1 s, 10 s).
+**Expected:** `SUM(n) = 120,000 × 10 = 1,200,000`. Non-empty ends `1 ≤ e ≤ 21` → 21, × 10,000 keys →
+`COUNT(*) = 210,000`. Predicted state `10,000 × min(12, 10) = 100,000`.
+**Vacuity:** As WIN-111.
+
+### WIN-113 — 10⁴ keys × 100 open windows — at the ceiling
+**Intent:** Product exactly 1,000,000, half the slice ceiling and exactly the view's `maxKeys`.
+**Falsifier:** A refusal (the product is under the slice ceiling), or a view exceeding 1,000,000 keys
+without the `ServedView` guard firing.
+**Setup:** K(10000, 100) = 1,000,000 rows (10,000 keys × 100 s); pusher at 300 s. HOP(1 s, 100 s).
+**Expected:** `SUM(n) = 1,000,000 × 100 = 100,000,000`. Non-empty ends `1 ≤ e ≤ 199` → 199, ×
+10,000 keys → `COUNT(*) = 1,990,000`, which is **past** `ServedView`'s `maxKeys` of 1,000,000. So the
+slice ceiling is not reached (state is `10,000 × 100 = 1,000,000`, half of 2,000,000) and the
+**view** refuses instead, at commit, with "view '<name>' holds 1000001 keys, past its ceiling of
+1000000…". Record which ceiling fires first and whether the message distinguishes them — two
+different 10⁶-scale limits in one query, one on the operator and one on the view, and the user has
+no way to tell them apart from the error alone.
+**Vacuity:** Defends against the refusal being about volume: the same 1,000,000-row file under
+TUMBLE 10 s (WIN-111's shape scaled) must complete, giving `COUNT(*) = 10 × 10,000 = 100,000`.
+
+### WIN-114 — 10⁴ keys × 1000 open windows — refused
+**Intent:** Product 10,000,000, five times the slice ceiling. The refusal must arrive before memory
+does.
+**Falsifier:** An out-of-memory kill, a silent truncation, or completion.
+**Setup:** K(10000, 300) = 3,000,000 rows; pusher at 2,500 s. HOP(1 s, 1000 s).
+**Steps:** Register as `v_k1e4w1000 --keys 0,1,2`; watch the log and `pravaha queries`.
+**Expected:** `PRV-3020` when the 2,000,001st distinct `(key, slice)` is needed — which happens at
+row `2,000,001` of the file, i.e. at second 200 of the data, because each second contributes 10,000
+new slices and none are discarded until the watermark passes `slice + 1000 s`. The query's lane
+enters `FAILED`. Confirm what `pravaha queries` reports: `RegisteredQuery.state()` is what
+`pravaha.query.running` reads, and it is not the lane's state, so a failed lane may well still be
+reported `RUNNING`.
+**Vacuity:** Defends against a premature refusal: ROWS IN must reach ≈2,000,000 first. If the
+refusal comes at a few thousand rows, it is not this ceiling.
+
+### WIN-115 — 10⁶ keys × 1 open window
+**Intent:** A million distinct keys inside one window. The product equals the slice ceiling's half
+and equals the view's whole `maxKeys`, and it is also where the 128-bit group digest earns its keep.
+**Falsifier:** Fewer than 1,000,000 distinct `user_id` values in the result for a window, or a
+refusal from the slice ceiling.
+**Setup:** K(1000000, 2) = 2,000,000 rows (1,000,000 keys × 2 seconds, both inside `[0,10)`);
+pusher at 40 s. TUMBLE 10 s.
+**Expected:** One non-empty window `[0,10)` holding 1,000,000 keys with `n = 2, total = 2` each.
+`SUM(n) = 2,000,000` = every row. `COUNT(*) = 1,000,000` — exactly `maxKeys`, and the guard is
+`visible.size() > maxKeys`, so 1,000,000 passes and 1,000,001 would not. State
+`1,000,000 × 1 = 1,000,000`, half the slice ceiling.
+**Vacuity:** `COUNT(*) = 1,000,000` is the whole case; `SUM(n) = 2,000,000` alone is satisfied by
+one key counted two million times, which is precisely the round-1 collapse.
+
+### WIN-116 — 10⁶ keys × 10 open windows — refused
+**Falsifier:** Completion, or an out-of-memory kill.
+**Setup:** K(1000000, 3) = 3,000,000 rows; pusher at 60 s. HOP(1 s, 10 s).
+**Expected:** Each second adds 1,000,000 new slices and nothing is discarded until the watermark
+passes `slice + 10 s`, so the ceiling is crossed during second 2: `PRV-3020` at the 2,000,001st
+`(key, slice)`, i.e. at row 2,000,001. Product would have been 10,000,000.
+**Vacuity:** ROWS IN ≈ 2,000,000 before the refusal; and the same dataset under TUMBLE 10 s
+(product 1,000,000) must complete, which is WIN-115's shape.
+
+### WIN-117 — 10⁶ keys × 100 open windows — refused
+**Falsifier:** Completion.
+**Setup:** K(1000000, 3), HOP(1 s, 100 s); pusher at 300 s.
+**Expected:** Identical refusal at the same row, 2,000,001 — the refusal depends on the accumulation
+rate, not on the eventual product, so 10⁸ and 10⁷ are indistinguishable from the message. That is
+worth recording: the diagnostic cannot tell an operator how far over the ceiling they are.
+**Vacuity:** As WIN-116.
+
+### WIN-118 — 10⁶ keys × 1000 open windows — refused
+**Falsifier:** Completion.
+**Setup:** K(1000000, 3), HOP(1 s, 1000 s); pusher at 2,100 s.
+**Expected:** The same `PRV-3020` at row 2,000,001, for a query whose full state would have been
+10⁹ accumulators — five hundred times the ceiling. Together with WIN-114, WIN-116 and WIN-117 this
+establishes that the ceiling is a **rate** guard rather than a sizing one: four queries whose true
+requirements differ by a factor of 100 all fail at the same row with the same message.
+**Vacuity:** As WIN-116.
