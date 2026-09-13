@@ -185,6 +185,21 @@ public final class RegisteredQuery implements AutoCloseable {
      * how much of the stream a pause is worth.
      */
     public boolean accept(RowView row) {
+        return accept(null, row);
+    }
+
+    /**
+     * Hands a row to one named input.
+     *
+     * <p>Needed by anything with more than one: a join's two sides are two inboxes, and a row
+     * arriving with no idea which side it is on cannot be placed. {@code QueryExecution} has had
+     * this form all along and the registry never exposed it, so a two-stream query could not be fed
+     * by pushing at all -- it could be registered, it would report RUNNING, and nothing could ever
+     * reach it.
+     *
+     * @param streamName which input the row arrived on, or null for a query that reads only one
+     */
+    public boolean accept(String streamName, RowView row) {
         if (state != QueryState.RUNNING) {
             return false;
         }
@@ -192,7 +207,7 @@ public final class RegisteredQuery implements AutoCloseable {
             // Handed to the lane, which applies it on its own thread. A caller that must see the
             // row reflected in the view waits with awaitQuiescent; one that is feeding a stream
             // does not care, because the next read is later anyway.
-            if (!execution.accept(row)) {
+            if (!(streamName == null ? execution.accept(row) : execution.accept(streamName, row))) {
                 // The inbox is full. Backpressure, not failure -- the caller decides whether its
                 // source can be slowed, and saying so is more useful than blocking its thread
                 // inside a registry.

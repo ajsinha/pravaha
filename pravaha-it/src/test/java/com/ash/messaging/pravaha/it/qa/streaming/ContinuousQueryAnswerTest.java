@@ -34,8 +34,12 @@ import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.QueryState;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
+import com.ash.messaging.pravaha.registry.Subscription;
+import com.ash.messaging.pravaha.registry.SubscriptionFilter;
+import com.ash.messaging.pravaha.registry.SubscriptionOptions;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
+import com.ash.messaging.pravaha.serving.ViewChange;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,6 +89,10 @@ class ContinuousQueryAnswerTest {
     }
 
     private void push(String name, long id, String user, long amount, long weight, long eventTime) {
+        push(name, "txn", id, user, amount, weight, eventTime);
+    }
+
+    private void push(String name, String stream, long id, String user, long amount, long weight, long eventTime) {
         RegisteredQuery query = registry.require(name);
         RowLayout layout = RowLayout.of(TXN);
         BinaryRowWriter writer = new BinaryRowWriter(layout);
@@ -97,7 +105,7 @@ class ContinuousQueryAnswerTest {
         writer.setLong(3, eventTime);
         writer.weight(weight).eventTimestampNanos(eventTime).sequence(id).commit();
         arena.trimTo(handle, writer.sizeSoFar());
-        query.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+        query.accept(stream, view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
         // The lane applies on its own thread, so committing first would publish a frontier the row
         // has not reached and tell a reader about a change it cannot see.
         query.awaitApplied(Duration.ofSeconds(10));
@@ -120,6 +128,199 @@ class ContinuousQueryAnswerTest {
     private void advanceTo(String name, long nanos) {
         registry.require(name).advanceWatermark(nanos);
         registry.require(name).commit();
+    }
+
+    // ==================================================== a join over two live streams
+
+    private static final StreamSchema SHIP = StreamSchema.builder("ship")
+            .field("ship_id", Types.int64())
+            .field("user_id", Types.string())
+            .field("carrier", Types.string())
+            .field("event_time", Types.timestamp())
+            .eventTime("event_time")
+            .build();
+
+    /** Pushes into the second stream of a two-stream query. */
+    private void pushShip(String name, long id, String user, String carrier, long eventTime) {
+        RegisteredQuery query = registry.require(name);
+        RowLayout layout = RowLayout.of(SHIP);
+        BinaryRowWriter writer = new BinaryRowWriter(layout);
+        BinaryRowView view = new BinaryRowView(layout);
+        long handle = arena.allocate(layout.rowSize(64));
+        writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+        writer.setLong(0, id);
+        writer.setString(1, user);
+        writer.setString(2, carrier);
+        writer.setLong(3, eventTime);
+        writer.weight(1L).eventTimestampNanos(eventTime).sequence(id).commit();
+        arena.trimTo(handle, writer.sizeSoFar());
+        query.accept("ship", view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+        query.awaitApplied(Duration.ofSeconds(10));
+        query.commit();
+    }
+
+    @Test
+    void cq060_aJoinOverTwoLiveStreamsMatchesAsRowsArriveFromEitherSide() {
+        // Two streams, neither of which has ended. A join that only matched when the second side
+        // arrived after the first would be right half the time and would look right all of it.
+        registry.close();
+        views = new ViewCatalog();
+        registry = new QueryRegistry(views, TXN, SHIP);
+
+        registry.register(
+                "j",
+                "SELECT t.txn_id, t.user_id, s.carrier FROM txn AS t " + "JOIN ship AS s ON t.user_id = s.user_id",
+                List.of(0),
+                Principal.ANONYMOUS);
+
+        // Left first, then right.
+        push("j", "txn", 1, "ann", 100, 1, 100_000_000L);
+        pushShip("j", 10, "ann", "royal-mail", 200_000_000L);
+        assertThat(read("SELECT txn_id, carrier FROM j"))
+                .as("a row already on the left matches one arriving on the right")
+                .containsExactly("1=royal-mail");
+
+        // Right first, then left.
+        pushShip("j", 11, "bob", "dhl", 300_000_000L);
+        push("j", "txn", 2, "bob", 250, 1, 400_000_000L);
+        assertThat(read("SELECT txn_id, carrier FROM j"))
+                .as("and a row already on the right matches one arriving on the left")
+                .containsExactly("1=royal-mail", "2=dhl");
+    }
+
+    @Test
+    void cq061_aJoinDropsNoRowAndInventsNoneWhenNothingMatches() {
+        registry.close();
+        views = new ViewCatalog();
+        registry = new QueryRegistry(views, TXN, SHIP);
+
+        registry.register(
+                "j",
+                "SELECT t.txn_id, t.user_id, s.carrier FROM txn AS t " + "JOIN ship AS s ON t.user_id = s.user_id",
+                List.of(0),
+                Principal.ANONYMOUS);
+
+        push("j", "txn", 1, "ann", 100, 1, 100_000_000L);
+        pushShip("j", 10, "zoe", "dhl", 200_000_000L);
+
+        assertThat(read("SELECT txn_id, carrier FROM j"))
+                .as("an inner join with no match produces nothing, not a row with a null in it")
+                .isEmpty();
+    }
+
+    // ==================================================== long-running behaviour
+
+    @Test
+    void cq050_windowStateIsReleasedAsTimeMovesOnRatherThanAccumulating() {
+        // What separates a continuous query from a query that has not finished yet. If closed
+        // windows were held for ever, a query would be correct and would still die -- in a week, on
+        // a Sunday, with every number it had ever produced right.
+        registry.register("w", WINDOWED, List.of(0), Principal.ANONYMOUS);
+
+        for (long second = 1; second <= 200; second++) {
+            push("w", second, "u" + (second % 7), second, 1, second * SECOND + 100_000_000L);
+            advanceTo("w", second * SECOND + 500_000_000L);
+        }
+
+        // Seven keys, one window each -- not two hundred windows' worth of accumulators.
+        assertThat(new ViewQuery(views).execute("SELECT user_id FROM w").size())
+                .as("the view holds one row per key, not one per key per window")
+                .isLessThanOrEqualTo(7);
+        assertThat(registry.require("w").failure()).isEmpty();
+        assertThat(registry.require("w").state()).isEqualTo(QueryState.RUNNING);
+    }
+
+    @Test
+    void cq051_aSubscriberThatComesAndGoesDoesNotDisturbTheComputation() {
+        // A dashboard reconnecting must cost nothing: the computation outlives every subscriber,
+        // which is what makes the state warm when one returns.
+        registry.register("w", WINDOWED, List.of(0), Principal.ANONYMOUS);
+        RegisteredQuery query = registry.require("w");
+
+        List<ViewChange> firstWatcher = new ArrayList<>();
+        try (Subscription one = query.subscribe(SubscriptionOptions.DEFAULT, b -> firstWatcher.addAll(b))) {
+            push("w", 1, "ann", 100, 1, 100_000_000L);
+            push("w", 2, "cat", 900, 1, 1_500_000_000L);
+            advanceTo("w", 1_500_000_000L);
+            assertThat(firstWatcher).isNotEmpty();
+        }
+        assertThat(query.subscriberCount()).isZero();
+
+        // Nobody watching. The query must keep computing regardless.
+        push("w", 3, "bob", 500, 1, 2_100_000_000L);
+        advanceTo("w", 2_500_000_000L);
+
+        List<ViewChange> secondWatcher = new ArrayList<>();
+        try (Subscription two = query.subscribe(SubscriptionOptions.DEFAULT, b -> secondWatcher.addAll(b))) {
+            push("w", 4, "dee", 7, 1, 3_100_000_000L);
+            advanceTo("w", 3_500_000_000L);
+            assertThat(secondWatcher)
+                    .as("a subscriber arriving late sees what happens from then on")
+                    .isNotEmpty();
+        }
+
+        assertThat(read("SELECT user_id, total FROM w"))
+                .as("and the answer is whole, across both watchers and the gap between them")
+                .containsExactly("ann=100", "bob=500", "cat=900");
+    }
+
+    @Test
+    void cq052_twoSubscribersWithDifferentFiltersReadOneComputation() {
+        // Ten desks, ten filters, one read of the source. If each filter forked the computation the
+        // source would be read ten times and the ten views could disagree under load.
+        registry.register("w", WINDOWED, List.of(0), Principal.ANONYMOUS);
+        RegisteredQuery query = registry.require("w");
+
+        List<ViewChange> annOnly = new ArrayList<>();
+        List<ViewChange> everyone = new ArrayList<>();
+        try (Subscription filtered = query.subscribe(
+                        SubscriptionOptions.DEFAULT,
+                        SubscriptionFilter.matching(query.outputSchema(), java.util.Map.of("user_id", "ann")),
+                        b -> annOnly.addAll(b));
+                Subscription unfiltered = query.subscribe(SubscriptionOptions.DEFAULT, b -> everyone.addAll(b))) {
+            assertThat(query.subscriberCount()).isEqualTo(2);
+
+            push("w", 1, "ann", 100, 1, 100_000_000L);
+            push("w", 2, "bob", 250, 1, 200_000_000L);
+            push("w", 3, "cat", 900, 1, 1_500_000_000L);
+            advanceTo("w", 1_500_000_000L);
+        }
+
+        assertThat(annOnly).as("the filtered subscriber sees only its slice").hasSize(1);
+        assertThat(annOnly.get(0).values()[0]).isEqualTo("ann");
+        assertThat(everyone).as("the unfiltered one sees both").hasSize(2);
+        assertThat(registry.size()).as("and it is one computation, not two").isEqualTo(1);
+    }
+
+    @Test
+    void cq053_aFailingRowStopsTheQueryVisiblyRatherThanSilently() {
+        // The failure that started this QA cycle: a lane died, the query went on reporting RUNNING,
+        // the view served stale rows and ten surfaces reported healthy. Whatever else a failure
+        // does, it has to be askable about.
+        registry.register(
+                "m",
+                "SELECT user_id, MIN(amount) AS lo FROM txn "
+                        + "GROUP BY TUMBLE(event_time, INTERVAL '1' SECOND), user_id",
+                List.of(0),
+                Principal.ANONYMOUS);
+        RegisteredQuery query = registry.require("m");
+
+        push("m", 1, "ann", 100, 1, 100_000_000L);
+        // MIN cannot invert a retraction -- restoring the previous extreme needs an ordered
+        // multiset -- and it refuses rather than answering something plausible.
+        //
+        // The refusal reaches the caller as well as the query's own state. Both matter: a feed
+        // pushing rows finds out at the push, and an operator asking later finds out from the
+        // query, which is the surface that used to say RUNNING over a dead lane.
+        assertThatThrownBy(() -> push("m", 1, "ann", 100, -1, 100_000_000L))
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("MIN cannot handle a retraction");
+
+        assertThat(query.failure())
+                .as("a query that stopped must be able to say why")
+                .isPresent();
+        assertThat(query.state()).as("and must not still call itself running").isEqualTo(QueryState.FAILED);
+        assertThat(query.state().isTerminal()).isTrue();
     }
 
     // ==================================================== lifecycle

@@ -200,6 +200,11 @@ query with extra steps.
   every row as late — an empty view under a query reporting `RUNNING`. The flagship connector could
   not run the query on the front of the README by the path a deployment uses.
 
+- **A two-stream continuous query could not be fed by pushing.** `QueryExecution` has had
+  `accept(streamName, row)` all along; `RegisteredQuery` exposed only the one-argument form, which
+  refuses outright when a query reads more than one stream. So a join could be registered, would
+  report `RUNNING`, and nothing could ever reach it from the push path. The overload is exposed now.
+
 ## Open — needs a product decision
 
 **Two enums named `QueryState`.** `com.ash.messaging.pravaha.registry.QueryState` has four constants
