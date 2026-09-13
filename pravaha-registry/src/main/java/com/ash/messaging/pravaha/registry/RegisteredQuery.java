@@ -311,9 +311,15 @@ public final class RegisteredQuery implements AutoCloseable {
 
     /** Publishes what has been applied so far, without claiming time has moved. */
     public void commit() {
-        if (state == QueryState.RUNNING) {
-            sink.commit(sink.appliedFrontier());
+        if (state != QueryState.RUNNING) {
+            return;
         }
+        // Publish before committing. An unwindowed aggregate has no event that says "your answer
+        // changed" -- a window has its end, and this has nothing -- so whoever commits is also who
+        // asks it to publish. The emission runs on the lane's thread and the commit picks it up on
+        // the next pass, which is why a caller may see the previous answer once.
+        execution.publishContinuousAggregates();
+        sink.commit(sink.appliedFrontier());
     }
 
     synchronized void addName(String name) {

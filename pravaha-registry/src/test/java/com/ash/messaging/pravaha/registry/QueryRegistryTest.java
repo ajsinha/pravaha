@@ -479,4 +479,35 @@ class QueryRegistryTest {
         assertThat(view.size()).as("one key, not zero and not two").isEqualTo(1);
         assertThat(view.scan().get(0)[1]).as("and it holds the new value").isEqualTo(99L);
     }
+
+    @Test
+    void aContinuousUnwindowedAggregateActuallyPublishes() throws Exception {
+        // GlobalAggregate.emit was wired only into the pipeline's finishers, which run when the
+        // input ends. A stream does not end, so a registered SELECT COUNT(*) reported RUNNING and
+        // produced nothing for ever -- the one time a number appeared, it was because a lane had
+        // crashed and run the finisher on the way down.
+        try (QueryRegistry ticking = new QueryRegistry(views, TXN)
+                .generatingWatermarks(java.time.Duration.ofSeconds(1), java.time.Duration.ofMillis(50))) {
+            RegisteredQuery query = ticking.register("live_count", "SELECT COUNT(*) FROM txn", List.of(0), DANA);
+
+            feed(query, "u1", 300L, "COMPLETED");
+            feed(query, "u2", 50L, "COMPLETED");
+            query.awaitApplied(java.time.Duration.ofSeconds(10));
+
+            // Whoever commits asks it to publish first. Emission runs on the lane's thread, so the
+            // first commit may only schedule it and the second picks it up -- which is why this
+            // commits repeatedly rather than once.
+            long deadline = System.nanoTime() + java.time.Duration.ofSeconds(15).toNanos();
+            while (System.nanoTime() < deadline && query.view().size() == 0) {
+                query.commit();
+                Thread.sleep(20);
+            }
+            assertThat(query.view().size())
+                    .as("a continuous aggregate must publish its running answer, and exactly one row of it")
+                    .isEqualTo(1);
+            assertThat(query.view().scan().get(0)[0])
+                    .as("two rows arrived, so COUNT(*) is 2")
+                    .isEqualTo(2L);
+        }
+    }
 }

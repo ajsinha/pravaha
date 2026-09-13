@@ -145,6 +145,78 @@ final class GlobalAggregate implements RowProcessor {
     }
 
     /** Emits the accumulated result. Called when the input ends. */
+    /**
+     * Emits the running total, retracting the one emitted before it.
+     *
+     * <p>This is what makes an unwindowed aggregate a <em>continuous</em> one. {@code emit} was
+     * wired only into the pipeline's finishers, which run when the input ends -- and a stream does
+     * not end, so a registered {@code SELECT COUNT(*) FROM txn} reported RUNNING and produced
+     * nothing, for ever. The one time a number appeared it was because the lane had crashed.
+     *
+     * <p>Re-emitting is a retraction of the previous answer and an insert of the new one, which is
+     * how every other change in this engine is expressed. Without the retraction each emission would
+     * be a separate row and the view would accumulate one per tick.
+     */
+    void emitIncremental() {
+        if (rowCount == 0 && !emittedBefore) {
+            // Nothing has arrived. An aggregate over no rows is a question with no answer yet, not
+            // an answer of zero -- and emitting one would put a row in the view that no data
+            // supports.
+            return;
+        }
+        if (emittedBefore) {
+            writeResult(previous, -1L);
+        }
+        long[] current = currentValues();
+        writeResult(current, 1L);
+        previous = current;
+        emittedBefore = true;
+    }
+
+    private long[] previous;
+    private boolean emittedBefore;
+
+    private long[] currentValues() {
+        List<AggregateOperator.AggregateCall> calls = operator.aggregates();
+        long[] values = new long[calls.size()];
+        for (int i = 0; i < calls.size(); i++) {
+            values[i] = valueOf(i, calls.get(i));
+        }
+        return values;
+    }
+
+    private void writeResult(long[] values, long weight) {
+        long handle = arena.allocate(layout.rowSize(256));
+        if (handle == ArenaHandle.NULL) {
+            throw new PravahaException(RuntimeErrors.ARENA_EXHAUSTED, "no room to emit the aggregate result");
+        }
+        writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+        for (int i = 0; i < values.length; i++) {
+            writer.setLong(i, values[i]);
+        }
+        writer.weight(weight)
+                .eventTimestampNanos(lastTimestamp)
+                .sequence(lastSequence)
+                .commit();
+        arena.trimTo(handle, writer.sizeSoFar());
+        downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+    }
+
+    private long valueOf(int i, AggregateOperator.AggregateCall call) {
+        return switch (call.kind()) {
+            case COUNT -> counts[i];
+            case SUM, MIN, MAX -> sums[i];
+            // Integer division, matching SQL's AVG over an integer column.
+            case AVG -> counts[i] == 0 ? 0 : sums[i] / counts[i];
+            case COUNT_DISTINCT ->
+                throw new PravahaException(
+                        RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                        "COUNT(DISTINCT ...) over an unwindowed stream holds one entry per distinct "
+                                + "value forever, which is unbounded state by another name. Put it in a "
+                                + "window.");
+        };
+    }
+
     void emit() {
         long handle = arena.allocate(layout.rowSize(256));
         if (handle == ArenaHandle.NULL) {

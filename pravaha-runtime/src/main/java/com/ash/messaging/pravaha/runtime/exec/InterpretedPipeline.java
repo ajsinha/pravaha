@@ -80,6 +80,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     private final RowArena arena;
     private final RowProcessor head;
     private final List<Runnable> finishers = new ArrayList<>();
+    private final List<Runnable> continuousEmitters = new ArrayList<>();
     private final List<WindowedAggregate> windowed = new ArrayList<>();
     private final List<SymmetricHashJoin> joins = new ArrayList<>();
     private final List<LookupJoin> lookupJoins = new ArrayList<>();
@@ -127,6 +128,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         RowProcessor head = builder.joins.isEmpty() ? built : null;
         InterpretedPipeline pipeline = new InterpretedPipeline(arena, head, builder.scans);
         pipeline.finishers.addAll(builder.finishers);
+        pipeline.continuousEmitters.addAll(builder.continuousEmitters);
         pipeline.windowed.addAll(builder.windowed);
         pipeline.joins.addAll(builder.joins);
         pipeline.lookupJoins.addAll(builder.lookupJoins);
@@ -206,6 +208,24 @@ public final class InterpretedPipeline implements AutoCloseable {
             return;
         }
         finishers.forEach(Runnable::run);
+    }
+
+    /**
+     * Publishes the current answer of every unwindowed aggregate.
+     *
+     * <p>Called on the watermark tick, on the lane's own thread. Each emitter retracts the answer it
+     * published last and inserts the new one, so the view holds one row rather than one per tick.
+     */
+    public void emitContinuousAggregates() {
+        if (abandoned) {
+            return;
+        }
+        continuousEmitters.forEach(Runnable::run);
+    }
+
+    /** Whether this pipeline has anything to publish on a tick. */
+    public boolean hasContinuousAggregates() {
+        return !continuousEmitters.isEmpty();
     }
 
     /** Rows this pipeline's joins have released for falling outside their match window. */
@@ -486,6 +506,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final RowArena arena;
         private final RowOutput sink;
         private final List<Runnable> finishers = new ArrayList<>();
+        private final List<Runnable> continuousEmitters = new ArrayList<>();
         private final List<WindowedAggregate> windowed = new ArrayList<>();
         private final List<SymmetricHashJoin> joins = new ArrayList<>();
         private final List<LookupJoin> lookupJoins = new ArrayList<>();
@@ -556,7 +577,13 @@ public final class InterpretedPipeline implements AutoCloseable {
                     // they are the same is how GlobalAggregate came to silently ignore group keys.
                     if (a.groupKeyOrdinals().isEmpty()) {
                         GlobalAggregate aggregate = new GlobalAggregate(a, arena, downstream);
+                        // Two cadences, not one. finishers run when the input ends, which is what a
+                        // bounded read needs; continuous emitters run on a tick, which is the only
+                        // thing that makes an unwindowed aggregate over a stream produce anything at
+                        // all. Registered continuously, this query used to report RUNNING for ever
+                        // and emit nothing, because a stream has no end to trigger a finisher.
                         finishers.add(aggregate::emit);
+                        continuousEmitters.add(aggregate::emitIncremental);
                         yield buildInput(a.input(), aggregate);
                     }
                     KeyedAggregate aggregate = new KeyedAggregate(

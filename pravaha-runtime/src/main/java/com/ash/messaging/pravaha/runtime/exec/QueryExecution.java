@@ -670,6 +670,27 @@ public final class QueryExecution implements AutoCloseable {
         lanes.checkHealth();
     }
 
+    /**
+     * Publishes every unwindowed aggregate's running answer, on the lanes' own threads.
+     *
+     * <p>Submitted as a control task rather than run here, because emission writes into the lane's
+     * arena and pushes a row downstream -- both of which belong to the thread that owns them. Doing
+     * it on the caller's thread is the mistake that put a ConcurrentModificationException into the
+     * serving view earlier in this work.
+     *
+     * <p>Driven by whoever commits: the ingest feed's publish timer, or an embedder pushing its own
+     * rows. Tying it to the watermark tick alone would leave a push-based query silent, because a
+     * query with no pump has no watermark partitions and so never ticks.
+     */
+    public void publishContinuousAggregates() {
+        for (int i = 0; i < pipelines.size(); i++) {
+            InterpretedPipeline pipeline = pipelines.get(i);
+            if (pipeline.hasContinuousAggregates()) {
+                lanes.lane(i).submitControlTask(pipeline::emitContinuousAggregates);
+            }
+        }
+    }
+
     /** The first lane failure, without throwing it. */
     public java.util.Optional<Throwable> laneFailure() {
         return lanes.failure();
