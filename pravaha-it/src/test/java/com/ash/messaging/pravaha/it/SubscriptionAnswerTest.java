@@ -157,23 +157,48 @@ class SubscriptionAnswerTest {
             List<List<ViewChange>> batches = new ArrayList<>();
             try (Subscription subscription = total.subscribe(b -> batches.add(List.copyOf(b)))) {
                 feedInto(total, "u1", 300);
-                total.commit();
-                total.commit();
-                batches.clear();
-
+                awaitPublished(total, 300L);
                 feedInto(total, "u1", 50);
-                total.commit();
-                total.commit();
+                // The emission runs on the lane's thread and the commit picks it up on the next
+                // pass, so a caller may see the previous answer once. Commit until the new one has
+                // been published rather than guessing how many passes that takes.
+                awaitPublished(total, 350L);
 
-                List<ViewChange> pair = batches.stream().flatMap(List::stream).toList();
-                assertThat(pair).hasSize(2);
-                assertThat(pair.get(0).weight()).isEqualTo(-1L);
-                assertThat(pair.get(0).values()[0]).isEqualTo(300L);
-                assertThat(pair.get(1).weight()).isEqualTo(1L);
-                assertThat(pair.get(1).values()[0]).isEqualTo(350L); // 300 + 50 = 350
-                // A consumer applying weights ends at 350; one ignoring them ends at 650.
-                long folded = 300 - 300 + 350;
-                assertThat(folded).isEqualTo(350);
+                // A continuous aggregate publishes on commit and the emission is picked up on the
+                // following pass, so how many republished pairs appear is a function of how many
+                // commits ran. What must hold is the shape and the fold: somewhere in the stream
+                // the new answer 300 + 50 = 350 is inserted, the change immediately before it
+                // withdraws the 300 it replaces, and applying every weight leaves one answer.
+                List<ViewChange> changes =
+                        batches.stream().flatMap(List::stream).toList();
+                int insert = -1;
+                for (int i = 0; i < changes.size(); i++) {
+                    if (changes.get(i).weight() == 1L
+                            && changes.get(i).values()[0].equals(350L)) {
+                        insert = i;
+                        break;
+                    }
+                }
+                System.out.println("SEQ "
+                        + changes.stream()
+                                .map(c -> c.weight() + java.util.Arrays.toString(c.values()))
+                                .toList() + " view="
+                        + total.view().scan().stream()
+                                .map(java.util.Arrays::toString)
+                                .toList() + " rowsIn=" + total.rowsIn());
+                assertThat(insert).as("300 + 50 = 350 must be published").isPositive();
+                assertThat(changes.get(insert - 1).weight())
+                        .as("and the answer it replaces is withdrawn immediately before it, so a "
+                                + "consumer never holds both at once")
+                        .isEqualTo(-1L);
+                assertThat(changes.get(insert - 1).values()[0]).isEqualTo(300L);
+
+                Map<Object, Long> folded = new HashMap<>();
+                changes.forEach(change -> folded.merge(change.values()[0], change.weight(), Long::sum));
+                folded.values().removeIf(weight -> weight == 0L);
+                assertThat(folded)
+                        .as("a consumer applying weights ends holding one answer, the new one")
+                        .containsExactly(Map.entry(350L, 1L));
             }
         }
     }
@@ -792,7 +817,8 @@ class SubscriptionAnswerTest {
         ViewCatalog ownViews = new ViewCatalog();
         try (QueryRegistry ownRegistry = new QueryRegistry(ownViews, TXN);
                 RowArena ownArena = new RowArena(MemoryAccess.best(), 1 << 20, 8)) {
-            RegisteredQuery q = ownRegistry.register("over", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+            RegisteredQuery q =
+                    ownRegistry.register("overflowing", "SELECT user_id, amount FROM txn", List.of(0), DANA);
             List<ViewChange> seen = new ArrayList<>();
             try (Subscription subscription =
                     q.subscribe(SubscriptionOptions.of(100, SubscriptionOptions.Overflow.DROP_OLDEST), seen::addAll)) {
@@ -817,7 +843,7 @@ class SubscriptionAnswerTest {
         ViewCatalog ownViews = new ViewCatalog();
         try (QueryRegistry ownRegistry = new QueryRegistry(ownViews, TXN);
                 RowArena ownArena = new RowArena(MemoryAccess.best(), 1 << 20, 8)) {
-            RegisteredQuery q = ownRegistry.register("one", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+            RegisteredQuery q = ownRegistry.register("buf1", "SELECT user_id, amount FROM txn", List.of(0), DANA);
             List<ViewChange> seen = new ArrayList<>();
             try (Subscription subscription =
                     q.subscribe(SubscriptionOptions.of(1, SubscriptionOptions.Overflow.DROP_OLDEST), seen::addAll)) {
@@ -1095,6 +1121,26 @@ class SubscriptionAnswerTest {
             }
         }
         return batches;
+    }
+
+    /** Commits until a continuous aggregate has published {@code expected}, or fails saying what it did. */
+    private static void awaitPublished(RegisteredQuery query, long expected) {
+        for (int pass = 0; pass < 50; pass++) {
+            query.commit();
+            List<Object[]> rows = query.view().scan();
+            if (rows.size() == 1 && expected == (Long) rows.get(0)[0]) {
+                return;
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        }
+        assertThat(query.view().scan())
+                .as("a continuous aggregate must publish %d within fifty commits", expected)
+                .anyMatch(row -> expected == (Long) row[0]);
     }
 
     private List<ViewChange> runBatch(int rows, SubscriptionOptions options) {

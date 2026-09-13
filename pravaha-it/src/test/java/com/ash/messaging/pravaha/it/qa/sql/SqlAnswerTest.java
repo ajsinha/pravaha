@@ -13,7 +13,7 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
-package com.ash.messaging.pravaha.it;
+package com.ash.messaging.pravaha.it.qa.sql;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -61,6 +61,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * compared as a sorted multiset. The two places where order <em>is</em> the claim have their own
  * tests and compare in sequence.
  */
+@org.junit.jupiter.api.Tag("qa")
 class SqlAnswerTest {
 
     private static final long SECOND = 1_000_000_000L;
