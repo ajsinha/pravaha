@@ -206,7 +206,8 @@ anywhere else: `TypeMapping`, `Predicate.CompareInt`, `BinaryRowWriter.setInt`, 
 `KeyedAggregate` and `ArrowSchemas` all handle it. Every one of those paths is dead code from a
 configured node's point of view.
 **Falsifier:** `DATE` accepted by the grammar; or accepted by one surface and refused by another.
-**Setup/Steps:** the four steps of TYPE-002 with `d:DATE`.
+**Setup:** none beyond a built CLI, and fixture `S` for the server surfaces.
+**Steps:** the four steps of TYPE-002 with the column declared `d:DATE`.
 **Expected:** all four refuse with `unknown type 'DATE'` and the same supported list. Record that
 `ArrowSchemas` maps `DATE` to `Date(DateUnit.DAY)` and `BinaryRowWriter.setInt` accepts it — both
 correct, both unreachable.
@@ -216,7 +217,8 @@ correct, both unreachable.
 unreachable: `ArrowSchemas` sends it as `Timestamp(NANOSECOND, "UTC")`, the *same Arrow type as
 TIMESTAMP_LTZ*, so a client cannot tell them apart (see TYPE-074).
 **Falsifier:** `TIME` accepted by the grammar.
-**Setup/Steps:** the four steps of TYPE-002 with `t:TIME`.
+**Setup:** none beyond a built CLI, and fixture `S` for the server surfaces.
+**Steps:** the four steps of TYPE-002 with the column declared `t:TIME`.
 **Expected:** all four refuse with `unknown type 'TIME'` and the supported list.
 
 ## TYPE-005 — ARRAY, MAP and ROW cannot be declared, and have no SQL type either
