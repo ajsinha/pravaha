@@ -73,9 +73,47 @@ class ServerSecurityTest {
     void anAuthenticatedPolicyStartsWithoutTheAcknowledgement() {
         // Nothing to acknowledge: this node serves no data to anonymous callers, so it is not the
         // configuration the refusal exists to catch.
+        //
+        // WITH FLIGHT ENABLED, and that is the whole value of this test. It previously ran with
+        // Flight off and passed while `policy: authenticated` could not start a real node at all:
+        // hosting() compared the server's default PERMISSIVE against the registry's policy and
+        // threw. A test that exercises a security setting on a node with the security transport
+        // switched off is not testing the setting.
         SecurityProperties closed = new SecurityProperties();
         closed.setPolicy("authenticated");
-        PravahaNode node = node(closed);
+        // With a way to authenticate, because the policy without one is now refused as the
+        // contradiction it is: serve only verified callers, verify nobody.
+        closed.setAuthentication("token");
+        SecurityProperties.TokenSpec spec = new SecurityProperties.TokenSpec();
+        spec.setId("ann");
+        closed.setTokens(Map.of("a-token", spec));
+
+        PravahaNode node = nodeWithFlight(closed);
+        assertThatCode(node::start).doesNotThrowAnyException();
+        node.stop();
+    }
+
+    @Test
+    void aPolicyNobodyCanSatisfyIsRefusedRatherThanLeavingHttpOpen() {
+        // The combination reads as locked down and is not. Flight refuses everybody, correctly --
+        // and the HTTP surface has no filter, because authentication is off, and does not consult
+        // the policy, so it goes on serving stream schemas and accepting stream registrations from
+        // anyone who can reach the port.
+        SecurityProperties contradictory = new SecurityProperties();
+        contradictory.setPolicy("authenticated");
+        contradictory.setAuthentication("none");
+
+        assertThatThrownBy(() -> node(contradictory).start())
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("nobody can use")
+                .hasMessageContaining("pravaha.security.authentication=token");
+    }
+
+    @Test
+    void anOpenServerStartsWithFlightEnabledToo() {
+        SecurityProperties open = new SecurityProperties();
+        open.setAllowAnonymous(true);
+        PravahaNode node = nodeWithFlight(open);
         assertThatCode(node::start).doesNotThrowAnyException();
         node.stop();
     }
@@ -146,6 +184,26 @@ class ServerSecurityTest {
                 .contains(java.time.Duration.ofSeconds(2));
     }
 
+    /** A node that actually listens, so the Flight wiring is exercised rather than skipped. */
+    private static PravahaNode nodeWithFlight(SecurityProperties security) {
+        return new PravahaNode(
+                new StreamCatalog(),
+                new SourceBindingProperties(),
+                new StreamDeclarationProperties(),
+                security,
+                null,
+                null,
+                java.time.Duration.ofSeconds(30),
+                java.time.Duration.ofSeconds(1),
+                true,
+                "127.0.0.1",
+                0,
+                persistence(""),
+                "SINGLE",
+                "single",
+                "security-flight-node");
+    }
+
     private static PravahaNode node(SecurityProperties security) {
         return new PravahaNode(
                 new StreamCatalog(),
@@ -154,6 +212,8 @@ class ServerSecurityTest {
                 security,
                 null,
                 null,
+                java.time.Duration.ofSeconds(30),
+                java.time.Duration.ofSeconds(1),
                 false,
                 "127.0.0.1",
                 0,

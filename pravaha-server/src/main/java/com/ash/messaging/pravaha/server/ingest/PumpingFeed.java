@@ -105,6 +105,16 @@ final class PumpingFeed implements SourceFeed {
                 for (IngestPump pump : pumps) {
                     moved += pump.pumpOnce(BATCH);
                 }
+                if (moved > 0) {
+                    rowsFed.addAndGet(moved);
+                } else {
+                    LockSupport.parkNanos(IDLE_NAP_NANOS);
+                }
+                // Inside the try, and that is the whole point of this arrangement. Publishing used
+                // to sit below the catch, so a throw from commit killed this thread without even
+                // recording why: the feed stopped, `failure` stayed null, describe() went on saying
+                // "reading txn (1 partition)", and the query reported RUNNING for ever.
+                publishPeriodically();
             } catch (PravahaException e) {
                 // Recorded rather than retried. A source that fails mid-read fails for a reason --
                 // a deleted file, a revoked credential, a schema that no longer matches -- and
@@ -117,13 +127,14 @@ final class PumpingFeed implements SourceFeed {
                 failure = new PravahaException(
                         IngestErrors.FEED_FAILED, "the source feed for '" + queryName + "' stopped: " + e, e);
                 return;
+            } catch (Throwable e) {
+                // Everything, including Error. A feed thread that dies leaves a query that looks
+                // healthy and has silently stopped, which is the worst shape a failure can take --
+                // so nothing is allowed to leave this loop unrecorded, whatever its type.
+                failure = new PravahaException(
+                        IngestErrors.FEED_FAILED, "the source feed for '" + queryName + "' stopped: " + e, e);
+                return;
             }
-            if (moved > 0) {
-                rowsFed.addAndGet(moved);
-            } else {
-                LockSupport.parkNanos(IDLE_NAP_NANOS);
-            }
-            publishPeriodically();
         }
     }
 

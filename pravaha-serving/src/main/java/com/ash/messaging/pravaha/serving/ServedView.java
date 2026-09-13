@@ -64,6 +64,27 @@ public final class ServedView {
     /** Committed rows: what a CONSISTENT read sees. */
     // Access-ordered so eviction can take the least recently updated key without scanning, and
     // insertion-ordered enough that "oldest first" means what a reader expects.
+    /**
+     * The committed state, and the overlay below it.
+     *
+     * <p><strong>Guarded by {@code this}.</strong> Three threads reach these maps and none of them
+     * knew about the others: the lane applies rows, the ingest feed commits on its own timer, and
+     * Flight readers scan. Before rows could arrive at a server nothing committed, so the collision
+     * was unreachable and the maps were plain ones; the moment ingestion worked, {@code
+     * ServedView.commit} iterated this map on the feed thread while the lane thread wrote to it and
+     * the feed died of a {@link java.util.ConcurrentModificationException} -- silently, after
+     * 181,248 of 200,000 rows, with the query still reporting RUNNING.
+     *
+     * <p>The lock covers the map operations and deliberately not {@code awaitFrontier}, which spins
+     * until a commit lands. Holding the monitor there would wait for a commit that needs the
+     * monitor: a deadlock in place of a race. The frontiers stay {@code volatile} for exactly that
+     * reason.
+     *
+     * <p>A monitor rather than concurrent maps because {@code commit} must move the whole overlay
+     * across atomically -- a reader must not see half a batch -- and because this is the serving
+     * path, which already boxes each row into an {@code Object[]}. It is not the arena path, and the
+     * rule about no locks on the per-row hot path is about that one.
+     */
     private final LinkedHashMap<Key, Object[]> visible = new LinkedHashMap<>();
 
     /** The frontier each visible key was last written at, for age-based retention. */
@@ -141,7 +162,7 @@ public final class ServedView {
      *
      * @param frontier the input position this change reflects
      */
-    public void apply(RowView row, long frontier) {
+    public synchronized void apply(RowView row, long frontier) {
         Key key = keyOf(row);
         if (row.weight() < 0) {
             // A tombstone, kept in the overlay so a consistent read does not see the removal early.
@@ -161,7 +182,7 @@ public final class ServedView {
      * <p>For a caller that has the row as objects rather than as bytes -- a sink staging a writer,
      * a test. Same semantics as {@link #apply}: the overlay, not the visible map.
      */
-    public void applyValues(Object[] values, long weight, long frontier) {
+    public synchronized void applyValues(Object[] values, long weight, long frontier) {
         Object[] keyValues = new Object[keyOrdinals.length];
         for (int i = 0; i < keyOrdinals.length; i++) {
             keyValues[i] = values[keyOrdinals[i]];
@@ -185,7 +206,7 @@ public final class ServedView {
      * the previous commit -- which is the whole point: two views committed at the same frontier
      * agree on the same prefix of the input, and a number compared across them means something.
      */
-    public void commit(long frontier) {
+    public synchronized void commit(long frontier) {
         if (frontier < committedFrontier) {
             throw new IllegalArgumentException("frontier went backwards: " + frontier + " after " + committedFrontier);
         }
@@ -255,7 +276,7 @@ public final class ServedView {
         };
     }
 
-    private ViewResult readLatest(Key key) {
+    private synchronized ViewResult readLatest(Key key) {
         // The overlay first: it is newer by definition, and a tombstone in it means the key is gone
         // whatever the committed map still says.
         if (pending.containsKey(key)) {
@@ -266,7 +287,7 @@ public final class ServedView {
         return new ViewResult(Optional.ofNullable(values), appliedFrontier, 0, pending.isEmpty());
     }
 
-    private ViewResult readCommitted(Key key) {
+    private synchronized ViewResult readCommitted(Key key) {
         long staleness = Math.max(0, appliedFrontier - committedFrontier);
         Object[] values = visible.get(key);
         return new ViewResult(Optional.ofNullable(values), committedFrontier, staleness, true);
@@ -294,7 +315,7 @@ public final class ServedView {
     }
 
     /** Every key currently committed. For a full scan at a pinned frontier. */
-    public List<Object[]> scan() {
+    public synchronized List<Object[]> scan() {
         return new ArrayList<>(visible.values());
     }
 
@@ -366,12 +387,12 @@ public final class ServedView {
     }
 
     /** Keys committed and visible. */
-    public int size() {
+    public synchronized int size() {
         return visible.size();
     }
 
     /** Changes applied but not yet visible to a consistent read. */
-    public int pendingChanges() {
+    public synchronized int pendingChanges() {
         return pending.size();
     }
 

@@ -315,6 +315,12 @@ public final class QueryRegistry implements AutoCloseable {
             // The same question, asked again. One computation, one copy of the state, two names.
             existing.addName(name);
             byName.put(name, existing);
+            // The other two things a registration does, which this path used to skip -- so sharing,
+            // the feature, made the second name useless in two different ways. It answered nothing
+            // ("Object not found" from a name that had just been acknowledged RUNNING), and it
+            // vanished at the next restart while the node reported "recovered 2 of 2".
+            views.registerAs(name, existing.view());
+            journalRegistration(name, sql, keyColumns, principal, retention, parameters);
             return existing;
         }
 
@@ -322,7 +328,19 @@ public final class QueryRegistry implements AutoCloseable {
         byName.put(name, query);
         byFingerprint.put(fingerprint, query);
         views.register(query.view());
-        journalRegistration(name, sql, keyColumns, principal, retention, parameters);
+        try {
+            journalRegistration(name, sql, keyColumns, principal, retention, parameters);
+        } catch (RuntimeException e) {
+            // Unwound, because a refusal the caller can see and a query that is running anyway is
+            // the worst of both: the client is told the registration failed, the computation serves
+            // rows regardless, and nothing will bring it back after a restart. Registering again
+            // under another name then succeeded with nothing journalled at all.
+            byName.remove(name);
+            byFingerprint.remove(fingerprint);
+            views.remove(name);
+            query.close();
+            throw e;
+        }
         return query;
     }
 
@@ -384,7 +402,11 @@ public final class QueryRegistry implements AutoCloseable {
         // trusted. requireName already refuses the obvious, but a directory is a different alphabet
         // from an identifier and "../" in a view name should not be able to choose where a
         // checkpoint lands.
-        String directory = name.replaceAll("[^A-Za-z0-9_.-]", "_");
+        // Dots are stripped too, not just separators. The first version kept them, on the reasoning
+        // that a dot is harmless in a filename -- and a query named ".." then wrote its checkpoints
+        // one level ABOVE the configured root, where SensitiveFiles promptly chmodded somebody
+        // else's directory to 700.
+        String directory = name.replaceAll("[^A-Za-z0-9_-]", "_");
         com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer checkpointer =
                 com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer.from(
                         execution,
@@ -609,6 +631,10 @@ public final class QueryRegistry implements AutoCloseable {
     public synchronized void drop(String name) {
         RegisteredQuery query = require(name);
         byName.remove(name);
+        // The view goes with the name. A dropped view that keeps answering serves whatever the
+        // closed computation last committed, for ever, to a caller with no way to know that nothing
+        // maintains it.
+        views.remove(name);
         if (query.removeName(name)) {
             byFingerprint.remove(query.fingerprint());
             query.close();

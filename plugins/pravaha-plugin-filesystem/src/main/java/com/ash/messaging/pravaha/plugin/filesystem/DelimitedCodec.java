@@ -68,7 +68,21 @@ final class DelimitedCodec {
     }
 
     /** Decodes one line into {@code writer}. Throws with the line's content on a malformed field. */
+    /**
+     * The event time of the row decoded by the last {@link #decode}, or {@code Long.MIN_VALUE}.
+     *
+     * <p>Read straight after a decode, on the reader's own thread, which is the only thread that
+     * calls either. A returned value would be cleaner and would change a signature that several
+     * callers share; this is confined to the one call site that needs it.
+     */
+    long lastEventTimeNanos() {
+        return lastEventTimeNanos;
+    }
+
+    private long lastEventTimeNanos = Long.MIN_VALUE;
+
     void decode(String line, long lineNumber, RowWriter writer) {
+        lastEventTimeNanos = Long.MIN_VALUE;
         List<String> fields = split(line, delimiter);
         if (fields.size() != schema.fieldCount()) {
             throw new ConfigurationException(
@@ -100,7 +114,17 @@ final class DelimitedCodec {
                 case INT8 -> writer.setByte(ordinal, Byte.parseByte(raw));
                 case INT16 -> writer.setShort(ordinal, Short.parseShort(raw));
                 case INT32, DATE -> writer.setInt(ordinal, Integer.parseInt(raw));
-                case INT64, TIME, TIMESTAMP_LTZ -> writer.setLong(ordinal, Long.parseLong(raw));
+                case INT64, TIME, TIMESTAMP_LTZ -> {
+                    long value = Long.parseLong(raw);
+                    writer.setLong(ordinal, value);
+                    // Remembered so the reader can stamp the row with it. Nothing did, so every row
+                    // a file produced carried event time zero -- and a watermark derived from zero
+                    // never reaches a window in the present, so windowed queries ingested every row
+                    // and emitted nothing, for ever, while reporting RUNNING.
+                    if (schema.eventTimeOrdinal().orElse(-1) == ordinal) {
+                        lastEventTimeNanos = value;
+                    }
+                }
                 case FLOAT32 -> writer.setFloat(ordinal, Float.parseFloat(raw));
                 case FLOAT64 -> writer.setDouble(ordinal, Double.parseDouble(raw));
                 case STRING -> writer.setString(ordinal, raw);

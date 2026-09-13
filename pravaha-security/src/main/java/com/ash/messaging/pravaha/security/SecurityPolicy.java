@@ -65,6 +65,23 @@ public interface SecurityPolicy {
     AccessDecision mayRead(Principal principal, String view);
 
     /**
+     * May this principal drop, pause or resume this view?
+     *
+     * <p>Defaults to {@link #mayRead}: you may administer what you may read. That is the weakest
+     * defensible rule and it is a default rather than the answer, because these verbs are not reads.
+     * Dropping a continuous query destroys the state it has accumulated and takes the view away from
+     * every other client holding a name for it -- data loss and an outage, from one call. A
+     * deployment that separates operators from readers should override this and say so.
+     *
+     * <p>It exists because the Flight control verbs authorized nothing at all: an unauthenticated
+     * caller could drop every query on a node configured to serve only verified callers. The default
+     * closes that without inventing a permission model nobody asked for.
+     */
+    default AccessDecision mayAdminister(Principal principal, String view) {
+        return mayRead(principal, view);
+    }
+
+    /**
      * May this principal register a continuous query at all?
      *
      * <p>Separate from reading because it is a different risk: registering costs the cluster state

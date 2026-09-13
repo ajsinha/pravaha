@@ -19,6 +19,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -45,6 +46,7 @@ import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
 import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
+import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
@@ -100,6 +102,8 @@ public class PravahaNode implements SmartLifecycle {
     private final SecurityProperties security;
     private final File tlsCertificate;
     private final File tlsKey;
+    private final Duration watermarkIdleAfter;
+    private final Duration watermarkTick;
     private volatile PluginSourceFeeds feeds;
     private final Optional<Path> checkpointPath;
     private final Configuration checkpointConfiguration;
@@ -113,6 +117,8 @@ public class PravahaNode implements SmartLifecycle {
             SecurityProperties security,
             @Value("${pravaha.flight.tls.certificate:}") String tlsCertificate,
             @Value("${pravaha.flight.tls.key:}") String tlsKey,
+            @Value("${pravaha.watermark.idle-after:30s}") Duration watermarkIdleAfter,
+            @Value("${pravaha.watermark.tick:1s}") Duration watermarkTick,
             @Value("${pravaha.flight.enabled:true}") boolean flightEnabled,
             @Value("${pravaha.flight.host:0.0.0.0}") String flightHost,
             @Value("${pravaha.flight.port:9090}") int flightPort,
@@ -126,6 +132,8 @@ public class PravahaNode implements SmartLifecycle {
         this.security = security;
         this.tlsCertificate = tlsCertificate == null || tlsCertificate.isBlank() ? null : new File(tlsCertificate);
         this.tlsKey = tlsKey == null || tlsKey.isBlank() ? null : new File(tlsKey);
+        this.watermarkIdleAfter = watermarkIdleAfter;
+        this.watermarkTick = watermarkTick;
         this.nodeId = nodeId;
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
@@ -164,6 +172,20 @@ public class PravahaNode implements SmartLifecycle {
                             + "pravaha.security.policy=authenticated, or -- if open really is what you want -- "
                             + "set pravaha.security.allow-anonymous=true to say so on purpose.");
         }
+        if (!security.authenticates() && securityPolicy() instanceof AuthenticatedOnlyPolicy) {
+            // A contradiction, and a dangerous one rather than a merely silly one. The policy says
+            // only authenticated callers see anything and the node offers no way to authenticate, so
+            // Flight correctly refuses everybody -- while the HTTP surface, which has no filter
+            // because authentication is off and does not consult the policy, keeps serving stream
+            // schemas and accepting stream registrations from anyone who can reach the port. The
+            // configuration reads as locked down and leaves a door open.
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN,
+                    "pravaha.security.policy=authenticated with pravaha.security.authentication=none is a "
+                            + "node nobody can use: the policy serves only verified callers and nothing here "
+                            + "can verify one. Set pravaha.security.authentication=token and configure "
+                            + "pravaha.security.tokens, or choose a policy that admits anonymous callers.");
+        }
         if (security.authenticates() && tlsCertificate == null) {
             // Not fatal: a sidecar or a service mesh may be terminating TLS in front of this. It is
             // logged at warn because a bearer token on a plaintext socket is handed to anyone on
@@ -190,13 +212,70 @@ public class PravahaNode implements SmartLifecycle {
                         "stream '" + name + "' is declared under pravaha.streams with no schema. A stream "
                                 + "is a name and a shape; the name alone cannot be planned against.");
             }
-            streams.register(FilesystemSourcePlugin.parseSchema(name, declaration.getSchema()));
+            StreamSchema parsed = FilesystemSourcePlugin.parseSchema(name, declaration.getSchema());
+            streams.register(withEventTime(name, parsed, declaration));
         });
         if (!declaredStreams.getStreams().isEmpty()) {
             log.info(
                     "streams declared in configuration: {}",
                     declaredStreams.getStreams().keySet());
         }
+    }
+
+    /**
+     * Marks the event-time column, and the stream's own lateness, if the declaration named them.
+     *
+     * <p>Rebuilt rather than mutated because a schema is immutable: a running query keeps the
+     * version it was planned against, which is what stops a re-declaration changing the meaning of a
+     * query already in flight.
+     */
+    private static StreamSchema withEventTime(
+            String name, StreamSchema parsed, StreamDeclarationProperties.Declaration declaration) {
+        if (declaration.getEventTime() == null || declaration.getEventTime().isBlank()) {
+            return parsed;
+        }
+        StreamSchema.Builder builder = StreamSchema.builder(name);
+        parsed.fields().forEach(field -> builder.field(field.name(), field.type()));
+        String column = declaration.getEventTime().strip();
+        if (!parsed.hasField(column)) {
+            throw new PravahaException(
+                    SqlErrors.VALIDATION_FAILED,
+                    "stream '" + name + "' declares '" + column + "' as its event time and has no such column. "
+                            + "Its columns are "
+                            + parsed.fields().stream()
+                                    .map(com.ash.messaging.pravaha.api.data.Field::name)
+                                    .toList()
+                            + ".");
+        }
+        builder.eventTime(column);
+        if (declaration.getOutOfOrderness() != null) {
+            builder.outOfOrderness(declaration.getOutOfOrderness());
+        }
+        return builder.build();
+    }
+
+    /**
+     * Passes the stream's declared event-time column down to its source.
+     *
+     * <p>So it is declared once. The engine's schema and the plugin's are built from different
+     * places -- {@code pravaha.streams.<n>.schema} and the binding's own {@code schema} option --
+     * and only the first carried the event-time marker. The plugin then decoded rows with a schema
+     * that had none and stamped them all with event time zero, which no watermark can advance past
+     * into a window in the present. Making the operator write the column twice would have worked and
+     * would have been one more thing to get out of step.
+     */
+    private SourceBinding withDeclaredEventTime(SourceBinding binding) {
+        StreamDeclarationProperties.Declaration declaration =
+                declaredStreams.getStreams().get(binding.streamName());
+        if (declaration == null
+                || declaration.getEventTime() == null
+                || declaration.getEventTime().isBlank()
+                || binding.options().containsKey("event.time")) {
+            return binding;
+        }
+        Map<String, String> options = new java.util.LinkedHashMap<>(binding.options());
+        options.put("event.time", declaration.getEventTime().strip());
+        return new SourceBinding(binding.streamName(), binding.plugin(), options);
     }
 
     private SecurityPolicy securityPolicy() {
@@ -285,8 +364,16 @@ public class PravahaNode implements SmartLifecycle {
                         + "checkpoints: a restart recovers their definitions from the journal and none of "
                         + "their accumulated state"));
 
+        // Switched on, which it never was. pravaha.watermark.* was read by nothing on this server:
+        // QueryExecution.generatingWatermarks is what arms every bound in the engine -- a window
+        // closing, a join evicting, a view forgetting -- and the registry only arms it when asked.
+        // Unasked, a windowed query ingested every row and emitted nothing for ever, and the
+        // documentation assured operators the bounds were enforced.
+        registry.generatingWatermarks(watermarkIdleAfter, watermarkTick);
+        log.info("watermarks: idle-after={}, tick={}", watermarkIdleAfter, watermarkTick);
+
         feeds = new PluginSourceFeeds();
-        sources.toBindings().forEach(feeds::bind);
+        sources.toBindings().forEach(binding -> feeds.bind(withDeclaredEventTime(binding)));
         registry.feedingFrom(feeds);
         if (feeds.bindings().isEmpty()) {
             log.info("no sources are bound, so registered queries receive rows only from clients that push "
@@ -313,12 +400,17 @@ public class PravahaNode implements SmartLifecycle {
         }
 
         if (flightEnabled) {
+            // The same policy object the registry authorizes against, and set BEFORE hosting().
+            //
+            // The order is not stylistic. hosting() runs requireOnePolicy(), which compares the
+            // server's policy with the registry's -- so hosting first meant comparing the
+            // constructor's PERMISSIVE default against the registry's real policy, and any
+            // non-permissive policy threw at startup blaming the operator for a mismatch they had
+            // not configured. `policy: authenticated`, one of the three documented ways to close
+            // this server, could never start a node with Flight enabled.
             PravahaFlightServer server = new PravahaFlightServer(views)
-                    .hosting(registry)
-                    // The same policy object the registry authorizes against. The Flight server
-                    // refuses a mismatch rather than letting two halves of one deployment disagree
-                    // about who may read what.
-                    .authorizedBy(securityPolicyOf(registry), auditSink());
+                    .authorizedBy(securityPolicyOf(registry), auditSink())
+                    .hosting(registry);
             TokenVerifier verifier = security.verifier();
             if (verifier != null) {
                 server.authenticatedBy(verifier);

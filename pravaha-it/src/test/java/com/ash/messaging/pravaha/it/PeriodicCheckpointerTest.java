@@ -210,7 +210,15 @@ class PeriodicCheckpointerTest {
             awaitUntil(() -> store.stored.get() >= 3, "three checkpoints after one failure");
 
             assertThat(checkpointer.stats().failed()).isEqualTo(1);
-            assertThat(logged).anySatisfy(line -> assertThat(line).contains("checkpoint failed"));
+            // Copied under the list's own lock before asserting. synchronizedList makes each add
+            // atomic and does nothing for iteration, so AssertJ walking it while the checkpointer
+            // appends every 50ms is a ConcurrentModificationException waiting for a slow machine --
+            // and it found one.
+            List<String> snapshot;
+            synchronized (logged) {
+                snapshot = new ArrayList<>(logged);
+            }
+            assertThat(snapshot).anySatisfy(line -> assertThat(line).contains("checkpoint failed"));
         }
     }
 

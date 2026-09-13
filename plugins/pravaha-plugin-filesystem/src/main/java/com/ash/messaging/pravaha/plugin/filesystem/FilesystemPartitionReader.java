@@ -86,6 +86,13 @@ final class FilesystemPartitionReader implements PartitionReader {
                 RowWriter writer = sink.beginRow();
                 try {
                     codec.decode(line, lineNumber, writer);
+                    // The row's event time comes from the column the schema marked, when it marked
+                    // one. Without this every row carries zero and no watermark can reach a window
+                    // in the present -- so a windowed query ingests everything and emits nothing.
+                    long eventTime = codec.lastEventTimeNanos();
+                    if (eventTime != Long.MIN_VALUE) {
+                        writer.eventTimestampNanos(eventTime);
+                    }
                     // A file is an append-only log of insertions: every row is +1.
                     writer.rowKind(RowKind.INSERT).sequence(lineNumber).commit();
                     produced++;

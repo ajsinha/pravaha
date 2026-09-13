@@ -213,6 +213,75 @@ class PluginSourceFeedsTest {
         }
     }
 
+    @Test
+    void aLargeFeedIsNotLostToARaceBetweenTheLaneTheFeedAndAReader(@TempDir Path dir) throws Exception {
+        // Three threads reach ServedView's maps and none of them knew about the others: the lane
+        // applies rows, this feed commits on its own timer, and readers scan. Nothing committed
+        // before ingestion worked, so the collision was unreachable; the moment it worked, commit
+        // iterated the overlay on the feed thread while the lane wrote to it and the feed died of a
+        // ConcurrentModificationException -- silently, after 181,248 of 200,000 rows, with the query
+        // still reporting RUNNING and describe() still saying "reading txn (1 partition)".
+        //
+        // The key is txn_id, unique per row, so the view's size must equal the row count exactly.
+        // The first version of this check keyed on user_id with 500 distinct values and 200,000 rows
+        // collapsed to a correct-looking 500 -- it would have passed against the bug.
+        int rows = 60_000;
+        Path data = dir.resolve("many.csv");
+        StringBuilder csv = new StringBuilder();
+        for (int i = 0; i < rows; i++) {
+            csv.append(i).append(",user").append(i % 50).append(',').append(i).append('\n');
+        }
+        Files.writeString(data, csv);
+
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding("txn", "filesystem", Map.of("path", data.toString(), "schema", SCHEMA_SPEC)));
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, TXN).feedingFrom(feeds)) {
+            RegisteredQuery query =
+                    registry.register("wide", "SELECT id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
+
+            // A reader hammering the view throughout, because a reader is the third thread and the
+            // one a deployment actually has. Without it this test only covers two of the three.
+            java.util.concurrent.atomic.AtomicReference<Throwable> readerFailure =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicBoolean reading = new java.util.concurrent.atomic.AtomicBoolean(true);
+            com.ash.messaging.pravaha.serving.ViewQuery reader = new com.ash.messaging.pravaha.serving.ViewQuery(views);
+            Thread scans = new Thread(
+                    () -> {
+                        while (reading.get()) {
+                            try {
+                                reader.execute("SELECT id FROM wide").size();
+                            } catch (Throwable t) {
+                                readerFailure.set(t);
+                                return;
+                            }
+                        }
+                    },
+                    "test-reader");
+            scans.setDaemon(true);
+            scans.start();
+
+            try {
+                awaitRows(query, rows);
+                awaitView(views, "SELECT id, amount FROM wide", rows);
+            } finally {
+                reading.set(false);
+                scans.join(java.util.concurrent.TimeUnit.SECONDS.toMillis(5));
+            }
+
+            assertThat(readerFailure.get())
+                    .as("a reader scanning while the lane applies and the feed commits must not see a broken map")
+                    .isNull();
+            assertThat(query.rowsIn())
+                    .as("every row must arrive; a feed that dies mid-stream stops counting and says nothing")
+                    .isEqualTo(rows);
+            assertThat(query.feed().describe())
+                    .as("a feed that died records why rather than going on describing itself as healthy")
+                    .doesNotContain("stopped");
+        }
+    }
+
     /** Waits for a view to hold {@code expected} rows, or fails saying what it held. */
     private static void awaitView(ViewCatalog views, String sql, int expected) throws InterruptedException {
         com.ash.messaging.pravaha.serving.ViewQuery reader = new com.ash.messaging.pravaha.serving.ViewQuery(views);

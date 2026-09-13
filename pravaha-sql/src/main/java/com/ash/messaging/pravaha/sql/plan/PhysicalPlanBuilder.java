@@ -35,6 +35,7 @@ import org.apache.calcite.util.ImmutableBitSet;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.runtime.plan.*;
 import com.ash.messaging.pravaha.runtime.window.WindowSpec;
 import com.ash.messaging.pravaha.sql.PravahaTable;
@@ -762,10 +763,9 @@ public final class PhysicalPlanBuilder {
 
         List<AggregateOperator.AggregateCall> calls = new ArrayList<>();
         for (AggregateCall call : aggregate.getAggCallList()) {
-            calls.add(new AggregateOperator.AggregateCall(
-                    kindOf(call),
-                    call.getArgList().isEmpty() ? -1 : call.getArgList().get(0),
-                    nameOf(call)));
+            int argument = call.getArgList().isEmpty() ? -1 : call.getArgList().get(0);
+            refuseFloatingPointAggregate(call, argument, input.outputSchema());
+            calls.add(new AggregateOperator.AggregateCall(kindOf(call), argument, nameOf(call)));
         }
 
         StreamSchema output = schemaOf(aggregate, input.outputSchema().name() + "_aggregated");
@@ -948,6 +948,44 @@ public final class PhysicalPlanBuilder {
             }
         }
         return end >= 0 ? new int[] {start, end} : null;
+    }
+
+    /**
+     * Refuses an aggregate over a floating-point column, which the accumulators cannot do.
+     *
+     * <p>{@code GlobalAggregate}, {@code KeyedAggregate} and {@code WindowedAggregate} all
+     * accumulate through {@code row.getLong} and write through {@code writer.setLong}, whatever the
+     * column's type. Over a {@code FLOAT64} column that produced <strong>no rows at all under a
+     * successful status</strong> on the streaming path, and a raw internal type error over a view --
+     * neither of which says "this is not built".
+     *
+     * <p>Refused rather than approximated, for the reason DECIMAL arithmetic is: an answer that is
+     * silently wrong in a number people add up is worse than an answer that does not come. Giving
+     * the accumulators a real floating-point path is the fix; this is the honest behaviour until
+     * they have one.
+     *
+     * <p>{@code COUNT} is exempt: it counts rows and nulls, and never reads the value.
+     */
+    private static void refuseFloatingPointAggregate(AggregateCall call, int argument, StreamSchema inputSchema) {
+        if (argument < 0 || argument >= inputSchema.fieldCount()) {
+            return;
+        }
+        TypeName type = inputSchema.field(argument).type().typeName();
+        if (type != TypeName.FLOAT32 && type != TypeName.FLOAT64) {
+            return;
+        }
+        AggregateOperator.AggregateCall.Kind kind = kindOf(call);
+        if (kind == AggregateOperator.AggregateCall.Kind.COUNT
+                || kind == AggregateOperator.AggregateCall.Kind.COUNT_DISTINCT) {
+            return;
+        }
+        throw new PravahaException(
+                SqlErrors.UNSUPPORTED_OPERATOR,
+                kind + "(" + inputSchema.field(argument).name() + ") is over a " + type
+                        + " column, and this engine's aggregates accumulate in 64-bit integers only. It is "
+                        + "refused rather than answered, because the alternative was no rows and a "
+                        + "successful status. Cast the column to an integer if the rounding is acceptable "
+                        + "-- SUM(CAST(price AS BIGINT)) -- or aggregate it outside the engine.");
     }
 
     private static AggregateOperator.AggregateCall.Kind kindOf(AggregateCall call) {

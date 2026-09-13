@@ -384,19 +384,31 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                             query.fingerprint().shortForm())));
                 }
                 case ControlWire.DROP -> {
+                    requireAdministrable(principal, fields.get(0), "drop");
                     required.drop(fields.get(0));
                     listener.onNext(new Result(ControlWire.encode(fields.get(0), "DROPPED")));
                 }
                 case ControlWire.PAUSE -> {
+                    requireAdministrable(principal, fields.get(0), "pause");
                     required.pause(fields.get(0));
                     listener.onNext(new Result(ControlWire.encode(fields.get(0), "PAUSED")));
                 }
                 case ControlWire.RESUME -> {
+                    requireAdministrable(principal, fields.get(0), "resume");
                     required.resume(fields.get(0));
                     listener.onNext(new Result(ControlWire.encode(fields.get(0), "RUNNING")));
                 }
                 case ControlWire.LIST -> {
                     for (String name : required.names()) {
+                        // Filtered, not refused. A listing is how a client finds what it may use, so
+                        // showing nothing would be unhelpful and showing everything is a disclosure:
+                        // the SQL text carries account numbers and customer ids, which this
+                        // repository's own configuration says to permission like data. A principal
+                        // sees the queries they could read, and does not learn that the others
+                        // exist.
+                        if (!policy.mayRead(principal, name).allowed()) {
+                            continue;
+                        }
                         RegisteredQuery query = required.require(name);
                         listener.onNext(new Result(ControlWire.encode(
                                 name,
@@ -418,6 +430,24 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             listener.onError(CallStatus.INTERNAL
                     .withDescription(String.valueOf(e.getMessage()))
                     .toRuntimeException());
+        }
+    }
+
+    /**
+     * Refuses a control verb the principal may not use on this view.
+     *
+     * <p>These three verbs authorized nothing whatsoever. An unauthenticated caller dropped every
+     * continuous query on a node configured to serve only verified callers, and an authenticated but
+     * denied principal dropped another principal's payroll query -- destroying its accumulated state
+     * and taking the view away from everyone holding a name for it.
+     */
+    private void requireAdministrable(Principal principal, String view, String verb) {
+        AccessDecision decision = policy.mayAdminister(principal, view);
+        audit.record(AuditEvent.of(principal, verb, view, decision, ""));
+        if (!decision.allowed()) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN,
+                    principal.id() + " may not " + verb + " '" + view + "': " + decision.reason());
         }
     }
 

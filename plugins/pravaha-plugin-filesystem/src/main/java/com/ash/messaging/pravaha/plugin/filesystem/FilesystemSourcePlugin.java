@@ -74,7 +74,27 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
     public void configure(PluginContext context) {
         this.instanceName = context.instanceName();
         this.path = Path.of(context.require("path"));
-        this.schema = parseSchema(context.instanceName(), context.require("schema"));
+        StreamSchema parsed = parseSchema(context.instanceName(), context.require("schema"));
+        // The column carrying event time, if the deployment named one.
+        //
+        // The `name:TYPE` grammar has no way to mark a column, and this plugin decoded with a schema
+        // that had no event-time ordinal -- so every row it produced carried event time zero even
+        // when the engine's own copy of the schema knew better. A watermark derived from zero never
+        // reaches a window in the present, which is why a windowed query ingested every row and
+        // emitted nothing.
+        String eventTime = context.get("event.time", "");
+        if (!eventTime.isBlank()) {
+            if (!parsed.hasField(eventTime)) {
+                throw new ConfigurationException(
+                        DelimitedCodec.DECODE_FAILED,
+                        "event.time names '" + eventTime + "', which is not a column of stream '"
+                                + context.instanceName() + "'");
+            }
+            StreamSchema.Builder builder = StreamSchema.builder(context.instanceName());
+            parsed.fields().forEach(field -> builder.field(field.name(), field.type()));
+            parsed = builder.eventTime(eventTime).build();
+        }
+        this.schema = parsed;
         String d = context.get("delimiter", ",");
         if (d.length() != 1) {
             throw new ConfigurationException(

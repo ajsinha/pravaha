@@ -76,7 +76,10 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = request.getHeader("authorization");
         if (header == null || header.isBlank()) {
-            refuse(response, "this server requires a credential; send it as 'Authorization: Bearer <token>'");
+            refuse(
+                    response,
+                    request.getRequestURI(),
+                    "this server requires a credential; send it as 'Authorization: Bearer <token>'");
             return;
         }
         String token = header.regionMatches(true, 0, "Bearer ", 0, 7)
@@ -89,12 +92,15 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
             // The verifier's message is deliberately uninformative about *why* a credential failed,
             // and it is passed through unchanged: "expired" versus "unknown" versus "bad signature"
             // is three bits of an oracle for whoever is guessing.
-            refuse(response, e.getMessage());
+            refuse(response, request.getRequestURI(), e.getMessage());
             return;
         }
         request.setAttribute(PRINCIPAL_ATTRIBUTE, principal);
         chain.doFilter(request, response);
     }
+
+    /** Matches what ApiError carries, so one error shape reaches a client rather than two. */
+    private static final String HELP_URL = "https://docs.pravaha.io/errors/PRV-7001";
 
     /** Where an authenticated principal is left for a controller that needs one. */
     public static final String PRINCIPAL_ATTRIBUTE = "pravaha.principal";
@@ -105,12 +111,22 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
         return found instanceof Principal principal ? principal : Principal.ANONYMOUS;
     }
 
-    private static void refuse(HttpServletResponse response, String reason) throws IOException {
+    private static void refuse(HttpServletResponse response, String path, String reason) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json");
         // The same ApiError shape every other failure uses. A client that has to parse two error
         // shapes will handle one of them badly.
+        // The same field set as ApiError, which every other failure on this surface uses. A 401 that
+        // answered {code, message, status} while everything else answered {code, message, helpUrl,
+        // timestamp, path} gave clients two error shapes to parse -- and a client that has to parse
+        // two will handle one of them badly, which is the thing this codebase says three times it
+        // will not do.
         response.getWriter()
-                .write("{\"code\":\"PRV-7001\",\"message\":\"" + reason.replace("\"", "'") + "\",\"status\":401}");
+                .write("{\"code\":\"PRV-7001\""
+                        + ",\"message\":\"" + reason.replace("\"", "'") + "\""
+                        + ",\"helpUrl\":\"" + HELP_URL + "\""
+                        + ",\"timestamp\":\"" + java.time.Instant.now() + "\""
+                        + ",\"path\":\"" + String.valueOf(path).replace("\"", "'") + "\""
+                        + ",\"status\":401}");
     }
 }

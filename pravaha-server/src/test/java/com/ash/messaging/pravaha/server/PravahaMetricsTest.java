@@ -68,6 +68,8 @@ class PravahaMetricsTest {
                 openServer(),
                 null,
                 null,
+                java.time.Duration.ofSeconds(30),
+                java.time.Duration.ofSeconds(1),
                 false,
                 "127.0.0.1",
                 0,

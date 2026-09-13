@@ -97,7 +97,15 @@ final class GlobalAggregate implements RowProcessor {
         for (int i = 0; i < calls.size(); i++) {
             AggregateOperator.AggregateCall call = calls.get(i);
             switch (call.kind()) {
-                case COUNT -> counts[i] += weight;
+                case COUNT -> {
+                    // COUNT(*) counts rows; COUNT(col) counts rows where col is not null. This
+                    // branch counted rows either way, so COUNT(n) silently reported COUNT(*) --
+                    // five where four values existed, and no way to tell from the answer. The SUM
+                    // and MIN/MAX branches beside it had the check all along.
+                    if (call.argumentOrdinal() < 0 || !row.isNull(call.argumentOrdinal())) {
+                        counts[i] += weight;
+                    }
+                }
                 case COUNT_DISTINCT ->
                     throw new PravahaException(
                             RuntimeErrors.UNSUPPORTED_AGGREGATE,

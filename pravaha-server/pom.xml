@@ -115,6 +115,26 @@
       <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
       <version>${springdoc.version}</version>
     </dependency>
+    <!--
+      Required for TLS on Flight, and absent until a QA pass went looking for it.
+
+      gRPC's SSL handler reaches io.netty.channel.unix.UnixChannel, which lives in this artifact and
+      in no other netty jar on this classpath. Without it a TLS node starts, logs that it is serving
+      TLS, binds its port, and answers nobody: every connection dies with NoClassDefFoundError while
+      the SSL handler is stripped from the pipeline. The only way back to a working deployment is to
+      switch TLS off, which is how a fleet ends up authenticated over plaintext.
+
+      Declared here rather than in pravaha-flight because this is the module where netty is pinned by
+      hand and requireUpperBoundDeps is deliberately skipped, for exactly this conflict. In
+      pravaha-flight the same declaration is a downgrade against Arrow's own graph and the enforcer
+      refuses it, correctly.
+    -->
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport-native-unix-common</artifactId>
+      <version>4.1.135.Final</version>
+      <scope>runtime</scope>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>

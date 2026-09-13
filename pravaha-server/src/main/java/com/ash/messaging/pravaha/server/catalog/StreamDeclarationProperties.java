@@ -55,6 +55,8 @@ public class StreamDeclarationProperties {
     public static class Declaration {
 
         private String schema;
+        private String eventTime;
+        private java.time.Duration outOfOrderness;
 
         public String getSchema() {
             return schema;
@@ -62,6 +64,32 @@ public class StreamDeclarationProperties {
 
         public void setSchema(String schema) {
             this.schema = schema;
+        }
+
+        /**
+         * The column carrying this stream's event time.
+         *
+         * <p>Without it no watermark can advance, and without a watermark no window ever closes: a
+         * windowed query plans, registers, reports RUNNING, ingests every row and emits nothing, for
+         * ever. The {@code name:TYPE} schema grammar has no syntax for marking a column, and nothing
+         * else on the server ever called {@code StreamSchema.Builder.eventTime} -- so windowing, the
+         * feature the engine exists for, was unreachable from configuration.
+         */
+        public String getEventTime() {
+            return eventTime;
+        }
+
+        public void setEventTime(String eventTime) {
+            this.eventTime = eventTime;
+        }
+
+        /** How late this stream's rows may be. Overrides the engine default for this stream only. */
+        public java.time.Duration getOutOfOrderness() {
+            return outOfOrderness;
+        }
+
+        public void setOutOfOrderness(java.time.Duration outOfOrderness) {
+            this.outOfOrderness = outOfOrderness;
         }
     }
 }

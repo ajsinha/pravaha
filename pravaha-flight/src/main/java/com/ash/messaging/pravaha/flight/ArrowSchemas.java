@@ -27,7 +27,6 @@ import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
-import org.apache.arrow.vector.TimeStampNanoVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
@@ -135,7 +134,15 @@ final class ArrowSchemas {
                 case INT32 -> ((IntVector) vector).setSafe(index, ((Number) value).intValue());
                 case DATE -> ((DateDayVector) vector).setSafe(index, ((Number) value).intValue());
                 case INT64 -> ((BigIntVector) vector).setSafe(index, ((Number) value).longValue());
-                case TIME, TIMESTAMP_LTZ -> ((TimeStampNanoVector) vector).setSafe(index, ((Number) value).longValue());
+                // TZ, matching the field declared above as Timestamp(NANOSECOND, "UTC"). A zoned
+                // Arrow timestamp materialises as TimeStampNanoTZVector, and casting it to the
+                // unzoned vector threw ClassCastException at serialisation time. It had never
+                // fired because no query had ever put a timestamp on the wire: windows emitted
+                // nothing, so window_start and window_end never reached a client. One bug was
+                // keeping the other one hidden.
+                case TIME, TIMESTAMP_LTZ ->
+                    ((org.apache.arrow.vector.TimeStampNanoTZVector) vector)
+                            .setSafe(index, ((Number) value).longValue());
                 case FLOAT32 -> ((Float4Vector) vector).setSafe(index, ((Number) value).floatValue());
                 case FLOAT64 -> ((Float8Vector) vector).setSafe(index, ((Number) value).doubleValue());
                 case BYTES -> ((VarBinaryVector) vector).setSafe(index, (byte[]) value);

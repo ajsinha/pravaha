@@ -512,7 +512,19 @@ public sealed interface Expression {
         public long evaluateLong(RowView row) {
             long value = argument.evaluateLong(row);
             return switch (function) {
-                case ABS -> Math.abs(value);
+                // Math.abs(Long.MIN_VALUE) is Long.MIN_VALUE -- negative, from a function whose
+                // whole job is to return something that is not. Refused rather than returned,
+                // because an absolute value that is negative is not an approximation of the right
+                // answer, it is the wrong one wearing the right type.
+                case ABS -> {
+                    if (value == Long.MIN_VALUE) {
+                        throw new ArithmeticException(
+                                "ABS(" + value + ") has no representable result: the range of a 64-bit "
+                                        + "integer is asymmetric, so the magnitude of its smallest value is "
+                                        + "one larger than its largest.");
+                    }
+                    yield Math.abs(value);
+                }
                 // Already whole. Returning it unchanged rather than round-tripping through a double,
                 // which loses precision above 2^53 and would make FLOOR of a large id a different id.
                 case FLOOR, CEIL, ROUND -> value;
@@ -526,7 +538,11 @@ public sealed interface Expression {
                 case ABS -> Math.abs(value);
                 case FLOOR -> Math.floor(value);
                 case CEIL -> Math.ceil(value);
-                case ROUND -> Math.rint(value);
+                // Half away from zero, which is what SQL means by ROUND. Math.rint is half-to-even
+                // -- banker's rounding -- so it made ROUND(2.5) into 2 and ROUND(-2.5) into -2,
+                // disagreeing with Calcite, Postgres, MySQL and Oracle. Every value it produced was
+                // plausible, which is why nobody notices until an invoice is out by a penny.
+                case ROUND -> Math.signum(value) * Math.floor(Math.abs(value) + 0.5);
             };
         }
 

@@ -53,7 +53,32 @@ public final class ViewCatalog {
     }
 
     public ViewCatalog register(ServedView view) {
-        views.put(view.name(), view);
+        return registerAs(view.name(), view);
+    }
+
+    /**
+     * Registers one view under an additional name.
+     *
+     * <p>Two registrations of the same question share one computation and one copy of the state, and
+     * the second name has to answer to the same view -- otherwise sharing, which is the feature,
+     * quietly makes the second name unusable: {@code register} returned RUNNING and {@code SELECT
+     * ... FROM second_name} answered "Object not found".
+     */
+    public ViewCatalog registerAs(String name, ServedView view) {
+        views.put(name, view);
+        generation.incrementAndGet();
+        return this;
+    }
+
+    /**
+     * Forgets a name.
+     *
+     * <p>A dropped query's view must stop answering. Leaving it in place serves whatever the closed
+     * computation last committed, for ever, to a caller who has no way to tell that nothing is
+     * maintaining it any more.
+     */
+    public ViewCatalog remove(String name) {
+        views.remove(name);
         generation.incrementAndGet();
         return this;
     }
