@@ -40,9 +40,41 @@ public record PreparedContinuousQuery(PhysicalOperator plan, List<ParameterPlace
 
     /** Plans {@code sql} over {@code streams}, binding {@code parameters} into it. */
     public static PreparedContinuousQuery of(String sql, BoundParameters parameters, StreamSchema... streams) {
-        var logical = SqlPlanner.withStreams(streams).plan(sql);
+        return of(sql, parameters, java.util.List.of(streams), java.util.List.of());
+    }
+
+    /**
+     * Plans {@code sql} over consumed streams and dimension tables.
+     *
+     * <p>The distinction is the planner's, not decoration: a schema registered as a stream is
+     * something the query reads and advances event time from, and one registered as a lookup is a
+     * table it joins against per record. Registering a dimension as a stream does not fail -- it
+     * plans as a stream-to-stream join and waits for rows that a dimension table never sends. That
+     * is exactly what every registration did, because the one caller of the lookup-aware planner in
+     * shipped code did not exist.
+     */
+    public static PreparedContinuousQuery of(
+            String sql,
+            BoundParameters parameters,
+            java.util.List<StreamSchema> streams,
+            java.util.List<StreamSchema> lookups) {
+        var logical = plannerFor(streams, lookups).plan(sql);
         return new PreparedContinuousQuery(
                 new PhysicalPlanBuilder().bind(parameters).build(logical), ParameterPlacement.of(logical));
+    }
+
+    private static SqlPlanner plannerFor(java.util.List<StreamSchema> streams, java.util.List<StreamSchema> lookups) {
+        if (lookups.isEmpty()) {
+            return SqlPlanner.withStreams(streams.toArray(new StreamSchema[0]));
+        }
+        com.ash.messaging.pravaha.sql.PravahaSchema catalog = new com.ash.messaging.pravaha.sql.PravahaSchema();
+        for (StreamSchema stream : streams) {
+            catalog.register(stream);
+        }
+        for (StreamSchema lookup : lookups) {
+            catalog.registerLookup(lookup);
+        }
+        return new SqlPlanner(catalog);
     }
 
     /** Classifies a query's parameters without building anything runnable. */

@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.server.catalog;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -39,6 +40,8 @@ public class StreamCatalog {
 
     private final Map<String, StreamSchema> streams = new LinkedHashMap<>();
 
+    private final Map<String, StreamSchema> lookups = new LinkedHashMap<>();
+
     public synchronized StreamSchema register(StreamSchema schema) {
         StreamSchema existing = streams.get(schema.name());
         if (existing != null && existing.version() == schema.version()) {
@@ -50,6 +53,24 @@ public class StreamCatalog {
         }
         streams.put(schema.name(), schema);
         return schema;
+    }
+
+    /**
+     * Records a dimension table, so SQL that joins one can be validated and explained.
+     *
+     * <p>Kept apart from the streams: the planner treats the two differently, and a dimension
+     * registered as a stream plans a lookup join as a stream-to-stream join that waits forever. The
+     * REST surface used to have no way to say which a schema was, so `POST /queries/validate` on a
+     * lookup query said the table did not exist -- for a query the registry would accept.
+     */
+    public synchronized StreamSchema registerLookup(StreamSchema schema) {
+        lookups.put(schema.name(), schema);
+        return schema;
+    }
+
+    /** The dimension tables, which are not streams and must not be planned as ones. */
+    public synchronized Collection<StreamSchema> lookups() {
+        return List.copyOf(lookups.values());
     }
 
     public synchronized Optional<StreamSchema> find(String name) {

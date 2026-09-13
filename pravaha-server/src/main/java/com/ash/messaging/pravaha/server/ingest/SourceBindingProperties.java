@@ -46,6 +46,8 @@ public class SourceBindingProperties {
 
     private final Map<String, Spec> sources = new LinkedHashMap<>();
 
+    private final Map<String, Spec> lookups = new LinkedHashMap<>();
+
     /**
      * Spring binds into this map; the key is the stream name.
      *
@@ -57,6 +59,35 @@ public class SourceBindingProperties {
      */
     public Map<String, Spec> getSources() {
         return sources;
+    }
+
+    /**
+     * {@code pravaha.lookups.*}: the dimension tables a query may join against.
+     *
+     * <pre>
+     * pravaha:
+     *   lookups:
+     *     users:
+     *       plugin: aerospike-lookup
+     *       options:
+     *         hosts: "as-1:3000"
+     *         set: users
+     *         key.bin: user_id
+     * </pre>
+     *
+     * <p>Its own block rather than a flag on a source, because the two are different things: a
+     * source is consumed and advances event time, a dimension table is asked. A node with no
+     * lookups block can still plan and run everything it could before.
+     */
+    public Map<String, Spec> getLookups() {
+        return lookups;
+    }
+
+    /** The configured lookup bindings, keyed by the name a query joins against. */
+    public List<SourceBinding> toLookupBindings() {
+        List<SourceBinding> configured = new ArrayList<>();
+        lookups.forEach((table, spec) -> configured.add(new SourceBinding(table, spec.plugin, spec.options)));
+        return configured;
     }
 
     /** The configured bindings, validated. */

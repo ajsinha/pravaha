@@ -241,8 +241,14 @@ question "does a registered query push its predicates" has an answer that a test
 
 ## Also
 
-No sink or lookup discovery at all, and `QueryRegistry` passes `Map.of()` for lookups — so a
-lookup-join query cannot be registered on a server, which is why a documented ✅ is unreachable.
+~~No sink or lookup discovery at all, and `QueryRegistry` passes `Map.of()` for lookups — so a
+lookup-join query cannot be registered on a server, which is why a documented ✅ is unreachable.~~
+**Lookup discovery FIXED.** `PluginLookupSources` discovers a `LookupSourcePlugin` the way
+`PluginSourceFeeds` discovers a source; `pravaha.lookups.<table>` configures one; `QueryRegistry`
+takes them through `lookingUp` and plans dimensions as dimensions rather than as consumed streams.
+The REST `validate`/`explain` surface learned the same distinction, because it planned against a
+catalog that knew only streams and reported the table as not found for SQL a registration would
+accept. Sink discovery is still absent.
 No TLS and no `authMode` for Aerospike: clear text, no option, undocumented. A stray
 `checkpoint-backup.bin` in the checkpoint directory makes `availableIds`, `latest` and `prune` all
 throw `NumberFormatException`, turning a tidy-up mistake into an unrecoverable query. `prune` can

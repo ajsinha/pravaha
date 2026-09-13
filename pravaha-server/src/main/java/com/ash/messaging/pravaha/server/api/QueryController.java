@@ -119,7 +119,16 @@ public class QueryController {
     }
 
     private SqlPlanner plannerFor() {
-        return SqlPlanner.withStreams(catalog.all().toArray(new StreamSchema[0]));
+        if (catalog.lookups().isEmpty()) {
+            return SqlPlanner.withStreams(catalog.all().toArray(new StreamSchema[0]));
+        }
+        // Streams and dimension tables are registered differently because the planner treats them
+        // differently. Validating a lookup query against a catalog that knew only streams reported
+        // the table as not found -- for a query a registration would have accepted.
+        com.ash.messaging.pravaha.sql.PravahaSchema schema = new com.ash.messaging.pravaha.sql.PravahaSchema();
+        catalog.all().forEach(schema::register);
+        catalog.lookups().forEach(schema::registerLookup);
+        return new SqlPlanner(schema);
     }
 
     public record ValidateRequest(String sql) {}

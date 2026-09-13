@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -37,10 +38,15 @@ import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
+import com.ash.messaging.pravaha.registry.QueryRegistry;
+import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.plan.LookupJoinOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
+import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.serving.ViewCatalog;
+import com.ash.messaging.pravaha.serving.ViewQuery;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
@@ -134,6 +140,60 @@ class LookupJoinTest {
 
         @Override
         public void close() {}
+    }
+
+    @Test
+    void aRegisteredQueryCanReachALookupJoin(@TempDir java.nio.file.Path dir) throws Exception {
+        // The blocker: lookup joins were implemented, optimised, tested and documented, and
+        // unreachable. SqlPlanner.withLookups had no caller in main, so every registration planned
+        // every schema as a consumed stream -- a query joining a dimension planned as a
+        // stream-to-stream join and waited for rows a dimension table never sends. A documented
+        // tick against a feature no shipped surface could execute.
+        //
+        // This is the registry path, which is the only way anything in production registers.
+        java.nio.file.Path data = dir.resolve("orders.csv");
+        java.nio.file.Files.writeString(data, "1,7,0\n2,9,1000000\n3,7,2000000\n");
+
+        MapLookup users = new MapLookup(Duration.ZERO);
+        users.rows.put(7L, "gold");
+        users.rows.put(9L, "silver");
+
+        com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds feeds =
+                new com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds()
+                        .bind(new com.ash.messaging.pravaha.server.ingest.SourceBinding(
+                                "orders",
+                                "filesystem",
+                                Map.of(
+                                        "path",
+                                        data.toString(),
+                                        "schema",
+                                        "order_id:INT64,user_id:INT64,ts:TIMESTAMP")));
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry =
+                new QueryRegistry(views, orders()).lookingUp(users).feedingFrom(feeds)) {
+            RegisteredQuery query = registry.register(
+                    "enriched",
+                    "SELECT o.order_id, u.segment FROM orders o "
+                            + "JOIN users FOR SYSTEM_TIME AS OF o.ts AS u ON o.user_id = u.user_id",
+                    List.of(0),
+                    Principal.ANONYMOUS);
+            query.awaitApplied(Duration.ofSeconds(20));
+
+            ViewQuery reader = new ViewQuery(views);
+            long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+            while (System.nanoTime() < deadline
+                    && reader.execute("SELECT * FROM enriched").size() < 3) {
+                Thread.sleep(20);
+            }
+
+            assertThat(reader.execute("SELECT order_id, segment FROM enriched").rows().stream()
+                            .map(row -> row[0] + "=" + row[1])
+                            .sorted()
+                            .toList())
+                    .as("every order is enriched from the dimension table, by the registry path")
+                    .containsExactly("1=gold", "2=silver", "3=gold");
+        }
     }
 
     private static final String INNER = "SELECT o.order_id, u.segment FROM orders o "

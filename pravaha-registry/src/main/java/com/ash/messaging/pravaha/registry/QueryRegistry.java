@@ -121,6 +121,11 @@ public final class QueryRegistry implements AutoCloseable {
         this.streams = streams.clone();
     }
 
+    /** Dimension tables registered queries may join against, by the name the SQL refers to. */
+    private final Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups = new LinkedHashMap<>();
+
+    private final Map<String, StreamSchema> lookupSchemas = new LinkedHashMap<>();
+
     /**
      * How each registered query's execution is built.
      *
@@ -154,6 +159,26 @@ public final class QueryRegistry implements AutoCloseable {
      * process that pushes its own rows through {@link RegisteredQuery#accept}, and it is why a
      * server needs to say so explicitly rather than inherit a default that reads files.
      */
+    /**
+     * Binds a dimension table that registered queries may join against.
+     *
+     * <p>Lookup joins were implemented, optimised, tested and documented, and unreachable: {@code
+     * withLookups} had no caller anywhere in main, so every registration planned every schema as a
+     * consumed stream. A query joining a dimension planned as a stream-to-stream join and waited
+     * for rows a dimension table never sends -- a documented feature that no shipped surface could
+     * execute.
+     *
+     * <p>The plugin supplies its own schema and its own key columns, because the store is what
+     * knows them: a dimension declared by hand can disagree with the table, and a join on a column
+     * the store is not indexed for is a full scan per record.
+     */
+    public QueryRegistry lookingUp(com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin plugin) {
+        StreamSchema schema = plugin.schema();
+        lookups.put(schema.name(), plugin);
+        lookupSchemas.put(schema.name(), schema);
+        return this;
+    }
+
     public QueryRegistry feedingFrom(SourceFeedFactory factory) {
         this.feeds = factory == null ? SourceFeedFactory.NONE : factory;
         return this;
@@ -278,7 +303,8 @@ public final class QueryRegistry implements AutoCloseable {
                             + "point read against it has nothing to look up");
         }
 
-        PreparedContinuousQuery prepared = PreparedContinuousQuery.of(sql, parameters, streams);
+        PreparedContinuousQuery prepared = PreparedContinuousQuery.of(
+                sql, parameters, java.util.List.of(streams), List.copyOf(lookupSchemas.values()));
         List<ParameterPlacement> placements = prepared.placements();
         PhysicalOperator plan = prepared.plan();
 
@@ -561,7 +587,8 @@ public final class QueryRegistry implements AutoCloseable {
         // InterpretedPipeline and drove it on the caller's thread, which is why a registered query
         // had no lane, no arena, no checkpointing and no watermarks: everything the runtime offers
         // belonged to the other path, and the server ran this one.
-        QueryExecution execution = QueryExecution.start(plan, 1, laneConfig, access, () -> (RowOutput) sink::begin);
+        QueryExecution execution =
+                QueryExecution.start(plan, 1, laneConfig, access, () -> (RowOutput) sink::begin, lookups);
         if (watermarkIdleAfter != null) {
             execution.generatingWatermarks(null, watermarkIdleAfter, watermarkTick);
         }

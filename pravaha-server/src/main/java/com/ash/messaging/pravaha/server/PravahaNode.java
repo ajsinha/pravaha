@@ -44,6 +44,7 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
+import com.ash.messaging.pravaha.server.ingest.PluginLookupSources;
 import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
@@ -97,6 +98,12 @@ public class PravahaNode implements SmartLifecycle {
     private volatile QueryRegistry registry;
     private volatile PravahaFlightServer flight;
     private final SourceBindingProperties sources;
+
+    private PluginLookupSources lookupSources;
+
+    /** The dimension tables' schemas, for anything that has to plan SQL outside the registry. */
+    private List<StreamSchema> lookupSchemas = List.of();
+
     private final StreamDeclarationProperties declaredStreams;
     private final SecurityProperties security;
     private final File tlsCertificate;
@@ -393,6 +400,25 @@ public class PravahaNode implements SmartLifecycle {
         feeds = new PluginSourceFeeds();
         sources.toBindings().forEach(binding -> feeds.bind(withDeclaredEventTime(binding)));
         registry.feedingFrom(feeds);
+
+        // Dimension tables, opened at start-up and handed to the registry. Nothing in shipped code
+        // discovered a LookupSourcePlugin before this, so a registration had no dimension table to
+        // plan against and every lookup join was planned as a stream-to-stream join -- waiting for
+        // rows a dimension table never sends. The feature was implemented, optimised, tested and
+        // documented, and no deployment could reach it.
+        lookupSources = new PluginLookupSources();
+        sources.toLookupBindings().forEach(lookupSources::bind);
+        List<com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> dimensions = lookupSources.open();
+        dimensions.forEach(registry::lookingUp);
+        if (!dimensions.isEmpty()) {
+            log.info("dimension tables: {}", lookupSources.bindings().values());
+            lookupSchemas = dimensions.stream()
+                    .map(com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin::schema)
+                    .toList();
+            // The REST surface plans too. Without this, POST /queries/validate on a lookup query
+            // reports the table as not found for a query the registry would accept.
+            lookupSchemas.forEach(streams::registerLookup);
+        }
         if (feeds.bindings().isEmpty()) {
             log.info("no sources are bound, so registered queries receive rows only from clients that push "
                     + "them; bind one under pravaha.sources.<stream>");
@@ -450,6 +476,8 @@ public class PravahaNode implements SmartLifecycle {
         // Reverse of startup: stop accepting, then let go of the queries, then leave the cluster.
         closeQuietly("Flight server", flight);
         closeQuietly("registry", registry);
+        // After the registry, because a running query may still be looking rows up in one.
+        closeQuietly("dimension tables", lookupSources);
         closeQuietly("cluster coordinator", coordinator);
     }
 

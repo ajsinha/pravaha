@@ -218,8 +218,13 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         }
     }
 
-    /** A plugin's view of its binding. */
-    private record BindingContext(SourceBinding binding) implements PluginContext {
+    /**
+     * A plugin's view of its binding.
+     *
+     * <p>Package-private rather than private: a lookup plugin is configured from exactly the same
+     * binding, and a second copy of this would be a second place for the two to drift.
+     */
+    record BindingContext(SourceBinding binding) implements PluginContext {
 
         @Override
         public Map<String, String> config() {
