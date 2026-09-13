@@ -351,6 +351,120 @@ public final class ServedView {
         return new ArrayList<>(visible.values());
     }
 
+    /**
+     * This view's committed contents, for a checkpoint.
+     *
+     * <p>The view was not part of a checkpoint at all, and for a filter-or-projection query the
+     * view <em>is</em> the whole answer: there are no operator accumulators to capture. So a restart
+     * restored the source's offsets, read nothing more, and served an empty view -- every row the
+     * query had ever produced, gone, with the query reporting RUNNING over the emptiness.
+     *
+     * <p>Committed rows only. What is pending has not been published to any reader, so writing it
+     * would restore an answer nobody was ever given.
+     */
+    public synchronized byte[] snapshot() {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {
+            out.writeLong(committedFrontier);
+            out.writeInt(visible.size());
+            for (Map.Entry<Key, Object[]> entry : visible.entrySet()) {
+                Object[] values = entry.getValue();
+                out.writeInt(values.length);
+                for (Object value : values) {
+                    writeValue(out, value);
+                }
+                out.writeLong(weights.getOrDefault(entry.getKey(), 1L));
+                out.writeLong(writtenAt.getOrDefault(entry.getKey(), committedFrontier));
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("could not snapshot view '" + name + "'", e);
+        }
+        return bytes.toByteArray();
+    }
+
+    /**
+     * Replaces this view's contents with a snapshot's.
+     *
+     * <p>Replaces rather than merges: a restore happens into a view that has just been built and is
+     * empty, and merging would quietly double a row if that ever stopped being true.
+     */
+    public synchronized void restore(byte[] snapshot) {
+        if (snapshot == null || snapshot.length == 0) {
+            return;
+        }
+        try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(snapshot))) {
+            visible.clear();
+            weights.clear();
+            writtenAt.clear();
+            pending.clear();
+            pendingWeight.clear();
+            pendingTime.clear();
+            long frontier = in.readLong();
+            int rows = in.readInt();
+            for (int i = 0; i < rows; i++) {
+                Object[] values = new Object[in.readInt()];
+                for (int v = 0; v < values.length; v++) {
+                    values[v] = readValue(in);
+                }
+                long weight = in.readLong();
+                long at = in.readLong();
+                Key key = keyOf(values);
+                visible.put(key, values);
+                weights.put(key, weight);
+                writtenAt.put(key, at);
+            }
+            committedFrontier = frontier;
+            appliedFrontier = Math.max(appliedFrontier, frontier);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("could not restore view '" + name + "'", e);
+        }
+    }
+
+    private static void writeValue(java.io.DataOutputStream out, Object value) throws java.io.IOException {
+        if (value == null) {
+            out.writeByte(0);
+        } else if (value instanceof String text) {
+            out.writeByte(1);
+            out.writeUTF(text);
+        } else if (value instanceof Double || value instanceof Float) {
+            out.writeByte(2);
+            out.writeDouble(((Number) value).doubleValue());
+        } else if (value instanceof Boolean flag) {
+            out.writeByte(3);
+            out.writeBoolean(flag);
+        } else if (value instanceof byte[] raw) {
+            out.writeByte(5);
+            out.writeInt(raw.length);
+            out.write(raw);
+        } else {
+            out.writeByte(4);
+            out.writeLong(((Number) value).longValue());
+        }
+    }
+
+    private static Object readValue(java.io.DataInputStream in) throws java.io.IOException {
+        byte tag = in.readByte();
+        switch (tag) {
+            case 0:
+                return null;
+            case 1:
+                return in.readUTF();
+            case 2:
+                return in.readDouble();
+            case 3:
+                return in.readBoolean();
+            case 5: {
+                byte[] raw = new byte[in.readInt()];
+                in.readFully(raw);
+                return raw;
+            }
+            case 4:
+                return in.readLong();
+            default:
+                throw new java.io.IOException("unknown value tag " + tag + " in a view snapshot");
+        }
+    }
+
     public String name() {
         return name;
     }
@@ -442,6 +556,15 @@ public final class ServedView {
 
     public long commits() {
         return commits;
+    }
+
+    /** The key of a row already read out as values, which is the shape a snapshot holds. */
+    private Key keyOf(Object[] values) {
+        Object[] key = new Object[keyOrdinals.length];
+        for (int i = 0; i < keyOrdinals.length; i++) {
+            key[i] = values[keyOrdinals[i]];
+        }
+        return new Key(key);
     }
 
     private Key keyOf(RowView row) {

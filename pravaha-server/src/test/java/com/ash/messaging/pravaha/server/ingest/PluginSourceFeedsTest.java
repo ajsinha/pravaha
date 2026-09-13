@@ -320,6 +320,205 @@ class PluginSourceFeedsTest {
     }
 
     @Test
+    void aWindowedQueryOverAFollowedFileClosesItsWindowsFromTheDataItself(@TempDir Path dir) throws Exception {
+        // The shape a deployment actually runs: a windowed continuous query over a file that keeps
+        // growing, where the watermark comes from the rows rather than from a test calling
+        // advanceWatermark. Every piece of that -- the event-time column, the follow, the watermark
+        // clock, the window close -- was broken independently at some point in this cycle, and all
+        // of them have to work at once for this to pass.
+        Path data = dir.resolve("live.csv");
+        Files.writeString(data, "1,ann,10,100000000\n2,ann,20,200000000\n");
+
+        String spec = "id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP";
+        StreamSchema timed = StreamSchema.builder("txn")
+                .field("id", com.ash.messaging.pravaha.api.data.Types.int64())
+                .field("user_id", com.ash.messaging.pravaha.api.data.Types.string())
+                .field("amount", com.ash.messaging.pravaha.api.data.Types.int64())
+                .field("event_time", com.ash.messaging.pravaha.api.data.Types.timestamp())
+                .eventTime("event_time")
+                .outOfOrderness(Duration.ZERO)
+                .build();
+
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding(
+                        "txn",
+                        "filesystem",
+                        Map.of("path", data.toString(), "schema", spec, "event.time", "event_time", "follow", "true")));
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, timed)
+                .feedingFrom(feeds)
+                .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50))) {
+            RegisteredQuery query = registry.register(
+                    "per_second",
+                    "SELECT user_id, SUM(amount) AS total FROM txn "
+                            + "GROUP BY TUMBLE(event_time, INTERVAL '1' SECOND), user_id",
+                    List.of(0),
+                    Principal.ANONYMOUS);
+            awaitRows(query, 2);
+
+            // Nothing closes the first second yet: the highest event time seen is inside it.
+            assertThat(new com.ash.messaging.pravaha.serving.ViewQuery(views)
+                            .execute("SELECT user_id FROM per_second")
+                            .size())
+                    .as("a window is not published while it is still being assembled")
+                    .isZero();
+
+            // A row in the next second, appended to the file while the query runs. That is what
+            // moves event time past the first window's end.
+            Files.writeString(data, "3,ann,900,1500000000\n", java.nio.file.StandardOpenOption.APPEND);
+            awaitRows(query, 3);
+            awaitView(views, "SELECT user_id, total FROM per_second", 1);
+
+            List<Object[]> rows = new com.ash.messaging.pravaha.serving.ViewQuery(views)
+                    .execute("SELECT user_id, total FROM per_second")
+                    .rows();
+            assertThat(rows.get(0)[1])
+                    .as("10 + 20, closed by a row that arrived after the query started")
+                    .isEqualTo(30L);
+            assertThat(query.state().isTerminal())
+                    .as("and the query is still running, with the file still open")
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void aQueryResumesFromItsCheckpointRatherThanReplayingTheWholeFile(@TempDir Path dir) throws Exception {
+        // Recovery, asserted on the answer rather than on the existence of a file. A query that
+        // restored its offsets but not its state, or its state but not its offsets, produces a
+        // plausible total either way -- one short, or one double-counted.
+        Path data = dir.resolve("txn.csv");
+        Files.writeString(data, "1,ann,100\n2,bob,250\n3,ann,50\n");
+        Path checkpoints = dir.resolve("checkpoints");
+
+        java.util.function.Supplier<PluginSourceFeeds> feeds = () -> new PluginSourceFeeds()
+                .bind(new SourceBinding("txn", "filesystem", Map.of("path", data.toString(), "schema", SCHEMA_SPEC)));
+        com.ash.messaging.pravaha.common.config.Configuration everySecond =
+                com.ash.messaging.pravaha.common.config.Configuration.builder()
+                        .set("pravaha.checkpoint.interval", "1s")
+                        .build();
+
+        ViewCatalog first = new ViewCatalog();
+        try (QueryRegistry registry =
+                new QueryRegistry(first, TXN).feedingFrom(feeds.get()).checkpointingTo(checkpoints, everySecond)) {
+            RegisteredQuery query =
+                    registry.register("resumed", "SELECT id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
+            awaitRows(query, 3);
+            awaitView(first, "SELECT id, amount FROM resumed", 3);
+
+            Path own = checkpoints.resolve("resumed");
+            long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+            while (System.nanoTime() < deadline && (!Files.isDirectory(own) || isEmpty(own))) {
+                Thread.sleep(50);
+            }
+            assertThat(isEmpty(own))
+                    .as("a checkpoint must exist before restarting on it")
+                    .isFalse();
+        }
+
+        // A second registry over the same file and the same checkpoint directory -- a restart.
+        ViewCatalog second = new ViewCatalog();
+        try (QueryRegistry registry =
+                new QueryRegistry(second, TXN).feedingFrom(feeds.get()).checkpointingTo(checkpoints, everySecond)) {
+            RegisteredQuery query =
+                    registry.register("resumed", "SELECT id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
+            awaitView(second, "SELECT id, amount FROM resumed", 3);
+            Thread.sleep(300);
+
+            List<Object[]> rows = new com.ash.messaging.pravaha.serving.ViewQuery(second)
+                    .execute("SELECT id, amount FROM resumed")
+                    .rows();
+            assertThat(rows)
+                    .as("three rows after the restart: not zero, which is state lost, and not six, "
+                            + "which is the file replayed on top of state that already counted it")
+                    .hasSize(3);
+        }
+    }
+
+    @Test
+    void aRestartedQueryFinishesAWindowItHadOnlyPartlySeen(@TempDir Path dir) throws Exception {
+        // The recovery case that actually distinguishes the three ways this can be wrong, and the
+        // reason the obvious test does not: once the view is in the checkpoint, a restarted query
+        // serves the right answer whether or not its operator state and offsets came back, because
+        // the answer was already published. The difference only shows in a window that was still
+        // open when the checkpoint was taken and closes after the restart.
+        //
+        // Rows 1 and 2 land in second 0 and nothing closes it. Restart. Row 3 lands in second 0 as
+        // well and row 4 in second 1, which closes it. A correct recovery answers 35. State lost
+        // answers 5. Offsets lost replays rows 1 and 2 and answers 65.
+        Path data = dir.resolve("txn.csv");
+        Files.writeString(data, "1,ann,10,100000000\n2,ann,20,200000000\n");
+        Path checkpoints = dir.resolve("checkpoints");
+
+        String spec = "id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP";
+        StreamSchema timed = StreamSchema.builder("txn")
+                .field("id", com.ash.messaging.pravaha.api.data.Types.int64())
+                .field("user_id", com.ash.messaging.pravaha.api.data.Types.string())
+                .field("amount", com.ash.messaging.pravaha.api.data.Types.int64())
+                .field("event_time", com.ash.messaging.pravaha.api.data.Types.timestamp())
+                .eventTime("event_time")
+                .outOfOrderness(Duration.ZERO)
+                .build();
+        String sql = "SELECT user_id, SUM(amount) AS total FROM txn "
+                + "GROUP BY TUMBLE(event_time, INTERVAL '1' SECOND), user_id";
+
+        java.util.function.Supplier<PluginSourceFeeds> feeds = () -> new PluginSourceFeeds()
+                .bind(new SourceBinding(
+                        "txn",
+                        "filesystem",
+                        Map.of("path", data.toString(), "schema", spec, "event.time", "event_time")));
+        com.ash.messaging.pravaha.common.config.Configuration everySecond =
+                com.ash.messaging.pravaha.common.config.Configuration.builder()
+                        .set("pravaha.checkpoint.interval", "1s")
+                        .build();
+
+        ViewCatalog first = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(first, timed)
+                .feedingFrom(feeds.get())
+                .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50))
+                .checkpointingTo(checkpoints, everySecond)) {
+            RegisteredQuery query = registry.register("agg", sql, List.of(0), Principal.ANONYMOUS);
+            awaitRows(query, 2);
+            assertThat(new com.ash.messaging.pravaha.serving.ViewQuery(first)
+                            .execute("SELECT user_id FROM agg")
+                            .size())
+                    .as("the window is still open, so nothing is published yet")
+                    .isZero();
+
+            Path own = checkpoints.resolve("agg");
+            long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+            while (System.nanoTime() < deadline && (!Files.isDirectory(own) || isEmpty(own))) {
+                Thread.sleep(50);
+            }
+            assertThat(isEmpty(own))
+                    .as("the open window's accumulators must be on disk before the restart")
+                    .isFalse();
+        }
+
+        // More of the same second, then a row in the next one to close it.
+        Files.writeString(data, "3,ann,5,300000000\n4,ann,900,1500000000\n", java.nio.file.StandardOpenOption.APPEND);
+
+        ViewCatalog second = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(second, timed)
+                .feedingFrom(feeds.get())
+                .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50))
+                .checkpointingTo(checkpoints, everySecond)) {
+            registry.register("agg", sql, List.of(0), Principal.ANONYMOUS);
+            awaitView(second, "SELECT user_id, total FROM agg", 1);
+            Thread.sleep(500);
+
+            List<Object[]> rows = new com.ash.messaging.pravaha.serving.ViewQuery(second)
+                    .execute("SELECT user_id, total FROM agg")
+                    .rows();
+            assertThat(rows).hasSize(1);
+            assertThat(rows.get(0)[1])
+                    .as("10 + 20 from before the restart plus 5 after it. 5 means the accumulators "
+                            + "were lost; 65 means the file was replayed on top of them")
+                    .isEqualTo(35L);
+        }
+    }
+
+    @Test
     void aRegisteredQueryOffersItsFiltersToTheSource() {
         // Pushdown is the claim the whole cost story rests on, and the server path never made it.
         // PluginSourceFeeds called the two-argument createReader, so a registered query -- the only

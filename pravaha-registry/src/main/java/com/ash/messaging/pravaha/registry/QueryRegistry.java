@@ -587,8 +587,13 @@ public final class QueryRegistry implements AutoCloseable {
         // InterpretedPipeline and drove it on the caller's thread, which is why a registered query
         // had no lane, no arena, no checkpointing and no watermarks: everything the runtime offers
         // belonged to the other path, and the server ran this one.
-        QueryExecution execution =
-                QueryExecution.start(plan, 1, laneConfig, access, () -> (RowOutput) sink::begin, lookups);
+        QueryExecution execution = QueryExecution.start(
+                        plan, 1, laneConfig, access, () -> (RowOutput) sink::begin, lookups)
+                // The view goes in the checkpoint too. A filter or a projection has no operator
+                // accumulators, so the view is the entire answer -- and a restart that restored
+                // offsets without it resumed the source past every row it had read and served an
+                // empty view, with the query reporting RUNNING over the emptiness.
+                .checkpointingViewWith(view::snapshot, view::restore);
         if (watermarkIdleAfter != null) {
             execution.generatingWatermarks(null, watermarkIdleAfter, watermarkTick);
         }

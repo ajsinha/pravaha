@@ -191,6 +191,11 @@ query with extra steps.
 - **Windowed `MIN` folded NULL in**, answering 0.
 - **A file source ended at end of file**, so a continuous query over one kept a view it would never
   update while reporting `RUNNING`. `follow: true` is `tail -f`.
+- **The served view was not in the checkpoint.** A filter or a projection has no operator
+  accumulators -- the view *is* the entire answer -- so a restart restored the source's offsets,
+  read nothing more, and served an **empty view** while the query reported `RUNNING`. Every row it
+  had ever produced, gone, with no error anywhere. `ServedView` snapshots and restores now, carried
+  in the checkpoint's operator state.
 - **The Aerospike source stamped scan time as event time**, so a windowed query over it dropped
   every row as late — an empty view under a query reporting `RUNNING`. The flagship connector could
   not run the query on the front of the README by the path a deployment uses.

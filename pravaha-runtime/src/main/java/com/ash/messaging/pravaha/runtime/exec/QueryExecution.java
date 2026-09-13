@@ -788,6 +788,32 @@ public final class QueryExecution implements AutoCloseable {
      * cross the exchange, since a row in flight belongs to neither lane's snapshot; aligned barriers
      * (ADR-008) are what makes that case correct and are not built.
      */
+    /** The key a served view's contents travel under inside a checkpoint's operator state. */
+    public static final String SERVED_VIEW_STATE = "served-view";
+
+    private java.util.function.Supplier<byte[]> viewSnapshot;
+
+    private java.util.function.Consumer<byte[]> viewRestore;
+
+    /**
+     * Includes a served view's committed contents in this execution's checkpoints.
+     *
+     * <p>Without this a checkpoint held operator accumulators and source offsets, and the view was
+     * in neither. For a filter or a projection there are no accumulators -- the view <em>is</em> the
+     * whole answer -- so a restart resumed the source past everything it had already read, restored
+     * nothing, and served an empty view under a query reporting RUNNING. Every row it had ever
+     * produced, gone, with no error anywhere.
+     *
+     * <p>Passed in rather than reached for: the execution does not know about serving, and should
+     * not start to.
+     */
+    public QueryExecution checkpointingViewWith(
+            java.util.function.Supplier<byte[]> snapshot, java.util.function.Consumer<byte[]> restore) {
+        this.viewSnapshot = snapshot;
+        this.viewRestore = restore;
+        return this;
+    }
+
     public com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint(long id, Duration timeout) {
         java.util.Map<String, byte[]> state = new java.util.HashMap<>();
         java.util.Map<String, String> offsets = new java.util.HashMap<>();
@@ -807,6 +833,10 @@ public final class QueryExecution implements AutoCloseable {
                         + "this one is abandoned rather than stored partially complete.");
             }
             state.put(operatorId, captured[0]);
+        }
+
+        if (viewSnapshot != null) {
+            state.put(SERVED_VIEW_STATE, viewSnapshot.get());
         }
 
         for (int index = 0; index < pumps.size(); index++) {
@@ -836,6 +866,12 @@ public final class QueryExecution implements AutoCloseable {
                 throw new IllegalStateException("lane " + index + " did not restore its state within " + timeout);
             }
             lane.checkHealth();
+        }
+        byte[] view = checkpoint.operatorState().get(SERVED_VIEW_STATE);
+        if (view != null && viewRestore != null) {
+            // After the lanes, so a view restored beside operator state is restored beside state
+            // that is already back -- not beside state still arriving on another thread.
+            viewRestore.accept(view);
         }
     }
 
