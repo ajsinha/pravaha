@@ -99,6 +99,14 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     public QueryState state() {
+        // A dead lane is a failed query, whoever noticed first. Lane.run records its throwable and
+        // exits; QueryExecution.checkHealth would rethrow it, and nothing in the server ever called
+        // it -- so a query whose lane had died went on reporting RUNNING to `pravaha queries`, to
+        // the status page, to the health endpoint and to every SDK, with an empty log. Ten surfaces
+        // agreeing on the wrong answer because none of them asked.
+        if (state == QueryState.RUNNING && execution.laneFailure().isPresent()) {
+            return QueryState.FAILED;
+        }
         return state;
     }
 
@@ -156,7 +164,15 @@ public final class RegisteredQuery implements AutoCloseable {
 
     /** Why it failed, if it did. */
     public Optional<PravahaException> failure() {
-        return Optional.ofNullable(failure);
+        if (failure != null) {
+            return Optional.of(failure);
+        }
+        return execution
+                .laneFailure()
+                .map(cause -> new PravahaException(
+                        RegistryErrors.QUERY_FAILED,
+                        "query '" + anyName() + "' stopped: its lane died with " + cause,
+                        cause));
     }
 
     /**

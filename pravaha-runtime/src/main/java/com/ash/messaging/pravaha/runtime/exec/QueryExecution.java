@@ -670,6 +670,11 @@ public final class QueryExecution implements AutoCloseable {
         lanes.checkHealth();
     }
 
+    /** The first lane failure, without throwing it. */
+    public java.util.Optional<Throwable> laneFailure() {
+        return lanes.failure();
+    }
+
     public List<LaneMetrics> metrics() {
         return lanes.metrics();
     }

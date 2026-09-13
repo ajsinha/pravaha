@@ -392,4 +392,43 @@ class QueryRegistryTest {
         assertThatThrownBy(() -> new ViewQuery(views).execute("SELECT user_id FROM alpha"))
                 .isInstanceOf(PravahaException.class);
     }
+
+    @Test
+    void aQueryWhoseLaneHasDiedStopsReportingRunning() {
+        // The defect that made every other silent failure invisible. Lane.run catches its throwable,
+        // records it and exits; QueryExecution.checkHealth would rethrow it, and nothing in the
+        // server ever called it. So a query with a dead lane reported RUNNING to `pravaha queries`,
+        // to the status page, to /actuator/health and to every SDK, with an empty log.
+        RegisteredQuery query = registry.register("doomed", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        assertThat(query.state()).isEqualTo(QueryState.RUNNING);
+
+        killALane(query);
+
+        assertThat(query.state())
+                .as("a dead lane is a failed query, whichever surface is asking")
+                .isEqualTo(QueryState.FAILED);
+        assertThat(query.failure())
+                .as("and the cause must reach whoever asks, not sit in a field nobody reads")
+                .isPresent();
+    }
+
+    /** Stops a lane the way a real failure does: a throwable raised on the lane's own thread. */
+    private static void killALane(RegisteredQuery query) {
+        try {
+            var field = RegisteredQuery.class.getDeclaredField("execution");
+            field.setAccessible(true);
+            var execution = field.get(query);
+            var lanesField = execution.getClass().getDeclaredField("lanes");
+            lanesField.setAccessible(true);
+            Object lanes = lanesField.get(execution);
+            var lanesList = lanes.getClass().getDeclaredMethod("lanes");
+            lanesList.setAccessible(true);
+            Object first = ((java.util.List<?>) lanesList.invoke(lanes)).get(0);
+            var failure = first.getClass().getDeclaredField("failure");
+            failure.setAccessible(true);
+            failure.set(first, new IllegalStateException("the projection's arena is full"));
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("could not simulate a lane failure", e);
+        }
+    }
 }

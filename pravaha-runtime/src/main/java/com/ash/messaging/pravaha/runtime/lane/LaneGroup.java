@@ -232,6 +232,20 @@ public final class LaneGroup implements AutoCloseable {
         lanes.forEach(Lane::checkHealth);
     }
 
+    /**
+     * The first lane failure, without throwing it.
+     *
+     * <p>{@code checkHealth} asserts; this asks. Everything that wanted to *report* health rather
+     * than fail on it had no way to, so nothing outside the CLI ever looked -- and a lane that died
+     * left its query reporting RUNNING across every surface a server has.
+     */
+    public java.util.Optional<Throwable> failure() {
+        return lanes.stream()
+                .map(Lane::failure)
+                .flatMap(java.util.Optional::stream)
+                .findFirst();
+    }
+
     public List<LaneMetrics> metrics() {
         return lanes.stream().map(Lane::metrics).toList();
     }
