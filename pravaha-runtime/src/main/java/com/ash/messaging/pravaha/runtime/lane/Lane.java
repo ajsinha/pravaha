@@ -108,7 +108,17 @@ public final class Lane implements AutoCloseable {
      * coordinator submits the work and the lane runs it, between batches, where nothing is
      * half-updated.
      */
-    private final java.util.concurrent.ConcurrentLinkedQueue<Runnable> control =
+    /**
+     * A queued control task and the point in the inbox it must not run ahead of.
+     *
+     * <p>{@code barrier[i]} is input {@code i}'s claimed-cell count at the moment the task was
+     * submitted. The task runs once the lane has drained past every one of them, which is what
+     * makes "advance the watermark" mean "advance it over the rows I had already been handed"
+     * rather than "over whichever of them happen to have been applied by now".
+     */
+    private record ControlTask(Runnable task, long[] barrier) {}
+
+    private final java.util.concurrent.ConcurrentLinkedQueue<ControlTask> control =
             new java.util.concurrent.ConcurrentLinkedQueue<>();
 
     private final java.util.concurrent.atomic.AtomicLong controlRun = new java.util.concurrent.atomic.AtomicLong();
@@ -227,7 +237,11 @@ public final class Lane implements AutoCloseable {
      */
     public long submitControlTask(Runnable task) {
         long ticket = controlRun.get();
-        control.add(task);
+        long[] barrier = new long[inboxes.length];
+        for (int input = 0; input < inboxes.length; input++) {
+            barrier[input] = inboxes[input].producerCursor();
+        }
+        control.add(new ControlTask(task, barrier));
         return ticket;
     }
 
@@ -399,7 +413,6 @@ public final class Lane implements AutoCloseable {
         long localExchangedIn = 0;
         try {
             while (true) {
-                runControlTasks();
                 // Raised before the drain, not after it. An observer that sees an empty inbox and
                 // a lane not in a batch concludes the lane is quiescent; setting the flag after the
                 // drain would leave a window where rows had been taken and nobody was accountable
@@ -439,9 +452,19 @@ public final class Lane implements AutoCloseable {
                     // drained, because the batch array is about to be overwritten.
                     from.release();
                 }
+                // After the drain, not before it. Control tasks used to run at the top of the loop,
+                // which let a watermark advance close a window over rows still sitting in the inbox
+                // -- a dense feed published a partial second as if it were final, non-deterministically
+                // and without anything failing. Running here, behind a barrier, is the ordering the
+                // rest of the engine already assumes.
+                runControlTasks(false);
                 if (count == 0 && exchanged == 0) {
                     inBatch = false;
                     if (!running) {
+                        // Drained, so nothing is still coming and every barrier is moot. Anything
+                        // still queued runs now rather than leaving its submitter waiting out a
+                        // timeout on a lane that has stopped.
+                        runControlTasks(true);
                         break; // stop only once the inboxes are drained, so shutdown loses nothing
                     }
                     localIdle++;
@@ -516,10 +539,26 @@ public final class Lane implements AutoCloseable {
         return total;
     }
 
-    /** Runs whatever the control plane has queued. Between batches, on this thread. */
-    private void runControlTasks() {
-        Runnable task;
-        while ((task = control.poll()) != null) {
+    /**
+     * Runs whatever the control plane has queued whose rows have arrived. On this thread, between
+     * batches, and never ahead of a row that was handed over before the task was.
+     *
+     * <p>Stops at the first task whose barrier is unmet rather than skipping it, because control
+     * tasks are ordered with respect to each other: a checkpoint queued behind a watermark advance
+     * must not photograph state the advance has not been applied to.
+     *
+     * @param force run every queued task regardless of its barrier. For shutdown, where the
+     *     inboxes are drained and there is no producer left to wait for -- a task deferred forever
+     *     is a coordinator waiting forever.
+     */
+    private void runControlTasks(boolean force) {
+        ControlTask queued;
+        while ((queued = control.peek()) != null) {
+            if (!force && !barrierReached(queued.barrier())) {
+                return;
+            }
+            control.poll();
+            Runnable task = queued.task();
             try {
                 task.run();
             } finally {
@@ -529,6 +568,16 @@ public final class Lane implements AutoCloseable {
                 controlRun.incrementAndGet();
             }
         }
+    }
+
+    /** Whether every input has been drained past where it stood when the task was submitted. */
+    private boolean barrierReached(long[] barrier) {
+        for (int input = 0; input < inboxes.length; input++) {
+            if (inboxes[input].drainCursor() < barrier[input]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void closeQuietly() {

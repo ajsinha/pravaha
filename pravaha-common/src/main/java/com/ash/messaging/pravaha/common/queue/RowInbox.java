@@ -266,6 +266,23 @@ public final class RowInbox implements AutoCloseable {
         RELEASE.setRelease(this, drainIndex);
     }
 
+    /**
+     * How many cells have ever been claimed.
+     *
+     * <p>A conservative upper bound on what a producer has handed over: the cell is counted from
+     * the moment it is claimed, before its row has been written. A consumer that wants to know
+     * "has everything given to me so far been applied" takes this and waits for {@link
+     * #drainCursor()} to reach it, and errs towards waiting rather than towards racing.
+     */
+    public long producerCursor() {
+        return (long) PRODUCER.getVolatile(this);
+    }
+
+    /** How many cells the lane has taken. Reaching a {@link #producerCursor()} means past it. */
+    public long drainCursor() {
+        return (long) DRAIN.getVolatile(this);
+    }
+
     /** Published but not yet drained. Exact when quiescent, a hint while producers are running. */
     public int size() {
         long size = (long) PRODUCER.getVolatile(this) - (long) DRAIN.getVolatile(this);

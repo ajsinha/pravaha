@@ -376,10 +376,18 @@ class IncrementalTest {
             while (System.nanoTime() < deadline && query.rowsIn() < 4) {
                 Thread.sleep(10);
             }
+            // Applied, not merely pumped. rowsIn counts what the feed handed over; the lane
+            // applies on its own thread, and the view holds two rows transiently after the first
+            // two arrive -- so waiting for a size of two can catch {ann, bob} on the way past.
+            query.awaitApplied(Duration.ofSeconds(20));
             ViewQuery reader = new ViewQuery(views);
             deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
             while (System.nanoTime() < deadline
-                    && reader.execute("SELECT * FROM live").size() != 2) {
+                    && !List.of("ann", "cat")
+                            .equals(reader.execute("SELECT user_id FROM live").rows().stream()
+                                    .map(r -> (String) r[0])
+                                    .sorted()
+                                    .toList())) {
                 Thread.sleep(20);
             }
             // Three inserted, one retracted: 3 - 1 = 2 survive, and which two is the assertion.

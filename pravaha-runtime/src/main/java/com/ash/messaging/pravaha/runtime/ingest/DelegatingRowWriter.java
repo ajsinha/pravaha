@@ -33,12 +33,37 @@ import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
  * directly -- a test feeding a source into a pipeline, a tool draining one to a file -- needs the
  * same adapter, and a third and fourth copy would drift from these two.
  */
-public record DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit, LongConsumer onEventTime)
-        implements RowWriter {
+public final class DelegatingRowWriter implements RowWriter {
+
+    private final BinaryRowWriter delegate;
+    private final Runnable onCommit;
+    private final LongConsumer onEventTime;
+
+    /**
+     * The event time this row was given, held until the row is handed over.
+     *
+     * <p>Held rather than reported straight away, because the watermark is a statement about rows
+     * the engine has -- and between the plugin setting a timestamp and the row reaching a lane, it
+     * does not have it yet. Reporting early let the watermark run ahead of rows still in flight and
+     * close their window without them.
+     */
+    private long pendingEventTime;
+
+    private boolean hasEventTime;
 
     /** Without an observer: the row is written and nothing watches its event time. */
     public DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit) {
         this(delegate, onCommit, nanos -> {});
+    }
+
+    public DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit, LongConsumer onEventTime) {
+        this.delegate = delegate;
+        this.onCommit = onCommit;
+        this.onEventTime = onEventTime;
+    }
+
+    public BinaryRowWriter delegate() {
+        return delegate;
     }
 
     @Override
@@ -122,8 +147,10 @@ public record DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit, L
     public RowWriter eventTimestampNanos(long nanos) {
         // Where ingest learns what time it is. The plugin sets the event time as it writes each
         // row, so this is the one place every row's timestamp passes through on its way in --
-        // before the row is published, and without the pump having to decode it back out again.
-        onEventTime.accept(nanos);
+        // without the pump having to decode it back out again. Recorded here and reported at
+        // commit: see pendingEventTime.
+        pendingEventTime = nanos;
+        hasEventTime = true;
         delegate.eventTimestampNanos(nanos);
         return this;
     }
@@ -138,6 +165,13 @@ public record DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit, L
     public int commit() {
         int size = delegate.commit();
         onCommit.run();
+        // After the hand-over, never before. onCommit is what publishes the row to a lane, and a
+        // watermark told about a row the lane cannot yet see is a watermark that can close that
+        // row's window without it.
+        if (hasEventTime) {
+            hasEventTime = false;
+            onEventTime.accept(pendingEventTime);
+        }
         return size;
     }
 
