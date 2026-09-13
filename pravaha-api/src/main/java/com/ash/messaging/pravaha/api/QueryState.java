@@ -26,6 +26,14 @@ package com.ash.messaging.pravaha.api;
  * silently changing meaning under an operator who has not been told.
  */
 public enum QueryState {
+    // WARNING: this is not the enum the engine produces. RegisteredQuery.state() returns
+    // com.ash.messaging.pravaha.registry.QueryState, which has four constants -- RUNNING, PAUSED,
+    // FAILED, DROPPED -- and is the only one anything sets. The two share names, so code importing
+    // this one compiles, reads correctly and fails at run time with "expected RUNNING but was
+    // RUNNING". Recorded in docs/qa/FINDINGS.md; which of the two survives is a product decision.
+    //
+    // The states below CREATED that the registry has no equivalent for -- BACKFILLING, DEGRADED,
+    // SCHEMA_CONFLICT and the rest -- are design intentions, not behaviour: nothing produces them.
     CREATED,
     VALIDATED,
     PLANNED,

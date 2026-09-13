@@ -172,6 +172,41 @@ build that no longer exists. Rule 1 of `TEST_PLAN.md` exists because of this.
 
 ---
 
+# Continuous query — the campaign
+
+The product's main offering, tested as such: every assertion below is made with the stream still
+open and more rows still to come, because a query that is right only after its input ends is a batch
+query with extra steps.
+
+## Defects found and fixed
+
+- **A global aggregate answered one commit late.** `publishContinuousAggregates` submitted to the
+  lane and returned, so the emission landed after the commit that asked for it. For a query that
+  receives one batch and is then read, indistinguishable from never emitting. The behaviour was
+  written down in a comment rather than fixed.
+- **Allowed lateness was the constant zero** for every query the planner built, with no way to
+  change it, while the docs said a late row is applied as a retraction plus a correction.
+- **Idle exclusion was unreachable** for a partition that spoke once and went quiet — the case it
+  exists for.
+- **Windowed `MIN` folded NULL in**, answering 0.
+- **A file source ended at end of file**, so a continuous query over one kept a view it would never
+  update while reporting `RUNNING`. `follow: true` is `tail -f`.
+- **The Aerospike source stamped scan time as event time**, so a windowed query over it dropped
+  every row as late — an empty view under a query reporting `RUNNING`. The flagship connector could
+  not run the query on the front of the README by the path a deployment uses.
+
+## Open — needs a product decision
+
+**Two enums named `QueryState`.** `com.ash.messaging.pravaha.registry.QueryState` has four constants
+and is the only one anything produces. `com.ash.messaging.pravaha.api.QueryState` has fourteen,
+including `BACKFILLING`, `DEGRADED` and `SCHEMA_CONFLICT`, and is declared by exactly one thing:
+`ApiDtos.QuerySummary`, which has no producer and no consumer anywhere in the repository.
+
+Importing the wrong one compiles, reads correctly, and fails at run time with `expected RUNNING but
+was RUNNING`. It cost this session twenty minutes; it will cost a user more, because they will not
+suspect the type. Both are annotated now, which makes it discoverable rather than fixed. Which
+survives — and whether the nine aspirational states are built or deleted — is yours to decide.
+
 # Aerospike and the state tier — the area round 1 never scoped
 
 60 cases, 60 executed against a **real Aerospike Community Edition 8.1.2.4 server**. **35 pass, 25
