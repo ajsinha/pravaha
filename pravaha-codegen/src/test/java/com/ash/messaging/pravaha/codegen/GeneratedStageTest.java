@@ -87,8 +87,8 @@ class GeneratedStageTest {
         PhysicalOperator plan = new ProjectOperator(
                 new FilterOperator(ScanOperator.of("txn", inputSchema()), predicate), outputSchema(), List.of(0, 1));
 
-        List<Long> interpreted = runInterpreted(plan, predicate, seed);
-        List<Long> generated = runGenerated(plan, seed);
+        List<String> interpreted = runInterpreted(plan, predicate, seed);
+        List<String> generated = runGenerated(plan, seed);
 
         assertThat(generated)
                 .as("generated code disagreed with the interpreter for predicate: %s", predicate.describe())
@@ -104,13 +104,25 @@ class GeneratedStageTest {
         PhysicalOperator plan = new ProjectOperator(
                 new FilterOperator(ScanOperator.of("txn", inputSchema()), predicate), outputSchema(), List.of(0, 1));
 
-        List<Long> correct = runInterpreted(plan, predicate, 1L);
-        Predicate inverted = new Predicate.CompareLong(1, "amount", Predicate.Op.LE, 500);
-        List<Long> wrong = runInterpreted(plan, inverted, 1L);
+        List<String> interpreted = runInterpreted(plan, predicate, 1L);
+
+        // The generated stage, with its emitted comparison inverted before compilation. The
+        // previous version of this guard compared two *interpreted* runs, so it proved the fixture
+        // was not degenerate and never established that the generated path was compared at all --
+        // which is the one thing a differential test exists to establish.
+        var fused = new FilterProjectGenerator().generate(plan, "SeededStage");
+        String sabotaged = fused.source().replace(" > 500L", " <= 500L");
+        assertThat(sabotaged)
+                .as("the seeding must actually change the generated source, or this guard is theatre")
+                .isNotEqualTo(fused.source());
+
+        GeneratedStage stage = new StageCompiler().compileFused("SeededStage", sabotaged);
+        List<String> wrong = runFused((FusedStage) stage.processor(), 1L);
 
         assertThat(wrong)
-                .as("an inverted comparison must produce a different result, or the fixture is degenerate")
-                .isNotEqualTo(correct);
+                .as("a generated stage with an inverted comparison must disagree with the interpreter; "
+                        + "if it does not, the differential property certifies whatever it is given")
+                .isNotEqualTo(interpreted);
     }
 
     // ------------------------------------------------------------------ generation mechanics
@@ -256,8 +268,8 @@ class GeneratedStageTest {
     private static final int ROWS = 64;
 
     /** Runs the interpreted path, returning the ids that survived. */
-    private static List<Long> runInterpreted(PhysicalOperator plan, Predicate predicate, long seed) {
-        List<Long> surviving = new ArrayList<>();
+    private static List<String> runInterpreted(PhysicalOperator plan, Predicate predicate, long seed) {
+        List<String> surviving = new ArrayList<>();
         try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 18, 8)) {
             RowLayout layout = RowLayout.of(inputSchema());
             BinaryRowWriter writer = new BinaryRowWriter(layout);
@@ -270,7 +282,10 @@ class GeneratedStageTest {
                 writer.commit();
                 RowView row = view.wrap(arena.regionOf(handle), arena.offsetOf(handle));
                 if (predicate.test(row)) {
-                    surviving.add(row.getLong(0));
+                    // Every projected column, not just the id. Comparing column 0 alone certifies a
+                    // generator that filters correctly and projects the wrong value into column 1 --
+                    // and the projection is half of what this generator does.
+                    surviving.add(row.getLong(0) + "|" + row.getLong(1));
                 }
             }
         }
@@ -278,14 +293,18 @@ class GeneratedStageTest {
     }
 
     /** Runs the generated path over identical input, returning the ids that survived. */
-    private static List<Long> runGenerated(PhysicalOperator plan, long seed) {
+    private static List<String> runGenerated(PhysicalOperator plan, long seed) {
         var fused = new FilterProjectGenerator().generate(plan, "DiffStage");
         GeneratedStage stage = new StageCompiler().compileFused("DiffStage", fused.source());
-        FusedStage generated = (FusedStage) stage.processor();
+        return runFused((FusedStage) stage.processor(), seed);
+    }
+
+    /** Drives rows through an already-compiled stage, so a deliberately broken one can be run too. */
+    private static List<String> runFused(FusedStage generated, long seed) {
 
         RowLayout inputLayout = RowLayout.of(inputSchema());
         RowLayout outputLayout = RowLayout.of(outputSchema());
-        List<Long> surviving = new ArrayList<>();
+        List<String> surviving = new ArrayList<>();
 
         try (MemoryRegion in = MemoryAccess.best().allocate(1 << 18);
                 MemoryRegion out = MemoryAccess.best().allocate(1 << 18)) {
@@ -309,7 +328,8 @@ class GeneratedStageTest {
             int emitted = generated.process(in, offsets, ROWS, out, outOffsets, 0);
             BinaryRowView outView = new BinaryRowView(outputLayout);
             for (int i = 0; i < emitted; i++) {
-                surviving.add(outView.wrap(out, (int) outOffsets[i]).getLong(0));
+                RowView emittedRow = outView.wrap(out, (int) outOffsets[i]);
+                surviving.add(emittedRow.getLong(0) + "|" + emittedRow.getLong(1));
             }
         }
         return surviving;
