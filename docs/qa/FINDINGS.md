@@ -731,3 +731,72 @@ unreachable from configuration. `arena.slab.size` and `state.slab.size` have no 
 first is named as the remedy by six error messages. `QueryRegistry.executingWith` is never called, so
 ten lane settings are unreachable. And `SecurityProperties`' own javadoc names two values the code
 rejects (`policy: tenant`, `audit: log`), while `system_design.md` names `mode: HA`.
+
+---
+
+# State, SDKs and performance — 250 cases, and a contradiction resolved
+
+## S-1 — the 60-byte checkpoint mystery, explained
+
+```java
+public boolean isStateful() {
+    return !windowed.isEmpty() || !joins.isEmpty();
+}
+```
+
+A **keyed `GROUP BY` aggregate is not "stateful"**, so it checkpoints nothing. That reconciles the
+two measurements recorded earlier as if they conflicted: the deployment agent's 60-byte empty files
+were a keyed aggregate; the Aerospike agent's 662 bytes of real operator state were a windowed
+query. Both were right.
+
+So `application.yaml`'s "a restart recovers answers" is false **specifically for the canonical
+continuous query** — and `restore()` is called from no shipped path anyway, so nothing is read back
+even when it is written.
+
+## S-2 (HIGH) — under any real policy, no query survives a restart
+
+```java
+return Optional.of(new Principal(id, "unknown", Set.of(), Map.of()));
+```
+
+Recovery reconstructs every recorded owner as a **role-less principal in tenant `"unknown"`**.
+Re-authorization on replay is the right design and was recorded here as a strength; with this
+principal it refuses everything under any policy that inspects roles or tenant. The "unknown owner"
+branch is unreachable, and `PRV-8007` is declared and never thrown.
+
+## S-3 (HIGH) — `PARTITIONED` has no runtime behaviour at all
+
+Only `PARTITIONED` × `socket` is refused (`PRV-9002`). `PARTITIONED` × `single` **starts** — and
+partitioning does nothing either way. Seven cluster keys have no readers, so the mode is unreachable
+from configuration even if it worked.
+
+## S-4 (HIGH) — no server error code reaches an SDK caller as a code
+
+Eight provocations, every one re-stamped `PRV-1041`. The console recovers the real code by
+**string-searching the message**. And `connect` never fails — the channels are lazy — so a dead
+server surfaces as non-retryable `PRV-1041`, while the retryable `PRV-1040` is effectively
+unreachable. Timeouts are inert in both Java SDKs.
+
+TLS, precisely: the missing artefact is `netty-transport-native-unix-common`, declared only in
+`pravaha-server/pom.xml`. `netty-tcnative` **is** on the client trees, so the client failure is a
+`NoClassDefFoundError` on `io.netty.channel.unix.*`, not a cipher problem. **No CA API exists in any
+of the three clients**, and both the CLI and the console set `allowInsecureToken(true)`
+unconditionally.
+
+## S-5 — my idle-CPU fix was partial, measured properly
+
+`BACKOFF_PARK` zeroed the *lane*, which is what I measured and reported as 0%. Per-thread
+measurement shows each query still costs **~1,000 feed wake-ups per second, 50 commits per second and
+a watermark tick**. My 10-second process-level sample could not see it. The headline number was
+right and the conclusion — "fixed" — was too strong.
+
+## S-6 — ten surfaces report RUNNING after the lane is dead
+
+`PERF-041` enumerates them. Arena limits expressed as byte budgets rather than row counts, which is
+the portable form: `33,554,432 / 932,000 = 36.0` bytes/row for a projection, `/264,000 = 127.1` for a
+windowed aggregate.
+
+Also: `-Pbench` is inert, there is no CI regression gate, and `lane-scaling.json` names a benchmark
+method that no longer exists. Every throughput case is specified to run at `K = N` **and** `K = 500`
+keys and to assert the answer beside the rate — the direct correction for round 1's
+200,000-rows-into-500-keys pass.
