@@ -171,17 +171,103 @@ end-to-end through the same `errorCode()`/`getMessage()` accessors these tests u
 findings are characterizations of current behaviour, not assertions of a fix, so rule 1 does not apply
 to them.
 
+## §3 — PRV-2xxx SQL: parsing, planning, what the engine will run (ERRC-018 … ERRC-029)
+
+Test class: `ErrcSqlTest`. Surface: `pravaha validate --sql ... --schema ...`, in-process (no Flight
+involved, so no netty conflict).
+
+- **ERRC-018 — PASS, with one genuine E3 gap of the same shape as §1's.** Four of the five malformed
+  statements carry a Calcite `line N, column M` position (`SELECT FROM txn`; an unclosed `WHERE (`;
+  a trailing `;;`) — all `PRV-2001`. The fifth, a misspelled keyword (`SELEC * FROM txn`), is **also**
+  `PRV-2001` but carries **no position at all**: `SELEC` is not a reserved word, so Calcite's grammar
+  accepts it as an ordinary identifier and the statement fails later, validation-shaped ("Non-query
+  expression encountered in illegal context"), at a different layer than a genuine parse error. Not
+  every `PRV-2001` is a parse error in the narrow sense, and the case's blanket "E3 must carry the
+  position" does not hold for this one. Finding recorded (FINDINGS.md ## ERRC).
+- **ERRC-019 — PARTIAL.** The pure-SQL site (`SqlPlanner.java:109`, an unknown column) gives `PRV-2002`
+  on the CLI. The three startup-configuration sites the case also assigns to this code
+  (`PravahaNode.java:211,242,382` — a stream with no schema, a misspelled event-time column, `idle-after`
+  out of bounds) need a real server started against a deliberately bad config file; **not stood up this
+  round — NOT RUN** for that half. E4 (one code, several unrelated meanings) therefore not
+  independently reconfirmed this round, though case fact 10 and FINDINGS E-3 already establish the
+  pattern for `PRV-7002`.
+- **ERRC-020 — PASS on the CLI half with a correction; server half cited, not re-run.**
+  `StreamCatalog` (the sole `PRV-2003` throw site) lives in `pravaha-server`, not `pravaha-sql` —
+  **`pravaha validate` never reaches it.** `SELECT * FROM nosuch` against `--schema` naming only `txn`
+  gives `PRV-2002` (Calcite's own "object not found"), **not** `PRV-2003` — the case's own reach
+  description ("Reached through: `StreamCatalog.java:62`... `pravaha query --sql ...`" is implicitly
+  CLI-shaped and does not hold for `validate`). The real surface, confirmed by re-running an existing,
+  already-correct test rather than duplicating it: `pravaha-server`'s `ApiIntegrationTest
+  .anUnknownStreamIsA400WithTheErrorCodeAndAHelpUrl` (`GET /api/v1/streams/{name}`, through the full
+  servlet stack) — re-run this round, **still passes**: `PRV-2003`, HTTP 400, correct `helpUrl` and
+  `path`. E3 (the known-streams list specifically) was not independently re-confirmed by that test —
+  recorded as the one open half.
+- **ERRC-021 — NOT RUN.** Four candidate constructs tried for `PRV-2010` (`GROUPING SETS`/`CUBE`, a
+  correlated scalar subquery, a recursive CTE, a windowed `OVER()` function) — all four are intercepted
+  earlier, as `PRV-2020` or `PRV-2021`, before Calcite's own rel-conversion could fail. The case's own
+  words ("`SQLX` owns finding these") were not available this round; recorded honestly as not found
+  rather than manufactured.
+- **ERRC-022 — FAIL on E3 (real, significant finding).** All three named operators (`ORDER BY`,
+  `LIMIT`, `UNION`) are correctly refused with `PRV-2020`, naming the actual relational operator
+  Calcite produced (`LogicalSort`, etc.) and the engine's supported set inline. **The case's E3
+  requirement — "the message must... point at `SQL_SUPPORT.md`" — does not hold, for any of the
+  twenty-four throw sites**, confirmed exhaustively (not sampled): a second test greps
+  `PhysicalPlanBuilder.java` for all twenty-four `SqlErrors.UNSUPPORTED_OPERATOR` throw sites and for
+  every occurrence of the string `SQL_SUPPORT.md`; the one occurrence found is a **code comment** near
+  the unrelated `UNBOUNDED_STATE` site, not inside any thrown message. `PRV-2020` is very likely the
+  single most frequently hit code in the product (twenty-four sites, "not supported yet" for anything
+  from `ORDER BY` to `GROUPING SETS`), and none of its messages point a user at the document that lists
+  the full supported/unsupported surface. Recorded as a HIGH finding.
+- **ERRC-023 — PASS, case's own E3 point confirmed.** `SELECT SQRT(amount) FROM txn`: `PRV-2021`,
+  message names `POWER` (the rewritten function Calcite hands to the engine) and never `SQRT` (the one
+  the user typed) — exactly `TROUBLESHOOTING.md`'s own documented behaviour, and exactly the case's
+  point that this is a message defect the document covers for. An unknown function
+  (`SELECT NOSUCHFUNC(amount) FROM txn`) is separately refused with a `PRV-20xx` code. A `DECIMAL`
+  arithmetic sub-case was attempted and dropped: the CLI's `--schema` mini-language splits fields on
+  commas, which collides with `DECIMAL(p,s)`'s own syntax — a harness input-format artifact, not
+  evidence about the code.
+- **ERRC-024 — UNREACHABLE (major finding, not previously known).** `ChangelogAnalysis.checkAgainst` —
+  the sole throw site for `PRV-2041`, "the code `ErrorCodeTest` uses as its example throughout" per
+  the case's own words — **is called nowhere in any module's main sources**, confirmed exhaustively: a
+  test walks every `.java` file under every module's `src/main`, excluding `ChangelogAnalysis.java`
+  itself, and asserts none contains the literal `ChangelogAnalysis.checkAgainst`. Only its own unit
+  test (`ChangelogAnalysisTest`) calls it. This is a **tenth** unreachable code, not among case fact
+  9's nine — the case file did not know about this one. Worse than the fact-9 group in one specific
+  way: `StreamSchema`'s own javadoc *asserts* the wiring exists ("`ChangelogAnalysis` refuses an
+  append-only sink for a revising query — correctly, and at registration"), which is not true of the
+  current build. A windowed aggregate with allowed lateness (which revises its answer, needing an
+  upsert/retract-capable sink) registered against the append-only filesystem sink is accepted rather
+  than refused — precisely the failure mode design section 15.5 describes as the reason the check has
+  to exist ("the query runs, results are written... nothing has failed"). E4: documented (as
+  `plugins`... actually `sql` per the table) — the document promises a registration-time safety net
+  the build does not have. Recorded as a HIGH finding, grouped conceptually with the fact-9 set but
+  kept distinct since the case itself did not anticipate it.
+- **ERRC-025 — PASS, and correctly.** `SELECT usr, SUM(amount) FROM txn GROUP BY usr` (no window):
+  `PRV-2050`, message explains the unbounded-time dimension and mentions the window rewrite. The
+  windowed rewrite (`TABLE(TUMBLE(...))`) of the identical aggregation **succeeds** — the vacuity
+  control the case specifies.
+- **ERRC-026 … ERRC-029 — NOT RUN.** The four parameter-binding codes (`SQL_PARAMETER_NOT_BOUND`,
+  `_ARITY`, `_TYPE`, `_NOT_A_VALUE`) are not reachable through `pravaha validate` (it never binds a
+  `?`); the real CLI surface is `pravaha query --sql ... --params ...`
+  (`ServerCommand.java`), which needs a live, running server. Not stood up this round.
+
+**Seed-proof for this section:** `SqlErrors.UNSUPPORTED_OPERATOR`'s number was changed `2020` → `2099`
+(rebuilding `pravaha-sql` and the CLI's shaded jar), confirmed `ErrcSqlTest` fails on exactly the
+ERRC-022 assertion (`expected "PRV-2020"`, actual `"PRV-2099"`), reverted, rebuilt, confirmed green
+(`git status` clean on `SqlErrors.java` afterward).
+
 ---
 
-## Running summary (ERRC-001 … ERRC-017 of 118)
+## Running summary (ERRC-001 … ERRC-029 of 118)
 
 | Verdict | Count | Cases |
 |---|---|---|
-| PASS | 13 | 001, 002, 003, 005, 006, 007, 008, 009, 010, 011, 012, 013, 017 |
-| FAIL (case's own reachability assumption wrong; real defect/finding confirmed) | 2 | 004, 014 |
-| PARTIAL (evidence gathered, main scenario needs a live server) | 1 | 015 |
-| NOT RUN (needs a live server) | 1 | 016 |
-| **Total** | **17** | |
+| PASS | 17 | 001, 002, 003, 005, 006, 007, 008, 009, 010, 011, 012, 013, 017, 018, 020, 023, 025 |
+| FAIL (case's own reachability assumption wrong; real defect/finding confirmed) | 3 | 004, 014, 022 |
+| UNREACHABLE (new finding, not in the case's own fact-9 list) | 1 | 024 |
+| PARTIAL (evidence gathered, part of the scenario needs a live server) | 2 | 015, 019 |
+| NOT RUN (needs a live server, or not found this round) | 6 | 016, 021, 026, 027, 028, 029 |
+| **Total** | **29** | |
 
 **TROUBLESHOOTING.md changes made this round (evidence: ERRC-012 … ERRC-017):** added rows for
 `PRV-1030 CLIENT_MALFORMED_ENDPOINT`, `PRV-1031 CLIENT_INVALID_OPTIONS`, `PRV-1040
@@ -208,6 +294,33 @@ thinking a server-side configuration file produced them).
   (now corrected) expectation that all five do.
 - **LOW — `PRV-1024`'s "no leading digit" message doesn't enumerate the accepted units**, unlike its
   "unrecognised unit" sibling message.
+- **HIGH — `ChangelogAnalysis.checkAgainst` (the sole `PRV-2041` throw site) is called from nowhere in
+  main sources**, so a revising query (a windowed aggregate with allowed lateness) can be registered
+  against an append-only sink without refusal — a tenth unreachable code, not in the case's own fact-9
+  list, and the one `StreamSchema`'s own javadoc incorrectly claims is wired in.
+- **HIGH — none of `PRV-2020`'s twenty-four messages point at `SQL_SUPPORT.md`**, despite the case's
+  explicit E3 requirement and the document's own claim that the pointer exists; confirmed by an
+  exhaustive grep of every throw site, not a sample.
+- **LOW — one of `PRV-2001`'s throw paths (a misspelled keyword) carries no line/column**, the same
+  shape as the §1 findings above.
 
-**What could not be run, and why:** ERRC-015's server-refusal half and ERRC-016 both need a running
-`pravaha-server` process; none was stood up this round. Continued in the next batch.
+**What could not be run, and why:** ERRC-015's server-refusal half, ERRC-016, ERRC-019's three
+configuration-refusal sites, ERRC-021 (tried and not found), and ERRC-026 … ERRC-029 (parameter
+binding, needs `pravaha query --params` against a live server) all need infrastructure — mainly a real,
+running `pravaha-server` process — not stood up this round. Continued in the next batch.
+
+**A pre-existing, out-of-scope test failure noticed while running `pravaha-it verify` for this drill,
+not caused by ERRC work and not fixed here.** `DocumentationFreshnessTest
+.everyJavaTypeTheReadmeShowsExists` and `WindowClosingAnswerTest.win167_...` (WIN's own file) both walk
+`repoRoot()` and exclude any path containing `/.claude/`, per commit `25794ef`'s fix for a different
+problem (agents' worktrees nested *under* a main checkout, seen as duplicate files). This executor's
+own worktree is itself rooted at `.claude/worktrees/agent-a142c3c16e6b104f1/` — so `repoRoot()`
+(walking up from the module directory to find a marker file) resolves to a path that **itself**
+contains `/.claude/`, and the exclusion filter then discards the entire repository, not just nested
+child worktrees. Confirmed via `git log 21903ef..dcb509d -- <these two files>`: the exclusion was
+added between this round's first and second commits, by a concurrent agent's already-pushed work, not
+by anything in `docs/qa/cases/ERRC.md` or this package. `WindowTestSupport.java` is explicitly WIN's
+file and out of ERRC's scope to touch; `DocumentationFreshnessTest.java` is shared IT infrastructure,
+also left alone. Every test in `com.ash.messaging.pravaha.it.qa.errc` passes on its own
+(`mvnw -pl pravaha-it test -Dtest='Errc*'`, confirmed green after this discovery); the two failures are
+isolated to `pravaha-it verify`'s full run and pre-date this round's ERRC work.

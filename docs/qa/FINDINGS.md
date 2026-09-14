@@ -1082,13 +1082,42 @@ correlated scalar subquery in the select list is refused by `ExpressionCompiler`
 `$SCALAR_QUERY` function — both earlier and more generic than the `Correlate` branch the good message
 lives on. (SQLX-144)
 
+## X-8 (HIGH) — `PRV-2061` (parameter arity mismatch) is unreachable through the shipped SDK/CLI
+
+`BoundParameters.requireArity` throws a well-designed `PravahaException(SqlErrors.PARAMETER_ARITY,
+...)` — code `2061`, correct singular/plural handling — but no user of the Java Flight SDK or the CLI
+ever sees it. `sdk/pravaha-sdk-java-flight/.../Parameters.write` duplicates the arity check
+**client-side** before a prepared statement is ever executed, and on a mismatch throws its own
+`PravahaClientException(ClientErrors.QUERY_REFUSED, "this statement has N placeholder(s) and M
+value(s) was/were given", ...)` — the identical wording, but wrapped in the generic client code
+(`PRV-1041`) instead of server-emitted `PRV-2061`. `PARAMETER_NOT_BOUND` (`2060`, thrown by
+`BoundParameters.at` when an index is out of range) has no such client-side duplicate and does reach
+the caller with its real code intact (`PRV-1041  PRV-2060  ...`). Confirmed with all four shapes:
+too few values, too many values, zero placeholders with a value bound, and zero values bound — the
+first three all say only `PRV-1041`; only the last (no `--params` at all, a different code path) says
+`PRV-2060`. A user who searches the documented error table for `2061` finds nothing that ever
+happened to them. (SQLX-158, SQLX-159)
+
+## X-9 — `PRV-2063` only fires for a parameter embedded in a typeable expression, not for a bare one
+
+The case files (SQLX-160, SQLX-161, and by inheritance ADR-032's own table) assume every "not in a
+WHERE clause" placement — select list, `GROUP BY` key, window size, an unadorned `SELECT ?` — reaches
+`ParameterMetadata.collect`'s refusal, `PRV-2063`. In practice a **bare**, unadorned `?` with no
+surrounding operator (`SELECT ?`, `GROUP BY ?`, a `TUMBLE(..., ?)` window-size argument) is refused
+by Calcite's own validator first — `PRV-2002  Illegal use of dynamic parameter` — because Calcite
+cannot infer any type for a standalone parameter and refuses before planning ever reaches Pravaha's
+code. `PRV-2063` only fires when the `?` sits inside an expression Calcite *can* type locally
+(`amount * ?`, `CASE WHEN amount > ? THEN ...`) but that expression is outside a `WHERE`/`HAVING`
+filter. Two different codes, two different messages, for what ADR-032's table presents as one
+uniform rule. (SQLX-160, SQLX-161)
+
 ---
 
 # ERRC — found executing `docs/qa/cases/ERRC.md`
 
 Cases run as real JUnit tests under `pravaha-it`'s new `qa.errc` package. Verdicts and evidence for
 every ERRC-nnn case are in `docs/qa/logs/ERRC.md`; this section is the defects only, added to as the
-round progresses (currently covers ERRC-001 … ERRC-017; more to follow in the same section).
+round progresses (currently covers ERRC-001 … ERRC-029; more to follow in the same section).
 
 ### E-7 (HIGH) — `PRV-1040 CLIENT_CONNECT_FAILED` is unreachable through the scenario every new user hits
 
@@ -1132,6 +1161,37 @@ rather than constructing a `FlightClient` in-process. The product risk this flag
 that embeds both `pravaha-server` and the Flight client SDK on one classpath — an embedded gateway or a
 test harness of its own — would hit the identical crash.
 
+### E-10 (HIGH) — `PRV-2041 SQL_EMIT_MODE_MISMATCH` is unreachable: a tenth silent code, and the case file did not know about it
+
+`ChangelogAnalysis.checkAgainst` is `PRV-2041`'s sole throw site, and design section 15.5 explains at
+length why it has to run at registration: a query that revises its answer (a global aggregate; a
+windowed aggregate with allowed lateness) written to a sink that can only append corrupts silently —
+"the query runs, results are written... nothing has failed." Confirmed exhaustively — every `.java`
+file under every module's `src/main`, `ChangelogAnalysis.java` itself excluded — that
+`ChangelogAnalysis.checkAgainst` is called from nowhere. Only its own unit test calls it. This is a
+**tenth** code with no reachable throw site, on top of the nine the case file's own fact 9 already
+names (1043, 4002, 4013, 5012, 5020, 5053, 5064, 8007, 9004) — the case did not anticipate this one,
+and it is arguably the most consequential of the ten: `StreamSchema`'s own javadoc *asserts* the check
+exists ("`ChangelogAnalysis` refuses an append-only sink for a revising query — correctly, and at
+registration"), which is not true of the current build, so even a careful reader of the source who
+trusts a neighbouring class's documentation would believe this guard is active. `PRV-2041` is also "the
+code `ErrorCodeTest` uses as its example throughout" per the case file's own words — the best-known
+number in the codebase, silently disconnected from anything that could throw it.
+
+### E-11 (HIGH) — `PRV-2020`'s twenty-four messages never point at the document that explains them
+
+`TROUBLESHOOTING.md` states plainly that the supported/unsupported SQL surface is `SQL_SUPPORT.md`,
+"checked by a test, so it is true rather than aspirational" — but that claim is about the *document*,
+and the ERRC case additionally requires the *error message itself* to point there. It does not, at any
+of the twenty-four `SqlErrors.UNSUPPORTED_OPERATOR` throw sites in `PhysicalPlanBuilder.java` —
+confirmed by grepping every one of the twenty-four lines and every occurrence of the string
+`SQL_SUPPORT.md` in the file: the one occurrence is a source comment near the unrelated
+`UNBOUNDED_STATE` throw, not inside any thrown message. `PRV-2020` is very plausibly the single most
+frequently hit refusal in the product (`ORDER BY`, `LIMIT`, `UNION`, outer joins between streams,
+`GROUPING SETS`/`CUBE`/`ROLLUP`, recursive CTEs — anything the planner accepts and the engine will not
+run), and every one of its messages sends the reader only as far as an inline list of what the engine
+*does* support, never to the fuller document that explains alternatives.
+
 ### Corrections to the case file found this round
 
 - **ERRC-012's own "one-line reach" example does not reach `PRV-1030`.** `--url nonsense` parses
@@ -1147,35 +1207,18 @@ test harness of its own — would hit the identical crash.
   (`ConfigResolver`'s unclosed-reference throw and `ConfigurationBuilder`'s unregistered-extension
   throw operate on a merged value/at the builder level, with no line to report) — see
   `docs/qa/logs/ERRC.md` §1 for detail; a LOW-severity E3 gap, not re-stated as its own entry here.
-
----
-
-
-## X-8 (HIGH) — `PRV-2061` (parameter arity mismatch) is unreachable through the shipped SDK/CLI
-
-`BoundParameters.requireArity` throws a well-designed `PravahaException(SqlErrors.PARAMETER_ARITY,
-...)` — code `2061`, correct singular/plural handling — but no user of the Java Flight SDK or the CLI
-ever sees it. `sdk/pravaha-sdk-java-flight/.../Parameters.write` duplicates the arity check
-**client-side** before a prepared statement is ever executed, and on a mismatch throws its own
-`PravahaClientException(ClientErrors.QUERY_REFUSED, "this statement has N placeholder(s) and M
-value(s) was/were given", ...)` — the identical wording, but wrapped in the generic client code
-(`PRV-1041`) instead of server-emitted `PRV-2061`. `PARAMETER_NOT_BOUND` (`2060`, thrown by
-`BoundParameters.at` when an index is out of range) has no such client-side duplicate and does reach
-the caller with its real code intact (`PRV-1041  PRV-2060  ...`). Confirmed with all four shapes:
-too few values, too many values, zero placeholders with a value bound, and zero values bound — the
-first three all say only `PRV-1041`; only the last (no `--params` at all, a different code path) says
-`PRV-2060`. A user who searches the documented error table for `2061` finds nothing that ever
-happened to them. (SQLX-158, SQLX-159)
-
-## X-9 — `PRV-2063` only fires for a parameter embedded in a typeable expression, not for a bare one
-
-The case files (SQLX-160, SQLX-161, and by inheritance ADR-032's own table) assume every "not in a
-WHERE clause" placement — select list, `GROUP BY` key, window size, an unadorned `SELECT ?` — reaches
-`ParameterMetadata.collect`'s refusal, `PRV-2063`. In practice a **bare**, unadorned `?` with no
-surrounding operator (`SELECT ?`, `GROUP BY ?`, a `TUMBLE(..., ?)` window-size argument) is refused
-by Calcite's own validator first — `PRV-2002  Illegal use of dynamic parameter` — because Calcite
-cannot infer any type for a standalone parameter and refuses before planning ever reaches Pravaha's
-code. `PRV-2063` only fires when the `?` sits inside an expression Calcite *can* type locally
-(`amount * ?`, `CASE WHEN amount > ? THEN ...`) but that expression is outside a `WHERE`/`HAVING`
-filter. Two different codes, two different messages, for what ADR-032's table presents as one
-uniform rule. (SQLX-160, SQLX-161)
+- **ERRC-020's reach is `pravaha-server`-only, not the CLI.** `StreamCatalog` (`PRV-2003`'s sole throw
+  site) lives in `pravaha-server`, and `pravaha validate` never consults it — it plans directly against
+  the ad-hoc schema `--schema` supplies. `SELECT * FROM nosuch` on the CLI gives `PRV-2002`, not
+  `PRV-2003`. The real surface is `GET /api/v1/streams/{name}`, confirmed still correct via
+  `pravaha-server`'s existing `ApiIntegrationTest`.
+- **ERRC-021's `PRV-2010` was not reached this round with the four candidates tried** (`GROUPING
+  SETS`/`CUBE`, a correlated scalar subquery, a recursive CTE, a windowed `OVER()` function) — all four
+  land on `PRV-2020` or `PRV-2021` instead. The X-6 entry just above (`SQLX-126`, found independently
+  in the same round) supplies a fifth: `SELECT ... ORDER BY ?` reaches `PRV-2010` with a raw Java class
+  name and no sentence around it (`class org.apache.calcite.sql.SqlDynamicParam: ?`) — worth folding
+  into ERRC-021's own evidence in a future pass rather than re-deriving; not merged into the ERRC log
+  this round to keep this round's own file/log boundary clean.
+- **ERRC-018's "E3 must carry the position" does not hold for one of its five sites** (a misspelled
+  keyword parses as an identifier and fails validation-shaped, with no line/column) — the same shape as
+  ERRC-002's gap above, LOW severity, not re-stated as its own entry.
