@@ -208,7 +208,7 @@ The engine itself also embeds. One core, several ways to run it:
 
 | Mode | Artifact | Spring | Use |
 |---|---|---|---|
-| **A** Plain embedded | `pravaha-embedded` | none | Any Java app; unit tests; the CLI |
+| **A** Plain embedded | `pravaha-embedded` | none | Any Java app. A lifecycle seam only today — start, stop, state, plugins; it cannot register or read a query, and the CLI does not use it |
 | **B** Spring-embedded | `pravaha-spring-boot-starter` — **not built yet** (ADR-020) | auto-config into *your* app | Add continuous SQL to a service you already run |
 | **C** Server | `pravaha-server` | it *is* a Spring Boot app | Standard production deployment |
 
@@ -296,9 +296,13 @@ are not audited.
 | [Original SRS](docs/initial_req.md) | The 1.0-DRAFT this design supersedes. Kept for provenance |
 
 Several of these are **verified by the build** rather than maintained by memory: every SQL statement
-in `SQL_SUPPORT.md` and in the case studies is planned and run against the real engine, the error-code
-table is generated from the source, and a freshness test checks that every module is described, every
-internal link resolves and every decision a document cites has an ADR.
+in `SQL_SUPPORT.md` and in the case studies is planned against the real engine (and 26 of its 42
+supported constructs have their answer asserted), `ErrcCrossCuttingTest` fails the build if
+`TROUBLESHOOTING.md`'s code table and the `ErrorCode` declarations disagree in either direction, and
+a freshness test checks that every module is described and every decision a document cites has an
+ADR. Its link check reaches only thirteen files and only links with a file extension — roughly a
+third of the repository's internal links; `docs/adr/`, `examples/`, `console/` and `sdk/` are
+outside it, and anchors are not checked at all (DOCX-034, DOCX-050).
 
 All of them are also readable **inside the console**, with contextual help cards on each page.
 
@@ -325,7 +329,7 @@ No system Maven needed — the wrapper is vendored. See
 
 **Modules currently built**, in build order — this list is checked against `pom.xml` by
 `DocumentationFreshnessTest`, because the previous one named eleven modules and the build had
-thirty-one:
+thirty:
 
 `pravaha-bom`, `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pravaha-catalog`,
 `pravaha-sql`, `pravaha-runtime`, `pravaha-codegen`, `pravaha-state`, `pravaha-backfill`,

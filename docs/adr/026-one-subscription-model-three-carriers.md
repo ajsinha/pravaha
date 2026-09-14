@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **one carrier built** — Flight/gRPC. There is no WebSocket implementation anywhere; the SSE that exists is the Python console re-encoding the SDK stream (ADR-024), not an engine carrier |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

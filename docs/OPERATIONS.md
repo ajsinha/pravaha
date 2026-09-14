@@ -52,9 +52,11 @@ Micrometer is Wave 9 work. Saying so beats implying a dashboard exists.
 
 ## Disk
 
-**The honest state: checkpoint files accumulate.** `FileCheckpointStore.prune(keep)` exists and
-**nothing calls it automatically.** Until that is wired, prune on a schedule or watch the directory.
-This is the one genuinely unbounded disk path today.
+**Checkpoints are pruned automatically.** `PeriodicCheckpointer` takes a checkpoint on
+`pravaha.checkpoint.interval` and then calls `FileCheckpointStore.prune(keep)`, keeping the newest
+`pravaha.checkpoint.keep` (default 3) per query; `QueryRegistry` constructs one for every
+registration when `pravaha.checkpoint.directory` is set. Nothing has to be pruned by hand, and this
+section used to say the opposite.
 
 There is **no RocksDB** in the build — the L1 spill tier is designed (D5) and unbuilt. State today is
 off-heap plus checkpoint files, so the failure mode is memory, not disk.
@@ -264,8 +266,10 @@ partitions that were merely slow. Above ten minutes, a broken partition is indis
 quiet one for longer than anyone can operate, and state grows throughout; a source whose normal gap
 exceeds that is a batch, and a batch should not be holding a stream's watermark.
 
-The **tick must be finer than the idle timeout**, and a configuration where it is not is refused:
-idleness is detected on the tick, so a coarser one could not notice until long after the fact.
+The **tick should be finer than the idle timeout** — idleness is detected on the tick, so a coarser
+one cannot notice until long after the fact. This is **not** validated at startup: a node with
+`tick: 30s` and `idle-after: 5s` starts and logs both values without complaint. Only
+`idle-after` itself is bounds-checked (1s to 10m, refused not clamped).
 
 Watch `pravaha_query_watermark_lag_seconds`. Lag that climbs without bound means event time is not
 keeping up with arrival, and every bound downstream is measured against event time — so a stuck
@@ -322,7 +326,7 @@ pravaha:
   flight:
     enabled: true       # the wire protocol the SDKs and CLI speak; HTTP above is for operators
     host: 0.0.0.0
-    port: 8815
+    port: 9090         # the shipped default, and what the CLI, both SDKs and the console assume
 ```
 
 A node with no `registry.journal` starts and **says so** — a development run does not need
@@ -428,7 +432,7 @@ failure mode under pressure is memory, and the defence is plan-time refusal (`PR
 
 | Mode | Artefact | Use |
 |---|---|---|
-| Embedded | `pravaha-embedded` | Inside a Java application, unit tests, the CLI |
+| Embedded | `pravaha-embedded` | Inside a Java application. A lifecycle seam only: it starts, stops and reports state, and cannot register or read a query. The CLI does **not** use it |
 | Server | `pravaha-server` + `pravaha-flight` | Standard deployment |
 | Console | `console/`, separate process | Operator UI, talks only to the public API |
 
@@ -479,8 +483,8 @@ Node upgrades are a stop and start — there is no clustering to roll through.
 
 Listed because you will meet them, not to be thorough:
 
-- **No automatic checkpoint pruning.** The known disk-growth path
-- **No metrics endpoint.** Counters exist on objects; nothing scrapes them
+- **No engine-internal metrics.** Per-query gauges are published (see *Watching a running node*);
+  lane throughput and backpressure are not
 - **No clustering, no HA, no rebalance.** Single node (Wave 8)
 - **Aligned checkpoint barriers across the exchange** are not implemented; checkpointing is per-lane,
   which is sound only while lanes share nothing

@@ -58,7 +58,7 @@ layer has, and they are all supported.
 | `HAVING agg(col) > ?` | Yes | A filter above the aggregate, so it selects rows |
 | Select list — `SELECT col * ?` | **No** | Computes a different answer from the same rows |
 | Window size, group key, table name | **No** | Decides what the query is |
-| `WHERE col LIKE ?` | Not yet | LIKE is not implemented at all; `LIKE 'u%'` is refused too. A gap in the predicate compiler, not in parameters |
+| `WHERE col LIKE ?` | Not yet | `LIKE` against a **literal** pattern works (`WHERE region LIKE 'E%'` returns rows); a parameterised pattern, a column pattern and an `ESCAPE` clause are each refused `PRV-2021`. A gap in the predicate compiler, not in parameters |
 | `ORDER BY ?` / `LIMIT ?` | Not yet | There is no sort operator; `ORDER BY total` and `LIMIT 5` are refused as well. Whoever adds one decides this deliberately, and a test says so |
 
 The last two rows are the honest part of this table. Neither is a decision about parameters — both

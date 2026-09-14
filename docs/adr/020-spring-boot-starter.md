@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **not built** — there is no `pravaha-spring-boot-starter` module, and no `@PravahaListener` or `PravahaTemplate` anywhere in the tree |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

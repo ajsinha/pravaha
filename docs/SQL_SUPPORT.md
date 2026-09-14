@@ -109,8 +109,8 @@ only rows where the predicate is TRUE.
 | Global `COUNT(*)` | ✅ | One group, so bounded |
 | `TUMBLE` windows | ✅ | |
 | `HOP` (sliding) windows | ✅ | |
-| `COUNT`, `SUM`, `MIN`, `MAX`, `AVG` | ✅ | |
-| `COUNT(DISTINCT x)` | ✅ | |
+| `COUNT`, `SUM`, `MIN`, `MAX`, `AVG` | ✅ | Over integer columns. `SUM`/`AVG` over a `FLOAT32`/`FLOAT64` column are refused `PRV-2020`, because floating-point addition is not associative and an incremental sum would depend on arrival order; the refusal suggests `SUM(CAST(price AS BIGINT))`, which works |
+| `COUNT(DISTINCT x)` | ✅ | Windowed. Over an unwindowed stream it is refused `PRV-2050`, like any other unbounded key space |
 | Aggregate over an expression — `SUM(amount * 2)` | ✅ | |
 | `HAVING` on an aggregate | ✅ | |
 | `GROUP BY key` **without** a window, over a stream | ❌ | `PRV-2050` — unbounded state |

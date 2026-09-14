@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **declared, not enforced** — plugins set their capabilities honestly and no production code reads one to refuse a registration |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

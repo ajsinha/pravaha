@@ -7,6 +7,12 @@ One file per decision, numbered and never renumbered. Amended, never rewritten: 
 superseded ADR keeps its number and gains a pointer, because the reasoning behind a
 decision that was later reversed is usually the most useful thing here.
 
+**The `Status` row says whether the decision is in the tree.** A bare `Accepted` means built.
+Anything else qualifies it — `not built`, `partly built`, `declared, not enforced`,
+`superseded in practice by ADR-nnn` — with one line of why. Without that, a decision that was
+deferred and a decision that shipped look identical, and the set stops being usable as a
+description of the system (DOCX-042, DOCX-046).
+
 | # | Decision |
 |---|---|
 | [001](001-language-and-platform.md) | Java for everything, baseline Java 21 LTS (`pravaha-api` at 17), 25 supported; Scala only in... |

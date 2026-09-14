@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **declared, not enforced** — see ADR-028. `QueryRegistry` contains no reference to any capability type, so nothing is refused at registration |
 | Date | 2026-09-10 |
 | Deciders | Ashutosh Sinha |
 | Amends | §19.1, which enumerated four strategies as the resolution to gap G4 |

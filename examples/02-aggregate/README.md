@@ -36,4 +36,6 @@ that never stops growing. **Unbounded integration is how incremental engines die
 (design §9.6), and the only intervention that reliably works is refusing the query at registration —
 where it costs a developer a minute — rather than at 3 a.m. when it costs an outage.
 
-Windowing gives the bound, and arrives in Wave 4.
+Windowing gives the bound, and it is built: `GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), user_id`
+plans and runs, and tumbling, hopping and session windows all work. See
+[the quickstart's step 4](../../docs/QUICKSTART.md).

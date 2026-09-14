@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; superseded in practice by [ADR-034](034-distribution-deferred.md) |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

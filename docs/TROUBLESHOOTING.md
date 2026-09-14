@@ -23,6 +23,7 @@ a log.
 | `PRV-6xxx` | The Flight gateway |
 | `PRV-7xxx` | Security |
 | `PRV-8xxx` | The query registry |
+| `PRV-9xxx` | Clustering and partition ownership |
 
 Codes are unique across the whole system and enforced by a test — `ErrorCodeUniquenessTest` fails the
 build if two failures ever answer to one number, which happened once and is how this section exists.
@@ -250,6 +251,9 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-5082` | AEROSPIKE_UNSUPPORTED_TYPE | plugins |
 | `PRV-5083` | AEROSPIKE_BAD_CONFIGURATION | plugins |
 | `PRV-5084` | AEROSPIKE_MALFORMED_OFFSET | plugins |
+| `PRV-5090` | INGEST_NO_SUCH_PLUGIN | plugins |
+| `PRV-5091` | INGEST_BINDING_FAILED | plugins |
+| `PRV-5092` | INGEST_FEED_FAILED | plugins |
 | `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |
@@ -274,5 +278,8 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-9006` | CLUSTER_HANDOFF_FAILED | cluster |
 | `PRV-9007` | CLUSTER_REBALANCE_REFUSED | cluster |
 
-Generated from the source, not from memory: every row above is an `ErrorCode` declared in a module's
-main sources. If a code is missing here it does not exist in the engine.
+Checked against the source, not written from memory: every row above is an `ErrorCode` declared in a
+module's `src/main`, and `ErrcCrossCuttingTest` fails the build if this table and those
+declarations ever disagree in either direction. The table is maintained by hand and enforced by
+that test — it is not generated, and the sentence that said it was is what let `PRV-5090`, `5091`
+and `5092` sit undocumented for a round.

@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **not built** — `LaneMultiplexer` is constructed from nothing in any `src/main` |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

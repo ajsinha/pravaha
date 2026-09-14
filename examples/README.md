@@ -2,9 +2,11 @@
 
 Copyright © 2026 Ashutosh Sinha. Proprietary and confidential.
 
-Each directory is self-contained and runnable. The commands in every `README.md` here are executed
-by `pravaha-it`'s `ExamplesTest`, so an example that stops working fails the build rather than
-quietly misleading the next person who tries it.
+Each directory is self-contained and runnable. The `run` and `validate` commands in
+`01-filter-and-project` and `02-aggregate` are executed by `pravaha-it`'s `ExamplesTest`, which
+also asserts that each of those READMEs still contains the output it quotes — so those fail the
+build rather than quietly misleading the next person who tries them. The `explain` commands and
+all of `03-embedded-java` are **not** covered (DOCX-049).
 
 | | |
 |---|---|

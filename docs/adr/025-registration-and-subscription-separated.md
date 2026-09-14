@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **partly built** — the fingerprint covers the plan and the security predicates, but not the key columns, so two registrations differing only in `--keys` share one view |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

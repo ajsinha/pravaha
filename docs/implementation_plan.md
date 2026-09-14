@@ -2,6 +2,13 @@
 
 **From approved design to running code on Java 21 LTS**
 
+> **This document is the plan, not the record.** Its phases, acceptance criteria and
+> “validated in CI” claims describe what was intended, and several were never built: there is no
+> cross-reference validation script, no benchmark regression gate, no cold-start assertion, and no
+> `pravaha-sql/src/test/resources/plans/` golden-plan directory. Gate evidence packs live under
+> `docs/gates/wave-N/`, not `docs/gates/PN/`. For what is actually built and actually enforced,
+> read [`HANDOVER.md`](HANDOVER.md) and `docs/qa/`.
+
 | Field | Value |
 |---|---|
 | Document | Pravaha Implementation Plan |

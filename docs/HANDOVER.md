@@ -54,8 +54,10 @@ allowed at all — every one before this was refused for unbounded state.
 
 ### What actually works today
 
-SQL runs end to end. `docs/QUICKSTART.md` is accurate and every command in it is executed by
-`ExamplesTest`, so it cannot silently rot.
+SQL runs end to end. `docs/QUICKSTART.md` is **not** covered by a test: `ExamplesTest` never opens
+it. It reads `examples/01-*/README.md` and `examples/02-*/README.md`, and hard-codes two
+quickstart-shaped command lines of its own — so the quickstart can rot, and did, while the build
+stayed green (DOCX-047). Extracting its commands from the file is the cheapest fix available here.
 
 ```
 SQL → Calcite (parse, validate, optimise) → PhysicalPlanBuilder → Pravaha's operator tree
@@ -391,13 +393,13 @@ there is nothing to keep in step.
 Worth having in one place, because the obvious mental model ("state is in RocksDB") is wrong for this
 codebase today.
 
-**The server has no ingestion path.** `RegisteredQuery.accept` and `advanceWatermark` are called
-from four test classes and from nothing in `pravaha-server` or `pravaha-flight`. A query registered
-against a running server never sees a row, `rows_in` stays at zero, and nothing that depends on event
-time advancing ever happens. The engine's real ingestion is `QueryExecution.pumpInto`, which the CLI
-and the embedded path use; the registry was built as a separate path and never joined to it. This is
-the third instance of the same pattern in this codebase — built, tested, documented, never wired —
-and the most consequential, because it is the product's core loop.
+**The server ingests.** `pravaha.sources` binds a stream to a plugin, `SourceBinding` opens it and
+`PumpingFeed` runs one thread per computation pushing rows into the registered query. Measured on a
+node with a `filesystem` source and `follow: true`: `pravaha queries` reports `ROWS IN 10`, windows
+close on the derived watermark, and `pravaha subscribe` delivers each commit as it is applied.
+This paragraph said the opposite for a release after it stopped being true — "a query registered
+against a running server never sees a row" was accurate of the registry before it was joined to
+`QueryExecution.pumpInto`, and nothing made the sentence expire (DOCX-053).
 
 **There is no RocksDB.** Not a dependency, not a line of code. State is L0 — an off-heap
 open-addressed hash arena — plus checkpoints written as files. The RocksDB L1 spill tier is design

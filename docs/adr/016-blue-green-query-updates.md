@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **not built** — `ShadowDeployment` exists in `pravaha-backfill` with tests and no caller |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

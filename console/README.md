@@ -25,6 +25,30 @@ python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:9090
 **8090**, the engine's Flight endpoint on **9090**, and the engine's own HTTP/actuator surface on
 **8080**.
 
+### Configuration
+
+Every setting lives in `config/application.yaml` as `${VAR:default}`, so each can be set by
+environment variable, by `--key=value` on the command line, or in a git-ignored
+`config/application.local.yaml`.
+
+| Setting | Environment variable | Default | What it does |
+|---|---|---|---|
+| `console.password` | `CONSOLE_PASSWORD` | *empty* | **The sign-in gate. Set it or nobody can sign in** — which is the safe failure, because the console can drop queries and a default password is a public one. Reading stays open without it: the landing page, the documentation and the health probes are deliberately ungated, so an operator can open the console during an incident and see what is wrong before they find a password. Registering, pausing, dropping and running queries all require a session. |
+| `console.session_secret` | `CONSOLE_SESSION_SECRET` | *empty* | Signs the session cookie. Set it in any deployment where sessions should survive a restart. |
+| `server.host` | `CONSOLE_HOST` | `127.0.0.1` | Loopback by default; set `0.0.0.0` only behind something that authenticates. |
+| `server.port` | `CONSOLE_PORT` | `8090` | |
+| `engine.url` | `PRAVAHA_ENGINE` | `grpc://localhost:9090` | The engine's Flight endpoint. `grpc://` is plaintext and spelled out. |
+| `engine.token` | `PRAVAHA_TOKEN` | *empty* | Bearer token, if the engine authenticates. One identity for the whole console — see *What this does not do* below. |
+| `ui.tail_buffer` | — | `256` | Rows held in a live tail. |
+| `ui.query_row_limit` | — | `500` | Rows a workbench query will return. |
+| `ui.page_size` | — | `25` | Rows per page in the query list. |
+| `logging.level` | `LOG_LEVEL` | `INFO` | |
+
+```bash
+export CONSOLE_PASSWORD='something only you know'
+make run
+```
+
 **The engine does not have to be up.** The console starts anyway and says the engine is
 unreachable, on every page rather than only the one that failed. An operator opening a console
 during an incident needs it to load and tell them what is wrong, which is exactly the moment a

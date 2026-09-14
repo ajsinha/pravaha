@@ -2,6 +2,15 @@
 
 **An Embeddable, Store-Native, Incrementally-Maintained Continuous Query Engine**
 
+> **This document is the design, not the build.** It describes the system Pravaha was specified to
+> be, and it has not been rewritten as the engine was built: a present-tense sentence here may
+> describe something shipped, something partly built, or something never started. Named examples
+> found by audit: `mode: HA`, `PravahaConfig.fromYaml`, `PravahaProperties`, `@PravahaTest`,
+> `pravaha-ui/`, `/actuator/pravaha`, `POST /api/v1/queries/{id}/backfill` and the
+> `pravaha-spring-boot-starter` dependency block in §22 do not exist in the tree. For what is
+> actually built, read [`HANDOVER.md`](HANDOVER.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the
+> [ADRs](adr/); this document is the record of intent behind them.
+
 | Field | Value |
 |---|---|
 | Document | Pravaha System Design & Architecture |

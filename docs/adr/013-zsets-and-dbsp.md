@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **partly built** — `ServedView` is weight-correct, but `pravaha-algebra`, the DBSP oracle this ADR rests on, is imported by no module outside itself |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

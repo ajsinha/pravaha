@@ -41,9 +41,11 @@ snapshot. The limitation is written into `QueryExecution.checkpoint`'s javadoc.
 
 Two further gaps follow from this:
 
-* **Registered continuous queries are not checkpointed at all.** The registry runs pipelines
-  directly and never constructs a `QueryExecution`, so the machinery above does not apply to
-  anything the server maintains. Recovery is a warm-up from the stream.
+* ~~**Registered continuous queries are not checkpointed at all.**~~ **Fixed.** `QueryRegistry`
+  now constructs a `QueryExecution` and a `PeriodicCheckpointer` per registration, calls
+  `store.latest()`/`execution.restore(...)` before the feed opens, and prunes to
+  `pravaha.checkpoint.keep`. `PluginSourceFeedsTest` asserts that a restart over the same
+  checkpoint directory resumes rather than replaying the file or starting empty.
 * **`DeduplicatingSink` is not wired into the checkpoint path**, so effectively-once output is
   available as a class and not as a guarantee.
 

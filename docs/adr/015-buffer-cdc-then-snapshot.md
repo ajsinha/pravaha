@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **not built** — `SplicedReader` and `ChangelogAnalysis` are reachable from no `src/main` |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

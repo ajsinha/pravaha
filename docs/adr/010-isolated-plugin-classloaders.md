@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **not built** — `PluginClassLoader` exists and nothing in `src/main` constructs it |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

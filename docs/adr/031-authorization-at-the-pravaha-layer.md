@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **row filters are programmatic-only** — the soundness rule and the plan injection are built and tested, and no server configuration can supply a policy that returns a row filter |
 | Date | 2026-09-10 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-025 (security predicates in the sharing fingerprint), ADR-030 (Flight SQL as the client protocol), §25 |

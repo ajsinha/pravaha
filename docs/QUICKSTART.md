@@ -56,8 +56,9 @@ The fastest way to see the engine work. A CSV in, a filtered projection out:
 
 ```bash
 cd examples/01-filter-and-project
-pravaha run --sql "SELECT user_id, amount FROM txn WHERE amount > 100" \
-            --schema "user_id:STRING,amount:INT64" \
+pravaha run --sql "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED' AND amount > 100" \
+            --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
+            --out-schema "user_id:STRING,amount:INT64" \
             --stream txn --in transactions.csv --out out.csv
 cat out.csv
 ```
@@ -77,7 +78,9 @@ Worth doing early, because it is the thing that surprises people:
 
 ```bash
 pravaha run --sql "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id" \
-            --schema "user_id:STRING,amount:INT64" --stream txn --in transactions.csv --out out.csv
+            --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
+            --out-schema "user_id:STRING,n:INT64" \
+            --stream txn --in transactions.csv --out out.csv
 ```
 
 ```
@@ -109,6 +112,8 @@ pravaha:
     tokens:
       "a-long-random-string": { id: ann, tenant: acme, roles: [reader] }
   flight:
+    # Placeholders. Both paths must exist and be readable before the node will start:
+    # a certificate that is not there is PRV-6104 and the process exits.
     tls: { certificate: /etc/pravaha/tls.crt, key: /etc/pravaha/tls.key }
 ```
 
@@ -124,7 +129,9 @@ pravaha:
       schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"
   sources:
     txn:
-      plugin: filesystem            # filesystem, feedfile, jdbc or delta
+      plugin: filesystem            # the only plugin in the server jar; feedfile, jdbc,
+                                    # delta and aerospike are separate modules and must be
+                                    # put on the classpath for a source to name them
       options:
         path: /var/lib/pravaha/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"
@@ -352,7 +359,7 @@ Stated so you do not go looking. Roughly wave 7 of 10:
 | | |
 |---|---|
 | Clustering, HA, failover | Wave 8 — **single node today** |
-| Metrics endpoint, time-travel debugging | Wave 9 |
+| Time-travel debugging | Wave 9. Prometheus metrics are live now — `/actuator/prometheus`, see [Operations](OPERATIONS.md#watching-a-running-node) |
 | Kafka, Cassandra, Redis plugins | Wave 10. Filesystem, JDBC and Aerospike work now |
 | Spring Boot starter | ADR-020 planned it; not built |
 | Column masking | Out of ADR-031 until a deployment asks |

@@ -62,9 +62,15 @@ class ErrcCrossCuttingTest {
     @Test
     void theInventoryIsOneHundredAndTenDistinctCodesTenUndocumentedZeroSpurious() throws Exception {
         Path root = repoRoot();
+        // QA executors run in git worktrees under .claude/, which are full copies of this
+        // repository. Excluded relative to the root we found, never by matching "/.claude/" as a
+        // substring: from inside one of those worktrees the root's own path contains it, and a
+        // substring test would discard the whole tree and pass on nothing at all.
+        Path nested = root.resolve(".claude");
         Map<Integer, List<String>> byCode = new LinkedHashMap<>();
         try (Stream<Path> files = Files.walk(root)) {
             for (Path file : files.filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> !p.startsWith(nested))
                     .filter(p -> p.toString().contains("/src/main/"))
                     .filter(p -> !p.toString().contains("/target/"))
                     .toList()) {
@@ -106,9 +112,15 @@ class ErrcCrossCuttingTest {
         Set<String> spurious = new TreeSet<>(documentedCodes);
         spurious.removeAll(declaredCodes);
 
+        // Was `containsExactly("PRV-5090", "PRV-5091", "PRV-5092")` -- a test that recorded a
+        // documentation gap instead of closing it, and so pinned it open: adding the three rows
+        // would have turned this assertion red. DOCX-003 added them; the assertion is now the
+        // enforcement TROUBLESHOOTING.md's closing paragraph claims, in both directions. A new
+        // ErrorCode without a row here fails the build, which is the only thing that stops the
+        // table drifting from the declarations again.
         assertThat(undocumented)
-                .as("the three codes not yet added to TROUBLESHOOTING.md this round")
-                .containsExactly("PRV-5090", "PRV-5091", "PRV-5092");
+                .as("every ErrorCode declared in src/main must have a row in docs/TROUBLESHOOTING.md")
+                .isEmpty();
         assertThat(spurious)
                 .as("nothing documented that does not exist -- the case's own one-directional claim")
                 .isEmpty();

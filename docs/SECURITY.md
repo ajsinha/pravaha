@@ -189,7 +189,7 @@ TLS is the client default; `grpc://` plaintext has to be spelled out. Both SDKs 
 over plaintext unless explicitly permitted.
 
 **"Unless explicitly permitted" is true of the raw SDK in isolation, but not of the shipped CLI.**
-`bin/pravaha`'s `ServerCommand.connect()` sets `allowInsecureToken(true)` unconditionally, on every
+`bin/pravaha`'s `ServerCommand.connect(args)` sets `allowInsecureToken(true)` unconditionally, on every
 one of its server-talking commands, on every invocation with `--token` — there is no flag to opt out,
 and nothing is printed. A token passed to any `pravaha` command over a plaintext `grpc://` URL is
 sent in the clear silently, not merely "if you permit it." Confirmed on a wire capture: the literal
@@ -204,12 +204,14 @@ section and stops there has not secured the HTTP transport carrying the same cre
 
 mTLS between nodes is in the design (§25) and not implemented, because there are no nodes yet.
 
-**A TLS node's own reported address lies about its transport, and an ephemeral-port node's address
-is unusable.** `PravahaFlightServer.location()` is built unconditionally via
-`Location.forGrpcInsecure`, so a genuinely-TLS node reports a plaintext `grpc+tcp://` endpoint to
-`getFlightInfo` callers, never `grpc+tls://`. A node started with `--pravaha.flight.port=0` reports
-the *requested* port (`0`) rather than the one actually bound, so a client following the endpoint it
-was just handed dials a dead port. See `docs/qa/FINDINGS.md`'s SX-16.
+**An ephemeral-port node's reported address is unusable.** The `Location` handed to
+`PravahaFlightSqlProducer` (`PravahaFlightServer.java:229-234`) is built from the *requested* host
+and port, so a node started with `--pravaha.flight.port=0` advertises port `0` to `getFlightInfo`
+callers and a client following the endpoint it was just handed dials a dead port. The scheme half of
+`docs/qa/FINDINGS.md`'s SX-16 has since been fixed: that `Location` is `forGrpcTls` when a
+certificate is configured and `forGrpcInsecure` otherwise, so the transport it reports is now
+correct. There is no `PravahaFlightServer.location()` method — `location` is a private field; the
+public accessors are `port()`, `uri()`, `catalog()` and `isEncrypted()`.
 
 **Several TLS certificate/key misconfigurations are not caught at startup.** A cert and key that are
 each individually valid but do not match each other lets the node start and report

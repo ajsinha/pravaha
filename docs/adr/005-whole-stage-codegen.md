@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **partly built** — codegen exists, but `AdaptiveStage` and `StageUpgradeService` are constructed from nothing in any `src/main`, so a server never upgrades a stage |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 
