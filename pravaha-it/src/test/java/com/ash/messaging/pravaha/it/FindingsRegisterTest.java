@@ -52,7 +52,7 @@ class FindingsRegisterTest {
      * <p>A ratchet, not a target. Lower it as findings are triaged; it may never be raised, which is
      * what stops the register sliding back into a pile of prose. It started at 108.
      */
-    private static final int UNTRIAGED_CEILING = 13;
+    private static final int UNTRIAGED_CEILING = 0;
 
     private static final Pattern HEADING = Pattern.compile("^#{2,3} ((?:[A-Z]+-\\d+|[A-Z]-\\d+))([^\\n]*)$");
 
