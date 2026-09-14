@@ -1150,3 +1150,32 @@ test harness of its own — would hit the identical crash.
 
 ---
 
+
+## X-8 (HIGH) — `PRV-2061` (parameter arity mismatch) is unreachable through the shipped SDK/CLI
+
+`BoundParameters.requireArity` throws a well-designed `PravahaException(SqlErrors.PARAMETER_ARITY,
+...)` — code `2061`, correct singular/plural handling — but no user of the Java Flight SDK or the CLI
+ever sees it. `sdk/pravaha-sdk-java-flight/.../Parameters.write` duplicates the arity check
+**client-side** before a prepared statement is ever executed, and on a mismatch throws its own
+`PravahaClientException(ClientErrors.QUERY_REFUSED, "this statement has N placeholder(s) and M
+value(s) was/were given", ...)` — the identical wording, but wrapped in the generic client code
+(`PRV-1041`) instead of server-emitted `PRV-2061`. `PARAMETER_NOT_BOUND` (`2060`, thrown by
+`BoundParameters.at` when an index is out of range) has no such client-side duplicate and does reach
+the caller with its real code intact (`PRV-1041  PRV-2060  ...`). Confirmed with all four shapes:
+too few values, too many values, zero placeholders with a value bound, and zero values bound — the
+first three all say only `PRV-1041`; only the last (no `--params` at all, a different code path) says
+`PRV-2060`. A user who searches the documented error table for `2061` finds nothing that ever
+happened to them. (SQLX-158, SQLX-159)
+
+## X-9 — `PRV-2063` only fires for a parameter embedded in a typeable expression, not for a bare one
+
+The case files (SQLX-160, SQLX-161, and by inheritance ADR-032's own table) assume every "not in a
+WHERE clause" placement — select list, `GROUP BY` key, window size, an unadorned `SELECT ?` — reaches
+`ParameterMetadata.collect`'s refusal, `PRV-2063`. In practice a **bare**, unadorned `?` with no
+surrounding operator (`SELECT ?`, `GROUP BY ?`, a `TUMBLE(..., ?)` window-size argument) is refused
+by Calcite's own validator first — `PRV-2002  Illegal use of dynamic parameter` — because Calcite
+cannot infer any type for a standalone parameter and refuses before planning ever reaches Pravaha's
+code. `PRV-2063` only fires when the `?` sits inside an expression Calcite *can* type locally
+(`amount * ?`, `CASE WHEN amount > ? THEN ...`) but that expression is outside a `WHERE`/`HAVING`
+filter. Two different codes, two different messages, for what ADR-032's table presents as one
+uniform rule. (SQLX-160, SQLX-161)

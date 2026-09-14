@@ -82,6 +82,21 @@ class SqlxMultiStreamTest {
         }
     }
 
+    /**
+     * Builds and binds the plan with a genuine Java value (not a CLI string, which is what
+     * SQLX-157 needs: {@code --params} can only ever hand the server a STRING).
+     */
+    private static String bindingRefusalOf(String sql, Object... values) {
+        try {
+            new PhysicalPlanBuilder()
+                    .bind(com.ash.messaging.pravaha.sql.plan.BoundParameters.of(values))
+                    .build(SqlPlanner.withStreams(txn(), other(), third()).plan(sql));
+            return null;
+        } catch (RuntimeException e) {
+            return String.valueOf(e.getMessage()).replace('\n', ' ');
+        }
+    }
+
     // ===========================================================================================
     // SQLX-009, SQLX-012: aliasing and duplicate columns across streams -- these plan and must be
     // checked for shape, not refusal, so they get their own small assertions rather than the
@@ -198,6 +213,31 @@ class SqlxMultiStreamTest {
                 .startsWith("PRV-2020")
                 .contains("LogicalValues");
         assertThat(refusalOf("VALUES (1), (2)")).startsWith("PRV-2020").contains("LogicalValues");
+    }
+
+    // ===========================================================================================
+    // SQLX-157: a bound value of the wrong Java type. The CLI's --params only ever produces
+    // Strings, so this needs a genuine bind() call with a real Boolean/Integer/byte[].
+    // ===========================================================================================
+
+    @Test
+    void aBoundValueOfTheWrongTypeIsRefusedWithACodeNamingThePlaceholderAndTheType() {
+        // A Boolean where the query needs STRING.
+        assertThat(bindingRefusalOf("SELECT txn_id FROM txn WHERE user_id = ?", Boolean.TRUE))
+                .startsWith("PRV-2062")
+                .contains("?1");
+        // A String where the query needs INT64.
+        assertThat(bindingRefusalOf("SELECT txn_id FROM txn WHERE amount = ?", "not a number"))
+                .startsWith("PRV-2062")
+                .contains("?1");
+        // A byte[] where the query needs INT64.
+        assertThat(bindingRefusalOf("SELECT txn_id FROM txn WHERE amount = ?", (Object) new byte[] {1, 2, 3}))
+                .startsWith("PRV-2062")
+                .contains("?1");
+        // The control: checkAssignable deliberately accepts a boxed Integer for a FLOAT64
+        // placeholder (a type rule, not a class-identity rule) -- this must NOT be refused.
+        assertThat(bindingRefusalOf("SELECT txn_id FROM txn WHERE price = ?", 1))
+                .isNull();
     }
 
     // ===========================================================================================

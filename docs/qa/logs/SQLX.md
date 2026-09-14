@@ -553,11 +553,110 @@ Control `SELECT SUM(amount) FROM txn` (a real global aggregate) plans. `ROW_NUMB
 (...)` → `PRV-2021`, names `LAG`. `SUM(amount) OVER (...)` → `PRV-2021` (the expression path, not the
 aggregate path — recorded, since the case flags this as the one worth checking).
 
-## §8 onward
+## §8 — Parameters (SQLX-147 … SQLX-162)
 
-Not executed this session. `docs/qa/cases/SQLX.md` §8 (parameters, SQLX-147…162), §9 (hostile SQL,
-SQLX-163…182) and §10 (the matrix's own self-checks, SQLX-183…190), plus SQLX-132, are **NOT RUN**.
-Continuing against this same harness set.
+Run through H-VIEW (`--params` over the running `v_txn`) except SQLX-157, which needs a genuine
+non-String Java value the CLI cannot bind — added as a fourth test in `SqlxMultiStreamTest`
+(`bindingRefusalOf`, `PhysicalPlanBuilder.bind(BoundParameters.of(...))`); 14/14 green.
+
+### SQLX-147 — PASS
+`WHERE user_id = ?` bound to `u1` and the literal `WHERE user_id = 'u1'` both return `{1, 3}`.
+`--params u2` returns `{2, 5}` in the same session — the parameter is read, not ignored.
+
+### SQLX-148 — PASS
+All six operators against `amount`, `--params 7`: `=`→2, `<>`→4, `<`→2, `<=`→4, `>`→2, `>=`→4.
+Three-way partition `(< 7) + (= 7) + (> 7) = 2 + 2 + 2 = 6`.
+
+### SQLX-149 — PASS
+`? > amount` and its mirror `amount < ?`, `--params 7`, both return `{3, 4}` (`-50`, `0`) — not
+`{1, 2}`. The reverse form `? < amount` returns `{1, 2}` in the same session, confirming `flip(op)`.
+
+### SQLX-150 — PASS
+`IN (?, ?) --params u1,u3` → `{1, 3, 4}` (3 rows). `IN (?, ?, ?) --params u1,u3,nobody` → the same
+3 rows. `--params u1,u1` → `{1, 3}` (2 rows, no duplicate).
+
+### SQLX-151 — PASS
+`BETWEEN ? AND ? --params 0,100` → `{1, 4, 5, 6}` (4 rows). `--params 100,0` (swapped) → **0 rows**
+— the asymmetry proves the positions are not swapped internally.
+
+### SQLX-152 — PASS
+`amount > ? AND flagged --params 0` → `{1, 6}` (2 rows). `amount > ? OR flagged --params 100` →
+`{1, 2, 4, 6}` (4 rows). `NOT (amount > ?) --params 0` → `{3, 4}` (2 rows), not including r1.
+
+### SQLX-153 — PASS
+`GROUP BY user_id HAVING COUNT(*) > ?`: `--params 0` → 4 groups; `--params 1` → 2 (`u1`, `u2`);
+`--params 2` → 0. `4 → 2 → 0` confirmed across three bindings in one session.
+
+### SQLX-154 — PASS
+`user_id = ? AND status = ? --params u1,ok` → `{1, 3}` (2 rows). `--params ok,u1` (swapped) →
+**0 rows** — both STRING, so a reversed application would give 2 for both; it does not.
+
+### SQLX-155 — PASS
+Two `?` tokens, `--params 7,7` → `{5, 6}` (2 rows; `count() == 2` behaves as expected). One value
+for two tokens is covered by SQLX-158 below (same query). `--params -50,250` → all 6 rows.
+
+### SQLX-156 — PASS, with the CLI limitation the case itself asks to be recorded
+`WHERE status = ?` cannot be bound to NULL through `--params` (a CLI string can't express NULL
+distinctly from the empty string) — recorded, matching the case's own instruction. `WHERE status IS
+NULL` (the contrast) → 1 row, `txn_id 2`, with the view confirmed at 6 rows immediately before.
+The NULL-bound half is **NOT RUN** (no CLI surface); would need the Flight SDK's prepared-statement
+API directly, not attempted this session.
+
+### SQLX-157 — PASS
+`SqlxMultiStreamTest.aBoundValueOfTheWrongTypeIsRefusedWithACodeNamingThePlaceholderAndTheType`:
+a `Boolean` bound to a STRING placeholder, a `String` bound to an INT64 placeholder, and a `byte[]`
+bound to an INT64 placeholder all refuse `PRV-2062`, each naming `?1`. Control: a boxed `Integer`
+bound to a FLOAT64 placeholder is **accepted** (`checkAssignable` is a type rule, not a
+class-identity rule) — confirms `SUM`-style numeric widening applies to parameter binding too.
+
+### SQLX-158 — **FAIL — new finding, see X-8 below**
+`WHERE user_id = ? AND amount > ?` with one value (`--params u1`) → `PRV-1041  this statement has 2
+placeholders and 1 value was given` — **no `PRV-2061` anywhere in the message.** With **no**
+`--params` at all → `PRV-1041  PRV-2060  this statement uses ?1 but only 0 values were bound...` —
+here the code **is** present. The two sibling refusals behave differently through the same CLI path.
+
+### SQLX-159 — **FAIL — same finding as SQLX-158**
+`WHERE user_id = ? --params u1,extra` → `PRV-1041  this statement has 1 placeholder and 2 values
+were given` — again no `PRV-2061`. Zero-placeholder query with `--params u1` →
+`PRV-1041  this statement has 0 placeholders and 1 value was given` — same gap.
+
+### SQLX-160 — **FAIL against its own "PRV-2063 on all three" Expected**
+`SELECT amount * ? FROM v_txn --params 2` → `PRV-2063`, as expected (the placeholder sits inside an
+arithmetic expression Calcite can type). `SELECT CASE WHEN amount > ? THEN 1 ELSE 0 END FROM v_txn`
+→ also `PRV-2063`, as expected. But `SELECT ? FROM v_txn --params 1` (a **bare**, unadorned
+placeholder as the sole select item) → `PRV-2002  Illegal use of dynamic parameter` — Calcite's own
+validator refuses it before `ParameterMetadata` is ever reached, because a standalone `?` has no
+local type context to infer from. Different code than the other two, and than the case's stated
+"Expected" for all three.
+
+### SQLX-161 — **FAIL against its own "(a),(b),(d) → PRV-2063" Expected, for the same reason as 160**
+(a) `?` as a `TUMBLE` window size → `PRV-2002  Illegal use of dynamic parameter`, not `PRV-2063`.
+Control (`INTERVAL '10' SECOND` literal) plans in the same session. (b) `GROUP BY ?` →
+`PRV-2002  Illegal use of dynamic parameter`, not `PRV-2063`. (c) `SELECT * FROM ?` →
+`PRV-2001` (a parse error, "Encountered \"?\" at line 1, column 15... Was expecting... TABLE...") —
+matches the case's expectation exactly. (d) `SELECT ?, COUNT(*) FROM v_txn GROUP BY user_id` →
+`PRV-2002  Illegal use of dynamic parameter`, not `PRV-2063`. **Consistent pattern across 160/161**:
+a bare, standalone `?` with no surrounding operator is refused by Calcite's validator (`PRV-2002`)
+before Pravaha's own `ParameterMetadata.collect` — which is what produces `PRV-2063` — ever runs.
+`PRV-2063`'s own mechanism only fires for a `?` embedded inside an expression the validator *can*
+type (arithmetic, comparison, `CASE` condition) but that sits outside a `WHERE`/`HAVING` filter.
+The case's premise that all "not a WHERE clause" positions share one code does not hold.
+
+### SQLX-162 — PARTIAL — the "reported, not silent" claim is confirmed false
+Registered both of ADR-032's example shapes (`v_txn`-style TUMBLE with and without `user_id` in the
+`GROUP BY`) via `pravaha register`. `pravaha queries` reports only `NAME/STATE/FINGERPRINT/ROWS IN`
+— **no `TAP`/`REGISTRATION` classification appears anywhere**, not in the CLI output and not in the
+server log. Confirms the case's own anticipated finding: ADR-032 promises the classification "is
+reported rather than done quietly", and it reaches no shipped surface — the same shape as `FINDINGS`
+I-6. Not independently re-verified via H-MTX that `ParameterPlacement.of` itself correctly
+distinguishes the two internally (i.e. whether the *logic* is right, only that its *result* is never
+surfaced) — that half is **NOT RUN**.
+
+## §9 onward
+
+Not executed this session. `docs/qa/cases/SQLX.md` §9 (hostile SQL, SQLX-163…182) and §10 (the
+matrix's own self-checks, SQLX-183…190), plus SQLX-132, are **NOT RUN**. Continuing against this
+same harness set.
 
 ---
 
