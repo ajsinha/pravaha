@@ -453,7 +453,7 @@ Test class: `LifeFailureTest`.
 
 | Verdict | Count | Cases |
 |---|---|---|
-| PASS | 112 | every case not listed in the four rows below (§10's doc-rot note on LIFE-084 is recorded within its PASS, not counted as a FAIL; §16's encoding-collision caveat is likewise within LIFE-016's PASS) |
+| PASS | 112 | every case not listed in the four rows below (§10's doc-rot note on LIFE-084 is recorded within its PASS, not counted as a FAIL; LIFE-016's encoding-collision caveat is likewise within its own PASS) |
 | FAIL (case stale, product correct — L-2, L-5) | 2 | 011, 013 |
 | FAIL (product defect) | 4 | 048, 057, 130 (L-1), 081 (L-3) |
 | PARTIAL (by-name half only; in-process half unreachable, package-private) | 2 | 047, 058 |
