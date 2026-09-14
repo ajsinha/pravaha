@@ -313,13 +313,106 @@ SQLX-009 and SQLX-012 need H-MTX with a second/third stream registered (`OTHER`,
 which the CLI cannot express. Not reached this session; recorded **NOT RUN** above rather than
 guessed.
 
-## §4 onward
+## §4 — Aggregation, GROUP BY, HAVING, and the stream/view split (SQLX-097 … SQLX-120)
 
-Not executed this session. `docs/qa/cases/SQLX.md` §4 (aggregation, SQLX-097…120), §5 (ORDER
-BY/LIMIT/OFFSET, SQLX-121…126), §6 (set operations, SQLX-127…134), §7 (derived tables/CTEs,
-SQLX-135…141), §7b (subqueries, SQLX-142…146), §8 (parameters, SQLX-147…162), §9 (hostile SQL,
-SQLX-163…182) and §10 (the matrix's own self-checks, SQLX-183…190) are **NOT RUN**. Continuing
-against this same harness set.
+SQLX-100, 101, 102, 104, 105, 110, 111, 116, 117, 118 are already made executable in
+`pravaha-it/.../qa/sql/SqlAnswerTest.java` (`everyWindowedCaseProducesItsHandComputedWindows`,
+`everyBoundedReadCaseProducesItsHandComputedGroups`), which I re-ran to confirm green
+(`./mvnw -o -pl pravaha-it test -Dtest=SqlAnswerTest`, exit 0) rather than duplicate by hand; those
+tests assert the exact hand-computed values these cases describe and are cited as their evidence.
+The rest run directly below.
+
+### SQLX-097 — PASS
+`SELECT COUNT(*) AS n FROM txn` → one row, `6`. `ok 6 in, 1 out`.
+
+### SQLX-098 — PASS
+`SELECT COUNT(*) AS a, COUNT(status) AS b, COUNT(user_id) AS c FROM txn` → one row `6,5,6`.
+
+### SQLX-099 — PASS
+H-VIEW: `SELECT user_id, COUNT(*) AS a, COUNT(status) AS b FROM v_txn GROUP BY user_id` →
+`u1 2,2` / `u2 2,1` / `u3 1,1` / `ünïcødé 1,1`. u2's `2 ≠ 1` is the assertion; `KeyedAggregate`
+correctly excludes r2's NULL status from `COUNT(status)`.
+
+### SQLX-103 — PASS
+H-VAL: windowed `GROUP BY user_id` (omitting the boundaries) → `PRV-2050  this GROUP BY is over a
+windowed stream but does not group by the window: add window_start and window_end to the GROUP BY...`
+
+### SQLX-106 — PASS, and a second confirmed reproduction of Q-10's shape
+`SELECT AVG(amount) AS av, SUM(amount) AS s, COUNT(*) AS n FROM txn` with `av:INT64` → `52,314,6`
+(`314/6` truncated). With `av:FLOAT64` declared over the identical plan (whose real output type is
+INT64, since the accumulators are integer throughout) → **`2.57E-322`** — not `52.333...`, not `52`:
+the raw 8-byte long `52` reinterpreted as IEEE-754 double bits (`Double.longBitsToDouble(52L)` is
+exactly this order of magnitude). A sharper reproduction of Q-10 than the case even predicted
+("either 52 or 52.333... — if the FLOAT64 spelling differs, that is Q-10's shape"): the actual output
+is neither candidate, it is bit-garbage. Same defect as SQLX-037, different aggregate.
+
+### SQLX-107 — PASS, and a probable correction to Q-6's windowed half
+`SELECT window_start, COUNT(DISTINCT user_id) AS d, COUNT(*) AS n FROM TABLE(TUMBLE(...))
+GROUP BY window_start, window_end` → W1 `d=3, n=4` (**3≠4**, r1 and r3 both `u1`), W2 `d=2, n=2`.
+Completed in 0.7 seconds (`time` wrapped), not a five-minute stall. Q-6 records this path as hanging
+five minutes; could not reproduce — noted alongside the other corrections below.
+
+### SQLX-108 — PASS, and a probable correction to Q-6's view half
+H-VIEW: global `SELECT COUNT(DISTINCT user_id) AS d, COUNT(*) AS n FROM v_txn` → `4,6`. Keyed
+`SELECT status, COUNT(DISTINCT user_id) AS d FROM v_txn GROUP BY status` → `ok→3`, `NULL→1`,
+`flagged→1`. Neither refused, and `3+1+1=5≠4` (a per-group distinct count correctly does not sum to
+the global one). Q-6 records the view path as refused; not reproduced.
+
+### SQLX-109 — PASS
+H-VIEW: `SELECT COUNT(DISTINCT status) AS d, COUNT(DISTINCT user_id) AS u FROM v_txn` → `2,4`.
+`status` has 3 distinct values including NULL (SQLX-025); excluding NULL leaves 2 — `COUNT(DISTINCT)`
+correctly does not count it.
+
+### SQLX-112 — PASS
+H-VAL, all three of `GROUPING SETS`, `CUBE(user_id,status)`, `ROLLUP(user_id,status)` →
+`PRV-2020  GROUPING SETS, CUBE and ROLLUP are not supported yet` (44 characters, confirmed — no
+alternative offered, unlike every other refusal in this engine).
+
+### SQLX-113 — PASS
+H-VAL: `SUM(price)`, `MIN(price)`, `MAX(price)`, `AVG(price)` (windowed) → all four
+`PRV-2020  <FN>(price) is over a FLOAT64 column, and this engine's aggregates accumulate in 64-bit
+integers only... Cast the column to an integer if the rounding is acceptable --
+SUM(CAST(price AS BIGINT))...` — kind and column both named. Controls `COUNT(price)` and
+`COUNT(DISTINCT price)` plan; over the view, `COUNT(price)=6`, `COUNT(DISTINCT price)=6`
+(all six prices distinct).
+
+### SQLX-114 — **FAIL — reconfirms a known round-2 finding (`FINDINGS.md` line 138)**
+All twelve combinations (`{SUM,MIN,MAX,AVG} × {i8,i16,i32}`, windowed over Fixture S2) fail
+identically in shape:
+```
+PRV-3010  lane 0 stopped after a failure: java.lang.IllegalArgumentException: field 2 ('EXPR$1')
+is INT8, not INT64 in schema allt_projected_windowed_projected_aggregated
+```
+(and `INT16`/`INT32` respectively). Exactly the case's own Falsifier: an internal schema name
+(`allt_projected_windowed_projected_aggregated`) leaked to the user, wrapped in `PRV-3010`'s generic
+"lane stopped" framing rather than a targeted refusal with advice, unlike SQLX-113's FLOAT64 case.
+Already known — round 2's "Float aggregates" table row in `FINDINGS.md` — reconfirmed here across
+all 12 of the case's enumerated combinations rather than the general claim.
+
+### SQLX-115 — PASS
+H-VAL: `GROUP BY user_id` and `GROUP BY user_id, status` over a stream → both `PRV-2050`, naming
+`GROUP BY user_id` / `GROUP BY user_id, status` by name (not `[1]`), each with the suggested rewrite
+and the "Refusing now rather than exhausting memory later" closing line, length > 40.
+
+### SQLX-119 — PASS (this *is* the documented finding, confirmed)
+H-RUN `SELECT user_id, COUNT(*) FROM txn GROUP BY user_id` over `in.csv` (six lines, as bounded as an
+input gets) → `PRV-2050`, refused exactly as over an endless stream. The identical statement over
+`v_txn` (SqlAnswerTest / H-VIEW, SQLX-116) answers correctly. Confirms `QueryRunner.run` never calls
+`.overBoundedInput()`, so a finite file is a stream for refusal purposes — the asymmetry the case
+exists to pin, not a new discovery.
+
+### SQLX-120 — PASS
+H-VAL: `TABLE(SESSION(...))` grouped by the boundaries → `PRV-2020  SESSION windows exist in the
+runtime but are not wired to SQL yet: ... Use TUMBLE or HOP.` `GROUP BY SESSION(event_time,
+INTERVAL '5' SECOND)` → `PRV-2020  GROUP BY SESSION is not supported; use TUMBLE or HOP`. Both name
+the alternative.
+
+## §5 onward
+
+Not executed this session. `docs/qa/cases/SQLX.md` §5 (ORDER BY/LIMIT/OFFSET, SQLX-121…126), §6 (set
+operations, SQLX-127…134), §7 (derived tables/CTEs, SQLX-135…141), §7b (subqueries, SQLX-142…146),
+§8 (parameters, SQLX-147…162), §9 (hostile SQL, SQLX-163…182) and §10 (the matrix's own self-checks,
+SQLX-183…190) are **NOT RUN**. Continuing against this same harness set.
 
 ---
 

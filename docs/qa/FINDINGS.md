@@ -1009,7 +1009,7 @@ meant to represent 1 and 2 hours after midnight. A user cannot work around it by
 own units either — comparing the column to a bare integer is separately refused by Calcite
 (`PRV-2002`, `TIME(0) = INTEGER`). **OPEN.**
 
-## X-2 — probable corrections to Q-5, Q-7 and Q-11 (round 1), not yet confirmed against a commit
+## X-2 — probable corrections to Q-5, Q-6, Q-7 and Q-11 (round 1), not yet confirmed against a commit
 
 Executing SQLX-038, SQLX-039 and SQLX-040 against the current build ran the exact SQL each of Q-11
 (unary minus refused with a self-contradictory message), Q-5 (integer division by zero hangs five
@@ -1019,10 +1019,13 @@ ten out of ten runs for Q-7's non-determinism claim specifically. `SELECT -amoun
 computes the exact negation. `SELECT 100 / amount FROM txn` over a zero divisor fails in ~1.4 seconds
 with `PRV-3010` naming the division. `SELECT amount * 2 FROM txn` over `Long.MAX_VALUE` fails
 identically ten times with `PRV-3010` naming the overflow, never `-2` (the wrap-around value) and
-never a hang. Not edited into the Q-5/Q-7/Q-11 rows directly because I have not traced a commit that
-fixes them and it is possible the round that recorded them ran against a different build. Whoever
-next touches this file should confirm and mark them fixed, or explain the discrepancy. Full
-reproduction in `docs/qa/logs/SQLX.md` under SQLX-038/039/040.
+never a hang. SQLX-107 and SQLX-108 similarly ran `COUNT(DISTINCT user_id)` windowed and over a view
+— Q-6's two halves ("hangs five minutes over a stream and is refused over a view") — and got a
+correct, prompt (0.7s) answer on the windowed path and an unrefused, correct answer over the view.
+Not edited into the Q-5/Q-6/Q-7/Q-11 rows directly because I have not traced a commit that fixes them
+and it is possible the round that recorded them ran against a different build. Whoever next touches
+this file should confirm and mark them fixed, or explain the discrepancy. Full reproduction in
+`docs/qa/logs/SQLX.md` under SQLX-038/039/040/107/108.
 
 ## X-3 — `SqlSupportMatrixTest`'s corruption path, reconfirmed with the exact byte mechanism
 
