@@ -147,18 +147,18 @@ class StateFailureReportingTest extends StateTestSupport {
             // Confirmed directly: chmod'ing the leaf keeps checkpoints succeeding.
             chmod(root.resolve("w"), "r-x------");
             sleepMillis(400);
-            // A second, independent finding while writing this case (FINDINGS.md ST-4):
-            // checkpointFailures()/lastCheckpointFailure() do not count failures specifically -- they
-            // count every log line PeriodicCheckpointer emits, because QueryRegistry wires
-            // query::recordCheckpointFailure as the *general* log consumer (:503), not a
-            // failure-only callback. Since the leaf-chmod self-heals and every attempt here actually
-            // succeeds, the "failure" counter still climbs, and "last failure" holds a success line.
-            assertThat(q.checkpointFailures()).isGreaterThan(0);
+            // ST-4, found while writing this case and fixed since: the counter used to count every
+            // line PeriodicCheckpointer logged, because the registry wired
+            // query::recordCheckpointFailure as the *general* log consumer rather than a
+            // failure-only one. The leaf-chmod self-heals, so every attempt in this window actually
+            // succeeds -- which makes it the window that tells the two apart. A counter of log lines
+            // climbs here; a counter of failures does not.
+            assertThat(q.checkpointFailures())
+                    .as("every store() in this window succeeded, so nothing has failed to count")
+                    .isZero();
             assertThat(q.lastCheckpointFailure())
-                    .as("checkpointFailures()/lastCheckpointFailure() are mislabeled: this holds a "
-                            + "*success* line, because every store() here actually succeeded")
-                    .isPresent()
-                    .hasValueSatisfying(msg -> assertThat(msg).matches("checkpoint \\d+ stored, \\d+ bytes"));
+                    .as("and there is no last failure to name")
+                    .isEmpty();
             chmod(root.resolve("w"), "rwx------");
 
             // What genuinely blocks a store(): removing traversal on the checkpoint *root*, which

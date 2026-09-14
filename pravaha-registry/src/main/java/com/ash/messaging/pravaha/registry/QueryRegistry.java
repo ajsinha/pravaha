@@ -491,16 +491,21 @@ public final class QueryRegistry implements AutoCloseable {
         String directory = checkpointDirectoryFor(name);
         com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer checkpointer =
                 com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer.from(
-                        execution,
-                        new com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore(
-                                checkpointRoot.resolve(directory)),
-                        checkpointConfiguration,
-                        // Not a no-op. PeriodicCheckpointer reports every failure rather than the
-                        // first, precisely so that a query which has silently not checkpointed for
-                        // six hours does not look like one that has -- and then the registry threw
-                        // each report away, which produced exactly that. Recorded on the query, so
-                        // an operator asking about it gets an answer.
-                        query::recordCheckpointFailure);
+                                execution,
+                                new com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore(
+                                        checkpointRoot.resolve(directory)),
+                                checkpointConfiguration,
+                                // The narrative channel: start-up line, a line per success, a line per
+                                // failure. Not the failure counter -- wiring the counter here counted all
+                                // three, so a query whose checkpoints were all succeeding reported a rising
+                                // failure count and named a success as its last failure.
+                                message -> {})
+                        // Failures only. PeriodicCheckpointer reports every one rather than the first,
+                        // precisely so that a query which has silently not checkpointed for six hours does
+                        // not look like one that has -- and the registry used to throw each report away,
+                        // which produced exactly that. Recorded on the query, so an operator asking about
+                        // it gets an answer.
+                        .reportingFailuresTo(query::recordCheckpointFailure);
         checkpointer.start();
         query.checkpointWith(checkpointer);
     }

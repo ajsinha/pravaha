@@ -72,6 +72,19 @@ public final class PeriodicCheckpointer implements AutoCloseable {
     private final Duration timeout;
     private final int keep;
     private final Consumer<String> log;
+
+    /**
+     * Where failures go, separately from the narrative.
+     *
+     * <p>{@code log} carries three different kinds of line -- the one-off "checkpointing every
+     * ...ms" at {@link #start()}, a "checkpoint N stored" per success, and a "checkpoint failed"
+     * per failure -- and a caller that wanted only the third had no way to ask for it. The registry
+     * wired a failure counter to {@code log} and counted all three, so a query whose checkpoints
+     * were all succeeding reported a rising failure count and held a success message as its "last
+     * failure". A count of log lines is not a count of failures.
+     */
+    private volatile Consumer<String> onFailure = message -> {};
+
     private final ScheduledExecutorService scheduler;
     private final AtomicLong nextId = new AtomicLong(1);
     private final AtomicLong taken = new AtomicLong();
@@ -127,6 +140,18 @@ public final class PeriodicCheckpointer implements AutoCloseable {
     }
 
     /** Starts the schedule. The first checkpoint is one interval away, not immediate. */
+    /**
+     * Sends every checkpoint failure, and nothing else, to {@code consumer}.
+     *
+     * <p>Returns {@code this} so it can be chained onto a constructor or {@link #from}. Failures
+     * continue to reach {@code log} as well: this is an additional channel, not a redirection, so
+     * an operator reading the narrative still sees them in order against the successes.
+     */
+    public PeriodicCheckpointer reportingFailuresTo(Consumer<String> consumer) {
+        this.onFailure = consumer == null ? message -> {} : consumer;
+        return this;
+    }
+
     public void start() {
         if (!running.compareAndSet(false, true)) {
             return;
@@ -161,8 +186,10 @@ public final class PeriodicCheckpointer implements AutoCloseable {
             failed.incrementAndGet();
             // Reported every time, not once: a query that has silently not checkpointed for six
             // hours looks exactly like one that has.
-            log.accept("checkpoint failed (" + failed.get() + " so far): " + failure.getMessage()
-                    + ". Recovery will fall back to the newest stored checkpoint, which is getting older");
+            String message = "checkpoint failed (" + failed.get() + " so far): " + failure.getMessage()
+                    + ". Recovery will fall back to the newest stored checkpoint, which is getting older";
+            log.accept(message);
+            onFailure.accept(message);
         }
     }
 

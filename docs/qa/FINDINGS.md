@@ -1692,7 +1692,7 @@ Confirmed for the journal too: `StateJournalTest.state073` shows the identical s
 0500") had to move one level up (the directory's *parent*) for the same reason.
 
 ### ST-4 (MEDIUM) — `checkpointFailures()`/`lastCheckpointFailure()` count every checkpoint log line, not failures
-> **Status:** OPEN — `QueryRegistry.startCheckpointing` still wires `query::recordCheckpointFailure` as `PeriodicCheckpointer`'s general `log` consumer with no filtering; `StateFailureReportingTest#state044` passes while asserting `checkpointFailures()` climbs above 0 and `lastCheckpointFailure()` holds a success message during an all-succeeding run
+> **Status:** FIXED — `PeriodicCheckpointer.reportingFailuresTo(Consumer<String>)` is now a failure-only channel and `QueryRegistry.startCheckpointing` wires `query::recordCheckpointFailure` to it, passing a no-op for the narrative `log`. `StateFailureReportingTest#state044` now asserts `checkpointFailures()` is zero and `lastCheckpointFailure()` is empty during the all-succeeding window; seed-proven — restoring the old wiring fails it with `expected: 0L`.
 
 
 `QueryRegistry.startCheckpointing` wires `query::recordCheckpointFailure` as `PeriodicCheckpointer`'s
