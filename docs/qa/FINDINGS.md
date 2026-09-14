@@ -3533,6 +3533,8 @@ See `docs/qa/logs/CFG.md` (CFG-020, CFG-021, CFG-100, CFG-101).
 
 > **Status:** OPEN — reproduced live with two real nodes: `node-a` (18800/19800) and `node-b` (18801/19801), different `pravaha.node.id`, different journals, the same `pravaha.checkpoint.directory`, each registering a view called `QW`. After 22 s the shared root contained exactly one subdirectory, `QW/`, holding `checkpoint-10.bin`, `checkpoint-11.bin`, `checkpoint-12.bin`.
 
+**Scope decision:** deferred to Wave 8 (cluster and HA) rather than patched here. Both plausible fixes have an operational cost that only the HA design can weigh: namespacing the directory by node id silently orphans every checkpoint an existing deployment already holds, and an exclusive lock has to decide what a *stale* lock after a crash means -- refusing to start is a worse failure than the one being prevented. It is a node-ownership policy, and Wave 8 is where node ownership is defined.
+
 `application.yaml` argues at length that each query checkpoints into its own directory beneath the
 root so that pruning is per query. It does not address two *nodes*, and nothing in the path
 construction distinguishes them: the subdirectory is the view name. With `keep: 3` and
@@ -3550,6 +3552,8 @@ See `docs/qa/logs/CFG.md` (CFG-098).
 ### CFG-14 (HIGH) — two nodes sharing one registry journal take no lock, and each recovers the other's registrations as its own
 
 > **Status:** OPEN — reproduced live: `node-a` registered `QA1` and `QA2`, `node-b` registered `QB1`, both appending to one `pravaha.registry.journal` file; on restart `node-a` logged `registry recovered 3 of 3 queries` and `pravaha queries` listed `QA1`, `QA2` **and** `QB1`.
+
+**Scope decision:** deferred to Wave 8 (cluster and HA), with CFG-13, for the same reason. `RegistryJournal` holds no long-lived handle -- it opens a channel per append -- so a `FileLock` means making it closeable and tying its lifetime to the node's, which is a lifecycle question the HA work settles. The interim mitigation is documentation: nothing in `PersistenceProperties` or `PravahaNode` warns that a journal must not be shared, and that warning costs nothing.
 
 `RegistryJournal.append` is `synchronized` on its own instance and takes no `FileLock`, so nothing
 prevents two JVMs appending to one path — and nothing in `PersistenceProperties` or `PravahaNode`
