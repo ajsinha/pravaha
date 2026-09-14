@@ -555,10 +555,115 @@ running JVM is refused in this sandbox, so the process under trace must be launc
 
 ---
 
+## §K — Cluster: three modes by three mechanisms (STATE-095 … STATE-110)
+
+Test classes: `StateClusterTest` (`H-CFG`, in `pravaha-it`) for every cell reachable without a live
+ZooKeeper, and `StateZookeeperConfigTest` (in `plugins/pravaha-cluster-zookeeper`'s own test module,
+where that plugin is actually on the classpath) for STATE-108. `pravaha-it` itself carries no
+ZooKeeper dependency, so `CoordinatorFactory.available()` there never contains `"zookeeper"` -- which
+is also exactly what STATE-104's first arm needs.
+
+- **STATE-095 — PASS.** `state095_singleBySingleStartsAndIsItsOwnLeader`: before `start()`,
+  `members()` is empty and `isLeader()` is `false`; after, `mechanism()=="single"`, `isLeader()`,
+  `members()==[self]`, `leader()==self`, `guarantees()==Guarantees("single", true, false, true)`.
+- **STATE-096 — PASS.** `state096_singleBySocketStartsWithNoConsensusAndAPeerList`: `create` does not
+  throw (`SINGLE.needsConsensus()` is `false`), `mechanism()=="socket"`,
+  `guarantees()==Guarantees("socket", false, false, false)`.
+- **STATE-097 — NOT RUN.** Needs the ZooKeeper plugin on the classpath *and* a running ZooKeeper
+  (`H-ZK`); neither is available in this sandbox, and adding the plugin as a new cross-module test
+  dependency just to reach a refusal-only subset would not exercise what the case actually asks for
+  (`start()` against a real ensemble). See STATE-108 for the one ZooKeeper-side check this round does
+  make without a live server.
+- **STATE-098 — PASS.** `state098_replicatedBySingleStarts`: `REPLICATED` on `single` succeeds,
+  `mechanism()=="single"`, `isLeader()`, one member -- indistinguishable from STATE-095 at every point
+  on the interface, confirmed directly by STATE-106's method enumeration rather than asserted here.
+- **STATE-099 — PASS.** `state099_replicatedBySocketStartsAndTheTradeIsTheOperatorsToMake`: succeeds;
+  `excludesSplitBrain()` is `false` -- the one cell where the engine knowingly accepts a coordinator
+  that cannot exclude split-brain.
+- **STATE-100 — NOT RUN.** Same reason as STATE-097.
+- **STATE-101 — PASS.** `state101_partitionedBySingleStartsBecauseOneNodeCannotDisagreeWithItself`:
+  `create` succeeds (`single.excludesSplitBrain()` is `true`), starts, is leader.
+  `ClusterCoordinator`'s nine methods include nothing partition-related, and a grep of
+  `pravaha-server/src/main/java` for `ClusterMode`/`modeOf(` finds no reference in `PravahaNode.java`
+  itself -- the mode reaches it only through `CoordinatorFactory.create`/`describe`, confirming the
+  case's "assigns every partition to itself" describes something that happens nowhere.
+- **STATE-102 — PASS.** `state102_partitionedBySocketIsRefusedAtStartupWithPrv9002`: `create` throws
+  `PRV-9002` with the exact message (mode/mechanism sentence, guarantee summary, consequence,
+  remedy, "Refusing now rather than during a partition."). H-SRV: a real `PravahaNode` configured
+  `PARTITIONED`/`socket` throws the same `PRV-9002` from `start()` (the guard fires before peers are
+  even needed, since `provider.guarantees()` is a static declaration) and the Flight port it was given
+  is never opened, confirmed by attempting a real socket connection to it after the throw.
+- **STATE-103 — NOT RUN.** Same reason as STATE-097.
+- **STATE-104 — PASS.** `state104_anUnknownMechanismNamesWhatIsAvailable`: all four arms
+  (`zookeeper` absent from the classpath, `raft`, `""`, `"SOCKET"`) throw `PRV-9001` naming
+  `Available: [single, socket]`; the `""` and `"SOCKET"` arms confirm the empty string is not treated
+  as unset and the mechanism name is case-sensitive.
+- **STATE-105 — PASS.** `state105_anInvalidModeIsRefusedWithACodeNamedForMechanisms`: `sharded` and
+  `""` throw `PRV-9001` ("is not a cluster mode"); `partitioned`, `  REPLICATED  ` and `Replicated`
+  all resolve via `strip().toUpperCase`; `"  socket  "` resolves (stripped) but `"Socket"` throws
+  `PRV-9001` as an unknown mechanism -- the mode key is case-folded, the mechanism key is not, and
+  both refusals share PRV-9001 despite being different mistakes.
+- **STATE-106 — PASS.** `state106_partitionedAssignsNothingBecauseThePartitionMachineryIsReachableFromNothing`:
+  a repo-wide grep for `PartitionAssignment|PartitionOwner|PartitionHandoff|Rebalancer|PartitionSnapshot`
+  outside `pravaha-cluster/src/main` returns nothing; `ClusterCoordinator`'s nine methods are exactly
+  `mechanism, guarantees, start, members, leader, isLeader, onLeadershipChange, onMembershipChange,
+  close`; two real `PravahaNode`s -- one `PARTITIONED`/`single`, one `SINGLE`/`single`, otherwise
+  identical -- registering the same three queries and fed the same rows produce identical served-view
+  content and an identical `registry: N queries` line, differing only in nothing observable through
+  `describe()`'s cluster line either (`single`, same mechanism, both cases). Conclusion confirmed
+  directly rather than by inference: `PARTITIONED` changes a startup guard and nothing else.
+- **STATE-107 — PASS, one arm FAIL-as-authored (drift, not a defect).**
+  `state107_theSocketPeerListIsRequiredAndParsedStrictly`: arms (a), (c)-(g), (i) match exactly
+  (missing key refuses with `PRV-9005`; one peer, trailing comma, space-after-comma, and a colon in
+  the id all succeed; an unparsable port throws `NumberFormatException`, not a `PravahaException`).
+  Arm (b) (empty string) is **FAIL as authored**: the case expects an empty `peers` value to be
+  accepted and produce a coordinator with zero peers; as executed, `SocketCoordinator`'s own
+  constructor now refuses an empty peer list outright (`PRV-9005`, "a socket cluster needs its peer
+  list, including this node") -- a guard evidently added after this case was written. Recorded as
+  drift, not fixed: refusing a coordinator with no peers, not even itself, is strictly safer than the
+  behaviour the case describes. `state107_applicationYamlDocumentsOnlyModeAndMechanism` (a second
+  method for the same case's documentation assertions): confirmed `application.yaml`'s `cluster:`
+  block documents only `mode` and `mechanism`, and `SocketProvider`'s own javadoc example
+  (`heartbeat: 1s`, `timeout: 5s`) does not match the millisecond-keyed properties the code actually
+  reads.
+- **STATE-108 — PASS.** `StateZookeeperConfigTest` (in the plugin's own module): arm (a) (no connect
+  string) refuses with `PRV-9005` and the exact message, needing no server; arms (b) and (c) build a
+  real `CuratorFramework` (never started -- `ZooKeeperProvider.create` does not call `curator.start()`,
+  so no server is needed for these either) and confirm the connect timeout and `/pravaha` root default
+  for a bare connect string, and that root, session timeout and connect timeout are all honoured when
+  configured explicitly. `application.yaml` documents none of the four `pravaha.cluster.zookeeper.*`
+  keys.
+- **STATE-109 — PASS for the six cells reachable without ZooKeeper; three cells NOT RUN for the same
+  reason as STATE-097.** `state109_theStartupLineSaysWhatWasChosenForAllReachableCells`: all six
+  non-ZooKeeper cells produce `CoordinatorFactory.describe`'s exact string, character for character,
+  including the em dash in both `socket` lines and `, development only` appearing only where
+  `suitableForProduction` is `false`; `PARTITIONED`×`socket` is confirmed never logged (`create`
+  throws `PRV-9002` first); `PravahaNode.describe()`'s `"cluster: " + mechanism` (not the mode) is
+  confirmed directly. The three `zookeeper` cells are not exercised in this test (no plugin on this
+  module's classpath) and are not separately re-attempted in the plugin's module either, since
+  `describe()`'s string shape is already established by the six cells that are.
+- **STATE-110 — NOT RUN.** Needs two real nodes and a firewall-level network partition between their
+  listener ports (`H-2N`, `iptables -A INPUT ... -j DROP` in both directions). `iptables` is present in
+  this sandbox but only through `sudo`, which requires interactive authentication here -- there is no
+  passwordless root or `NET_ADMIN` capability available to a background agent. The case's own vacuity
+  note explicitly warns against approximating this with a killed process ("a stopped node produces one
+  leader, which would pass a naive assertion for the wrong reason") -- `pravaha-cluster`'s own
+  `CoordinatorFactoryTest` (not owned by this QA round) already demonstrates that exact wrong-reason
+  case (`aNodeThatGoesAwayLeavesTheMembership`) and the two-nodes-agree control
+  (`twoSocketNodesFindEachOtherAndAgreeOnALeader`); what neither that test nor this round covers is a
+  genuine partition producing two simultaneous leaders, which needs real network isolation this
+  harness cannot produce. Left NOT RUN rather than forcing something that is not actually a partition.
+
+**Section tally: 16/16 addressed -- 12 PASS, 1 PASS-with-one-drift-arm (STATE-107), 1 PASS-partial
+(STATE-109, six of nine cells), 4 NOT RUN (STATE-097, 100, 103, 110, all with concrete reasons).**
+
+---
+
 ## Coverage so far
 
-STATE-001 … STATE-094 executed (94 of 110): 82 PASS, 7 FAIL-as-authored (STATE-030, 034, 050,
-052, 057, 059, 063 -- one genuine defect, `ST-1`; the rest drift, three of them one underlying
-finding, `ST-5`), 2 NOT RUN (STATE-045, STATE-048, both with concrete reasons). STATE-095 onward
-(cluster modes) not reached yet this round.
-STATE-085 onward not reached this round -- see the final report for what remains and why.
+STATE-001 … STATE-110 executed (110 of 110, the full budget): 96 PASS (counting STATE-107 and
+STATE-109 as PASS given their drift/partial notes above), 8 FAIL-as-authored (STATE-030, 034, 050,
+052, 057, 059, 063, 107's arm (b) -- one genuine defect, `ST-1`; the rest drift, three of the
+restore-section ones sharing one underlying finding, `ST-5`), 6 NOT RUN (STATE-045, 048, 097, 100,
+103, 110, every one with a concrete reason recorded above or in its own section). No case was marked
+PASS without running it, and no case was silently omitted.

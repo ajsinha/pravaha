@@ -1570,3 +1570,24 @@ real deployment actually takes.
 Not a defect — the opposite, a working fix — recorded at this length because it changes the weight
 and conclusion of fifteen authored cases (STATE-050–064) at once, and a future reader of `STATE.md`
 should not re-derive it from scratch.
+
+### ST-6 — `SocketCoordinator` now refuses an empty peer list; STATE-107(b) describes the pre-guard behaviour
+
+STATE-107's arm (b) sets `pravaha.cluster.socket.peers` to the empty string and expects it to be
+accepted — present rather than absent, so `SocketProvider`'s `orElseThrow` does not fire, and
+`"".split(",")` gives one empty element the parsing loop skips (`SocketProvider.java:62`–`:65`),
+producing a `SocketCoordinator` with zero peers.
+
+As executed (`StateClusterTest.state107_theSocketPeerListIsRequiredAndParsedStrictly`), the parsing
+half is exactly as the case describes, but `SocketCoordinator`'s own constructor
+(`SocketCoordinator.java`, `if (peers == null || peers.isEmpty())`) now refuses an empty list outright
+with `PRV-9005 CLUSTER_BAD_MEMBERSHIP`, "a socket cluster needs its peer list, including this node" —
+the same code and a materially similar message to arm (a)'s missing-key refusal, but for a different
+cause the two refusals' text does not distinguish (a support conversation starting from PRV-9005 would
+need the message body to tell absent-key from empty-list apart, and both currently say almost the same
+thing).
+
+This guard was evidently added to `SocketCoordinator` after STATE-107 was written, and it is a
+strictly safer behaviour than the one the case documents: a coordinator that is told about zero peers
+— not even itself — could never elect a leader or report membership, so refusing it at construction
+beats returning an object that can never do its job. Recorded as drift, not fixed.
