@@ -102,10 +102,17 @@ class StateFailureReportingTest extends StateTestSupport {
                         Duration.ofSeconds(5),
                         log::add)) {
             checkpointer.start();
-            sleepMillis(1000);
+            // Waited for rather than timed. A 100ms period over a 1000ms sleep was asserted to
+            // produce 8-11 failures, and a loaded machine produced 7 -- which says the machine was
+            // busy, not that the schedule stopped. What the case is about is that failures do not
+            // stop it and that each one is counted, so it waits for a run of them instead.
+            awaitFailures(checkpointer, 5, Duration.ofSeconds(15));
+            checkpointer.close(); // stopped before sampling, so stats and log cannot drift apart
             PeriodicCheckpointer.Stats stats = checkpointer.stats();
             assertThat(stats.taken()).isZero();
-            assertThat(stats.failed()).isBetween(8L, 11L);
+            assertThat(stats.failed())
+                    .as("the schedule kept firing through every failure")
+                    .isGreaterThanOrEqualTo(5L);
             // log also carries start()'s one-off "checkpointing every..." line, which is not a
             // per-checkpoint report and does not count toward failed().
             List<String> failureLines =
@@ -268,6 +275,18 @@ class StateFailureReportingTest extends StateTestSupport {
                     .count();
             assertThat(named).isEqualTo(1);
             chmod(root, "rwx------");
+        }
+    }
+
+    private static void awaitFailures(PeriodicCheckpointer checkpointer, long target, Duration within) {
+        long deadline = System.nanoTime() + within.toNanos();
+        while (checkpointer.stats().failed() < target) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("only " + checkpointer.stats().failed() + " of " + target
+                        + " checkpoint failures were counted within " + within
+                        + " -- the schedule stopped after a failure rather than continuing");
+            }
+            sleepMillis(20);
         }
     }
 
