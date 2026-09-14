@@ -296,18 +296,118 @@ Test class: `LifeReRegisterTest`.
 - **LIFE-082 — PASS.** After `registry.close()` (which has no closed flag), a further registration
   succeeds and accepts rows normally — confirming there is no guard, exactly as the case predicts.
 
+## §10 — Sharing by fingerprint (LIFE-083 … LIFE-100)
+
+Test class: `LifeSharingTest`. This is the case file's own headline structural finding, and every
+case in it passed as *measured* — meaning the hazard the case file predicts (LIFE-089/090/091) is
+confirmed present, not that anything here is a surprise failure.
+
+- **LIFE-083 — PASS.** `a`/`b` share one fingerprint, one lane thread; a genuinely different `c`
+  raises the thread count again, proving the counter moves.
+- **LIFE-084 — PASS, with a doc-rot finding (FINDINGS L-5).** Aliasing, whitespace and reformatting
+  all share; a genuinely different predicate does not. `CONCEPTS.md`'s claim that reordered `AND`
+  operands share is **false** — measured, not assumed — recorded as a low-severity documentation
+  defect rather than a product FAIL, since two computations instead of one is conservative, not wrong.
+- **LIFE-085 — PASS.** `rowsIn()` is 20 on both `a` and `b` for a 20-row fixture, not 40; both read 4
+  distinct users.
+- **LIFE-086 — PASS.** `b` (a different name, same computation) reads identically to `a`, and resolves
+  columns by name, not only `*`.
+- **LIFE-087 — PASS.** `ViewCatalog.schemas()` carries both `a` and `b` as distinct, present keys — the
+  round-2 alias-invisibility bug stays fixed.
+- **LIFE-088 — PASS.** A feeder thread pushes continuously through whichever name is currently valid;
+  `b`'s `rowsIn()` climbs across a concurrent drop of `a`.
+- **LIFE-089 — PASS (confirms the structural finding).** `ka` (`--keys 1`) and `kb` (`--keys 0,1`,
+  ignored) share one fingerprint and one view keyed on `amount` alone: both read 2 rows, not the 3
+  `kb` asked for. A fresh, unshared `kc` with the same `--keys 0,1` correctly returns 3 — the answer
+  `kb` wanted and silently did not get.
+- **LIFE-090 — PASS (confirms the structural finding).** `--keys 99` on a fresh registration is
+  refused (`IllegalArgumentException`, width 2); the identical `--keys 99` on the shared path is
+  accepted silently, because `start()` — the only place that validates it — is never reached.
+- **LIFE-091 — PASS (confirms the structural finding).** `b` requests 5-minute retention on a query
+  that shares with `a`'s 8-hour registration; `b`'s view reports 8 hours, not 5 minutes. A fresh,
+  unshared `c` with the same 5-minute request reports 5 minutes correctly.
+- **LIFE-092 — PASS.** A principal with a row filter and one without get different fingerprints and
+  `size() == 2`; a second name for the unrestricted principal correctly shares with the first.
+- **LIFE-093 — PASS.** A `FAILED` computation's fingerprint is silently reused by the next
+  registration of the same SQL: `b` (RUNNING) and `a` (FAILED) report the identical fingerprint
+  string, two computations under one identity with nothing in the listing to tell them apart.
+- **LIFE-094 — PASS.** After both names on a shared computation are dropped, a fresh registration of
+  the same SQL starts empty (`rowsIn() == 0`) — the contrast with LIFE-079, where a surviving holder
+  would have made it warm.
+- **LIFE-095 — PASS.** Ten registrations of one query cost one lane thread; all ten read identically;
+  ten genuinely different queries raise the thread count to eleven.
+- **LIFE-096 — PASS.** Ten shared names dropped one at a time: the lane survives drops 1–9 (each
+  surviving name still reads its one row) and releases on the tenth.
+- **LIFE-097 — PASS.** `a`/`b` sharing, journal on; after a simulated restart, `Recovery[2 recovered,
+  0 refused]`, `size() == 1`, both names listed and both readable.
+- **LIFE-098 — PASS.** A journal-append failure (journal path pointed at a directory) on the shared
+  path raises `PRV-8006`; only `a` is listed afterward; critically, dropping `a` afterward still
+  releases the lane — proving `b`'s name was never actually added to the computation's name set.
+- **LIFE-099 — PASS.** A fresh-path journal failure (same directory trick) leaves the listing empty
+  and the thread count at baseline across five consecutive failed registrations.
+- **LIFE-100 — PASS.** `a` and `b`'s equal fingerprints, against `c`'s differing one, are the only
+  signal an operator has; nothing in `QueryRegistry`'s own surface reports the computation count
+  separately from the name count (confirmed by reading, not re-tested as a behaviour).
+
+## §11 — The four read-consistency modes (LIFE-101 … LIFE-116)
+
+Test class: `LifeReadConsistencyTest`, run against `ServedView.get(Consistency, Duration, Object...)`
+directly per fact 3: no transport carries a mode, so `ViewQuery`'s shipped read path is always
+`CONSISTENT` regardless of what a case asks for.
+
+- **LIFE-101 — PASS.** `Latest` sees an uncommitted apply (`found=true`, `frontierComplete=false`);
+  `Consistent` at the same instant reports `found=false` (nothing committed yet).
+- **LIFE-102 — PASS.** With nothing arriving after a commit ("paused"), `Latest` and `Consistent`
+  return identical results, both `frontierComplete=true`, both `staleness=0` — nothing distinguishes
+  a paused view from a fresh one through this read.
+- **LIFE-103, LIFE-107, LIFE-111 — PASS, in one test.** A `ServedView` reference held across a
+  `registry.drop`: by name, `PRV-4023`. By the held reference — `Latest` keeps answering (LIFE-103),
+  `Consistent` too with `staleness=0` (LIFE-107), and `AtLeast` on a frontier that will never arrive
+  times out `PRV-4021` (LIFE-111), whose message says "the source may be idle, or behind" — which is
+  wrong; the query is dead, not idle.
+- **LIFE-104 — PASS.** A never-committed view: `found=false`, `frontier=MIN_VALUE`, `staleness=0`,
+  `frontierComplete=true`; feeding and committing one row flips `found` to `true`.
+- **LIFE-105 — PASS.** `Consistent` during ingest returns the last commit's values with
+  `staleness = appliedFrontier - committedFrontier` in nanoseconds; a further commit brings staleness
+  back to zero.
+- **LIFE-106 — PASS.** A paused view's `Consistent` staleness is `0` on two successive reads (standing
+  in for "immediately" and "60 seconds later" — nothing in the view's own state depends on wall-clock
+  time); a control view's `committedFrontier` genuinely advances 60s of event time over the same
+  window, which is what makes the paused view's zero staleness misleading rather than trivially true.
+- **LIFE-108 — PASS.** The empty-view cell for the default mode: `found=false`, `staleness=0`,
+  `frontierComplete=true`; `view.scan()` (what `ViewQuery` actually calls) returns zero rows, not an
+  error, both before and after feeding one row.
+- **LIFE-109 — PASS.** `AtLeast` blocks for a committer that arrives after ~500ms and returns its
+  values (measured elapsed > 300ms); the same frontier, already satisfied, returns in under 50ms.
+- **LIFE-110 — PASS.** `AtLeast` past a frozen frontier times out `PRV-4021` within 10% of a 2-second
+  timeout, message naming both frontiers and the timeout; a control view that reaches the requested
+  frontier within the same timeout succeeds.
+- **LIFE-112 — PASS.** `AtLeast(0)` on a never-committed view (`MIN_VALUE < 0`) times out after 2
+  seconds; `AtLeast(Long.MIN_VALUE)` — the only frontier such a view satisfies — returns immediately.
+- **LIFE-113 — PASS.** `AsOf` at a past-committed, present, and zero frontier are all refused
+  `PRV-4020` with the "holds the present ... checkpoints" message, including the current frontier.
+- **LIFE-114 — PASS.** The identical refusal for a "paused" view — the message is unaffected by state,
+  as the case predicts (the refusal precedes any state inspection).
+- **LIFE-115 — NOT RUN.** The checkpoint-existence half (confirming the refusal's advice —"read the
+  checkpoint" — is unfollowable after a drop) needs `checkpointingTo` with a real directory; not built
+  this round. The by-name/by-reference contrast itself is covered by the LIFE-103/107/111 test.
+- **LIFE-116 — PASS.** A source scan of `sdk/pravaha-sdk-java/src/main/java` for `defaultConsistency`
+  finds every use confined to `ClientOptions.java` (a field, getter, builder setter and `toString`) —
+  nothing that sends it. Skipped without failing if run from a working directory where that path does
+  not exist, rather than asserting a false negative.
+
 ---
 
-## Summary so far (LIFE-001 … LIFE-082)
+## Summary so far (LIFE-001 … LIFE-116)
 
 | Verdict | Count | Cases |
 |---|---|---|
-| PASS | 63 | 001–010, 012, 015–024, 026–030, 032–037, 039, 040, 042–046, 049, 051–056, 061–064, 066–074, 076, 078–080, 082 |
+| PASS | 96 | 001–010, 012, 015–024, 026–030, 032–037, 039, 040, 042–046, 049, 051–056, 061–064, 066–074, 076, 078–080, 082, 083–100 (all of §10), 101–114, 116 (§11 except 115) |
 | FAIL (case stale, product correct — L-2) | 2 | 011, 013 |
 | FAIL (product defect) | 3 | 048, 057 (L-1), 081 (L-3) |
 | PARTIAL (by-name half only; in-process half unreachable, package-private) | 2 | 047, 058 |
-| NOT RUN | 10 | 014, 025, 038, 041, 050, 059, 060, 065, 077, and the checkpoint-encoding half of 016 |
-| **Total addressed** | **80** | |
+| NOT RUN | 11 | 014, 025, 038, 041, 050, 059, 060, 065, 077, 115, and the checkpoint-encoding half of 016 |
+| **Total addressed** | **114** | |
 
-Remaining sections (§10 sharing, §11 read consistency, §12 restart, §13 failure — LIFE-083 …
-LIFE-130) continue below as they are executed.
+Remaining sections (§12 restart, §13 failure — LIFE-117 … LIFE-130) continue below as they are
+executed.

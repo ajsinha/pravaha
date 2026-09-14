@@ -910,6 +910,15 @@ reported field never disagree. Not applied here — small in theory (`state()` i
 in `requireLive`), but changing what a terminal-state check reads is exactly the kind of change this
 audit was asked to record rather than make.
 
+### L-5 (LOW, doc) — `CONCEPTS.md`'s claim about `AND` operand order does not hold
+
+`CONCEPTS.md` §5's worked example says "reordered `AND` operands all land on the same computation."
+`LifeSharingTest.life084` registers `WHERE id > 0 AND amount > 5` and `WHERE amount > 5 AND id > 0`
+against the same base query and gets two different fingerprints: the planner keeps predicates in the
+text's own order rather than normalising them. Not a product defect — sharing being *conservative*
+(two computations instead of one) is never a correctness problem, only a missed efficiency — but the
+documentation states a stronger guarantee than the engine gives.
+
 ### L-2 — two LIFE cases document behaviour the product no longer has, in the safe direction
 
 `LIFE-011` assumes an ASCII-only name regex (`café_velocity` refused); the shipped regex is
