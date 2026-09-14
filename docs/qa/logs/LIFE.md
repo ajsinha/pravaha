@@ -154,7 +154,7 @@ Test class: `LifeAuthorizationTest`.
   built this round.
 - **LIFE-039 — PASS.** Two principals with the same sorted row-filter set share a fingerprint; a
   third with a different filter set does not. `size() == 2` with three names.
-- **LIFE-040 — PASS (and a defect reconfirmed — FINDINGS L-3).** `policy().mayAdminister(reader,
+- **LIFE-040 — PASS (and a defect reconfirmed — FINDINGS L-4).** `policy().mayAdminister(reader,
   "v1").allowed()` is `true` under `SecurityPolicy.PERMISSIVE`; a bare reader principal successfully
   pauses, resumes and drops another principal's query.
 - **LIFE-041 — NOT RUN.** Flight-transport-only (`doAction`'s REGISTER branch and `FlightErrors`);
@@ -228,18 +228,86 @@ Test class: `LifeResumeTest`.
 - **LIFE-061 — PASS.** `a` and `b` share a fingerprint; pausing `a` reports `b` as `PAUSED` too (one
   state object, two names); `b`'s `rowsIn()` does not advance while `ctrl` (unshared) does.
 
+## §8 — Drop (LIFE-062 … LIFE-075)
+
+Test class: `LifeDropTest`.
+
+- **LIFE-062 — PASS.** Dropping the sole name empties the listing, the read fails `PRV-4023`, and
+  the lane thread count returns to baseline.
+- **LIFE-063 — PASS.** A read immediately after a drop fails; the pre-drop read (V-before) was
+  non-empty.
+- **LIFE-064 — PASS.** `a` and `b` share; dropping `a` leaves `b` reading the same rows, listed
+  alone, `size() == 1`; `b` accepts a further row (V-rows, proving it is alive, not merely listed).
+- **LIFE-065 — NOT RUN.** Needs `checkpointingTo` with real checkpoint directories to observe the
+  orphaned-directory failure the registry's own comment records; not built this round.
+- **LIFE-066 — PASS (references CQ-050, not a new finding).** An in-process subscriber attached
+  before a drop has `isClosed() == false` and `failure().isEmpty()` afterwards — it is not told the
+  query was dropped, confirming CQ-050 from the lifecycle side rather than re-discovering it. The
+  CLI-visible half (a real subscriber process's stdout going quiet within ~200ms) is NOT RUN.
+- **LIFE-067 — PASS.** A feeder thread pushing continuously is dropped mid-flight; the drop does not
+  hang it, the registry lists only the unrelated `ctrl`, and `ctrl` is unaffected.
+- **LIFE-068 — PASS.** A second `drop` of the same name reports `PRV-8002`.
+- **LIFE-069 — PASS.** Dropping a nonexistent name lists the actually-registered names (`a`, `b`) in
+  the refusal. (The denied-principal, non-enumerating half needs a closed policy plus
+  `requireAdministrable`'s ordering ahead of `require`; not separately re-run here — see LIFE-049's
+  note.)
+- **LIFE-070 — PASS.** (a) A normal drop's record suppresses the name on `replay()`. (b) Journalled
+  drop failure: pointing the journal at a path that is a directory (not a plain permission change --
+  `RegistryJournal.append()` calls `SensitiveFiles.createOwnerOnly`, which re-narrows a chmod'd file's
+  permissions back to owner-writable before every write, so a bare chmod does not survive to the
+  actual write) makes the append fail with `PRV-8006`; the query being dropped stays registered and
+  answering, confirming the throw precedes `byName.remove`.
+- **LIFE-071 — PASS.** `a` dropped, `b` not; after simulating a restart (close + a fresh registry
+  replaying the same journal), `recover()` reports one recovered, zero refused, and only `b` is
+  listed.
+- **LIFE-072 — PASS.** A paused query drops cleanly (no `ILLEGAL_TRANSITION`); listing empties and
+  the read fails afterward.
+- **LIFE-073 — PASS.** A failed query (V-before: still answering, per fact 6) drops cleanly; the read
+  fails once dropped.
+- **LIFE-074 — PASS.** 50 register/drop cycles, each building real state first (V-rows per cycle),
+  leave the listing empty and the lane thread count exactly at baseline.
+- **LIFE-075 — PASS.** Dropping an unrelated `v1` bumps `ViewCatalog.generation()` by exactly one;
+  a windowed control query's in-flight window (hand-computed total 10 + 5 = 15) closes correctly and
+  unaffected once its later row arrives.
+
+## §9 — Re-registration after a drop (LIFE-076 … LIFE-082)
+
+Test class: `LifeReRegisterTest`.
+
+- **LIFE-076 — PASS.** Re-registering `v1` with the same SQL after a drop starts empty (0 rows,
+  `rowsIn() == 0`); the fingerprint string is identical to before the drop, confirming it is a hash
+  of the plan rather than an instance identity.
+- **LIFE-077 — NOT RUN.** Needs `checkpointingTo` with a real checkpoint directory to confirm
+  re-registration does not restore from it; not built this round.
+- **LIFE-078 — PASS.** Re-registering the same SQL under a *different* name (`v2`) after `v1` is
+  dropped is a fresh computation (`size() == 1`) that starts empty.
+- **LIFE-079 — PASS, the direct contrast with LIFE-076.** `a` and `b` share; `a` is dropped and
+  re-registered while `b` still holds the computation; `a` immediately reads `b`'s current (warm)
+  row set — the opposite outcome of LIFE-076 for the same command, because a holder of the
+  fingerprint survived the drop this time.
+- **LIFE-080 — PASS.** `v1` re-registered with `--keys 0,1` after a drop (previously `--keys 0`)
+  yields 3 distinct-pair rows over a fixture where the previous keying gave 2 distinct-user rows —
+  the fresh path takes the new keys, as the case predicts (only the *shared* path, §10, ignores them).
+- **LIFE-081 — FAIL (MEDIUM defect — FINDINGS L-3).** A reader looping `SELECT * FROM v1` against 20
+  concurrent drop/re-register cycles occasionally receives `PRV-2002  Object 'v1' not found. Known
+  streams: []` instead of the expected `PRV-4023`. Kept as `@Disabled` with the defect; over 100+
+  reads with zero *other* unexpected errors otherwise, so the mechanism itself (no stale rows, no
+  hang) works and only the error code raised during the gap is wrong.
+- **LIFE-082 — PASS.** After `registry.close()` (which has no closed flag), a further registration
+  succeeds and accepts rows normally — confirming there is no guard, exactly as the case predicts.
+
 ---
 
-## Summary so far (LIFE-001 … LIFE-061)
+## Summary so far (LIFE-001 … LIFE-082)
 
 | Verdict | Count | Cases |
 |---|---|---|
-| PASS | 47 | 001–010, 012, 015–024, 026–030, 032–037, 039, 040, 042–046, 049, 051–056, 061 |
+| PASS | 63 | 001–010, 012, 015–024, 026–030, 032–037, 039, 040, 042–046, 049, 051–056, 061–064, 066–074, 076, 078–080, 082 |
 | FAIL (case stale, product correct — L-2) | 2 | 011, 013 |
-| FAIL (product defect — L-1) | 2 | 048, 057 |
+| FAIL (product defect) | 3 | 048, 057 (L-1), 081 (L-3) |
 | PARTIAL (by-name half only; in-process half unreachable, package-private) | 2 | 047, 058 |
-| NOT RUN | 8 | 014, 025, 038, 041, 050, 059, 060, and the checkpoint-encoding half of 016 |
-| **Total addressed** | **61** | |
+| NOT RUN | 10 | 014, 025, 038, 041, 050, 059, 060, 065, 077, and the checkpoint-encoding half of 016 |
+| **Total addressed** | **80** | |
 
-Remaining sections (§8 drop, §9 re-registration, §10 sharing, §11 read consistency, §12 restart, §13
-failure — LIFE-062 … LIFE-130) continue below as they are executed.
+Remaining sections (§10 sharing, §11 read consistency, §12 restart, §13 failure — LIFE-083 …
+LIFE-130) continue below as they are executed.

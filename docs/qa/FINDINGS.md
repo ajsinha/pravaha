@@ -923,7 +923,20 @@ tests (`LifeNamesTest.life011`, `.life013`) assert the current, correct behaviou
 case document itself is what is out of date, and is the same kind of rot `docs/HANDOVER.md` and the
 doc-rot build check exist to catch.
 
-### L-3 — `LIFE-040` reconfirms a round-2 finding still holds
+### L-3 (MEDIUM) — a read racing a drop-then-re-register can report the wrong error code
+
+`LifeReRegisterTest.life081` (`@Disabled` with this note) runs a reader in a loop against `v1` while
+the main thread does 20 rounds of `drop("v1"); register("v1", ...)`. LIFE-081 expects every response
+to be either a successful read or `PRV-4023` (`SERVING_NO_SUCH_VIEW`) — nothing else. In practice,
+some reads land in the gap between the drop and the re-register and come back
+`PRV-2002  Object 'v1' not found. Known streams: []` instead: `ViewQuery` re-plans on a cache miss,
+and while `v1` is momentarily in neither the stream catalogue nor the view catalogue, the SQL planner
+reports it as an unrecognised identifier rather than the serving layer reporting a missing view. The
+message is doubly misleading, since it claims zero known streams while `txn` is bound the entire
+time. Not data loss and not a crash — a client retrying on `PRV-4023` specifically, or an operator
+reading the message literally, gets the wrong signal from an ordinary, expected race.
+
+### L-4 — `LIFE-040` reconfirms a round-2 finding still holds
 
 `SecurityPolicy.mayAdminister`'s default delegates to `mayRead`. Under `SecurityPolicy.PERMISSIVE`
 (and under any policy that does not override `mayAdminister` explicitly), a principal who may only
