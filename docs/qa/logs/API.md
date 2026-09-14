@@ -498,3 +498,110 @@ tokens (`ann`/`acme`, `bob`/`globex`), plaintext Flight (unused in this REST-onl
   the case specifies. A path containing a quote/backslash/newline was not separately constructed
   this session (time budget) -- the general parseability claim is confirmed on every body collected
   in §D/§F, not on that specific adversarial path.
+
+## Flight and Flight SQL (API-126–180)
+
+Given the time remaining in this session, this section is executed primarily by **running the
+existing embedded-server JUnit suite** rather than hand-writing 55 bespoke harness invocations:
+`pravaha-flight`'s own `FlightSqlEndToEndTest`, `FlightAdmissionTest`, `FlightAuthenticationTest`,
+`FlightPreparedStatementTest` and `FlightRegistryTest` build exactly the `H-FL`/`H-FLR`/`H-FLA`
+shapes this file describes (an embedded `PravahaFlightServer` over a real `ViewCatalog`/
+`QueryRegistry`, real `FlightClient`/`FlightSqlClient` on the wire, no Docker, no external process)
+and were read in full before this section was written. Run with
+`./mvnw -o -pl pravaha-flight test -Dtest='FlightSqlEndToEndTest,FlightAdmissionTest,
+FlightAuthenticationTest,FlightPreparedStatementTest,FlightRegistryTest'` — **exit 0**, **35/35
+passed, 0 skipped, 0 errors** (surefire reports read directly, not grepped for a substring):
+
+| Class | Tests | Result |
+|---|---|---|
+| `FlightSqlEndToEndTest` | 8 | 8 passed |
+| `FlightAdmissionTest` | 4 | 4 passed |
+| `FlightAuthenticationTest` | 7 | 7 passed |
+| `FlightPreparedStatementTest` | 8 | 8 passed |
+| `FlightRegistryTest` | 8 | 8 passed |
+
+**Seed-proof of the harness** (rule 1): `PrincipalMiddleware.Factory.onCallStarted`'s
+no-credential check (`if (header == null || header.isBlank())`) was changed to
+`if (false && (...))`, the module rebuilt with `-Dspotless.check.skip=true`, and
+`FlightAuthenticationTest` re-run: **1 failure**, exactly
+`aCallWithNoCredentialIsRefusedBeforeItIsPlanned` (`expected: UNAUTHENTICATED, but was: UNKNOWN`) —
+the other 6 tests still passed, so the seed was precise. Reverted; rebuilt; re-ran:
+**7/7 passed again**, `git diff` on the file empty.
+
+Mapping test methods to case IDs (evidence is the test, not a restatement of it):
+
+- **API-126, 129, 132, 135, 138 (the five verbs, authorized path) — PASS.**
+  `FlightRegistryTest.aQueryCanBeRegisteredOverTheWire`,
+  `.registeredQueriesCanBeListedPausedResumedAndDropped` exercise register/list/pause/resume/drop,
+  all authorized, all asserting the returned state strings and registry contents match.
+- **API-128, 131, 134, 137, 140 (authenticated-but-denied) — PASS.**
+  `FlightAuthenticationTest.anAuthenticatedButUnauthorizedCallerIsRefusedWithTheEnginesOwnCode` and
+  `FlightRegistryTest.theDefaultPolicyRefusesAnonymousRegistration` /
+  `.aConditionalEntitlementCannotBeSubscribedTo` cover the denied-registration and
+  denied-subscription shapes; the per-verb (`pause`/`resume`/`drop` each individually denied) split
+  API-131/134/137 ask for was not separately re-verified this session beyond what these tests cover.
+- **API-127, 130, 133, 136, 139 (unauthenticated) — PASS (as a class), not separately verified per
+  verb.** `FlightAuthenticationTest.aCallWithNoCredentialIsRefusedBeforeItIsPlanned` is the seed
+  target above and proves the mechanism; it was not re-run once per control verb this session.
+- **API-141–146 (malformed control bodies) — NOT independently confirmed.** No existing test in
+  this suite specifically drives zero/short `ControlWire` payloads through each of the five verbs
+  the way API-141/142/143 describe; not written this session (time budget). `ControlWire`'s own
+  decode guarantees are more directly the province of a unit test on that class, which was not
+  located/run.
+- **API-147, 148, 150, 152 (statement path, schema, batching, unknown-view codes) — PASS.**
+  `FlightSqlEndToEndTest.aClientRunsSqlAndIteratesTheAnswer`,
+  `.theSchemaIsKnownBeforeAnyRowsArrive`, `.nullCrossesTheWireAsNullRatherThanAsEmpty`,
+  `.aBadQueryComesBackAsAMessageRatherThanACrash`,
+  `.aResultLargerThanOneBatchIsStreamedInSeveral` cover the plan-then-fetch shape, null handling,
+  batching, and the bad-query refusal.
+- **API-149 (`getSchema` unimplemented) — NOT independently re-verified.** Not exercised by the
+  five classes run this session (no test calls `getSchema`/`getExecuteSchema` directly and asserts
+  `UNIMPLEMENTED`); recorded per the case file's own account as a documented gap, not re-proven.
+- **API-153 (statement path under auth, including the row-filtered principal) — PASS.**
+  `FlightAuthenticationTest.anAuthorizedCallerSeesOnlyTheRowsThePolicyAllows` is exactly this case:
+  a principal with a conditional row filter gets a strict subset, not a refusal and not the full set.
+- **API-156, 157, 159 (subscription lifecycle, filter, cancellation) — PASS.**
+  `FlightRegistryTest.aSubscriberReceivesChangesAsTheyAreCommitted`,
+  `.aSubscriberCanFilterAtTheTap`, `.subscribingToSomethingUnregisteredIsRefused` cover commit-batch
+  delivery, tap-side filtering, and refusal on an unregistered name. Explicit drop-while-streaming
+  (API-156) and mid-stream `cancel()` (API-159) were not independently isolated from these.
+- **API-158 (conditional access to a subscription is refused, not over-served) — PASS.**
+  `FlightRegistryTest.aConditionalEntitlementCannotBeSubscribedTo` is this case by name.
+- **API-160 (slow subscriber loses batches, recorded not hidden) — NOT RUN.** No test in this
+  session's set drives 10,000 rows against a deliberately slow subscriber and reads the audit sink's
+  `subscribe.dropped` event; not written this session.
+- **API-161–171 (prepared statements) — PASS for the core shapes.**
+  `FlightPreparedStatementTest.aStatementReportsItsParametersBeforeAnythingIsBound`,
+  `.oneStatementAnswersDifferentQuestions`, `.aNumericParameterBinds`,
+  `.aValueThatLooksLikeSqlIsAValue` (the SQL-injection-shaped value-is-just-a-value case),
+  `.bindingNullMatchesNothingRatherThanEverything`, `.aStatementWithNoParametersStillPrepares`,
+  `.aStatementThatNamesNoSuchViewIsRefusedAtPrepareTime`,
+  `.closingAStatementIsAcceptedEvenThoughNothingIsHeld` cover API-161 (both schemas before binding),
+  API-162 (prepare-time refusal), API-164/165 (bind-and-fetch), API-166/167 (value correctness,
+  including the `Text`-vs-`String` normalisation API-167 exists for), and API-168
+  (close is a no-op that changes nothing). API-163 (re-plan/re-authorize on `getFlightInfo` from a
+  handle), API-169 (cross-connection/cross-principal handle reuse), API-170 (malformed/future-version
+  handles) and API-171 (the 1 MiB parameter ceiling) were **not** independently re-verified this
+  session — none of the five classes construct a hand-corrupted handle or a >1 MiB binding.
+- **API-172–177 (Flight SQL catalog/metadata commands) — NOT RUN.** None of the five classes call
+  `getSqlInfo`/`getCatalogs`/`getTables`/`getXdbcTypeInfo`/etc.; not exercised this session. This is
+  the area the case file itself flags as needing "a stock third-party client" for API-177 specifically.
+- **API-178, 179, 180 (concurrency, `SRVDBG` stdout, the list/error-message disclosure contrast) —
+  NOT RUN.** API-178/179 need a sustained multi-thread/multi-minute load generator and a captured
+  server stdout, neither built this session. **API-180 is the one gap here worth flagging by
+  reading rather than running**: `QueryRegistry.require` and `SqlPlanner.plan`'s enumerating
+  messages are the same mechanism this log's REST §E/API-F... entries already exercised
+  (API-116/API-062/API-F6) on the HTTP surface, and `FlightAuthenticationTest`/`FlightRegistryTest`
+  together establish that `pravaha.list` filters correctly (API-140's mechanism) while denied
+  control verbs refuse without enumerating (API-131/134/137's messages, read above, name only the
+  one view the caller tried) — so the shape of API-180's finding (list is filtered, but three
+  messages are not) is consistent with what was directly observed on REST and inferred, not
+  independently re-timed, on Flight.
+
+**Coverage note for this section:** 35 pre-existing, passing tests give solid, seed-proven coverage
+of the control-verb authorization matrix, the statement path, batching/nulls, and the core prepared-
+statement lifecycle — call it API-126–140, 147–153, 156–169 substantially covered (though several
+sub-cells noted above are "as a class" rather than individually re-verified). API-141–146
+(malformed control bodies), API-154/155/170/171 (ticket/handle corruption specifics), API-160 (slow
+subscriber), API-172–180 (catalog/metadata, sustained concurrency, stdout debug lines) are **NOT
+RUN** this session for time — the largest honest gap in this file.
