@@ -386,6 +386,7 @@ class DocumentationFreshnessTest {
         try (Stream<Path> files = Files.walk(repoRoot())) {
             for (Path path : files.filter(f -> f.toString().endsWith(".java"))
                     .filter(f -> !f.toString().contains("/target/"))
+                    .filter(f -> !f.toString().contains("/.claude/"))
                     // This file quotes the fabricated call it exists to catch, so scanning it
                     // would let that call prove its own existence. The check defeated itself
                     // exactly once, in the seed that was meant to confirm it worked.
@@ -435,6 +436,9 @@ class DocumentationFreshnessTest {
         try (Stream<Path> files = Files.walk(repoRoot())) {
             return files.filter(path -> path.toString().endsWith(".java"))
                     .filter(path -> !path.toString().contains("/target/"))
+                    // Nested agent worktrees under .claude/ are copies of this repository. Counting
+                    // them would let a type deleted here go on existing in a stale copy.
+                    .filter(path -> !path.toString().contains("/.claude/"))
                     .map(path -> path.getFileName().toString().replace(".java", ""))
                     .collect(java.util.stream.Collectors.toSet());
         }

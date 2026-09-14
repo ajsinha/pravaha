@@ -911,10 +911,6 @@ class IncrementalTest {
     }
 
     @Test
-    @Disabled("PRV-INCR defect 1 (FINDINGS I-5): a windowed key whose weight nets to zero after the "
-            + "window has already been published is never withdrawn. emitWindow retracts a key whose "
-            + "values changed and silently forgets one that has disappeared from state.fire(), so the "
-            + "stale row stands for ever and no counter records it.")
     void incr026_aWindowKeyThatNetsToZeroAfterPublishingIsWithdrawn() {
         // INCR-026. With allowed lateness the window can be corrected after it fired. r1 and r3
         // are published as 300, then both are retracted: the correct answer is that u1 leaves the

@@ -84,8 +84,19 @@ final class WindowedAggregate implements RowProcessor {
     /** Group keys other than the window boundaries: the actual data keys. */
     private final List<Integer> dataKeyOrdinals;
 
+    /**
+     * One published result row, kept so it can be withdrawn exactly as it was sent.
+     *
+     * <p>The values alone were kept, and that is enough to retract a row whose numbers changed --
+     * the key is still in the new firing, so its key columns come from there. It is not enough to
+     * retract a row whose key has <em>gone</em>: a group whose weights net to zero after the window
+     * was published simply stops appearing, and there is nothing left to build the retraction from.
+     * So the key's own columns and its window's start travel with it.
+     */
+    private record Published(Object[] keyValues, long windowStartNanos, long[] values) {}
+
     /** What each window last emitted per key, so a correction can retract it exactly. */
-    private final java.util.Map<Long, java.util.Map<Long, long[]>> emitted = new java.util.HashMap<>();
+    private final java.util.Map<Long, java.util.Map<Long, Published>> emitted = new java.util.HashMap<>();
     /** Windows a late record has changed since they last fired. */
     private final java.util.Set<Long> dirty = new java.util.LinkedHashSet<>();
 
@@ -285,36 +296,65 @@ final class WindowedAggregate implements RowProcessor {
     }
 
     private void emitWindow(long windowEnd) {
-        java.util.Map<Long, long[]> previous = emitted.get(windowEnd);
-        java.util.Map<Long, long[]> current = new java.util.HashMap<>();
+        java.util.Map<Long, Published> previous = emitted.get(windowEnd);
+        java.util.Map<Long, Published> current = new java.util.HashMap<>();
 
         for (SlicedAggregateState.WindowResult result : state.fire(windowEnd)) {
             if (previous != null) {
-                long[] before = previous.get(result.key());
+                Published before = previous.get(result.key());
                 if (before != null) {
-                    if (java.util.Arrays.equals(before, result.values())) {
+                    if (java.util.Arrays.equals(before.values(), result.values())) {
                         // Unchanged by the correction. Emitting a retraction and an identical
                         // insertion would be two rows that consolidate to nothing, which is
                         // arithmetically harmless and pure noise on the wire.
                         current.put(result.key(), before);
                         continue;
                     }
-                    emitRow(result, before, -1L);
+                    emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, before.values(), -1L);
                 }
             }
-            current.put(result.key(), result.values());
-            emitRow(result, result.values(), 1L);
+            current.put(result.key(), new Published(result.keyValues(), result.windowStartNanos(), result.values()));
+            emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, result.values(), 1L);
+        }
+
+        // A key that was published and is no longer here has to be withdrawn. It used to be dropped
+        // silently: a group whose weights netted to zero after its window was published left its
+        // stale row standing in the view for ever, and nothing counted it. The correction path
+        // retracted a key whose *values* had changed and forgot one that had disappeared, which is
+        // the harder half and the one a Z-set exists to get right.
+        if (previous != null) {
+            for (java.util.Map.Entry<Long, Published> gone : previous.entrySet()) {
+                if (!current.containsKey(gone.getKey())) {
+                    Published row = gone.getValue();
+                    emitRow(row.keyValues(), row.windowStartNanos(), windowEnd, row.values(), -1L);
+                    withdrawals++;
+                }
+            }
         }
         emitted.put(windowEnd, current);
     }
 
-    /** Writes one result row with the given values and Z-set weight. */
-    private void emitRow(SlicedAggregateState.WindowResult result, long[] values, long weight) {
+    /** Keys withdrawn because a correction removed them from a window already published. */
+    private long withdrawals;
+
+    long withdrawals() {
+        return withdrawals;
+    }
+
+    /**
+     * Writes one result row with the given values and Z-set weight.
+     *
+     * <p>Takes the key's columns and its window rather than a {@code WindowResult}, because a
+     * withdrawal has no result to take them from: the whole point is that the group is no longer
+     * being produced.
+     */
+    private void emitRow(Object[] keyValues, long windowStartNanos, long windowEndNanos, long[] values, long weight) {
         {
             long handle = arena.allocate(layout.rowSize(256));
             if (handle == ArenaHandle.NULL) {
                 throw new PravahaException(
-                        RuntimeErrors.ARENA_EXHAUSTED, "no room to emit a window result for key " + result.key());
+                        RuntimeErrors.ARENA_EXHAUSTED,
+                        "no room to emit a window result for key " + java.util.Arrays.toString(keyValues));
             }
             writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
             // Group keys in the order the plan put them. The window boundaries come from the window
@@ -324,19 +364,19 @@ final class WindowedAggregate implements RowProcessor {
             int dataKey = 0;
             for (int ordinal : operator.groupKeys()) {
                 if (ordinal == operator.windowStartOrdinal()) {
-                    writer.setLong(column++, result.windowStartNanos());
+                    writer.setLong(column++, windowStartNanos);
                 } else if (ordinal == operator.windowEndOrdinal()) {
-                    writer.setLong(column++, result.windowEndNanos());
+                    writer.setLong(column++, windowEndNanos);
                 } else {
-                    writeKey(column++, result.keyValues()[dataKey++]);
+                    writeKey(column++, keyValues[dataKey++]);
                 }
             }
             for (int i = 0; i < values.length; i++) {
                 writer.setLong(column++, values[i]);
             }
             writer.weight(weight)
-                    .eventTimestampNanos(result.windowEndNanos())
-                    .sequence(result.windowEndNanos())
+                    .eventTimestampNanos(windowEndNanos)
+                    .sequence(windowEndNanos)
                     .commit();
             arena.trimTo(handle, writer.sizeSoFar());
             downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
@@ -361,13 +401,20 @@ final class WindowedAggregate implements RowProcessor {
         out.writeLong(corrections);
 
         out.writeInt(emitted.size());
-        for (java.util.Map.Entry<Long, java.util.Map<Long, long[]>> window : emitted.entrySet()) {
+        for (java.util.Map.Entry<Long, java.util.Map<Long, Published>> window : emitted.entrySet()) {
             out.writeLong(window.getKey());
             out.writeInt(window.getValue().size());
-            for (java.util.Map.Entry<Long, long[]> perKey : window.getValue().entrySet()) {
+            for (java.util.Map.Entry<Long, Published> perKey : window.getValue().entrySet()) {
                 out.writeLong(perKey.getKey());
-                out.writeInt(perKey.getValue().length);
-                for (long value : perKey.getValue()) {
+                Published row = perKey.getValue();
+                // The key's own columns travel with the values. Without them a restored operator
+                // can retract a row whose numbers changed and cannot retract one whose key has
+                // gone, because it has nothing left to name the group with -- the same gap this
+                // class had in memory, preserved across a restart.
+                out.writeLong(row.windowStartNanos());
+                writeTaggedValues(out, row.keyValues());
+                out.writeInt(row.values().length);
+                for (long value : row.values()) {
                     out.writeLong(value);
                 }
             }
@@ -390,14 +437,16 @@ final class WindowedAggregate implements RowProcessor {
         for (int w = 0; w < windows; w++) {
             long windowEnd = in.readLong();
             int keys = in.readInt();
-            java.util.Map<Long, long[]> perWindow = new java.util.HashMap<>();
+            java.util.Map<Long, Published> perWindow = new java.util.HashMap<>();
             for (int k = 0; k < keys; k++) {
                 long key = in.readLong();
+                long windowStart = in.readLong();
+                Object[] keyValues = readTaggedValues(in);
                 long[] values = new long[in.readInt()];
                 for (int v = 0; v < values.length; v++) {
                     values[v] = in.readLong();
                 }
-                perWindow.put(key, values);
+                perWindow.put(key, new Published(keyValues, windowStart, values));
             }
             emitted.put(windowEnd, perWindow);
         }
@@ -459,6 +508,51 @@ final class WindowedAggregate implements RowProcessor {
     }
 
     /** Writes one group column back into the result row, in the output schema's type. */
+    /** A group's key columns, each tagged with its shape, for the checkpoint. */
+    private static void writeTaggedValues(java.io.DataOutput out, Object[] values) throws java.io.IOException {
+        out.writeInt(values == null ? -1 : values.length);
+        if (values == null) {
+            return;
+        }
+        for (Object value : values) {
+            if (value == null) {
+                out.writeByte(0);
+            } else if (value instanceof String text) {
+                out.writeByte(1);
+                out.writeUTF(text);
+            } else if (value instanceof Double || value instanceof Float) {
+                out.writeByte(2);
+                out.writeDouble(((Number) value).doubleValue());
+            } else if (value instanceof Boolean flag) {
+                out.writeByte(3);
+                out.writeBoolean(flag);
+            } else {
+                out.writeByte(4);
+                out.writeLong(((Number) value).longValue());
+            }
+        }
+    }
+
+    private static Object[] readTaggedValues(java.io.DataInput in) throws java.io.IOException {
+        int length = in.readInt();
+        if (length < 0) {
+            return null;
+        }
+        Object[] values = new Object[length];
+        for (int i = 0; i < length; i++) {
+            byte tag = in.readByte();
+            values[i] = switch (tag) {
+                case 0 -> null;
+                case 1 -> in.readUTF();
+                case 2 -> in.readDouble();
+                case 3 -> in.readBoolean();
+                case 4 -> in.readLong();
+                default -> throw new java.io.IOException("unknown key tag " + tag + " in a window checkpoint");
+            };
+        }
+        return values;
+    }
+
     private void writeKey(int column, Object value) {
         if (value == null) {
             writer.setNull(column);

@@ -283,6 +283,12 @@ abstract class WindowTestSupport {
         try (java.util.stream.Stream<java.nio.file.Path> paths = java.nio.file.Files.walk(repoRoot())) {
             paths.filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> p.toString().contains("/src/main/"))
+                    // Not a nested checkout. Agents work in git worktrees under .claude/, so a walk
+                    // of the repository root finds one copy of every source file per running agent
+                    // -- and this assertion, which counts the files a call site appears in, saw
+                    // three QueryExecution.java and failed for a reason with nothing to do with the
+                    // engine.
+                    .filter(p -> !p.toString().contains("/.claude/"))
                     .forEach(p -> {
                         try {
                             if (pattern.matcher(java.nio.file.Files.readString(p))
