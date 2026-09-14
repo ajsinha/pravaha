@@ -476,9 +476,89 @@ find at the `QueryExecution`/`Lane` level exists at the registry level, since `Q
 
 ---
 
+## §I — Corruption: what a damaged journal does and does not do (STATE-085 … STATE-091)
+
+Test class: `StateCorruptionTest`. All seven pass as authored -- every claim in this section already
+matches `RegistryJournal`'s behavior, so none needed adapting.
+
+- **STATE-085 — PASS.** `state085_aHalfWrittenFinalRecordIsToleratedAndEverythingBeforeItSurvives`:
+  a length-prefixed journal truncated mid-final-record replays everything before the truncation and
+  silently drops only the incomplete tail, for both a truncated length prefix and a truncated payload.
+- **STATE-086 — PASS.** `state086_anUndecodableRecordInTheMiddleRefusesTheWholeJournalWithTheRecordNumber`:
+  corrupting record 2 of 3 (flipping bytes inside its `ControlWire`-encoded payload) makes `replay()`
+  throw `PRV-8005 JOURNAL_UNREADABLE` naming "record 2"; `QueryRegistry.recover` propagates the same
+  refusal rather than recovering the one good record before it.
+- **STATE-087 — PASS.** `state087_aRecordWithAnUnknownKindOrAnRWithTooFewFieldsIsRefusedWithTheCount`:
+  an `R` record with fewer than six fields, and a record whose kind is neither `R` nor `D`, both refuse
+  with `PRV-8005` and the record number rather than being silently skipped.
+- **STATE-088 — PASS.** `state088_aJournalThatCannotBeReadAtAllIsAnUncheckedIOExceptionNotPrv8005`:
+  a journal file replaced by a directory of the same name makes `replay()` throw `UncheckedIOException`
+  ("cannot read the registry journal at ..."), not `PRV-8005` -- an unreadable file and an undecodable
+  record are deliberately different failures.
+- **STATE-089 — PASS.** `state089_theJournalFileIs0600AndItsParent0700`: a fresh journal under a
+  not-yet-existing directory ends up `rw-------` and the directory `rwx------`, both created by the
+  first `append()`.
+- **STATE-090 — PASS.** `state090_anExistingJournalWithLoosePermissionsIsNarrowedOnTheNextAppend`: a
+  journal and its directory chmod'd wide open (`rw-rw-rw-` / `rwxrwxrwx`) are narrowed back to
+  `rw-------` / `rwx------` by the next `append()`, and the pre-existing records still replay --
+  `ST-3`'s self-healing narrow, confirmed again for the journal specifically.
+- **STATE-091 — PASS.** `state091_aCompactingLeftoverIsNotMistakenForTheJournalAndIsNotCleanedUpEither`:
+  a `registry.journal.compacting` file left next to a real journal (simulating a crash mid-compaction
+  before this round's STATE-092/094 ever run `compact()` for real) is never read by `replay()` --
+  only `registry.journal` is -- and is not deleted either; it just sits there until compaction is
+  retried or an operator removes it by hand.
+
+**Section tally: 7/7 executed, 7 PASS.**
+
+---
+
+## §J — Compaction, and the growth that happens because nothing calls it (STATE-092 … STATE-094)
+
+Test class: `StateCompactionTest`, using `StraceCompactRunner` (a fresh process launched under
+`strace -f`, the same pattern as `StraceJournalRunner`/`StraceDurabilityRunner` -- ptrace attach to a
+running JVM is refused in this sandbox, so the process under trace must be launched fresh).
+
+- **STATE-092 — PASS.** `state092_compactRewritesTheJournalWithOnlyWhatIsLive`: 50 registrations, 25
+  drops (every even-numbered name) leave `replay()` returning exactly the 25 odd-numbered names in
+  registration order; `compact(live)` shrinks the file, the surviving names replay identically, no
+  `.compacting` temp file remains, and the file stays `rw-------`. The strace half (skipped, with a
+  reason, if `strace` is not usable in the environment) counts exactly 21 `fsync`s for a 10-register/
+  5-drop/compact run: 15 from the original appends, 5 more from `compact()` re-appending each of the 5
+  surviving entries to the temp file, and one final directory `fsync` from `SensitiveFiles.syncDirectory`
+  after the atomic rename -- **seed-proved**: commenting out that `syncDirectory` call in
+  `RegistryJournal.compact()` drops the count to 20 and the test fails at that exact assertion (`expected:
+  21L but was: 20L`); reverted, confirmed passing again (`git diff --stat pravaha-registry` empty).
+  This directory fsync is the thing STATE-039 found `FileCheckpointStore.store` does *not* do for
+  checkpoints -- the journal's compaction path gets it right where the checkpoint store does not.
+- **STATE-093 — PASS, adapted.** `state093_nothingCallsCompactSoTheJournalGrowsForTheLifeOfTheDeployment`:
+  a `grep -rn "\.compact("` over `src/main` across the whole repo returns nothing -- confirming the
+  case's premise that no shipped code ever calls `RegistryJournal.compact()` itself; a deployment's
+  journal only shrinks if an operator or a future feature calls it by hand. The case's own 1000
+  register/drop cycles were run as 200 (for test speed; the point -- monotonic growth, and `replay()`
+  returning zero live entries once every registration has been matched by a drop -- does not depend on
+  the exact count): journal size increased strictly on every one of the 200 cycles, was 11,400 bytes
+  after 100 cycles (a 5-char name, ~31-char SQL text: linear extrapolation puts 1000 cycles around
+  114 KB), and `replay()` of the resulting 400-record journal took under 2ms and returned an empty
+  list, as expected.
+- **STATE-094 — PASS, half adapted.** `state094_anInterruptedCompactionLeavesACompleteJournalOldOrNewNeverAPartialOne`:
+  50 registrations each carrying a 64 KiB SQL text (to make the rewrite slow enough for a concurrent
+  reader to land mid-compaction) with a background thread looping `replay()` throughout a `compact()`
+  call -- every observed size was 50, the same set before and after, never a partial one, confirming
+  the atomic-rename design `compact()`'s own comment describes. The case's other half -- a real `kill
+  -9` of the JVM at a precise moment inside `compact()`, then confirming the *pre*-compaction journal
+  survives intact and a `.compacting` leftover is not cleaned up -- was not attempted: there is no
+  clean seam in this harness to kill an external process at a chosen instruction inside a library call.
+  STATE-091 already establishes the observable half of that claim (an existing `.compacting` leftover
+  is ignored by `replay()` and not deleted), which is as far as this round goes for it.
+
+**Section tally: 3/3 executed, 3 PASS.**
+
+---
+
 ## Coverage so far
 
-STATE-001 … STATE-084 executed (84 of 110): 75 PASS, 7 FAIL-as-authored (STATE-030, 034, 050,
+STATE-001 … STATE-094 executed (94 of 110): 82 PASS, 7 FAIL-as-authored (STATE-030, 034, 050,
 052, 057, 059, 063 -- one genuine defect, `ST-1`; the rest drift, three of them one underlying
-finding, `ST-5`), 2 NOT RUN (STATE-045, STATE-048, both with concrete reasons).
+finding, `ST-5`), 2 NOT RUN (STATE-045, STATE-048, both with concrete reasons). STATE-095 onward
+(cluster modes) not reached yet this round.
 STATE-085 onward not reached this round -- see the final report for what remains and why.
