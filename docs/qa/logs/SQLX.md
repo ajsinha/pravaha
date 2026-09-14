@@ -407,12 +407,157 @@ runtime but are not wired to SQL yet: ... Use TUMBLE or HOP.` `GROUP BY SESSION(
 INTERVAL '5' SECOND)` → `PRV-2020  GROUP BY SESSION is not supported; use TUMBLE or HOP`. Both name
 the alternative.
 
-## §5 onward
+## §5 — ORDER BY, LIMIT, OFFSET (SQLX-121 … SQLX-126)
 
-Not executed this session. `docs/qa/cases/SQLX.md` §5 (ORDER BY/LIMIT/OFFSET, SQLX-121…126), §6 (set
-operations, SQLX-127…134), §7 (derived tables/CTEs, SQLX-135…141), §7b (subqueries, SQLX-142…146),
-§8 (parameters, SQLX-147…162), §9 (hostile SQL, SQLX-163…182) and §10 (the matrix's own self-checks,
-SQLX-183…190) are **NOT RUN**. Continuing against this same harness set.
+### SQLX-121 — PASS
+H-VAL and H-RUN, `SELECT txn_id FROM txn ORDER BY amount` → identical
+`PRV-2020  the planner produced a LogicalSort, which Pravaha cannot execute yet. Supported: scan,
+filter, project, compute, aggregate, windowing..., inner equi-joins..., and lookup joins...` on both
+— H-RUN never opens the file (planning precedes ingestion in `QueryRunner`).
+
+### SQLX-122 — PASS (records the message defect the case itself predicts, not a new one)
+Verbatim message above contains `LogicalSort`, a Calcite class name, and **not** the words
+`ORDER BY` — exactly the case's "Expected (current)" text. Confirmed still true on this build; the
+one-clause fix the case names has not landed.
+
+### SQLX-123 — PASS
+`LIMIT 5`, `LIMIT 0`, `LIMIT 1000000` → all three the identical `LogicalSort` message; none mentions
+`LIMIT`.
+
+### SQLX-124 — PASS
+`OFFSET 5 ROWS` and `OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY` → both the identical `LogicalSort` message.
+
+### SQLX-125 — PASS
+H-VIEW: `ORDER BY amount`, `LIMIT 3`, `ORDER BY amount LIMIT 3` over `v_txn` → all three
+`PRV-1041  PRV-2020  the planner produced a LogicalSort...` — the operator code (`2020`), not the
+unbounded-state one (`2050`), confirming the document's claim that this refusal does not soften over
+a bounded read. The `PRV-1041` prefix is the server/Flight transport's generic wrapper around the
+real `PRV-2020` refusal underneath it, present on every server-side refusal in this log (see
+SQLX-060, SQLX-126) — not itself a separate finding, but worth naming once: a client parsing only the
+leading code sees `1041`, not the operator code that actually explains the refusal.
+
+### SQLX-126 — **FAIL against the case's own Falsifier ("a code outside {2020, 2063}")**
+H-VIEW: `SELECT user_id FROM v_txn ORDER BY ? --params 1` →
+`PRV-1041  PRV-2010  class org.apache.calcite.sql.SqlDynamicParam: ?` — a **third** code the case did
+not enumerate, and its text is a raw Java class name, not a sentence a user can act on: worse than
+either of the two outcomes the case allowed for. `SELECT user_id FROM v_txn LIMIT ? --params 3` →
+`PRV-2063  ?1 is not in a WHERE clause. A placeholder stands for a value that selects rows, and
+nothing else...` — matches the case's second anticipated outcome exactly, including the specific risk
+it names: the message explains window sizes and group keys and says nothing about there being no sort
+operator, so a user reading it concludes parameters are the obstacle and tries `ORDER BY amount`
+instead — which SQLX-121 shows is also refused, for an unrelated reason. ADR-032's own prediction
+("a test says so") is confirmed for the `LIMIT ?` form; the `ORDER BY ?` form is a distinct, new
+observation (`PRV-2010`) the case did not anticipate.
+
+## §6 — Set operations (SQLX-127 … SQLX-134)
+
+Run as `SqlxMultiStreamTest` (`pravaha-it`, H-MTX: `TXN`, `OTHER`, `THIRD` registered in-process,
+`PhysicalPlanBuilder().build(...)` then `InterpretedPipeline.compile` with a throwing `RowOutput` so
+no row is ever fed while a refusal is checked — plan-time only, matching H-VAL's guarantee).
+`./mvnw -o -pl pravaha-it test -Dtest=SqlxMultiStreamTest`, exit 0, 13/13 green. Seed-proven: changed
+one assertion's expected substring to a value that cannot appear (`"LogicalUnion"` →
+`"NoSuchClassAtAll"`), reran, confirmed the specific test failed (`Tests run: 1, Failures: 1`),
+reverted, reran, confirmed green again — so the harness genuinely checks the message text rather than
+passing vacuously.
+
+### SQLX-127 / SQLX-128 — PASS
+`UNION` and `UNION ALL` between `txn` and `other` → both `PRV-2020`, both name `LogicalUnion` — one
+code for both spellings, not two.
+
+### SQLX-129 — PASS
+`INTERSECT` → `PRV-2020`, names `LogicalIntersect`.
+
+### SQLX-130 — PASS (records the predicted message defect)
+`EXCEPT` → `PRV-2020`, names `LogicalMinus`, does **not** contain `EXCEPT` — confirmed exactly as the
+case's "Expected (current)" text describes; not fixed.
+
+### SQLX-131 — PASS
+`UNION ALL` of `txn` with itself → `PRV-2020`/`LogicalUnion` **at plan time**, before the pipeline is
+ever compiled — unlike the self-*join*, which the harness's own `refusalOf` also exercises via
+`InterpretedPipeline.compile` and which is the one refusal elsewhere in this file with no code.
+
+### SQLX-132 — NOT RUN
+Needs two registered *views* (`v_txn`, `v_u1`) over H-VIEW; the running server only has `v_txn`
+registered. Deferred.
+
+### SQLX-133 — PASS
+All four (127–130) messages: length > 40, none mentions `ADR-030` or `out of scope` — confirms the
+case's finding that the document's real rationale (ADR-030 tier 4, a scope decision) is absent from
+the message a user actually sees, who reads "cannot execute yet" as a promise of a future release.
+
+### SQLX-134 — PASS
+Union inside a `WITH`: `PRV-2020`/`LogicalUnion`. `EXCEPT` inside a derived table:
+`PRV-2020`/`LogicalMinus`. The same shape of union inside an `IN (...)` subquery:
+`PRV-2021` — a different code for text that contains a union, because the predicate compiler refuses
+the subquery before ever examining what is inside it.
+
+## §7 — Derived tables, CTEs, VALUES, subqueries (SQLX-135 … SQLX-146)
+
+### SQLX-135 — PASS
+H-RUN `SELECT x.txn_id FROM (SELECT txn_id, amount FROM txn WHERE amount > 0) x WHERE x.amount < 100`
+→ 2 rows, `txn_id` 5 and 6. Inner control (`amount > 0` alone) → 4 rows in the same session.
+
+### SQLX-136 — PASS
+Three-deep derived table (`c` over `b` over `a`) → 4 rows, `200, 0, 14, 14` (sum 228). Two-level
+control in the same session → 5 rows summing to 728; `728 - 500 = 228` (the dropped `500` row).
+
+### SQLX-137 — PASS
+`WITH big AS (...) SELECT txn_id FROM big` (`amount >= 100`) → 2 rows, `1, 2` — the boundary row at
+exactly 100 present. Control (`amount < 100`) → 4 rows in the same session; `2 + 4 = 6`.
+
+### SQLX-138 — PASS
+Two chained CTEs (`a` filters `amount > 0`, `b` filters `user_id = 'u2'` reading from `a`, outer
+filters `amount > 100`) → 1 row, `txn_id 2`. Intermediate controls in the same session: stage `a`
+alone → 4 rows; stage `a ∧ b`'s condition together → 2 rows. `4 → 2 → 1` narrowing confirmed.
+
+### SQLX-139 — PASS
+`SqlxMultiStreamTest`: a CTE referenced once, joined to a different stream, plans cleanly (no
+self-join triggered by the CTE machinery). The same CTE joined to **itself** is refused with
+`"... appears on both sides of this plan; self-joins are not supported yet"` and, confirmed directly,
+`doesNotStartWith("PRV-")` — the one refusal in the file with no code, exactly as the document admits,
+now via a CTE rather than a literal `JOIN txn AS a, txn AS b`.
+
+### SQLX-140 — PASS
+`WITH RECURSIVE r(n) AS (...) SELECT n FROM r` → refused with a `PRV-`-prefixed message (not a
+`StackOverflowError`, not a hang — JUnit's own default per-test timeout, well under the case's
+five-minute budget, was never approached; the whole 13-test suite runs in ~2 seconds).
+
+### SQLX-141 — PASS
+`SELECT * FROM (VALUES (1),(2)) AS v(x)` and bare `VALUES (1),(2)` → both `PRV-2020`, both name
+`LogicalValues`.
+
+### SQLX-142 — PASS
+`WHERE user_id IN (SELECT user_id FROM other)` and the `NOT IN` form → both `PRV-2021`. Control
+(`user_id IN ('a','b')`, an ordinary literal list) plans in the same build.
+
+### SQLX-143 — PASS
+`EXISTS (...)` and `NOT EXISTS (...)` → both `PRV-2021`, both name `EXISTS`.
+
+### SQLX-144 — **FAIL — confirms the case's own anticipated worst case**
+A correlated `EXISTS` → `PRV-2021`, refused by the predicate compiler as an unsupported `EXISTS`
+expression. A correlated scalar subquery in the select list → `PRV-2021`, refused by the expression
+compiler as an unsupported `$SCALAR_QUERY` function. **Neither** reaches `buildLookupJoin`'s
+`Correlate` branch or its "the only correlated form Pravaha runs is a join against a lookup table..."
+sentence — both are caught by an earlier, more generic refusal first. This is precisely the case's
+own "Finding if neither does": the best-written refusal in the codebase is unreachable from any
+correlated-subquery query a user would actually type.
+
+### SQLX-145 — PASS
+Uncorrelated scalar subquery in the select list → `PRV-2021`. In a predicate
+(`WHERE amount > (SELECT COUNT(*) FROM other)`) → also `PRV-2021` (Calcite did not decorrelate it
+into a join on this build).
+
+### SQLX-146 — PASS
+Control `SELECT SUM(amount) FROM txn` (a real global aggregate) plans. `ROW_NUMBER() OVER (...)` →
+`PRV-2021`, names `ROW_NUMBER`. `RANK() OVER (...)` → `PRV-2021`, names `RANK`. `LAG(amount) OVER
+(...)` → `PRV-2021`, names `LAG`. `SUM(amount) OVER (...)` → `PRV-2021` (the expression path, not the
+aggregate path — recorded, since the case flags this as the one worth checking).
+
+## §8 onward
+
+Not executed this session. `docs/qa/cases/SQLX.md` §8 (parameters, SQLX-147…162), §9 (hostile SQL,
+SQLX-163…182) and §10 (the matrix's own self-checks, SQLX-183…190), plus SQLX-132, are **NOT RUN**.
+Continuing against this same harness set.
 
 ---
 

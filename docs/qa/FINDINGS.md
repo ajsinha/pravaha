@@ -1061,6 +1061,27 @@ row sandwiched between two good ones that the crash loses **every** row in the f
 malformed line the code comment beside the catch block promises — and that it is general to any
 `DECODE_FAILED` (also reproduces on a wrong-field-count line), not specific to the NULL/NOT-NULL case.
 
+## X-6 — a third, worse refusal wins `ORDER BY ?`, outside the two ADR-032 names
+
+`SELECT ... FROM v ORDER BY ?` (a placeholder as the sort key) is refused neither with `PRV-2020`
+(no sort operator) nor `PRV-2063` (not a value position) — the two codes ADR-032's position table
+names as the candidates — but with `PRV-2010  class org.apache.calcite.sql.SqlDynamicParam: ?`, a
+raw Java class name with no sentence around it at all. `LIMIT ?` does hit `PRV-2063` as ADR-032
+predicts, with the exact consequence ADR-032 warns about: the message explains window sizes and
+group keys and says nothing about there being no sort operator, so a user reads it, concludes
+parameters are the obstacle, and rewrites the query with a literal `LIMIT` or `ORDER BY` — which
+`SQLX-121` shows is refused anyway, for a reason with nothing to do with parameters. (SQLX-126)
+
+## X-7 — the lookup-join refusal is unreachable from any correlated subquery a user would write
+
+`buildLookupJoin`'s message for a `Correlate` node — "the only correlated form Pravaha runs is a join
+against a lookup table, written as `JOIN dim FOR SYSTEM_TIME AS OF <time>`" — is the best-written
+refusal in the codebase, naming the actual alternative. Neither ordinary correlated shape reaches it:
+a correlated `EXISTS` is refused by `PredicateCompiler` as an unsupported `EXISTS` expression, and a
+correlated scalar subquery in the select list is refused by `ExpressionCompiler` as an unsupported
+`$SCALAR_QUERY` function — both earlier and more generic than the `Correlate` branch the good message
+lives on. (SQLX-144)
+
 ---
 
 # ERRC — found executing `docs/qa/cases/ERRC.md`
@@ -1126,3 +1147,6 @@ test harness of its own — would hit the identical crash.
   (`ConfigResolver`'s unclosed-reference throw and `ConfigurationBuilder`'s unregistered-extension
   throw operate on a merged value/at the builder level, with no line to report) — see
   `docs/qa/logs/ERRC.md` §1 for detail; a LOW-severity E3 gap, not re-stated as its own entry here.
+
+---
+
