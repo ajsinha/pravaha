@@ -396,18 +396,88 @@ directly per fact 3: no transport carries a mode, so `ViewQuery`'s shipped read 
   nothing that sends it. Skipped without failing if run from a working directory where that path does
   not exist, rather than asserting a false negative.
 
+## §12 — Restart at each lifecycle point (LIFE-117 … LIFE-125)
+
+Test class: `LifeRestartTest`. A restart is simulated by closing a `QueryRegistry` and replaying its
+`RegistryJournal` into a fresh one and a fresh `ViewCatalog` — exactly what `QueryRegistry.recover`
+does for a real process restart; the journal has no way to distinguish the two.
+
+- **LIFE-117 — PASS.** `Recovery[1 recovered, 0 refused]`; the recovered query is `RUNNING`, ROWS IN
+  restarts at 0, and the view exists (empty) immediately.
+- **LIFE-118 — PASS.** A `PAUSED` query (V-before) comes back `RUNNING` — pause is not a journalled
+  field, so a restart silently undoes it.
+- **LIFE-119 — PASS.** `a` (dropped) and `b` (not): after restart, `Recovery[1 recovered, 0 refused]`
+  and only `b` is listed — the drop record suppresses replay of `a`.
+- **LIFE-120 — PASS.** A `FAILED` query (driven there by the MIN retraction, V-before) comes back
+  `RUNNING` after restart — it registered successfully, so it is journalled, and replay re-registers
+  it fresh with no memory of the earlier failure. (The "fails again when the cause recurs" half is
+  implied by the mechanism proven in LIFE-126 rather than re-run identically here.)
+- **LIFE-121 — PASS.** `a`/`b` sharing (V-before) both recover, `size() == 1` after restart, and both
+  fingerprints still match each other.
+- **LIFE-122 — PASS.** `alice`'s query is refused on replay when `alice` is no longer a known
+  principal (`Recovery` names her and explains why); `bob`'s recovers in the same restart, proving the
+  replay actually ran rather than stopping.
+- **LIFE-123 — PASS.** `hr`'s `payroll` query is refused on replay once the policy denies `hr` on
+  `payroll`; `hr`'s still-permitted `txn` query recovers in the same restart.
+- **LIFE-124 — PASS.** Five good entries plus one naming a stream removed before restart and one
+  owned by a now-unknown principal: `Recovery` reports exactly 5 recovered and 2 refused, and all five
+  good names are listed and distinct from each other, not merely counted.
+- **LIFE-125 — PASS.** 20 registrations, then three simulated restarts with no further registration:
+  the journal's byte size is identical after restart 1 and restart 2. A real new registration between
+  restarts grows it, which is the control that makes "unchanged" a measurement rather than a guess.
+
+## §13 — Failure (LIFE-126 … LIFE-130)
+
+Test class: `LifeFailureTest`.
+
+- **LIFE-126 — PASS.** A `MIN` retraction (an unrecoverable extreme) puts the query `FAILED`;
+  `failure()` is present and carries `PRV-3020` and the "ordered multiset per group" message. An
+  unrelated control registration is unaffected.
+- **LIFE-127 — PASS.** A window published before the failure (`ann=100`, `bob=5`) reads identically
+  before and after the failing retraction, while a control query in the same registry keeps accepting
+  rows in the same instant — frozen, not merely stable.
+- **LIFE-128 — PASS.** `failure()` is present in-process; `QueryRegistry`'s own listing surface
+  (`names()`, `state()`, `fingerprint()`, `sql()`, `rowsIn()`) has no field carrying it — confirmed by
+  its absence from that surface rather than asserted as a negative test.
+- **LIFE-129 — PASS.** A failed query's `subscriberCount()` is unaffected (0, since none was attached)
+  — the case's point, that nothing about the failure is surfaced through the subscription mechanism
+  either, cross-referenced against CQ-050/LIFE-066's identical silence on drop.
+- **LIFE-130 — FAIL (same HIGH defect family as LIFE-048/057 — FINDINGS L-1, extended).**
+  `subscribe()`'s terminal-state guard also reads the raw `state` field rather than `state()`, so a
+  lane-failed (not explicitly `fail()`-ed) query accepts a new subscription instead of refusing it.
+  Kept `@Disabled` naming the defect.
+
 ---
 
-## Summary so far (LIFE-001 … LIFE-116)
+## Final summary (LIFE-001 … LIFE-130)
 
 | Verdict | Count | Cases |
 |---|---|---|
-| PASS | 96 | 001–010, 012, 015–024, 026–030, 032–037, 039, 040, 042–046, 049, 051–056, 061–064, 066–074, 076, 078–080, 082, 083–100 (all of §10), 101–114, 116 (§11 except 115) |
-| FAIL (case stale, product correct — L-2) | 2 | 011, 013 |
-| FAIL (product defect) | 3 | 048, 057 (L-1), 081 (L-3) |
+| PASS | 112 | every case not listed in the four rows below (§10's doc-rot note on LIFE-084 is recorded within its PASS, not counted as a FAIL; §16's encoding-collision caveat is likewise within LIFE-016's PASS) |
+| FAIL (case stale, product correct — L-2, L-5) | 2 | 011, 013 |
+| FAIL (product defect) | 4 | 048, 057, 130 (L-1), 081 (L-3) |
 | PARTIAL (by-name half only; in-process half unreachable, package-private) | 2 | 047, 058 |
-| NOT RUN | 11 | 014, 025, 038, 041, 050, 059, 060, 065, 077, 115, and the checkpoint-encoding half of 016 |
-| **Total addressed** | **114** | |
+| NOT RUN | 10 | 014, 025, 038, 041, 050, 059, 060, 065, 077, 115 |
+| **Total** | **130** | |
 
-Remaining sections (§12 restart, §13 failure — LIFE-117 … LIFE-130) continue below as they are
-executed.
+**Defects found, by severity** (full detail in `docs/qa/FINDINGS.md` under "Lifecycle (LIFE)"):
+
+- **L-1 (HIGH):** `pause()`, `resume()` and `subscribe()` gate transitions on `RegisteredQuery`'s raw
+  `state` field rather than the reactive `state()` getter, so a lane-failed query that was never
+  explicitly `fail()`-ed can still be paused (masking `FAILED` as `PAUSED` for as long as it stays
+  paused), resumed (silently, with no memory of the failure), or newly subscribed to (which then
+  delivers nothing, forever, with no error).
+- **L-3 (MEDIUM):** a read racing a drop-then-re-register can surface `PRV-2002` with a misleadingly
+  empty stream list instead of the expected `PRV-4023`.
+- **L-4 (confirmed, not new):** `mayAdminister` still defaults to `mayRead`, so read access remains
+  destroy access under any policy that does not override it — round 2's finding, still true.
+- **L-2, L-5 (documentation):** LIFE-011 and LIFE-013 describe behaviour already fixed since the case
+  was authored (Unicode names now work; a null name now gets a message, not a bare NPE);
+  `CONCEPTS.md`'s claim about `AND` operand reordering does not hold.
+
+**What could not be run, and why:** every NOT RUN case needed one of three things this round's
+in-process harness does not build: a real `checkpointingTo` directory on disk (014, 065, 077, 115,
+and 016's encoding-collision half), a live `bin/pravaha`/Flight server or subscriber process (038,
+041, 050), or a source plugin that fails on open (025). LIFE-047 and LIFE-058's in-process halves are
+blocked for a different, structural reason: `RegisteredQuery.pause()`/`.resume()` are package-private,
+and `pravaha-it` is outside `com.ash.messaging.pravaha.registry`.

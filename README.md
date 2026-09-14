@@ -8,11 +8,10 @@
 
 **An embeddable, store-native, incrementally-maintained SQL engine.**
 
-> **Read this before evaluating.** Today Pravaha is a **bounded-input** engine: windows close when
-> the input ends, because nothing generates watermarks — the embedding application supplies them or
-> they do not advance. Over a file, a scan or a replay the answers are correct and complete. Over an
-> unbounded stream, no window would close. The `pravaha-server` process additionally has **no
-> ingestion path at all**: a query registered against it never receives a row.
+> **Read this before evaluating.** Pravaha runs unbounded streams: a registered query derives its
+> own watermark from the event-time column its stream declares, windows close as time moves on, and
+> a `pravaha-server` node feeds registered queries from configured sources. Late data reopens a
+> closed window as a correction when the stream declares how late it will accept.
 > [What is and is not built →](docs/HANDOVER.md)
 
 *Pravaha* (Sanskrit: *continuous, uninterrupted flow*) · pronounced *pruh-VAA-huh*
@@ -77,10 +76,15 @@ is worth settling early.
 ```bash
 ./mvnw -q -DskipTests install
 
-pravaha register  --name user_volume --sql-file velocity.sql --keys 1
+# Register a continuous query, ask its view a question, then watch it change.
+pravaha register  --name user_volume --sql "SELECT user_id, SUM(amount) AS total FROM txn \
+                    GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), user_id" --keys 0
 pravaha query     --sql "SELECT total FROM user_volume WHERE user_id = ?" --params u1
 pravaha subscribe --view user_volume --filter user_id=u1
 ```
+
+`pravaha queries`, `pause`, `resume` and `drop` manage what is running; `run`, `explain` and
+`validate` work without a server.
 
 Register a continuous query, ask the view a question, then watch it update. Ten minutes end to end:
 [**Quickstart**](docs/QUICKSTART.md).
@@ -160,7 +164,7 @@ nor incremental maintenance.
 
 |  | What it means |
 |---|---|
-| **Embeddable** | A library in your Spring Boot service, or a clustered server. Same engine, same code paths. |
+| **Embeddable** | A library inside your own Java process, or a server of its own. Same engine, same code paths. One node scaled to its cores — clustering is deferred (ADR-034). |
 | **Store-native** | **Filters** are pushed *into* the store — against Aerospike and any JDBC source, so filtered rows never cross the network. Offered on every path a deployment uses, including a registered continuous query, which until recently scanned and filtered afterwards. Projection and partial-aggregate pushdown, and a Cassandra plugin, are designed and not yet built. |
 | **Incremental** | Z-sets and DBSP-derived operators: work is proportional to what changed, not to how much data exists. Recursive SQL becomes expressible. |
 | **Serving** | The maintained view *is* an indexed table in memory, with declared consistency and reported staleness. Built and working; the µs-latency target is a design goal that needs the reference hardware to measure honestly. |
@@ -177,7 +181,7 @@ Full competitive analysis, including the ten measurable claims this has to satis
 | **Concurrency** | Partitioned lanes, single-writer principle. One thread, one ring buffer, one state slice, one timer wheel per lane. No locks in steady state. |
 | **State** | Off-heap hash arena, plus checkpoint files. **Designed** as three tiers with RocksDB as L1 (D5); the RocksDB tier is *not built* and is not a dependency. The defence against unbounded state today is refusal at plan time, not spill. |
 | **Correctness** | **Designed** for exactly-once state via aligned checkpoint barriers; *aligned barriers are not built*. Checkpointing today is per-lane, which is sound only while lanes share no state. `DeduplicatingSink` exists and is not yet wired. Treat the shipped guarantee as at-least-once. |
-| **Operations** | *All designed, none built:* adaptive batching, skew remediation, elastic rescaling, blue/green updates, and the time-travel debugger. What runs today is a single node with a registry, metrics and a console. |
+| **Operations** | Adaptive batching and backpressure to the source plugin are built. *Designed, not built:* skew remediation, elastic rescaling, blue/green updates, and the time-travel debugger. What runs today is a single node with a registry, checkpoints, metrics and a console. |
 
 ## Shape
 
@@ -185,10 +189,14 @@ Two processes, on purpose.
 
 ```
    pravaha-server  (Java 21)            Pravaha Console  (Python)
-   engine + public REST API      ◄───   FastAPI, built on the pravaha SDK
-   /status  — plain HTML, works
+   engine, Flight SQL, /status   ◄───   FastAPI, built on the pravaha SDK
+   plain HTML status page, works
    when the console is down
 ```
+
+Queries are registered, listed, paused, resumed, dropped and subscribed to over **Flight**, not
+over REST. The HTTP surface is deliberately small: `/status`, `/api/v1/streams`, and
+`/api/v1/queries/validate` and `/explain`. There is no `POST /api/v1/queries`.
 
 The console is a **separate runtime** so the API boundary cannot be violated: a test enforcing
 "the console may only use the public API" can be waived under deadline pressure, and a Python
@@ -240,7 +248,7 @@ cd console && make install && make run     # :8090, engine at :9090
 | `/queries/{name}` | SQL, fingerprint, siblings, a live tail, and pause/resume/drop |
 | `/workbench` | Ask once with parameters, or register it |
 | `/help` `/tutorials` | The `docs/` set and the five worked systems, rendered in place |
-| `/api/v1/...` | The JSON services the screens are built on |
+| `/api/v1/...` | The console's own JSON services, which its screens are built on — not the engine's |
 
 One engine subscription serves every browser watching a view, ref-counted: ten analysts on one
 dashboard are ten connections and **one** subscriber on the engine. Every page renders before its
@@ -343,7 +351,7 @@ operator console is its own artefact in [`console`](console).
 | 4 | 12–18 | Windows, watermarks, late data, tiered state | ✅ built · gate P3 needs hardware |
 | 5 | 19–25 | Joins, Aerospike, checkpointing and recovery | ✅ built |
 | 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built |
-| 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | 🔨 in progress · no console |
+| 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built · console included |
 | 8 | 39–45 | Cluster and HA | ▫️ not started |
 | 9–10 | 46–62 | Time-travel debugger, Nexmark published head-to-head, **GA** | ▫️ not started |
 
