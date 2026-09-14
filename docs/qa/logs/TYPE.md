@@ -117,3 +117,98 @@ Vehicle: `pravaha run`/`validate`/`explain` over `num.csv`, `case.csv` (per TYPE
 
 **Section tally:** 15 PASS, 7 FAIL, 1 BLOCKED, 0 NOT RUN (23 cases).
 
+
+## §10-12 — NULL and three-valued logic, Min/max values, Overflow/underflow (TYPE-080 … TYPE-101)
+
+Vehicle: `pravaha run`/`validate` over `types.csv`, `num.csv`, plus a small `over.csv` fixture for
+overflow-at-decode. A fixture-design flaw in `num.csv` (row 5 has a real, non-NULL `b=0`) breaks two
+cases as literally scripted (TYPE-081, TYPE-097) whose Steps run an unguarded `a/b` over the whole
+file; both were re-run isolated to the row(s) the case is actually about, noted below rather than
+silently reconciled.
+
+- **TYPE-080 — PASS.** All ten `IS [NOT] NULL` pairs over `types.csv` match exactly. One SDK-only
+  sub-check (empty-string vs NULL via the Java SDK rather than the CLI) NOT RUN — no SDK vehicle used
+  in this batch.
+- **TYPE-081 — FAIL** (fixture flaw, not a product bug). The full unguarded `a+b,...,a%b` over
+  `num.csv` throws `PRV-3010` at row 5's real `b=0`, contradicting Expected's "other rows
+  unaffected." Every isolated sub-check (float half, `a*0`, `b/a` with a NULL divisor) matches
+  Expected exactly, including the core NULL-propagation claim.
+- **TYPE-082 — PASS.** All six operator/negation pairs over `i64` match, including double negation
+  and `IS NULL`.
+- **TYPE-083 — PASS.** All `= NULL`/`<> NULL`/`> NULL` forms return 0 rows; server-side bound-`NULL`
+  vs literal-`NULL` equivalence confirmed against a live view (worked around the already-known Y-2/X-4
+  BYTES-column defect by narrowing the view — not a new finding).
+- **TYPE-084 — PASS.** `WHERE b`→1,4; `NOT b`→2,5; `b OR NOT b`→1,2,4,5 (row 3's NULL excluded both
+  ways); `b IS NULL`→3.
+- **TYPE-085 — PASS.** LIKE/NOT LIKE both drop the NULL row; `NOT(LIKE ...)` agrees with `NOT LIKE`.
+- **TYPE-086 — FAIL.** Concat-with-NULL, three-part flattening and the CASE workaround all match.
+  The anti-vacuity step (`WHERE s || '!' IS NULL`) is refused: `PRV-2021`, `IS NULL` only compiles
+  over a bare column, not a general expression — case-design gap, not exercised as intended.
+- **TYPE-087 — PASS.** All five AND/OR/NOT-UNKNOWN truth-table cases match exactly.
+- **TYPE-088 — PASS/FAIL split.** Extremes round-trip and the eight WHERE-extreme checks (step 1-2)
+  match. Step 3 (a genuinely corrupt decode) does **not** surface `PRV-5040`; it throws
+  `UnsupportedOperationException: a plugin aborted a row mid-write ... Report this` instead —
+  root-caused to `DelegatingRowWriter.abort()` unconditionally throwing when
+  `FilesystemPartitionReader` catches the real decode exception. This is the pre-existing OPEN defect
+  tracked in `docs/qa/FINDINGS.md`'s summary table as **I-3** (`DelegatingRowWriter.abort()` throws
+  `UnsupportedOperationException`), reconfirmed here, not a new finding.
+- **TYPE-089 — FAIL.** Extremes and the overflow/underflow-to-zero decode both match. But
+  `WHERE f > 0` returns 6 rows including the NaN row (Expected 5), and `WHERE f = f` returns all 10
+  rows including NaN (Expected 9) — see Defect TY-3, now confirmed at FLOAT32 as well as FLOAT64.
+  Doc-only nit: TYPE-089's expected float32 min-normal string (`1.17549435E-38`) is itself wrong;
+  plain `Float.toString` (and the engine) give `1.1754944E-38`.
+- **TYPE-090 — FAIL,** same NaN-comparison root cause as TYPE-089 at FLOAT64: `WHERE f > 0` wrongly
+  includes the NaN row (6 rows, not 5); `WHERE f < 1.0E308` is unaffected (NaN correctly fails `<`
+  under `Double.compare`'s ordering) and matches.
+- **TYPE-091 — FAIL.** Row 6's genuine decode failure hits the same I-3 masking as TYPE-088. More
+  significantly, `WHERE ts > 0`/`WHERE ts < 0` are refused outright for every literal form tried
+  (bare integer, `CAST(... AS BIGINT)`, and the full-width literal): `PRV-2002 Cannot apply '>' to
+  arguments of type '<TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)> > <INTEGER>'` — consistent with the
+  already-documented X-1 mechanism (`TIME(0) = INTEGER` refused the same way), now reconfirmed for
+  `TIMESTAMP_LTZ`; doc-rot in TYPE-091's Expected, not a new mechanism. Wire/Flight sub-step NOT RUN
+  (needs the Python SDK, not exercised in this batch).
+- **TYPE-092 — FAIL, new HIGH defect (TY-6).** Lengths preserved exactly for 0/1/511/1024/65536-byte
+  strings (no truncation). But the 1024-byte string comes back with **56 corrupted bytes at exactly
+  offset 512–567**, reproduced identically across two independent runs and two schema variants, under
+  exit 0 with the correct row count reported. See Defect TY-6.
+- **TYPE-093 — PASS.** `RowLayout` offsets for the fixture schema match the hand computation exactly
+  (`offsetOf`, `nullBitmapOffset/Bytes`, `fixedRegionOffset/End`, `variableFieldCount`, `rowSize(5)`);
+  DECIMAL's 16-byte fixed footprint confirmed directly.
+- **TYPE-094 — PASS** (not independently seed-proven; corroborated by control comparison, not a
+  production-code mutation). INT32 overflow wraps silently under exit 0: `u+v`→
+  `-2147483648,2147483647,10,-4` exactly as predicted; a BIGINT control column over the same
+  expressions shows the true unwrapped values, confirming only the INT32 write narrows.
+- **TYPE-095 — PASS.** INT64 `+`/`*` overflow throws `ArithmeticException: long overflow` (exit 1);
+  `-` does not overflow at the documented extreme and matches the stated asymmetry. No
+  non-determinism observed across 5 repeated runs of each form (contradicts the OPEN Q-7 claim,
+  corroborating FINDINGS.md's existing X-2 note).
+- **TYPE-096 — PASS, seed-proven.** `validate` shows the narrower output type is taken for both
+  INT8+INT8 and INT16+INT16; `run` reproduces the exact predicted silent wraps under exit 0. A
+  three-term chain (`p+q+q`) confirms narrowing happens once at the end (`writeComputed`), not
+  per-operator, matching preamble Fact 4 exactly.
+- **TYPE-097 — FAIL as scripted / underlying claim confirmed.** The literal all-rows query fails
+  wholesale at `num.csv` row 5's real zero divisor (same fixture flaw as TYPE-081). Isolated to the
+  `Long.MIN_VALUE / -1` row: division returns `-9223372036854775808` silently (exit 0, no throw);
+  `a%b`→0; `ABS(a/b)` throws `ArithmeticException: ABS(-9223372036854775808) has no representable
+  result` — all three match Expected exactly, including the division-doesn't-throw /
+  ABS-does asymmetry.
+- **TYPE-098 — FAIL against the case, in the "already fixed" direction.** `SELECT -a` is **not**
+  refused: it plans, executes, agrees with `0-a` and `a*-1` for every row, and overflows identically
+  to both alternate spellings at the documented extreme. This reconfirms FINDINGS.md's existing
+  **X-2** note (unary minus works correctly) and contradicts the still-OPEN `Q-11` row in the
+  round-1 summary table — TYPE-098's own premise is stale, not the product.
+- **TYPE-099 — FAIL.** `WHERE f > 3.4028235E38` throws `ClassCastException: class java.lang.Double
+  cannot be cast to class java.math.BigDecimal` (exit 1) instead of returning the two rows Expected
+  — preamble Fact 6's `ExpressionCompiler.literal` BigDecimal cast reaching a WHERE-clause float
+  literal for the first time in this round. Folded into Defect TY-4.
+- **TYPE-100 — PASS.** Overflow-to-Infinity, underflow-to-subnormal and `f-f`/`f/f` over the
+  infinities all match (`NaN` results included). Doc-only nit: TYPE-100's expected `4.9E-324×10`
+  value (`4.94E-323`) is itself arithmetically wrong; Java (and the engine) give `4.9E-323`.
+- **TYPE-101 — PASS.** `f=0`/`f<>0` partition exactly (row 7 vs the other 9) at both widths;
+  `f*1.0E-300` hits the same Fact-6 cast issue TYPE-099 does, exactly as the case's own text
+  anticipated, and the documented `f*f` fallback matches.
+
+**Section tally:** 13 PASS, 8 FAIL (5 are fixture/case-design issues rather than product defects: TYPE-081,
+086, 091(doc-rot half), 097(as-scripted half), plus TYPE-088/091's I-3 recurrence), 0 BLOCKED, 1
+partial NOT RUN sub-check (22 cases).
+

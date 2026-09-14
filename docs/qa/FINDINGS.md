@@ -1800,6 +1800,12 @@ the output.
 and confirmed by direct, repeated reproduction. `docs/SQL_SUPPORT.md`'s comparison-operator row
 carries no caveat for NaN-producing expressions.
 
+**Update (same round, §10-12 sub-round).** Independently reconfirmed at both FLOAT32 and FLOAT64,
+and for `=` as well as `>`: `WHERE f > 0` over a FLOAT32/FLOAT64 column wrongly includes the NaN
+row (`Float.compare`/`Double.compare` place NaN above every value), and `WHERE f = f` wrongly
+returns *all* rows including the NaN one, where SQL's three-valued `=` should make a NaN
+self-comparison UNKNOWN and drop it. See docs/qa/logs/TYPE.md §10-12 (TYPE-089, TYPE-090).
+
 ## TY-4 (MEDIUM) — two ordinary expression shapes crash with a raw, uncoded Java exception instead of a `PRV-` refusal
 
 (a) `r / 3.0E0` (a `FLOAT32` column divided by an `E`-suffixed `DOUBLE` literal) throws
@@ -1812,6 +1818,12 @@ THEN branch and FLOAT64 on the ELSE.` rather than a `PRV-2021` DECIMAL refusal.
 **Status: OPEN.** Not seed-proven (out of required scope); reproduced directly. Both are
 user-reachable through ordinary-looking SQL and should be coded `PravahaException`s. See
 docs/qa/logs/TYPE.md §13-15 (TYPE-106, TYPE-122).
+
+**Update (same round, §10-12 sub-round).** The same `ExpressionCompiler.literal` BigDecimal cast
+also fires for a scientific-notation DOUBLE literal used directly inside a `WHERE` predicate (e.g.
+`WHERE f > 3.4028235E38`), not only in a projection as previously documented — one more
+ordinary-looking, user-reachable shape that crashes uncoded. See docs/qa/logs/TYPE.md §10-12
+(TYPE-099, TYPE-101).
 
 ## TY-5 (MEDIUM) — `WHERE (CASE ... END) IS NULL` is refused
 
@@ -1840,3 +1852,23 @@ UI page was meant to be open by the same logic and is not). One-line fix candida
 `OPEN_PREFIXES` should contain `/api/swagger-ui` (or, more robustly, derive the open prefix from
 `springdoc.swagger-ui.path`'s configured value rather than hard-coding `/swagger-ui`) — not applied
 under this QA session's mandate since it touches security-filter configuration. **Status: OPEN.**
+
+## TY-6 (HIGH) — a STRING value crossing the CLI's 512-byte row reservation comes back silently corrupted
+
+`pravaha-cli`'s `QueryRunner.Collector.begin()` reserves exactly `layout.rowSize(512)` bytes per row
+from a shared arena. A 1024-byte STRING value comes back from `pravaha run` with **56 corrupted
+bytes at exactly offset 512-567** (allocator/length-looking garbage: `01 00×15 05 00×7 01 00 00 00
+38 00 01 00×7 05 00×6 38 00×5 01 00`, then recovering to the original text) — under **exit 0, with
+the correct row count reported**. Reproduced identically across two independent runs and two schema
+variants (with and without an extra BYTES column). A 65536-byte string in the same run shows no
+corruption, and shorter strings (0/1/511 bytes) round-trip exactly, pointing at the growth path taken
+the first time a variable-width field crosses the 512-byte reservation boundary.
+
+**Reproduction:** `pravaha run` over a schema with a STRING column, one row carrying a 1024-byte
+value, `--out-schema` matching; the value that reaches `out.csv` differs from the input at bytes
+512-567 of the field.
+
+**Status: OPEN.** Not seed-proven (out of required scope), but reproduced twice independently and
+root-caused to `QueryRunner.Collector`'s fixed 512-byte row reservation. This is silent data
+corruption under a success exit code — the highest-severity class of defect this round found. See
+docs/qa/logs/TYPE.md §10-12 (TYPE-092).
