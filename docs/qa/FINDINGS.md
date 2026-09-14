@@ -4048,3 +4048,26 @@ In all three the log line prints the *configured* duration, not the effective on
 surface that mentions the tick actively misreports what the engine is doing. `WatermarkTracker`'s own
 comment states the principle the clamp breaks: *"it refuses rather than clamps: a timeout quietly
 changed to something the operator did not ask for is how a tuned value becomes a mystery later."*
+
+### PF-10 (HIGH) — two group keys that share a Java string hash are silently merged into one group
+
+> **Status:** FIXED — `WindowedAggregate.compositeKey` now digests every character of a STRING group column instead of reading `String.hashCode()`. `ContinuousQueryAnswerTest.groupKeysThatShareAJavaStringHashAreDifferentGroups` pushes `"Aa"` and `"BB"` and asserts two groups; it **fails against the previous code** with one group holding their sum. 4,114 runtime + registry + it tests green.
+
+`compositeKey` read `row.getString(ordinal).hashCode()` for a STRING grouping column. The class
+comment defended the scheme by taking two independently-seeded 64-bit digests, so that the joint
+collision probability is the product and the risk at a million groups is negligible.
+
+That argument requires the two digests to be able to disagree, and for strings they could not: both
+read the same 32-bit `String.hashCode()`, so any pair of strings sharing a hash code collided in
+**both** digests at once. The second digest bought nothing for the one type where collisions are
+constructible rather than improbable.
+
+`"Aa"` and `"BB"` are both `2112`. So are `"Ca"` and `"DB"`, and the family is trivial to extend — a
+32-bit hash over a 2-character alphabet is not a hash function an adversary has to work at, and a
+user id or a product code is exactly the shape that hits it.
+
+The result was a wrong answer with no error: `GROUP BY user_id` reported the sum of two users under
+one of their names, in the view, in every subscription, and in every SDK.
+
+The comment now records what the two digests do and do not buy. Carrying the key bytes rather than a
+hash remains the honest fix, which is what `L0StateMap` is for and what [ADR-035](../adr/035-wave-8-is-survival-not-distribution.md) puts in Wave 8.

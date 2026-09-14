@@ -293,6 +293,35 @@ class ContinuousQueryAnswerTest {
     }
 
     @Test
+    void groupKeysThatShareAJavaStringHashAreDifferentGroups() {
+        // "Aa" and "BB" both have String.hashCode() 2112, and compositeKey feeds that int into the
+        // digest for a STRING column. Both the high and the low digest read the same 2112, so the
+        // two independently-seeded hashes collide together and the "joint probability is the
+        // product" argument buys nothing for strings: the collision is constructible, not unlikely.
+        //
+        // Merged groups are a wrong answer with no error anywhere -- the sum of two users reported
+        // under one of their names.
+        registry.register(
+                "w",
+                "SELECT user_id, SUM(amount) AS total FROM txn "
+                        + "GROUP BY TUMBLE(event_time, INTERVAL '1' SECOND), user_id",
+                List.of(0),
+                Principal.ANONYMOUS);
+
+        push("w", 1, "Aa", 100, 1, 100_000_000L);
+        push("w", 2, "BB", 7, 1, 200_000_000L);
+        advanceTo("w", 5_000_000_000L);
+
+        List<Object[]> rows =
+                new ViewQuery(views).execute("SELECT user_id, total FROM w").rows();
+        assertThat(rows)
+                .as("two distinct group keys, so two groups -- not one holding their sum")
+                .hasSize(2);
+        assertThat(rows).extracting(row -> row[0]).containsExactlyInAnyOrder("Aa", "BB");
+        assertThat(rows).extracting(row -> row[1]).containsExactlyInAnyOrder(100L, 7L);
+    }
+
+    @Test
     void cq053_aFailingRowStopsTheQueryVisiblyRatherThanSilently() {
         // The failure that started this QA cycle: a lane died, the query went on reporting RUNNING,
         // the view served stale rows and ten surfaces reported healthy. Whatever else a failure

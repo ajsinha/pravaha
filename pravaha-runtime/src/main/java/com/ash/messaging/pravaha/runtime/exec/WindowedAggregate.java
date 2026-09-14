@@ -40,8 +40,12 @@ import com.ash.messaging.pravaha.runtime.window.SlicedWindows;
  * <p><strong>Grouping is on a single composite key.</strong> The group columns are hashed into one
  * {@code long}, which is what the slice state is keyed by. That is a deliberate simplification with
  * a real consequence: two different key combinations that hash the same would be merged, silently.
- * The hash is a 64-bit mix, so at a million keys the chance of any collision is around
- * 3 x 10^-8 -- small, but not zero, and the honest fix is to carry the key bytes rather than a hash.
+ * Two independently-seeded 64-bit digests are taken, so the joint probability is the product and the
+ * risk at a million groups is not worth reasoning about -- <em>provided</em> the two digests can
+ * actually disagree. They could not, for strings: both read {@code String.hashCode()}, 32 bits and
+ * trivially collidable, so a constructible pair like {@code "Aa"} and {@code "BB"} collided in both
+ * at once. The digests now read every character. The honest fix remains carrying the key bytes
+ * rather than a hash, which is what {@code L0StateMap} exists for and Wave 8 wires.
  * That belongs with the keyed state store in Wave 4's second half, and until then this is recorded
  * here rather than left for somebody to discover.
  *
@@ -478,9 +482,20 @@ final class WindowedAggregate implements RowProcessor {
                 // A distinct constant rather than zero: NULL and 0 are different groups, and SQL is
                 // emphatic that they are.
                 value = 0xD1B54A32D192ED03L;
+            } else if (groupTypes.get(i) == com.ash.messaging.pravaha.api.data.TypeName.STRING) {
+                // Every character, seeded by this digest. Not String.hashCode(): it is 32 bits and
+                // trivially collidable -- "Aa" and "BB" are both 2112 -- and feeding it to both
+                // digests made them collide together, so the second one bought nothing. Two users
+                // named that way were summed into one group and reported under one of the names,
+                // with no error anywhere.
+                String text = row.getString(ordinal);
+                hash = mix(hash ^ 0x2F5E3A1D7C9B4E61L); // separates "" from an absent column
+                for (int c = 0; c < text.length(); c++) {
+                    hash = mix(hash ^ text.charAt(c));
+                }
+                continue;
             } else {
                 value = switch (groupTypes.get(i)) {
-                    case STRING -> row.getString(ordinal).hashCode();
                     case BOOLEAN -> row.getBoolean(ordinal) ? 1 : 0;
                     case INT8 -> row.getByte(ordinal);
                     case INT16 -> row.getShort(ordinal);
