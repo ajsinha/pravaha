@@ -185,6 +185,21 @@ public final class QueryRunner {
     // both unnecessary. One fewer copy of every row, on the path the product actually runs.
 
     /** Holds pipeline output until the sink is written. */
+    /**
+     * How much a single output row may carry beyond its fixed part.
+     *
+     * <p>Every row is reserved this much from a 64 MiB arena that holds the whole result, so the
+     * number trades the largest value a row may carry against how many rows a run may return.
+     * Two KiB covers the values a person prints -- a JSON document in a column is ordinary -- and
+     * still leaves room for the 20,000-row runs the examples exercise. Sixty-four KiB, tried first,
+     * exhausted the arena on exactly that file.
+     *
+     * <p>A value beyond it is refused, naming the column and both sizes. That is a change in
+     * behaviour for a value between this and whatever the old unbounded write happened to survive:
+     * such a row used to come back corrupted under exit 0, and now says so.
+     */
+    private static final int PAYLOAD_BUDGET = 2048;
+
     private static final class Collector implements RowOutput, AutoCloseable {
         private final RowLayout layout;
         private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 64);
@@ -198,11 +213,16 @@ public final class QueryRunner {
 
         @Override
         public RowWriter begin() {
-            long handle = arena.allocate(layout.rowSize(512));
+            // The budget is a real bound now: the writer is told it and refuses a value that
+            // would cross it. It used to be 512 with nothing checking, so a 1 KiB string wrote
+            // straight through the reservation and came back with 56 bytes of allocator bookkeeping
+            // spliced into the middle, under exit 0 and the right row count.
+            int payloadBudget = PAYLOAD_BUDGET;
+            long handle = arena.allocate(layout.rowSize(payloadBudget));
             if (handle == ArenaHandle.NULL) {
                 throw new IllegalStateException("output arena exhausted");
             }
-            writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+            writer.begin(arena.regionOf(handle), arena.offsetOf(handle), layout.rowSize(payloadBudget));
             return new CollectingWriter(
                     writer,
                     () -> rows.add(new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle))));

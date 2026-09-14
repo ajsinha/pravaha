@@ -34,10 +34,12 @@ import com.ash.messaging.pravaha.api.data.PravahaType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * P0-06's acceptance criterion: whatever is written comes back, for generated schemas covering every
@@ -274,5 +276,63 @@ class BinaryRowRoundTripTest {
     @SuppressWarnings("unused")
     private static byte[] utf8(String s) {
         return s.getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void aValueTooLargeForTheRowIsRefusedRatherThanWrittenThroughIt() {
+        // TY-6. A caller reserving rowSize(512) per row from a shared arena and then writing a 1 KiB
+        // string wrote straight through its reservation: the value came back with 56 bytes of
+        // allocator bookkeeping spliced into the middle, at exactly the offset where the reservation
+        // ended, under exit 0 with the right row count reported. Nothing checked, because the writer
+        // was never told how much room it had.
+        //
+        // Silent corruption under a success status is the worst shape a failure takes here, and a
+        // refusal naming the column and the size is the least a caller can act on.
+        StreamSchema schema = StreamSchema.builder("wide")
+                .field("id", Types.int64())
+                .field("text", Types.string())
+                .build();
+        RowLayout layout = RowLayout.of(schema);
+
+        try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8)) {
+            int budget = layout.rowSize(512);
+            long handle = arena.allocate(budget);
+            BinaryRowWriter writer = new BinaryRowWriter(layout);
+            writer.begin(arena.regionOf(handle), arena.offsetOf(handle), budget);
+            writer.setLong(0, 1L);
+
+            assertThatThrownBy(() -> writer.setString(1, "x".repeat(1024)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("text")
+                    .hasMessageContaining("was given");
+        }
+    }
+
+    @Test
+    void aValueThatFitsIsWrittenAndReadsBackExactly() {
+        // The other half: the bound must not refuse what fits, or it is a smaller version of the
+        // same bug.
+        StreamSchema schema = StreamSchema.builder("wide")
+                .field("id", Types.int64())
+                .field("text", Types.string())
+                .build();
+        RowLayout layout = RowLayout.of(schema);
+
+        try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8)) {
+            int budget = layout.rowSize(4096);
+            long handle = arena.allocate(budget);
+            BinaryRowWriter writer = new BinaryRowWriter(layout);
+            writer.begin(arena.regionOf(handle), arena.offsetOf(handle), budget);
+            String value = "y".repeat(1024);
+            writer.setLong(0, 1L)
+                    .setString(1, value)
+                    .weight(1L)
+                    .eventTimestampNanos(0)
+                    .sequence(0)
+                    .commit();
+
+            BinaryRowView view = new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle));
+            assertThat(view.getString(1)).isEqualTo(value);
+        }
     }
 }

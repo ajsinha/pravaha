@@ -597,7 +597,20 @@ class PluginSourceFeedsTest {
             awaitRows(query, 4);
             // Three inserted, one retracted, so two survive: ann and cat. bob's insert and his
             // retraction cancel, which is the whole point.
-            awaitView(views, "SELECT user_id, amount FROM live", 2);
+            //
+            // Waiting for the answer rather than for a row count. The view passes through two rows
+            // on its way -- {ann, bob} before cat arrives -- so a wait for "at least two" returns on
+            // a state that is not the one being asserted, and the read a line later saw three.
+            long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+            while (System.nanoTime() < deadline
+                    && !List.of("ann", "cat")
+                            .equals(new com.ash.messaging.pravaha.serving.ViewQuery(views)
+                                    .execute("SELECT user_id FROM live").rows().stream()
+                                            .map(r -> (String) r[0])
+                                            .sorted()
+                                            .toList())) {
+                Thread.sleep(20);
+            }
 
             List<Object[]> rows = new com.ash.messaging.pravaha.serving.ViewQuery(views)
                     .execute("SELECT user_id FROM live")

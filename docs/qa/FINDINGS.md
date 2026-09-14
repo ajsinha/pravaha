@@ -1853,7 +1853,7 @@ UI page was meant to be open by the same logic and is not). One-line fix candida
 `springdoc.swagger-ui.path`'s configured value rather than hard-coding `/swagger-ui`) — not applied
 under this QA session's mandate since it touches security-filter configuration. **Status: OPEN.**
 
-## TY-6 (HIGH) — a STRING value crossing the CLI's 512-byte row reservation comes back silently corrupted
+## TY-6 (HIGH) — FIXED — a STRING value crossing the CLI's 512-byte row reservation came back silently corrupted
 
 `pravaha-cli`'s `QueryRunner.Collector.begin()` reserves exactly `layout.rowSize(512)` bytes per row
 from a shared arena. A 1024-byte STRING value comes back from `pravaha run` with **56 corrupted
@@ -1872,6 +1872,25 @@ value, `--out-schema` matching; the value that reaches `out.csv` differs from th
 root-caused to `QueryRunner.Collector`'s fixed 512-byte row reservation. This is silent data
 corruption under a success exit code — the highest-severity class of defect this round found. See
 docs/qa/logs/TYPE.md §10-12 (TYPE-092).
+
+**FIXED, in the writer as well as the caller.** `BinaryRowWriter` had no bound at all -- it was never
+told how much room the row had -- so a value larger than the reservation was written straight through
+it. `begin(region, offset, capacity)` records the budget and a variable-width write past it is
+refused, naming the column and both sizes. The two-argument `begin` bounds by the region, which is
+better than nothing and does not catch this case: a reservation inside a larger arena overruns its
+neighbour while staying well inside the region.
+
+The CLI passes its budget and raises it to 2 KiB. That number is a trade, not a preference: every
+row is reserved from a 64 MiB arena holding the whole result, so the budget sets the largest value a
+row may carry against how many rows a run may return. 64 KiB was tried first and exhausted the arena
+on the 20,000-row file the examples already exercise -- caught by that test, not by reasoning.
+
+A value beyond 2 KiB is now refused, naming the column and both sizes. For a value between 512 bytes
+and whatever the old unbounded write happened to survive, that is a change in behaviour: such a row
+used to come back corrupted under exit 0 and now says so. Growing a row on demand rather than
+refusing is the better answer and is not built.
+
+Seed-proven by removing the check, which lets the oversized write through again.
 
 ## TY-7 (MEDIUM-HIGH) — `DECIMAL(p,s)` is advertised as supported in the refusal message but is unreachable through any surface
 

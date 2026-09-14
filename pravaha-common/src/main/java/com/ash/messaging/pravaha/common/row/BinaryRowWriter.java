@@ -49,6 +49,9 @@ public final class BinaryRowWriter implements RowWriter {
     private long writtenMask;
     private boolean open;
 
+    /** How many bytes this row may occupy, counted from its own start. */
+    private int limit = Integer.MAX_VALUE;
+
     public BinaryRowWriter(RowLayout layout) {
         if (layout.fieldCount() > Long.SIZE) {
             throw new IllegalArgumentException(
@@ -73,9 +76,28 @@ public final class BinaryRowWriter implements RowWriter {
      * much room the row will need once its variable-width payload is appended.
      */
     public BinaryRowWriter begin(MemoryRegion target, int offset) {
+        // Bounded by the region when the caller does not say. Better than nothing -- writing past
+        // the region is unambiguously wrong -- but it does not catch the case that matters: a row
+        // written into a *reservation* inside a larger arena overruns its neighbour and stays well
+        // inside the region. Callers that reserved a fixed size should pass it.
+        return begin(target, offset, target.capacity() - offset);
+    }
+
+    /**
+     * Opens a row that may occupy at most {@code capacity} bytes from {@code offset}.
+     *
+     * <p>Exists because there was no bound at all. A caller reserving {@code rowSize(512)} per row
+     * from a shared arena and then writing a 1 KiB string wrote straight through the reservation:
+     * the value came back with 56 bytes of allocator bookkeeping spliced into the middle of it, at
+     * exactly the offset where the reservation ended, under exit 0 with the right row count. Silent
+     * corruption under a success status is the worst shape a failure takes, and it was reachable
+     * from `pravaha run` with one long column.
+     */
+    public BinaryRowWriter begin(MemoryRegion target, int offset, int capacity) {
         if (open) {
             throw new IllegalStateException("a row is already open; commit or abort it first");
         }
+        this.limit = capacity;
         this.region = target;
         this.rowOffset = offset;
         this.payloadCursor = layout.fixedEnd();
@@ -228,6 +250,14 @@ public final class BinaryRowWriter implements RowWriter {
                             + " comes after field " + lastVariableOrdinal + ", which was already written");
         }
         int slot = rowOffset + layout.offsetOf(ordinal);
+        if (payloadCursor + length > limit) {
+            throw new IllegalArgumentException(
+                    "field '" + layout.schema().field(ordinal).name() + "' needs "
+                            + (payloadCursor + length) + " bytes and this row was given " + limit
+                            + ". Writing it would run past the space reserved for the row and into whatever is next,"
+                            + " which is how a value comes back with bookkeeping spliced through the middle of it."
+                            + " Reserve a larger row.");
+        }
         region.putInt(slot, payloadCursor);
         region.putInt(slot + 4, length);
         region.putBytes(rowOffset + payloadCursor, value, sourceOffset, length);
