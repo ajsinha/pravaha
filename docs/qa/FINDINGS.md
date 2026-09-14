@@ -1596,3 +1596,97 @@ This guard was evidently added to `SocketCoordinator` after STATE-107 was writte
 strictly safer behaviour than the one the case documents: a coordinator that is told about zero peers
 — not even itself — could never elect a leader or report membership, so refusing it at construction
 beats returning an object that can never do its job. Recorded as drift, not fixed.
+
+## API — found executing `docs/qa/cases/API.md`
+
+### API-F1 (informational) — `sqlName()` renders `STRING` as `VARCHAR NOT NULL`, not `STRING NOT NULL`
+
+Not a defect. `PrimitiveType.sqlName()` returns the Pravaha type-name verbatim (`INT64 NOT NULL`,
+exactly as the case file assumes), but `StringType.sqlName()` returns the Calcite/SQL spelling,
+`VARCHAR NOT NULL` — and `PravahaTypeTest` already asserts this. `docs/qa/cases/API.md` was authored
+assuming every primitive renders its Pravaha type name, which is true for `INT64` and false for
+`STRING`. Both the CLI (`ValidateCommand`/`ExplainCommand`, via `plan.outputSchema()...type().sqlName()`)
+and REST (`DtoMapper.toFields`, same method) go through this one path, so the correction is uniform
+across both surfaces. Affects the wording of API-018, 019, 023, 024, 026, 027, 032, 074, 078, 081,
+104 — recorded PASS with a note in each rather than as eleven separate findings. **Status: not
+applicable** (case-text correction, no code change).
+
+### API-F2 (LOW) — the codegen "happy path" case cannot be demonstrated with the shared `FILTERSQL` constant
+
+`API.md`'s own `FILTERSQL` harness constant (`SELECT user_id, amount FROM txn WHERE status =
+'COMPLETED' AND amount > 100`) projects `user_id`, a `STRING`. `pravaha explain --level codegen`
+against it does not produce generated Java; it falls back with `PRV-3101  cannot generate a
+projection of STRING yet (column 'user_id')`. Codegen for a purely numeric projection does work —
+confirmed with `SELECT amount FROM txn WHERE amount > 100` and `SELECT txn_id, amount FROM txn
+WHERE amount > 100`, both of which emit a numbered `ExplainStage` class. So API-037, as written,
+exercises the *fallback* path (API-038's case), not the happy path it is meant to pin. Two options
+for the case file: change API-037's SQL to a numeric-only projection, or accept that the current
+codegen surface cannot cover a query that projects a string column and rewrite the case to say so.
+**Status: OPEN** (case-file fix, not a product change — recorded here per the QA `README.md`'s "a
+FAIL needs an entry" rule since API-037 is marked FAIL in the log).
+
+### API-F3 (LOW) — `run`'s open-failure messages never include the underlying OS cause
+
+`PRV-5040` messages from `RunCommand`'s source/sink open failures (`cannot read <path>`, `read
+failed at line 0`, `cannot open <path> for writing`) never include the underlying `IOException`
+detail text (e.g. `Permission denied`), and — per API-071 — `PRAVAHA_CLI_TRACE` does not help,
+because it instruments only `ServerCommand.fail`, not `run`/`validate`/`explain`. Two concrete
+gaps: (1) API-048 (`--in` naming a directory) never names the path at all, only
+`read failed at line 0`; (2) API-050 (`--out` under a read-only directory) names the path but never
+the word "permission" or any OS-level cause, even with tracing on. An operator debugging a
+permission or a directory-vs-file mistake gets a code and a help URL but not the one line that would
+tell them what actually went wrong at the OS level. **Status: OPEN.**
+
+### API-F4 (informational) — `run --out` auto-creates missing parent directories
+
+API-049 expects `--out /tmp/nodir/out.csv` against an absent `/tmp/nodir` to fail before any work is
+done. Actual behaviour: it succeeds — `ok  6 in, 3 out`, exit 0 — and `/tmp/nodir` is created along
+with the file. Verified against a freshly `rm -rf`'d path, so this is not stale state. This is
+friendlier than the documented contract (a first-time user's typo'd `--out` path now works rather
+than failing), so it is recorded as a behavioural fact for the case file to catch up to, not a
+defect. It does mean `RunCommand`'s destination check is weaker than API-050/051 suggest: only "the
+path exists and is unwritable" and "the path exists and is the wrong kind" fail; "the path's parent
+does not exist yet" does not. **Status: not applicable** (behaviour is arguably correct; case text
+needs updating).
+
+### API-F5 (informational) — the `H-SRV`/`H-OPEN` harness note "rows are pushed with DoPut" does not hold against a real `pravaha-server`
+
+`grep -rn "DoPut\|acceptPut"` across the repository (excluding `.claude/`) finds exactly one hit,
+`PravahaFlightSqlProducer`, and that override is `acceptPutPreparedStatementQuery` — parameter
+binding, not raw row ingestion. There is no `FlightProducer.acceptPut` override anywhere, so a
+standalone `pravaha-server` process has no Flight path for pushing rows into a declared stream.
+The in-process test fixtures that appear to "push rows" (`TestFlightServerMain`, `ServedView.
+applyValues` in `H-FL`/`H-FLR`/`H-FLA`) work only because the test is in the same JVM as the
+`QueryRegistry`/`ViewCatalog` and mutates them directly — not a wire operation a real client can
+perform. Against a real `pravaha-server` the only way to feed a declared stream is a configured
+`pravaha.sources.<stream>` binding (this session used the `filesystem` plugin's `follow: true`
+mode, which tails a growing file). This QA session's CLI-§G batch (API-054–066) is executed on that
+basis; **Status: not applicable** — a fact about the harness description, not a product defect, but
+worth fixing in the case file's `H-OPEN`/`H-SRV` preambles so the next executor does not spend time
+looking for a `DoPut`-based ingestion path that is not there.
+
+### API-F6 (LOW) — `API-062` and `API-152` disagree about which PRV code an unknown view produces, and the executed evidence sides with `API-152`
+
+`pravaha query --sql "SELECT * FROM nope"` against `H-SRV` with one view (`by_user`) registered
+returns `PRV-2002  Object 'nope' not found. Known streams: [by_user]`, not the `PRV-4023`/
+`this server serves [...]` form `API-062` predicts. `API-152`, in the same case file, gives the
+actual mechanism: `ViewQuery.relFor` answers `PRV-4023` **only when the catalog is empty**, and
+otherwise defers to the planner, which answers `PRV-2002`. `API-062`'s own setup registers two
+views, so by `API-152`'s account `PRV-2002` is the code that should fire — the two cases contradict
+each other, and this session's run confirms `API-152`'s version. **Status: OPEN** (case-file
+correction: `API-062` should either register zero views to reach the `PRV-4023` branch, or its
+expected code/message should change to `PRV-2002`).
+
+### API-F7 (MED) — a dead-server refusal on the CLI never names the address, and `subscribe` prints its success banner before the connection is known to have failed
+
+Every one of the seven `H-CLI`-against-nothing-listening commands (`queries`, `query`, `register`,
+`drop`, `pause`, `resume`, `subscribe`) fails with the bare stderr text `PRV-1041  io exception` —
+`subscribe`'s is `io exception` with no `PRV-1041` prefix at all. None names `localhost:9090`, the
+scheme, or any part of the target address; an operator debugging "why did my script just print
+`io exception` and exit 1" has nothing to go on. Separately, `pravaha subscribe --view x` against
+the same dead server writes
+`subscribed to x; changes print as they are committed. Ctrl-C to stop.` to **stdout** before the
+connection failure is discovered on stderr — so a caller reading stdout alone (or a pipeline
+consuming it) sees an apparent success confirmation from a command that immediately fails. Both are
+usability defects in `ServerCommand`'s error path, not obviously small/safe to fix under this QA
+session's mandate (rule 5). **Status: OPEN.**
