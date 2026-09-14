@@ -1134,7 +1134,7 @@ number meaning the engine's own unit so a file the sink wrote reads back identic
 storing a time unscaled again, which fails with 3,600,000 against 3,600,000,000,000.
 
 ## X-2 — probable corrections to Q-5, Q-6, Q-7 and Q-11 (round 1), not yet confirmed against a commit
-> **Status:** UNTRIAGED
+> **Status:** FIXED — ran `ExpressionMatrixTest` (pravaha-sql, exit 0), which covers integer division by zero and overflow via `Expression.Arithmetic.evaluateLong` (`Math.addExact`/`subtractExact`/`multiplyExact` plus an explicit `divideByZero()` ArithmeticException); unary minus is normalized in `ExpressionCompiler`; COUNT(DISTINCT) fix independently confirmed by `docs/qa/logs/AGG.md` citing commit `2e05bfad` and `SqlAnswerTest#AGG-022`/`#AGG-024`.
 
 
 Executing SQLX-038, SQLX-039 and SQLX-040 against the current build ran the exact SQL each of Q-11
@@ -1154,7 +1154,7 @@ this file should confirm and mark them fixed, or explain the discrepancy. Full r
 `docs/qa/logs/SQLX.md` under SQLX-038/039/040/107/108.
 
 ## X-3 — `SqlSupportMatrixTest`'s corruption path, reconfirmed with the exact byte mechanism
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `QueryRunner.run` builds its `Collector`/`BinaryRowWriter` from the real `plan.outputSchema()` but configures `FilesystemSinkPlugin`/`DelimitedCodec` from the separate, unchecked `--out-schema` string, and `BinaryRowView.getInt`/`getLong` perform no type check — the byte-overlap corruption mechanism is still present, uncross-checked anywhere in `RunCommand`/`QueryRunner`.
 
 
 SQLX-037: `pravaha run --out-schema` is not checked against the plan's real output type (round-1's
@@ -1168,7 +1168,7 @@ garbage. Traced to the exact mechanism: two adjacent 4-byte `INT32` output slots
 mechanism was not previously traced.
 
 ## X-4 — Y-2 reconfirmed via a different case, with the blocked-surface extent noted
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `ServedView.value`'s BYTES case now calls `row.getBytes(ordinal, slice)` rather than `row.getString`; confirmed by running `JavaSdkQueryTest#everyTypeTheEngineDeclaresCanActuallyReachAClient` (exit 0), which exercises a BYTES column through exactly this `ServedView`/`ArrowSchemas.write` path — same fix TY-17 records.
 
 
 SQLX-060's H-VIEW leg (a view over Fixture S2, which carries a `bin BYTES` column) could not run any
@@ -1180,7 +1180,7 @@ schema contains a non-null-only BYTES column is entirely unqueryable over Flight
 query asks for, which is a wider blast radius than Y-2's one-line description states.
 
 ## X-5 — I-3 reconfirmed, with the batch-loss extent noted
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `DelegatingRowWriter.abort()` is still an unimplemented stub: it calls `delegate.abort()` then unconditionally throws `UnsupportedOperationException`, so `FilesystemPartitionReader`'s catch block masks the original `DECODE_FAILED` diagnostic and the whole batch is still lost — read both classes directly, code unchanged.
 
 
 Setting up SQLX-046 over the full `edge.csv` fixture (rather than the single row the case specifies)
@@ -1194,7 +1194,7 @@ malformed line the code comment beside the catch block promises — and that it 
 `DECODE_FAILED` (also reproduces on a wrong-field-count line), not specific to the NULL/NOT-NULL case.
 
 ## X-6 — a third, worse refusal wins `ORDER BY ?`, outside the two ADR-032 names
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced directly: `SqlPlanner.plan("SELECT amount FROM txn ORDER BY ?")` still throws `PRV-2010  class org.apache.calcite.sql.SqlDynamicParam: ?`, while `LIMIT ?` still correctly hits `PRV-2063` — exactly as ADR-032 predicts and this finding describes.
 
 
 `SELECT ... FROM v ORDER BY ?` (a placeholder as the sort key) is refused neither with `PRV-2020`
@@ -1207,7 +1207,7 @@ parameters are the obstacle, and rewrites the query with a literal `LIMIT` or `O
 `SQLX-121` shows is refused anyway, for a reason with nothing to do with parameters. (SQLX-126)
 
 ## X-7 — the lookup-join refusal is unreachable from any correlated subquery a user would write
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced directly: a correlated `EXISTS` still throws `PRV-2021` from `PredicateCompiler`'s default branch, and a correlated scalar subquery still throws `PRV-2021` from `ExpressionCompiler`'s generic `$SCALAR_QUERY` branch, both before `PhysicalPlanBuilder.buildLookupJoin`'s Correlate message is ever reached.
 
 
 `buildLookupJoin`'s message for a `Correlate` node — "the only correlated form Pravaha runs is a join
@@ -1239,7 +1239,7 @@ query it could have refused. Seed-proven by catching a different `Error` subclas
 test with "an Error escaped the planner instead of being turned into a refusal".
 
 ## X-11 (HIGH) — three more limits with no documented shape: 64 output columns, and a third failure mode for many boolean terms
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `BinaryRowWriter`'s constructor still throws a plain `IllegalArgumentException` (no PRV code) past 64 fields, undocumented in `docs/TROUBLESHOOTING.md`/`docs/SQL_SUPPORT.md`; a reproduced 1000-conjunct AND chain still throws `PRV-2010  java.lang.RuntimeException: while converting ...` with the entire predicate interpolated verbatim.
 
 
 A 1 000-column projection fails immediately with `IllegalArgumentException: BinaryRowWriter tracks
@@ -1316,7 +1316,7 @@ made the change. (SQLX-183, SQLX-184, SQLX-189)
 
 
 ## X-8 (HIGH) — `PRV-2061` (parameter arity mismatch) is unreachable through the shipped SDK/CLI
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `sdk/pravaha-sdk-java-flight/.../Parameters.write` still throws `PravahaClientException(ClientErrors.QUERY_REFUSED)` (PRV-1041) client-side on an arity mismatch before any request reaches the server; `BoundParameters.requireArity`'s `PARAMETER_ARITY` (PRV-2061) remains unreachable through this path — code unchanged.
 
 
 `BoundParameters.requireArity` throws a well-designed `PravahaException(SqlErrors.PARAMETER_ARITY,
@@ -1334,7 +1334,7 @@ first three all say only `PRV-1041`; only the last (no `--params` at all, a diff
 happened to them. (SQLX-158, SQLX-159)
 
 ## X-9 — `PRV-2063` only fires for a parameter embedded in a typeable expression, not for a bare one
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced directly: `SELECT ?` and `GROUP BY ?` still throw `PRV-2002  Illegal use of dynamic parameter` from Calcite's own validator, while `SELECT amount * ?` plans and only throws `PRV-2063` when `ParameterMetadata.of(plan)` is separately invoked — two different codes for what ADR-032's table presents as one rule.
 
 
 The case files (SQLX-160, SQLX-161, and by inheritance ADR-032's own table) assume every "not in a
