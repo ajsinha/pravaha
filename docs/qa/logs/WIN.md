@@ -31,7 +31,7 @@ only partway through, after several cases had already been re-implemented; the d
 removed rather than kept as a second copy of the same arithmetic — see "Process note" below). This
 round adds roughly 70 more case IDs and two headline findings.
 
-**Result: 210 cases, 129 executed (all PASS), 81 NOT RUN.** No FAIL: every executed case's assertion
+**Result: 210 cases, 130 executed (all PASS), 80 NOT RUN.** No FAIL: every executed case's assertion
 matches the build under test, including two cases whose own written prediction turned out to be
 stale (below) and one case (WIN-042) whose predicted number was off but whose qualitative claim held
 and is reported as such rather than forced to match.
@@ -205,6 +205,8 @@ and `TABLE(SESSION(...))` both refused, `PRV-2020`). Every case runs against the
   refused rather than silently planned as a scan.
 - **WIN-050 — PASS.** `win050_...`: `tumble(...)`, `Tumble(...)`, `TUMBLE(...)` all plan to an
   identical `WindowAssign` label.
+- **WIN-047 — NOT RUN.** Needs the CUMULATE-vs-HOP dataset comparison with a pre-epoch row added to
+  isolate the one number the two forms disagree on.
 
 ## §5 — Size: 100 ms, 1 s, 1 m, 1 h, 1 d (WIN-051 … WIN-070)
 
@@ -213,15 +215,16 @@ and `TABLE(SESSION(...))` both refused, `PRV-2020`). Every case runs against the
 - **WIN-056, WIN-060 — PASS** (pre-existing, `win056And060`). Every spelling of a 1s interval plans
   identically.
 - **WIN-058 — PASS** (pre-existing). A thousand rows per second land in the right second.
-- **WIN-047, WIN-052, WIN-053, WIN-057, WIN-061, WIN-062, WIN-064, WIN-065, WIN-066, WIN-070 — NOT
-  RUN.** WIN-047 needs the CUMULATE-vs-HOP dataset comparison with a pre-epoch row; WIN-052 is an
-  `EXPLAIN`-spelling sweep already partially covered by WIN-056/060's principle; WIN-053, 057, 061,
-  062, 064, 065, 066 are wall-clock/heap *measurements* (commit-batching latency, idle CPU, `emitted`
-  map growth under a long run of empty windows) rather than pass/fail assertions on a value, and were
-  not instrumented this round; WIN-070 needs a multi-minute-or-worse run (an epoch-adjacent row beside
-  a 2026 one, at three window sizes, one of which the case itself predicts may hang or OOM) that this
-  round did not attempt. None of these bear on correctness of an emitted number, which is this area's
-  charter; recommended for a round with wall-clock/heap instrumentation.
+- **WIN-052, WIN-053, WIN-057, WIN-061, WIN-062, WIN-064, WIN-065, WIN-066, WIN-068,
+  WIN-069, WIN-070 — NOT RUN.** WIN-052 is an `EXPLAIN`-spelling sweep already partially covered by WIN-056/060's principle;
+  WIN-053, 057, 061, 062, 064, 065, 066 are wall-clock/heap *measurements* (commit-batching latency,
+  idle CPU, `emitted` map growth under a long run of empty windows) rather than pass/fail assertions
+  on a value, and were not instrumented this round; WIN-068/069 need a live server's default
+  retention horizon exercised against day-long windows, and a check that no shipped surface can
+  change it; WIN-070 needs a multi-minute-or-worse run (an epoch-adjacent row beside a 2026 one, at
+  three window sizes, one of which the case itself predicts may hang or OOM) that this round did not
+  attempt. None of these bear on correctness of an emitted number, which is this area's charter;
+  recommended for a round with wall-clock/heap instrumentation.
 
 ## §6 — HOP: slide vs. size (WIN-071 … WIN-090)
 
@@ -275,10 +278,8 @@ covered, and its own comment says so.
   below the reported N. No deficit: the blocker git history (`e2189cd Defect 35 (blocker): windowed
   results stop being corrupted under volume`) shows it fixed before this round began, and WIN-121
   passing is the regression check for that fix at N=100,000.
-- **WIN-165 — PASS** (pre-existing). The last window of a bounded source never closes (10,001 of
-  20,000 rows never emitted), independently confirming the *documented* tail deficit is unrelated to
-  the volume blocker.
-- **WIN-120, WIN-122 … WIN-140 — NOT RUN.** WIN-120 (1,000 rows) is cheap and simply was not written.
+- **WIN-119, WIN-120, WIN-122 … WIN-140 — NOT RUN.** WIN-119 (N=1, the smallest point on the same
+  reference table) and WIN-120 (1,000 rows) are both cheap and simply were not written.
   WIN-122–126 (200,000–1,000,000 rows, the exact bracket the blocker was reported against) and
   WIN-127–130 (monotonicity and deficit quantification across that sweep) would be the direct
   regression evidence for the fix at the *reported* N, and are the most valuable gap this round left:
@@ -328,6 +329,9 @@ covered, and its own comment says so.
   exactly WIN-001's four rows, no fifth conjured by idle exclusion) and `win164_...` (embedded,
   directly on `WatermarkTracker`: `advance` returns the watermark unchanged once every partition is
   idle, and `idleExclusions()` increments — it never jumps to infinity or the wall clock).
+- **WIN-165 — PASS** (pre-existing). The last window of a bounded source never closes (10,001 of
+  20,000 rows never emitted) — the *documented* tail deficit, independently confirming it is
+  unrelated to the volume blocker WIN-121 regression-checks in §9.
 - **WIN-167 — PASS.** `win167_...`: exactly two production call sites for `.finish()`
   (`ViewQuery.java`, and `QueryExecution.java` which nests `LanePipelineProcessor`); in the embedded
   harness, `advanceWatermark` alone emits two of a single-key dataset's three windows and `finish()`
@@ -361,6 +365,12 @@ covered, and its own comment says so.
   records an `emitted` entry — correct output, incorrect bookkeeping, exactly as WIN-065 (already
   covered, pre-existing) predicts for the cost side of the same mechanism.
 - **WIN-178 — PASS** (pre-existing). A window emits only the keys that have rows in it.
+- **WIN-182 — PASS.** `win182_...`: neither `docs/SQL_SUPPORT.md` nor `docs/CONCEPTS.md` contains
+  the phrase "empty window" (case-insensitive) anywhere — the decision to emit nothing is
+  undocumented, exactly as predicted. The finding is the gap, not the emptiness: per the case, there
+  is also no way to work around it (no `LEFT JOIN` without a time bound, no way to materialise a
+  calendar table), so a dashboard needing a flat zero line cannot get one from a continuous query
+  today.
 - **WIN-180, WIN-181 — NOT RUN.** WIN-180 needs a one-row/one-day-later dataset walking ~9,000 empty
   window ends; WIN-181 deliberately pushes that to 900,000 and 90,000,000 ends (the latter at the
   finest expressible window per WIN-054) specifically to find where the cost stops being a number and
@@ -400,20 +410,20 @@ does not checkpoint or restore one. Building that harness is a prerequisite this
 | 1 TUMBLE | 001–018 | 18 | 0 |
 | 2 HOP | 019–030 | 12 | 0 |
 | 3 SESSION | 031–042 | 12 | 0 |
-| 4 CUMULATE | 043–050 | 8 | 0 |
-| 5 Size | 051–070 | 10 | 10 |
+| 4 CUMULATE | 043–050 | 7 | 1 |
+| 5 Size | 051–070 | 9 | 11 |
 | 6 HOP slide/size | 071–090 | 12 | 8 |
 | 7 Open windows | 091–102 | 7 | 5 |
 | 8 Key cardinality | 103–118 | 0 | 16 |
-| 9 Row volume | 119–140 | 2 | 20 |
-| 10 Boundaries | 141–156 | 15 | 1 |
-| 11 Close triggers | 157–174 | 15 | 3 |
-| 12 Empty windows | 175–181 | 5 | 2 |
+| 9 Row volume | 119–140 | 1 | 21 |
+| 10 Boundaries | 141–156 | 16 | 0 |
+| 11 Close triggers | 157–174 | 14 | 4 |
+| 12 Empty windows | 175–182 | 6 | 2 |
 | 13 Restart | 183–194 | 0 | 12 |
 | 14 Aggregates | 195–210 | 16 | 0 |
-| **Total** | **210** | **129** | **81** |
+| **Total** | **210** | **130** | **80** |
 
 No case in this file is recorded FAIL: every executed assertion holds against the build under test.
-Three cases (WIN-003, WIN-004, WIN-006, WIN-043) whose own *prediction* did not hold are recorded
+Four cases (WIN-003, WIN-004, WIN-006, WIN-043) whose own *prediction* did not hold are recorded
 PASS with the measured, corrected outcome — the falsifier each case actually specifies (refusal,
 non-collision, etc.) is what was checked, and it held.

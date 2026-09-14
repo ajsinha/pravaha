@@ -511,6 +511,19 @@ class WindowClosingAnswerTest extends WindowTestSupport {
                         "0|10000000000|100|1|5", "0|10000000000|200|1|7", "10000000000|20000000000|100|1|9");
     }
 
+    @Test
+    void win182_nothingDocumentsThatAnEmptyWindowEmitsNothing() throws Exception {
+        // WIN-182. The decision (§12's own heading) is defensible and undocumented, which makes it
+        // indistinguishable from a bug to whoever needs a zero in a time series.
+        String docs = java.nio.file.Files.readString(
+                repoRoot().resolve("docs/SQL_SUPPORT.md"), java.nio.charset.StandardCharsets.UTF_8);
+        String concepts = java.nio.file.Files.readString(
+                repoRoot().resolve("docs/CONCEPTS.md"), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat((docs + concepts).toLowerCase(java.util.Locale.ROOT))
+                .as("no statement anywhere that an empty window emits nothing")
+                .doesNotContain("empty window");
+    }
+
     // ================================================================== 14. aggregates in a window
 
     @Test
