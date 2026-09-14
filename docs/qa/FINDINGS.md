@@ -348,7 +348,7 @@ that. The fix was correct about threading and quietly disabled the feature.
 this, not a defect of its own.
 
 ## T-2 (HIGH) — watermark partition names are built by concatenating two integers
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `QueryExecution.trackEventTimeOf` now separates the two integers with `":"`; commit `3c3c9fd` ("Defects 18-25: types on the wire, join keys, windows, names")
 
 
 ```java
@@ -388,7 +388,7 @@ through `lane.submitControlTask`; this does not. The same class of defect as the
 one tier down, and not yet observed only because the window under contention is narrow.
 
 ## T-5 — per-plugin event time, measured
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `FeedFilePartitionReader`/`DeltaPartitionReader` still call `.eventTimestampNanos(0L)` unconditionally and `JdbcPartitionReader.emit` still passes a raw JDBC long with no unit conversion; only the Aerospike row (`LutScanReader`, commit `1d6f44d`) is now fixed
 
 
 | Plugin | Behaviour |
@@ -400,7 +400,7 @@ one tier down, and not yet observed only because the window under contention is 
 | aerospike | Stamps every row of a scan with the scan's start time |
 
 ## T-6 — the two out-of-orderness keys, separated by one number
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `pravaha.watermark.out-of-orderness` is still read by nothing (only mentioned in a javadoc); `PravahaNode.withEventTime` still discards the declared `outOfOrderness` whenever `event-time` is null/blank
 
 
 `pravaha.watermark.out-of-orderness` still has no reader. `pravaha.streams.<n>.out-of-orderness`
@@ -449,7 +449,7 @@ implement them. Everything upstream can be right and the view still wrong.
 reporting `RUNNING`. Only the windowed path emits during a stream.
 
 ## I-3 (HIGH) — key columns are not in the fingerprint
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `QueryFingerprint.of(plan, rowFilters)` still never receives `keyColumns`; reproduced live with two registrations differing only in `--keys`, which share one `RegisteredQuery` keyed by whichever registered first
 
 
 `QueryFingerprint.of(plan, rowFilters)` omits them and the sharing path returns before `start(...)`
@@ -489,7 +489,7 @@ boundary) was identified this round but not yet reduced to a test — it is the 
 in `docs/qa/logs/WIN.md`, and would extend this finding with a second, independent reproduction.
 
 ## I-6 (HIGH) — three of the four read-consistency modes never leave the client
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `ViewQuery.run` still reads only `view.scan()`; `ServedView.get(Consistency, …)` has no caller outside tests; `LifeReadConsistencyTest` (13/13 pass) states in its own docstring that every read is CONSISTENT regardless of what was requested
 
 
 `ViewQuery.run` reads `view.scan()` — committed state only — and stamps `writer.weight(1L)`.
@@ -569,7 +569,7 @@ No configuration makes a continuous query continuous. Combined with C-2: a shipp
 a finite file of insertions and nothing else.
 
 ## C-4 — `pravaha run` silently truncates, and it invalidates earlier evidence
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `QueryRunner`'s pump loop now calls `execution.awaitQuiescent(...)` and retries before treating a zero read as exhausted; commit `fbc6580` ("Defect 33 (blocker): pravaha run reads the whole file"); `ExamplesTest#runReadsEveryRowOfALargeFileEveryTime` passes, 20,000/20,000 rows on 3/3 attempts
 
 
 Five runs of an identical command over the same 20,000-row file returned **17,664 / 9,472 / 7,424 /
@@ -580,7 +580,7 @@ Five runs of an identical command over the same 20,000-row file returned **17,66
 fill a 4,096-cell inbox.** Some of round 1's evidence is in that category and needs re-running.
 
 ## C-5 — the codegen safety net does not cover the defect in the tree
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `FilterProjectGenerator.emitProjection` still never copies a column's null bit (unlike `InterpretedPipeline.copyField`); reproduced live, a NULL projected through a generated fused stage came back `isNull=false, value=0`; the differential test now genuinely compiles generated code but its own projection never includes a nullable column, so it still doesn't catch this
 
 
 The generated projection turns NULL into 0 where the interpreter preserves it. And
@@ -588,7 +588,7 @@ The generated projection turns NULL into 0 where the interpreter preserves it. A
 comparison are the interpreter — while the property compares only column 0.
 
 ## C-6 — confirmations, independently reached
-> **Status:** UNTRIAGED
+> **Status:** SUPERSEDED — by I-1, I-2 and I-3; its three claims (Z-set weights, continuous-aggregate emission, `--keys` sharing) are the identical mechanisms those findings already cover, two now FIXED and one confirmed still OPEN under I-3
 
 
 The served view is not a Z-set (an update applied as `+new, −old` empties it; `+2` then `−1` removes
@@ -598,7 +598,7 @@ returned 5 rows where an unshared `--keys 0` returns 3, with a control case in t
 on a three-column output was accepted silently.
 
 ## C-7 — built and unreachable
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `OrphanedClassTest`'s own `KNOWN` debt list still carries `Lift`/`Frontier`/`IncrementalJoin`/`Differentiate` and `StageUpgradeService` as unreachable from any `src/main`; `PravahaEngine` (pravaha-embedded) still exposes only nine lifecycle methods, none for registering or reading a query
 
 
 `pravaha-algebra` is referenced by no file outside itself. `AdaptiveStage` and `StageUpgradeService`
@@ -624,7 +624,7 @@ emit. Re-verified executing `AGG.md`/`SQLX.md` this round (`SqlAnswerTest`'s
 `docs/qa/logs/AGG.md`.
 
 ## W-2 (HIGH) — the last window is computed and thrown away, and that ordering is mine
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced directly: a TUMBLE query fed one row and closed without ever advancing the watermark leaves `served.scan()` empty; `finish()` writes the final window into `ViewSink`'s staged overlay but nothing calls `sink.commit()` afterward once `state != RUNNING`
 
 
 `finish()` does fire the final windows at lane shutdown. But `RegisteredQuery.close()` sets
@@ -636,7 +636,7 @@ I chose that order today to fix "closing the execution while a pump is mid-write
 into a lane that has gone". The fix was right about the pump and lost every query's final results.
 
 ## W-3 — the recommended workaround is the reason the defect survived
-> **Status:** UNTRIAGED
+> **Status:** SUPERSEDED — by I-4; the underlying windowed `COUNT(DISTINCT)` byte-length defect this finding says AGG-032 hides is the one I-4 already records FIXED (`WindowedAggregate`/`SlicedAggregateState` now use `readKey(...)` with a `present[i]` guard), so AGG-032's non-discrimination is now just a case-design limitation, not a live masked defect
 
 
 `AGG-032` is recorded **NOT DISCRIMINATING** rather than dropped: it is the exact query
@@ -659,7 +659,7 @@ always calls `pumpInto(0, …)`, so `refuseUnpartitionedJoin` can never fire on 
 `pravaha run` cannot run a join at all, taking one `--stream`.
 
 ## W-5 — corrections to earlier entries in this file
-> **Status:** UNTRIAGED
+> **Status:** OPEN — both corrections verified accurate against current code (`WindowSpec.slicesPerWindow()` = `sizeNanos/gcd(size,slide)`; `RowInbox`/`SpscRowRing` throw above 2 GB with `ArenaHandle` using a per-slab 32-bit offset, not a wrapped global counter), and the four silent-stop mechanisms this corrected account describes still surface with no PRV code beyond a thread-dump
 
 
 Two things recorded earlier were imprecise, and the windowing agent pushed back rather than
@@ -675,7 +675,7 @@ inheriting them:
   4. Slices per window is `S/gcd(S,D)`, not `S/D` — which understates a 10s/9.999s hop by 10,000×.
 
 ## W-6 — also pinned, from reading the source
-> **Status:** UNTRIAGED
+> **Status:** OPEN — still true: `CUMULATE` has no case and falls to a `default` refusal with no PRV code, and `WindowSpec` still throws a raw uncoded `IllegalArgumentException` for `slide > size`. Partially stale: windowed `MIN`/`MAX` over NULL and windowed `COUNT`/`COUNT(DISTINCT)` over NULL are now fixed (commits `8ac14cb`, `2e05bfa`) — several sub-defects remain, several don't
 
 
 CUMULATE does not exist anywhere in the repo (Calcite parses it, so it reaches a `default` arm and is
@@ -719,7 +719,7 @@ NULL. For DECIMAL the same default reads the 16-byte slot as an `(offset, length
 masked by the refusal one layer up.
 
 ## Y-3 (HIGH) — the engine will group by a value it refuses to add
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `JoinKeys.checkJoinable` now refuses BYTES/ARRAY/MAP/ROW join keys at plan time instead of dying on the first row; `ArrowSchemas.arrowTypeOf` now maps TIME and TIMESTAMP_LTZ to distinct Arrow types (TY-18's fix). The remaining GROUP BY-vs-SUM(f64) asymmetry reflects a real semantic distinction, not a functional bug
 
 
 `GROUP BY f64` is accepted while `SUM(f64)` is refused. And `JoinKeys.checkJoinable` guards only
@@ -729,7 +729,7 @@ FLOAT32/FLOAT64/DECIMAL, so a **BYTES join key plans, reports RUNNING, and dies 
 of day.
 
 ## Y-4 — my ROUND fix, computed to the bit
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `Expression.evaluateDouble`'s `ROUND` now uses `BigDecimal.valueOf(value).setScale(0, RoundingMode.HALF_UP)`; verified by direct computation of all three cited inputs (`0.49999999999999994`→`0.0`, `4503599627370497.0` unchanged, `-0.4`→`+0.0` not `-0.0`)
 
 
 The agent did the floating-point arithmetic rather than asserting:
@@ -744,7 +744,7 @@ The agent did the floating-point arithmetic rather than asserting:
 these.
 
 ## Y-5 — two refusal messages of mine that give advice the engine rejects
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced both halves: `ExpressionCompiler.cast()` still unconditionally refuses any cast to/from text while `Concat`'s mismatch message still recommends exactly that CAST; `amount * 2.5` (BIGINT) still throws `PRV-2021` while `price * 2.5` (DOUBLE) still plans cleanly
 
 
 - **`||`'s refusal recommends `CAST(… AS VARCHAR)`, which the engine also refuses.** I wrote that
@@ -756,7 +756,7 @@ Verified the other way, and worth recording: the float-aggregate refusal's advic
 `SUM(CAST(price AS BIGINT))` — **does** work, at a cost of 27 versus 27.7 on the fixture.
 
 ## Y-6 — `LIKE` and `SUBSTRING` disagree about the length of a string
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `SUBSTRING` still uses `codePointCount` (code-point-correct) while `Predicate`'s `LIKE`-to-regex translator still maps `_` to a bare regex `.` iterating by Java `char`, so the two still disagree over a surrogate-pair character
 
 
 `LIKE`'s `_` counts UTF-16 units; `SUBSTRING` counts code points. The two give different answers for
@@ -764,7 +764,7 @@ Verified the other way, and worth recording: the float-aggregate refusal's advic
 `LIKE` on the regex default.
 
 ## Y-7 — an operational note for the execution wave
-> **Status:** UNTRIAGED
+> **Status:** FIXED — the underlying TYPE-030 hazard (a TIMESTAMP literal in `WHERE` killing a Flight worker thread) no longer reproduces; `docs/qa/logs/TYPE.md`'s own TYPE-030 entry from a later execution round records CLI/server all healthy with no thread death, making the operational precaution moot
 
 
 TYPE-030 (the `TIMESTAMP`-literal `AssertionError`) must run **last, or on an isolated node**: it
@@ -772,7 +772,7 @@ kills a Flight worker thread, so anything scheduled after it on that node is inv
 present as unrelated failures.
 
 ## Y-8 — the honest coverage gap, named by the author
-> **Status:** UNTRIAGED
+> **Status:** OPEN — corroborated rather than resolved by API-F2, a later finding: `pravaha explain --level codegen` still only emits generated Java for numeric-only projections and falls back (`PRV-3101`) for a STRING projection, so the interpreter/codegen divergence this finding warns about remains untested
 
 
 The budget is short by about a third — the honest cost of this grid is ~215 cases — and the largest
@@ -928,7 +928,7 @@ rejects (`policy: tenant`, `audit: log`), while `system_design.md` names `mode: 
 # State, SDKs and performance — 250 cases, and a contradiction resolved
 
 ## S-1 — the 60-byte checkpoint mystery, explained
-> **Status:** UNTRIAGED
+> **Status:** SUPERSEDED — by ST-5; `QueryRegistry.start` now wires `checkpointingViewWith` regardless of `isStateful()` and calls `restoreFrom` before feeding rows, contradicting S-1's "restore() is called from no shipped path"; `StateRestoreTest#state063` passes, showing a served view surviving a real restart
 
 
 ```java
@@ -947,7 +947,7 @@ continuous query** — and `restore()` is called from no shipped path anyway, so
 even when it is written.
 
 ## S-2 (HIGH) — under any real policy, no query survives a restart
-> **Status:** UNTRIAGED
+> **Status:** FIXED — commit `6e179f4` ("Defect 34 (blocker): recovery reconstructs an identity, or refuses") replaced the finding's quoted `new Principal(id, "unknown", ...)` with `PravahaNode.principalNamed`, which resolves against configured identities and refuses naming the query when authentication is on and the id is unknown; `ServerSecurityTest#recoveryReconstructsTheConfiguredIdentityRatherThanInventingOne` passes
 
 
 ```java
@@ -960,7 +960,7 @@ principal it refuses everything under any policy that inspects roles or tenant. 
 branch is unreachable, and `PRV-8007` is declared and never thrown.
 
 ## S-3 (HIGH) — `PARTITIONED` has no runtime behaviour at all
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `PartitionAssignment`/`Rebalancer`/`PartitionHandoff` (pravaha-cluster) are still never referenced from `pravaha-server`/`PravahaNode`; `PravahaNode`'s `clusterConfiguration` builder still only sets `pravaha.cluster.mode`/`mechanism`, never forwarding any `socket.*`/`zookeeper.*` key; `StateClusterTest` itself asserts results are identical under PARTITIONED vs SINGLE
 
 
 Only `PARTITIONED` × `socket` is refused (`PRV-9002`). `PARTITIONED` × `single` **starts** — and
@@ -968,7 +968,7 @@ partitioning does nothing either way. Seven cluster keys have no readers, so the
 from configuration even if it worked.
 
 ## S-4 (HIGH) — no server error code reaches an SDK caller as a code
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `PravahaFlightClient.query(...)` still catches every `FlightRuntimeException` and rethrows as `ClientErrors.QUERY_REFUSED` (PRV-1041) regardless of the server's real code; reconfirmed by the later finding API-F7, which shows the same catch-all `PRV-1041` for every CLI command against a dead server
 
 
 Eight provocations, every one re-stamped `PRV-1041`. The console recovers the real code by
@@ -983,7 +983,7 @@ of the three clients**, and both the CLI and the console set `allowInsecureToken
 unconditionally.
 
 ## S-5 — my idle-CPU fix was partial, measured properly
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `QueryExecution` still runs a per-query `ScheduledExecutorService` (`watermarkClock`, daemon thread `pravaha-watermark`) on a fixed-delay schedule regardless of idle state, unchanged from the finding's description
 
 
 `BACKOFF_PARK` zeroed the *lane*, which is what I measured and reported as 0%. Per-thread
@@ -992,7 +992,7 @@ a watermark tick**. My 10-second process-level sample could not see it. The head
 right and the conclusion — "fixed" — was too strong.
 
 ## S-6 — ten surfaces report RUNNING after the lane is dead
-> **Status:** UNTRIAGED
+> **Status:** SUPERSEDED — by L-1; `RegisteredQuery.state()` now reactively latches to FAILED the moment `execution.laneFailure()` is present, fixed at the one getter every surface reads through; `LifePauseTest#life048_aLaneFailureIsVisibleThroughStateBeforeAnyPauseIsAttempted` passes
 
 
 `PERF-041` enumerates them. Arena limits expressed as byte budgets rather than row counts, which is
@@ -1056,7 +1056,7 @@ in `requireLive`), but changing what a terminal-state check reads is exactly the
 audit was asked to record rather than make.
 
 ### L-5 (LOW, doc) — `CONCEPTS.md`'s claim about `AND` operand order does not hold
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `docs/CONCEPTS.md` §5 is unchanged; `LifeSharingTest#life084_differentTextSamePlanIsTheSameComputation` passes today while explicitly asserting `WHERE id > 0 AND amount > 5` and its operand-swapped form get different fingerprints
 
 
 `CONCEPTS.md` §5's worked example says "reordered `AND` operands all land on the same computation."
@@ -1067,7 +1067,7 @@ text's own order rather than normalising them. Not a product defect — sharing 
 documentation states a stronger guarantee than the engine gives.
 
 ### L-2 — two LIFE cases document behaviour the product no longer has, in the safe direction
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `LifeNamesTest#life011` and `#life013` both pass: Unicode letters register successfully and a null/blank name now throws `IllegalArgumentException("a registration needs a name")` before the sayable-name regex, not a bare NPE
 
 
 `LIFE-011` assumes an ASCII-only name regex (`café_velocity` refused); the shipped regex is
@@ -1082,7 +1082,7 @@ case document itself is what is out of date, and is the same kind of rot `docs/H
 doc-rot build check exist to catch.
 
 ### L-3 (MEDIUM) — a read racing a drop-then-re-register can report the wrong error code
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: 3 of 71,823 reader iterations racing 20 drop/re-register cycles (`LifeReRegisterTest#life081`'s disabled body, run from a throwaway scratch copy) returned `PRV-2002` instead of the expected `PRV-4023`; `ViewQuery`'s re-plan-on-cache-miss path is unchanged
 
 
 `LifeReRegisterTest.life081` (`@Disabled` with this note) runs a reader in a loop against `v1` while
@@ -1097,7 +1097,7 @@ time. Not data loss and not a crash — a client retrying on `PRV-4023` specific
 reading the message literally, gets the wrong signal from an ordinary, expected race.
 
 ### L-4 — `LIFE-040` reconfirms a round-2 finding still holds
-> **Status:** UNTRIAGED
+> **Status:** BY DESIGN — `SecurityPolicy.mayAdminister`'s javadoc now explicitly documents that unrestricted reading grants administer, denying only when the read carries a row filter (SX-2's fix); `LifeAuthorizationTest#life040_pauseResumeAndDropDefaultToMayRead` passes, confirming this is the stated, intended residual rule
 
 
 `SecurityPolicy.mayAdminister`'s default delegates to `mayRead`. Under `SecurityPolicy.PERMISSIVE`
@@ -1373,7 +1373,7 @@ cross-cutting cases ERRC-111/114/116/118; more to follow in the
 same section).
 
 ### E-7 (HIGH) — `PRV-1040 CLIENT_CONNECT_FAILED` is unreachable through the scenario every new user hits
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `PravahaFlightClient.connect()` still only throws `CONNECT_FAILED` (PRV-1040) from `FlightClient.builder(...).build()`, which is synchronous/lazy and does not fail for an unreachable host; `query()`'s catch block still wraps every `FlightRuntimeException` as `QUERY_REFUSED` (PRV-1041) instead
 
 
 The case file (fact 8, ERRC-014) already names `PRV-1040` as the highest-severity item in the
@@ -1393,7 +1393,7 @@ exists so "the server's own diagnosis, PRV code and all" survives — and finds 
 because there was no server response to carry one.
 
 ### E-8 (MEDIUM) — a genuine 34-deep, non-circular configuration reference chain is refused as circular
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `ConfigResolver.MAX_DEPTH = 32` is unchanged since its original commit `0103e81`; the depth guard still fires on raw nesting alone, independent of the real cycle detector, so a 34-deep acyclic chain is still refused as `CONFIG_CIRCULAR_REFERENCE`
 
 
 `ConfigResolver.MAX_DEPTH = 32` (`ConfigResolver.java:40`) is a second guard, independent of the real
@@ -1406,7 +1406,7 @@ positive — the case was written expecting the control to pass. Not fixed here:
 a real behavioural change to a shared recursion guard, not a small, obviously-safe one.
 
 ### E-9 (MEDIUM) — `pravaha-server` and the Flight client SDK cannot share a classpath
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `mvn dependency:tree` confirms `pravaha-it`'s test classpath still pulls both `netty-buffer:4.1.135.Final` (via `pravaha-server`) and `netty-handler`/`netty-common:4.2.9.Final` (via `pravaha-flight`'s Arrow Flight deps); `ErrcTestSupport.java`'s javadoc still documents the same `AbstractMethodError` subprocess workaround
 
 
 `pravaha-it`'s test classpath pulls `io.netty:netty-buffer:4.1.135.Final` transitively through
@@ -1421,7 +1421,7 @@ that embeds both `pravaha-server` and the Flight client SDK on one classpath —
 test harness of its own — would hit the identical crash.
 
 ### E-10 (HIGH) — `PRV-2041 SQL_EMIT_MODE_MISMATCH` is unreachable: a tenth silent code, and the case file did not know about it
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `ChangelogAnalysis.checkAgainst` (pravaha-sql) is still called from nowhere in any module's main sources; `ErrcSqlTest#changelogAnalysisCheckAgainstIsCalledFromNowhereInMainSources` passes, its exhaustive source-scan assertion of zero call sites still holding
 
 
 `ChangelogAnalysis.checkAgainst` is `PRV-2041`'s sole throw site, and design section 15.5 explains at
@@ -1440,7 +1440,7 @@ code `ErrorCodeTest` uses as its example throughout" per the case file's own wor
 number in the codebase, silently disconnected from anything that could throw it.
 
 ### E-11 (HIGH) — `PRV-2020`'s twenty-four messages never point at the document that explains them
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `PhysicalPlanBuilder.java` still has exactly 24 `SqlErrors.UNSUPPORTED_OPERATOR` throw sites, and the only occurrence of the string `SQL_SUPPORT.md` in the file is a source comment near the unrelated `UNBOUNDED_STATE` throw, not inside any thrown message
 
 
 `TROUBLESHOOTING.md` states plainly that the supported/unsupported SQL surface is `SQL_SUPPORT.md`,
@@ -1472,7 +1472,7 @@ servicing your request`, no `PRV-6100` anywhere. Not fixed here (a one-line try/
 plausible but touches a shared, non-ERRC-owned file in a module other agents may also be touching).
 
 ### E-13 (HIGH) — `PRV-8004`'s real throw sites do not match the scenario the case describes
-> **Status:** UNTRIAGED
+> **Status:** OPEN — traced all 4 throw sites for `RegistryErrors.QUERY_FAILED` (`Subscription.java:103,134`, `RegisteredQuery.java:189,238`); `RegisteredQuery.subscribe(...)` still throws `ILLEGAL_TRANSITION` (PRV-8003) for a terminal-state query, confirming subscribing to an already-failed query never reaches PRV-8004 as the case describes
 
 
 The case's Setup for `PRV-8004` is "a query that fails at runtime; then read it, and subscribe to it,"
@@ -1505,7 +1505,7 @@ because there the state asked for is unreachable. Documented in the user guide a
 `RegisteredQuery`, and pinned by a test so it cannot drift into a refusal by accident.
 
 ### E-15 (MEDIUM) — `PRV-6101`'s case citation names the wrong throw sites
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `PravahaFlightSqlProducer` still overrides no Flight SQL metadata method (falls through to `BasicFlightSqlProducer`'s `UNIMPLEMENTED`); the two throw sites the case cites are a custom-action dispatch default and a "no registry hosted" guard, neither a Flight SQL metadata call
 
 
 `PravahaFlightSqlProducer.java:423,618` are not Flight SQL metadata calls (`getSqlInfo`,
@@ -1572,7 +1572,7 @@ recording anyway, because two of the case file's own quoted claims did not hold 
 and one confirmed defect is real even though it was anticipated rather than discovered.
 
 ### J-1 (LOW-MEDIUM, confirmed rather than discovered) — a null-keyed left row is never emitted null-padded from a `LEFT` join
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `JoinSide.add` still guards with `JoinKeys.isMatchable(row, keyOrdinals)` and returns early for a null-keyed row, so it's never stored and never reaches the outer-join eviction callback; `SymmetricHashJoinBehaviorTest#aNullKeyedLeftRowIsNeverEmittedNullPadded` passes, asserting the row is silently dropped
 
 
 `JoinSide.add` drops a null-keyed row entirely (`isMatchable` returns early), so it is never in state
@@ -1602,7 +1602,7 @@ right place to point at it rather than leaving it only inside a case file.
 ## STATE — found executing `docs/qa/cases/STATE.md`
 
 ### ST-1 (HIGH) — every `drop()` leaks its checkpoint directory, not only a shared computation's
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `QueryRegistry.drop` still calls `query.removeName(name)` before `deleteCheckpointsOf(query.name())`, where `name()` delegates to `anyName()`; `StateCheckpointDirectoryTest#state034_droppingAQueryDeletesItsCheckpointDirectory` passes while asserting the checkpoint directory and its files survive the drop
 
 
 `QueryRegistry.drop` (`QueryRegistry.java:774`–`796`) calls `query.removeName(name)` first and, when
@@ -1646,7 +1646,7 @@ bug behind. Not applied here per this round's brief (fixes are recorded, not mad
 obviously correct — the ordering fix alone is correct but leaves the ordering guarantee unaddressed).
 
 ### ST-2 — `docs/qa/cases/STATE.md`'s own "three facts" and several individual cases describe an
-> **Status:** UNTRIAGED
+> **Status:** FIXED — the finding itself says "none of these are defects", recording only that the case file's narrative is stale; every specific claim it checks against (`QueryRegistry.start` wiring checkpointing, `PRV-8008` as a distinct code documented in TROUBLESHOOTING.md, `InterpretedPipeline.restoreState`'s join-count check) is confirmed present in current source
 
 earlier `develop`, not this one
 
@@ -1669,7 +1669,7 @@ is worth a maintainer's attention: `STATE.md` should have a pass reconciling it 
 `develop`, the way `LIFE.md`'s round evidently already got a partial one.
 
 ### ST-3 (MEDIUM) — chmod'ing a checkpoint directory read-only is silently undone by the next checkpoint
-> **Status:** UNTRIAGED
+> **Status:** BY DESIGN — `SensitiveFiles.createOwnerOnly` unconditionally calls `narrow(parent, "rwx------")` before every write, self-healing a chmod'd leaf directory by design; `StateFailureReportingTest#state044` passes, logging the self-heal and showing a chmod of the checkpoint root (not reachable by `narrow`) does cause real failures — the finding's own text already concludes this matches STATE-090's stated intent
 
 
 `FileCheckpointStore.store` opens every write with `SensitiveFiles.createOwnerOnly(temporary)`
@@ -1692,7 +1692,7 @@ Confirmed for the journal too: `StateJournalTest.state073` shows the identical s
 0500") had to move one level up (the directory's *parent*) for the same reason.
 
 ### ST-4 (MEDIUM) — `checkpointFailures()`/`lastCheckpointFailure()` count every checkpoint log line, not failures
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `QueryRegistry.startCheckpointing` still wires `query::recordCheckpointFailure` as `PeriodicCheckpointer`'s general `log` consumer with no filtering; `StateFailureReportingTest#state044` passes while asserting `checkpointFailures()` climbs above 0 and `lastCheckpointFailure()` holds a success message during an all-succeeding run
 
 
 `QueryRegistry.startCheckpointing` wires `query::recordCheckpointFailure` as `PeriodicCheckpointer`'s
@@ -1720,7 +1720,7 @@ and currently reuses the general `log` consumer for it), and have `QueryRegistry
 obviously-safe one, per this round's brief.
 
 ### ST-5 — recovery of accumulated answers now genuinely works, for real deployments; STATE.md's central narrative for restore no longer holds
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `StateRestoreTest#state063_aServerRestartRecoversEveryDefinitionAndZeroAccumulatedAnswers_asAuthored` passes end-to-end against a real two-instance restart: a windowed accumulator and a plain served view both survive; `PluginSourceFeeds.open` seeks `resumeFrom` and `checkpointingViewWith` is wired regardless of `isStateful()`
 
 
 Section F of `STATE.md` (STATE-050–064) is built around the "Three facts" (`ST-2`): nothing calls
