@@ -989,3 +989,71 @@ bare "reader" principal to prove it, rather than reading the javadoc and taking 
 is a documented default with a stated rationale ("the weakest defensible rule"), not a silent bug —
 recorded here because round 2 flagged it as the most consequential authorization gap left open, and
 nothing in this round's reading found it closed.
+
+---
+
+# SQL surface and aggregates, checked against answers — found executing `docs/qa/cases/SQLX.md` and `docs/qa/cases/AGG.md`
+
+## X-1 (HIGH) — a `TIME` column predicate against a `TIME` literal is wrong by a factor of 1,000,000
+
+`ExpressionCompiler.literal` converts a Calcite `TIME` literal to nanoseconds
+(`getValueAs(Integer.class) * 1_000_000L`, since Calcite carries `TIME` in milliseconds-of-day and the
+engine holds everything in nanoseconds per ADR-012). `DelimitedCodec.setField`'s `TIME` branch shares
+its case with `INT64` and `TIMESTAMP_LTZ` — `Long.parseLong(raw)`, no scaling — so a CSV field
+written the only way a person would write one, milliseconds-of-day (`3600000` for `01:00:00`), is
+stored as if it were already nanoseconds. Every `WHERE <TIME col> <op> TIME '...'` predicate over
+data ingested through the shipped filesystem plugin is therefore silently wrong for any time other
+than midnight: not refused, not an error, a wrong row set under a success status. Reproduced
+(SQLX-059): `WHERE tm < TIME '00:00:01'` matches all three rows of a fixture where two of them are
+meant to represent 1 and 2 hours after midnight. A user cannot work around it by matching the codec's
+own units either — comparing the column to a bare integer is separately refused by Calcite
+(`PRV-2002`, `TIME(0) = INTEGER`). **OPEN.**
+
+## X-2 — probable corrections to Q-5, Q-7 and Q-11 (round 1), not yet confirmed against a commit
+
+Executing SQLX-038, SQLX-039 and SQLX-040 against the current build ran the exact SQL each of Q-11
+(unary minus refused with a self-contradictory message), Q-5 (integer division by zero hangs five
+minutes and swallows the exception) and Q-7 (overflow drops the row silently or hangs,
+non-deterministically) describes as broken, and got the documented-correct behaviour every time —
+ten out of ten runs for Q-7's non-determinism claim specifically. `SELECT -amount FROM txn` plans and
+computes the exact negation. `SELECT 100 / amount FROM txn` over a zero divisor fails in ~1.4 seconds
+with `PRV-3010` naming the division. `SELECT amount * 2 FROM txn` over `Long.MAX_VALUE` fails
+identically ten times with `PRV-3010` naming the overflow, never `-2` (the wrap-around value) and
+never a hang. Not edited into the Q-5/Q-7/Q-11 rows directly because I have not traced a commit that
+fixes them and it is possible the round that recorded them ran against a different build. Whoever
+next touches this file should confirm and mark them fixed, or explain the discrepancy. Full
+reproduction in `docs/qa/logs/SQLX.md` under SQLX-038/039/040.
+
+## X-3 — `SqlSupportMatrixTest`'s corruption path, reconfirmed with the exact byte mechanism
+
+SQLX-037: `pravaha run --out-schema` is not checked against the plan's real output type (round-1's
+Q-10, `OPEN`) — declaring `MOD(amount,3)` and `amount%3` as `INT64` when the plan's real type is
+`INT32` does not throw `RowLayout.checkType` (as `AGG.md`'s fact 5 predicts for aggregates); it reads
+garbage. Traced to the exact mechanism: two adjacent 4-byte `INT32` output slots, read back as one
+8-byte `INT64` — row `1,1` (bytes `00000001 00000001`) reads back as `4294967297`; row `-2,-2`
+(`FFFFFFFE FFFFFFFE`) reads back as `-4294967298` in the first column and `4294967294` in the second
+(the second read runs past the row into unrelated bytes). Declaring the plan's true type
+(`INT32,INT32`) gives the correct answer. Not a new finding — Q-10 already covers it — but the byte
+mechanism was not previously traced.
+
+## X-4 — Y-2 reconfirmed via a different case, with the blocked-surface extent noted
+
+SQLX-060's H-VIEW leg (a view over Fixture S2, which carries a `bin BYTES` column) could not run any
+query at all, including ones naming no BYTES column (`SELECT b FROM v_allt`) — every query against
+the view fails identically with `PRV-1041  class java.lang.String cannot be cast to class [B`, which
+is Y-2 (`ServedView.value` defaults BYTES to `row.getString`, `ArrowSchemas.write` casts to `byte[]`).
+Worth recording precisely because it means Y-2 is not merely "BYTES values fail" — **any view whose
+schema contains a non-null-only BYTES column is entirely unqueryable over Flight**, whatever the
+query asks for, which is a wider blast radius than Y-2's one-line description states.
+
+## X-5 — I-3 reconfirmed, with the batch-loss extent noted
+
+Setting up SQLX-046 over the full `edge.csv` fixture (rather than the single row the case specifies)
+crashed with a raw `UnsupportedOperationException`, no `PRV-` code: row 9's `user_id` is the empty
+string on a non-nullable column, `DelimitedCodec.decode` throws `ConfigurationException(DECODE_FAILED,
+...)`, and `FilesystemPartitionReader`'s catch block calls `writer.abort()` meaning to let one bad
+line fail without costing the batch — but `DelegatingRowWriter.abort()` is an unimplemented stub that
+itself throws, masking the diagnostic. This is I-3, already `OPEN`. New detail: confirmed with a bad
+row sandwiched between two good ones that the crash loses **every** row in the file, not the one
+malformed line the code comment beside the catch block promises — and that it is general to any
+`DECODE_FAILED` (also reproduces on a wrong-field-count line), not specific to the NULL/NOT-NULL case.
