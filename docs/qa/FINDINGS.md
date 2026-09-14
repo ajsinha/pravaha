@@ -2410,7 +2410,7 @@ a user receives only what they're authorized for) is HIGH regardless of what SEC
 predicts.
 
 ## SX-1 — `subscribe`'s denial is an existence oracle for every other view on the node (known extent, reconfirmed)
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `PravahaFlightSqlProducer.streamSubscription` still calls `QueryRegistry.require(viewName)` before `policy.mayRead(...)`; `QueryRegistry.require` still throws "no query named '<name>' is registered; this node has [<all names>]" for a non-existent view, disclosing the full catalog before authorization is consulted.
 
 
 A denial for an existing-but-forbidden view (`PRV-7002 carol may not subscribe to 'payroll_view'`)
@@ -2540,7 +2540,7 @@ Seed-proven by removing the periodic check, which leaves both tests hanging unti
 the unbounded delivery this finding describes, reproduced exactly.
 
 ## SX-5 (HIGH) — the existence oracle: three independent, measurable channels distinguish "denied" from "doesn't exist"
-> **Status:** UNTRIAGED
+> **Status:** OPEN — the same require-before-authorize pattern reproduces on multiple Flight paths: `QueryRegistry.require` in subscribe, and `ViewQuery.execute`'s `catalog.find(source).orElseThrow(...)` (naming every registered view) before `policy.mayRead`; SX-3's HTTP fix did not touch the Flight surface.
 
 
 Confirms and quantifies SX-1's mechanism with three simultaneous, independent signals for the same
@@ -2556,7 +2556,7 @@ stream names, and to learn which ones exist versus which are merely typos. Direc
 docs/qa/logs/SECX.md (SECX-091, SECX-093).
 
 ## SX-6 — mayAdminister/ownership: further corroboration of SX-2, no new mechanism
-> **Status:** UNTRIAGED
+> **Status:** BY DESIGN — `SecurityPolicy.mayAdminister`'s default (the exact method SX-2's fix rewrote) intentionally has no ownership check, only an unrestricted-read requirement, confirmed live by `AccessDecisionTest.anUnrestrictedReaderStillAdministers`; the commit message and interface javadoc document this as the deliberate "weakest defensible default."
 
 
 SECX-077 and SECX-078 independently reproduce the same root cause SX-2 already records
@@ -2570,7 +2570,7 @@ depends on, even though SX-2's general finding (an entitled-but-unrelated reader
 No new finding; folded into SX-2's evidence. See docs/qa/logs/SECX.md (SECX-077, SECX-078).
 
 ## SX-7 — the audit log records ALLOW for a read that was in fact refused
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `ViewQuery.execute` records the "allowed with a row filter" audit event before calling `withRowFilter`, which can still throw `PRV-7003`/`FILTER_NOT_ENFORCEABLE` — the false ALLOW record still precedes the refusal.
 
 
 A read whose row filter cannot be enforced on the target view (`PRV-7003`, per the "row filter is
@@ -2584,7 +2584,7 @@ than under the HIGH owner-constraint override.
 docs/qa/logs/SECX.md (SECX-089, row 4).
 
 ## SX-8 — `LIST`'s per-view authorization filtering produces zero audit events
-> **Status:** UNTRIAGED
+> **Status:** OPEN — the `ControlWire.LIST` case in `PravahaFlightSqlProducer.doAction` filters per-view via `policy.mayRead` but contains no `audit.record` call anywhere in that block, confirmed by grepping every `audit.record` call site in the file.
 
 
 `pravaha queries` (Flight `ListFlightsAction`/the CLI `queries` verb) decides, per view, whether the
@@ -2596,7 +2596,7 @@ probing what exists) are invisible to the audit trail entirely.
 docs/qa/logs/SECX.md (SECX-089 row 10, SECX-090).
 
 ## SX-9 (LOW-MEDIUM) — `AuditSink.InMemory`'s overflow eviction measurably degrades under load
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `AuditSink.InMemory.record` is unchanged: `events.remove(0)` on a `CopyOnWriteArrayList` still runs on every append past the limit, an O(n) shift.
 
 
 Once the 10,000-event limit is reached, each further `record()` call triggers `events.remove(0)` on a
@@ -2609,7 +2609,7 @@ under the load that generates the most events to audit.
 docs/qa/logs/SECX.md (SECX-090).
 
 ## SX-10 (LOW) — `acceptPutPreparedStatementQuery` (the `doPut` leg of a prepared statement) applies no policy check
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `acceptPutPreparedStatementQuery` still decodes/binds parameters with no `policy.mayRead`/audit call anywhere in the method, unlike `getStreamPreparedStatement` which re-authorizes via `queries.prepare`.
 
 
 Confirmed live: a different principal's `doPut` against another principal's already-prepared
@@ -2622,7 +2622,7 @@ data actually escapes through this specific path — this is the already-documen
 docs/qa/logs/SECX.md (SECX-094).
 
 ## SX-11 (HIGH) — `LIST` and read-by-name-mismatch disclose the majority of payroll-derived views and their unfiltered cardinality to a denied or filtered principal (quantified)
-> **Status:** UNTRIAGED
+> **Status:** OPEN — the same LIST block still returns full `query.sql()` text and unconditional `query.rowsIn()` (unfiltered cardinality) for every view `policy.mayRead` allows, with no suppression when the decision carries a row filter.
 
 
 Round 1's SEC-043/SEC-057 already established the mechanism (authorization is keyed on the
@@ -2641,7 +2641,7 @@ being decided by a name a first-come registrant chose, not by what the underlyin
 against modifying production code). See docs/qa/logs/SECX.md (SECX-016, 017, 020, 024).
 
 ## SX-12 (HIGH) — a legitimately secure configuration (`authentication=token` + `policy=permissive` + a real token table + `allow-anonymous=false`) refuses to start at all, and its refusal message misattributes the cause
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `PravahaNode.refuseAccidentalOpenServer` still computes `open` from `!(securityPolicy() instanceof AuthenticatedOnlyPolicy)` alone, ignoring `authentication`/token config, and the refusal message still hardcodes `pravaha.security.authentication=none` regardless of the real configuration.
 
 
 `PravahaNode.refuseAccidentalOpenServer()`'s "would this node serve an unauthenticated caller"
@@ -2663,7 +2663,7 @@ all, which pushes an operator toward `allow-anonymous=true` — a strictly more 
 to work around a false refusal. See docs/qa/logs/SECX.md (SECX-001).
 
 ## SX-13 (MEDIUM) — reading a view by an alias name sharing another principal's fingerprint, combined with a row filter, throws instead of returning the filtered rows
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: two principals sharing a fingerprint via identical row filters, reading the shared view under the second principal's own alias, throws `PRV-7003` wrapping `PRV-2002 Object 'bob2_sales' not found`; `ViewQuery.withRowFilter` re-plans using `view.schema()` (the primary registration name) instead of the alias actually being read.
 
 
 Two filtered principals (`bob`, `bob2`) with byte-identical row filters registering byte-identical
@@ -2677,7 +2677,7 @@ guarantee `docs/SECURITY.md` describes for the fingerprint mechanism.
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/SECX.md (SECX-013).
 
 ## SX-14 (LOW) — two token-configuration edge cases in YAML/Spring binding
-> **Status:** UNTRIAGED
+> **Status:** OPEN — (low priority) `SecurityProperties` still uses `tokens.entrySet()`/`entry.getKey()` directly with no key trimming or duplicate-normalization validation; both edge cases remain unaddressed.
 
 
 (a) Bare (unquoted) `yes:`/`on:` keys under `pravaha.security.tokens` both parse as the single YAML
@@ -2736,7 +2736,7 @@ the way a deployment serves different tenants from one shared computation. `docs
 corrected below. See docs/qa/logs/SECX.md (SECX-069).
 
 ## SX-16 (MEDIUM) — a Flight node's own reported address is wrong in two ways: an ephemeral port reports as `0`, and a TLS node reports a plaintext URL
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: an ephemeral-port node's `getFlightInfo` still reports port `0` (`PravahaFlightServer` builds the producer's `Location` from the pre-bind `port`, not `started.getPort()`); a TLS node's `uri()` still reports `grpc+tcp://` unconditionally, no TLS branch.
 
 
 Confirmed by direct reproduction and by reading `PravahaFlightServer`'s source. (a) A node started
@@ -2751,7 +2751,7 @@ built with `encryptedWith(...)` — so a **TLS** node's own reported address is 
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/SECX.md (SECX-061).
 
 ## SX-17 (MEDIUM) — several TLS certificate/key misconfigurations either throw uncoded exceptions or leave the node bound to a transport nobody can use
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: a certificate configured with no key throws a raw `NullPointerException`; swapped cert/key files throw a raw `IllegalArgumentException` uncaught by `start()`'s IOException-only catch; a mismatched-but-individually-valid cert/key pair still starts successfully, surfacing only at the first client handshake.
 
 
 Extends the already-known SEC-059/SEC-060 findings with two more shapes. A certificate configured
