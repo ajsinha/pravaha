@@ -271,33 +271,66 @@ class JoinPlanningAndReachabilityTest {
 
     // ======================= JOIN-042 / JOIN-043: the join key mapped through a projection =======================
 
-    @Test
-    void theJoinKeyIsMappedDownThroughAReorderingProjectionRatherThanTakenAsIs() {
-        // The projection puts amount first and user_id third, so the join's key ordinal (2) differs
-        // from the scan's (1) -- a routing bug that takes the join's ordinal as the scan's would
-        // route by "amount" instead of "user_id" and silently lose most pairs on more than one lane.
-        String sql = "SELECT o.order_id, u.tier FROM "
-                + "(SELECT amount, region, user_id, order_id, event_time FROM ordersWide) o "
-                + "JOIN users u ON o.user_id = u.user_id";
-        StreamSchema wide = StreamSchema.builder("ordersWide")
+    private static StreamSchema wideOrders() {
+        return StreamSchema.builder("ordersWide")
                 .field("order_id", Types.int64())
                 .field("user_id", Types.string())
                 .field("region", Types.string())
                 .field("amount", Types.int64())
                 .field("event_time", Types.int64())
                 .build();
-        PhysicalOperator plan = new PhysicalPlanBuilder()
-                .build(SqlPlanner.withStreams(wide, users()).plan(sql));
+    }
+
+    /** The join's key (user_id) sits at ordinal 2 in the projection, ordinal 1 in the scan. */
+    private static PhysicalOperator wideJoinPlan() {
+        String sql = "SELECT o.order_id, u.tier FROM "
+                + "(SELECT amount, region, user_id, order_id, event_time FROM ordersWide) o "
+                + "JOIN users u ON o.user_id = u.user_id";
+        return new PhysicalPlanBuilder()
+                .build(SqlPlanner.withStreams(wideOrders(), users()).plan(sql));
+    }
+
+    @Test
+    void theJoinKeyIsMappedDownThroughAReorderingProjectionRatherThanTakenAsIs() {
+        // The projection puts amount first and user_id third, so the join's key ordinal (2) differs
+        // from the scan's (1) -- a routing bug that takes the join's ordinal as the scan's would
+        // route by "amount" instead of "user_id" and silently lose most pairs on more than one lane.
+        PhysicalOperator plan = wideJoinPlan();
 
         int users = 8;
         int rows = 200;
-        long oneLaneCount = runPartitionedJoin(plan, wide, users, rows, 1);
-        long fourLaneCount = runPartitionedJoin(plan, wide, users, rows, 4);
+        long oneLaneCount = runPartitionedJoin(plan, wideOrders(), users, rows, 1);
+        long fourLaneCount = runPartitionedJoin(plan, wideOrders(), users, rows, 4);
 
         assertThat(oneLaneCount).isEqualTo((long) rows);
         assertThat(fourLaneCount)
                 .as("a wrong ordinal routes by the wrong column and loses pairs on more than one lane")
                 .isEqualTo(oneLaneCount);
+    }
+
+    @Test
+    void twoAndEightLanesGiveTheSameAnswerAsOneAndALaneCountExceedingTheKeyCountStillQuiesces() {
+        PhysicalOperator plan = wideJoinPlan();
+        int users = 8;
+        int rows = 200;
+        long oneLaneCount = runPartitionedJoin(plan, wideOrders(), users, rows, 1);
+
+        assertThat(runPartitionedJoin(plan, wideOrders(), users, rows, 2))
+                .as("2 lanes")
+                .isEqualTo(oneLaneCount);
+        assertThat(runPartitionedJoin(plan, wideOrders(), users, rows, 8))
+                .as("8 lanes")
+                .isEqualTo(oneLaneCount);
+
+        // The degenerate case: 8 lanes, only 3 distinct users, so at most 3 lanes ever emit anything
+        // and the idle lanes must still quiesce rather than hang -- the failure mode here is a
+        // timeout, not a wrong number, which is why runPartitionedJoin's own awaitQuiescent assertion
+        // (inside it) is the load-bearing check and this is really about it not timing out.
+        long threeUsersOneLane = runPartitionedJoin(plan, wideOrders(), 3, rows, 1);
+        long threeUsersEightLanes = runPartitionedJoin(plan, wideOrders(), 3, rows, 8);
+        assertThat(threeUsersEightLanes)
+                .as("idle lanes must not change the answer, and awaitQuiescent must not time out")
+                .isEqualTo(threeUsersOneLane);
     }
 
     private static long runPartitionedJoin(

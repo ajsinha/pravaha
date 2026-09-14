@@ -766,6 +766,43 @@ class SymmetricHashJoinBehaviorTest {
     }
 
     @Test
+    void aRowWhosePartnerWasEvictedAndARowWhosePartnerNeverExistedAreIndistinguishable() {
+        // JOIN-033: an enumeration case rather than a falsifiable one. Extends JOIN-031's sequence
+        // with a second left row whose partner was never fed at all, then reads every counter the
+        // operator exposes. The point is that the two left rows -- one whose partner was evicted, one
+        // whose partner never existed -- read identically everywhere: a diagnosability gap, not a bug.
+        StreamSchema s = StreamSchema.builder("s").field("k", Types.string()).build();
+        JoinOperator plan = new JoinOperator(
+                ScanOperator.of("l", s), ScanOperator.of("r", s), List.of(0), List.of(0), merged(s, s), 1_000);
+        try (SymmetricHashJoin join = new SymmetricHashJoin(plan, arena, collector(), 64)) {
+            feed(join.rightInput(), s, 1, 0, "u1"); // will be evicted before its partner arrives
+            join.advanceWatermark(2 * HOUR);
+            assertThat(join.evicted()).isEqualTo(1);
+
+            feed(join.leftInput(), s, 1, 0, "u1"); // partner was evicted
+            feed(join.leftInput(), s, 1, 0, "u2"); // partner never existed
+
+            // Every counter the operator exposes, read after both rows have been fed. Both rows are
+            // indistinguishable in all of them: pairsEmitted is 0 either way, outsideWindow is 0
+            // either way (neither pair was ever a time-check candidate), and rowsHeldLeft simply
+            // counts two held rows with no way to tell which kind either one is.
+            assertThat(join.pairsEmitted()).isZero();
+            assertThat(join.outsideWindow()).isZero();
+            assertThat(join.evicted()).isEqualTo(1);
+            assertThat(join.unmatchedEmitted())
+                    .as("this is an inner join: there is no unmatched-row counter to even ask the "
+                            + "question of, which is itself part of the gap")
+                    .isZero();
+            assertThat(join.rowsHeldLeft())
+                    .as("two left rows held, with nothing in this count -- or any other -- separating "
+                            + "'partner evicted' from 'partner never existed'")
+                    .isEqualTo(2);
+            assertThat(join.keysHeldLeft()).isEqualTo(2);
+            assertThat(join.stateBytes()).isPositive();
+        }
+    }
+
+    @Test
     void aLateArrivingRowStillMatchesInsideTheWindow() {
         JoinOperator plan = join(orders(), users(), List.of(1), List.of(0));
         try (SymmetricHashJoin join = new SymmetricHashJoin(plan, arena, collector(), 64)) {

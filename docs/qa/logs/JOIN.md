@@ -33,11 +33,13 @@ Cases already covered by pre-existing tests are recorded as such and were **re-r
 `StreamJoinTest`, `JoinOnLanesTest`, `JoinRetentionTest`, `TemporalJoinTest`, `OuterJoinTest`,
 `LookupJoinTest`, `JoinRecoveryTest` (all `pravaha-it`), and `JoinKeysTest` (`pravaha-runtime`).
 
-**This is a partial round.** §0's CLI/registry-reachability cases (JOIN-001, 002) and §3's routing,
-§4's lookup-join detail cases, and §5's SQL-level refusals need SQL planning or a live node/registry
-and were not reached this session; they are left off this log rather than guessed at, per the file's
-own rule that a skip is not a pass. They will be picked up in a following batch under this same log
-file — see the running tally at the end.
+§0's live-node cases (JOIN-001, 002, and 060's registration half) run as
+`pravaha-cli/src/test/java/com/ash/messaging/pravaha/cli/JoinReachabilityAgainstServerTest.java`, a
+fourth harness alongside the three above: an in-process `PravahaFlightServer` over a real
+`QueryRegistry`, driven through the actual `PravahaCli` entry point — no Docker, no external process.
+
+This log was built across four batches; each is recorded as it was executed, and the final tally at
+the end is authoritative.
 
 ---
 
@@ -160,14 +162,12 @@ file — see the running tally at the end.
 - **JOIN-032 — PASS.** `aLateArrivingRowStillMatchesInsideTheWindow`. A right row arriving after the
   watermark has passed its own event time still matches (1 pair, joined time `max(3s,0s)=3s`), and
   `evicted()==0` — the horizon at watermark `1800s` is negative and saturates below every row.
-- **JOIN-033 — NOT RUN.** An enumeration case ("read every counter the operator exposes") rather than
-  a falsifiable one; the counters themselves (`pairsEmitted`, `outsideWindow`, `evicted`,
-  `unmatchedEmitted`, `rowsHeldLeft/Right`, `keysHeldLeft/Right`) are all exercised individually
-  elsewhere in this file, but the specific diagnosability point — that a row whose partner was evicted
-  and a row whose partner never existed are indistinguishable in every one of them — was not written
-  up as its own assertion this session. Recorded NOT RUN rather than PASS; the finding itself is
-  already on record as a fact in the case file's own Intent and is not disputed by anything found this
-  round.
+- **JOIN-033 — PASS (batch 4).** `aRowWhosePartnerWasEvictedAndARowWhosePartnerNeverExistedAreIndistinguishable`.
+  An enumeration case ("read every counter the operator exposes") rather than a falsifiable one; every
+  counter the operator exposes (`pairsEmitted`, `outsideWindow`, `evicted`, `unmatchedEmitted`,
+  `rowsHeldLeft`, `keysHeldLeft`, `stateBytes`) is read after feeding one left row whose partner was
+  evicted and one whose partner never existed, and none of them distinguish the two — confirming the
+  diagnosability gap the case's Intent already names as a fact, rather than finding it disputed.
 - **JOIN-034 — PASS.** `evictionSaturatesRatherThanWrappingAtTheBottomOfTheRange`. Both
   `advanceWatermark(Long.MIN_VALUE+1000)` and `advanceWatermark(Long.MIN_VALUE)` evict nothing;
   `rowsHeldRight()==3` throughout.
@@ -300,8 +300,13 @@ while writing the test and corrected with evidence rather than silently worked a
   assertion, and not the explicit 1-lane-vs-4-lane equality as a comparison (038's own falsifier).
   Recorded PASS on the existing evidence's own terms; the per-key and explicit-equality assertions are
   additional rigor not yet written this round.
-- **JOIN-039 — NOT RUN.** 2 and 8 lanes, and lanes exceeding key count, are not covered by any
-  existing test at those specific counts.
+- **JOIN-039 — PASS.** `twoAndEightLanesGiveTheSameAnswerAsOneAndALaneCountExceedingTheKeyCountStillQuiesces`.
+  2 and 8 lanes both give the same 200-pair answer as 1 lane; a further run with only 3 distinct users
+  over 8 lanes (so at most 3 lanes ever emit anything) also matches its own 1-lane control and, more
+  importantly, does not time out -- `runPartitionedJoin`'s internal `awaitQuiescent` assertion is what
+  actually catches a hang here, per the case's own note that a hang is the failure mode, not a wrong
+  number. Reuses the routing mechanism JOIN-042 already seed-proved (`mapDownToScan`); not
+  independently re-seeded.
 - **JOIN-040 — PASS (pre-existing).** `JoinOnLanesTest.aPartitionedPumpAdvancesEventTimeLikeAnUnpartitionedOne`.
 - **JOIN-041 — PASS.** `generatingWatermarksAfterAPumpHasAlreadyBeenCreatedIsRefused`.
   `IllegalStateException`, no `PRV-` code, confirmed absent by assertion.
@@ -357,18 +362,34 @@ while writing the test and corrected with evidence rather than silently worked a
 
 | Verdict | Count | Cases |
 |---|---|---|
-| PASS | 55 | 003–032, 034–038, 040–059 |
-| PASS (partial) | 1 | 060 — (a) and (b) PASS, (c) NOT RUN, needs a live node |
-| NOT RUN | 2 | 033, 039 |
-| Not yet reached | 2 | 001, 002 |
+| PASS | 60 | 001–060 |
 
-NOT RUN: 033 (an instrumentation enumeration — the counters it names are all exercised individually
-elsewhere in this file, but the specific diagnosability point was not written up as its own assertion
-this round) and 039 (the 2-lane, 8-lane and lanes-exceed-keys counts have no test yet, though the
-1-lane/4-lane equality JOIN-038 asks for is established). **Not yet reached: 001, 002** — both need a
-live node (HJ3) or the CLI (HJ4/CLI for 001 specifically, since `RunCommand` has no second `--stream`
-flag to even attempt it); no node was stood up this round.
+All 60 cases have a full PASS verdict. The final three (001, 002, 060(c)) needed HJ3 — a live
+node — which the fourth and last batch stood up: `JoinReachabilityAgainstServerTest`, modelled
+directly on the existing `CliAgainstServerTest` (`pravaha-cli`), runs a real `PravahaFlightServer`
+in-process (no Docker, no external process) over a real `QueryRegistry`, and drives it through the
+actual `PravahaCli` entry point.
 
-This closes three batches of the round. What remains for a future batch: standing up HJ3 (a real
-`pravaha register`/`pravaha queries` node) for JOIN-001, 002 and JOIN-060(c); JOIN-039's lane-count
-sweep; and JOIN-033's diagnosability enumeration as its own assertion.
+- **JOIN-001 — PASS.** `pravahaRunCannotRunATwoStreamJoinBecauseThereIsNoSecondStreamFlag`. `pravaha
+  run` against a join naming `users`, with only `orders` declared via `--stream`/`--schema`: exit
+  code non-zero, and the message is `PRV-2002  Object 'users' not found. Known streams: [orders]` —
+  confirming both the code and the exact "Known streams: [orders]" wording the case asks to record.
+  No output file is written.
+- **JOIN-002 — PASS.** `aTwoStreamJoinRegisteredOnANodeDoesRun`. `pravaha register` of the join
+  succeeds; feeding both streams through `RegisteredQuery.accept(streamName, row)` (users then
+  orders, including one order — `u9` — that matches nothing) and reading the view back through
+  `pravaha query` gives exactly 2 rows, `gold` and `silver`, with no trace of the unmatched order —
+  W3's non-matching-row check, satisfied on a live node rather than in-process.
+- **JOIN-060(c) — PASS.** `aSelfJoinIsRefusedAtRegistrationWithTheServersMessageButTheSdksOwnCode`.
+  `pravaha register` of the self-join exits non-zero with
+  `PRV-1041  stream 'orders' appears on both sides of this plan; self-joins are not supported yet` —
+  the server's own diagnosis, word for word, carried inside a client-side exception whose *code*
+  belongs to the SDK's own catch-all (`ClientErrors.QUERY_REFUSED`, declared in
+  `sdk/pravaha-sdk-java/.../ClientErrors.java`, thrown from
+  `sdk/pravaha-sdk-java-flight/.../PravahaFlightClient.act`, which wraps *every*
+  `FlightRuntimeException` from a control-wire call the same way, register included). This resolves
+  what first read as a contradiction between the case's title ("without a code") and its body
+  ("wrapped as PRV-1041"): both are true, at two different points in the same refusal's life — no
+  code at the throw site, the SDK's own code by the time a CLI user reads it.
+
+**The round is closed.** All three batches' evidence stands; nothing in the 60-case budget is open.
