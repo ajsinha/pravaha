@@ -313,6 +313,184 @@ SQLX-009 and SQLX-012 need H-MTX with a second/third stream registered (`OTHER`,
 which the CLI cannot express. Not reached this session; recorded **NOT RUN** above rather than
 guessed.
 
+## §3 — WHERE, the predicate compiler (SQLX-049 … SQLX-096)
+
+### §3.1 — one comparison per type, Fixture S2 / `all.csv`
+
+SQLX-049 (BOOLEAN) — **PASS**. `b=TRUE`→2 (alpha,gamma); `b=FALSE`→1 (beta); `b<>TRUE`→1 (beta);
+bare `WHERE b`→2 (alpha,gamma). `2+1=3`.
+
+SQLX-050 (INT8) — **PASS**. `i8>0`→1; `i8<0`→1; `i8=0`→1; `i8>=-1`→3; `i8>200`→**0 rows with a
+success status** (`ok 3 in, 0 out`), not an error.
+
+SQLX-051 (INT16) — **PASS**. `i16=100`→1; `i16<>100`→2; `i16 BETWEEN -100 AND 0`→2 (beta,gamma).
+
+SQLX-052 (INT32) — **PASS**. `i32>=1000`→1; `i32<=-1000`→1; `i32=0`→1; `1000=i32` (flipped) → 1,
+same row as the first.
+
+SQLX-053 (INT64 extremes) — **PASS**. Extended `all.csv` to 5 rows with `i64 = Long.MAX_VALUE` and
+`Long.MIN_VALUE`. `i64=MAX`→1; `i64=MIN`→1 (no `(int)` truncation collapsing both to the same row);
+`i64>0`→2; `i64<0`→2.
+
+SQLX-054 (FLOAT32) — **PASS**. `f32=1.5`→1; `f32<0`→1; `f32=0.0`→1; `f32<>1.5`→2.
+
+SQLX-055 (FLOAT64) — **PASS**. `f64>=2.5`→1; `f64<=-2.5`→1; `f64>-2.5 AND f64<2.5`→1 (gamma).
+
+SQLX-056 (STRING) — **PASS**. `s='alpha'`→1; `s<>'alpha'`→2; `s='ALPHA'`→0 (case-sensitive);
+`s=''`→0.
+
+SQLX-057 (BYTES) — **PASS**. H-VAL `WHERE bin = X'51'` → `PRV-2021  cannot compare column 'bin' of
+type BYTES against a constant yet`. `WHERE bin IS NULL` plans (`[s VARCHAR NOT NULL]`) — the refusal
+is about comparison, not about the column's existence, exactly as the case distinguishes.
+
+SQLX-058 (DATE) — **PASS**. `d = DATE '2022-01-08'`→1 (alpha; 19000 days after epoch is confirmed
+2022-01-08); `d > DATE '2022-01-08'`→2 (beta,gamma); `d = 19000` (bare int against DATE) →
+`PRV-2002  Cannot apply '=' to arguments of type '<DATE> = <INTEGER>'` — refuses with a code, one of
+the two outcomes the case allows.
+
+SQLX-059 (TIME) — **FAIL — new finding, HIGH.** `WHERE tm = TIME '01:00:00'` → **0 rows**, not the 1
+row the case requires (row 1 has `tm = 3600000`, documented as milliseconds-of-day for 01:00:00).
+`WHERE tm = 3600000` (bare int) → `PRV-2002` (Calcite refuses TIME = INTEGER outright, so the two
+forms cannot even be compared as the case intends). Root-caused: `ExpressionCompiler.literal` converts
+a Calcite TIME literal as `getValueAs(Integer.class) * 1_000_000L` (ms → ns), but
+`DelimitedCodec.setField`'s `TIME` case is `Long.parseLong(raw)` with **no** ms→ns conversion — the
+column value is stored as raw milliseconds mislabelled as nanoseconds. Confirmed directly:
+`WHERE tm < TIME '00:00:01'` (1 second = 1e9 ns as a literal) returns **all 3 rows**, even though two
+of them are supposed to represent 1 and 2 *hours*. Any `WHERE <TIME col> <op> TIME '...'` predicate
+against a column ingested through the filesystem plugin is silently wrong by a factor of 1,000,000,
+under a success status, no error. This is new — not in `FINDINGS.md` under any existing key — recorded
+below.
+
+SQLX-060 (TIMESTAMP) — **PASS on the core regression claim; BLOCKED on the H-VIEW leg by Y-2.**
+H-RUN: `ts > TIMESTAMP '1970-01-01 00:00:01'` → 2 rows (beta, gamma), correct. The two bare-int forms
+(`ts > 1000000000`, `ts = 1000000000`) the case's "Expected: 2 rows; 1 row" calls for are instead
+refused at plan time with `PRV-2002` (`<TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)> > <INTEGER>`) — a deviation
+from the case's literal expectation, but **not** an `AssertionError`, not a thread death, and not
+"0 rows where 2 are expected" (the case's own Falsifier) — it is a clean, coded refusal. Recorded as a
+partial deviation rather than a FAIL: the round-2 regression this case exists to catch (an
+`AssertionError` killing a Flight worker) did not reproduce.
+H-VIEW leg (`v_allt` registered over a second server, 18701/19701): **every** query against the view
+failed identically — even `SELECT b FROM v_allt` with no `ts` reference at all —
+`PRV-1041  class java.lang.String cannot be cast to class [B`. This is `FINDINGS.md`'s **Y-2**
+(`ServedView.value` defaults BYTES to `row.getString`, then `ArrowSchemas.write` casts to `byte[]`),
+already `OPEN`, reconfirmed: any view over a stream carrying a non-null BYTES column (Fixture S2's
+`bin` column) cannot be queried over Flight **at all**, regardless of what the query asks for — so the
+"a fourth query still answers" check cannot be performed independently of Y-2. **BLOCKED**, not FAIL,
+on that leg; cited against Y-2 rather than opened as new.
+
+### §3.2 — AND / OR / NOT, and their nesting (SQLX-061 … SQLX-071)
+
+All **PASS**, D1 fixture, `txn_id` sets exactly as hand-computed:
+
+| case | query | rows |
+|---|---|---|
+| 061 | `amount>0 AND flagged` | {1,6} |
+| 062 | `amount>100 OR flagged` | {1,2,4,6} |
+| 063 | `NOT (amount>0)` | {3,4} |
+| 064 | `NOT (amount>0 AND flagged)` | {2,3,4,5} |
+| 065 | `NOT (amount>100 OR flagged)` | {3,5} |
+| 066 | `status='ok'` / `NOT NOT (…)` / `NOT (…)` | {1,3,5,6} / {1,3,5,6} / {4} |
+| 067 | 8-level nested AND/OR/NOT | {1,2,5}, complement {3,4,6} |
+| 068 | `WHERE 1=1` | all 6 |
+| 069 | `WHERE 1=0` | 0, `6 in` confirmed |
+| 070 | bare `TRUE`/`FALSE` | 6 / 0 |
+| 071 | `flagged` / `NOT flagged` | {1,4,6} / {2,3,5} |
+
+SQLX-067 matches the case's own row-by-row hand computation exactly, including the UNKNOWN→FALSE
+collapse noted for row 2.
+
+### SQLX-072 — PASS
+Nullable `flagged` over a 3-row file (true, false, NULL): `WHERE flagged`→1, `WHERE NOT flagged`→1,
+`WHERE flagged IS NULL`→1. `1+1=2≠3`: the NULL row is dropped by both `flagged` and `NOT flagged`.
+
+### SQLX-073 — PASS
+`WHERE amount > txn_id` → {1,2,5,6}, complement `amount <= txn_id` → {3,4}. `4+2=6`.
+
+### SQLX-074 — PASS, confirms the document's caveat is incomplete
+H-VAL `WHERE status > user_id` → `PRV-2021` ("compares text inside a larger expression"). H-VAL
+`WHERE status = user_id` (equality between two **columns**, not against a literal) → **also**
+`PRV-2021`, same message. `SQL_SUPPORT.md` says "`=` and `<>` on text work" with no caveat that this
+means "against a literal only" — the case's own predicted finding is confirmed, not new.
+
+### SQLX-075 — PASS
+`WHERE amount * 2 > 100` → {1,2} (2 rows); control `WHERE amount > 100` → {2} (1 row) in the same
+session. `2 ≠ 1` proves the multiplication ran.
+
+### §3.3 — three-valued logic (SQLX-076 … SQLX-079) — all PASS
+
+`status = 'ok'` → 4 ({1,3,5,6}). `status <> 'ok'` → 1 ({4}). `NOT (status = 'ok')` → 1 ({4}),
+identical to `<>`. Census: `4+1+1=6` exactly with `status IS NULL` → 1 ({2}). Row 2's NULL is
+UNKNOWN under `=`, `<>` and `NOT(=)` alike, found only by `IS NULL`.
+
+### §3.4 — IN (SQLX-080 … SQLX-086)
+
+SQLX-080 — **PASS**. `WHERE user_id IN ()` → `PRV-2001  Encountered ")" at line 1, column 42`,
+Calcite's own parse-error shape.
+
+SQLX-081 — **PASS**. `IN ('u1')` → {1,3}, identical to `= 'u1'` in the same session.
+
+SQLX-082 — **PASS**. `IN ('u1','u2','u3','nobody')` → {1,2,3,4,5} (5 rows); `NOT IN (...)` → {6}
+(1 row). `5+1=6`.
+
+SQLX-083 — **PASS**. `IN ('u1','u1','u1')` → {1,3}, `6 in, 2 out` — no duplicate emission.
+
+SQLX-084 — **PASS**. A 19-term `IN` list (`u1` plus 18 non-matches) plans and returns {1,3}.
+
+SQLX-085 — **PASS, with a correction to the case's own predicted mechanism.** 20 terms already
+refuses: `PRV-2021  cannot compile the expression 'IN($1, {LogicalValues(tuples=[[...]])})' (IN) yet`
+— **not** `(SEARCH)` as the case's Intent predicts (Calcite builds a `LogicalValues`/`IN` subplan at
+this arity, not a `Sarg`). This matches round 1's own recorded finding (`SQL-054`, `docs/qa/logs/SQL.md`
+line 1011) precisely, including the `(IN)` wording — the case file's "SEARCH" text is itself the
+inaccuracy, not the engine. Message length grows with term count: 465 bytes at 20 terms, 2546 bytes at
+200 — the whole value list is interpolated into the error, confirming round 1's finding still holds.
+19 terms (SQLX-084) plans in the same session as the control.
+
+SQLX-086 — **PASS.** `IN ('u1', NULL)` → {1,3} (2 rows). `NOT IN ('u1', NULL)` → **0 rows** — every
+row is UNKNOWN under SQL's three-valued `NOT IN`-with-NULL rule, exactly as standard SQL requires.
+The two-valued-IR risk the case worried about (returning 4 instead) did **not** materialise.
+
+### §3.5 — IS NULL, BETWEEN, LIKE (SQLX-087 … SQLX-092)
+
+SQLX-087 — **PASS**. `IS NULL`→1 ({2}), `IS NOT NULL`→5 ({1,3,4,5,6}). `1+5=6`.
+
+SQLX-088 — **PASS**. H-VAL, all four (`(user_id||status) IS NULL`, `(amount*2) IS NULL`,
+`UPPER(status) IS NULL`, `CASE … END IS NULL`) → `PRV-2021  cannot compile the expression '...'
+(IS_NULL) yet. Supported: AND, OR, NOT, comparisons against a literal, IS [NOT] NULL, LIKE against a
+literal pattern, and boolean columns.` — confirms round-1 SQL-028: `IS NULL` only works on a bare
+column, and `SQL_SUPPORT.md`'s ✅ row needs that caveat.
+
+SQLX-089 — **PASS**. `BETWEEN -50 AND 100` → 5 rows {1,3,4,5,6}, both boundary rows present.
+`BETWEEN 7 AND 7` (degenerate) → 2 rows {5,6}, not empty. `NOT BETWEEN` → 1 ({2}); `5+1=6`.
+
+SQLX-090 — **PASS**. Inverted `BETWEEN 100 AND -50` → `ok 6 in, 0 out` — empty, not a swap-and-match.
+
+SQLX-091 — **PASS.** All eight patterns over `u1,u2,user,a.com,axcom,ünïcødé`: `u%`→3;
+`%1`→1(u1); `%se%`→1(user); `u_`→2(u1,u2); `%.com`→1(**a.com only**, not `axcom` — the `.` is a
+literal); `ü%`→1(ünïcødé); `u1`→1; `%`→6.
+
+SQLX-092 — **PASS on the NULL half; the astral-character half does not reproduce the predicted
+disagreement — recorded as a correction, not a defect.** `status LIKE 'o%'`→4, `NOT LIKE 'o%'`→1
+(`4+1=5≠6`, the missing row is the NULL, as expected). But `'😀x' LIKE '_x'` → **matches** (1 row) and
+`LIKE '__x'` → **0 rows** — the reverse of the case's prediction. Java's `Pattern`-based `.` (which
+`toRegex` maps `_` to) already treats a supplementary character's surrogate pair as **one** match unit
+by default in this JDK, so `_` and `SUBSTRING` in fact **agree** on code points here; the case's
+Intent, reasoning from the source comment alone, guessed UTF-16-code-unit behaviour that the regex
+engine does not exhibit. Good news, and worth fixing the case's own claim.
+
+### §3.6 — the four documented WHERE refusals (SQLX-093 … SQLX-096) — all PASS
+
+SQLX-093: `LIKE 'u!%' ESCAPE '!'` → `PRV-2021  ... uses LIKE with an ESCAPE clause, which is not
+built. Without ESCAPE, % and _ are always wildcards...`.
+SQLX-094: `LIKE status` and `LIKE ?` → both `PRV-2021  ... uses a pattern that is not a literal...`.
+Confirms ADR-032's claim that "`LIKE 'u%'` is refused too" is stale (SQLX-091 shows it works).
+SQLX-095: `status > 'ok'`, `>=`, `<`, `<=` → all four `PRV-2021  only = and <> are supported on text
+column 'status'; <op> needs a collation...`, each with its own operator interpolated correctly. The
+two controls (`=`, `<>`) plan.
+SQLX-096: control `amount > txn_id` plans; `amount > user_id`, `user_id = 1`, `status < 5` → all
+three `PRV-2021` naming the STRING/numeric conversion.
+
+---
+
 ## §4 — Aggregation, GROUP BY, HAVING, and the stream/view split (SQLX-097 … SQLX-120)
 
 SQLX-100, 101, 102, 104, 105, 110, 111, 116, 117, 118 are already made executable in
@@ -652,191 +830,263 @@ I-6. Not independently re-verified via H-MTX that `ParameterPlacement.of` itself
 distinguishes the two internally (i.e. whether the *logic* is right, only that its *result* is never
 surfaced) — that half is **NOT RUN**.
 
-## §9 onward
+## §9 — Hostile, malformed and awkward SQL (SQLX-163 … SQLX-182)
 
-Not executed this session. `docs/qa/cases/SQLX.md` §9 (hostile SQL, SQLX-163…182) and §10 (the
-matrix's own self-checks, SQLX-183…190), plus SQLX-132, are **NOT RUN**. Continuing against this
-same harness set.
+### SQLX-163 — PASS, with a CLI arg-parsing wrinkle worth recording
+`pravaha validate --sql ""` and `pravaha query --sql ""` never reach the planner at all: the CLI's
+own arg parser treats an explicitly-empty `--sql` value as **absent**, printing
+`--sql is required. Supplied: [...]` — a different, arguably more helpful outcome than the case's
+predicted `PRV-2001`, but not what the case describes (the query text never reaches `SqlPlanner`).
+`pravaha register --sql-file` with a genuinely empty file **does** reach the planner:
+`PRV-1041  PRV-2001  Index 0 out of bounds for length 0` — a raw `IndexOutOfBoundsException` message,
+not Calcite's own text and not "null" either, but equally unhelpful to a user — the same defect
+family the case names (Q-14/SQLX-173).
 
----
+### SQLX-164 — PASS, and reconfirms Q-9 is still live
+Three spaces and a tab+two-newlines both hit the same "--sql is required" CLI short-circuit as
+SQLX-163 (blank strings never reach the planner). A single U+00A0 (no-break space, whitespace to a
+human, not to the CLI's blank check) **does** reach the planner: `PRV-2001  Lexical error at line 1,
+column 2. Encountered: <EOF> after : ""` — a different, more specific message, as expected.
+**`--sql "--x"` reproduces Q-9 exactly**: `PRV-2001  Non-query expression encountered in illegal
+context` — byte-identical to `--sql "true"` and to `--sql "--select 1"`, confirming any value
+starting with `--` is still silently replaced by the literal string `true` before planning. Q-9,
+recorded `OPEN`, reconfirmed live on this build with a direct A/B comparison.
 
----
+### SQLX-165 — PASS
+`-- just a comment"` hits the same Q-9 substitution as SQLX-164 (starts with `--`). `/* block */`
+→ `PRV-2001  Encountered "<EOF>" at line 1, column 11...`, a real Calcite parse error, not "null". A
+genuine 3-line all-comment file through `pravaha register --sql-file` → `PRV-2001  Encountered
+"<EOF>" at line 3, column 9...` — line 3, as the document's "preserves Calcite's line and column"
+promise requires (this path does not go through the CLI's `--sql` arg, so Q-9 does not apply to it).
 
-## §3 — WHERE, the predicate compiler (SQLX-049 … SQLX-096)
+### SQLX-166 — PASS
+(a) block comment mid-statement → 6 rows. (b) `-- trailing` comment followed by a newline and
+`WHERE amount > 0` → **4 rows**, not 6 — the comment ends at the newline and the `WHERE` on the next
+line is live SQL. (c) a comment spanning two lines inside `FROM /* ... */ txn` → 6 rows. (d) a
+literal containing `a--b` as data → exactly the one row whose `status` is `a--b`. (e) a literal that
+looks like a block comment (`'/* not a comment */'`) → 0 rows, no parse error, `6 in` (2 in for the
+narrower fixture) confirmed on each.
 
-### §3.1 — one comparison per type, Fixture S2 / `all.csv`
+### SQLX-167 — PASS
+`SELECT txn_id FROM txn;` is refused identically (`PRV-2001`, names `;`) under H-VAL and H-RUN, and
+the spaced form (`txn ;`) too. A file with **no** trailing semicolon (just a trailing newline, as
+every file has) registers cleanly — confirming the refusal is specifically about the character `;`,
+not about anything a file's own EOF newline could trigger.
 
-SQLX-049 (BOOLEAN) — **PASS**. `b=TRUE`→2 (alpha,gamma); `b=FALSE`→1 (beta); `b<>TRUE`→1 (beta);
-bare `WHERE b`→2 (alpha,gamma). `2+1=3`.
+### SQLX-168 — PASS — a clean result for a security-relevant case
+(a) `SELECT txn_id FROM txn; SELECT user_id FROM txn` → `PRV-2001`, nothing plans. (b)
+`SELECT txn_id FROM v_txn; DROP VIEW v_txn` over H-VIEW → `PRV-2001`; `pravaha queries` immediately
+after still lists `v_txn` unchanged. (c) the `DELETE FROM v_txn` variant → same: refused, `v_txn`
+unchanged. (d) the injection text supplied as a **bound parameter value**
+(`WHERE user_id = ?` bound to `x'; DELETE FROM v_txn --`) → `0 rows`, and `v_txn` is still listed,
+still at 6 rows, afterwards — the value is compared as an ordinary string and never reaches a parser.
 
-SQLX-050 (INT8) — **PASS**. `i8>0`→1; `i8<0`→1; `i8=0`→1; `i8>=-1`→3; `i8>200`→**0 rows with a
-success status** (`ok 3 in, 0 out`), not an error.
+### SQLX-169 — PASS
+All-upper, all-lower, and mixed-case (`SeLeCt ... FrOm ... wHeRe`) spellings of the same query over
+D1 produce byte-identical output files (`cmp` confirms), all 4 rows.
 
-SQLX-051 (INT16) — **PASS**. `i16=100`→1; `i16<>100`→2; `i16 BETWEEN -100 AND 0`→2 (beta,gamma).
+### SQLX-170 — PASS
+`user_id` and `"user_id"` resolve. `USER_ID`, `User_Id` and `"USER_ID"` all
+`PRV-2002  Column '<as typed>' not found in any table; did you mean 'user_id'?` — case preserved in
+the message, plus an unprompted "did you mean" suggestion the case did not anticipate. `FROM TXN`
+(uppercase stream name) → `PRV-2002  Object 'TXN' not found within 'pravaha'; did you mean 'txn'?`.
 
-SQLX-052 (INT32) — **PASS**. `i32>=1000`→1; `i32<=-1000`→1; `i32=0`→1; `1000=i32` (flipped) → 1,
-same row as the first.
+### SQLX-171 — **FAIL — new finding, HIGH: a raw, uncaught `StackOverflowError`, and a different failure on `pravaha run`**
+A 102 411-byte query (`WHERE amount > 0` plus 6 087 redundant `OR amount > n` disjuncts) crashes
+`pravaha validate` with an **uncaught `java.lang.StackOverflowError`** printed straight to the
+console from `SqlValidatorImpl.performUnconditionalRewrites`'s own recursion — no `PRV-` code, no
+graceful exit, the exact Falsifier the case names. The same query through `pravaha run` does **not**
+crash the process; it returns `PRV-2001  null` instead — the Q-14 defect family (SQLX-173), meaning
+the StackOverflowError is caught *somewhere* on the run path (probably a broad `catch (Throwable)`)
+but propagates raw on the validate path. Both runs took ~1 second; this is not a timeout issue, it is
+a genuine, prompt crash. New finding, recorded below as X-11.
 
-SQLX-053 (INT64 extremes) — **PASS**. Extended `all.csv` to 5 rows with `i64 = Long.MAX_VALUE` and
-`Long.MIN_VALUE`. `i64=MAX`→1; `i64=MIN`→1 (no `(int)` truncation collapsing both to the same row);
-`i64>0`→2; `i64<0`→2.
+### SQLX-172 — **FAIL — new finding, HIGH: a hard 64-column ceiling, uncoded**
+`SELECT amount+0 AS c0, ..., amount+999 AS c999 FROM txn` fails immediately with
+`IllegalArgumentException: BinaryRowWriter tracks written fields in a long bitmask and so supports
+at most 64 fields; txn_projected has 1000` — a real, clear message naming the exact mechanism and
+limit, but with **no `PRV-` code** and not documented anywhere. This is an architectural ceiling on
+**any** row (a wide join, a wide projection, a wide aggregate), not specific to this case's
+1 000-column select list. New finding, recorded below as X-11. (The case's own falsifier — "a
+truncated output row, a silently dropped column" — did not happen; the failure is loud and clear,
+just uncoded and previously unknown to this campaign.) The 100-nested-parentheses depth-100 control
+(shared fixture with SQLX-173) confirmed separately: 4 rows, correct.
 
-SQLX-054 (FLOAT32) — **PASS**. `f32=1.5`→1; `f32<0`→1; `f32=0.0`→1; `f32<>1.5`→2.
+### SQLX-173 — **FAIL — confirms Q-14 exactly as predicted**
+Depths 10/100/500 plan cleanly (`valid`); depths 900/1000/2000 all produce the literal text
+`PRV-2001  null` — Q-14, `OPEN`, reproduced precisely, including the specific boundary (parses below
+~600-900 nesting levels, fails above). Depth 100 through H-RUN returns the correct 4 rows, confirming
+the parentheses are inert where they parse at all.
 
-SQLX-055 (FLOAT64) — **PASS**. `f64>=2.5`→1; `f64<=-2.5`→1; `f64>-2.5 AND f64<2.5`→1 (gamma).
+### SQLX-174 — **FAIL — new finding, HIGH: a third failure mode for many boolean terms, dumping the whole predicate into the message**
+1 000-conjunct `AND` chain and 1 000-disjunct `OR` chain (over `amount` and `user_id` respectively)
+**both** fail identically in shape: `PRV-2010  java.lang.RuntimeException: while converting <the
+entire several-thousand-character predicate, verbatim>`. Neither hangs, neither StackOverflows —a
+**third** distinct failure mode from SQLX-171's (StackOverflowError / "null") for what is
+structurally the same kind of input (many boolean terms), and like SQLX-085/142/174(c), the message
+interpolates the entire input rather than summarising it. The 1 000-term `IN` list (c) fails as
+SQLX-085 predicts: `PRV-2021`, `(IN)`, not `(SEARCH)`. New finding, recorded below as X-11.
 
-SQLX-056 (STRING) — **PASS**. `s='alpha'`→1; `s<>'alpha'`→2; `s='ALPHA'`→0 (case-sensitive);
-`s=''`→0.
+### SQLX-175 — PASS
+`金额` (CJK), `naïve` and `Ωmega` (Greek) all resolve both quoted and unquoted, as column
+**identifiers** in `--schema`. H-RUN over `金额` returns `100` correctly.
 
-SQLX-057 (BYTES) — **PASS**. H-VAL `WHERE bin = X'51'` → `PRV-2021  cannot compare column 'bin' of
-type BYTES against a constant yet`. `WHERE bin IS NULL` plans (`[s VARCHAR NOT NULL]`) — the refusal
-is about comparison, not about the column's existence, exactly as the case distinguishes.
+### SQLX-176 — **PASS on (a)(b)(c)(e)(f); FAIL on (d) and (g) — new finding, HIGH: unicode string *literals* outside Latin-1 are refused**
+(a) identity, (b) filter, (c) `UPPER`, (e) `SUBSTRING`, (f) `LIKE` against the literal `'ünïcødé'`
+all work correctly and byte-exactly — **but `ünïcødé`'s four accented characters are all within
+ISO-8859-1 (Latin-1)**, U+00FC/U+00EF/U+00F8/U+00E9, all ≤ U+00FF. (d) concatenating `|| '✓'`
+(U+2713, outside Latin-1) fails: `PRV-2010  Failed to encode '✓' in character set 'ISO-8859-1'`.
+(g) `UPPER(user_id)` filtered on the **literal** `'😀x'` (astral, outside Latin-1) fails identically:
+`PRV-2010  Failed to encode '😀x' in character set 'ISO-8859-1'`. Confirmed the boundary directly:
+`WHERE user_id = 'café'` (Latin-1) plans; `WHERE user_id = '日本語'` (CJK, outside Latin-1) fails the
+same way. **Column data** of the same characters flows through the engine perfectly (SQLX-048a wrote
+raw `f0 9f 98 80` UTF-8 bytes for 😀 with no issue) — this is specifically about a character written
+as a **SQL literal in the query text**, and the whole campaign missed it until now because the
+standing "hostile unicode" fixture string, `ünïcødé`, happens to be entirely Latin-1-representable.
+New finding, recorded below as X-12.
 
-SQLX-058 (DATE) — **PASS**. `d = DATE '2022-01-08'`→1 (alpha; 19000 days after epoch is confirmed
-2022-01-08); `d > DATE '2022-01-08'`→2 (beta,gamma); `d = 19000` (bare int against DATE) →
-`PRV-2002  Cannot apply '=' to arguments of type '<DATE> = <INTEGER>'` — refuses with a code, one of
-the two outcomes the case allows.
+### SQLX-177 — PASS
+`SELECT user FROM txn` (unquoted) → `PRV-2021  function 'USER' in 'USER' is not supported in a
+projection...` — confirms round-1's still-unfixed message defect exactly (a column named `user`
+looks to the user like a refused function call). `"user"` (quoted) resolves. Same pair confirmed for
+the predicate position. `all`/`one`/`sensitive` unquoted → `PRV-2001` parse errors (different
+keywords, different grammar positions); quoted, all resolve.
 
-SQLX-059 (TIME) — **FAIL — new finding, HIGH.** `WHERE tm = TIME '01:00:00'` → **0 rows**, not the 1
-row the case requires (row 1 has `tm = 3600000`, documented as milliseconds-of-day for 01:00:00).
-`WHERE tm = 3600000` (bare int) → `PRV-2002` (Calcite refuses TIME = INTEGER outright, so the two
-forms cannot even be compared as the case intends). Root-caused: `ExpressionCompiler.literal` converts
-a Calcite TIME literal as `getValueAs(Integer.class) * 1_000_000L` (ms → ns), but
-`DelimitedCodec.setField`'s `TIME` case is `Long.parseLong(raw)` with **no** ms→ns conversion — the
-column value is stored as raw milliseconds mislabelled as nanoseconds. Confirmed directly:
-`WHERE tm < TIME '00:00:01'` (1 second = 1e9 ns as a literal) returns **all 3 rows**, even though two
-of them are supposed to represent 1 and 2 *hours*. Any `WHERE <TIME col> <op> TIME '...'` predicate
-against a column ingested through the filesystem plugin is silently wrong by a factor of 1,000,000,
-under a success status, no error. This is new — not in `FINDINGS.md` under any existing key — recorded
-below.
+### SQLX-178 — PASS, and corrects the case's own predicted code
+`pravaha register --name user ...` → `PRV-1041  PRV-8008  'user' is a reserved word in SQL, so no
+query could read the view. Choose a name that can appear in a FROM clause unquoted.` — refused, and
+`pravaha queries` never lists `user`. **Correction**: the case predicts the code would be
+`PRV-8001` (`NAME_IN_USE`, "one code now means two things"); the actual code is a **dedicated**
+`PRV-8008`, distinct from `NAME_IN_USE` — better than the case feared, not the finding it predicted.
 
-SQLX-060 (TIMESTAMP) — **PASS on the core regression claim; BLOCKED on the H-VIEW leg by Y-2.**
-H-RUN: `ts > TIMESTAMP '1970-01-01 00:00:01'` → 2 rows (beta, gamma), correct. The two bare-int forms
-(`ts > 1000000000`, `ts = 1000000000`) the case's "Expected: 2 rows; 1 row" calls for are instead
-refused at plan time with `PRV-2002` (`<TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)> > <INTEGER>`) — a deviation
-from the case's literal expectation, but **not** an `AssertionError`, not a thread death, and not
-"0 rows where 2 are expected" (the case's own Falsifier) — it is a clean, coded refusal. Recorded as a
-partial deviation rather than a FAIL: the round-2 regression this case exists to catch (an
-`AssertionError` killing a Flight worker) did not reproduce.
-H-VIEW leg (`v_allt` registered over a second server, 18701/19701): **every** query against the view
-failed identically — even `SELECT b FROM v_allt` with no `ts` reference at all —
-`PRV-1041  class java.lang.String cannot be cast to class [B`. This is `FINDINGS.md`'s **Y-2**
-(`ServedView.value` defaults BYTES to `row.getString`, then `ArrowSchemas.write` casts to `byte[]`),
-already `OPEN`, reconfirmed: any view over a stream carrying a non-null BYTES column (Fixture S2's
-`bin` column) cannot be queried over Flight **at all**, regardless of what the query asks for — so the
-"a fourth query still answers" check cannot be performed independently of Y-2. **BLOCKED**, not FAIL,
-on that leg; cited against Y-2 rather than opened as new.
+### SQLX-179 — PASS, plus one prediction that does not hold and one new observation
+All nine reserved words (`user, all, one, sensitive, value, year, count, table, select`) refused
+with the identical `PRV-8008` message; all four controls (`v_txn2`, `txn_summary`, `_private`, `a1`)
+register and read back 6 rows. **Registering a 500-character name of plain `a` characters is also
+refused as "a reserved word"** — which is false; 500 `a`s is not a SQL keyword under any Calcite
+conformance. `requireSayableName`'s probe-parse approach conflates *any* parse failure (here, likely
+an identifier-length limit inside Calcite's lexer) with "reserved word", producing a misleading
+diagnosis. New finding, recorded below as X-13.
 
-### §3.2 — AND / OR / NOT, and their nesting (SQLX-061 … SQLX-071)
+### SQLX-180 — PASS on the sayable-name refusals; contradicts one of the case's two predicted findings
+Empty/whitespace names hit the same CLI "--name is required" short-circuit as SQLX-163/164 (never
+reach the server). `1abc`, `a-b`, `a.b`, `../escape`, `v_txn ` (trailing space) → all
+`PRV-8008  '<name>' cannot be used as a view name: ... must be a plain identifier...`.
+**`金额` (a valid identifier to the parser, per SQLX-175) registers and queries successfully** —
+**not** refused by an ASCII-only regex as the case's second predicted finding claims; confirmed by
+querying `SELECT COUNT(*) FROM 金额` and getting `6`. That specific prediction does not hold on this
+build. The null-name NPE (needs the Java API directly, not the CLI) is **NOT RUN**.
 
-All **PASS**, D1 fixture, `txn_id` sets exactly as hand-computed:
+### SQLX-181 — PASS, reconfirms Q-13
+(a) `SELECT x FROM nosuchstream` → `PRV-2002  Object 'nosuchstream' not found. Known streams: [txn]`
+— H-VAL's own catalogue, correctly includes `txn`. (b) `SELECT * FROM nosuchview` over H-VIEW →
+`PRV-2002  Object 'nosuchview' not found. Known streams: [a1, trailtest, ..., 金额]` — a list of
+**view** names. (c) `SELECT * FROM txn` (the base stream) over H-VIEW → `PRV-2002  Object 'txn' not
+found...`, the identical view-only list, **which does not contain `txn`** even though `txn` is a
+configured, live base stream — Q-13's exact claim ("Known streams lists views and omits every
+configured base stream"), reconfirmed precisely. Never `PRV-2003`.
 
-| case | query | rows |
-|---|---|---|
-| 061 | `amount>0 AND flagged` | {1,6} |
-| 062 | `amount>100 OR flagged` | {1,2,4,6} |
-| 063 | `NOT (amount>0)` | {3,4} |
-| 064 | `NOT (amount>0 AND flagged)` | {2,3,4,5} |
-| 065 | `NOT (amount>100 OR flagged)` | {3,5} |
-| 066 | `status='ok'` / `NOT NOT (…)` / `NOT (…)` | {1,3,5,6} / {1,3,5,6} / {4} |
-| 067 | 8-level nested AND/OR/NOT | {1,2,5}, complement {3,4,6} |
-| 068 | `WHERE 1=1` | all 6 |
-| 069 | `WHERE 1=0` | 0, `6 in` confirmed |
-| 070 | bare `TRUE`/`FALSE` | 6 / 0 |
-| 071 | `flagged` / `NOT flagged` | {1,4,6} / {2,3,5} |
+### SQLX-182 — PASS
+(a)/(b) unknown column in the select list and in a predicate → `PRV-2002`, names the column, in both
+positions. (c) injection via a bound parameter (`u1' OR '1'='1`) → 0 rows, view unaffected,
+`COUNT(*)` still 6 immediately after.
 
-SQLX-067 matches the case's own row-by-row hand computation exactly, including the UNKNOWN→FALSE
-collapse noted for row 2.
+## §9 finding — a registration confirmation echoes the wrong name under fingerprint sharing
 
-### SQLX-072 — PASS
-Nullable `flagged` over a 3-row file (true, false, NULL): `WHERE flagged`→1, `WHERE NOT flagged`→1,
-`WHERE flagged IS NULL`→1. `1+1=2≠3`: the NULL row is dropped by both `flagged` and `NOT flagged`.
+Discovered while running SQLX-179's controls: `pravaha register --name freshname123 --sql-file q.sql`
+(a brand-new name, identical SQL to the already-registered `v_txn`) prints
+`registered v_txn  state=RUNNING  fingerprint=7c6f0450c154` — **the pre-existing name, not the one
+just requested.** The registration itself is correct — `pravaha queries` lists `freshname123`
+independently, and `SELECT COUNT(*) FROM freshname123` answers `6` — only the **confirmation
+message** is wrong. A user who registers a new name under ADR-025's fingerprint-sharing and is told
+"registered v_txn" has good reason to think their command used, or collided with, the wrong name.
+New finding, recorded below as X-13.
 
-### SQLX-073 — PASS
-`WHERE amount > txn_id` → {1,2,5,6}, complement `amount <= txn_id` → {3,4}. `4+2=6`.
+## §10 — `SqlSupportMatrixTest` itself (SQLX-183 … SQLX-190)
 
-### SQLX-074 — PASS, confirms the document's caveat is incomplete
-H-VAL `WHERE status > user_id` → `PRV-2021` ("compares text inside a larger expression"). H-VAL
-`WHERE status = user_id` (equality between two **columns**, not against a literal) → **also**
-`PRV-2021`, same message. `SQL_SUPPORT.md` says "`=` and `<>` on text work" with no caveat that this
-means "against a literal only" — the case's own predicted finding is confirmed, not new.
+### SQLX-183 — **the matrix's own claim has changed since the case was authored; Q-8 is substantially, not fully, fixed**
+Seed-proven directly: `Expression.Arithmetic.evaluateLong`'s `case ADD -> Math.addExact(l, r);`
+changed to `Math.addExact(l, r) + 1`, rebuilt (`-Dspotless.check.skip=true`), and both
+`SqlSupportMatrixTest` and SQLX-017 (H-RUN) run against the seeded tree; then reverted, rebuilt, and
+both re-run to confirm green again.
+```
+$ ./mvnw -o -pl pravaha-sql test -Dtest=SqlSupportMatrixTest    # seeded
+[ERROR] everyConstructWithADocumentedAnswerProducesIt FAILED
+  "integer arithmetic: expected [201, 501, 101, 801] and produced [202, 502, 102, 802]"
+  "a function inside arithmetic: expected [...] and produced [...]"
+$ pravaha run --sql "SELECT amount * 2 + 1 FROM txn" ...        # seeded
+202 / 502 / -98 / 2 / 16 / 16    # should be 201 / 501 / -99 / 1 / 15 / 15
+```
+**This contradicts the case's own "Expected" text**, which assumed the matrix would stay green.
+**Since this file was authored, `SqlSupportMatrixTest` gained a second test method,
+`everyConstructWithADocumentedAnswerProducesIt`, and a `Case.answers(...)` factory that feeds `D1`
+through a real, collecting pipeline and asserts rendered row values** — not merely `"OK"` outcome
+strings. Counted directly in the source: of 122 `Case` entries, **55 use `Case.answers(...)`** (real
+value assertions), 49 use `Case.refused(...)` (refusal-code assertions, unaffected by this question),
+and 17 use plan-only `Case.ok(...)`/1 `Case.lookupOk(...)` (still no value check). **Q-8, as stated
+("no row is ever fed and no value is ever compared"), is no longer true of this file — a wrong
+answer in most of the matrix's covered arithmetic, string, predicate, and aggregate constructs would
+now fail the build.** The residual gap (SQLX-189's territory: `overBoundedInput()` still does not
+appear anywhere in this file, so `SELECT DISTINCT` and unwindowed `GROUP BY` over a **view** remain
+unchecked by it; and 17 plan-only `Case.ok` entries) is real but materially smaller than Q-8
+describes. Recorded as a correction to `FINDINGS.md` below (X-14) rather than edited into Q-8
+directly, since I did not trace which commit made this change or whether the round that recorded Q-8
+saw an earlier version of this file.
 
-### SQLX-075 — PASS
-`WHERE amount * 2 > 100` → {1,2} (2 rows); control `WHERE amount > 100` → {2} (1 row) in the same
-session. `2 ≠ 1` proves the multiplication ran.
+### SQLX-184 — PASS as literally specified, superseded in spirit by SQLX-183's discovery
+The original `messageOf`/`Case.ok`/`Case.refused` machinery (49+17+1 = 67 of 122 cases) still never
+feeds a row — confirmed by reading `messageOf`'s `RowOutput` supplier, unchanged: a bare
+`throw new UnsupportedOperationException("the matrix builds pipelines but never runs rows through
+them")`. True of the plan-only two-thirds of the file; no longer true of the 55 `Case.answers` cases,
+which run through the *different*, collecting `answerOf` helper SQLX-183 exercised.
 
-### §3.3 — three-valued logic (SQLX-076 … SQLX-079) — all PASS
+### SQLX-185 — PARTIAL
+Not run as a full 42-row mechanical audit (out of session budget), but SQLX-183's count answers the
+shape of the question directly: the document's numeric, string, predicate and single-row aggregate
+✅ rows are now backed by `Case.answers`; the exceptions the case itself predicts as blank (joins,
+CAST, several scalar functions) were spot-checked against the 55-entry list and several **are**
+present (`Case.answers("CAST", ...)` at line 184, `Case.answers("text functions", ...)` at line 171)
+— so the case's own list of expected blanks is itself partly stale. A full row-by-row 42-entry table
+is **NOT RUN**.
 
-`status = 'ok'` → 4 ({1,3,5,6}). `status <> 'ok'` → 1 ({4}). `NOT (status = 'ok')` → 1 ({4}),
-identical to `<>`. Census: `4+1+1=6` exactly with `status IS NULL` → 1 ({2}). Row 2's NULL is
-UNKNOWN under `=`, `<>` and `NOT(=)` alike, found only by `IS NULL`.
+### SQLX-186 — PASS
+Spot-checked five ❌ constructs from §5/§6/§9 through H-VAL directly in this session (`ORDER BY`,
+`UNION`, `VALUES`, `SESSION`, reserved-word registration) — every one refuses before any file is
+opened or any row is read. The self-join remains the one documented exception (confirmed via
+`SqlxMultiStreamTest`: it plans and compiles, refused only when the pipeline itself is instantiated,
+with no `PRV-` code) — `pravaha validate` would indeed report it `valid`, exactly as the case warns.
 
-### §3.4 — IN (SQLX-080 … SQLX-086)
+### SQLX-187 — PARTIAL
+Not run as the full three-property table across every refusal (out of session budget). The
+nine-message "does not name a token from the user's SQL" list is independently confirmed by this
+session's own findings for four of the nine: `ORDER BY`/`LIMIT`/`OFFSET` (SQLX-121-124, all
+`LogicalSort`) and `EXCEPT` (SQLX-130, `LogicalMinus`) — matching the case's prediction exactly.
+`SQRT`/`POWER` (SQLX-036) also confirmed. `UNION`/`INTERSECT`/`VALUES`/`INSERT` not independently
+re-checked against this specific criterion this session.
 
-SQLX-080 — **PASS**. `WHERE user_id IN ()` → `PRV-2001  Encountered ")" at line 1, column 42`,
-Calcite's own parse-error shape.
+### SQLX-188 — NOT RUN
+A full three-way diff (document × matrix × this file) was not built as a table this session — out of
+budget. Individual gaps the case predicts were independently confirmed as real in passing:
+`GROUPING SETS`/`CUBE`/`ROLLUP` (SQLX-112), the float-aggregate refusal (SQLX-113), narrow-integer
+aggregates (SQLX-114) and the reserved-word view name (SQLX-178) are all, confirmed, in neither the
+document nor (by construction, since they are refusals this file discovered) the original matrix.
 
-SQLX-081 — **PASS**. `IN ('u1')` → {1,3}, identical to `= 'u1'` in the same session.
+### SQLX-189 — PASS, and still the sharpest single finding in this section
+`grep -c overBoundedInput pravaha-sql/src/test/java/.../SqlSupportMatrixTest.java` → **0**, confirmed
+directly in the source read for SQLX-183 above. The matrix — even after gaining
+`everyConstructWithADocumentedAnswerProducesIt` — has no bounded-plan path at all, so the document's
+entire stream/view asymmetry (SQLX-023 vs SQLX-024, SQLX-115 vs SQLX-116, `SELECT DISTINCT`) remains
+untested by it; every one of those pairs in this log came from H-VIEW or `SqlAnswerTest`'s own
+`overBoundedInput()` harness, not from `SqlSupportMatrixTest`.
 
-SQLX-082 — **PASS**. `IN ('u1','u2','u3','nobody')` → {1,2,3,4,5} (5 rows); `NOT IN (...)` → {6}
-(1 row). `5+1=6`.
-
-SQLX-083 — **PASS**. `IN ('u1','u1','u1')` → {1,3}, `6 in, 2 out` — no duplicate emission.
-
-SQLX-084 — **PASS**. A 19-term `IN` list (`u1` plus 18 non-matches) plans and returns {1,3}.
-
-SQLX-085 — **PASS, with a correction to the case's own predicted mechanism.** 20 terms already
-refuses: `PRV-2021  cannot compile the expression 'IN($1, {LogicalValues(tuples=[[...]])})' (IN) yet`
-— **not** `(SEARCH)` as the case's Intent predicts (Calcite builds a `LogicalValues`/`IN` subplan at
-this arity, not a `Sarg`). This matches round 1's own recorded finding (`SQL-054`, `docs/qa/logs/SQL.md`
-line 1011) precisely, including the `(IN)` wording — the case file's "SEARCH" text is itself the
-inaccuracy, not the engine. Message length grows with term count: 465 bytes at 20 terms, 2546 bytes at
-200 — the whole value list is interpolated into the error, confirming round 1's finding still holds.
-19 terms (SQLX-084) plans in the same session as the control.
-
-SQLX-086 — **PASS.** `IN ('u1', NULL)` → {1,3} (2 rows). `NOT IN ('u1', NULL)` → **0 rows** — every
-row is UNKNOWN under SQL's three-valued `NOT IN`-with-NULL rule, exactly as standard SQL requires.
-The two-valued-IR risk the case worried about (returning 4 instead) did **not** materialise.
-
-### §3.5 — IS NULL, BETWEEN, LIKE (SQLX-087 … SQLX-092)
-
-SQLX-087 — **PASS**. `IS NULL`→1 ({2}), `IS NOT NULL`→5 ({1,3,4,5,6}). `1+5=6`.
-
-SQLX-088 — **PASS**. H-VAL, all four (`(user_id||status) IS NULL`, `(amount*2) IS NULL`,
-`UPPER(status) IS NULL`, `CASE … END IS NULL`) → `PRV-2021  cannot compile the expression '...'
-(IS_NULL) yet. Supported: AND, OR, NOT, comparisons against a literal, IS [NOT] NULL, LIKE against a
-literal pattern, and boolean columns.` — confirms round-1 SQL-028: `IS NULL` only works on a bare
-column, and `SQL_SUPPORT.md`'s ✅ row needs that caveat.
-
-SQLX-089 — **PASS**. `BETWEEN -50 AND 100` → 5 rows {1,3,4,5,6}, both boundary rows present.
-`BETWEEN 7 AND 7` (degenerate) → 2 rows {5,6}, not empty. `NOT BETWEEN` → 1 ({2}); `5+1=6`.
-
-SQLX-090 — **PASS**. Inverted `BETWEEN 100 AND -50` → `ok 6 in, 0 out` — empty, not a swap-and-match.
-
-SQLX-091 — **PASS.** All eight patterns over `u1,u2,user,a.com,axcom,ünïcødé`: `u%`→3;
-`%1`→1(u1); `%se%`→1(user); `u_`→2(u1,u2); `%.com`→1(**a.com only**, not `axcom` — the `.` is a
-literal); `ü%`→1(ünïcødé); `u1`→1; `%`→6.
-
-SQLX-092 — **PASS on the NULL half; the astral-character half does not reproduce the predicted
-disagreement — recorded as a correction, not a defect.** `status LIKE 'o%'`→4, `NOT LIKE 'o%'`→1
-(`4+1=5≠6`, the missing row is the NULL, as expected). But `'😀x' LIKE '_x'` → **matches** (1 row) and
-`LIKE '__x'` → **0 rows** — the reverse of the case's prediction. Java's `Pattern`-based `.` (which
-`toRegex` maps `_` to) already treats a supplementary character's surrogate pair as **one** match unit
-by default in this JDK, so `_` and `SUBSTRING` in fact **agree** on code points here; the case's
-Intent, reasoning from the source comment alone, guessed UTF-16-code-unit behaviour that the regex
-engine does not exhibit. Good news, and worth fixing the case's own claim.
-
-### §3.6 — the four documented WHERE refusals (SQLX-093 … SQLX-096) — all PASS
-
-SQLX-093: `LIKE 'u!%' ESCAPE '!'` → `PRV-2021  ... uses LIKE with an ESCAPE clause, which is not
-built. Without ESCAPE, % and _ are always wildcards...`.
-SQLX-094: `LIKE status` and `LIKE ?` → both `PRV-2021  ... uses a pattern that is not a literal...`.
-Confirms ADR-032's claim that "`LIKE 'u%'` is refused too" is stale (SQLX-091 shows it works).
-SQLX-095: `status > 'ok'`, `>=`, `<`, `<=` → all four `PRV-2021  only = and <> are supported on text
-column 'status'; <op> needs a collation...`, each with its own operator interpolated correctly. The
-two controls (`=`, `<>`) plan.
-SQLX-096: control `amount > txn_id` plans; `amount > user_id`, `user_id = 1`, `status < 5` → all
-three `PRV-2021` naming the STRING/numeric conversion.
+### SQLX-190 — PASS as an evaluation of the predicate, with a materially different premise than the case assumed
+*For every row of every table on this page, some test observes the behaviour the row describes* is
+still **false** — but for a narrower reason than the case states. It is no longer false because "no
+row is ever compared" (SQLX-183); it is false because (a) the bounded/view half of the document is
+untested by this specific file (SQLX-189) and (b) a residual ~14% of the matrix's ✅-shaped rows
+(17 of 122) are still plan-only. The honest repair the case proposes — name where the answers are
+checked, and add a `bounded` flag — is *more* achievable now than the case assumed: most of the
+engineering it asks for already landed.
 
 ---
 

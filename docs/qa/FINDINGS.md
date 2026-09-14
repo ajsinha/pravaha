@@ -1082,6 +1082,78 @@ correlated scalar subquery in the select list is refused by `ExpressionCompiler`
 `$SCALAR_QUERY` function — both earlier and more generic than the `Correlate` branch the good message
 lives on. (SQLX-144)
 
+## X-10 (HIGH) — a raw, uncaught `StackOverflowError` on `pravaha validate` for a large disjunction
+
+A 102 KB query (`WHERE amount > 0 OR amount > 1 OR ... OR amount > 6087`, the width SQLX-171 asks
+for) crashes `pravaha validate` with an uncaught `java.lang.StackOverflowError` from
+`SqlValidatorImpl.performUnconditionalRewrites`'s own recursion, printed straight to the console —
+not a `PRV-` code, not a graceful exit. The identical query through `pravaha run` does not crash the
+process; it returns `PRV-2001  null` instead (the Q-14 defect family), meaning the same
+`StackOverflowError` is caught somewhere on that path and its message lost, while `validate`
+lets it propagate raw. Both took about a second — not a timeout, a genuine crash under ordinary load
+a user could reach by writing a long, redundant filter (e.g. a generated `IN`-to-`OR` rewrite from a
+client library). (SQLX-171)
+
+## X-11 (HIGH) — three more limits with no documented shape: 64 output columns, and a third failure mode for many boolean terms
+
+A 1 000-column projection fails immediately with `IllegalArgumentException: BinaryRowWriter tracks
+written fields in a long bitmask and so supports at most 64 fields; ...` — a real, clear diagnosis of
+a genuine architectural ceiling (any row — a wide join, a wide projection, a wide aggregate — is
+capped at 64 output columns), but with no `PRV-` code and nowhere documented. (SQLX-172)
+
+Separately, a 1 000-conjunct `AND` chain and a 1 000-disjunct `OR` chain (same shape, same column,
+built the way a generated query or an `IN`-list rewrite would produce one) both fail identically:
+`PRV-2010  java.lang.RuntimeException: while converting <the entire multi-thousand-character
+predicate, verbatim>` — a third distinct failure mode from X-10's `StackOverflowError`/`PRV-2001 null`
+pair for what is structurally the same kind of input, and like SQLX-085/142, the error message
+interpolates the whole predicate rather than summarising it. (SQLX-174)
+
+## X-12 (HIGH) — a SQL string literal outside Latin-1 is refused; the same character as column data is not
+
+`WHERE user_id = '日本語'` (or any literal containing a character above U+00FF — an emoji, most CJK,
+common symbols) fails: `PRV-2010  Failed to encode '日本語' in character set 'ISO-8859-1'`. Calcite
+validates string literals against a default character set of ISO-8859-1 unless told otherwise, and
+nothing in `SqlPlanner` overrides it. The same characters flowing through the engine as **column
+data** — read from a file, written to output, compared, uppercased — work perfectly (confirmed
+repeatedly across this campaign, including an emoji surviving `SUBSTRING` byte-exact). This campaign's
+own standing "hostile unicode" fixture string, `ünïcødé`, happens to use only Latin-1-representable
+accented characters (U+00FC/00EF/00F8/00E9, all ≤ U+00FF) — which is why every SQLX case that filters
+on it passed and this defect went unnoticed until a checkmark and an emoji were tried as literals.
+A user cannot write `WHERE name = '<any non-Latin-1 character>'` at all, ever, through this engine.
+(SQLX-176)
+
+## X-13 — two messaging bugs, one that misdiagnoses a name and one that echoes the wrong one
+
+Registering a 500-character name made entirely of the letter `a` is refused as
+`'aaa...a' is a reserved word in SQL` — false; it is not a keyword under any Calcite conformance.
+`requireSayableName`'s probe-parse approach (parse `SELECT 1 FROM <name>` and treat any failure as
+"reserved word") conflates every parse failure with that one diagnosis; the real cause here is more
+likely an identifier-length limit inside Calcite's own lexer. (SQLX-179)
+
+Separately: `pravaha register --name <new-name> --sql-file q.sql`, where the SQL is identical to an
+already-registered query (so ADR-025's fingerprint sharing applies), prints
+`registered <the pre-existing name>` — not the name just requested. The registration itself is
+correct (the new name is independently listed in `pravaha queries` and independently queryable) —
+only the confirmation message names the wrong registration. A user has good reason to think their
+command used, or collided with, a different name than the one they typed. (SQLX-179, incidental)
+
+## X-14 — `SqlSupportMatrixTest` now checks values for most of its ✅ rows; Q-8 is substantially, not fully, fixed
+
+Q-8 states the matrix "never runs a row or compares a value". Seed-proven against the current build
+(`Expression.Arithmetic`'s `ADD` case changed to add 1, `SqlSupportMatrixTest` run, reverted, rerun):
+the matrix's `everyConstructWithADocumentedAnswerProducesIt` test — which did not exist when Q-8 was
+written, or did and was missed — fails immediately and by name ("integer arithmetic: expected [201,
+501, 101, 801] and produced [202, 502, 102, 802]"). Counted directly in the source: of 122 `Case`
+entries, 55 use the value-asserting `Case.answers(...)` factory; 49 are refusal cases (`Case.refused`,
+unaffected by this question); 17 remain plan-only (`Case.ok`) plus 1 `Case.lookupOk`. So roughly
+three-quarters of the matrix's ✅-shaped rows now have a real answer check, not zero. The part of Q-8
+that does still hold: `overBoundedInput()` appears nowhere in the file (confirmed by source grep), so
+the document's entire stream/view asymmetry — `SELECT DISTINCT`, unwindowed `GROUP BY` over a view —
+remains completely unchecked by this test, and 17 ✅ rows are still plan-only. Whoever owns Q-8's
+row should mark it partially fixed rather than open or closed outright; I did not trace which commit
+made the change. (SQLX-183, SQLX-184, SQLX-189)
+
+
 ## X-8 (HIGH) — `PRV-2061` (parameter arity mismatch) is unreachable through the shipped SDK/CLI
 
 `BoundParameters.requireArity` throws a well-designed `PravahaException(SqlErrors.PARAMETER_ARITY,
