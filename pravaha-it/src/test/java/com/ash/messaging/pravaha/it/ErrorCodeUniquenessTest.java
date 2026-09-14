@@ -96,6 +96,9 @@ class ErrorCodeUniquenessTest {
             for (Path file : files.filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> p.toString().contains("/src/main/"))
                     .filter(p -> !p.toString().contains("/target/"))
+                    // Not a nested checkout: QA agents work in git worktrees under .claude/,
+                    // so walking the repository root sees a copy of every source per agent.
+                    .filter(p -> !p.toString().contains("/.claude/"))
                     .toList()) {
                 Matcher matcher = DECLARATION.matcher(Files.readString(file));
                 while (matcher.find()) {

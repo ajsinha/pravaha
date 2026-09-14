@@ -185,6 +185,9 @@ class OrphanedClassTest {
             return walk.filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> p.toString().contains(under))
                     .filter(p -> !p.toString().contains("/target/"))
+                    // Agent worktrees under .claude/ are copies of this repository; counting
+                    // them would let a class deleted here go on looking referenced.
+                    .filter(p -> !p.toString().contains("/.claude/"))
                     .toList();
         }
     }

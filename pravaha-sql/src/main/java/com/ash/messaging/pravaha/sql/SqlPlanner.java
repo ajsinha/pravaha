@@ -67,8 +67,13 @@ public final class SqlPlanner {
         //
         // A system property rather than connection configuration, because that is where Calcite
         // reads it: CalciteSystemProperty resolves calcite.default.charset once, in a static
-        // initialiser, and no per-planner setting reaches it. Set before Calcite is touched, and
-        // only when a deployment has not chosen for itself.
+        // initialiser, and no per-planner setting reaches it.
+        //
+        // This block is the second line of defence, not the first. It only helps if this class
+        // loads before Calcite does, and whether it does depends on what the process touched
+        // first -- which made it pass in one test run and fail in another. The property is set
+        // for real in src/main/resources/saffron.properties, which Calcite reads whatever the
+        // order. This stays for an embedder that shades the jar and loses the resource.
         //
         // It survived a whole QA campaign because the standing "hostile unicode" fixture, ünïcødé,
         // is made entirely of Latin-1-representable accents -- a test string chosen to look

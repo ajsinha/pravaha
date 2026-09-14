@@ -195,6 +195,10 @@ class ErrcSqlTest extends ErrcTestSupport {
             mainSourceCallSites = files.filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> p.toString().contains("/src/main/"))
                     .filter(p -> !p.toString().contains("/target/"))
+                    // Agent worktrees under .claude/ hold a copy of every source, so a check
+                    // that counts the files a call site appears in sees one per running agent
+                    // and fails for a reason with nothing to do with the engine.
+                    .filter(p -> !p.toString().contains("/.claude/"))
                     .filter(p -> !p.toString().endsWith("ChangelogAnalysis.java"))
                     .filter(p -> {
                         try {

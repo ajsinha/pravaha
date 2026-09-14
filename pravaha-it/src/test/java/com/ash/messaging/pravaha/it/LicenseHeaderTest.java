@@ -122,6 +122,7 @@ class LicenseHeaderTest {
         try (Stream<Path> walk = Files.walk(repoRoot())) {
             return walk.filter(Files::isRegularFile)
                     .filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> !p.toString().contains("/.claude/"))
                     .filter(p -> EXEMPT.stream()
                             .noneMatch(seg -> p.toString().replace('\\', '/').contains(seg)))
                     .toList();

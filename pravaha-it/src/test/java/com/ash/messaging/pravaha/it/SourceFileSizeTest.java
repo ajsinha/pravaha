@@ -87,6 +87,7 @@ class SourceFileSizeTest {
         try (Stream<Path> walk = Files.walk(root)) {
             return walk.filter(Files::isRegularFile)
                     .filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> !p.toString().contains("/.claude/"))
                     .filter(p -> EXEMPT_PATH_SEGMENTS.stream()
                             .noneMatch(seg -> p.toString().replace('\\', '/').contains(seg)))
                     .sorted(Comparator.comparing(Path::toString))
