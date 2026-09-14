@@ -26,6 +26,9 @@ arithmetic in `emit` (`width + i` weakened to `width - 1 + i`) — broke JOIN-00
 assertion with a shifted, corrupted row. All four were reverted and the suite re-confirmed green
 (`mvn -pl pravaha-runtime verify`, exit 0) before anything below was recorded PASS.
 
+§4's concurrency/caching/staleness cases run the same way against `LookupJoinOperator`/`LookupJoin`,
+in `LookupJoinBehaviorTest.java` in the same package.
+
 Cases already covered by pre-existing tests are recorded as such and were **re-run**, not rewritten:
 `StreamJoinTest`, `JoinOnLanesTest`, `JoinRetentionTest`, `TemporalJoinTest`, `OuterJoinTest`,
 `LookupJoinTest`, `JoinRecoveryTest` (all `pravaha-it`), and `JoinKeysTest` (`pravaha-runtime`).
@@ -187,18 +190,75 @@ covered; the remaining §5 refusals need SQL planning and are deferred with §3/
   falsifier this case names — the null-keyed row appearing in the output — was directly checked
   (`unmatchedEmitted()==0`, no output at all) and does not occur. Seed-proven (#3 above).
 
+## §4 — Lookup join, staleness, concurrency and cache bound (JOIN-049, 051, 052, 053)
+
+New this batch: `pravaha-runtime/src/test/java/com/ash/messaging/pravaha/runtime/exec/LookupJoinBehaviorTest.java`,
+a second HJ5-style harness, built directly against `LookupJoinOperator`/`LookupJoin` (package-private,
+same reasoning as the join harness above) rather than through the registry or a live plugin.
+
+Three assertions were seed-proven: (1) both guards on `cacheNanos > 0` around the in-flight lookup
+map in `LookupJoin.process` (the mechanism that makes `cacheFor() == ZERO` refuse to share an
+in-flight answer between concurrent records) — removing them broke exactly the two cases that depend
+on cache being genuinely off (JOIN-049 and JOIN-052's zero-cache variant), and did not touch the
+cache-on coalescing test; (2) the cache's access-order flag (`true` → `false` in the `LinkedHashMap`
+constructor) — broke exactly the interleaved-access test (JOIN-053) and not the companion
+not-revisited test; (3) the in-flight backpressure guard (`pending.size() >= maxInFlight`, disabled
+outright) — broke JOIN-051's concurrency bound, observing all 100 lookups in flight at once instead
+of 4. All three were reverted and the module re-verified green.
+
+One seed did not distinguish: forcing `maxInFlight = source.maxConcurrency()` (removing the
+`Math.max(1, …)` floor) did not change observed behaviour for a source reporting `0`, because the
+`pending.size() >= 0` backpressure check is vacuously true before every record regardless of the
+floor and so serialises lookups either way. Recorded as an unproven sub-assertion in JOIN-051's log
+entry below rather than claimed as seed-proven; the case's core claim (a positive bound is respected)
+is proven by the `maxConcurrency() == 4` test, which is seed-proven.
+
+One test (`thePeriodTheSyntaxNamesIsNotHonoured`, JOIN-049) was flaky as first written: the plugin's
+call count is incremented inside the async lookup, dispatched to a virtual thread, so without
+draining after each feed the three lookups' *execution* order (and so which one sees "first call")
+is a race against the *arrival* order the case is about. Fixed by draining after each feed, which is
+what the case's own steps ("feed X, then feed Y") mean when the operator does the waiting internally
+for every other JOIN-04x/05x case; confirmed stable over three repeated runs after the fix.
+
+- **JOIN-049 — PASS.** `thePeriodTheSyntaxNamesIsNotHonoured`. Three lookups for one key, drained in
+  arrival order: `(1,gold)`, `(3,platinum)`, `(5,platinum)` — the third order's event time (2s) sits
+  *between* the first and second, and still gets the later value, because the lookup answers by
+  wall-clock arrival, not by the event time `FOR SYSTEM_TIME AS OF` names. `dim.calls == 3` (W2:
+  three separate lookups, not one cached answer, since `cacheFor()` is `ZERO`).
+- **JOIN-050 — PASS (pre-existing).** `LookupJoinTest.outputStaysInArrivalOrderHoweverTheLookupsFinish`
+  (30 records, one slow key among fast ones) and
+  `LookupJoinTest.slowLookupsOverlapRatherThanQueueingBehindEachOther` (10×50ms lookups in <400ms,
+  proving the overlap) together cover this case's two halves. Re-run this session; still PASS.
+- **JOIN-051 — PASS.** `inFlightLookupsAreBoundedByTheSourcesMaxConcurrency`.
+  `maxConcurrency()==4`, 100 distinct keys, 50ms each: the *source's own* independent counter (not
+  the operator's) never exceeds 4, and the elapsed time (~1.25s at 4-way concurrency vs 5s serial) is
+  asserted under a generous 3s bound as corroborating evidence. Seed-proven. A companion test for the
+  `maxConcurrency() == 0` floor (`aZeroOrNegativeMaxConcurrencyFloorsAtOne`) passes but is **not**
+  seed-proven — see above; recorded PASS on the strength of reading `Math.max(1, …)` in the
+  constructor, not on a failing seed.
+- **JOIN-052 — PASS.** Two tests. `aCacheableSourceCoalescesConcurrentRequestsForOneKey`
+  (`cacheFor()=60s`, five same-key records faster than one 100ms lookup): `lookups==1`,
+  `coalesced==4`, one call at the plugin. `aSourceRefusingCachingIsAskedOncePerRecordEvenForOneKey`
+  (`cacheFor()=ZERO`): `lookups==5`, `coalesced==0`, `cacheHits==0`, five calls at the plugin — the
+  plugin's own counter checked, not only the operator's, per the case's own vacuity note. Seed-proven.
+- **JOIN-053 — PASS.** Two tests, cache bound 10. `aHotKeyKeptWarmByInterleavedAccessSurvivesAFloodOfColdKeys`:
+  u1 revisited every third cold key stays warm, `callsPerKey(u1)==1`.
+  `aHotKeyNotRevisitedIsEvictedByTwentyColdKeysPastABoundOfTen`: without interleaving, u1 is pushed
+  out by the 20 cold keys and the final reference is a second miss, `callsPerKey(u1)==2`. Direct
+  assertion of the cache's own size was not possible (`LookupJoin` does not expose it); the call-count
+  evidence is the case's own falsifier and was checked directly. Seed-proven (the access-order half).
+
 ---
 
 ## Running tally (JOIN-001 … JOIN-060)
 
 | Verdict | Count | Cases |
 |---|---|---|
-| PASS | 27 | 003–008, 011, 012, 015–028, 030–032, 034, 056, 057 |
-| NOT RUN | 6 | 001, 002, 009, 010, 013, 014, 029, 033 (8, corrected count below) |
-| Not yet reached | 27 | 035–055, 058–060, and the reachability pair 001/002 counted above |
+| PASS | 32 | 003–008, 011, 012, 015–028, 030–032, 034, 049–053, 056, 057 |
+| NOT RUN | 8 | 001, 002, 009, 010, 013, 014, 029, 033 |
+| Not yet reached | 20 | 035–048, 054, 055, 058–060 |
 
-(NOT RUN count is 8: 001, 002, 009, 010, 013, 014, 029, 033.)
-
-This is one batch of a multi-batch round. §3 (lanes/routing), §4 (lookup join detail) and the
-remainder of §5 (SQL-level refusals), plus the deferred SQL-planning halves of JOIN-009/010/013/014/029,
-are picked up in the next batch under this same log file.
+This is two batches of a multi-batch round. §3 (lanes/routing) and the remainder of §4 (044–048,
+which are reachability and correctness cases needing the registry or `pravaha-sql`) and §5's
+SQL-level refusals (054, 055, 058–060), plus the deferred SQL-planning halves of
+JOIN-009/010/013/014/029, are picked up in the next batch under this same log file.
