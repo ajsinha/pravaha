@@ -89,6 +89,37 @@ public class PravahaServerApplication {
      * destruction order: lanes must drain before the HTTP surface stops accepting, and bean order
      * does not express that.
      */
+    /**
+     * The policy the HTTP surface authorizes against, and the sink that records its decisions.
+     *
+     * <p>Built from the same configuration key the engine reads, so the two halves of the node
+     * cannot disagree about who may see what. Until this existed, the REST controllers authorized
+     * against nothing at all.
+     */
+    @Bean
+    public com.ash.messaging.pravaha.security.SecurityPolicy pravahaSecurityPolicy(
+            com.ash.messaging.pravaha.server.security.SecurityProperties security) {
+        String configured = security.getPolicy() == null
+                ? "permissive"
+                : security.getPolicy().trim();
+        return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
+            case "permissive" -> com.ash.messaging.pravaha.security.SecurityPolicy.PERMISSIVE;
+            case "authenticated", "authenticated-only" ->
+                new com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy();
+            default ->
+                throw new com.ash.messaging.pravaha.api.PravahaException(
+                        com.ash.messaging.pravaha.security.SecurityErrors.FORBIDDEN,
+                        "pravaha.security.policy is '" + configured + "', which is not a policy this node "
+                                + "knows. Use 'permissive' or 'authenticated', or implement SecurityPolicy "
+                                + "for rules of your own.");
+        };
+    }
+
+    @Bean
+    public com.ash.messaging.pravaha.security.AuditSink pravahaAuditSink() {
+        return com.ash.messaging.pravaha.security.AuditSink.NONE;
+    }
+
     @Bean
     public SmartLifecycle pravahaLifecycle(PravahaEngine engine) {
         return new SmartLifecycle() {

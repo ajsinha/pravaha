@@ -48,10 +48,36 @@ public class QueryController {
 
     private final StreamCatalog catalog;
     private final DtoMapper mapper;
+    private final com.ash.messaging.pravaha.server.security.HttpAuthorizer authorizer;
 
-    public QueryController(StreamCatalog catalog, DtoMapper mapper) {
+    public QueryController(
+            StreamCatalog catalog,
+            DtoMapper mapper,
+            com.ash.messaging.pravaha.server.security.HttpAuthorizer authorizer) {
         this.catalog = catalog;
         this.mapper = mapper;
+        this.authorizer = authorizer;
+    }
+
+    /**
+     * Refuses unless this caller may read every stream the SQL names.
+     *
+     * <p>A plan describes the shape of a view and the columns it carries, which is most of what the
+     * data is. These two endpoints returned full, unfiltered plans for payroll queries to a
+     * principal denied every payroll view on Flight, because this surface consulted no policy at
+     * all. Checked against the text rather than the plan, so a refusal costs no planning and a
+     * query naming an unreadable stream cannot be planned to find out what is in it.
+     */
+    private void requireReadable(jakarta.servlet.http.HttpServletRequest request, String sql) {
+        if (sql == null) {
+            return;
+        }
+        String lowered = sql.toLowerCase(java.util.Locale.ROOT);
+        for (StreamSchema schema : catalog.all()) {
+            if (lowered.contains(schema.name().toLowerCase(java.util.Locale.ROOT))) {
+                authorizer.requireRead(request, schema.name());
+            }
+        }
     }
 
     /**
@@ -73,7 +99,9 @@ public class QueryController {
 
     @PostMapping("/validate")
     @Operation(summary = "Validate and plan a query without running it")
-    public ApiDtos.ValidationResult validate(@RequestBody ValidateRequest request) {
+    public ApiDtos.ValidationResult validate(
+            @RequestBody ValidateRequest request, jakarta.servlet.http.HttpServletRequest http) {
+        requireReadable(http, request.sql());
         long start = System.nanoTime();
         try {
             PhysicalOperator plan = planFor(request.sql());
@@ -93,8 +121,11 @@ public class QueryController {
     @PostMapping("/explain")
     @Operation(summary = "Show the plan for a query")
     public ApiDtos.ExplainResult explain(
-            @RequestBody ValidateRequest request, @RequestParam(defaultValue = "physical") String level) {
+            @RequestBody ValidateRequest request,
+            @RequestParam(defaultValue = "physical") String level,
+            jakarta.servlet.http.HttpServletRequest http) {
 
+        requireReadable(http, request.sql());
         SqlPlanner planner = plannerFor();
         return switch (level) {
             case "codegen" -> {

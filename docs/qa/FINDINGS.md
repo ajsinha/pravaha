@@ -2188,7 +2188,7 @@ directly and repeatedly. `docs/SECURITY.md` documents nothing at all about `mayA
 pause/resume authorization — see doc rot below. See docs/qa/logs/SECX.md (SECX-032, 033, 036, 037,
 040, 041).
 
-## SX-3 (HIGH) — the HTTP REST surface (`StreamController`, `/api/v1/queries/validate`, `/explain`, `/status`) consults no policy, no audit, and no principal at all
+## SX-3 (HIGH) — MOSTLY FIXED — the HTTP REST surface consulted no policy, no audit, and no principal at all
 
 `StreamController` (and the sibling controllers behind `/api/v1/queries/*` and `/api/v1/status`)
 contain zero references to `Principal`, `SecurityPolicy` or `AuditSink` — confirmed by reading the
@@ -2222,6 +2222,20 @@ SEC-028 ("no HTTP controller reads the principal or the policy") and SEC-062 (`P
 the engine), both reconfirmed live and shown here to have a materially worse blast radius than
 previously measured (arbitrary schema publication with zero policy check, not merely "the write is a
 no-op").
+
+**FIXED for streams, validate and explain.** An `HttpAuthorizer` bound to the same `SecurityPolicy`
+bean the engine uses now backs every one of them: `GET /streams` returns only what the caller may
+read, `GET /streams/{name}` refuses before the catalogue is consulted (so a refusal for a stream that
+exists reads the same as one for a stream that does not), `POST /streams` requires administer rather
+than merely a verified token, and `validate`/`explain` refuse a query naming a stream the caller may
+not read — checked against the SQL text, so a refusal costs no planning and a plan cannot be used to
+find out what is in a view.
+
+Seed-proven by removing the list filter, which puts `payroll` back in an intern's response.
+
+**Still open:** `/api/v1/status` returns identical bodies to every principal. It discloses counts and
+query names rather than data, so it is a lesser disclosure than the others and is left for a
+deliberate decision about what an operator endpoint should say to whom.
 
 ## SX-4 (HIGH) — a revoked or expired credential's already-open subscription keeps delivering new data indefinitely
 

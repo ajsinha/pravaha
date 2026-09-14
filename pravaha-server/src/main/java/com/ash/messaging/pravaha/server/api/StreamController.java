@@ -39,21 +39,41 @@ public class StreamController {
 
     private final StreamCatalog catalog;
     private final DtoMapper mapper;
+    private final com.ash.messaging.pravaha.server.security.HttpAuthorizer authorizer;
 
-    public StreamController(StreamCatalog catalog, DtoMapper mapper) {
+    public StreamController(
+            StreamCatalog catalog,
+            DtoMapper mapper,
+            com.ash.messaging.pravaha.server.security.HttpAuthorizer authorizer) {
         this.catalog = catalog;
         this.mapper = mapper;
+        this.authorizer = authorizer;
     }
 
+    /**
+     * The streams this caller may see.
+     *
+     * <p>Filtered, not refused wholesale: a principal entitled to some streams gets those. It used
+     * to return every stream to everybody -- a principal denied every payroll view on Flight was
+     * handed payroll's full schema here, salary column included, because this surface asked no
+     * policy anything.
+     */
     @GetMapping
     @Operation(summary = "List registered streams")
-    public List<ApiDtos.StreamSummary> list() {
-        return catalog.all().stream().map(mapper::toSummary).toList();
+    public List<ApiDtos.StreamSummary> list(jakarta.servlet.http.HttpServletRequest request) {
+        return catalog.all().stream()
+                .filter(schema -> authorizer.mayRead(request, schema.name()))
+                .map(mapper::toSummary)
+                .toList();
     }
 
     @GetMapping("/{name}")
     @Operation(summary = "Fetch one stream's schema")
-    public ApiDtos.StreamSummary get(@PathVariable String name) {
+    public ApiDtos.StreamSummary get(@PathVariable String name, jakarta.servlet.http.HttpServletRequest request) {
+        // Authorized before the catalogue is asked, so a refusal for a stream that exists reads the
+        // same as one for a stream that does not. Checking existence first would answer "does
+        // payroll exist" for anyone who can reach this endpoint.
+        authorizer.requireRead(request, name);
         return mapper.toSummary(catalog.require(name));
     }
 
@@ -67,7 +87,12 @@ public class StreamController {
      */
     @PostMapping
     @Operation(summary = "Register a stream")
-    public ResponseEntity<ApiDtos.StreamSummary> register(@RequestBody RegisterStreamRequest request) {
+    public ResponseEntity<ApiDtos.StreamSummary> register(
+            @RequestBody RegisterStreamRequest request, jakarta.servlet.http.HttpServletRequest http) {
+        // Changing what the node serves is an administrative act. This applied no check beyond "a
+        // token verified", so any authenticated caller -- including one denied every existing view
+        // -- could publish an arbitrary stream schema.
+        authorizer.requireAdminister(http, request.name());
         var schema = FilesystemSourcePlugin.parseSchema(request.name(), request.schema());
         return ResponseEntity.status(HttpStatus.CREATED).body(mapper.toSummary(catalog.register(schema)));
     }
