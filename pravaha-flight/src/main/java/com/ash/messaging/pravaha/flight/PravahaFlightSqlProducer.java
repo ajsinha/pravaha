@@ -93,6 +93,14 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     private static final int BATCH_ROWS = 4096;
 
     /**
+     * How often a running subscription re-proves that it may still be running.
+     *
+     * <p>Two seconds: short enough that a revocation takes effect in a time an operator would call
+     * immediate, long enough that it costs nothing measurable against a stream delivering batches.
+     */
+    private static final java.time.Duration REAUTHORIZE_EVERY = java.time.Duration.ofSeconds(2);
+
+    /**
      * Committed batches that may wait for a subscriber's socket.
      *
      * <p>Small on purpose. This queue exists to decouple the engine's thread from the network, not
@@ -548,10 +556,48 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     }
                 })) {
 
+                    long nextAuthorizationCheck = System.nanoTime() + REAUTHORIZE_EVERY.toNanos();
                     while (!listener.isCancelled()
                             && finished.getCount() > 0
                             && !subscription.isClosed()
                             && !query.state().isTerminal()) {
+                        // Re-authorised while it runs, not only when it opened.
+                        //
+                        // A subscription was checked once and then delivered for as long as the
+                        // client kept the socket. Revoking a credential mid-stream did nothing: a
+                        // row committed ten seconds after revocation still arrived, while a fresh
+                        // subscribe was correctly refused. The exposure had no bound.
+                        //
+                        // Both halves are checked, because they fail differently: the credential
+                        // can be revoked or expire, and the policy can stop allowing a principal
+                        // whose credential is still perfectly good.
+                        if (System.nanoTime() >= nextAuthorizationCheck) {
+                            nextAuthorizationCheck = System.nanoTime() + REAUTHORIZE_EVERY.toNanos();
+                            PrincipalMiddleware middleware = context.getMiddleware(PrincipalMiddleware.KEY);
+                            if (middleware != null && !middleware.credentialStillValid()) {
+                                audit.record(AuditEvent.of(
+                                        principal,
+                                        "subscribe.revoked",
+                                        viewName,
+                                        decision,
+                                        "the credential this subscription opened with is no longer accepted"));
+                                listener.error(CallStatus.UNAUTHENTICATED
+                                        .withDescription(SecurityErrors.UNAUTHENTICATED.code()
+                                                + "  the credential this subscription opened with is no longer "
+                                                + "accepted; open it again with a current one")
+                                        .toRuntimeException());
+                                return;
+                            }
+                            AccessDecision now = policy.mayRead(principal, viewName);
+                            if (!now.allowed()) {
+                                audit.record(AuditEvent.of(principal, "subscribe.withdrawn", viewName, now, ""));
+                                listener.error(CallStatus.UNAUTHORIZED
+                                        .withDescription(SecurityErrors.FORBIDDEN.code() + "  " + principal.id()
+                                                + " may no longer read '" + viewName + "': " + now.reason())
+                                        .toRuntimeException());
+                                return;
+                            }
+                        }
                         List<com.ash.messaging.pravaha.serving.ViewChange> batch =
                                 handover.poll(200, TimeUnit.MILLISECONDS);
                         if (batch != null && !batch.isEmpty()) {

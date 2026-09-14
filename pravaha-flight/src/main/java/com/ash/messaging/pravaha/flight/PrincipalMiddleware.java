@@ -52,13 +52,54 @@ public final class PrincipalMiddleware implements FlightServerMiddleware {
 
     private final Principal principal;
 
+    /**
+     * The credential and the verifier that accepted it, so a long-lived call can ask again.
+     *
+     * <p>A subscription is authorised once, when it opens, and then runs for as long as the client
+     * keeps the connection. Revoking a credential mid-stream did nothing: a row committed ten
+     * seconds after revocation still arrived, while a *fresh* subscribe was correctly refused. The
+     * exposure had no bound -- an open subscription outlived the credential that authorised it for
+     * as long as the socket stayed up, which is the owner's second constraint broken (only
+     * authenticated users may reach data) by a caller who is no longer authenticated.
+     *
+     * <p>Holding the token for the life of the call is not a new exposure: the client sent it,
+     * the call is already running on it, and it lives no longer than the connection it authorised.
+     */
+    private final String credential;
+
+    private final TokenVerifier verifier;
+
     private PrincipalMiddleware(Principal principal) {
+        this(principal, null, null);
+    }
+
+    private PrincipalMiddleware(Principal principal, String credential, TokenVerifier verifier) {
         this.principal = principal;
+        this.credential = credential;
+        this.verifier = verifier;
     }
 
     /** The authenticated caller. */
     public Principal principal() {
         return principal;
+    }
+
+    /**
+     * Whether the credential this call opened with is still accepted.
+     *
+     * <p>For anything long-lived to ask periodically. A call with no retained credential -- a server
+     * that does not authenticate -- answers true: there is nothing to revoke.
+     */
+    public boolean credentialStillValid() {
+        if (verifier == null || credential == null) {
+            return true;
+        }
+        try {
+            Principal again = verifier.verify(credential);
+            return again != null && !again.isAnonymous();
+        } catch (PravahaException refused) {
+            return false;
+        }
     }
 
     @Override
@@ -114,7 +155,7 @@ public final class PrincipalMiddleware implements FlightServerMiddleware {
                     throw new PravahaException(
                             SecurityErrors.UNAUTHENTICATED, "the credential presented was not accepted");
                 }
-                return new PrincipalMiddleware(principal);
+                return new PrincipalMiddleware(principal, token, verifier);
             } catch (PravahaException e) {
                 // The verifier's message, not the exception's cause: the contract on TokenVerifier
                 // is that the message says the credential was rejected and not why.

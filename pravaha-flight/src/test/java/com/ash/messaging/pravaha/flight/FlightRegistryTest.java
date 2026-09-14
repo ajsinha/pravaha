@@ -178,8 +178,6 @@ class FlightRegistryTest {
                 try (FlightStream stream = client.getStream(new Ticket(ControlWire.subscribeTicket(view, filters)))) {
                     open.set(stream);
                     while (stream.next()) {
-                        System.out.println(
-                                "CLIDBG next() true rows=" + stream.getRoot().getRowCount());
                         VectorSchemaRoot root = stream.getRoot();
                         VarCharVector ids = (VarCharVector) root.getVector("trade_id");
                         for (int i = 0; i < root.getRowCount(); i++) {

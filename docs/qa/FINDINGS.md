@@ -2237,7 +2237,7 @@ Seed-proven by removing the list filter, which puts `payroll` back in an intern'
 query names rather than data, so it is a lesser disclosure than the others and is left for a
 deliberate decision about what an operator endpoint should say to whom.
 
-## SX-4 (HIGH) — a revoked or expired credential's already-open subscription keeps delivering new data indefinitely
+## SX-4 (HIGH) — FIXED — a revoked or expired credential's already-open subscription kept delivering new data indefinitely
 
 `mayRead`/authentication is checked once, at `subscribe` time. Nothing on the delivery path
 re-checks it. Confirmed live, twice, with different triggers: (1) revoking `ann`'s token mid-stream —
@@ -2256,6 +2256,21 @@ source, observe it arrive on the still-open subscription stream.
 the mechanism SECX.md's own Group G cases were written to measure, not a surprise, but it is elevated
 to HIGH here per the round's standing owner-constraint override regardless of the case file's own
 framing). See docs/qa/logs/SECX.md (SECX-081, SECX-084).
+
+**FIXED.** A running subscription re-proves itself every two seconds: the credential it opened with
+is re-verified, and the policy is asked again. Either answer turning negative ends the stream with
+the matching status — `PRV-7001` for a credential no longer accepted, `PRV-7003` for an entitlement
+withdrawn — and records it in the audit.
+
+Two seconds is short enough that a revocation takes effect in a time an operator would call
+immediate, and costs nothing measurable against a stream delivering batches.
+
+Re-verifying the credential meant the middleware had to keep it for the life of the call. That is
+not a new exposure: the client sent it, the call is already running on it, and it lives no longer
+than the connection it authorised.
+
+Seed-proven by removing the periodic check, which leaves both tests hanging until their timeout —
+the unbounded delivery this finding describes, reproduced exactly.
 
 ## SX-5 (HIGH) — the existence oracle: three independent, measurable channels distinguish "denied" from "doesn't exist"
 
