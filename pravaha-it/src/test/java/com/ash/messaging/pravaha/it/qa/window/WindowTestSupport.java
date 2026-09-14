@@ -288,7 +288,7 @@ abstract class WindowTestSupport {
                     // -- and this assertion, which counts the files a call site appears in, saw
                     // three QueryExecution.java and failed for a reason with nothing to do with the
                     // engine.
-                    .filter(p -> !p.toString().contains("/.claude/"))
+                    .filter(p -> !p.startsWith(nestedCheckouts()))
                     .forEach(p -> {
                         try {
                             if (pattern.matcher(java.nio.file.Files.readString(p))
@@ -561,5 +561,20 @@ abstract class WindowTestSupport {
         assertThat(size)
                 .as("the view held %d rows after twenty seconds; %d were expected", size, expected)
                 .isGreaterThanOrEqualTo(expected);
+    }
+
+    /**
+     * The directory QA agents keep their git worktrees in, under the tree being walked.
+     *
+     * <p>Those worktrees are full copies of this repository, so a walk of the root sees one copy of
+     * every source file per running agent -- and a check that counts the files a call site appears
+     * in reports three where it expects one. It presents as a product change and is not one.
+     *
+     * <p>Compared against the root actually being walked, not as a substring. A test run from
+     * inside one of those worktrees has a root whose own path contains {@code /.claude/}, and a
+     * substring test would discard the entire tree and pass on nothing at all.
+     */
+    private static Path nestedCheckouts() {
+        return repoRoot().resolve(".claude");
     }
 }

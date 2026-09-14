@@ -191,6 +191,12 @@ pravaha drop   --name card_velocity
 client.queries(); client.pause(name); client.resume(name); client.drop(name);
 ```
 
+**Pausing twice is not an error.** `pause` on a paused query and `resume` on a running one both
+succeed and change nothing. They say what state you want the query in, not what transition you
+believe it is about to make — so a script that pauses before maintenance does not have to know
+whether somebody already did. A query that has *failed* or been *dropped* is refused with
+`PRV-8003`, because there the end state you asked for is not reachable at all.
+
 **A pause is not a stop.** The view keeps answering at the frontier it reached — far better for a
 dashboard than answers that disappear. Rows arriving while paused are **dropped, not buffered**:
 buffering would turn a pause into a memory commitment of unknown size, when the point was to stop it

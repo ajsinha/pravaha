@@ -124,7 +124,15 @@ final class ArrowSchemas {
     }
 
     private static ArrowType arrowTypeOf(com.ash.messaging.pravaha.api.data.Field field) {
-        return arrowTypeOf(field.type().typeName());
+        try {
+            return arrowTypeOf(field.type().typeName());
+        } catch (PravahaException e) {
+            // Named. The refusal is correct and was unusable without it: a client saw which *type*
+            // could not be sent and had to work out which column carried it, on a schema it may not
+            // have written.
+            throw new PravahaException(
+                    FlightErrors.UNSUPPORTED_TYPE, "column '" + field.name() + "': " + e.getMessage(), e);
+        }
     }
 
     private static ArrowType arrowTypeOf(com.ash.messaging.pravaha.api.data.TypeName typeName) {

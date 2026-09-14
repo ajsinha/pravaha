@@ -198,7 +198,7 @@ class ErrcSqlTest extends ErrcTestSupport {
                     // Agent worktrees under .claude/ hold a copy of every source, so a check
                     // that counts the files a call site appears in sees one per running agent
                     // and fails for a reason with nothing to do with the engine.
-                    .filter(p -> !p.toString().contains("/.claude/"))
+                    .filter(p -> !p.startsWith(nestedCheckouts()))
                     .filter(p -> !p.toString().endsWith("ChangelogAnalysis.java"))
                     .filter(p -> {
                         try {
@@ -244,5 +244,20 @@ class ErrcSqlTest extends ErrcTestSupport {
         assertThat(windowed.exitCode())
                 .as("vacuity: the windowed rewrite of the same aggregation must succeed")
                 .isZero();
+    }
+
+    /**
+     * The directory QA agents keep their git worktrees in, under the tree being walked.
+     *
+     * <p>Those worktrees are full copies of this repository, so a walk of the root sees one copy of
+     * every source file per running agent -- and a check that counts the files a call site appears
+     * in reports three where it expects one. It presents as a product change and is not one.
+     *
+     * <p>Compared against the root actually being walked, not as a substring. A test run from
+     * inside one of those worktrees has a root whose own path contains {@code /.claude/}, and a
+     * substring test would discard the entire tree and pass on nothing at all.
+     */
+    private static Path nestedCheckouts() {
+        return repoRoot().resolve(".claude");
     }
 }

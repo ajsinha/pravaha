@@ -98,7 +98,7 @@ class ErrorCodeUniquenessTest {
                     .filter(p -> !p.toString().contains("/target/"))
                     // Not a nested checkout: QA agents work in git worktrees under .claude/,
                     // so walking the repository root sees a copy of every source per agent.
-                    .filter(p -> !p.toString().contains("/.claude/"))
+                    .filter(p -> !p.startsWith(nestedCheckouts()))
                     .toList()) {
                 Matcher matcher = DECLARATION.matcher(Files.readString(file));
                 while (matcher.find()) {
@@ -119,5 +119,20 @@ class ErrorCodeUniquenessTest {
             path = path.getParent();
         }
         return path;
+    }
+
+    /**
+     * The directory QA agents keep their git worktrees in, under the tree being walked.
+     *
+     * <p>Those worktrees are full copies of this repository, so a walk of the root sees one copy of
+     * every source file per running agent -- and a check that counts the files a call site appears
+     * in reports three where it expects one. It presents as a product change and is not one.
+     *
+     * <p>Compared against the root actually being walked, not as a substring. A test run from
+     * inside one of those worktrees has a root whose own path contains {@code /.claude/}, and a
+     * substring test would discard the entire tree and pass on nothing at all.
+     */
+    private static Path nestedCheckouts() {
+        return repoRoot().resolve(".claude");
     }
 }

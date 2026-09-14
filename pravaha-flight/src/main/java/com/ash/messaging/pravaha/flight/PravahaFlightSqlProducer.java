@@ -169,7 +169,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     public FlightInfo getFlightInfoStatement(
             FlightSql.CommandStatementQuery command, CallContext context, FlightDescriptor descriptor) {
         String sql = command.getQuery();
-        Schema schema = ArrowSchemas.toArrow(plan(sql, context));
+        Schema schema = arrowSchemaOf(plan(sql, context));
         // The ticket carries the query itself, so the server holds nothing between this call and the
         // one that fetches the rows.
         FlightSql.TicketStatementQuery ticket = FlightSql.TicketStatementQuery.newBuilder()
@@ -248,8 +248,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     FlightSql.ActionCreatePreparedStatementResult.newBuilder()
                             .setPreparedStatementHandle(ByteString.copyFrom(
                                     StatementHandle.unbound(sql).encode()))
-                            .setDatasetSchema(ByteString.copyFrom(ArrowSchemas.toArrow(prepared.resultSchema())
-                                    .serializeAsMessage()))
+                            .setDatasetSchema(ByteString.copyFrom(
+                                    arrowSchemaOf(prepared.resultSchema()).serializeAsMessage()))
                             .setParameterSchema(ByteString.copyFrom(ArrowSchemas.parameterSchema(prepared.parameters())
                                     .serializeAsMessage()))
                             .build();
@@ -282,7 +282,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                 StatementHandle.decode(command.getPreparedStatementHandle().toByteArray());
         try {
             ViewQuery.Prepared prepared = queries.prepare(handle.sql(), principalOf(context));
-            return generateFlightInfo(command, descriptor, ArrowSchemas.toArrow(prepared.resultSchema()));
+            return generateFlightInfo(command, descriptor, arrowSchemaOf(prepared.resultSchema()));
         } catch (PravahaException e) {
             throw FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException();
         }
@@ -629,6 +629,24 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     private com.ash.messaging.pravaha.api.data.StreamSchema plan(String sql, CallContext context) {
         try {
             return queries.schemaOf(sql, principalOf(context));
+        } catch (PravahaException e) {
+            throw FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException();
+        }
+    }
+
+    /**
+     * The Arrow form of a schema, with any refusal turned into a status the client can act on.
+     *
+     * <p>This conversion sat outside every try/catch, one line after {@code plan(...)} which has
+     * one. Planning refusals reached clients cleanly; conversion refusals did not. A DECIMAL column
+     * is the case that matters: the SQL is valid and plans, and only then does the wire type turn
+     * out to be unmappable -- so PRV-6100 escaped the gRPC service method uncaught and the client
+     * received Arrow's own "There was an error servicing your request". No code, no column name,
+     * nothing to act on, for a refusal the engine had stated precisely.
+     */
+    private Schema arrowSchemaOf(com.ash.messaging.pravaha.api.data.StreamSchema schema) {
+        try {
+            return ArrowSchemas.toArrow(schema);
         } catch (PravahaException e) {
             throw FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException();
         }

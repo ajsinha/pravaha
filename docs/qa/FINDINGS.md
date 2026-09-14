@@ -1290,7 +1290,7 @@ frequently hit refusal in the product (`ORDER BY`, `LIMIT`, `UNION`, outer joins
 run), and every one of its messages sends the reader only as far as an inline list of what the engine
 *does* support, never to the fuller document that explains alternatives.
 
-### E-12 (HIGH) — `PRV-6100` (DECIMAL on the wire) is thrown uncaught and never reaches the client
+### E-12 (HIGH) — FIXED — `PRV-6100` (DECIMAL on the wire) was thrown uncaught and never reached the client
 
 `PravahaFlightSqlProducer.getFlightInfoStatement` is `Schema schema =
 ArrowSchemas.toArrow(plan(sql, context));`. `plan(...)` has its own try/catch and correctly turns a
@@ -1319,14 +1319,19 @@ earlier, by `RegisteredQuery`'s own state guard, as `PRV-8003` (`"cannot subscri
 FAILED"`). A plain `SELECT` of the same failed query's view is not refused at all (confirms LIFE's "a
 failed query keeps answering" — `ViewQuery` has no reference to `QUERY_FAILED` anywhere).
 
-### E-14 (MEDIUM) — `resume()`/`pause()` accept same-state re-requests silently instead of refusing them
+### E-14 (MEDIUM) — RESOLVED BY DECISION — `pause()`/`resume()` are idempotent on purpose
 
 `RegisteredQuery.resume()`'s only guard is `state().isTerminal()` (`FAILED` or `DROPPED`); `pause()`'s
 `requireLive` is the identical guard. Neither checks "already in the state being requested." The case's
 own ERRC-099 names exactly two "illegal transitions" — resume a RUNNING query, pause a PAUSED one — and
 neither is refused: both are silent no-ops. A query genuinely in a terminal state (`FAILED`) *is*
-correctly refused with `PRV-8003`. Not fixed here — whether same-state idempotence is desired behaviour
-or a gap is a product decision, not an obviously-safe one-liner.
+correctly refused with `PRV-8003`.
+
+**Resolved: the behaviour is intended, and nothing said so — which was the real defect.** These verbs
+name the state the caller wants the query in, not a transition they are asserting, so a script that
+pauses before maintenance need not know whether somebody already did. A terminal state is refused
+because there the state asked for is unreachable. Documented in the user guide and in
+`RegisteredQuery`, and pinned by a test so it cannot drift into a refusal by accident.
 
 ### E-15 (MEDIUM) — `PRV-6101`'s case citation names the wrong throw sites
 

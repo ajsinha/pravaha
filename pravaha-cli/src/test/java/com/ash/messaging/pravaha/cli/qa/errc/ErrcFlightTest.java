@@ -98,21 +98,24 @@ class ErrcFlightTest extends ErrcServerSupport {
     // ------------------------------------------------------------ ERRC-089 -- PRV-6100
 
     @Test
-    void aDecimalColumnCannotBePutOnTheWireAndTheFailureItselfIsUncaughtLosingTheCodeEntirely() {
+    void aDecimalColumnIsRefusedWithItsOwnCodeAndTheColumnThatCarriesIt() {
         // DECIMAL is one of the six types Y-1 (FINDINGS.md) already found cannot be *declared* from
         // any configured surface; it can still be built programmatically (StreamSchema.builder +
         // Types.decimal), which is the only way to reach ArrowSchemas.arrowTypeOf's default arm.
         //
-        // Major finding, traced to the exact line: PravahaFlightSqlProducer.getFlightInfoStatement is
-        //     Schema schema = ArrowSchemas.toArrow(plan(sql, context));
-        // `plan(...)` has its own try/catch and correctly turns a PravahaException into a
-        // FlightRuntimeException with the right PRV code (confirmed elsewhere in this file and by
-        // CliAgainstServerTest's own PRV-4023 case) -- but `ArrowSchemas.toArrow(...)`, immediately
-        // outside that try/catch, does not. A PRV-6100 thrown by it (which only happens once planning
-        // has already *succeeded* -- the SQL is fine, only the wire mapping is not) is therefore an
-        // uncaught exception inside the gRPC service method, and it reaches the client as Arrow's own
-        // generic internal-error text with no PRV code, no column name, nothing actionable -- worse
-        // than E3 failing, the whole diagnosis is gone.
+        // This case found the defect and pinned it; the assertion below is what it looks like fixed.
+        //
+        // getFlightInfoStatement was `ArrowSchemas.toArrow(plan(sql, context))`. `plan(...)` has its
+        // own try/catch and turns a PravahaException into a FlightRuntimeException carrying the
+        // right code; the conversion one line outside it did not. PRV-6100 only happens once
+        // planning has already *succeeded* -- the SQL is fine and only the wire mapping is not -- so
+        // it escaped the gRPC service method uncaught and the client got Arrow's own generic
+        // internal-error text. No code, no column, nothing to act on, for a refusal the engine had
+        // stated precisely.
+        //
+        // Both halves are fixed: the conversion is wrapped the way planning was, and the refusal
+        // names the column, which it did not before. A client told that some type cannot be sent
+        // still has to work out which column carried it, on a schema it may not have written.
         StreamSchema withDecimal = StreamSchema.builder("priced")
                 .field("id", Types.int64())
                 .field("price", Types.decimal(10, 2))
@@ -126,10 +129,10 @@ class ErrcFlightTest extends ErrcServerSupport {
             ErrcServerSupport.CliResult r = cli("query", "--url", u, "--sql", "SELECT id, price FROM priced_v");
             assertThat(r.code()).isEqualTo(1);
             assertThat(r.err())
-                    .as("finding: PRV-6100 does not reach the client for this reach -- the exception is uncaught "
-                            + "in getFlightInfoStatement and Arrow's generic handler replaces it")
-                    .doesNotContain("PRV-6100")
-                    .contains("There was an error servicing your request");
+                    .as("the engine's own refusal reaches the client, naming the code and the column")
+                    .contains("PRV-6100")
+                    .contains("price")
+                    .doesNotContain("There was an error servicing your request");
         }
     }
 

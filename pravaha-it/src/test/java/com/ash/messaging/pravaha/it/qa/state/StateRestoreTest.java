@@ -62,7 +62,17 @@ class StateRestoreTest extends StateTestSupport {
     }
 
     private static List<String> grep(String pattern, Path root) throws Exception {
-        Process process = new ProcessBuilder("grep", "-rn", pattern, "--include=*.java", ".")
+        // --exclude-dir=.claude, because QA agents work in git worktrees under it and those are
+        // full copies of this repository. Without it a check that counts call sites reports one per
+        // running agent -- three here, against an expected one -- and reads as a product change.
+        Process process = new ProcessBuilder(
+                        "grep",
+                        "-rn",
+                        pattern,
+                        "--include=*.java",
+                        "--exclude-dir=.claude",
+                        "--exclude-dir=target",
+                        ".")
                 .directory(root.toFile())
                 .redirectErrorStream(true)
                 .start();

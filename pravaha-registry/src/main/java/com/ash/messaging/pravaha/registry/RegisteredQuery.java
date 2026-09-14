@@ -376,6 +376,18 @@ public final class RegisteredQuery implements AutoCloseable {
         return names.isEmpty() ? fingerprint.shortForm() : names.iterator().next();
     }
 
+    /**
+     * Stops advancing, keeping the view answering where it reached.
+     *
+     * <p>Idempotent, deliberately: pausing a paused query succeeds and changes nothing. These verbs
+     * name the state you want the query in, not a transition you believe it is about to make, so a
+     * script that pauses before maintenance need not know whether somebody already did. A query
+     * that has failed or been dropped is refused, because there the state asked for is unreachable.
+     *
+     * <p>QA recorded the same-state case as an illegal transition that was not being refused. It is
+     * the intended behaviour and nothing said so, which is the actual defect and is fixed in the
+     * user guide and here.
+     */
     void pause() {
         requireLive("pause");
         state = QueryState.PAUSED;

@@ -386,7 +386,7 @@ class DocumentationFreshnessTest {
         try (Stream<Path> files = Files.walk(repoRoot())) {
             for (Path path : files.filter(f -> f.toString().endsWith(".java"))
                     .filter(f -> !f.toString().contains("/target/"))
-                    .filter(f -> !f.toString().contains("/.claude/"))
+                    .filter(f -> !f.startsWith(nestedCheckouts()))
                     // This file quotes the fabricated call it exists to catch, so scanning it
                     // would let that call prove its own existence. The check defeated itself
                     // exactly once, in the seed that was meant to confirm it worked.
@@ -438,7 +438,7 @@ class DocumentationFreshnessTest {
                     .filter(path -> !path.toString().contains("/target/"))
                     // Nested agent worktrees under .claude/ are copies of this repository. Counting
                     // them would let a type deleted here go on existing in a stale copy.
-                    .filter(path -> !path.toString().contains("/.claude/"))
+                    .filter(path -> !path.startsWith(nestedCheckouts()))
                     .map(path -> path.getFileName().toString().replace(".java", ""))
                     .collect(java.util.stream.Collectors.toSet());
         }
@@ -524,5 +524,20 @@ class DocumentationFreshnessTest {
             throw new IllegalStateException("cannot locate the repository root");
         }
         return p;
+    }
+
+    /**
+     * The directory QA agents keep their git worktrees in, under the tree being walked.
+     *
+     * <p>Those worktrees are full copies of this repository, so a walk of the root sees one copy of
+     * every source file per running agent -- and a check that counts the files a call site appears
+     * in reports three where it expects one. It presents as a product change and is not one.
+     *
+     * <p>Compared against the root actually being walked, not as a substring. A test run from
+     * inside one of those worktrees has a root whose own path contains {@code /.claude/}, and a
+     * substring test would discard the entire tree and pass on nothing at all.
+     */
+    private static Path nestedCheckouts() {
+        return repoRoot().resolve(".claude");
     }
 }

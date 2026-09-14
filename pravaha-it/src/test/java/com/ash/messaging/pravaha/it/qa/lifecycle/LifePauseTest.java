@@ -168,6 +168,29 @@ class LifePauseTest extends LifecycleTestSupport {
     }
 
     @Test
+    void pausingAPausedQueryAndResumingARunningOneBothSucceed() {
+        // Idempotent on purpose. These verbs name the state the caller wants, not a transition they
+        // are asserting, so a script that pauses before maintenance does not have to know whether
+        // somebody already did. QA recorded this as an illegal transition going unrefused; it is
+        // the intended behaviour, and the defect was that nothing said so.
+        registry.register("idem", S1, List.of(0), Principal.ANONYMOUS);
+
+        registry.pause("idem");
+        registry.pause("idem");
+        assertThat(registry.require("idem").state()).isEqualTo(QueryState.PAUSED);
+
+        registry.resume("idem");
+        registry.resume("idem");
+        assertThat(registry.require("idem").state()).isEqualTo(QueryState.RUNNING);
+
+        // A terminal state is different: the state asked for is not reachable, and it is refused.
+        driveToFailedByMinRetraction("v_min");
+        assertThatThrownBy(() -> registry.pause("v_min"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("it is FAILED");
+    }
+
+    @Test
     void life049_pausingANameThatDoesNotExist() {
         registry.register("a", S1, List.of(0), Principal.ANONYMOUS);
         assertThatThrownBy(() -> registry.pause("nope"))

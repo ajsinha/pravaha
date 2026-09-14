@@ -87,7 +87,7 @@ class SourceFileSizeTest {
         try (Stream<Path> walk = Files.walk(root)) {
             return walk.filter(Files::isRegularFile)
                     .filter(p -> p.toString().endsWith(".java"))
-                    .filter(p -> !p.toString().contains("/.claude/"))
+                    .filter(p -> !p.startsWith(nestedCheckouts()))
                     .filter(p -> EXEMPT_PATH_SEGMENTS.stream()
                             .noneMatch(seg -> p.toString().replace('\\', '/').contains(seg)))
                     .sorted(Comparator.comparing(Path::toString))
@@ -113,5 +113,20 @@ class SourceFileSizeTest {
             throw new IllegalStateException("cannot locate the repository root");
         }
         return p;
+    }
+
+    /**
+     * The directory QA agents keep their git worktrees in, under the tree being walked.
+     *
+     * <p>Those worktrees are full copies of this repository, so a walk of the root sees one copy of
+     * every source file per running agent -- and a check that counts the files a call site appears
+     * in reports three where it expects one. It presents as a product change and is not one.
+     *
+     * <p>Compared against the root actually being walked, not as a substring. A test run from
+     * inside one of those worktrees has a root whose own path contains {@code /.claude/}, and a
+     * substring test would discard the entire tree and pass on nothing at all.
+     */
+    private static Path nestedCheckouts() {
+        return repoRoot().resolve(".claude");
     }
 }

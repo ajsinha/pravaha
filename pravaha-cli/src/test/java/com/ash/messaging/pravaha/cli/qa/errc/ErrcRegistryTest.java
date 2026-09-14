@@ -380,21 +380,23 @@ class ErrcRegistryTest extends ErrcServerSupport {
     }
 
     private static long grepMainSourcesFor(String literal) throws Exception {
-        // No "/.claude/" exclusion here, deliberately, unlike the general pattern elsewhere in this
-        // round: this executor's own repoRoot() *is* a path under .claude/worktrees/ (this is itself
-        // a worktree), so excluding "/.claude/" would discard the entire repository being walked --
-        // exactly the bug recorded against WindowTestSupport/DocumentationFreshnessTest in
-        // docs/qa/logs/ERRC.md (a fix correct from a main checkout, wrong from inside a worktree).
-        // There is nothing nested *under* this worktree to exclude.
+        // Nested checkouts are excluded relative to the root actually found, not by matching
+        // "/.claude/" as a substring. Both halves matter and each was got wrong once: from a main
+        // checkout the agents' worktrees under .claude/ are copies of this repository and inflate
+        // every count by one per running agent; from inside one of those worktrees the root's own
+        // path contains "/.claude/", so a substring test discards the whole tree and the check
+        // passes on nothing.
         Path root = Path.of("").toAbsolutePath();
         while (root != null && !Files.exists(root.resolve("docs/adr"))) {
             root = root.getParent();
         }
         Path finalRoot = root;
+        Path nested = finalRoot.resolve(".claude");
         try (var files = Files.walk(finalRoot)) {
             return files.filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> p.toString().contains("/src/main/"))
                     .filter(p -> !p.toString().contains("/target/"))
+                    .filter(p -> !p.startsWith(nested))
                     .filter(p -> {
                         try {
                             return Files.readString(p).contains(literal);
