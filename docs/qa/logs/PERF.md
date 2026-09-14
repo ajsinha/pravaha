@@ -24,16 +24,22 @@ JVM flags      -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED
                --add-opens=java.base/java.lang=ALL-UNNAMED
 ```
 
-**The heterogeneous cores are the finding here, not the core count.** The project's recorded reason
-for the P2 and P3 gates being unmet is "needs 16-core hardware". This machine has 12 physical cores,
-but that is not what makes it unsuitable: the Ryzen AI 9 HX 370 pairs full Zen5 cores with Zen5c
-cores at a different clock ceiling, so a per-lane throughput figure depends on *which* core the OS
-gave the lane. A 1-lane and an 8-lane measurement on this part are not comparable quantities, and
-averaging them produces a number with no referent. `PERF-003`'s recorded 8-lane error bar of ±47 M —
-larger than the entire 1-lane figure — is the same effect already visible in the committed results.
+**This machine cannot produce a scaling number, and that is already on the record.**
+`docs/gates/wave-3/README.md:27`–`:40` states it precisely and this round confirms every part of it
+by measurement conditions: 12 physical cores against a 16-physical-homogeneous reference, two core
+designs (Zen 5 and Zen 5c) so two lanes on two cores are not two equivalent lanes, and an all-core
+clock far below single-core boost so a 1-lane and an 8-lane figure are taken at different speeds.
+`PERF-003`'s committed 8-lane error bar of ±47 M — larger than the entire 1-lane figure — is that
+effect already visible in the repository, and the gates file already records the 2.7× scaling result
+as "**Not evidence.**"
+
+Worth stating plainly because a shorthand has been circulating in this project's own working notes,
+including mine: the gate is blocked on "16-core hardware". The core *count* is the least of it. A
+homogeneous 12-core part at a fixed clock would give a more meaningful answer than a heterogeneous
+16-core one, and the gates file says so already.
 
 A gate quoted from this machine would be unfalsifiable. That is a stronger reason to defer than
-"the machine was busy", and it does not go away when the machine goes quiet.
+"the machine was busy", and unlike that one it does not go away when the machine goes quiet.
 
 ## What was not run, and why
 
