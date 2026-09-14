@@ -3278,3 +3278,437 @@ passed under every narrower scope.
 The window is nanoseconds wide on an idle machine, which is why 300 idle attempts found nothing and a
 full reactor build found it twice. A test for an ordering that only opens under scheduling pressure
 has to create the pressure; the contention threads in that test are the test, not scenery.
+
+---
+
+# CFG round — configuration keys, defaults, refusals and untested combinations
+
+110 cases from `docs/qa/cases/CFG.md`, executed 2026-09-14 against real `pravaha-server` nodes on
+HTTP 18800 / Flight 19800. 75 PASS, 28 FAIL, 4 BLOCKED, 3 NOT RUN. No production code was modified;
+none of the findings below is seed-proven. Per-case evidence in `docs/qa/logs/CFG.md`.
+
+### CFG-1 (LOW) — `pravaha.node.id` reaches exactly one surface, and an empty one now refuses rather than electing
+
+> **Status:** OPEN — reproduced live: `pravaha.node.id: ""` fails startup in `PravahaNode.start()` via `com.ash.messaging.pravaha.cluster.Member` (`IllegalArgumentException: a member needs a stable id`), and `CoordinatorFactory.describe` logs `cluster mode SINGLE on single (consensus), self-contained` without the node id.
+
+The case asks for the configured id to be read back from three independent places — `GET
+/api/v1/status`, the coordinator's membership line, and the engine's `instanceId`. Only the first
+exists: `/api/v1/status` returns `{"instanceId":"cfg-node",…}`, and `CoordinatorFactory.describe`'s
+line names the mode and the mechanism and never the member. There is therefore no way to confirm from
+a running node that the id it advertises to a cluster is the id it was configured with. Separately,
+the empty-id row of the case is stale: `Member` now refuses an empty id at startup, so the
+"lowest id among peers I can reach" election question the case exists to answer cannot be provoked
+from configuration. A 4096-character id is accepted and not truncated on `/api/v1/status`.
+See `docs/qa/logs/CFG.md` (CFG-001).
+
+### CFG-2 (LOW-MEDIUM) — Flight bind failures never name the key, an ephemeral port is unreportable, and an IPv6 address is advertised unbracketed
+
+> **Status:** OPEN — reproduced live across four node starts: `port: 70000` → `IllegalArgumentException: port out of range:70000` with no `PRV-` code; `port: 0` → bound `44131` and no surface reports it; `host: ::1` → `Flight SQL listening on ::1:19800`; `host: 127` → `PRV-3010 … Failed to bind to address /0.0.0.127:19800`.
+
+Four separate weaknesses in the same pair of keys. (a) `pravaha.flight.port: 70000` fails inside
+gRPC's own argument check, so the operator gets a bare `IllegalArgumentException` that names neither
+`PRV-` code nor key; every other bind failure on the same key does carry `PRV-3010`. (b)
+`pravaha.flight.port: 0` binds an ephemeral port correctly — `PravahaNode.flightPort()` exists
+precisely for this — but **no served surface reports it**: `GET /api/v1/status` has no port field at
+all, and `/actuator/health`'s `components` map is suppressed by the shipped
+`show-details: when-authorized` on any node with `authentication: none`. `PravahaNode.describe()`
+produces `flight: 127.0.0.1:44131` and nothing serves it, so a client told to connect has nowhere to
+look. (c) `pravaha.flight.host: ::1` binds and logs `Flight SQL listening on ::1:19800` — the
+address an operator copies is unparseable as `host:port`, and the same unbracketed string is what
+`Member` advertises to the cluster. (d) `host: 127` is coerced to `0.0.0.127` rather than
+`127.0.0.1`, and the resulting `BindException: Cannot assign requested address` gives no hint that
+the value was reinterpreted. See `docs/qa/logs/CFG.md` (CFG-003, CFG-004).
+
+### CFG-3 (MEDIUM) — Spring's relaxed map-key binding silently drops declared streams, and `sources bound:` is logged in hash order
+
+> **Status:** OPEN — reproduced live: seven stream names declared under `pravaha.streams`, five reach the catalog (`txn ` and `txnü` vanish with no message); and `PluginSourceFeeds.bindings` is a `ConcurrentHashMap` (`PluginSourceFeeds.java:61,86-88`) so `sources bound:` does not follow file order.
+
+Two defects in the startup log's account of what was configured. **(a)** A node declaring
+`my-stream`, `1txn`, `select`, `txn ` (trailing space), `TXN`, `txn` and `txnü` starts and reports
+`streams declared in configuration: [my-stream, 1txn, select, txn, TXN]` — five of seven.
+`GET /api/v1/streams` returns the same five. `txn ` and `txnü` are discarded by Spring's relaxed
+map-key canonicalisation before `StreamDeclarationProperties` ever sees them, so a stream declaration
+that is present in the file and syntactically valid is absent from the catalog with **no message at
+any level**. A query against it then fails with CFG-088's baffling `Object 'txnü' not found. Known
+streams: [...]`. `TXN` and `txn` do coexist, so the catalog does not fold case. **(b)** The
+neighbouring log line `sources bound:` is built from a `ConcurrentHashMap` and is therefore in hash
+order: a file declaring `s3, s2, s1` logged `[s3 <- …, s1 <- …, s2 <- …]`, and a file declaring
+`s1 … s4` logged `[s2 <- …, s1 <- …]`. `streams declared in configuration:` is a `LinkedHashMap` and
+does follow file order, so the two adjacent lines disagree about the file they both describe, and a
+diff of two nodes' startup logs is not usable. See `docs/qa/logs/CFG.md` (CFG-091, CFG-093).
+
+### CFG-4 (MEDIUM) — `PRV-5090`'s "Available:" list names one plugin, and the case file, the docs and `SourceBinding` all name four
+
+> **Status:** OPEN — reproduced live: `pravaha.sources.txn.plugin: kafka` on a real node yields `PRV-5090 no source plugin named 'kafka' is on the classpath, so stream 'txn' cannot be fed. Available: [filesystem]`.
+
+The message is well-formed and does what an operator needs — except that the list it offers as the
+remedy has one entry. `feedfile`, `jdbc` and `delta` are not on the shipped `-app.jar`'s classpath
+and there is no documented "drop a jar in" mechanism (`I-7`), so the only binding a node can be
+configured with is `filesystem`. This is `I-7` reconfirmed from the configuration surface rather than
+the ingestion one, and recorded here because the remedy the error message offers is the thing a
+configuration case is written to test. A related improvement, recorded because the case file predicts
+the opposite: a binding with **no** `plugin` is now refused at startup
+(`IllegalArgumentException: a source binding for 'txn' needs a plugin name`), so the silent
+`SourceBinding("txn", null, opts)` the case describes no longer occurs.
+See `docs/qa/logs/CFG.md` (CFG-010).
+
+### CFG-5 (HIGH) — every HTTP authorization decision is recorded into a hard-coded `AuditSink.NONE`, whatever `pravaha.security.audit` says
+
+> **Status:** OPEN — reproduced by reading `PravahaServerApplication.pravahaAuditSink()` (`:118-121`, `return AuditSink.NONE;`, no parameters, no reference to `SecurityProperties`) against `HttpAuthorizer`'s constructor (`HttpAuthorizer.java:49`) and its two `audit.record(...)` calls at `:75` and `:85`.
+
+`PravahaNode.auditSink()` honours `pravaha.security.audit`, caches the `AuditSink.InMemory` it builds,
+and hands the same instance to both the `QueryRegistry` and the `PravahaFlightServer` — so the Flight
+half of the node records correctly and the executor note in CFG-014 ("check that the registry and the
+Flight server share one sink") passes. The HTTP half does not participate. `HttpAuthorizer` — which
+is what `StreamController.java:65,76,95` and `QueryController.java:78` call, and which is the only
+thing enforcing authorization on `/api/v1/**` — takes its `AuditSink` from a separate Spring bean
+that returns `AuditSink.NONE` unconditionally. A deployment configured with `audit: memory` therefore
+records every Flight read and **no** HTTP read, no HTTP stream declaration and no HTTP refusal, with
+nothing at startup saying so. `docs/SECURITY.md`'s account of auditing does not distinguish the two
+transports. The fix is one parameter: `pravahaAuditSink(SecurityProperties security)` resolving the
+same three spellings `PravahaNode.auditSink()` does. This is the configuration-side half of `SX-3`,
+which found the HTTP surface consulting no policy at all; the policy half has since been fixed
+(`HttpAuthorizer` exists and works — see CFG-079) and the audit half has not.
+See `docs/qa/logs/CFG.md` (CFG-014, CFG-079).
+
+### CFG-6 (HIGH) — the TLS certificate and key are never validated as a pair: one ordering gives a silent plaintext server, the other a raw `NullPointerException`
+
+> **Status:** OPEN — reproduced live over a full 3×3 matrix of nine node starts: certificate unset + key valid → node up, `flight transport=PLAINTEXT`, `grpc://` serves rows; certificate valid + key unset → `NullPointerException: Cannot invoke "java.io.File.isFile()" because "privateKey" is null` at `PravahaFlightServer.java:123`, called from `PravahaNode.java:463`.
+
+`PravahaNode.start()` applies TLS through a single `if (tlsCertificate != null)` (`:462-464`), so the
+two halves of one setting are handled asymmetrically. **(a) Key without certificate** — the key is
+read into a `File` at `:139`, held in a field, and never used. The node starts in plaintext, and
+under `authentication: token` it simultaneously emits *"set pravaha.flight.tls.certificate and .key
+unless something in front of this node is terminating TLS"* — advice the operator has already
+half-taken, with no acknowledgement of the half they took. Nothing anywhere mentions that a TLS
+private key was configured and ignored; `grpc://` connects and rows are readable on the wire. **(b)
+Certificate without key** — `encryptedWith(cert, null)` dereferences null before either of the two
+correct `PRV-6104` branches three lines apart at `PravahaFlightServer.java:118-127` can run. The
+helpful-NPE text names `privateKey`, a field, and never `pravaha.flight.tls.key`. **(c)** The
+ordering inside `encryptedWith` means the NPE only reaches operators who got the certificate *right*:
+a missing certificate with no key gives a clean `PRV-6104`. **(d)** An existing file that is not a
+PEM (`/etc/hostname`) passes `isFile()` and fails later as a raw
+`CertificateException: found no certificates in input stream` with no `PRV-` code. A single "both or
+neither, and both readable" check in `PravahaNode`'s constructor would produce one `PRV-6104` for
+(a), (b) and (d). This reconfirms and extends `SX-17` from the configuration side, and adds the
+key-without-certificate direction, which `SX-17` does not cover.
+See `docs/qa/logs/CFG.md` (CFG-005, CFG-006, CFG-068 … CFG-076).
+
+### CFG-7 (MEDIUM) — a misconfigured journal or checkpoint path starts a healthy node and fails at the first registration, or does not fail at all
+
+> **Status:** OPEN — reproduced live on four cells: `pravaha.checkpoint.directory` pointing at an existing **file** starts and logs `checkpointing registered queries under $QA/data/txnA.csv`; `pravaha.registry.journal` inside a directory that does not exist starts and creates it; the journal path being a **directory** fails startup with `UncheckedIOException: cannot read the registry journal at …` / `IOException: Is a directory` and no `PRV-` code.
+
+Three of the four persistence-path error shapes the case enumerates arrive somewhere other than
+where an operator will see them. A `pravaha.checkpoint.directory` that names a regular file produces
+a **startup log line claiming checkpointing is on** and then fails every registration with
+`PRV-1041 cannot create the checkpoint directory …/txnA.csv/QW` — the node is up, green, and unable
+to accept work. A journal path in a non-existent directory is silently created by
+`RegistryJournal.append` → `Files.createDirectories(parent)` (`:212`), which is defensible but is
+not what `OPERATIONS.md` describes and means `PRV-8006 REGISTRY_JOURNAL_UNWRITABLE` never fires for
+the commonest typo. A journal path that is itself a directory fails at startup — correctly — but with
+a bare `UncheckedIOException`, no error code and no help URL, so the one shape that *is* caught early
+is the one with the worst message. Each of the three should be a `PRV-8006`/`PRV-4002` at startup,
+where a bad path is one failure rather than every registration failing separately — the argument
+`PravahaNode.java:383-393` already makes for `pravaha.watermark.idle-after`.
+See `docs/qa/logs/CFG.md` (CFG-020, CFG-021).
+
+### CFG-8 (MEDIUM) — `pravaha.streams` and `pravaha.sources` are never reconciled at startup, and the two lateness keys are documented in inverse proportion to whether they work
+
+> **Status:** OPEN — reproduced live: a node with `pravaha.sources.txn` and no `pravaha.streams` starts, logs `sources bound: [txn <- filesystem[…]]`, and then answers `GET /api/v1/streams` with `[]` and `register` with `PRV-2002 Object 'txn' not found. Known streams: []`.
+
+`SourceBindingProperties.toBindings()` (`:94-97`) constructs a `SourceBinding` per entry with no
+validation, and nothing in `PravahaNode.start()` compares the binding map with the declaration map.
+Three configurations follow, each internally valid and each useless: a source bound to an undeclared
+stream (the node *says* it bound a stream it does not know, then says it knows no streams); a
+declaration whose source names the plural (`txn` declared, `txns` bound — **no log line anywhere
+pairs the two names**, and `QW` runs for ever receiving nothing); and two schemas for one stream, one
+in `pravaha.streams.<n>.schema` and one in the binding's own `schema` option, which nothing compares
+— the divergence surfaces only at the first registration as
+`PRV-5091 … PRV-5040 event.time names 'event_time', which is not a column of stream 'txn'`, a message
+about the binding's schema wearing the stream's column name. With four streams declared and two
+bound, the two startup lines together contain the answer and neither states it; the line that should
+exist is *"declared and unbound: s3, s4"*. **The documentation half of the same gap:**
+`pravaha.watermark.out-of-orderness` — which has no reader anywhere — is documented in four places
+(`application.yaml`, `OPERATIONS.md:222`, `CONCEPTS.md:66`, `StreamSchema.java:53`), and
+`pravaha.streams.<n>.out-of-orderness` — which is the one that works, proven here by 6 rows against
+0 on the same data — appears only in `StreamDeclarationProperties.java`'s javadoc and **in no
+operator-facing document at all**. `OPERATIONS.md:233-235` sends the operator to a Java API and then
+describes the dead key as "the default for streams that do not say". This confirms `I-4` and the
+round-1 `pravaha.watermark.out-of-orderness` finding from the pairing side.
+See `docs/qa/logs/CFG.md` (CFG-011, CFG-086, CFG-088, CFG-089, CFG-090, CFG-092).
+
+### CFG-9 (HIGH) — `refuseAccidentalOpenServer` refuses a fully credentialled deployment and blames a setting the operator did not make
+
+> **Status:** OPEN — reproduced live: `policy: permissive` + `authentication: token` + a valid one-token table + `allow-anonymous: false` exits non-zero with `PRV-7002 this node is configured to accept unauthenticated callers and serve them every view (pravaha.security.authentication=none, policy=permissive)` — on a node whose `authentication` is `token`.
+
+`PravahaNode.java:174` now computes `open` as `!(securityPolicy() instanceof
+AuthenticatedOnlyPolicy)`, so the guard fires on **any** non-`authenticated` policy regardless of
+whether the node authenticates. Two consequences, both reproduced. (a) The ordinary
+`permissive` + `token` deployment — authentication on, a real token table, anonymous callers already
+refused by `BearerTokenFilter` and `PrincipalMiddleware` — cannot start without also setting
+`allow-anonymous: true`, which is a lie about the node. (b) The refusal message hard-codes
+`pravaha.security.authentication=none` into its text (`:179-181`), so it misattributes the cause and
+its first suggested remedy ("Set pravaha.security.authentication=token") is a setting already in
+force. The mirror case is equally surprising: `allow-anonymous` is **not** dead under `token` as the
+case file assumes — `permissive` + `token` + `allow-anonymous: true` starts while the same file with
+`false` does not, so an operator hardening `dev` who deletes `allow-anonymous: true` breaks a node
+that was correctly secured. This is `SX-12` reconfirmed independently from the configuration surface,
+with the message misattribution and the `allow-anonymous`-is-alive half added. A third, milder
+consequence: an unknown `policy` value now fails at **Spring context refresh**, inside
+`BeanInstantiationException: Factory method 'pravahaSecurityPolicy' threw exception`, because
+`HttpAuthorizer` depends on a `SecurityPolicy` bean — so `PravahaNode.start()` never runs, the
+coordinator is never created, and the leaked-coordinator-thread question CFG-065 exists to ask is
+unreachable from configuration.
+See `docs/qa/logs/CFG.md` (CFG-059, CFG-060, CFG-065, CFG-066).
+
+### CFG-10 (MEDIUM) — a token declared with an empty spec is silently dropped, and an empty token table is discoverable only at the first 401
+
+> **Status:** OPEN — reproduced live: in one table, `q: {id: q1}` authenticates on both transports and `x: {}` does not; and on a node with `authentication: token` and `tokens: {}`, `grep -ciE 'no tokens|tokens are configured|rejectAll'` over the whole startup log returns **0**.
+
+Two ways a token table can be wrong without anybody being told. **(a)** `pravaha.security.tokens.x: {}`
+— a credential with no `id`, `tenant` or `roles`, which `SecurityProperties.java:153` documents as
+meaning "use the map key as the id" — is discarded by Spring's binder before `verifier()` runs, so
+the token is in the file, absent from the `StaticTokenVerifier` chain, and mentioned nowhere. Writing
+`x: {id: x}` makes it work. A credential that is present in configuration and rejected at runtime is
+the hardest class of authentication failure to diagnose. **(b)** `tokens: {}` with
+`authentication: token` makes `verifier()` return `TokenVerifier.rejectAll()`, which is the right
+behaviour, and `SecurityProperties.java:144-147`'s own comment says the reason should be visible at
+startup rather than "in a support ticket about 401s". It is not: the node logs
+`security: authentication=token, …` and nothing else, and the excellent explanatory message
+(*"this server has no way to verify credentials, so it accepts none. Configure a TokenVerifier, or run
+without authentication if the server is already behind a boundary that does it"*) arrives at the
+**first call**, which is exactly the support ticket the comment wants to avoid. Confirmed positive:
+a four-entry token table authenticates on all four entries, so the `of(...).and(...)` chain is
+correct, and the token strings appear **nowhere** in the startup log while `/actuator/env` and
+`/actuator/configprops` are 404 on the shipped exposure list.
+See `docs/qa/logs/CFG.md` (CFG-016, CFG-067).
+
+### CFG-11 (MEDIUM) — a token declared without `id` writes the bearer credential into the registry journal as the query's owner
+
+> **Status:** OPEN — confirmed by source and by the journal's own durability: `SecurityProperties.java:153` resolves the principal id as `spec.getId() == null ? entry.getKey() : spec.getId()`, and the map key is the bearer token; `RegistryJournal.append` persists the owner id to disk at `pravaha.registry.journal`.
+
+`pravaha.security.tokens.<token>.id` is optional, and the documented fallback is the map key — which
+*is* the credential. A deployment that writes `pravaha.security.tokens.s3cr3t-value: {}` and
+registers a query therefore has the secret in two durable places it did not choose: the audit sink
+(`AuditEvent.of(principal, …)`) and the registry journal file, where it survives restarts and
+backups. The credential is correctly kept out of the startup log and out of `/actuator/env`
+(CFG-016), which makes the journal path the only leak, and an easy one to miss. Related and
+improved since the case was written: `id: ""` is now refused at startup
+(`IllegalArgumentException: a principal needs an id; the audit log has nothing to record without
+one, and a row filter has nothing to key on`), so the "empty principal id, refused on replay" chain
+the case describes no longer exists. Making `id` **required** would close this one the same way.
+See `docs/qa/logs/CFG.md` (CFG-017).
+
+### CFG-12 (HIGH) — `SensitiveFiles.createOwnerOnly` widens permissions rather than narrowing them, silently undoing an operator's deliberate lock on the journal and every checkpoint directory
+
+> **Status:** OPEN — reproduced live twice: a registry journal file `chmod 400`'d under a running node is reset to `-rw-------` and the next registration succeeds with no `PRV-8006`; a per-query checkpoint directory `chmod 500`'d under a running node is reset to `drwx------` by the next checkpoint, with no log line and no movement in any of the seven `pravaha_*` gauges.
+
+`SensitiveFiles.narrow(target, mode)` calls `Files.setPosixFilePermissions(target, mode)`, which sets
+permissions **absolutely**. It is named for the case it was written for — a journal created at the
+umask and therefore world-readable — and it does close that hole, but on an existing file or
+directory whose mode is already *tighter* than the target it **widens** it.
+`createOwnerOnly(file)` applies `rwx------` to the parent and `rw-------` to the file on **every
+append** (`RegistryJournal.java:216`), so:
+
+- `chmod 400 journal` → reverted to `600`, the registration is accepted, `pravaha queries` shows it,
+  and the refusal `OPERATIONS.md:379` promises ("a registration whose journal append fails is
+  refused, because acknowledging one that will not survive a restart tells the client something
+  untrue") can never fire for this failure mode, because the failure has been engineered away rather
+  than reported.
+- `chmod 500 $ckpt/QW` → reverted to `700` by the next `PeriodicCheckpointer` tick, the file count is
+  unchanged, `pravaha_query_running` still reads `1.0`, and
+  `grep -icE 'checkpoint.*(fail|error|warn)'` returns 0.
+- `chmod 500` on a checkpoint or journal **parent** directory, before startup, is likewise undone.
+
+An operator who restricts a data directory — to freeze it for a backup, to contain a runaway, or
+because a hardening policy requires it — has their change reverted by the next write and is not told.
+This is the root cause of `ST-3`, which observed the checkpoint-directory symptom without naming the
+mechanism, and it extends it to the registry journal, where the consequence is a client being told a
+registration is durable when the operator has deliberately made it not. The fix is to narrow only
+when the current mode is wider: read the permissions, intersect, and write back only if the set
+shrank.
+See `docs/qa/logs/CFG.md` (CFG-020, CFG-021, CFG-100, CFG-101).
+
+### CFG-13 (HIGH) — a checkpoint directory is namespaced by view name and not by node, so two nodes sharing one root prune each other's state and restore from each other's files
+
+> **Status:** OPEN — reproduced live with two real nodes: `node-a` (18800/19800) and `node-b` (18801/19801), different `pravaha.node.id`, different journals, the same `pravaha.checkpoint.directory`, each registering a view called `QW`. After 22 s the shared root contained exactly one subdirectory, `QW/`, holding `checkpoint-10.bin`, `checkpoint-11.bin`, `checkpoint-12.bin`.
+
+`application.yaml` argues at length that each query checkpoints into its own directory beneath the
+root so that pruning is per query. It does not address two *nodes*, and nothing in the path
+construction distinguishes them: the subdirectory is the view name. With `keep: 3` and
+`interval: 2s`, each node takes roughly ten checkpoints in twenty seconds and each `prune(3)` deletes
+whatever is oldest across **both** nodes' output, so the three survivors belong to an unpredictable
+mix. A restart of either node then restores from state the other wrote — a view whose contents were
+computed from a different partition assignment, a different source offset, and possibly a different
+schema version, with no error at any point. Nothing at startup warns that a checkpoint root is shared,
+and nothing afterwards can detect that it was. Sharing a checkpoint root is an entirely natural thing
+to do (one NFS mount, one PVC, one backup path) and is not forbidden by any document. The fix is to
+namespace the per-query directory by `pravaha.node.id`, or to take an exclusive lock on the root at
+startup and refuse the second node.
+See `docs/qa/logs/CFG.md` (CFG-098).
+
+### CFG-14 (HIGH) — two nodes sharing one registry journal take no lock, and each recovers the other's registrations as its own
+
+> **Status:** OPEN — reproduced live: `node-a` registered `QA1` and `QA2`, `node-b` registered `QB1`, both appending to one `pravaha.registry.journal` file; on restart `node-a` logged `registry recovered 3 of 3 queries` and `pravaha queries` listed `QA1`, `QA2` **and** `QB1`.
+
+`RegistryJournal.append` is `synchronized` on its own instance and takes no `FileLock`, so nothing
+prevents two JVMs appending to one path — and nothing in `PersistenceProperties` or `PravahaNode`
+warns that a journal is shared. The interleaved records replayed **cleanly**, which is worse than the
+corruption the case predicts: instead of a visible `PRV-8005 REGISTRY_JOURNAL_UNREADABLE`, one node
+silently adopts another node's registration set. Every consequence follows from that: `node-a` now
+runs a computation nobody asked it for, consuming its lanes and its arena; the recovered query's
+owner is resolved through `node-a`'s own `principalNamed`, which may not know `node-b`'s principals
+and will either refuse it into the recovery report or — under `authentication: none` — resurrect it
+as `Principal.ANONYMOUS`; and the two nodes' `pravaha queries` listings no longer describe two
+different nodes. A shared journal is as easy to configure as a shared checkpoint root and is
+similarly undefended. The fix is an exclusive `FileLock` held for the life of the node, with a
+startup refusal naming the other holder.
+See `docs/qa/logs/CFG.md` (CFG-099).
+
+### CFG-15 (MEDIUM) — `pravaha.checkpoint.interval: 2` is bound as two **milliseconds** and produced 6409 checkpoints in twenty seconds, and the interval in force is logged nowhere
+
+> **Status:** OPEN — reproduced live: a node with `interval: 2` and `keep: 3` left `checkpoint-6407.bin`, `checkpoint-6408.bin`, `checkpoint-6409.bin` after twenty seconds, against `checkpoint-8/9/10.bin` for the identical run with `interval: 2s`.
+
+Two duration dialects meet in one YAML file. Spring's binder reads a bare number on a `Duration`
+field as milliseconds; `ConfigParsers.parseDuration` (`ConfigParsers.java:67-71`), which is what the
+engine's own `Configuration` uses, **refuses** a bare number precisely so this cannot happen. An
+operator who writes `interval: 2` meaning two seconds gets a node that does nothing but checkpoint,
+with no warning, on the key `PersistenceProperties.java:69-74` already carries a comment about
+having shipped a bug of exactly this family. Confirmed working in the other direction: `PT2S`
+(ISO-8601) and `2s` produce identical results, so the `toNanos()` conversion at
+`PersistenceProperties.java:77` does hold and the shipped bug has not recurred. A secondary defect
+compounds it: the `checkpointing every {}ms, keeping the newest {}` log line the case cites at
+`PeriodicCheckpointer.java:136` **did not appear in any of six runs**, so the effective interval is
+not observable from the startup log at all and the 2 ms node looks exactly like the 2 s one until
+somebody counts files. Also recorded as an improvement: `interval: 0s` is now refused at first
+registration (`PRV-1041 checkpoint interval must be positive, got PT0S`) rather than producing the
+tight loop the case predicts.
+See `docs/qa/logs/CFG.md` (CFG-022).
+
+### CFG-16 (MEDIUM) — `pravaha.checkpoint.keep: 0` starts a healthy node that then refuses every registration
+
+> **Status:** OPEN — reproduced live: the node starts, logs `checkpointing registered queries under $QA/p/k23`, reports `UP` on `/actuator/health`, and every `register` returns `PRV-1041 at least one checkpoint must be kept, asked to keep 0. Keeping none means every restart starts from nothing`; `pravaha queries` then reports none.
+
+`PersistenceProperties.Checkpoint.keep` is a plain `int` with no validation, and the bound lives in
+`PeriodicCheckpointer`'s constructor (`:93-95`), which runs **per registration**. So one bad integer
+in the configuration file produces a node that passes every liveness and readiness probe, advertises
+itself as checkpointing, and cannot accept a single query — the failure arrives once per client
+rather than once at startup. This is the same class of defect as `pravaha.watermark.tick`
+(CFG-027), and its neighbour `pravaha.watermark.idle-after` shows the shape of the fix:
+`PravahaNode.start()` validates that one at startup by constructing a throwaway `WatermarkTracker`,
+with the comment *"one bad value is one startup failure, rather than at registration where it is
+every query failing separately"*. The same argument applies verbatim to `keep` and to `tick`, and is
+applied to neither. Confirmed working: `keep: 1` leaves exactly one file and `keep: 5` exactly five
+after twenty seconds at a two-second interval. One incidental observation worth a look: with
+`keep: 5` the survivors were ids `5,7,8,9,10` — not the five newest — so pruning is not strictly
+"newest K by id".
+See `docs/qa/logs/CFG.md` (CFG-023, CFG-027).
+
+### CFG-17 (LOW) — `docs/qa/cases/CFG.md`'s assumed fact 9 is stale: `pravaha.checkpoint.timeout` is bound, forwarded and read
+
+> **Status:** OPEN — reproduced by reading `PersistenceProperties.java:76-82` (three `.set(...)` calls, including `"pravaha.checkpoint.timeout"`), `PersistenceProperties.java:109` (`private Duration timeout = Duration.ofSeconds(30);`) and `PeriodicCheckpointer.java:138` (`configuration.getDuration("pravaha.checkpoint.timeout").orElse(DEFAULT_TIMEOUT)`).
+
+CFG-024 exists to prove that `pravaha.checkpoint.timeout` is a key with a reader and no writer, and
+that `PersistenceProperties.Checkpoint` has no `timeout` field so the key is not even bound. Both
+halves are false against this build: the field exists with a 30 s default, `checkpointConfiguration()`
+emits the key in nanoseconds alongside `interval` and `keep`, and `PeriodicCheckpointer.from` reads
+it. The case is withdrawn rather than confirmed, and is recorded here so the case file can be
+corrected rather than re-run. What the case should now ask is whether the timeout is **enforced**:
+a run with `timeout: 1ms` and `interval: 2s` produced three checkpoint files and zero
+timeout-related log lines in twenty seconds, which is not evidence either way, because a twelve-row
+view checkpoints well inside a millisecond. A case that exercises it needs a view large enough that
+a checkpoint genuinely exceeds the configured bound. Seven other assumed facts in the same file are
+also false; they are tabulated in `docs/qa/logs/CFG.md`'s opening section.
+See `docs/qa/logs/CFG.md` (CFG-024, and the assumed-facts table).
+
+### CFG-18 (LOW) — `docs/qa/cases/CFG.md` CFG-028 asserts a `PRV-9002` for `PARTITIONED` on `single` that cannot occur, and is right about the documentation defect
+
+> **Status:** OPEN — reproduced live: `pravaha.cluster.mode: PARTITIONED` with `mechanism: single` **starts**, logging `cluster mode PARTITIONED on single (consensus), self-contained`.
+
+The case's load-bearing cell predicts `PRV-9002 CLUSTER_INSUFFICIENT_GUARANTEE`. It does not fire,
+and should not: `single` genuinely excludes split-brain because there is no second node, which is
+what `OPERATIONS.md:110`'s own mechanism table says (`single` — *"excludes split-brain ✅ (there is no
+second node)"*). `CoordinatorFactory`'s guarantee check is working; the guard fires correctly for
+`PARTITIONED` + `socket`, with the full message about two nodes writing the same aggregate. The case
+file's cell should be corrected to expect a successful start. Everything else in CFG-028 and CFG-029
+holds, including the two real findings they carry: `mode: HA` — **the value
+`system_design.md:3531` documents as one of three** — is refused with `PRV-9001 'HA' is not a cluster
+mode; one of [SINGLE, REPLICATED, PARTITIONED]`, so the design document names three modes of which
+only `SINGLE` exists; and `mechanism: SOCKET` is refused while `mode: replicated` is accepted,
+because `CoordinatorFactory` upper-cases the mode and does a plain map lookup on the mechanism — two
+adjacent keys in one YAML block with two case rules.
+See `docs/qa/logs/CFG.md` (CFG-028, CFG-029).
+
+### CFG-19 (LOW) — `spring.application.name` reaches no metric tag and no `/actuator/info` field
+
+> **Status:** OPEN — reproduced live: with `spring.application.name: pravaha` in the shipped `application.yaml` and `info` in `management.endpoints.web.exposure.include`, `GET /actuator/info` returns `{}` and `GET /actuator/prometheus` carries no `application=` label on any series.
+
+The seven `pravaha_*` series on `/actuator/prometheus` are tagged with `query` and nothing else
+(`pravaha_query_rows_in{query="QW"}`, `pravaha_query_running{query="QW"}`, …). A fleet scraped into
+one Prometheus therefore has no label distinguishing Pravaha's own series from any other
+application's, and the `/actuator/info` endpoint an operator would check first is an empty object —
+no build info, no name, no version, even though `/api/v1/status` knows the version
+(`0.1.0-SNAPSHOT`). Two one-line fixes: a `MeterRegistryCustomizer` adding the common tag, and
+`management.info.*.enabled` / the `build-info` goal for the info endpoint. Low severity on its own;
+it is the reason a fleet-level view of CFG-13 or CFG-14 would be hard to build.
+See `docs/qa/logs/CFG.md` (CFG-039).
+
+### CFG-20 (MEDIUM) — three of six non-2xx shapes on `/api/v1/**` are not `ApiError`, and the OpenAPI document's `ApiError` schema has no properties
+
+> **Status:** OPEN — reproduced live on a node with the shipped `spring.mvc.problemdetails.enabled: false`: `DELETE /api/v1/streams` → `{"timestamp":…,"status":405,"error":"Method Not Allowed","path":"/api/v1/streams"}`; `POST /api/v1/queries/validate` as `text/plain` → the same shape with `415`; `GET /nosuchpath` → the same shape with `404`.
+
+`application.yaml` turns problem details off with the stated intent that *"every non-2xx response is
+an `ApiError` and nothing else, because a client that has to parse two error shapes will handle one
+of them badly"*. Turning them off worked — none of the six provoked responses is an RFC 7807
+`ProblemDetail` — but it was never the mechanism that mattered. `ApiExceptionHandler` handles
+`PravahaException` and `IllegalArgumentException`; 405, 415 and a 404 on an unmapped path are
+neither, so they fall through to Spring's `BasicErrorController` and return a **third** shape with no
+`code`, no `message` and no `helpUrl`. The three that *are* handled — a validation diagnostic
+(`PRV-2001`), an unknown stream (`PRV-2003`) and a security refusal (`PRV-7001`) — are correct. The
+fix is an `ErrorController` or `@ExceptionHandler(Exception.class)` mapping the fallthrough to
+`ApiDtos.ApiError`. **Compounding it**, the OpenAPI document served at the configured
+`springdoc.api-docs.path` describes `components.schemas.ApiError` with **zero properties**, so a
+generated client models every error as an empty object and none of the five fields is discoverable;
+and the document advertises a `/status` path alongside `/api/v1/status` which this server does not
+map.
+See `docs/qa/logs/CFG.md` (CFG-041, CFG-045).
+
+### CFG-21 (LOW) — `pravaha.security.authentication` is now validated, and its refusal surfaces as a Tomcat startup failure
+
+> **Status:** OPEN — reproduced live: `authentication: tokens` exits with `IllegalArgumentException: pravaha.security.authentication is 'tokens'; the values are 'none' and 'token'. A misspelling here would otherwise mean 'none', so a node that looked authenticated would accept every caller.`, wrapped in `org.springframework.boot.web.server.WebServerException: Unable to start embedded Tomcat`.
+
+`docs/qa/cases/CFG.md`'s assumed fact 5 — *"`authenticates()` is a single `equalsIgnoreCase("token")`
+… every other string, including `"tokens"`, `"TOKEN "` with a trailing space, and `"basic"`, silently
+means `none`. There is no refusal of an unknown authentication value anywhere"* — is false against
+this build, and CFG-012's entire matrix inverts. `SecurityProperties.trimmedAuthentication()`
+(`:122-130`) trims the value and refuses anything that is not `none` or `token`, so `tokens`,
+`basic`, `mtls` and `oauth` all fail startup, and `"token "` is trimmed and genuinely **means**
+`token`. That is the right behaviour and the case file should be corrected. What remains is
+legibility: `verifier()` is first called from the `pravahaAuthentication` `FilterRegistrationBean`,
+so the operator's first three lines are about Tomcat failing to start and the actual sentence — which
+is an excellent one — is four `Caused by:` levels down. The neighbouring `pravaha.security.policy`
+and `pravaha.security.audit` refusals surface the same way for the same reason (CFG-065). Validating
+these three values in a `@PostConstruct` or a `Validator` on `SecurityProperties`, before any bean
+that depends on them is built, would put the message where it is read.
+See `docs/qa/logs/CFG.md` (CFG-012, and the assumed-facts table).
+
+### CFG-22 (MEDIUM) — `-Dpravaha.memory` and `-Dpravaha.ffm` accept any value and silently fall back, and appear in no document an operator reads
+
+> **Status:** OPEN — reproduced live across four node starts: `-Dpravaha.memory=nonsense` and `-Dpravaha.ffm=true` on a Java 21 JVM both start normally, log nothing about the selection, and produce the identical canonical result as the default.
+
+`MemoryAccess.best()` (`MemoryAccess.java:62-80`) reads two system properties and its own javadoc
+states the policy: *"An unavailable or unflagged implementation is never an error: the default is a
+correct answer, not a degraded one, so selection silently falls through to it."* That is defensible
+for `ffm=true` on a JDK that cannot support it — except that nothing anywhere records which
+implementation was chosen, so a deployment that sets `-Dpravaha.ffm=true` in its launcher, upgrades
+to JDK 22 expecting the switch to take effect, or typos `-Dpravaha.memory=agrone`, has no way to find
+out what it is running. It is not defensible for an unrecognised value: `-Dpravaha.memory=nonsense`
+should be a refusal, because the only reason to set the property is to be certain, and silence
+defeats the purpose. Confirmed positive, and it is the most important result of the case: **all four
+selections produced byte-identical canonical results** (`u0=5, u1=7, u2=3, u0=17, u1=8, u2=15`), so
+the implementation switch does not change an answer. Two smaller gaps: the two properties are the
+only `pravaha.*` settings that are system properties rather than configuration keys, and they appear
+in no `@Value`, no `application.yaml`, and no operator-facing document; and a one-line
+`log.info("off-heap access: {}", access.name())` at startup would close the observability half
+entirely.
+See `docs/qa/logs/CFG.md` (CFG-047).
