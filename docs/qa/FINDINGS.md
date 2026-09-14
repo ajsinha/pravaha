@@ -3762,3 +3762,289 @@ run, in 0.022s against a 30-second timeout.
 The two orderings are both required and they constrain opposite ends: `failure` must be set *before*
 the ticket is retired, because `checkHealth()` reads it; `State.FAILED` must be set *after*, because
 the waiter bails out on it. Three fields, one order, and getting two of them right is not enough.
+
+### TIME-1 (HIGH) — one stale event time makes the window emitter walk every window boundary since that timestamp, and the lane stops answering
+
+> **Status:** OPEN — reproduced twice on a real `pravaha-server` node. `SlicedWindows.windowsCompletedBetween` (`pravaha-runtime/.../window/SlicedWindows.java:104-120`) materialises one `ArrayList` entry per window end between the previous watermark and the new one, with no bound. Over `evPast.csv` (`evB.csv` plus one row at `event_time = 0`) with 10-second windows the loop runs ≈1.77×10^8 times on the lane thread; the view ends up holding the 1970 window alone instead of the eleven real ones, and shutdown reports `PRV-3010 lane 0 did not stop within PT5S`.
+
+```java
+long firstEnd = Math.floorDiv(previousWatermarkNanos, spec.slideNanos()) * spec.slideNanos() + spec.slideNanos();
+for (long end = firstEnd; end <= watermarkNanos; end += spec.slideNanos()) {
+    ends.add(end);
+}
+```
+
+`WindowedAggregate.advanceWatermark` starts from `firstWindowStart()` on the first advance, which is
+`earliestWindowStart − slide` — the earliest window *any row has opened*. One row carrying an
+event time far below the rest therefore sets the start of the walk, and the walk runs to the current
+watermark in `slide`-sized steps.
+
+Two reproductions, both `bin/pravaha-server` on `18801/19801`, both `Q10` (`TUMBLE … INTERVAL '10' SECOND`):
+
+- **`$QA/conf/t099.yaml` over `evPast.csv`.** `ROWS IN` 122. The view holds **one row** —
+  `window_start 0, window_end 10000000000, n 1, total 902` — and windows 1 through 11 (totals
+  45 … 1045), which the same configuration over `evB.csv` serves, are absent. `(T0+110 − 0)/10s ≈
+  1.77×10^8` iterations. Shutdown: `WARN registry did not shut down cleanly:
+  com.ash.messaging.pravaha.api.PravahaException: PRV-3010  lane 0 did not stop within PT5S; its
+  thread is still in the processor, and the inbox and arena it owns cannot be released while it is.`
+- **`$QA/conf/t037.yaml`, `ev.out-of-orderness: 87600h`** over the ordinary `evB.csv`. The node
+  starts and serves 0 windows, which is the arithmetically correct answer. The walk happens on the
+  *other* side: the first tick sets `lastFiredWatermark` to `T0+120 − 3.1536×10^17` ≈ 2016-01-04, and
+  `finish()` at close then advances to `T0+140`, so `windowsCompletedBetween` runs
+  `(1.767×10^18 − 1.452×10^18)/10^10 ≈ 3.15×10^7` times. Same `PRV-3010` at shutdown.
+  `pravaha-it`'s `EventTimeTest.time037_averyLargeLatenessStartsAndServesNothing` is `@Disabled`
+  with this exact symptom recorded in its reason string, so the behaviour is known and untracked.
+
+Neither case needs malice. A source with one corrupt or defaulted timestamp, a stream whose declared
+lateness is larger than its data's span, and a `DESCRIPTOR` on a column in different units all put an
+unbounded gap between two watermarks. What makes it a defect rather than a slow query is that the
+walk happens **on the lane thread**, inside a control task the watermark thread waits on, and every
+emitted end is an `ArrayList` entry: the query stops serving, the node stops shutting down, and no
+metric, no log line and no state transition says why. `WindowedAggregate.emitWindow` skipping empty
+windows bounds the *output*, not the work.
+
+The shape of a fix is a cap on the number of ends one advance may emit, or a walk over the populated
+slices rather than over every boundary in the range. `SlicedAggregateState` already knows which
+slices exist.
+
+### TIME-2 (HIGH) — the engine's only watermark instrument reads `NaN` on a query whose watermark is advancing
+
+> **Status:** OPEN — reproduced on a live node: `pravaha_query_watermark_lag_seconds{query="w10"} NaN` on a query serving eleven correct windows, in the same scrape as two queries that genuinely have no watermark. `RegisteredQuery.advanceWatermark` (`pravaha-registry/.../RegisteredQuery.java:266`) is the only writer of `watermarkNanos`, and `QueryExecution.advanceWatermarkQuietly` (`pravaha-runtime/.../exec/QueryExecution.java:442`) calls `QueryExecution.advanceWatermark` instead.
+
+`PravahaMetrics.java:132` registers the gauge and `:146-148` computes it from
+`query.watermarkNanos()`, reporting `NaN` when the `OptionalLong` is empty. The internal clock never
+fills it in, so the gauge is `NaN` for every query on every node whatever event time is doing.
+
+One scrape of `/actuator/prometheus` on `$QA/conf/base.yaml`, with three queries registered:
+
+```
+pravaha_query_watermark_lag_seconds{query="p_noet"} NaN     # a projection, no windows
+pravaha_query_watermark_lag_seconds{query="w10"} NaN        # 11 windows served, watermark at T0+110
+pravaha_query_watermark_lag_seconds{query="w10n"} NaN       # no event-time declaration, 0 windows for ever
+```
+
+`w10` and `w10n` are the same SQL over byte-identical files and differ only in one configuration
+line; one is healthy and one is the failure mode the whole watermark subsystem exists to make
+visible. The instrument cannot tell them apart. Combined with TIME-8 — there is no idle-partition,
+exclusion or regression count on any surface either — an operator diagnosing a frozen watermark has
+the row count, an empty view, and a gauge that says "no watermark" about a working query.
+
+### TIME-3 (MEDIUM) — `out-of-orderness` has no unit bound, so `60` is sixty milliseconds and looks exactly like a correct configuration
+
+> **Status:** OPEN — reproduced. `pravaha.streams.ev.out-of-orderness: 60` gives **11** windows, the same count a correct 10-second setting gives; `60s` gives **6**. The operator who meant a minute cannot see the difference in the output.
+
+Spring's relaxed binding reads a unitless number into a `Duration` as **milliseconds** unless a
+`@DurationUnit` says otherwise, and `StreamDeclarationProperties.Declaration.outOfOrderness` carries
+no annotation and no bounds.
+
+Three runs on the same file, differing in one token:
+
+| `ev.out-of-orderness` | Effective | Windows | Last total |
+|---|---|---|---|
+| `60s` / `PT1M` / `60000ms` | 60s | 6 | 545 |
+| `60` | **60ms** | **11** | **1045** |
+| (absent) | 10s (schema default) | 11 | 1045 |
+
+The last two rows are the problem: 60 milliseconds and the ten-second default produce identical
+views, so the misconfiguration is invisible at the only surface that could show it.
+
+The key one line below it in the same `application.yaml` block behaves correctly, and the contrast
+is the argument. `pravaha.watermark.idle-after: 30` is bound as `PT0.03S`, is below
+`WatermarkTracker.MINIMUM_IDLE_TIMEOUT`, and **refuses the node at startup**:
+
+```
+PRV-2002  pravaha.watermark.idle-after is PT0.03S, which this engine will not accept: an idle
+timeout of PT0.03S is below the minimum of PT1S. …
+```
+
+`idle-after` has a minimum, a maximum and a refusal; `out-of-orderness` has a non-negative check and
+nothing else. The same bound argument `WatermarkTracker` makes for idleness applies: below some
+value the setting silently drops rows that were merely slightly out of order, and above some value a
+query that is ingesting perfectly emits nothing for ever (TIME-035, TIME-037).
+
+### TIME-4 (MEDIUM-HIGH) — one unparseable field reduces a source to zero rows, with no log line anywhere
+
+> **Status:** OPEN — reproduced on a live node. `evNull.csv` is `evB.csv` with row k=50's `event_time` replaced by an empty field. The stream delivered `ROWS IN` = **0** — not 120, not 121 — and the whole startup log contains no WARN or ERROR beyond the two unrelated ones about checkpoints and the journal.
+
+Setup: `$QA/conf/t017.yaml`, `ev` bound to `evNull.csv` with
+`schema: "id:INT64,usr:STRING,amount:INT64,event_time:TIMESTAMP"` and `event-time: event_time`.
+`pravaha register --name w10 --sql-file q10.sql --keys 0`. The query reports `RUNNING`; the view
+holds 0 rows; `pravaha queries` reports:
+
+```
+NAME	STATE	FINGERPRINT	ROWS IN
+w10	RUNNING	954ae0e3ea2c	0
+```
+
+The same file with the null filled in gives 121. TIME-017 offers two defensible outcomes for the
+null row — excluded from its window, or assigned by a zero stamp — and neither is what happened; a
+single bad line took the other 120 with it. A field spec is `NOT NULL` by default
+(`StreamSchema.sqlName()` renders `VARCHAR NOT NULL`), so refusing the row is defensible. Refusing
+the file is not, and doing it without a line in the log is the part that costs an operator an
+afternoon: the symptom is identical to a missing event-time declaration (TIME-002), to a lateness
+larger than the data (TIME-035), and to a query whose watermark has frozen (TIME-8).
+
+### TIME-5 (MEDIUM) — `tick` longer than `idle-after` starts a healthy node on which every registration fails
+
+> **Status:** OPEN — reproduced. `pravaha.watermark.tick: 5m` with `idle-after: 30s` starts, logs both settings as in force, reports `UP`, recovers its journal, and refuses every registration. This is round 1's DEPLOY-053 one configuration key across, and the `idle-after` startup validation that fixed DEPLOY-053 does not cover it.
+
+`PravahaNode.start` validates `idle-after` by constructing a throwaway `WatermarkTracker`
+(`PravahaNode.java:386-397`) and does **not** validate `tick <= idle-after`. That check lives in
+`QueryExecution.generatingWatermarks` (`:352-356`) and therefore fires once per registration.
+
+```
+INFO  c.a.m.pravaha.server.PravahaNode : watermarks: idle-after=PT30S, tick=PT5M
+INFO  c.a.m.pravaha.server.PravahaNode : registry recovered 0 of 0 queries from …
+$ pravaha register --name w10 --sql-file q10.sql --keys 0 --url grpc://localhost:19801
+PRV-1041  the watermark tick (PT5M) is longer than the idle timeout (PT30S), so a partition could
+not be noticed idle until long after it was. Idleness is detected on the tick; the tick has to be
+the finer of the two.
+$ pravaha queries --url grpc://localhost:19801
+no continuous queries are registered
+```
+
+`tick: 31s` against `idle-after: 30s` behaves identically, so the boundary is live and only the
+placement is wrong. The message is good; it is an `IllegalArgumentException` with no `PRV-` code,
+arriving once per attempt, at the surface furthest from the file that caused it.
+`PravahaNode.java:381-385`'s own comment states the design point this violates: *"one bad value is
+one startup failure, rather than at registration where it is every query failing separately"*.
+
+### TIME-6 (MEDIUM) — a windowed query that can never emit is indistinguishable, on every surface, from one that is working
+
+> **Status:** OPEN — four distinct causes reproduced on live nodes, each producing `state=RUNNING`, a climbing `ROWS IN`, an empty view, a `NaN` lag gauge, and not one log line.
+
+| Cause | Configuration | `ROWS IN` | View |
+|---|---|---|---|
+| No `event-time` declaration | `noet` with `schema:` only | 121 | 0 |
+| Blank `event-time` declaration | `ev.event-time: ""` | 121 | 0 |
+| Lateness larger than the data's span | `ev.out-of-orderness: 10m` | 121 | 0 |
+| Lateness absurdly larger | `ev.out-of-orderness: 87600h` | 121 | 0 |
+
+Add TIME-4 (`ROWS IN` 0) and a bounded source that has simply reached its last window (TIME-075),
+and there are six ways to arrive at "RUNNING, ingesting, serving nothing". The engine distinguishes
+none of them:
+
+- `sources bound:` names `event.time` among a stream's options, which is the **only** statement the
+  engine ever makes about whether a stream has an event time — there is no API field and no metric.
+- Nothing anywhere mentions `out-of-orderness`: `grep -icE "out-of-orderness"` over a full startup
+  log is **0** on every configuration tried, including one where the engine-level key and the
+  per-stream key are set to contradictory values (`0s` and `60s`).
+- The lag gauge is `NaN` for all of them, and for the healthy query beside them (TIME-2).
+
+A single startup line stating the lateness in force per stream, and a plan-time refusal for a
+windowed plan over a stream with no `eventTimeOrdinal` (TIME-003's desired behaviour — the planner
+holds the `StreamSchema` at `PhysicalPlanBuilder.java:617` and `eventTimeOrdinal()` is one call
+away), would remove four of the six.
+
+### TIME-7 (MEDIUM) — there is no way to set allowed lateness, or retention, on a server
+
+> **Status:** OPEN — both controls exist, are honoured by the runtime, are reachable from an embedder, and have no configuration key, REST field, SQL clause or CLI flag.
+
+Allowed lateness is no longer the constant zero — that was T-3 and it is fixed:
+`PhysicalPlanBuilder.allowedLatenessOf` (`:885-895`) reads
+`scanBeneath(input).outputSchema().allowedLateness()`, so `StreamSchema.Builder.allowedLateness(Duration)`
+reaches the operator. But on a server the schema is built by `PravahaNode.withEventTime`
+(`:242-264`) from `StreamDeclarationProperties.Declaration`, whose three fields are `schema`,
+`eventTime` and `outOfOrderness`; and `POST /api/v1/streams` takes
+`RegisterStreamRequest(name, schema)` and nothing else (`StreamController.java:88-98`). So every
+windowed query a server can register has allowed lateness **zero**, and the correction path
+TIME-096 exercises is unreachable outside an embedder.
+
+Retention is the same shape and worse, because it has no reachable setter at all:
+`QueryRegistry.retaining(Retention)` (`QueryRegistry.java:232`) has **no** caller in production code
+(`grep -rn "retaining(" --include=*.java` outside tests finds only the declaration). Every view on
+every server therefore uses `Retention.DEFAULT` — 24 hours of *event time* — which no dataset a QA
+round can produce will reach, and which cannot be lowered for a view that needs it or raised for one
+that does not.
+
+### TIME-8 (MEDIUM) — nothing reports a partition's idle state, its exclusions or its regressions, and there is no query listing in the REST API at all
+
+> **Status:** OPEN — every shipped surface searched on a live node with a stalled and a healthy query side by side.
+
+`WatermarkTracker` exposes `isIdle(String)`, `idleExclusions()` and `regressions()` and documents the
+second as "the metric that explains a moving watermark" (`WatermarkTracker.java:206`). None of the
+three reaches any surface:
+
+- `pravaha queries` → `NAME  STATE  FINGERPRINT  ROWS IN`.
+- `/actuator/prometheus` → exactly seven `pravaha_*` gauges: `rows_in`, `running`, `view_evicted`,
+  `view_removals`, `view_size`, `view_updates`, `watermark_lag_seconds`.
+- `/api/v1/status` → `instanceId, version, engineState, uptimeSeconds, registeredQueries, plugins`.
+- `GET /api/v1/queries` → **404**. The OpenAPI document at `/api/v1/openapi.json` lists six paths and
+  none of them lists queries: `/api/v1/queries/explain`, `/api/v1/queries/validate`,
+  `/api/v1/streams`, `/api/v1/streams/{name}`, `/api/v1/status`, `/status`.
+
+The search method works — it found the other six gauges. A second observation from the same scrape,
+recorded because it is one line away: `/api/v1/status` reported `"registeredQueries": 2` on a node
+that `pravaha queries` listed **three** queries on, at the same moment.
+
+### TIME-9 (LOW-MEDIUM) — the event-time refusals that are not `idle-after`'s carry no code, no key and no diagnosis
+
+> **Status:** OPEN — four refusals compared side by side in one harness. Two are exemplary and two are bare `IllegalArgumentException`s wearing a stack trace.
+
+`pravaha.watermark.idle-after`'s four refusals (999ms, 600001ms, 0s, −5s) each name the key, the
+rejected duration in ISO form, the bound violated and its value, and a sentence saying what the
+setting would do to a running node. `PRV-2002` in every case.
+
+The two event-time refusals raised from `StreamSchema.Builder.build` do not:
+
+```
+Caused by: java.lang.IllegalArgumentException: event-time field 'usr' must be TIMESTAMP, got VARCHAR NOT NULL
+Caused by: java.lang.IllegalArgumentException: out-of-orderness must not be negative, got PT-1S. …
+```
+
+No `PRV-` code, no stream name in the first, no configuration key in either, and the primary output
+is a Spring `ApplicationContextException` stack trace. The same file with a *misspelt* column gets
+`PRV-2002  stream 'ev' declares 'no_such_column' as its event time and has no such column. Its
+columns are [id, usr, amount, event_time].` — so the bar is demonstrably met elsewhere in the same
+method. ERRC owns the codes; this records that two configuration mistakes one line apart in the same
+YAML block get two different classes of answer.
+
+### TIME-10 (MEDIUM, documentation) — `CONCEPTS.md` still promises a correction that a `TUMBLE` query cannot produce, and still names the dead key
+
+> **Status:** OPEN — `docs/CONCEPTS.md:68-70` and `:65-66`, both checked against a running node this round.
+
+Two sentences, both false for any query a server can register:
+
+> *"Note what this is **not**. It decides how long the engine waits before calling a window complete.
+> A row arriving after that is still applied — as a retraction and a correction — which is what the
+> weights are for."* — `CONCEPTS.md:68-70`
+
+Allowed lateness is zero on every server-registered query (TIME-7), so for `TUMBLE` the row is
+counted in `WindowedAggregate.lateRecords` and sent to a `lateOutput` wired to nothing. The claim is
+true only for an overlapping window inside a bounded band, and only from an embedder.
+
+> *"A stream that says nothing gets **10 seconds**, which a deployment moves with
+> `pravaha.watermark.out-of-orderness`."* — `CONCEPTS.md:65-66`
+
+That key is read by nothing, which this round proved by experiment rather than by grep: the same
+duration at `pravaha.watermark.out-of-orderness` gives **11** windows and at
+`pravaha.streams.ev.out-of-orderness` gives **6**. Already recorded as DOCX-6; recorded again here
+because `CONCEPTS.md` is a different file from the ones DOCX-6 names and still carries it.
+
+The counterpart in the code has already been fixed and is worth quoting as the model:
+`StreamSchema.java:129-137` now draws the distinction explicitly and records that *"that second
+sentence used to say a late row 'is still applied' without qualification. It was not true of any
+query the planner built."* `CONCEPTS.md` says the unqualified version.
+
+### TIME-11 (LOW) — the watermark tick is clamped where every neighbouring duration is refused, and the log reports the value that was not used
+
+> **Status:** OPEN — three configurations, all accepted, all reproduced on live nodes.
+
+`QueryExecution.java:367` is `long period = Math.max(1, tick.toMillis())`.
+
+| `pravaha.watermark.tick` | Startup | Logged | Effective | Windows |
+|---|---|---|---|---|
+| `0s` | starts | `tick=PT0S` | 1ms | 11 |
+| `PT0.0005S` | starts | `tick=PT0.0005S` | 1ms | 11 |
+| `-1s` | starts | `tick=PT-1S` | 1ms | 11 |
+
+Three things in one: a zero tick becomes a thousand passes a second over every lane on a daemon
+thread for ever; a sub-millisecond tick is floored silently, so an operator who asked for 2000 ticks
+a second gets 1000; and a **negative** tick is accepted, because `tick.compareTo(idleAfter) > 0` is
+false for a negative and nothing else looks at the sign. `pravaha.watermark.idle-after: -5s`, one
+line above, is refused at startup.
+
+In all three the log line prints the *configured* duration, not the effective one, so the only
+surface that mentions the tick actively misreports what the engine is doing. `WatermarkTracker`'s own
+comment states the principle the clamp breaks: *"it refuses rather than clamps: a timeout quietly
+changed to something the operator did not ask for is how a tuned value becomes a mystery later."*
