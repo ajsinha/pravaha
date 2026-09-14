@@ -229,6 +229,235 @@ class DocumentationFreshnessTest {
     }
 
     @Test
+    void everyJavaTypeTheReadmeShowsExists() throws IOException {
+        // The README's headline example read:
+        //
+        //     pravaha.view("user_volume").consistency(Consistency.CONSISTENT).get("user_42")
+        //
+        // There is no view(...) on PravahaEngine and no fluent consistency(...) anywhere in the
+        // repository. It was the first code an evaluator would try, and it had never been true.
+        // The checks above all passed over it, because they read module names, ADR references and
+        // paths -- none of which a fabricated API touches.
+        //
+        // A block that deliberately shows an API which does not exist yet marks itself with an
+        // <!-- illustrative --> comment on the line before it, which is a thing a reader sees too.
+        String readme = Files.readString(repoRoot().resolve("README.md"), StandardCharsets.UTF_8);
+        Set<String> sources = sourceTypeNames();
+
+        String allSource = allSourceText();
+        List<String> fabricated = new ArrayList<>();
+        for (String block : javaBlocks(readme)) {
+            for (String name : pravahaTypesIn(block)) {
+                if (!sources.contains(name)) {
+                    fabricated.add("type " + name);
+                }
+            }
+            // Methods as well as types, because the fabrication was a method: Consistency is a
+            // real class, and `view(...).consistency(...)` was invented around it. A type-level
+            // check passed this snippet, which is how I found out that checking types was not
+            // enough -- the seeded README went green.
+            for (String method : methodsCalledIn(block)) {
+                if (!allSource.contains(method + "(")) {
+                    fabricated.add("method " + method + "(...)");
+                }
+            }
+        }
+
+        assertThat(fabricated)
+                .as("the README shows Java types that do not exist in this repository. Either build "
+                        + "them, use the API that does exist, or mark the block <!-- illustrative --> "
+                        + "so a reader knows it describes something unbuilt")
+                .isEmpty();
+    }
+
+    /** The fenced {@code java} blocks of a document, minus any marked illustrative. */
+    private static List<String> javaBlocks(String markdown) {
+        List<String> blocks = new ArrayList<>();
+        String[] lines = markdown.split("\n", -1);
+        boolean illustrative = false;
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].contains("<!-- illustrative")) {
+                illustrative = true;
+                continue;
+            }
+            if (!lines[i].strip().startsWith("```java")) {
+                if (!lines[i].isBlank()) {
+                    illustrative = false;
+                }
+                continue;
+            }
+            StringBuilder block = new StringBuilder();
+            int j = i + 1;
+            while (j < lines.length && !lines[j].strip().startsWith("```")) {
+                block.append(lines[j]).append('\n');
+                j++;
+            }
+            if (!illustrative) {
+                blocks.add(block.toString());
+            }
+            illustrative = false;
+            i = j;
+        }
+        return blocks;
+    }
+
+    /**
+     * Type-shaped names in a snippet that look like this project's rather than the JDK's.
+     *
+     * <p>Deliberately narrow. A snippet names domain types a reader is meant to substitute -- an
+     * {@code Order}, a {@code FraudService} -- and failing on those would make the check noise.
+     * What it catches is a name this repository is claimed to provide.
+     */
+    private static Set<String> pravahaTypesIn(String block) {
+        Set<String> named = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher annotations =
+                java.util.regex.Pattern.compile("@([A-Z][A-Za-z0-9]+)").matcher(block);
+        while (annotations.find()) {
+            named.add(annotations.group(1));
+        }
+        // A capitalised name used statically -- Consistency.CONSISTENT, SubscriptionOptions.DEFAULT
+        // -- or constructed. Both are claims that the type exists here.
+        java.util.regex.Matcher statics = java.util.regex.Pattern.compile(
+                        "\\b([A-Z][A-Za-z0-9]+)\\.[A-Z_]{2,}\\b|new\\s+([A-Z][A-Za-z0-9]+)\\s*\\(")
+                .matcher(block);
+        while (statics.find()) {
+            named.add(statics.group(1) != null ? statics.group(1) : statics.group(2));
+        }
+        named.removeAll(JDK_TYPES);
+        return named;
+    }
+
+    /**
+     * Method names a snippet calls, minus the ones every Java program calls.
+     *
+     * <p>Matched on the name alone rather than on a signature. A false negative -- a method that
+     * exists somewhere else with the same name -- costs nothing; a false positive would make this
+     * check noise and get it deleted.
+     */
+    private static Set<String> methodsCalledIn(String block) {
+        Set<String> called = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher calls =
+                java.util.regex.Pattern.compile("\\.([a-z][A-Za-z0-9]*)\\s*\\(").matcher(block);
+        while (calls.find()) {
+            called.add(calls.group(1));
+        }
+        called.removeAll(COMMON_METHODS);
+        return called;
+    }
+
+    /** Methods the JDK provides, which a snippet naming them is not claiming this repository has. */
+    private static final Set<String> COMMON_METHODS = Set.of(
+            "get",
+            "map",
+            "orElse",
+            "orElseThrow",
+            "toString",
+            "equals",
+            "hashCode",
+            "of",
+            "size",
+            "add",
+            "stream",
+            "filter",
+            "forEach",
+            "collect",
+            "isEmpty",
+            "close",
+            "println",
+            "format",
+            "valueOf",
+            "length",
+            "contains",
+            "iterator",
+            "next",
+            "run",
+            "start",
+            "join",
+            "accept",
+            "apply",
+            "test",
+            "compare",
+            "build",
+            "builder");
+
+    /** Every character of every Java source file, for a name-level existence check. */
+    private static String allSourceText() throws IOException {
+        StringBuilder text = new StringBuilder();
+        try (Stream<Path> files = Files.walk(repoRoot())) {
+            for (Path path : files.filter(f -> f.toString().endsWith(".java"))
+                    .filter(f -> !f.toString().contains("/target/"))
+                    // This file quotes the fabricated call it exists to catch, so scanning it
+                    // would let that call prove its own existence. The check defeated itself
+                    // exactly once, in the seed that was meant to confirm it worked.
+                    .filter(f -> !f.getFileName().toString().equals("DocumentationFreshnessTest.java"))
+                    .toList()) {
+                text.append(Files.readString(path, StandardCharsets.UTF_8));
+            }
+        }
+        return text.toString();
+    }
+
+    /** Names the JDK and common libraries provide, which this repository is not claiming to. */
+    private static final Set<String> JDK_TYPES = Set.of(
+            "String",
+            "Integer",
+            "Long",
+            "Double",
+            "Boolean",
+            "BigDecimal",
+            "List",
+            "Map",
+            "Set",
+            "Optional",
+            "Duration",
+            "Instant",
+            "Objects",
+            "Math",
+            "System",
+            "Arrays",
+            "Collections",
+            "Thread",
+            "Files",
+            "Path",
+            "Stream",
+            "Service",
+            "Override",
+            "Test",
+            "Autowired",
+            "Bean",
+            "Component",
+            "Configuration",
+            "RestController",
+            "SpringBootApplication");
+
+    /** Every type this repository defines, by simple name. */
+    private static Set<String> sourceTypeNames() throws IOException {
+        try (Stream<Path> files = Files.walk(repoRoot())) {
+            return files.filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> !path.toString().contains("/target/"))
+                    .map(path -> path.getFileName().toString().replace(".java", ""))
+                    .collect(java.util.stream.Collectors.toSet());
+        }
+    }
+
+    @Test
+    void theReadmesModuleListMatchesTheBuild() throws IOException {
+        // The list said eleven modules; the build had thirty-one. A reader sizing the project, or
+        // looking for where something lives, was being told about a third of it.
+        String readme = Files.readString(repoRoot().resolve("README.md"), StandardCharsets.UTF_8);
+        List<String> missing = new ArrayList<>();
+        for (String module : mavenModules()) {
+            String simple = module.substring(module.lastIndexOf('/') + 1);
+            if (!readme.contains(simple)) {
+                missing.add(simple);
+            }
+        }
+        assertThat(missing)
+                .as("every module in pom.xml must be named in the README's module list")
+                .isEmpty();
+    }
+
+    @Test
     void theCheckItselfHasSomethingToCheck() throws IOException {
         // Guards against a path bug making every assertion above vacuous.
         assertThat(mavenModules()).hasSizeGreaterThan(10);

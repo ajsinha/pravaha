@@ -26,7 +26,7 @@
 
 ---
 
-> **Project status: Wave 7 of 10 — an engine with a client protocol; no UI, no clustering.**
+> **Project status: Wave 7 of 10 — an engine with a client protocol, an operator console, and no clustering.**
 >
 > Waves 1–7 are merged to `main` (see [`docs/gates/wave-7`](docs/gates/wave-7/), which records why
 > that merge happened without a passing performance gate). **SQL runs end to end today**, now
@@ -36,10 +36,14 @@
 >
 > Wave 3 added whole-stage code generation — roughly **10× the interpreted path** — the lane model,
 > the hash exchange between lanes, backpressure that reaches the source plugin, and adaptive
-> batching. Wave 4 added **windowed `GROUP BY`** end to end, window slicing,
-> session windows and late-data correction by retraction. Watermark *handling* is built; watermark
-> *generation* is not. The dead-letter queue, the changelog negotiation and the L0 state map were
-> built and are not wired into any running path.
+> batching. Wave 4 added **windowed `GROUP BY`** end to end, window slicing and
+> session windows. Watermark handling *and* generation are both built now: a registered query
+> derives its watermark from the event-time column its stream declares, and a partition that goes
+> quiet stops holding the rest of the query back. Late-data correction by retraction is built and
+> **declared per stream** — `allowedLateness` defaults to zero, because a window that revises is no
+> longer safe for an append-only sink and that has to be a choice rather than a default. The
+> dead-letter queue, the changelog negotiation and the L0 state map were built and are not wired
+> into any running path.
 >
 > **Gates P2 and P3 are both blocked on the same thing, and it is not code.** The throughput and
 > scaling figures need 16 physical homogeneous cores; the development machine is a 12-core
@@ -78,6 +82,10 @@ pravaha subscribe --view user_volume --filter user_id=u1
 Register a continuous query, ask the view a question, then watch it update. Ten minutes end to end:
 [**Quickstart**](docs/QUICKSTART.md).
 
+A file source is a bounded read by default and ends where the file ends. `follow: true` makes it
+`tail -f` — rows appended while the query runs arrive without anything being restarted — which is
+what a continuous query over a file needs and did not have.
+
 ---
 
 ## What it is
@@ -115,14 +123,27 @@ What is not yet parsed is the statement *around* it: `CREATE CONTINUOUS QUERY`, 
 engine is driven through its API until they exist. `SELECT STREAM` is accepted and redundant -- every
 Pravaha query is continuous, so there is no non-streaming mode to distinguish it from.
 
+…and the answer is read back from the same system, by key, without a second database in the call:
+
 ```java
-// …and read the answer, from the same system, in microseconds
-BigDecimal volume = pravaha.view("user_volume")
-                          .consistency(Consistency.CONSISTENT)
-                          .get("user_42")
-                          .map(r -> r.getDecimal("total_volume"))
-                          .orElse(BigDecimal.ZERO);
+// Over the wire, with the Java SDK.
+try (QueryResult result = client.query("SELECT total_volume FROM user_volume WHERE user_id = ?", "u42")) {
+    for (Row row : result) {
+        long volume = row.getLong("total_volume");
+    }
+}
 ```
+
+```python
+# Or from Python, against the same engine.
+for row in client.query("SELECT total_volume FROM user_volume WHERE user_id = ?", "u42"):
+    volume = row["total_volume"]
+```
+
+A consumer that wants the changes rather than the current answer subscribes instead, and receives
+one batch per commit with a weight on every row — `+1` for a row appearing, `-1` for one being
+withdrawn — so a corrected window arrives as a retraction of the old answer followed by the new
+one.
 
 ## Why it exists
 
@@ -137,7 +158,7 @@ nor incremental maintenance.
 |  | What it means |
 |---|---|
 | **Embeddable** | A library in your Spring Boot service, or a clustered server. Same engine, same code paths. |
-| **Store-native** | **Filters** are pushed *into* the store — working today against Aerospike and any JDBC source, so filtered rows never cross the network. Projection and partial-aggregate pushdown, and a Cassandra plugin, are designed and not yet built. |
+| **Store-native** | **Filters** are pushed *into* the store — against Aerospike and any JDBC source, so filtered rows never cross the network. Offered on every path a deployment uses, including a registered continuous query, which until recently scanned and filtered afterwards. Projection and partial-aggregate pushdown, and a Cassandra plugin, are designed and not yet built. |
 | **Incremental** | Z-sets and DBSP-derived operators: work is proportional to what changed, not to how much data exists. Recursive SQL becomes expressible. |
 | **Serving** | The maintained view *is* an indexed table in memory, with declared consistency and reported staleness. Built and working; the µs-latency target is a design goal that needs the reference hardware to measure honestly. |
 
@@ -180,11 +201,15 @@ The engine itself also embeds. One core, several ways to run it:
 | **B** Spring-embedded | `pravaha-spring-boot-starter` — **not built yet** (ADR-020) | auto-config into *your* app | Add continuous SQL to a service you already run |
 | **C** Server | `pravaha-server` | it *is* a Spring Boot app | Standard production deployment |
 
+Mode B is **not built**, and the shape it is intended to take is this — an annotation that does not
+exist yet, shown so the intent is on the record rather than discovered from an ADR:
+
+<!-- illustrative: describes an unbuilt API -->
 ```java
 @Service
 class FraudService {
 
-    @PravahaListener(query = "high-value-orders", concurrency = 4)
+    @PravahaListener(query = "high-value-orders", concurrency = 4)   // NOT BUILT (ADR-020)
     void onHighValueOrder(HighValueOrder order) {     // typed from the query's schema
         riskEngine.evaluate(order);
     }
@@ -287,11 +312,23 @@ No system Maven needed — the wrapper is vendored. See
 [implementation plan §2](docs/implementation_plan.md) for the toolchain and build profiles, and
 [`docs/QUICKSTART.md`](docs/QUICKSTART.md) to actually run something.
 
-Modules currently built: `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pravaha-runtime`,
-`pravaha-codegen`, `pravaha-sql`, `pravaha-connect`, `pravaha-embedded`, `pravaha-server`,
-`pravaha-cli`, `pravaha-testkit`, plus [`plugins/pravaha-plugin-filesystem`](plugins/pravaha-plugin-filesystem)
-and the SDKs in [`sdk/pravaha-sdk-java`](sdk/pravaha-sdk-java) and
-[`sdk/python`](sdk/python).
+**Modules currently built**, in build order — this list is checked against `pom.xml` by
+`DocumentationFreshnessTest`, because the previous one named eleven modules and the build had
+thirty-one:
+
+`pravaha-bom`, `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pravaha-catalog`,
+`pravaha-sql`, `pravaha-runtime`, `pravaha-codegen`, `pravaha-state`, `pravaha-backfill`,
+`pravaha-security`, `pravaha-serving`, `pravaha-cluster`, `pravaha-registry`, `pravaha-flight`,
+`pravaha-connect`, `pravaha-testkit`, `pravaha-benchmarks`, `pravaha-it`, `pravaha-embedded`,
+`pravaha-cli`, `pravaha-server`.
+
+Plugins: [`filesystem`](plugins/pravaha-plugin-filesystem), [`delta`](plugins/pravaha-plugin-delta),
+[`feedfile`](plugins/pravaha-plugin-feedfile), [`jdbc`](plugins/pravaha-plugin-jdbc),
+[`aerospike`](plugins/pravaha-plugin-aerospike), [`cluster-zookeeper`](plugins/pravaha-cluster-zookeeper).
+
+SDKs: [`sdk/pravaha-sdk-java`](sdk/pravaha-sdk-java),
+[`sdk/pravaha-sdk-java-flight`](sdk/pravaha-sdk-java-flight), [`sdk/python`](sdk/python). The
+operator console is its own artefact in [`console`](console).
 
 ## Roadmap
 
