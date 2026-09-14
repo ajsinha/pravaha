@@ -194,6 +194,80 @@ abstract class StateTestSupport {
         }
     }
 
+    /** A raw two-input join execution over H-JOIN's plan (txn left, lkp right), no served-view wiring. */
+    static RawJoinExecution rawJoin() {
+        PhysicalOperator plan = new PhysicalPlanBuilder()
+                .build(SqlPlanner.withStreams(TXN_T, LKP).plan(JOIN_SQL));
+        List<CapturingRowWriter.Captured> emitted = new java.util.ArrayList<>();
+        QueryExecution execution = QueryExecution.start(
+                plan,
+                1,
+                laneConfig(),
+                MemoryAccess.best(),
+                () -> (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), row -> {
+                    synchronized (emitted) {
+                        emitted.add(row);
+                    }
+                }));
+        // execution.streams() is plan order, left side first: "txn" then "lkp".
+        return new RawJoinExecution(execution, emitted);
+    }
+
+    /** A raw join execution, plus plumbing to feed either input by stream name. */
+    static class RawJoinExecution implements AutoCloseable {
+        final QueryExecution execution;
+        final List<CapturingRowWriter.Captured> emitted;
+        private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
+        private final RowLayout txnLayout = RowLayout.of(TXN_T);
+        private final RowLayout lkpLayout = RowLayout.of(LKP);
+
+        RawJoinExecution(QueryExecution execution, List<CapturingRowWriter.Captured> emitted) {
+            this.execution = execution;
+            this.emitted = emitted;
+        }
+
+        void feedTxn(String user, long amount, long tsNanos) {
+            BinaryRowWriter writer = new BinaryRowWriter(txnLayout);
+            long handle = arena.allocate(txnLayout.rowSize(128));
+            writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+            writer.setString(0, user).setLong(1, amount).setLong(2, tsNanos);
+            writer.weight(1L).eventTimestampNanos(tsNanos).sequence(tsNanos).commit();
+            offer(0, handle, writer.sizeSoFar());
+        }
+
+        void feedLkp(String user, String tier) {
+            BinaryRowWriter writer = new BinaryRowWriter(lkpLayout);
+            long handle = arena.allocate(lkpLayout.rowSize(128));
+            writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+            writer.setString(0, user).setString(1, tier);
+            writer.weight(1L).eventTimestampNanos(0L).sequence(0L).commit();
+            offer(1, handle, writer.sizeSoFar());
+        }
+
+        private void offer(int input, long handle, int length) {
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while (!execution.lane(0).offer(input, arena.regionOf(handle), arena.offsetOf(handle), length)) {
+                execution.checkHealth();
+                if (System.nanoTime() > deadline) {
+                    throw new AssertionError("lane 0 stopped accepting rows on input " + input);
+                }
+                Thread.onSpinWait();
+            }
+        }
+
+        /** Stops as a crash would -- nothing held is emitted on the way out. See STATE-064. */
+        void abort() {
+            execution.abort();
+            arena.close();
+        }
+
+        @Override
+        public void close() {
+            execution.close();
+            arena.close();
+        }
+    }
+
     // ---------------------------------------------------------------------------------------
     // H-PRJ / H-WIN / H-JOIN via QueryRegistry, for cases that need the registry itself.
     // ---------------------------------------------------------------------------------------
@@ -244,5 +318,61 @@ abstract class StateTestSupport {
         } catch (ReflectiveOperationException e) {
             throw new AssertionError(e);
         }
+    }
+
+    /**
+     * A bounded, in-memory {@link com.ash.messaging.pravaha.api.plugin.PartitionReader} over
+     * {@code (user, amount, tsNanos)} rows for TXN's schema, for cases (STATE-051, STATE-057) whose
+     * setup calls for "one bound source so there is exactly one pump" rather than a raw
+     * {@code lane.offer}. Position is a decimal row count, a genuinely restartable token.
+     */
+    static final class InMemoryTxnReader implements com.ash.messaging.pravaha.api.plugin.PartitionReader {
+        private final List<Object[]> rows;
+        private int cursor;
+
+        InMemoryTxnReader(List<Object[]> rows) {
+            this.rows = rows;
+        }
+
+        static InMemoryTxnReader ofRows(int count, String user, long amountEach, long tsStepNanos) {
+            List<Object[]> rows = new java.util.ArrayList<>(count);
+            for (int i = 0; i < count; i++) {
+                rows.add(new Object[] {user, amountEach, (long) i * tsStepNanos});
+            }
+            return new InMemoryTxnReader(rows);
+        }
+
+        @Override
+        public int poll(RecordSink sink, int maxRecords) {
+            int n = 0;
+            while (n < maxRecords && cursor < rows.size()) {
+                Object[] row = rows.get(cursor);
+                var writer = sink.beginRow();
+                writer.setString(0, (String) row[0]).setLong(1, (Long) row[1]);
+                long ts = (Long) row[2];
+                if (writer.schema().fieldCount() > 2) {
+                    // TXN_T carries a NOT NULL event-time column too; TXN does not.
+                    writer.setLong(2, ts);
+                }
+                writer.weight(1L).eventTimestampNanos(ts).sequence(ts).commit();
+                cursor++;
+                n++;
+            }
+            return n;
+        }
+
+        @Override
+        public com.ash.messaging.pravaha.api.plugin.SourceOffset position() {
+            return new com.ash.messaging.pravaha.api.plugin.SourceOffset(Integer.toString(cursor));
+        }
+
+        @Override
+        public void pause() {}
+
+        @Override
+        public void resume() {}
+
+        @Override
+        public void close() {}
     }
 }

@@ -288,8 +288,104 @@ succeeds and `checkpointFailures()` still climbs.
 
 ---
 
+## §F — Restore: what round-trips, and what does not (STATE-050 … STATE-064)
+
+Test class: `StateRestoreTest`. This is the section the area exists for, and where executing it
+against current `develop` diverges most from what `STATE.md` predicts -- see `FINDINGS.md`'s `ST-2`
+and, especially, `ST-5`: recovery of accumulated answers now genuinely works for the real ingest path
+(`QueryRegistry` + `PluginSourceFeeds`), which STATE-057 and STATE-063 demonstrate directly rather
+than assert from a grep. "H-PRJ/H-WIN/H-JOIN + direct checkpointer" cases use a raw `QueryExecution`
+(bypassing `QueryRegistry`, per the package Javadoc); STATE-063 is `H-SRV`, a real `PravahaNode`
+(the constructor-injection pattern `PravahaNodeTest` already uses, not a Spring context) restarted
+against one shared journal and checkpoint root.
+
+- **STATE-050 — FAIL as authored, drift.** `state050_noShippedCodePathCallsRestoreOrLatest_asAuthored`:
+  re-runs the case's own three greps live. `.latest()` outside `src/main` now has a second hit,
+  `QueryRegistry.java:469`; `.restore(` has a second real hit, `QueryRegistry.java:473`
+  (`PartitionHandoff.java` is still the unrelated type the case names). `restoreState` is unchanged
+  (declaration + one caller) -- but that caller is `QueryExecution.restore`, itself now reachable.
+  `PravahaNode.java` still names no `.restore(` directly, and does not need to: `registry.checkpointingTo`
+  (`:370`) arms `restoreFrom` inside every subsequent `register()` call.
+- **STATE-051 — PASS.** `state051_aProjectionsCheckpointContainsNoOperatorStateAtAll`: a raw
+  projection execution pumped 10,000 rows via a real `PartitionReader` (one pump, so `offsets().size()
+  == 1`); `operatorState()` empty, `sizeBytes()==0`, `toString()` exact, file size matches the
+  byte-for-byte header/offset/trailer arithmetic for the actual token length.
+- **STATE-052 — FAIL as authored, a stronger guard than the one described.**
+  `state052_aKeyedNonWindowedAggregateIsAlsoNotStateful`: `GROUP BY user_id` with no window is now
+  refused at *plan build time*, `PRV-2050` (`SQL_UNBOUNDED_STATE`) -- "state grows with the number of
+  distinct keys and never shrinks... refusing now rather than exhausting memory later." The plan
+  shape this case says checkpoints nothing can no longer be registered at all. Global aggregate and
+  filter arms (still buildable) checkpoint nothing, as authored.
+- **STATE-053 — PASS.** `state053_aWindowedAggregateWritesRealBytesAsAVersionedSnapshot`: `lane-0`
+  bytes present, `SNAPSHOT_MAGIC` (`0x50565354`), version `2`, windowed-operator count `1`, all
+  decoded from the raw byte array rather than trusted.
+- **STATE-054 — PASS.** `state054_aJoinWritesBytesThroughTheOtherBranchOfIsStateful`: a raw join
+  execution's `lane-0` bytes present, same magic/version, windowed count `0` (the join branch).
+- **STATE-055 — PASS.** `state055_aWindowedAggregatesOpenWindowSurvivesACheckpointRestoreRoundTrip`:
+  the positive control -- `207 = 100+102+5`, distinguishing "restored" (207) from "state lost" (5)
+  from "new row lost" (202).
+- **STATE-056 — PASS.** `state056_aJoinsUnmatchedRowsSurviveARoundTrip`: a left row held unmatched
+  across a checkpoint/restore matches a right row that arrives only afterward: `(u1, 300, gold)`.
+- **STATE-057 — FAIL as authored, in the most consequential way this section found (`ST-5`).** The
+  raw-harness double-count itself is confirmed exactly as authored: `160 = 60 restored + 100 replayed`
+  (not the correct `100`), reproduced with a real `PartitionReader` and offsets genuinely returned
+  from `checkpoint().offsets()`. But the case's broader conclusion -- "no shipped code reads
+  `offsets()` back" -- does not hold: `QueryRegistry.restoreFrom` returns them and
+  `PluginSourceFeeds.open` seeks every reader to the returned token instead of `SourceOffset.BEGINNING`,
+  confirmed by reading both files directly. The double-count this case demonstrates is real only for a
+  caller who does not go through the server's own ingest path.
+- **STATE-058 — PASS**, with an adapted plan shape. `state058_aSnapshotFromAPlanWithADifferentNumberOfStatefulOperatorsIsRefused`:
+  `UNION ALL` of two windowed aggregates is not an executable plan shape (`PRV-2020`, `LogicalUnion`);
+  a join of two windowed sub-aggregates over two distinct event-time streams gives the same
+  operator-count mismatch without that limitation. `PravahaException` with the exact message; the
+  restore's control-task failure marks the lane dead, so nothing further is asserted on that
+  execution beyond what it had already emitted (empty).
+- **STATE-059 — FAIL as authored, drift.** `state059_theOperatorCountCheckNowCoversJoinsToo_drift`:
+  `InterpretedPipeline.restoreState` now compares the join count against `joins.size()` too (the
+  windowed-count check still runs first and short-circuits, so this needed a plan differing *only* in
+  join count -- a genuine two-join plan over a third stream, not a self-join). Restoring a two-join
+  checkpoint into a one-join plan throws a parallel, equally clear message: "the checkpoint holds 1
+  joins and this plan has 2." The gap STATE-059 describes is closed.
+- **STATE-060 — PASS.** `state060_bytesThatAreNotASnapshotAreRefusedBeforeTheyAreParsed`: all three
+  arms (zero bytes, 4096 fixed-seed random bytes, a real snapshot with one byte flipped) throw the
+  exact magic-check message; no `OutOfMemoryError`, no hang. Each arm uses a fresh execution -- a lane
+  whose control task already threw once is not reusable for a second restore attempt.
+- **STATE-061 — PASS.** `state061_aVersion1SnapshotIsRefusedRatherThanReadIntoVersion2Layouts`: a
+  real snapshot with `SNAPSHOT_VERSION` patched from 2 to 1 throws the exact version-mismatch message,
+  including the "replay from a source offset instead" advice.
+- **STATE-062 — PASS.** `state062_aCheckpointHoldingNoEntryForALaneIsASilentSkipNotAFailure`: restoring
+  a stateless checkpoint (STATE-051's shape) into a windowed execution returns in well under 50ms with
+  no exception and no emitted row -- a skip, not a lane round trip.
+- **STATE-063 — FAIL as authored, and the section's central result (`ST-5`).**
+  `state063_aServerRestartRecoversEveryDefinitionAndZeroAccumulatedAnswers_asAuthored`: a real
+  `PravahaNode`, restarted against one shared journal and checkpoint root (`H-SRV`). As authored, this
+  case expects a windowed query's open window to be lost (or replayed wrong) and a non-windowed
+  query's served view to come back empty. As executed: the windowed query's window is restored
+  correctly (`207 = 100+102+5`, not `5`), and a non-windowed, non-stateful query's served view (two
+  keyed rows) survives the restart intact -- both checkpoint files carry more than the 60-byte pure
+  framing STATE-051 predicts for a non-stateful plan, because `checkpointingViewWith` puts the served
+  view in regardless. Seed-proven: with `QueryRegistry`'s `checkpointingViewWith` call removed, the
+  same test fails exactly where expected (the non-windowed query's checkpoint shrinks to 44 bytes);
+  restored, it passes. "kill -9" is approximated with `PravahaNode.stop()` (graceful); the case's own
+  `agg` (a keyed `GROUP BY`) had to be replaced with a plain keyed projection, since a keyed
+  non-windowed aggregate can no longer be registered at all (STATE-052's `PRV-2050` finding) and a
+  keyless one is refused by the registry ("a view with no key is a log"). Both adaptations are noted
+  in the test itself.
+- **STATE-064 — PASS.** `state064_aCrashSimulatedWithCloseInsteadOfAbortInvalidatesARecoveryTest`:
+  `abort()` emits nothing (the open window is discarded); `close()` emits `202` once, via `finish()`.
+  Restoring each checkpoint into a fresh execution and closing it emits `202` again in both cases --
+  so the `close()` run's total across the whole exercise is `202` twice and the `abort()` run's is
+  `202` once, the exact duplicate-emission artefact the case is about.
+
+**Section tally: 15/15 executed. 10 PASS as authored, 5 FAIL-as-authored (STATE-050, 052, 057, 059,
+063) -- all five drift, three of them (050, 057, 063) the same underlying finding (`ST-5`): recovery
+now works for the real ingest path, which the case file's "Three facts" preamble says is impossible.**
+
+---
+
 ## Coverage so far
 
-STATE-001 … STATE-049 executed (49 of 110): 45 PASS, 2 FAIL-as-authored (STATE-030 drift-only,
-STATE-034 a genuine defect, `ST-1`), 2 NOT RUN (STATE-045, STATE-048, both with concrete reasons).
-STATE-050 onward not reached this round — see the final report for what remains and why.
+STATE-001 … STATE-064 executed (64 of 110): 55 PASS, 7 FAIL-as-authored (STATE-030, 034, 050,
+052, 057, 059, 063 -- one genuine defect, `ST-1`; the rest drift, three of them one underlying
+finding, `ST-5`), 2 NOT RUN (STATE-045, STATE-048, both with concrete reasons).
+STATE-065 onward not reached this round -- see the final report for what remains and why.

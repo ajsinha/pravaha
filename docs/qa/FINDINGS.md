@@ -1197,6 +1197,18 @@ uniform rule. (SQLX-160, SQLX-161)
 
 ---
 
+## X-15 — `AGG.md`'s own central defect (unguarded keyed `COUNT`) is fixed; the case file predates the fix
+
+`AGG.md`'s preamble names, as its central discriminator, `KeyedAggregate.Group.accumulate`'s
+unguarded `case COUNT -> counts[i] += weight;`. Executed directly against a running server
+(AGG-013..016): every keyed `COUNT(col)` now correctly excludes NULLs and is internally consistent
+with its paired `SUM`/`AVG` in the same row — matching the case file's "Expected (correct)" text, not
+its "Expected (this build)" text. Traced to `23acedc2  Defects 15-17: three aggregate answers that
+were wrong`, which adds the guard and, in the same commit, fixes W-1 above. `AGG.md`'s fact 2 and
+`docs/qa/logs/AGG.md`'s own preamble should be updated to say `FIXED` rather than describe a live
+defect. Full reproduction in `docs/qa/logs/AGG.md`.
+
+
 # ERRC — found executing `docs/qa/cases/ERRC.md`
 
 Cases run as real JUnit tests under `pravaha-it`'s new `qa.errc` package. Verdicts and evidence for
@@ -1516,13 +1528,42 @@ and currently reuses the general `log` consumer for it), and have `QueryRegistry
 `PeriodicCheckpointer`'s public constructor/callback shape is a real API change, not a small,
 obviously-safe one, per this round's brief.
 
-## X-15 — `AGG.md`'s own central defect (unguarded keyed `COUNT`) is fixed; the case file predates the fix
+### ST-5 — recovery of accumulated answers now genuinely works, for real deployments; STATE.md's central narrative for restore no longer holds
 
-`AGG.md`'s preamble names, as its central discriminator, `KeyedAggregate.Group.accumulate`'s
-unguarded `case COUNT -> counts[i] += weight;`. Executed directly against a running server
-(AGG-013..016): every keyed `COUNT(col)` now correctly excludes NULLs and is internally consistent
-with its paired `SUM`/`AVG` in the same row — matching the case file's "Expected (correct)" text, not
-its "Expected (this build)" text. Traced to `23acedc2  Defects 15-17: three aggregate answers that
-were wrong`, which adds the guard and, in the same commit, fixes W-1 above. `AGG.md`'s fact 2 and
-`docs/qa/logs/AGG.md`'s own preamble should be updated to say `FIXED` rather than describe a live
-defect. Full reproduction in `docs/qa/logs/AGG.md`.
+Section F of `STATE.md` (STATE-050–064) is built around the "Three facts" (`ST-2`): nothing calls
+restore, offsets are never consumed, a keyed aggregate checkpoints nothing. Executing STATE-057 and
+STATE-063 end to end shows the picture is now substantially better than that, for the deployment
+shape that matters — a query fed by `PluginSourceFeeds` (the real ingest path, not a raw
+`QueryExecution` driven by hand):
+
+- `PluginSourceFeeds.open` (`pravaha-server/.../ingest/PluginSourceFeeds.java`, near `:126`–`:131`)
+  seeks every partition's reader to `resumeFrom`'s token instead of `SourceOffset.BEGINNING`, with
+  its own comment: "Reading from the beginning after a restore would replay every record between the
+  checkpoint and the failure on top of the state that already counted them." `resumeFrom` is exactly
+  `Checkpoint.offsets()`, returned by `QueryRegistry.restoreFrom` (`QueryRegistry.java:474`) and
+  passed through `register()`.
+- `checkpointingViewWith` (see `ST-4`'s neighbour finding and the package Javadoc) means a checkpoint
+  carries the served view regardless of `isStateful()`, so even a plain projection or a filter — the
+  shapes STATE-051/052/062 use to demonstrate "checkpoints nothing" — recovers its answers, not its
+  accumulators, on restart.
+
+`StateRestoreTest.state063_...` proves the combination end to end with a real `PravahaNode` (two
+instances sharing one journal and one checkpoint root, `H-SRV`'s own harness): a windowed query's open
+window is restored correctly (`100+102+5=207`, not `5`), and a non-windowed, non-stateful query's
+served view survives the restart with both its rows intact — precisely the answer STATE-063 says a
+restart loses. Seed-proven: with `QueryRegistry`'s `.checkpointingViewWith(...)` call removed, the
+same test fails exactly where expected (agg's checkpoint shrinks from a real payload back to the
+44-byte pure-framing STATE-051 describes); restored, it passes.
+
+**What is still true of the case file's pessimism:** a caller who builds a raw `QueryExecution` by
+hand and pumps rows in directly (bypassing `QueryRegistry`/`PluginSourceFeeds` entirely) gets none of
+this — `StateRestoreTest.state057_...`'s raw harness still reproduces the exact 160-vs-100 double
+count STATE-057 describes, because nothing there passes the returned offsets back to a fresh reader.
+That is a real, narrower gap: an embedder driving the engine directly, rather than through the
+server's own ingest path, has to do the offset-seeking itself. `application.yaml:137`'s claim ("a
+restart recovers answers and not only questions") is now closer to true than false for the one path a
+real deployment actually takes.
+
+Not a defect — the opposite, a working fix — recorded at this length because it changes the weight
+and conclusion of fifteen authored cases (STATE-050–064) at once, and a future reader of `STATE.md`
+should not re-derive it from scratch.
