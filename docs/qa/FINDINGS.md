@@ -1253,3 +1253,70 @@ right place to point at it rather than leaving it only inside a case file.
 - **JOIN-043's quoted refusal message uses `Compute(...)`; the engine's actual rendering is
   `Compute[...]`, with square brackets** — `ComputeOperator.label()`'s own format. Checked against the
   live string, not the case's prose.
+
+---
+
+## STATE — found executing `docs/qa/cases/STATE.md`
+
+### ST-1 (HIGH) — every `drop()` leaks its checkpoint directory, not only a shared computation's
+
+`QueryRegistry.drop` (`QueryRegistry.java:774`–`796`) calls `query.removeName(name)` first and, when
+that returns `true` (the last name was just removed), calls `deleteCheckpointsOf(query.name())`.
+`RegisteredQuery.name()` is `anyName()`: `names.isEmpty() ? fingerprint.shortForm() : names.iterator()
+.next()`. By the time `deleteCheckpointsOf` runs, `removeName` has already emptied the set — that is
+what made it return `true` — so `query.name()` never returns the name that was just dropped, or any
+name at all: it returns a 12-hex-character fingerprint digest that was never a directory name.
+`deleteCheckpointsOf` resolves that digest under the checkpoint root, `Files.list` throws
+`NoSuchFileException`, and the `catch (IOException)` at `:518`–`:521` swallows it silently. The
+checkpoint directory and every file in it survive the drop, for every drop, not only the
+shared-computation case the code's own comment describes ("the name the checkpointer was STARTED
+with, not the one being dropped... deleting by the dropped name removed nothing and left the
+directory orphaned"). That comment is describing a fix for a bug this line still has, just reached a
+different way: capturing `query.name()` was meant to substitute for tracking the *original*
+registration name, but the capture happens after the very mutation that erases it.
+
+**Reproduction:** `StateCheckpointDirectoryTest.state034_droppingAQueryDeletesItsCheckpointDirectory`
+— register one query `w`, force three checkpoints, `drop("w")`; `root/w/` and its three
+`checkpoint-N.bin` files are still there afterwards. Seed-proven: capturing `query.name()` into a
+local variable *before* the `removeName` call (so it reads `"w"` while the set still holds it) makes
+the directory disappear as `QueryRegistry.checkpointingTo`'s own Javadoc says it should; reverting
+reproduces the leak. `StateCheckpointDirectoryTest.state035_...` shows the same underlying mechanism
+in the shared-computation case STATE-035 already anticipated, for a related but distinct reason (see
+that test's inline comment).
+
+**Shape of the fix:** read `query.name()` into a local variable before `query.removeName(name)` runs,
+and pass that local to `deleteCheckpointsOf`, e.g.:
+```java
+String checkpointOwner = query.name();
+if (query.removeName(name)) {
+    ...
+    deleteCheckpointsOf(checkpointOwner);
+}
+```
+This is only a partial fix for the shared-computation case, since `anyName()` on a `HashSet` with more
+than one name left is not guaranteed to return the *first-registered* name STATE-035 says owns the
+directory — a `LinkedHashSet` (or tracking the first name explicitly) would be needed to make that
+guarantee, and is worth doing at the same time rather than leaving a second, quieter version of this
+bug behind. Not applied here per this round's brief (fixes are recorded, not made, unless small and
+obviously correct — the ordering fix alone is correct but leaves the ordering guarantee unaddressed).
+
+### ST-2 — `docs/qa/cases/STATE.md`'s own "three facts" and several individual cases describe an
+earlier `develop`, not this one
+
+Executing this file surfaced more drift between the authored cases and the shipped code than any
+other QA round has: `QueryRegistry.start` now wires `checkpointingViewWith` (a served view's contents
+travel inside every checkpoint, keyed `"served-view"`, independent of `isStateful()`) and calls
+`restoreFrom` before a query is fed anything, so `CheckpointStore.latest()` and
+`QueryExecution.restore()` *are* reachable from shipped code — the case file's "Three facts" section
+(fact 1) says the opposite. `RegistryErrors.NAME_UNUSABLE` (`PRV-8008`) is now a distinct code from
+`NAME_IN_USE` (`PRV-8001`) for exactly the "not a sayable name" case STATE-030/031 say still shares
+`PRV-8001` — `TROUBLESHOOTING.md` was missing the `PRV-8008` row entirely until this round added it.
+`requireSayableName`'s regex accepts Unicode letters (`café` registers and gets a directory), and
+`requireName`'s blank/null check now runs before it, matching `docs/qa/FINDINGS.md`'s own `L-2` for
+the identical pair of facts in `LIFE.md`. `InterpretedPipeline.restoreState` now checks the join count
+against the plan as well as the windowed-operator count (STATE-059's "the check ignores joins" no
+longer holds). None of these are defects — LIFE's `L-2` sets the precedent for recording fixes that
+landed after a case file was authored here rather than failing the case silently — but the volume of
+drift in this one file, across both its preamble and individual cases in sections C and F particularly,
+is worth a maintainer's attention: `STATE.md` should have a pass reconciling it against current
+`develop`, the way `LIFE.md`'s round evidently already got a partial one.

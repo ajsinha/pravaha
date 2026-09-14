@@ -264,6 +264,7 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-8005` | REGISTRY_JOURNAL_UNREADABLE | registry |
 | `PRV-8006` | REGISTRY_JOURNAL_UNWRITABLE | registry |
 | `PRV-8007` | REGISTRY_REPLAY_UNAUTHORIZED | registry |
+| `PRV-8008` | REGISTRY_NAME_UNUSABLE | registry |
 | `PRV-9001` | CLUSTER_UNKNOWN_MECHANISM | cluster |
 | `PRV-9002` | CLUSTER_INSUFFICIENT_GUARANTEE | cluster |
 | `PRV-9003` | CLUSTER_COORDINATOR_UNAVAILABLE | cluster |
