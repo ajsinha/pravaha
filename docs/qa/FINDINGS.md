@@ -1690,3 +1690,42 @@ connection failure is discovered on stderr — so a caller reading stdout alone 
 consuming it) sees an apparent success confirmation from a command that immediately fails. Both are
 usability defects in `ServerCommand`'s error path, not obviously small/safe to fix under this QA
 session's mandate (rule 5). **Status: OPEN.**
+
+### API-F8 (LOW) — `explain`'s `?level=` (empty string) is treated as absent, not as an invalid value
+
+`POST /api/v1/queries/explain?level=` (the query parameter present but empty) returns `200` with
+`level:"physical"` — the same result as omitting the parameter entirely. `API-083` expects it to be
+refused identically to `?level=PHYSICAL`, i.e. `400` with `PRV-0400`. Whatever reads the `level`
+query parameter is evidently using a null-coalescing default (`request.getParameter("level")`
+returning `""`, then something like `level == null || level.isBlank() ? "physical" : level`) rather
+than comparing strictly against the three recognised names. Low severity — an empty parameter
+behaving like an absent one is arguably more defensible than the case assumes — but it is a real
+difference from the documented contract, and from `?level=PHYSICAL`'s behaviour on the same
+endpoint. **Status: OPEN.**
+
+### API-F9 (MED-HIGH) — a null `sql` in a JSON body reaches the client as a raw `NullPointerException` message dressed up as `PRV-2010`
+
+`POST /api/v1/queries/validate` with body `{}` or `{"sql":null}` returns `200` with
+`{"valid":false,"diagnostics":[{"code":"PRV-2010","message":"PRV-2010  Cannot invoke
+\"String.length()\" because \"s\" is null","helpUrl":"https://docs.pravaha.io/errors/PRV-2010",
+"severity":"error"}]}`. `POST /api/v1/queries/explain` with the same two bodies returns `400` with
+an `ApiError` carrying the identical message text. Two problems in one: (1) the message is Java's
+own `NullPointerException` text (`Cannot invoke "String.length()" because "s" is null`), not a
+designed description — whoever wraps this exception into a `PravahaException(PRV-2010, ...)` is
+passing `e.getMessage()` straight through rather than writing one; (2) the `helpUrl`
+(`https://docs.pravaha.io/errors/PRV-2010`) is generated mechanically from the code and almost
+certainly does not correspond to any real documentation for "you sent a null `sql`". `validate`
+additionally disguises this as a normal `200`/`valid:false` editor diagnostic rather than surfacing
+it as an error status, which is the worse of the two for anyone trying to notice this is an
+internal-exception leak rather than a query-text problem. Not fixed — locating and properly
+guarding the null-`sql` path is more than the "small, obviously correct" bar this QA session works
+under. **Status: OPEN.**
+
+### API-F10 (LOW) — a lone unpaired UTF-16 surrogate in a JSON string is accepted by the deserializer, not rejected
+
+`API-098`(d) expects `{"sql":"\ud800"}` (a lone high surrogate) to fail JSON deserialization with
+`400`. Actual: `200`, `valid:false`, `PRV-2001` (a SQL lexical error, `Encountered: <EOF>`) —
+Jackson decodes the malformed surrogate rather than refusing the body, and the resulting string is
+handed to the SQL lexer, which fails cleanly. Not unsafe — the response is still valid JSON and no
+`500` occurs — but it contradicts the specific `400` the case names. **Status: OPEN** (case-file
+correction, low priority).

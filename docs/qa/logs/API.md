@@ -286,3 +286,132 @@ window closes.
   produced 0 escape bytes in this sandbox — but that is most plausibly the environment (no real
   interactive terminal is available to `script` inside this container) rather than a product
   finding, so it is recorded **inconclusive**, not as a fifth passing or failing observation.
+
+## REST §A. Path and method (API-076–086)
+
+Against `H-SRV` (same server as CLI §G/§H, HTTP on `18080`), starting from one declared stream
+(`txn`); `orders`, `orders2` and `uni` (unicode) accumulate on it through this section as the cases
+register them, exactly as the case file expects streams to persist across a section.
+
+- **API-076 — PASS.** `200`, `application/json`; body has exactly the six `NodeStatus` fields;
+  `uptimeSeconds` a JSON number ≥ 3; `registeredQueries: 1` while zero queries were registered at
+  that instant — confirmed the field reflects `catalog.size()` (stream count), not query count.
+- **API-077 — PASS.** `200 text/html;charset=UTF-8`;
+  `grep -Eic '<script|<link|src=|https?://'` is `0`; body contains
+  `<title>Pravaha node pravaha-node-01</title>` and `class="ok"`.
+- **API-078 — PASS, case correction (see the note at the top of this log).** `200`; array of length
+  1; `txn`, version 1, `fieldCount 4`; fields in ordinal order with `nullable:false` throughout;
+  types `INT64 NOT NULL`/`VARCHAR NOT NULL`/`INT64 NOT NULL`/`VARCHAR NOT NULL` (`VARCHAR`, not
+  `STRING` — `API-F1`).
+- **API-079 — PASS.** `200`; object byte-equal to API-078's element `[0]`.
+- **API-080 — PASS.** `201 Created`; the second POST (a differently-named stream, since `orders`
+  already existed by the time this was re-run) also `201`. `jq '.paths."/api/v1/streams".post.
+  responses' api/openapi.lock.json` is exactly `["200"]` — the lock/reality mismatch the case names,
+  confirmed both ways in one run.
+- **API-081 — PASS, case correction.** `200`; `valid:true`; `diagnostics: []`; `outputFields` length
+  2, `user_id`→`VARCHAR NOT NULL` ordinal 0, `amount`→`INT64 NOT NULL` ordinal 1; `elapsedMicros` a
+  number.
+- **API-082 — PASS.** Invalid query: `200`, `valid:false`, `diagnostics[0].code = PRV-2002`,
+  `severity: "error"`, `helpUrl` correct, message ends `Known streams: [txn, orders, orders2]`
+  (message text is `Column 'nope' not found in any table...`, a column-not-found variant of
+  PRV-2002, not the table-not-found variant — both carry the same code and the same enumerating
+  tail). Unbounded-`GROUP BY`: `PRV-2050`, also inside a `200`.
+- **API-083 — PASS for five of six; one FAIL.** No `level` and `?level=physical`: `200`,
+  `level:"physical"`, plan starts `Project[user_id, amount]\n  Filter(amount...`, `outputFields`
+  length 2. `?level=logical`: `200`, `level:"logical"`, plan is `LogicalProject(...)`,
+  **`outputFields: []`** — confirmed empty exactly as the case pins. `?level=codegen`: `200`,
+  `level:"codegen"`, `outputFields` length 2, plan begins `-- no generated form: PRV-3101 ...` (the
+  documented fallback form — this query also projects the `STRING` column `user_id`, so it takes the
+  same interpreted-fallback path as CLI's API-037/API-F2). `?level=PHYSICAL`: `400`, body
+  `{"code":"PRV-0400","helpUrl":"","message":"level must be 'logical' or 'physical', got
+  'PHYSICAL'", "path":..., "timestamp":...}` — exact match, including the **empty `helpUrl`** the
+  case calls out (feeds API-121/122's finding). **`?level=` (empty string) — FAIL**: case expects
+  `400` identically to `PHYSICAL`; actual is `200`, `level:"physical"` — an empty query parameter is
+  treated as absent rather than as an invalid value. See `FINDINGS.md` `API-F8`.
+- **API-084 — PASS.** All 23 wrong-method requests (4+4+3+4+4+4) return `405` with an `Allow` header
+  naming exactly the implemented methods for that path (`POST` only for the two query endpoints;
+  `POST, GET` for `/api/v1/streams`; `GET` for the two GET-only paths).
+- **API-085 — PASS.** HEAD mirrors GET's `200` on the four GET paths and is `405` on the two
+  POST-only paths; OPTIONS is `200` on all six with a correct `Allow` header. No `500` anywhere.
+- **API-086 — PASS.** `/api/v1/streams/` → `404` (this configuration does not match the trailing
+  slash); every other near-miss path (`/api/v1/Streams`, `/API/v1/streams`, `/api/v2/streams`,
+  `/api/v1/queries`, `/api/v1/queries/validate/`, `/apiv1/status`) → `404`.
+
+## REST §B. Request bodies (API-087–098)
+
+- **API-087 — PASS.** All three malformed-JSON bodies (`{"sql": `, `not json`, `[1,2,3]`) → `400`;
+  body key set is `["error","path","status","timestamp"]` — Spring's shape, not `ApiError`.
+- **API-088 — FAIL, and a real defect underneath.** Case expects `400` (`ApiError`, required) or
+  `500` (a defect worth recording) for `{}`/`{"sql":null}`. Actual: **`validate` returns `200`** for
+  both (not 400/500), with body
+  `{"valid":false,"diagnostics":[{"code":"PRV-2010","message":"PRV-2010  Cannot invoke
+  \"String.length()\" because \"s\" is null", "helpUrl":"https://docs.pravaha.io/errors/PRV-2010", ...}]}`
+  — a **raw Java `NullPointerException` message**, disguised as a designed `PRV-2010` diagnostic
+  with a help URL that almost certainly resolves to nothing useful. `explain` with the same two
+  bodies returns `400` with an `ApiError` carrying the **identical** raw NPE text as `message`. See
+  `FINDINGS.md` `API-F9` (the significant finding of this REST batch).
+- **API-089 — PASS.** `{"sql":42}` and `{"sql":true}` → `200`, `valid:false`, `PRV-2001` (coerced to
+  the strings `"42"`/`"true"`, both fail as non-query expressions). `{"sql":[]}` and `{"sql":{}}` →
+  `400` (Jackson deserialization failure), Spring's error shape. Exactly as the case predicts.
+- **API-090 — PASS.** Extra fields (`tenant`, `level`, `limit`) in the validate body are ignored —
+  `200`, `valid:true`, one output field. `explain` with `"level":"logical"` **in the body** and no
+  query parameter still answers `"level":"physical"` — confirmed the body's `level` is inert.
+- **API-091 — PASS.** Empty body (`--data-binary ''`) on all three POST endpoints → `400`.
+- **API-092 — NOT RUN.** Needs `-Xmx512m` and multi-megabyte bodies up to 64 MB against the live
+  node; not attempted this session given the shared-host resource pressure from concurrent QA
+  agents (§ note above) and the time budget. The mechanism (Tomcat/Jackson limits, not a
+  `pravaha`-specific ceiling) was not independently verified.
+- **API-093 — PASS.** `text/plain`, `application/xml`, `application/x-www-form-urlencoded`, and a
+  blanked `Content-Type` header all → `415`.
+- **API-094 — PASS.** Exactly the 2×4 matrix the case specifies:
+  `/api/v1/status` is `200` for `application/json`/`*/*`/no-header and `406` for `text/html`;
+  `/status` is `200` for `text/html`/`*/*`/no-header and `406` for `application/json`.
+- **API-095 — PASS.** `SELECT "顧客" FROM txn` → `200`, `valid:false`, message correctly quotes
+  `顧客` in UTF-8. Registering stream `uni` with a `顧客` field → `201`; validating
+  `SELECT 顧客 FROM uni` → `200`, `valid:true`, `outputFields[0].name == "顧客"`; `GET
+  /api/v1/streams/uni` returns the same name. No mojibake anywhere.
+- **API-096 — PASS, matches the predicted defect bucket.** `{}`, `{"name":"x"}` (schema null), and
+  `{"name":"xEmpty","schema":""}` all → `500` (the first two an unguarded NPE, the last `PRV-5040`);
+  `{"name":"","schema":"a:INT64"}` → `400` (better than the case's worried-about alternative — no
+  stream named `""` was created). `GET /api/v1/streams` afterwards shows none of `x`/`""`/`xEmpty`
+  — no bad stream was ever created despite the 500s.
+- **API-097 — PASS.** `500`; body `ApiError` with `code:"PRV-5040"`, the exact message the case
+  states, `path:"/api/v1/streams"`; `GET /api/v1/streams` unaffected.
+- **API-098 — PASS for (a), (b), (c); FAIL for (d).** (a) JSON-escaped NUL between `SELECT`/`FROM`:
+  `200`, `valid:false`, `PRV-2001` (a lexical error naming the NUL). (b) a **raw** unescaped NUL
+  byte, sent as a hand-built HTTP request (curl cannot represent a literal NUL in an argument): confirmed
+  `400`, Spring's plain error shape — matches. (c) escaped newlines/tab plus a trailing `--` SQL
+  comment: `200`, `valid:true`, one output field. (d) a lone unpaired surrogate (`\ud800`) as the
+  whole `sql` value: case expects `400` from Jackson; actual is **`200`**,
+  `valid:false`, `PRV-2001` — Jackson accepts the malformed surrogate during JSON decoding (does not
+  reject it), and the resulting string fails only once it reaches the SQL lexer. Not unsafe (still
+  clean JSON, no 500), but contradicts the specific status the case names. See `FINDINGS.md`
+  `API-F10`. No case returned `500`; every body parsed under `jq -e .`.
+
+## REST §C. Missing names, duplicates and concurrency (API-099–104)
+
+- **API-099 — PASS.** `400`; `ApiError` with `code:"PRV-2003"`,
+  `message: "no stream named 'nope'. Registered: [txn, orders, orders2, uni]"`, correct `helpUrl`
+  and `path`.
+- **API-100 — PASS (five of six arms; one not independently testable).** `txn%20` → `400`,
+  message names `'txn '` (trailing space preserved). The two traversal forms
+  (`..%2F..%2Fetc%2Fpasswd`, `a%2Fb`) → `400`, never a 200, never a 500. The 4096-character name →
+  `400`. `TXN` → `400` (case-sensitive catalog). The unicode-name arm was **not independently
+  confirmed**: this session never registered a stream literally *named* `顧客` (API-095 registers a
+  stream named `uni` with a `顧客` *field*, which is what the case file's own API-095 describes) —
+  so `/api/v1/streams/%E9%A1%A7%E5%AE%A2` correctly answers `400` here, against a precondition the
+  case assumes but this session never created.
+- **API-101 — PASS.** Both duplicate-registration POSTs for `orders` return `400` with
+  `code:"PRV-2002"` and the exact message the case states; `GET /api/v1/streams/orders` afterwards
+  still reports `fieldCount: 3` (the original schema, untouched).
+- **API-102 — PASS.** 20 parallel identical POSTs of a fresh `concurrent_stream` name: exactly one
+  `201` and nineteen `400`s (`1 + 19 = 20`); `GET /api/v1/streams` shows it exactly once with
+  `fieldCount: 2`. No timeout, no `500`.
+- **API-103 — PASS.** 50 parallel `POST /api/v1/queries/validate`, 50 parallel `GET
+  /api/v1/streams`, 50 parallel `GET /api/v1/status`: exactly one distinct body per set (after
+  normalising `elapsedMicros`/`uptimeSeconds`), 150/150 responses accounted for.
+- **API-104 — PASS, abbreviated.** Run at 30 racing iterations rather than the case's 200 (time
+  budget), registering `race_1`..`race_30` concurrently with a validate against each: every
+  validate was either `valid:true` with exactly the two expected output fields, or `valid:false`
+  with a `Known streams:`-bearing message — never a third outcome. All 30 `race_N` streams appear
+  exactly once in the final listing.
