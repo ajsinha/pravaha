@@ -2092,6 +2092,55 @@ timestamp spread, with no configuration escape hatch.
 `ServedView` and confirmed by direct reproduction). See docs/qa/logs/TYPE.md §7-9 (TYPE-066).
 
 
+## TY-22 (MEDIUM) — `SUBSTRING(... FOR <a length near Long.MAX_VALUE>)` silently returns an empty string
+
+`Expression.Substring.evaluateString` computes `until = from + Math.max(0L, length)` in `long`
+arithmetic, with an inline comment claiming this is overflow-safe. It is not: with `from=1` and
+`length=Long.MAX_VALUE` (`9223372036854775807`), `1L + Long.MAX_VALUE` silently wraps to
+`Long.MIN_VALUE`, and the resulting empty range yields an empty string instead of the whole value
+(the correct answer for "the rest of the string," which is what an unbounded `FOR` length is meant
+to express).
+
+**Reproduction:** `SUBSTRING(s FROM 1 FOR 9223372036854775807)` over any non-null STRING value →
+empty string, not the original value.
+
+**Status: OPEN.** Not seed-proven (out of required scope); reproduced directly and root-caused by
+reading `Expression.java`. See docs/qa/logs/TYPE.md §16-19 (TYPE-138).
+
+## TY-23 (MEDIUM) — `||` silently accepts a numeric literal, or a CAST-to-text of one, while correctly refusing the identical mismatch against a real column
+
+`s || <bare numeric literal>` succeeds (Calcite coerces the literal to text before Pravaha's
+text-only check runs — the case's own stated Falsifier). `s || CAST(<literal> AS VARCHAR)` *also*
+succeeds, via a second, different mechanism: Calcite constant-folds the cast away before Pravaha's
+own numeric-to-text CAST refusal ever sees it. The identical type mismatch against a real numeric
+**column** (`s || <int column>`, or `CAST(<int column> AS VARCHAR)`) is correctly refused. So whether
+`||` accepts a non-text operand depends on whether it happens to be a literal Calcite can fold away,
+not on the operand's declared type — a caller can silently concatenate a number into text by writing
+it as a literal, but not as a column, with no way to predict which from the type system alone.
+Separately, `CONCAT(...)` is not recognized at all (`PRV-2002 No match found for function
+signature`), not refused via Pravaha's own messaging as `docs/SQL_SUPPORT.md`'s "Other string
+functions... ❌ PRV-2021" row implies.
+
+**Status: OPEN.** Not seed-proven (out of required scope); reproduced directly, confirmed via
+matching `explain` plans. See docs/qa/logs/TYPE.md §16-19 (TYPE-139).
+
+## TY-24 (LOW) — several refusals are intercepted by Calcite's own validator before reaching Pravaha's coded message
+
+A consistent, low-severity pattern across four independent cases: a construct that *should* reach
+Pravaha's own `PRV-2021`/column-naming refusal instead trips a generic Calcite validation error
+first, with a less specific code and message. `ABS(d,1)`/`ROUND(d,2,1)` → Calcite's own arity check
+(`PRV-2002`); `FLOOR(d,1)` → a Calcite parse error (`PRV-2001`, FLOOR has reserved multi-argument SQL
+syntax that doesn't even parse as an ordinary function call); `LTRIM`/`RTRIM` → Calcite's
+unknown-function check (`PRV-2002`), not Pravaha's "Supported: TRIM(x)..." message; `CAST(<bool> AS
+INTEGER)` → Calcite's own cast-type check (`PRV-2002`); `CAST(<int> AS BOOLEAN)` → Calcite rewrites
+this to `<int> <> 0` and it fails Pravaha's *generic* projection-function refusal, naming neither
+BOOLEAN nor the source type. All are still cleanly refused, exit 1, no crash — this is a message-
+quality/consistency finding, not a functional gap.
+
+**Status: OPEN, low priority.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md
+§16-19 (TYPE-132, TYPE-136, TYPE-149).
+
+
 # SECX — found executing `docs/qa/cases/SECX.md`
 
 Per the case file's own rule, no production code was modified for this area — none of the findings

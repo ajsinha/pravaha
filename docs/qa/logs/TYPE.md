@@ -531,3 +531,109 @@ silently reconciled.
 086, 091(doc-rot half), 097(as-scripted half), plus TYPE-088/091's I-3 recurrence), 0 BLOCKED, 1
 partial NOT RUN sub-check (22 cases).
 
+## §16-19 — ABS/FLOOR/CEIL/ROUND, UPPER/LOWER/TRIM/SUBSTRING/`||`, LIKE/NOT LIKE, CAST (TYPE-125 … TYPE-150)
+
+Vehicle: `pravaha run`/`validate` over dedicated fixtures (`rnd.csv`, `loc.csv`, `text.csv`), plus a
+live `pravaha-server` instance (18460/19460) for TYPE-150 step 6. No SQL string literal in this
+range's cases contains a non-Latin-1 character (unicode appears only as column data), so the
+string-literal-charset seed-proof does not apply here — a deliberate scope determination, not an
+oversight.
+
+- **TYPE-125 — PASS.** ABS over integers (exit 1 `ArithmeticException` at `Long.MIN_VALUE`,
+  otherwise exact) and over doubles (`-0.0`→`0.0`, `NaN`→`NaN`) both match exactly.
+- **TYPE-126 — PASS.** `ABS(Long.MIN_VALUE)` throws the exact documented message; the guarded and
+  double-typed alternatives all match.
+- **TYPE-127 — PASS.** FLOOR/CEIL/CEILING/ROUND over an integer column are the identity, exact,
+  including the 2⁵³-adjacent value.
+- **TYPE-128 — PASS.** FLOOR/CEIL over a double column, including negative zero (`CEIL`→`-0.0` at
+  two rows, byte-confirmed) and negatives, exact.
+- **TYPE-129 — PASS.** ROUND is half-away-from-zero, not banker's rounding, all four sign/fraction
+  combinations exact.
+- **TYPE-130 — FAIL, in the "already fixed" direction (positive finding).** `ROUND(0.49999999999999994)`
+  → `0.0`, not the half-ulp-defect value TYPE.md's Expected predicts. `Expression`'s ROUND case now
+  uses `BigDecimal.valueOf(v).setScale(0, HALF_UP).doubleValue()`, not the old
+  `signum*floor(abs+0.5)` the case file's own section-16 preamble describes — the defect this case
+  was written to expose has been fixed since TYPE.md was authored.
+- **TYPE-131 — FAIL,** same "already fixed" pattern. `ROUND(4503599627370497.0)` (2⁵²+1) returns the
+  unchanged, correct value, not the predicted off-by-one; same BigDecimal-based fix as TYPE-130.
+- **TYPE-132 — FAIL,** mixed. `ROUND(-0.4)`→`0.0`, not `-0.0` — `BigDecimal` has no negative zero,
+  so ROUND's fix (TYPE-130/131) has this side effect; the `ROUND(d)=0 AND id=7` cross-check and the
+  NaN/-Infinity rows both match. `ROUND` with two arguments refuses with the exact documented
+  `PRV-2021`; `ABS`/`FLOOR` with two arguments refuse via Calcite's own arity/parse checks
+  (`PRV-2002`/`PRV-2001`) rather than Pravaha's message — a message-routing nuance, not a functional
+  gap (see Defect TY-24).
+- **TYPE-133 — PASS.** UPPER/LOWER are locale-independent: three JVM locales (default, `tr_TR`,
+  `lt_LT`) produce byte-identical output, including the Turkish-İ case that would differ under a
+  locale-sensitive implementation.
+- **TYPE-134 — PASS** (one SDK-only sub-step BLOCKED, no SDK vehicle available). UPPER can make a
+  string longer for `ß`, `ﬁ`, `ŉ`; `LOWER(UPPER('ß'))` is `'ss'`, not `'ß'` — not reversible, exactly
+  as documented.
+- **TYPE-135 — PASS** (one embedded-newline sub-row BLOCKED — the CLI has no delimiter/null-literal
+  override needed to construct it). TRIM strips spaces and only spaces (tab and NBSP both survive
+  unchanged); the anti-vacuity check routes through a CASE workaround since `WHERE TRIM(s) IS NULL`
+  is itself refused (see TYPE-136 pattern) — confirms empty-string vs NULL are still distinguished
+  after TRIM.
+- **TYPE-136 — FAIL.** `TRIM(LEADING/TRAILING/'x' FROM s)` all refuse with the exact documented
+  `PRV-2021`. But `LTRIM(s)`/`RTRIM(s)` refuse via Calcite's own unknown-function check
+  (`PRV-2002 No match found for function signature LTRIM(...)`), not Pravaha's `PRV-2021`
+  "Supported: ..." message — same routing nuance as TYPE-132 (Defect TY-24).
+- **TYPE-137 — PASS.** SUBSTRING is 1-based and counts code points: the emoji row's four
+  sub-extractions (single character, following character, two-character span, whole value) all
+  exact.
+- **TYPE-138 — FAIL.** 9 of 10 forms exact, including a negative length correctly returning empty.
+  But `FROM 1 FOR 9223372036854775807` (`Long.MAX_VALUE`) returns an **empty string**, not the whole
+  value — `Expression.Substring.evaluateString`'s `until = from + Math.max(0L, length)` silently
+  overflows (`1L + Long.MAX_VALUE` wraps to `Long.MIN_VALUE`) despite its own comment claiming
+  overflow-safety. See Defect TY-22.
+- **TYPE-139 — FAIL.** `||` flattening, arity and NULL-propagation all match exactly, confirmed via
+  matching physical plans for both spellings. But three related forms diverge: `CONCAT(s,'-',t)` is
+  entirely unrecognized (`PRV-2002`, not the documented refusal); `s || <bare numeric literal>`
+  **silently succeeds** (Calcite coerces the literal to text before Pravaha's type check runs) —
+  exactly the case's own stated Falsifier; `s || CAST(<literal> AS VARCHAR)` **also silently
+  succeeds** (Calcite constant-folds the cast away before Pravaha's cast-refusal runs), while the
+  identical mismatch against a real numeric *column* is correctly refused. See Defect TY-23.
+- **TYPE-140 — PASS** (one SDK-only empty-string sub-row BLOCKED). All 8 LIKE patterns exact.
+- **TYPE-141 — PASS.** Regex metacharacters (`.+|()`) and a backslash are all literal in a LIKE
+  pattern, no `PatternSyntaxException`, all six checks exact.
+- **TYPE-142 — FAIL,** but a case-file error, not a product defect. TYPE.md's own claim that `_`
+  counts UTF-16 code units (disagreeing with SUBSTRING's code-point counting) is factually wrong for
+  this JVM's regex engine: `Predicate.Like.toRegex` maps `_` to Java regex `.` under
+  `Pattern.DOTALL`, and Java's `Pattern` treats `.` as one Unicode **code point** by default
+  (surrogate-pair aware), not one UTF-16 unit — verified directly. Actual behavior therefore
+  **agrees** with SUBSTRING on code-point counting, the opposite of the "disagreement" TYPE.md
+  records as its own finding; all the emoji-row predictions built on the wrong premise are inverted
+  accordingly. No product defect.
+- **TYPE-143 — PASS.** LIKE/NOT LIKE both drop the NULL row, `NOT(LIKE ...)` agrees with
+  `NOT LIKE ...` exactly, including identical rendered plans.
+- **TYPE-144 — PASS.** `ESCAPE` refused with the exact documented `PRV-2021`; a literal `%` is
+  therefore unmatchable via the documented workaround check; the non-literal-pattern and
+  non-column-left refusals both match exactly.
+- **TYPE-145 — PASS.** All 36 CAST pairings among the six numeric types execute cleanly; the
+  identity-cast short-circuit (no CAST node rendered for a same-type cast) confirmed via matching
+  physical plans.
+- **TYPE-146 — PASS.** Narrowing a float to an integer truncates toward zero (positive and negative
+  fractions, `NaN`→`0`), consistent with the ROUND-vs-CAST contrast the case draws (modulo the
+  already-noted ROUND `-0.0`→`0.0` normalization from TYPE-130/132).
+- **TYPE-147 — PASS.** CAST from a too-large float saturates silently to the target's extreme
+  (`1e300`/`Infinity`→MAX, `-1e300`/`-Infinity`→MIN, `NaN`→`0`), exact at both the outer and a
+  further-narrowed width.
+- **TYPE-148 — PASS.** CAST from a wide integer to a narrow one wraps exactly as predicted at three
+  boundary values (2³², 257, 65537) across INTEGER/SMALLINT/TINYINT.
+- **TYPE-149 — FAIL,** on message routing, not outcome. Numeric-pair and DECIMAL refusals, and the
+  identity-cast success, all match. But BOOLEAN→INTEGER is refused by Calcite's own check
+  (`PRV-2002`), not Pravaha's; INT64→BOOLEAN is rewritten by Calcite to `i64 <> 0` and refused by
+  the *generic* projection-function message, naming **neither** type — precisely the case's own
+  stated Falsifier ("a refusal that names neither type"). See Defect TY-24.
+- **TYPE-150 — PASS,** for six of seven steps (refusal text, `SUM`/`MIN`/`MAX`/`AVG` via the
+  documented `CAST(... AS BIGINT)` workaround, and the `explain --level all` mechanism check, all
+  exact). Step 6 (the keyed cross-check "over a view") is refused with `PRV-2050` in every context
+  tried, including a live registered continuous query — unbounded `GROUP BY` is refused identically
+  whether batch or registered/keyed, so this specific cross-check needs a windowed `GROUP BY` to be
+  executable at all; a gap in the case's own design, not a product defect.
+
+**Section tally:** 20 PASS (3 of which — TYPE-130, 131, 132 — pass only because the defect they were
+written to expose has already been fixed, a positive finding recorded as such), 6 FAIL (3 are
+message-routing nuances rather than functional defects — TYPE-132, 136, 149, folded into Defect
+TY-24; 1 — TYPE-142 — is a case-file error, not a product defect), 0 BLOCKED, 3 partial NOT RUN
+sub-steps (no SDK vehicle used in this batch) (26 cases).
+
