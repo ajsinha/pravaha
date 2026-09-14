@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.runtime.exec;
 
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 
 /**
  * Value equality between two rows of the same schema.
@@ -44,14 +45,57 @@ final class RowValues {
                 left.getDecimalHigh(ordinal) == right.getDecimalHigh(ordinal)
                         && left.getDecimalLow(ordinal) == right.getDecimalLow(ordinal);
             case STRING -> left.getString(ordinal).equals(right.getString(ordinal));
-            // BYTES, ARRAY, MAP and ROW have no comparison Pravaha can defend yet -- nested
-            // equality has ordering and null questions of its own -- and a wrong answer here means a
-            // retraction failing to cancel its insert, which grows state forever. Refused loudly.
+            // BYTES is byte equality, which has no ambiguity to defend. It was refused along with
+            // the nested types, and that cost more than it protected: row identity compares *every*
+            // column, not the key ones, so a join crashed the instant two rows on one side shared a
+            // key -- with nothing to do with what the join was keyed on. A stream carrying one
+            // binary column anywhere could not be joined at all, and it failed with an uncoded
+            // UnsupportedOperationException that took the query to FAILED mid-flight.
+            case BYTES -> sameBytes(left, right, ordinal);
+            // ARRAY, MAP and ROW still have no comparison this engine can defend -- nested equality
+            // has ordering and null questions of its own -- and a wrong answer here means a
+            // retraction failing to cancel its insert, which grows state for ever. Refused loudly,
+            // and now with a code: this reaches a user as a failed query, so it needs to say what
+            // to do rather than only what happened.
             default ->
-                throw new UnsupportedOperationException(
-                        "cannot compare '" + schema.field(ordinal).name() + "' of type "
-                                + schema.field(ordinal).type().typeName() + " for row equality yet");
+                throw new com.ash.messaging.pravaha.api.PravahaException(
+                        RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                        "column '" + schema.field(ordinal).name() + "' is "
+                                + schema.field(ordinal).type().typeName()
+                                + ", and comparing two of them for row identity is not built. Row identity "
+                                + "compares every column, so this is reached by any query that joins or "
+                                + "retracts over a row carrying one -- not only by one keyed on it. Project "
+                                + "the column away before the join.");
         };
+    }
+
+    /** Byte-for-byte equality of a variable-width binary field. */
+    private static boolean sameBytes(RowView left, RowView right, int ordinal) {
+        com.ash.messaging.pravaha.api.data.MutableSlice leftSlice =
+                new com.ash.messaging.pravaha.api.data.MutableSlice();
+        com.ash.messaging.pravaha.api.data.MutableSlice rightSlice =
+                new com.ash.messaging.pravaha.api.data.MutableSlice();
+        left.getBytes(ordinal, leftSlice);
+        right.getBytes(ordinal, rightSlice);
+        if (leftSlice.length() != rightSlice.length()) {
+            return false;
+        }
+        if (leftSlice.length() == 0) {
+            return true;
+        }
+        if (!(left instanceof com.ash.messaging.pravaha.common.row.BinaryRowView leftRow)
+                || !(right instanceof com.ash.messaging.pravaha.common.row.BinaryRowView rightRow)) {
+            // Without the regions there is nothing to compare, and guessing equal would let a
+            // retraction cancel a row it does not match.
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                    "comparing binary columns needs rows backed by a memory region");
+        }
+        byte[] leftBytes = new byte[leftSlice.length()];
+        byte[] rightBytes = new byte[rightSlice.length()];
+        leftRow.region().getBytes(leftSlice.offset(), leftBytes, 0, leftBytes.length);
+        rightRow.region().getBytes(rightSlice.offset(), rightBytes, 0, rightBytes.length);
+        return java.util.Arrays.equals(leftBytes, rightBytes);
     }
 
     /** Whether every field holds the same value, nulls included. */

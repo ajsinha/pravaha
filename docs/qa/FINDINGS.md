@@ -1989,7 +1989,7 @@ that should refuse identically.
 
 **Status: OPEN.** See docs/qa/logs/TYPE.md §1-3 (TYPE-031, contrast with TYPE-032).
 
-## TY-15 (HIGH) — a join crashes with an uncoded exception whenever any row on either side carries a BYTES/ARRAY/MAP/ROW column, not only when it's the key
+## TY-15 (HIGH) — MOSTLY FIXED — a join crashed with an uncoded exception whenever any row on either side carried a BYTES/ARRAY/MAP/ROW column, not only when it was the key
 
 `JoinSide.add`/`markMatched` → `sameRow` → `RowValues.sameFields` compares **every** column of a
 row (not just the key ordinals) to decide Z-set-element identity, and `RowValues.equal`'s `default`
@@ -2009,6 +2009,18 @@ blocked TYPE-044 through TYPE-049 and part of TYPE-052 against their literal fix
 cases were instead confirmed via an isolated in-process harness that avoids the unrelated BYTES
 column, and are recorded PASS on the join-key mechanism itself / BLOCKED against the literal fixture.
 See docs/qa/logs/TYPE.md §4-6.
+
+**FIXED for BYTES, which is the case that was costing something.** Byte equality has no ambiguity to
+defend, and refusing it protected nothing while breaking every query that joins or retracts over a
+row merely *carrying* a binary column — row identity compares every column, not the key ones.
+Compared byte-for-byte now, against deliberately invalid UTF-8 in the test, because comparing binary
+by decoding it to text calls any two undecodable values equal.
+
+**ARRAY, MAP and ROW are still refused**, and that is the right answer: nested equality has ordering
+and null questions this engine has not settled, and a wrong answer means a retraction failing to
+cancel its insert — state that grows for ever. The refusal carries a `PRV-` code now and says to
+project the column away, because it reaches a user as a failed query rather than as an internal
+error. Seed-proven by restoring the refusal for BYTES.
 
 ## TY-16 (LOW) — `SUM`/`AVG` over a STRING column is refused by the wrong code
 
