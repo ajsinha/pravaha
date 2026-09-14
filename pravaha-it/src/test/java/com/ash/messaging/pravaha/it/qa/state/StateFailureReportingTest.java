@@ -93,6 +93,7 @@ class StateFailureReportingTest extends StateTestSupport {
     @Test
     void state043_aStoreFailureDoesNotStopTheScheduleAndIsCountedEveryTime() {
         List<String> log = Collections.synchronizedList(new ArrayList<>());
+        PeriodicCheckpointer.Stats stats;
         try (RawExecution win = rawWindowed();
                 PeriodicCheckpointer checkpointer = new PeriodicCheckpointer(
                         win.execution,
@@ -107,24 +108,26 @@ class StateFailureReportingTest extends StateTestSupport {
             // busy, not that the schedule stopped. What the case is about is that failures do not
             // stop it and that each one is counted, so it waits for a run of them instead.
             awaitFailures(checkpointer, 5, Duration.ofSeconds(15));
-            checkpointer.close(); // stopped before sampling, so stats and log cannot drift apart
-            PeriodicCheckpointer.Stats stats = checkpointer.stats();
-            assertThat(stats.taken()).isZero();
-            assertThat(stats.failed())
-                    .as("the schedule kept firing through every failure")
-                    .isGreaterThanOrEqualTo(5L);
-            // log also carries start()'s one-off "checkpointing every..." line, which is not a
-            // per-checkpoint report and does not count toward failed().
-            List<String> failureLines =
-                    log.stream().filter(l -> l.startsWith("checkpoint failed")).toList();
-            assertThat((long) failureLines.size()).isEqualTo(stats.failed());
-            int expectedN = 1;
-            for (String line : failureLines) {
-                assertThat(line)
-                        .matches("checkpoint failed \\(" + expectedN + " so far\\): disk full\\. Recovery will "
-                                + "fall back to the newest stored checkpoint, which is getting older");
-                expectedN++;
-            }
+            stats = checkpointer.stats();
+        }
+        // Sampled after the checkpointer has stopped. Reading the counter and then the log while the
+        // schedule is still firing can catch a failure that has incremented one and not yet reached
+        // the other, and the equality below would blame the product for the gap.
+        assertThat(stats.taken()).isZero();
+        assertThat(stats.failed())
+                .as("the schedule kept firing through every failure")
+                .isGreaterThanOrEqualTo(5L);
+        // log also carries start()'s one-off "checkpointing every..." line, which is not a
+        // per-checkpoint report and does not count toward failed().
+        List<String> failureLines =
+                log.stream().filter(l -> l.startsWith("checkpoint failed")).toList();
+        assertThat((long) failureLines.size()).isEqualTo(stats.failed());
+        int expectedN = 1;
+        for (String line : failureLines) {
+            assertThat(line)
+                    .matches("checkpoint failed \\(" + expectedN + " so far\\): disk full\\. Recovery will "
+                            + "fall back to the newest stored checkpoint, which is getting older");
+            expectedN++;
         }
     }
 
