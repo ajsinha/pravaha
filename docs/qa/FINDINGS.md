@@ -2373,3 +2373,61 @@ property binding into the `tokens` map, so a key configured as `" tok "` is indi
 auditing a token table for accidental duplicates.
 
 **Status: OPEN, low priority.** See docs/qa/logs/SECX.md (SECX-007).
+
+## SX-15 (HIGH) — a row filter that plans to no `FilterOperator` fails open, serving an unrestricted read with no error
+
+`ViewQuery.withRowFilter` plans `SELECT * FROM <source> WHERE <filter>`, then walks the tree for the
+**first** `FilterOperator` and calls `injectAboveScan`; when Calcite's own optimizer has already
+reduced the filter predicate to a compile-time constant (confirmed for `TRUE` and `1 = 1`; the same
+mechanism plausibly affects `'EU' = 'EU'`, `region = region`, and `NOT FALSE`), there is no
+`FilterOperator` left anywhere in the plan, and `injectAboveScan` returns the plan **unchanged** — no
+restriction is applied, and no error is raised. Confirmed live: `bob`, entitled only to
+`region = 'EU'` (2 of 4 rows), reading `sales_view` with his filter text set to `TRUE` or `1 = 1`
+received **all 4 rows**, and the audit log recorded the read as "allowed with a row filter" — a
+false record of enforcement for a read that enforced nothing. This is a direct violation of owner
+constraint 3 (a user receives only the data they are authorized for), and it defeats ADR-031's own
+central claim that a row filter, once injected into the plan, cannot be bypassed by anything the
+caller's SQL does — here it is bypassed not by the caller's SQL at all, but by what the *policy
+author's own filter text* happens to reduce to. A policy that is tautological for one tenant and
+genuinely restrictive for another (a common shape — e.g., a filter keyed on a claim that is present
+and non-empty for most tenants but literally `1=1` for a default/superuser tenant) produces silent,
+total over-service for the tenant whose filter folds away, with the audit log actively misreporting
+it as filtered.
+
+**Reproduction:** configure a row-filtered principal's `AccessDecision.allowWithRowFilter` predicate
+as `"TRUE"` or `"1 = 1"`, read any view through it → every row returned, `AuditEvent` reads "allowed
+with a row filter."
+
+**Status: OPEN.** Not seed-proven (no production code modified, per this file's own rule); reproduced
+directly and repeatedly for two independent constant-folding filter texts. This is one of the two
+most severe findings of the SECX round (with SX-3, the ungated HTTP surface) — it defeats the row
+filter mechanism itself, the single control the Row filters section of `docs/SECURITY.md` names as
+the way a deployment serves different tenants from one shared computation. `docs/SECURITY.md`
+corrected below. See docs/qa/logs/SECX.md (SECX-069).
+
+## SX-16 (MEDIUM) — a Flight node's own reported address is wrong in two ways: an ephemeral port reports as `0`, and a TLS node reports a plaintext URL
+
+Confirmed by direct reproduction and by reading `PravahaFlightServer`'s source. (a) A node started
+with `--pravaha.flight.port=0` (ask the OS for a free port) binds to a real port but
+`getFlightInfo`'s endpoint `Location` reports `grpc+tcp://0.0.0.0:0` — the *requested* port (`0`),
+not the one actually bound — so a client following the endpoint it was just handed dials a dead
+port. (b) `PravahaFlightServer`'s `location` field is set unconditionally via
+`Location.forGrpcInsecure(host, started.getPort())` in `start()`, regardless of whether the node was
+built with `encryptedWith(...)` — so a **TLS** node's own reported address is a plaintext
+`grpc+tcp://` URL, never `grpc+tls://`, even though the node is genuinely serving TLS.
+
+**Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/SECX.md (SECX-061).
+
+## SX-17 (MEDIUM) — several TLS certificate/key misconfigurations either throw uncoded exceptions or leave the node bound to a transport nobody can use
+
+Extends the already-known SEC-059/SEC-060 findings with two more shapes. A certificate configured
+without its matching key throws a raw `NullPointerException` (no `PRV-` code); swapped cert/key
+files throw a raw certificate-parsing exception, also uncoded. Most notably: a cert and key that are
+each individually valid but do not match each other (`good.pem` + `other.key`) **starts the node
+successfully** and reports `flight transport=TLS` in the startup summary — the mismatch is caught
+only at the **first client handshake** (`SSL alert number 80 / tlsv1 alert internal error`), not at
+build or startup time. An operator watching startup logs sees a healthy TLS node; every client that
+tries to use it fails.
+
+**Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/SECX.md (SECX-058 cell
+11/12, SECX-060c).

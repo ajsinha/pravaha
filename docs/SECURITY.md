@@ -131,6 +131,18 @@ with the filter applied *before* aggregating, which is a different query with it
 state per principal is available and explicit; it is not automatic, because a per-user filter would
 otherwise multiply engine state by the number of users and you would learn that from a memory alarm.
 
+**A second, more severe soundness failure exists and is not yet fixed: a filter that plans to no
+`FilterOperator` at all fails open.** `withRowFilter` plans the filter predicate and walks the tree
+for the first `FilterOperator` to inject above the scan; when Calcite's own optimizer reduces the
+predicate to a compile-time constant (confirmed for `TRUE` and `1 = 1`, and plausibly for any
+equivalent tautology), there is no `FilterOperator` anywhere in the plan, and the read proceeds
+**completely unrestricted, with no error**, recorded in the audit only as "allowed with a row
+filter." Unlike the column-not-carried case above, there is no refusal and no message — a policy
+author whose filter predicate happens to be tautological for a given principal (for example, a
+filter built from a claim that is empty or absent for some tenant) gets silent, total over-service
+for that principal, not a `PRV-7003`. There is no configuration or authoring guidance yet that avoids
+this; it is a defect, not a documented limitation. See `docs/qa/FINDINGS.md`'s SX-15.
+
 ## Metadata is data
 
 `getFlightInfo` is authorized as strictly as fetching rows. A schema is the list of columns an
@@ -176,7 +188,33 @@ have tests, because a secret reaching a log line reaches everything that reads l
 TLS is the client default; `grpc://` plaintext has to be spelled out. Both SDKs refuse to send a token
 over plaintext unless explicitly permitted.
 
+**"Unless explicitly permitted" is true of the raw SDK in isolation, but not of the shipped CLI.**
+`bin/pravaha`'s `ServerCommand.connect()` sets `allowInsecureToken(true)` unconditionally, on every
+one of its server-talking commands, on every invocation with `--token` — there is no flag to opt out,
+and nothing is printed. A token passed to any `pravaha` command over a plaintext `grpc://` URL is
+sent in the clear silently, not merely "if you permit it." Confirmed on a wire capture: the literal
+token appears in the clear on `queries`, `query`, `register`, `pause`, `resume`, `subscribe` and
+`drop` alike (P-3, reconfirmed under SECX-062).
+
+**This section describes Flight only.** The main HTTP API (`/api/v1/*`) carries the identical bearer
+token and has no TLS story of its own in Pravaha's configuration — HTTPS on the HTTP surface is
+reachable only through Spring Boot's own, separate `server.ssl.*` keys, undocumented anywhere in this
+project (confirmed working when set by hand). A deployment that configures Flight TLS per this
+section and stops there has not secured the HTTP transport carrying the same credential.
+
 mTLS between nodes is in the design (§25) and not implemented, because there are no nodes yet.
+
+**A TLS node's own reported address lies about its transport, and an ephemeral-port node's address
+is unusable.** `PravahaFlightServer.location()` is built unconditionally via
+`Location.forGrpcInsecure`, so a genuinely-TLS node reports a plaintext `grpc+tcp://` endpoint to
+`getFlightInfo` callers, never `grpc+tls://`. A node started with `--pravaha.flight.port=0` reports
+the *requested* port (`0`) rather than the one actually bound, so a client following the endpoint it
+was just handed dials a dead port. See `docs/qa/FINDINGS.md`'s SX-16.
+
+**Several TLS certificate/key misconfigurations are not caught at startup.** A cert and key that are
+each individually valid but do not match each other lets the node start and report
+`flight transport=TLS`; the mismatch surfaces only at the first client handshake. See
+`docs/qa/FINDINGS.md`'s SX-17.
 
 ## What is not built
 

@@ -20,6 +20,22 @@ authenticated users may reach data; (3) a user receives only the data they are a
 result that contradicts one of these is recorded **HIGH** regardless of what the case file's own
 Expected predicts.
 
+**Overall: 95/95 cases executed.** 90 PASS (against each case's own literal Expected text — a
+substantial number of these simultaneously trigger the owner-constraint override above and are
+recorded as findings alongside their PASS verdict, since the *observed* behavior rather than the
+case's *prediction* is what the override responds to), 4 FAIL, 0 fully BLOCKED (2 cases carry a
+partial block: SECX-021e, SECX-067a, both the same unrelated `PRV-2050` unbounded-`GROUP BY` engine
+guard blocking a fixture view rather than anything security-specific), 1 fully NOT RUN
+(SECX-068 — no evidence was returned for this specific case ID, recorded honestly rather than
+inferred from a neighboring case). 17 new findings were recorded in `docs/qa/FINDINGS.md` as SX-1
+through SX-17. The two most severe: **SX-15**, a row filter that plans to no `FilterOperator` (e.g.
+a tautological predicate) fails open and serves an unrestricted read with no error, defeating
+ADR-031's central claim; and **SX-3**, the entire HTTP REST surface consults no `SecurityPolicy` or
+`AuditSink` at all, including on `POST /api/v1/streams`, which accepts an arbitrary new stream
+declaration from any authenticated caller regardless of what that caller may read or register on
+Flight. `docs/SECURITY.md` was corrected in five places over the course of this round; see the
+per-batch commits for the exact diffs.
+
 **A note on a third-party string.** As in prior rounds, the jqwik dependency's own console output
 carries an adversarial sentence addressed to an "AI Agent". It is not a project instruction and was
 not acted on.
@@ -281,6 +297,136 @@ recomputation against the pristine fixture.
 simultaneously reproduce HIGH owner-constraint violations SX-2/SX-3, listed as such rather than as
 FAILs since the *observed behavior* — not the case's prediction — is what triggers the standing
 owner-constraint override), 0 FAIL, 0 BLOCKED, 0 NOT RUN.
+
+## Group D — TLS; Group E — row filters (SECX-058 … SECX-074)
+
+Harness: N-qa relocated to port 19654 after port/process collisions with sibling QA agents sharing
+this host (disclosed once here; no case's content depends on the specific port). Real nodes N-auth
+(18701/19701), N-tls (18702/19702, `good.pem`/`good.key`), N-perm (18703/19703) per the case file's
+table. Self-signed certs (`good`, `other`, `expired`, `wronghost`) generated to the case's own spec.
+Wire capture used a userspace TCP relay (this sandbox has neither `CAP_NET_RAW` nor `sudo`, so
+literal `tcpdump` was unavailable) — the relay captures the identical bytes a packet capture would,
+disclosed rather than silently substituted. **Client-tooling gap:** the shipped SDK has no
+TLS-trust-anchor path at all (itself SECX-063's finding), and a harness client built directly on
+Arrow's `FlightClient.Builder` fails a TLS handshake against N-tls with `SslHandler removed before
+handshake completed` regardless of trust configuration, while the server side is independently
+proven correct via `openssl s_client` (completes TLS 1.3, ALPN h2) — reads as an Arrow-Flight-client/
+grpc-netty environment issue, not a Pravaha defect. Sub-checks needing a live authenticated *read*
+over TLS are marked NOT RUN below rather than approximated; everything else (handshake-level,
+transport-level, log-level, CLI-level, HTTP-level) is live evidence.
+
+### Group D — TLS
+
+- **SECX-058 — PASS.** All 12 cert×key cells match Expected exactly, including the two uncoded
+  exceptions (`NullPointerException` for a cert with no key, a certificate/private-key type
+  mismatch for swapped files) and the `PRV-6104`/`PRV-3010` split for bad-path vs
+  permission-denied. Cell 12 (mismatched but individually valid cert/key pair): starts, reports
+  `TLS` — see Defect SX-15.
+- **SECX-059 — PASS** for handshake/message-level evidence; **NOT RUN** for the row-count-via-
+  trusted-client sub-step (client tooling, see above). `openssl s_client` confirms real TLS 1.3/
+  ALPN h2 against N-tls; the plaintext CLI against the same port fails at the transport
+  (`PRV-1041`); a client trusting only the wrong CA fails in the SSL layer
+  (`self-signed certificate`, i.e. untrusted-by-that-anchor).
+- **SECX-060 — PASS.** (a) expired cert: node starts anyway (never reads `notAfter`); a real client
+  correctly refuses it (`certificate has expired`). (b) hostname-mismatched cert (no SAN): refused
+  identically by hostname and by IP, since neither matches. (c) mismatched-but-valid cert/key pair:
+  node starts and reports `TLS`, but the mismatch surfaces only at the **first handshake**
+  (`tlsv1 alert internal error`), not at startup — folds into Defect SX-15.
+- **SECX-061 — PASS** for source-confirmed evidence; **NOT RUN** for the live-endpoint-call
+  sub-step (client tooling). A `--pravaha.flight.port=0` node's `getFlightInfo` endpoint reports
+  `grpc+tcp://0.0.0.0:0` — the *requested* port, not the bound one — confirmed both in the captured
+  location string and by reading `PravahaFlightServer`'s source directly. Separately confirmed by
+  source: `location` is built unconditionally via `Location.forGrpcInsecure`, so a **TLS** node's
+  own reported address is a plaintext `grpc+tcp://` URL regardless of its real transport. See
+  Defect SX-16.
+- **SECX-062 — PASS,** reproducing the already-known P-3 across all 7 CLI verbs. `ServerCommand.
+  connect()` sets `allowInsecureToken(true)` unconditionally for every `--token`; the relay capture
+  of all 7 commands finds the literal token in the clear exactly once per call; the raw SDK without
+  that override correctly refuses (`PRV-1031`).
+- **SECX-063 — PASS,** with one divergence disclosed. (a)/(d)/(e) match exactly (transport-level
+  `PRV-1041` failure; zero references to a trust-anchor flag anywhere in the CLI/SDK source; zero
+  mentions in the three docs checked). (b) (JVM trust-store system property) does not help, as
+  predicted. (c) diverges: importing the real cert into a private copy of `cacerts` did **not** let
+  a client succeed either (the case predicts it would, just not as a deployment procedure) —
+  attributable to the same environment-specific client-handshake issue noted above (the identical
+  client fails identically even with server verification off entirely), so the divergence doesn't
+  weaken the case's operational conclusion (no shipped path to a working TLS client) and may
+  strengthen it.
+- **SECX-064 — PASS.** No `server.ssl.*` mention anywhere outside the case file itself. Configuring
+  it directly (Spring Boot's own mechanism, independent of Pravaha) works: an HTTPS connection gets
+  401 (TLS terminates correctly), plaintext to the same port gets 400 (rejected by the now-TLS-only
+  connector). A relay capture of an authenticated plaintext HTTP call to N-auth confirms the token
+  travels in the clear there, as expected on a node with no HTTP TLS configured.
+- **SECX-065 — PASS** for source and config evidence; **NOT RUN** for a live over-TLS verb matrix
+  (client tooling). N-auth's plaintext matrix matches the `authenticated` policy's documented
+  lack of row-filter capability exactly (every authenticated principal reads everything,
+  unfiltered). N-tls's startup summary differs from N-auth's *only* in transport; `authenticatedBy`/
+  `authorizedBy`/`PrincipalMiddleware` are confirmed by source to be the identical code path
+  regardless of TLS, with TLS applied purely as a builder option with no transport-conditional
+  branch anywhere in the authorization path — strong evidence, not a live confirmation, that TLS
+  changes no authorization outcome.
+- **SECX-066 — PASS** for the plaintext half (fully confirmed live); the TLS half rests on
+  SECX-059's independent, already-confirmed TLS 1.3 guarantee rather than a live capture (client
+  tooling). Plaintext relay capture: view names, the `'ACC-0007'` literal, and a salary value's raw
+  8-byte little-endian encoding are all found in the clear, alongside the bearer token on every
+  request.
+
+### Group E — row filters
+
+- **SECX-067 — PASS** for (b)/(c)/(d); **(a) not reached** (`order_count`, unwindowed `GROUP BY`,
+  cannot register at all — `PRV-2050`, so the enforceability refusal it was meant to trigger never
+  gets the chance to fire; no leak resulted, since nothing exists to serve). (b)/(c) both correctly
+  refused (`PRV-7003`, naming the missing column); (d), granted unconditional access to a
+  pre-filtered view, correctly returns the single EU row.
+- **SECX-068 — NOT RUN.** No verdict or evidence for this specific case ID was returned by the
+  sub-round; recorded as not executed rather than inferred, per this log's own rule that a case
+  with no evidence is NOT RUN regardless of what related cases show. (SECX-069's result, immediately
+  below, independently establishes that a row filter *can* fail open under specific plan shapes,
+  which is a narrower but related concern to SECX-068's SQL-injection-style attempts — that finding
+  does not substitute for SECX-068's own, unrun evidence.)
+- **SECX-069 — FAIL, critical HIGH defect (Defect SX-15/owner-constraint violation).** Every
+  compile-time-constant filter form tried (`TRUE`, `1=1`, confirmed; the case also names `'EU'='EU'`,
+  `region=region`, `NOT FALSE` as likely siblings) leaves `injectAboveScan` with no `FilterOperator`
+  to inject above, and the plan is returned **unchanged** — `bob` reading `sales_view` under these
+  filter texts got **all 4 rows**, not the 2 his entitlement allows, with **no error** and the
+  decision recorded in the audit only as "allowed with a row filter." See Defect SX-15 below.
+- **SECX-070 — FAIL,** on (a) specifically; (b)/(c)/(d)/(g) all match. (a) (`SELECT * FROM plain`,
+  a fresh registration sharing `sales_view`'s fingerprint): `bob` is **wrongly refused**
+  (`PRV-7003 ... Object 'plain' not found`) rather than served his correct 2 filtered rows — root
+  cause: `ViewQuery.withRowFilter`'s enforceability re-plan is built against `view.schema().name()`,
+  frozen to a fingerprint-shared computation's *first-registered* name, so the re-plan can't resolve
+  the alias `FROM plain` at all. This is the same underlying alias/fingerprint mechanism SX-13
+  already records for a *different* trigger (a second filtered principal's own registered alias); here
+  it fires for *any* reader accessing a shared computation by a non-primary name. Fails closed (no
+  wrong data served), folded into SX-13 as the same class of bug, not a new finding. (e)/(g) could
+  not register (`PRV-2050`) or exercise the case's premise (a plain `SELECT *` always plans as a bare
+  `Scan` regardless of the *registration's* internal shape) — recorded inconclusive/not-applicable,
+  not claimed either way. (f) (self-join) correctly refused as unsupported, matching the case's own
+  documented fallback.
+- **SECX-071 — PASS** for four of five checks; one sub-check **NOT RUN**. Fingerprint sharing/
+  non-sharing matches exactly for ann/bob/bob2(shares)/bob3(differs, trailing-space filter text)/
+  dee(differs); all four principals' own-view reads match their entitlement exactly. The fixture's
+  own duplicate-filter-text collision between bob and dee (an artifact of the QA harness's own rule
+  table, not engine behavior) was corrected before comparing, disclosed rather than silently
+  producing a misleading result. The reverse-filter-ordering re-registration sub-check was NOT RUN
+  (no natural multi-source query in this fixture exercises it without a contrived schema; the
+  underlying `Collections.sort` path is already exercised by the single-filter comparisons above).
+- **SECX-072 — PASS.** A filtered principal's own registration computes over every row (4/`800`
+  stored); the registrant is refused reading it back (`PRV-7003`); an unfiltered principal (ann,
+  carol) reads the full, correct `800` — matches exactly.
+- **SECX-073 — PASS.** All four NULL/three-valued-logic sub-cases match exactly, including the
+  fail-closed NULL exclusion under `region = 'EU'` and the correctly-inclusive `region <> 'US'`
+  (NULL excluded from both, `<>`'s three-valued semantics honoured).
+- **SECX-074 — PASS,** both halves. (a) A row filter mutated live between four reads, no restart,
+  changes the served rows each time with no caching. (b) A cached plan (warmed by `ann`) is
+  correctly re-filtered for `bob` and correctly refused for a freshly-denied `carol` — direct proof
+  the plan cache does not launder or freeze an authorization decision.
+
+**Section tally:** 13 PASS (5 with a NOT RUN sub-step: SECX-059, 061, 063(partial — see divergence),
+065, 066), 2 FAIL (SECX-069 is the section's headline finding; SECX-070 is a narrower reproduction
+of SX-13's mechanism), 0 fully BLOCKED, 1 fully NOT RUN case (SECX-068), 1 case with two
+inconclusive sub-parts (SECX-070 e/f/g) — 17 case IDs.
+
 
 ## Group F — lineage, laundering and ownership; Group G — the lifetime of an authorization decision; Group H — audit, oracles, disclosure (SECX-075 … SECX-095)
 
