@@ -600,12 +600,16 @@ public final class ServedView {
                 // Not getString. A BYTES column fell through to the string branch, and
                 // ArrowSchemas.write then cast that String to byte[] -- a ClassCastException on
                 // every non-null value, which passed only while the column was entirely NULL.
-                byte[] bytes = new byte[0];
+                // The bytes themselves, read out of the region the slice points into. Going via
+                // getString(...).getBytes(UTF_8) -- which this did -- round-trips arbitrary binary
+                // through a decoder: anything that is not valid UTF-8 comes back as replacement
+                // characters, so the column survived the cast and lost its contents instead.
                 com.ash.messaging.pravaha.api.data.MutableSlice slice =
                         new com.ash.messaging.pravaha.api.data.MutableSlice();
                 row.getBytes(ordinal, slice);
-                if (!slice.isEmpty()) {
-                    bytes = row.getString(ordinal).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                byte[] bytes = new byte[slice.length()];
+                if (bytes.length > 0 && row instanceof com.ash.messaging.pravaha.common.row.BinaryRowView binary) {
+                    binary.region().getBytes(slice.offset(), bytes, 0, bytes.length);
                 }
                 yield bytes;
             }

@@ -784,7 +784,29 @@ public final class InterpretedPipeline implements AutoCloseable {
             case FLOAT64 -> to.setDouble(toOrdinal, from.getDouble(fromOrdinal));
             case DECIMAL -> to.setDecimal(toOrdinal, from.getDecimalHigh(fromOrdinal), from.getDecimalLow(fromOrdinal));
             case STRING -> to.setString(toOrdinal, from.getString(fromOrdinal));
-            default -> to.setString(toOrdinal, from.getString(fromOrdinal));
+            // BYTES had no case, so it fell to the default and was read as text. A projection of a
+            // binary column therefore produced a String, and the Arrow writer -- correctly
+            // expecting byte[] for the type the schema declares -- threw ClassCastException at
+            // serialisation. A BYTES column could not cross a projection, which is every query.
+            case BYTES -> {
+                com.ash.messaging.pravaha.api.data.MutableSlice slice =
+                        new com.ash.messaging.pravaha.api.data.MutableSlice();
+                from.getBytes(fromOrdinal, slice);
+                byte[] bytes = new byte[slice.length()];
+                if (bytes.length > 0 && from instanceof com.ash.messaging.pravaha.common.row.BinaryRowView binary) {
+                    binary.region().getBytes(slice.offset(), bytes, 0, bytes.length);
+                }
+                to.setBytes(toOrdinal, bytes);
+            }
+            default ->
+                // Refused rather than stringified. Reading an unhandled type as text is what turned
+                // BYTES into a String here and hid the gap: the copy succeeded and the failure
+                // surfaced two layers away, as a cast error naming neither the column nor the type.
+                throw new PravahaException(
+                        RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                        "column '" + toSchema.field(toOrdinal).name() + "' is " + type
+                                + ", which this engine cannot yet copy between rows. It is declared, and moving "
+                                + "it through a projection is not built.");
         }
     }
 

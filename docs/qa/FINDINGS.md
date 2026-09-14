@@ -2001,7 +2001,7 @@ numeric coercion of a STRING operand rather than rejecting the type outright.
 
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §4-6 (TYPE-040).
 
-## TY-17 (HIGH) — BYTES on the wire is broken: any non-null value crashes the read
+## TY-17 FIXED — (HIGH) — BYTES on the wire is broken: any non-null value crashes the read
 
 `SELECT ... <bytes column> ...` against any view with a non-null BYTES value throws
 `ClassCastException: class java.lang.String cannot be cast to class [B`, reproduced via two
@@ -2023,7 +2023,9 @@ independent vehicles (real server, direct harness) — the failure itself is det
 `docs/SQL_SUPPORT.md`'s wire-types line has been corrected (see below). See docs/qa/logs/TYPE.md
 §7-9 (TYPE-066 partial block, TYPE-072).
 
-## TY-18 (HIGH) — TIME on the wire crashes: `ArrowSchemas.write()` was not updated when `arrowTypeOf` was fixed to give TIME its own Arrow type
+**FIXED, and the first fix was lossy.** `copyField` had no `BYTES` case, so a projection read a binary column as text and the Arrow writer then cast `String` to `byte[]`. An earlier repair on the `ServedView` side materialised bytes as `getString(...).getBytes(UTF_8)` -- which passes a type check and replaces every byte the decoder cannot read, so the column arrives with the right shape and the wrong contents. Both paths now read the bytes out of the region the slice points into, and the test asserts byte-exactness over deliberately invalid UTF-8. `copyField`'s default arm refuses an unhandled type instead of stringifying it, which is what hid this.
+
+## TY-18 FIXED — (HIGH) — TIME on the wire crashes: `ArrowSchemas.write()` was not updated when `arrowTypeOf` was fixed to give TIME its own Arrow type
 
 `ArrowSchemas.arrowTypeOf(TypeName)` now maps `TIME` to a distinct `Time(NANOSECOND, 64)` Arrow
 type — no longer sharing `TIMESTAMP_LTZ`'s `Timestamp(NANOSECOND, "UTC")`, which is a genuine fix
@@ -2048,6 +2050,8 @@ needs no further mutation to prove it real). This is one of the round's three na
 areas (TIME held as nanoseconds-of-day) turning out to be only half-fixed: the *value* is correctly
 nanoseconds-of-day, but it can never reach a client at all. See docs/qa/logs/TYPE.md §7-9 (TYPE-063
 control case still passes; TYPE-074 is the regression).
+
+**FIXED.** `TIME` is written through `TimeNanoVector`, matching the `Time(NANOSECOND, 64)` the schema already declared. It had been swept into `TIMESTAMP`'s case when the fix beside it corrected that type's vector, and the two had shared a branch since before either worked. Seed-proven by restoring the timestamp vector, which throws `ClassCastException` on the first non-null value.
 
 ## TY-19 (HIGH) — a DECIMAL column poisons every query against its view, even when the column is never selected
 

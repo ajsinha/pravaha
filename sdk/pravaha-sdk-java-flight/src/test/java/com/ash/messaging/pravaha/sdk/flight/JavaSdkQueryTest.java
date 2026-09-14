@@ -90,6 +90,61 @@ class JavaSdkQueryTest {
     }
 
     @Test
+    void everyTypeTheEngineDeclaresCanActuallyReachAClient() {
+        // TY-17 and TY-18. A TIME column was declared on the wire as Time(NANOSECOND, 64) -- which
+        // materialises as TimeNanoVector -- and written through the zoned *timestamp* vector, so the
+        // first non-null TIME value ever sent threw ClassCastException. A TIME column could not
+        // reach a client at all. The two types had shared a case since before either worked, and
+        // the fix that corrected TIMESTAMP's vector swept TIME along with it.
+        //
+        // BYTES is here for the same reason: declaring a type and being able to send one are
+        // different claims, and this test is the second.
+        StreamSchema everyType = StreamSchema.builder("shapes")
+                .field("id", Types.string())
+                .field("stamped_at", Types.timestamp())
+                .field("time_of_day", Types.time())
+                .field("on_day", Types.date())
+                .field("raw", Types.bytes())
+                .field("flag", Types.bool())
+                .field("ratio", Types.float64())
+                .build();
+        ServedView shapes = new ServedView("shapes", everyType, List.of(0), 10);
+        shapes.applyValues(
+                new Object[] {
+                    "r1",
+                    1_700_000_000_000_000_000L,
+                    3_600_000_000_000L,
+                    20_345,
+                    new byte[] {0x00, (byte) 0xFF, (byte) 0xC3, 0x28},
+                    true,
+                    2.5d
+                },
+                1,
+                10);
+        shapes.commit(10);
+
+        try (PravahaFlightServer other =
+                        new PravahaFlightServer(new ViewCatalog().register(shapes)).start("localhost", 0);
+                PravahaFlightClient reader = PravahaFlightClient.connect("grpc://localhost:" + other.port());
+                QueryResult result =
+                        reader.query("SELECT id, stamped_at, time_of_day, on_day, raw, flag, ratio FROM shapes")) {
+            Row row = result.iterator().next();
+            assertThat(row.getString("id")).isEqualTo("r1");
+            assertThat(row.getLong("time_of_day"))
+                    .as("an hour, in nanoseconds of day")
+                    .isEqualTo(3_600_000_000_000L);
+            assertThat(row.getLong("stamped_at")).isEqualTo(1_700_000_000_000_000_000L);
+            // Byte-exact, and deliberately not valid UTF-8. An earlier fix materialised binary by
+            // decoding it to a String and encoding it back, which survives the type check and
+            // replaces every byte the decoder cannot read -- a column that arrives with the right
+            // shape and the wrong contents.
+            assertThat(row.get("raw")).isInstanceOf(byte[].class);
+            assertThat((byte[]) row.get("raw")).containsExactly((byte) 0x00, (byte) 0xFF, (byte) 0xC3, (byte) 0x28);
+            assertThat(row.getDouble("ratio")).isEqualTo(2.5d);
+        }
+    }
+
+    @Test
     void anUnmappableWireTypeReachesTheClientAsItsOwnRefusal() {
         // DECIMAL has no Arrow form this engine will emit, and it says so precisely: PRV-6100,
         // naming the column. That refusal used to be thrown one line outside every try/catch --
