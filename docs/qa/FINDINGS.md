@@ -3712,3 +3712,25 @@ in no `@Value`, no `application.yaml`, and no operator-facing document; and a on
 `log.info("off-heap access: {}", access.name())` at startup would close the observability half
 entirely.
 See `docs/qa/logs/CFG.md` (CFG-047).
+
+### PF-8 (MED) — a Flight server closing its root allocator reports in-flight calls as leaked memory
+
+> **Status:** FIXED — `PravahaFlightServer.close()` now waits up to 5s (`SHUTDOWN_DRAIN`) for `getChildAllocators()` to empty and `getAllocatedMemory()` to reach zero before closing the root, and closes anyway when the bound expires so a genuine leak is still reported. `pravaha-flight` + `sdk/pravaha-sdk-java-flight`: 2,126 tests green.
+
+`FlightServer.close()` returning means the transport has stopped accepting work, not that every call
+thread has finished unwinding and released the child allocator Flight gave it. Closing the root
+immediately after reports whatever is outstanding as a leak:
+
+```
+java.lang.IllegalStateException: Memory was leaked by query. Memory leaked: (65560)
+    at PravahaFlightServer.close(PravahaFlightServer.java:286)
+    at JavaSdkQueryTest.stop(JavaSdkQueryTest.java:75)
+```
+
+Shutdown ordering wearing a leak's clothes. It surfaced in `JavaSdkQueryTest
+.columnsAreKnownBeforeTheFirstRow` — a query whose schema is read and whose rows never are, so the
+stream is still being torn down when the test's `@AfterEach` closes the server — under a loaded
+full-reactor build, and passed three consecutive times in isolation.
+
+The wait is bounded and closes regardless when the bound expires. Waiting for ever to avoid the
+accusation is how a real leak gets hidden.

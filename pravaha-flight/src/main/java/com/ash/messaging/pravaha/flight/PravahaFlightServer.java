@@ -262,6 +262,13 @@ public final class PravahaFlightServer implements AutoCloseable {
     }
 
     /** The URI a client connects to. */
+    /**
+     * How long {@link #close()} gives in-flight calls to release their buffers before it closes the
+     * root allocator anyway. Long enough for a call that is already unwinding, short enough that a
+     * shutdown is still a shutdown.
+     */
+    private static final java.time.Duration SHUTDOWN_DRAIN = java.time.Duration.ofSeconds(5);
+
     public String uri() {
         return location.getUri().toString();
     }
@@ -283,7 +290,35 @@ public final class PravahaFlightServer implements AutoCloseable {
             }
         }
         if (ownsAllocator) {
+            awaitInFlightCalls();
             allocator.close();
+        }
+    }
+
+    /**
+     * Waits, briefly, for the calls that were in flight to release their buffers.
+     *
+     * <p>Flight gives each call a child allocator. {@code FlightServer.close()} returning means the
+     * transport has stopped accepting work, not that every call thread has finished unwinding and
+     * released what it held -- so closing the root immediately after it reports the outstanding
+     * child as leaked. It is a shutdown ordering problem wearing a leak's clothes, and it surfaced
+     * as {@code JavaSdkQueryTest} failing under a loaded full-reactor build and passing alone.
+     *
+     * <p>Bounded, and it closes regardless when the bound expires: a real leak must still be
+     * reported. Waiting for ever to avoid an accusation would be how a real one gets hidden.
+     */
+    private void awaitInFlightCalls() {
+        long deadline = System.nanoTime() + SHUTDOWN_DRAIN.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (allocator.getChildAllocators().isEmpty() && allocator.getAllocatedMemory() == 0L) {
+                return;
+            }
+            try {
+                Thread.sleep(10L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 }
