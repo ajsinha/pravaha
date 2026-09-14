@@ -26,6 +26,129 @@ not acted on.
 
 ---
 
+## Group A — the configuration ceiling; Group B — register/list/read/prepared statement (SECX-001 … SECX-025)
+
+Harness: N-qa built as a standalone Java program against the released jars (real `QueryRegistry` +
+`PravahaFlightServer` wiring, `QaPolicy` implementing the four-class rule table). Group A used the
+real `pravaha-server-*-app.jar`, one node per cell, killed by PID. Ports were relocated from the
+canonical 1862x/1962x/19624 range to 3862x/3962x/20024 after this sub-round's scratch directory was
+overwritten and its N-qa process killed twice by other concurrent agents sharing the same scratchpad
+— evidence is otherwise a faithful substitute for the canonical ports SECX.md names. `sales_total`
+fails to register on every attempt (`PRV-2050`, unbounded `GROUP BY`) — an unrelated engine safety
+guard, not a security behavior; it blocks only SECX-021(e).
+
+### Group A — the configuration ceiling
+
+- **SECX-001 — FAIL, HIGH defect (SX-12).** 10 of 12 cells match exactly. **Cells 5 and 9 diverge**:
+  `authentication=token, policy=permissive, allow-anonymous=false` — with a full, valid 3-token
+  table in cell 9 — **refuses to start** with the identical `PRV-7002` message cell 1 gets, even
+  though a real token table is configured. Reproduced 3 independent times. Per the case's own
+  vacuity clause, this also voids the grid's own control (cell 9 was supposed to prove cells 5-8's
+  401s come from the filter, not from a node serving nobody).
+- **SECX-002 — PASS** (falsifier not triggered — no spelling silently opens the server). 17
+  spellings tried; every invalid one now refuses to start (`IllegalArgumentException`), not "silently
+  means none" as the case (and E-4) predicts — this has been hardened since. `SecurityProperties`'s
+  own javadoc comment is stale (describes the pre-fix behavior); doc rot, source-only, no `docs/`
+  file affected.
+- **SECX-003 — PASS** (falsifier not triggered). `policy`/`audit` refusals match, with one
+  divergence: `audit=memory ` (trailing space) starts fine (trimmed), where the case predicts a
+  refusal.
+- **SECX-004 — PASS.** No seam exists for a policy with rules on a real node, confirmed by
+  configuration refusal and by source inspection (no constructor parameter, no `ServiceLoader`
+  lookup, no `META-INF/services` file). `carol` reading `payroll_view` on the harness (which *can*
+  express rules): refused, `PRV-7002`.
+- **SECX-005 — PASS.** `bob`'s row filter is reachable only in the harness: 2 rows/`250` vs `ann`'s
+  4/`800`.
+- **SECX-006 — PASS** (falsifier not triggered), one case-narrative correction. Orderings (a)/(b)
+  (either registration order of `authorizedBy`/`hosting`) and (d) (mismatched policy instances) all
+  refuse to start or refuse both read and register consistently. **(c) (hosting-only, no explicit
+  `authorizedBy` call) also refuses to start** — `requireOnePolicy()`'s default non-null
+  `PERMISSIVE` field trips the same "different SecurityPolicy instances" guard — contradicting the
+  case's prediction of a split-authorization gap. Case-file doc rot, in the safe direction.
+- **SECX-007 — PASS** overall, two LOW findings. Blank/whitespace-only token keys, an empty
+  principal id, and an id of `anonymous` all correctly refuse to start (via varying mechanisms — some
+  Spring's own binding failure, some Pravaha's `IllegalArgumentException`). Two tokens resolving to
+  the same principal both authenticate. A 4 KiB key and a key with embedded quote/newline both work.
+  **New:** bare (unquoted) `yes:`/`on:` YAML keys crash the whole config load (SnakeYAML/YAML-1.1
+  coerces both to the single boolean key `true`) — see SX-14. **New:** a token key's own leading/
+  trailing whitespace does not survive Spring's binding, so a padded configured key and its
+  unpadded presented form are indistinguishable — see SX-14.
+- **SECX-008 — PASS.** A marker token grepped across every log, thread dump, and actuator surface
+  this node produces: zero matches (positive control confirmed the grep itself works). Sensitive
+  actuator endpoints return 401 with no credential and 404 with a valid one — genuinely unexposed,
+  not merely gated.
+- **SECX-009 — PASS,** one nuance. The would-be-misleading `authentication=tokens` line never prints
+  at all, since that value now refuses startup outright (safer than predicted). `audit=memory`'s
+  line is accurate; no surface exposes a stored record. `tls.key`-without-certificate's line
+  accurately reports plaintext.
+
+### Group B — register / list / read / prepared statement
+
+- **SECX-010 — PASS.** Anonymous register refused `PRV-7001` before planning, for both cheap and
+  200-clause SQL, comparable wall-clock; `ann`'s view listing unchanged before/after.
+- **SECX-011 — PASS,** one LOW cosmetic finding (SX-14 group). `ann_sales` (SQL byte-identical to
+  `sales_view`) shares its fingerprint and reads correctly (4/`800`); exactly two audit events in
+  order, `register`/ALLOW then `register:source`/ALLOW. The CLI's own acknowledgment prints the
+  *existing* shared query's primary name rather than the name just requested — display-only, the
+  new name still works for reads.
+- **SECX-012 — PASS** for (a)(b)(c)(e)(f); **(d) is an engine-capability gap, not exercised.**
+  `carol`'s four register attempts touching `payroll` all refused `PRV-7002 ... because it reads
+  'payroll'`, naming the stream; her registration of a sales-only query succeeds. (d)'s `UNION ALL`
+  is refused by the planner itself (`PRV-2020`, unsupported), before the security check the sub-case
+  was designed to probe is ever reached.
+- **SECX-013 — FAIL, new MEDIUM defect (SX-13).** Fingerprint-folds-filters confirmed both ways
+  (`bob_sales` differs from `ann_sales`; a second filtered principal `bob2` with the identical
+  filter shares `bob_sales`'s fingerprint). But reading the *alias* name `bob2_sales` throws
+  (`PRV-7003`/`PRV-2002 Object 'bob2_sales' not found`) instead of returning the 2 filtered rows the
+  primary name (`bob_sales`) returns for the identical entitlement — fails closed, no wrong data
+  reached anyone, but the documented "identical filters share" read path is broken for the shared
+  name's alias.
+- **SECX-014 — PASS.** Unauthenticated `queries` refused `PRV-7001` on both N-qa and an
+  `authenticated`-policy node, no names in either message.
+- **SECX-015 — PASS,** one visibility nuance. The CLI's own table omits the SQL column, but a raw
+  SDK read of the same wire response shows `secret_pay`'s SQL text — including the `'ACC-0007'`
+  literal — is present on the wire regardless; the CLI simply doesn't render a column it already
+  received. Worth noting since it understates the disclosure to a human reading CLI output alone.
+- **SECX-016 — PASS against the case; HIGH owner-constraint finding, Defect SX-11.** Of 8
+  payroll-reading views, `carol` (denied anything named "payroll") sees 6 — **75%** — with full SQL
+  text, including `secret_pay`'s `'ACC-0007'` literal. Only the two views whose own registered name
+  contains "payroll" are hidden.
+- **SECX-017 — PASS against the case; folds into Defect SX-11.** `bob`'s `queries` listing is
+  byte-identical to `ann`'s, including the **unfiltered** row count (`sales_view` reports 4 for
+  `bob` even though his own read returns 2) — a row-filtered principal learns the true, unfiltered
+  cardinality of every view via `LIST`.
+- **SECX-018 — PASS.** A captured, valid ticket replayed on a brand-new unauthenticated connection
+  is refused `PRV-7001` — it does not act as a bearer credential.
+- **SECX-019 — PASS.** `ann` reads two views correctly; exactly two `query`/ALLOW audit events in
+  order.
+- **SECX-020 — PASS against the case; folds into Defect SX-11.** `carol`: `payroll_view` refused;
+  `secret_pay` and `hr_summary` both disclosed in full (1 row/`99000` and 3 rows/`404000`); `sales_view`
+  unaffected (4 rows) — same name-keyed blind spot, on the read path this time rather than list.
+- **SECX-021 — PASS** for (a)-(d); **(e) BLOCKED** (`sales_total` cannot register, `PRV-2050`,
+  unrelated to security). `bob`'s security filter is confirmed to apply *below* his own `WHERE`
+  clause, not merge incorrectly with it (`amount>120` → exactly `order_id=3`, not the buggy
+  `order_id=2` the case's failure-mode language names). One case-file arithmetic error found and
+  recorded: SECX-021's own vacuity line states `ann`'s unfiltered count for (b) as 2; the correct
+  value against the live 4-row fixture is 3.
+- **SECX-022 — PASS.** A genuinely bound, authenticated prepared-statement handle replayed via
+  reflection onto a fresh unauthenticated connection is refused `PRV-7001` at both the bind and
+  execute legs — it does not act as a capability token either.
+- **SECX-023 — PASS.** Prepared statement schemas (result and parameter) both correctly typed and
+  returned before binding; bound execution returns the correct filtered result.
+- **SECX-024 — PASS.** `carol` preparing the identical SQL shape over `payroll_view` is refused
+  (the plan cache does not launder the decision); over `secret_pay` it succeeds and returns the
+  payroll row — same name-keyed gap as SECX-020, folds into SX-11.
+- **SECX-025 — PASS.** `bob`'s row filter survives being bound to different parameter values on the
+  same prepared handle, including a parameter value (`amount > 0`) that would otherwise widen the
+  result to all 4 rows — still correctly capped at his 2 EU rows.
+
+**Section tally:** 22 PASS (7 of which — SECX-016, 017, 020, 024, plus corroborating evidence —
+carry the HIGH owner-constraint finding SX-11 alongside their PASS verdict, per the standing
+override), 3 FAIL (SECX-001 is a HIGH availability/diagnostic defect; SECX-013 is a MEDIUM
+functional defect; SECX-012(d) is folded into its own PASS since (a)(b)(c)(e)(f) all matched), 1
+partial BLOCKED sub-step (SECX-021e), 0 fully BLOCKED, 0 NOT RUN (25 cases).
+
+
 ## Group B (continued) — subscribe/drop/pause/resume; Group C — the HTTP matrix (SECX-026 … SECX-057)
 
 Harness: N-qa (Flight, 19624) with the five fixture views registered by `ann`

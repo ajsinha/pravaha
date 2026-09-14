@@ -2312,3 +2312,64 @@ data actually escapes through this specific path — this is the already-documen
 
 **Status: OPEN, low priority** (confirmed-as-documented, no new exposure found). See
 docs/qa/logs/SECX.md (SECX-094).
+
+## SX-11 (HIGH) — `LIST` and read-by-name-mismatch disclose the majority of payroll-derived views and their unfiltered cardinality to a denied or filtered principal (quantified)
+
+Round 1's SEC-043/SEC-057 already established the mechanism (authorization is keyed on the
+*registered view name*, never on what the query actually reads); this round measured its extent on
+the live fixture. Of 8 payroll-reading views registered under names that don't contain "payroll",
+`carol` (denied anything whose name contains "payroll") sees **6 of 8 — 75%** — in a `LIST` call,
+full SQL text included (`secret_pay`'s `'ACC-0007'` literal disclosed verbatim), and can **read**
+two of them directly (`secret_pay`, `hr_summary`) returning real payroll rows (1 row/`99000` and 3
+rows/`404000`). Separately, `bob` (entitled only to a `region = 'EU'` row-filtered slice) sees every
+view's **unfiltered** row count via `LIST` — `sales_view` reports 4 rows to him even though his own
+read of it returns 2 — disclosing true cardinality beyond his entitlement. Both directly violate
+owner constraint 3 (a user receives only the data they are authorized for): "authorized for" is
+being decided by a name a first-come registrant chose, not by what the underlying data actually is.
+
+**Status: OPEN** (known mechanism, newly quantified — not seed-proven, per this file's own rule
+against modifying production code). See docs/qa/logs/SECX.md (SECX-016, 017, 020, 024).
+
+## SX-12 (HIGH) — a legitimately secure configuration (`authentication=token` + `policy=permissive` + a real token table + `allow-anonymous=false`) refuses to start at all, and its refusal message misattributes the cause
+
+`PravahaNode.refuseAccidentalOpenServer()`'s "would this node serve an unauthenticated caller"
+check is computed from **policy type alone** (`!(securityPolicy() instanceof
+AuthenticatedOnlyPolicy)`), ignoring `authentication` and the configured token table entirely. The
+result: a node configured with `authentication=token`, a full 3-entry token table, `policy=
+permissive`, and `allow-anonymous=false` — which would in fact refuse every unauthenticated caller
+with 401, exactly the secure posture an operator intended — **refuses to start**, with the identical
+`PRV-7002 this node is configured to accept unauthenticated callers...` message cell 1 (the genuinely
+open, `authentication=none` cell) gets. The message text itself is wrong for this cell: it hardcodes
+`pravaha.security.authentication=none` in its explanation regardless of what is actually configured,
+so an operator debugging this refusal is told the wrong cause. Reproduced 3 independent times. This
+also voids the round-1-inherited SECX-001 grid's own control (cell 9 was meant to prove that the
+401s in cells 5-8 come from the token filter and not from a node serving nobody).
+
+**Status: OPEN.** Not seed-proven (out of required scope for a non-fix-asserting case; reproduced
+directly and repeatedly). This blocks a real, secure configuration shape from being deployable at
+all, which pushes an operator toward `allow-anonymous=true` — a strictly more open configuration —
+to work around a false refusal. See docs/qa/logs/SECX.md (SECX-001).
+
+## SX-13 (MEDIUM) — reading a view by an alias name sharing another principal's fingerprint, combined with a row filter, throws instead of returning the filtered rows
+
+Two filtered principals (`bob`, `bob2`) with byte-identical row filters registering byte-identical
+SQL correctly share one fingerprint (confirmed). But reading the view under `bob2`'s own registered
+alias name (`bob2_sales`) throws `PRV-7003`/`PRV-2002 Object 'bob2_sales' not found. Known streams:
+[bob_sales]` instead of returning the same 2 filtered rows `bob_sales` (the primary name) correctly
+returns for the identical entitlement. This fails closed — no principal received rows they weren't
+entitled to — but it breaks the "identical filters share, and sharing is transparent to the reader"
+guarantee `docs/SECURITY.md` describes for the fingerprint mechanism.
+
+**Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/SECX.md (SECX-013).
+
+## SX-14 (LOW) — two token-configuration edge cases in YAML/Spring binding
+
+(a) Bare (unquoted) `yes:`/`on:` keys under `pravaha.security.tokens` both parse as the single YAML
+1.1 boolean key `true`, crashing the whole configuration file's load with a duplicate-key error — an
+operational hazard for hand-edited token tables, inherent to the YAML library rather than
+Pravaha-specific code. (b) A token key's own leading/trailing whitespace does not survive Spring's
+property binding into the `tokens` map, so a key configured as `" tok "` is indistinguishable from
+`"tok"` once loaded — not itself exploitable (no privilege widening), but worth knowing when
+auditing a token table for accidental duplicates.
+
+**Status: OPEN, low priority.** See docs/qa/logs/SECX.md (SECX-007).
