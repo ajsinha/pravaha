@@ -571,13 +571,17 @@ be reached from a server. `pravaha-embedded` has nine methods and cannot registe
 
 # Windowing and aggregates — 380 more cases, and two answers that are simply wrong
 
-## W-1 (HIGH) — windowed `AVG` returns the SUM
+## W-1 (HIGH) — windowed `AVG` returns the SUM — **FIXED**
 
 `WindowedAggregate` maps `case SUM, AVG -> SlicedAggregateState.Kind.SUM`, and that state class has
 no AVG kind and no divisor anywhere. `SqlPlanner` runs no rule set, so Calcite never reduces AVG to
 SUM/COUNT either. `KeyedAggregate` and `GlobalAggregate` both divide — **so the same query returns a
 different number over a window than over a view**, and only a group with more than one row
-discriminates. Found independently by two agents.
+discriminates. Found independently by two agents. **Fixed in `23acedc2  Defects 15-17: three
+aggregate answers that were wrong`** (2026-09-13), which gives `AVG` its own kind and divides at
+emit. Re-verified executing `AGG.md`/`SQLX.md` this round (`SqlAnswerTest`'s
+`"SQLX-105/AGG-096"` case, `AVG(amount) = 75` over W1, not the sum `300`) — see
+`docs/qa/logs/AGG.md`.
 
 ## W-2 (HIGH) — the last window is computed and thrown away, and that ordering is mine
 
@@ -1436,3 +1440,14 @@ and currently reuses the general `log` consumer for it), and have `QueryRegistry
 `query::recordCheckpointFailure` to that one instead of to every log line. Not applied here: changing
 `PeriodicCheckpointer`'s public constructor/callback shape is a real API change, not a small,
 obviously-safe one, per this round's brief.
+
+## X-15 — `AGG.md`'s own central defect (unguarded keyed `COUNT`) is fixed; the case file predates the fix
+
+`AGG.md`'s preamble names, as its central discriminator, `KeyedAggregate.Group.accumulate`'s
+unguarded `case COUNT -> counts[i] += weight;`. Executed directly against a running server
+(AGG-013..016): every keyed `COUNT(col)` now correctly excludes NULLs and is internally consistent
+with its paired `SUM`/`AVG` in the same row — matching the case file's "Expected (correct)" text, not
+its "Expected (this build)" text. Traced to `23acedc2  Defects 15-17: three aggregate answers that
+were wrong`, which adds the guard and, in the same commit, fixes W-1 above. `AGG.md`'s fact 2 and
+`docs/qa/logs/AGG.md`'s own preamble should be updated to say `FIXED` rather than describe a live
+defect. Full reproduction in `docs/qa/logs/AGG.md`.
