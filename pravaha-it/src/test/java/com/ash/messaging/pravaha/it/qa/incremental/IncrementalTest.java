@@ -288,6 +288,170 @@ class IncrementalTest {
     }
 
     @Test
+    void incr014_windowedCountDistinctNowReadsStringValuesRatherThanByteLengths() {
+        // INCR-014, re-run against the build under test. The case predicted the distinct key was a
+        // function of a STRING column's byte length -- true when WindowedAggregate.process filled
+        // the aggregate argument with row.getLong(ordinal), the fixed slot's raw (offset, length)
+        // pair for a variable-width column rather than its text. It no longer is: the distinct
+        // argument is now read through readKey(...) at the column's declared type, so distinctness
+        // is over the value. 'alice' and 'carol' are both 5 bytes, which is exactly the pair a
+        // byte-length collision would merge.
+        ServedView view = windowed(
+                "SELECT window_end, COUNT(DISTINCT user_id) AS users FROM "
+                        + "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                        + "GROUP BY window_start, window_end",
+                List.of(0),
+                20 * SECOND,
+                List.of(at("alice", 1L, 1), at("bob", 2L, 2), at("carol", 3L, 3), at("zz", 4L, 30)));
+        assertThat(view.get(10 * SECOND).values().orElseThrow()[1])
+                .as("three distinct ids, matching SQL -- not the 2 a byte-length collision would give")
+                .isEqualTo(3L);
+
+        // The case's own control: three all-2-byte ids must still give 3, which a length-keyed
+        // implementation could not distinguish from one distinct 2-byte value.
+        ServedView allSameLength = windowed(
+                "SELECT window_end, COUNT(DISTINCT user_id) AS users FROM "
+                        + "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                        + "GROUP BY window_start, window_end",
+                List.of(0),
+                20 * SECOND,
+                List.of(at("u1", 1L, 1), at("u2", 2L, 2), at("u3", 3L, 3), at("zz", 4L, 30)));
+        assertThat(allSameLength.get(10 * SECOND).values().orElseThrow()[1]).isEqualTo(3L);
+    }
+
+    @Test
+    void incr017_windowedMinOverANullFirstRowNowIgnoresTheNullRatherThanSeedingZero() {
+        // INCR-017, re-run against the build under test. The case predicted a NULL row seeded the
+        // MIN/MAX accumulator at 0 -- fixed alongside WIN-200/WIN-201: SUM's `present[i]` guard is
+        // now what MIN and MAX seed from too, so a NULL row is skipped rather than flattened to 0.
+        // Both arrival orders must agree, or the seeding is order-dependent rather than fixed.
+        ServedView nullFirst = windowedNullable(
+                "SELECT user_id, MIN(amount) AS lo, MAX(amount) AS hi FROM "
+                        + "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                        + "GROUP BY user_id, window_start, window_end",
+                List.of(0),
+                20 * SECOND,
+                List.of(new Change("u1", null, SECOND, 1), at("u1", 100, 2), at("u1", 200, 3), R4));
+        assertThat(value(nullFirst, "u1", 1)).as("MIN ignores the leading NULL").isEqualTo(100L);
+        assertThat(value(nullFirst, "u1", 2)).isEqualTo(200L);
+
+        ServedView nullMiddle = windowedNullable(
+                "SELECT user_id, MIN(amount) AS lo, MAX(amount) AS hi FROM "
+                        + "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                        + "GROUP BY user_id, window_start, window_end",
+                List.of(0),
+                20 * SECOND,
+                List.of(at("u1", 100, 1), new Change("u1", null, 2 * SECOND, 1), at("u1", 200, 3), R4));
+        assertThat(value(nullMiddle, "u1", 1)).isEqualTo(100L);
+    }
+
+    @Test
+    void incr019_globalCountOfColumnSkipsNullAndTheRetractionOfANullRowDoesNotDecrement() {
+        // INCR-019. GlobalAggregate's COUNT(col) null guard runs on the retracting row too, which is
+        // the case the fix has to hold under: retracting a NULL row must not touch the counter that
+        // never counted it in the first place.
+        ServedView intermediate = globalNullable(
+                "SELECT COUNT(amount) AS n, COUNT(*) AS all_ FROM txn",
+                List.of(new Change("u1", 100L, SECOND, 1), new Change("u1", null, 2 * SECOND, 1)));
+        assertThat(intermediate.scan().get(0)[0])
+                .as("100 counted, NULL skipped")
+                .isEqualTo(1L);
+        assertThat(intermediate.scan().get(0)[1]).isEqualTo(2L);
+
+        ServedView after = globalNullable(
+                "SELECT COUNT(amount) AS n, COUNT(*) AS all_ FROM txn",
+                List.of(
+                        new Change("u1", 100L, SECOND, 1),
+                        new Change("u1", null, 2 * SECOND, 1),
+                        new Change("u1", 200L, 3 * SECOND, 1)));
+        assertThat(after.scan().get(0)[0]).as("before the retraction: n = 2").isEqualTo(2L);
+        assertThat(after.scan().get(0)[1]).isEqualTo(3L);
+
+        ServedView afterRetraction = globalNullable(
+                "SELECT COUNT(amount) AS n, COUNT(*) AS all_ FROM txn",
+                List.of(
+                        new Change("u1", 100L, SECOND, 1),
+                        new Change("u1", null, 2 * SECOND, 1),
+                        new Change("u1", 200L, 3 * SECOND, 1),
+                        new Change("u1", null, 2 * SECOND, -1)));
+        assertThat(afterRetraction.scan().get(0)[0])
+                .as("1 + 0 + 1 - 0 = 2: the retraction of a NULL row does not decrement")
+                .isEqualTo(2L);
+        assertThat(afterRetraction.scan().get(0)[1]).as("1 + 1 + 1 - 1 = 2").isEqualTo(2L);
+    }
+
+    @Test
+    void incr020_globalSumOverAFullyRetractedInputReportsZeroWhereSqlSaysNull() {
+        // INCR-020. GlobalAggregate.emit() is unconditional -- there is no rowCount == 0 guard the
+        // way KeyedAggregate has -- so a stream whose every row has been retracted still emits a row,
+        // and SUM/AVG over it read 0 from the accumulator where SQL says NULL.
+        ServedView before = global("SELECT SUM(amount) AS total, COUNT(*) AS n FROM txn", List.of(R1));
+        assertThat(before.scan().get(0)[0])
+                .as("C3: the row exists before the retraction")
+                .isEqualTo(100L);
+
+        ServedView after = global(
+                "SELECT SUM(amount) AS total, COUNT(*) AS n, AVG(amount) AS mean FROM txn", List.of(R1, retract(R1)));
+        assertThat(after.scan()).as("one row is emitted, not none").hasSize(1);
+        assertThat(after.scan().get(0)[0]).as("100 - 100 = 0, not NULL").isEqualTo(0L);
+        assertThat(after.scan().get(0)[1]).isEqualTo(0L);
+        assertThat(after.scan().get(0)[2])
+                .as("AVG over a zero count reads 0, not NULL")
+                .isEqualTo(0L);
+    }
+
+    @Test
+    void incr021_aRetractionArrivingAfterItsWindowHasFiredIsDroppedNotApplied() {
+        // INCR-021. The headline consequence of the production default, allowed lateness zero: the
+        // view keeps a number the input has withdrawn, permanently, and lateRecords() is the only
+        // evidence. INCR-007 is the C2 control this case names -- the same retraction fed before the
+        // watermark gives 100, proving the retraction itself is well-formed and arrival time is the
+        // only difference.
+        TwoRounds result = feedTwoRounds(
+                W1_SUM, List.of(0), 0L, List.of(R1, R2, R3, R4), List.of(retract(R3)), 20 * SECOND, 21 * SECOND);
+        assertThat(value(result.view(), "u1", 1))
+                .as("the view still shows 300; B(M) says 100 -- a permanent divergence")
+                .isEqualTo(300L);
+        assertThat(result.lateRecords()).isEqualTo(1);
+        assertThat(result.corrections()).isZero();
+        assertThat(result.secondBatch())
+                .as("no shipped surface sees the retraction: no change is delivered for it")
+                .isEmpty();
+    }
+
+    @Test
+    void incr022_theRetractAndReemitCorrectionPathIsReachableOnceLatenessIsDeclared() {
+        // INCR-022, re-run against the build under test. The case predicted the correction path was
+        // unreachable through SQL because allowed lateness was fixed at zero with no way to change
+        // it. That premise no longer holds: StreamSchema.Builder.allowedLateness(Duration), read by
+        // PhysicalPlanBuilder.allowedLatenessOf from the scan beneath the aggregate, reaches the
+        // ordinary SqlPlanner.plan(...) path used here -- no hand-built operator required. First,
+        // the default (zero) reproduces the case's original finding; second, the same scenario with
+        // lateness declared on the stream shows the correction actually firing.
+        // The guard is lastWindowEndFor(sliceStart) + lateness <= watermark: the watermark cannot
+        // move backwards between the two rounds, so both cases fire the window at exactly 10s (not
+        // 20s -- R4 is not needed to push it there when the watermark is driven explicitly) and
+        // differ only in the second advance, 11s, which the zero case's guard (10 <= 11) still
+        // rejects and the 5s case's guard (15 <= 11) does not.
+        TwoRounds zero = feedTwoRounds(
+                W1_SUM, List.of(0), 0L, List.of(R1, R2, R3), List.of(at("u1", 5, 4)), 10 * SECOND, 11 * SECOND);
+        assertThat(zero.lateRecords()).isEqualTo(1);
+        assertThat(zero.corrections()).isZero();
+        assertThat(zero.secondBatch()).isEmpty();
+
+        TwoRounds withLateness = feedTwoRounds(
+                W1_SUM, List.of(0), 5 * SECOND, List.of(R1, R2, R3), List.of(at("u1", 5, 4)), 10 * SECOND, 11 * SECOND);
+        assertThat(withLateness.corrections()).isGreaterThan(0);
+        assertThat(withLateness.secondBatch())
+                .as("a retraction of the old total, then an insert of the corrected one")
+                .hasSize(2);
+        assertThat(withLateness.secondBatch().get(0).weight()).isEqualTo(-1);
+        assertThat(withLateness.secondBatch().get(0).values()[1]).isEqualTo(300L); // 100 + 200
+        assertThat(withLateness.secondBatch().get(1).weight()).isEqualTo(1);
+        assertThat(withLateness.secondBatch().get(1).values()[1]).isEqualTo(305L); // 300 + 5
+    }
+
+    @Test
     void incr023_aGlobalMinRefusesARetractionWithTheSameCodeAsTheWindowedOne() {
         // INCR-023. Three operators, one code: the message differs between them, which ERRC owns,
         // but PRV-3020 and the reason are the same and that is what a caller acts on.
@@ -793,6 +957,11 @@ class IncrementalTest {
         return feed(TXN, sql, List.of(0), Long.MIN_VALUE, changes, true);
     }
 
+    /** As {@link #global}, over the nullable-amount schema. */
+    private static ServedView globalNullable(String sql, List<Change> changes) {
+        return feed(TXN_NULLABLE, sql, List.of(0), Long.MIN_VALUE, changes, true);
+    }
+
     /** H1 over a plan with no aggregate at all: every row flows through and the view keys it. */
     private static ServedView unwindowed(String sql, List<Integer> keys, List<Change> changes) {
         return feed(TXN, sql, keys, Long.MIN_VALUE, changes, true);
@@ -838,11 +1007,89 @@ class IncrementalTest {
         return view;
     }
 
+    /** What one two-round {@link #feedTwoRounds} run produced, for INCR-021 and INCR-022. */
+    private record TwoRounds(
+            ServedView view,
+            List<com.ash.messaging.pravaha.serving.ViewChange> secondBatch,
+            long lateRecords,
+            long corrections) {}
+
+    /**
+     * Two rounds under a declared allowed lateness, through the ordinary planner path.
+     *
+     * <p>{@code StreamSchema.Builder.allowedLateness(Duration)} now reaches
+     * {@code PhysicalPlanBuilder.allowedLatenessOf} the same way any other stream property does, so
+     * this needs no hand-built operator -- unlike {@link #windowedWithLateness} below, written
+     * before that landed, which is kept for the tests that already call it.
+     */
+    private static TwoRounds feedTwoRounds(
+            String sql,
+            List<Integer> keys,
+            long latenessNanos,
+            List<Change> first,
+            List<Change> second,
+            long firstWatermark,
+            long secondWatermark) {
+        StreamSchema txnWithLateness = StreamSchema.builder("txn")
+                .field("user_id", Types.string())
+                .field("amount", Types.int64())
+                .field("event_time", Types.timestamp())
+                .eventTime("event_time")
+                .allowedLateness(Duration.ofNanos(latenessNanos))
+                .build();
+        PhysicalOperator plan = new PhysicalPlanBuilder()
+                .build(SqlPlanner.withStreams(txnWithLateness).plan(sql));
+        ServedView view = new ServedView("v", plan.outputSchema(), keys, 100_000);
+        ViewSink sink = new ViewSink(view, plan.outputSchema());
+        List<com.ash.messaging.pravaha.serving.ViewChange> secondBatch = new ArrayList<>();
+        RowLayout layout = RowLayout.of(txnWithLateness);
+        try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
+                InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, (RowOutput) sink::begin)) {
+            BinaryRowWriter writer = new BinaryRowWriter(layout);
+            BinaryRowView reader = new BinaryRowView(layout);
+            long sequence = 0;
+            for (Change change : first) {
+                long handle = arena.allocate(layout.rowSize(256));
+                writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+                writer.setString(0, change.user())
+                        .setLong(1, change.amount())
+                        .setLong(2, change.eventTime())
+                        .weight(change.weight())
+                        .eventTimestampNanos(change.eventTime())
+                        .sequence(++sequence)
+                        .commit();
+                arena.trimTo(handle, writer.sizeSoFar());
+                pipeline.accept(reader.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+            }
+            pipeline.advanceWatermark(firstWatermark);
+            sink.commit(sink.appliedFrontier());
+
+            sink.onCommit((batch, frontier) -> secondBatch.addAll(batch));
+            for (Change change : second) {
+                long handle = arena.allocate(layout.rowSize(256));
+                writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+                writer.setString(0, change.user())
+                        .setLong(1, change.amount())
+                        .setLong(2, change.eventTime())
+                        .weight(change.weight())
+                        .eventTimestampNanos(change.eventTime())
+                        .sequence(++sequence)
+                        .commit();
+                arena.trimTo(handle, writer.sizeSoFar());
+                pipeline.accept(reader.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+            }
+            pipeline.advanceWatermark(secondWatermark);
+            sink.commit(sink.appliedFrontier());
+            return new TwoRounds(view, secondBatch, pipeline.lateRecords(), pipeline.corrections());
+        }
+    }
+
     /**
      * Two rounds under an explicit allowed lateness: publish, then correct.
      *
      * <p>SQL has nowhere to say allowed lateness -- FINDINGS T-3 -- so the operator is rebuilt with
-     * it, which is the only way the correction path is reachable at all.
+     * it, which is the only way the correction path is reachable at all. Superseded by
+     * {@link #feedTwoRounds} above for anything new: kept because {@link #incr026} already calls it.
      */
     private static ServedView windowedWithLateness(
             String sql,

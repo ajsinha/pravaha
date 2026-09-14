@@ -41,104 +41,20 @@ import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
-import com.ash.messaging.pravaha.sql.SqlPlanner;
-import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@code docs/qa/cases/WIN.md}, executed.
+ * {@code docs/qa/cases/WIN.md}, sections 1-8: TUMBLE, HOP, SESSION, CUMULATE, size, hop
+ * slide-versus-size, open windows, and key cardinality.
  *
- * <p>Every case in that file was prose: a human read the setup, typed the commands and compared the
- * numbers by eye. 210 of them. Converted here they run in every build, which is the only form in
- * which a QA answer stays true -- the prose version was already stale in three places by the time
- * it was written down, and nothing in the build could tell.
- *
- * <p>Two harnesses, and the case ids say which. The <em>configured</em> ones go through the path a
- * deployment actually has: a {@link SourceBinding} naming the filesystem plugin, a
- * {@link QueryRegistry} feeding from it, a watermark clock, and the answer read out of the served
- * view. The <em>embedded</em> ones drive {@link SlicedWindows}, {@link WindowSpec},
- * {@link SessionWindows} and {@link SlicedAggregateState} directly, because WIN.md section 0.6
- * records three things the server cannot reach at all -- end of input, more than one lane, and
- * SESSION, which no plan node builds.
- *
- * <p>Every expected number carries its arithmetic in a comment. A test that asserts {@code 202}
- * proves nothing about {@code 100 + 102}; a test that says so can be checked by reading it.
+ * <p>See {@link WindowClosingAnswerTest} for sections 9-14 (volume, boundaries, close triggers,
+ * lateness, empty windows, aggregates) and {@link WindowTestSupport} for the shared datasets and
+ * harnesses both files use.
  */
 @Tag("qa")
-class WindowAnswerTest {
-
-    private static final long MS = 1_000_000L;
-    private static final long SECOND = 1_000_000_000L;
-    private static final long MINUTE = 60 * SECOND;
-    private static final long HOUR = 60 * MINUTE;
-    private static final long DAY = 24 * HOUR;
-
-    private static final String SPEC = "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP";
-    private static final String NULLABLE_SPEC = "txn_id:INT64,user_id:INT64,amount:INT64?,event_time:TIMESTAMP";
-
-    /** Q_T(S) of WIN.md section 0.2: tumbling, size {@code seconds}. */
-    private static String tumble(String stream, String interval) {
-        return "SELECT window_start, window_end, user_id, COUNT(*) AS n, SUM(amount) AS total FROM "
-                + "TABLE(TUMBLE(TABLE " + stream + ", DESCRIPTOR(event_time), INTERVAL '" + interval + ")) "
-                + "GROUP BY window_start, window_end, user_id";
-    }
-
-    /**
-     * Q_H(D,S) of section 0.2. The first interval in the SQL text is the <em>slide</em> and the
-     * second is the size -- Calcite's order, which {@code PhysicalPlanBuilder} reverses.
-     */
-    private static String hop(String stream, String slide, String size) {
-        return "SELECT window_start, window_end, user_id, COUNT(*) AS n, SUM(amount) AS total FROM "
-                + "TABLE(HOP(TABLE " + stream + ", DESCRIPTOR(event_time), INTERVAL '" + slide + ", INTERVAL '"
-                + size + ")) GROUP BY window_start, window_end, user_id";
-    }
-
-    // ------------------------------------------------------------------ datasets
-
-    /** Dataset A of section 0.3, six rows, two users. */
-    private static final String A = csv(
-            row(1, 100, 10, 1 * SECOND),
-            row(2, 100, 20, 5 * SECOND),
-            row(3, 200, 30, 7 * SECOND),
-            row(4, 100, 40, 11 * SECOND),
-            row(5, 200, 50, 19 * SECOND),
-            row(6, 100, 60, 25 * SECOND));
-
-    /** A plus the pusher row of section 0.3: user 999, amount 0, at 40.000. */
-    private static final String A_PLUS = A + row(7, 999, 0, 40 * SECOND);
-
-    /** Dataset B: boundaries, one user, amounts are powers of two. */
-    private static final String B = csv(
-            row(1, 100, 1, 0L),
-            row(2, 100, 2, 10 * SECOND - 1),
-            row(3, 100, 4, 10 * SECOND),
-            row(4, 100, 8, 20 * SECOND - 1),
-            row(5, 100, 16, 20 * SECOND),
-            row(6, 100, 32, 20 * SECOND),
-            row(7, 100, 64, 30 * SECOND - 1),
-            row(8, 100, 128, 30 * SECOND));
-
-    private static final String B_PLUS = B + row(9, 999, 0, 50 * SECOND);
-
-    /** Dataset C: amounts 10, 20, 30 at 5.000, 15.000, 25.000. */
-    private static final String C =
-            csv(row(1, 100, 10, 5 * SECOND), row(2, 100, 20, 15 * SECOND), row(3, 100, 30, 25 * SECOND));
-
-    private static final String C_PLUS = C + row(4, 999, 0, 60 * SECOND);
-
-    /** Dataset D: amounts 1 and 2 at 0.000 and 2.000, for the non-dividing hop. */
-    private static final String D_PLUS =
-            csv(row(1, 100, 1, 0L), row(2, 100, 2, 2 * SECOND)) + row(3, 999, 0, 30 * SECOND);
-
-    private static String row(long id, long user, long amount, long eventTime) {
-        return id + "," + user + "," + amount + "," + eventTime + "\n";
-    }
-
-    private static String csv(String... rows) {
-        return String.join("", rows);
-    }
+class WindowAnswerTest extends WindowTestSupport {
 
     // ================================================================== 1. TUMBLE
 
@@ -176,6 +92,136 @@ class WindowAnswerTest {
                     .isZero();
             assertThat(start).isIn(0L, 10 * SECOND);
         }
+    }
+
+    @Test
+    void win003_theGroupedFunctionFormOfTumbleIsAcceptedAndAgreesWithTheTableForm(@TempDir Path dir) throws Exception {
+        // WIN-003. The case predicted that TUMBLE_START(...) beside GROUP BY TUMBLE(...) would hit
+        // buildGroupedWindow's "sits beside a windowing function" refusal, the same shape as a raw
+        // scalar expression next to the window call. It does not: Calcite's own SqlToRelConverter
+        // resolves GROUP BY TUMBLE(...) with TUMBLE_START/END in the select list into its own
+        // Aggregate + Project before PhysicalPlanBuilder ever sees a bare TUMBLE_START call, so the
+        // RexInputRef branch is what actually runs. Outcome (a), not the predicted (b): the query
+        // plans to a WindowedAggregate and gives the same answer as WIN-001's table-function form.
+        List<String> rows = configured(
+                dir,
+                A,
+                SPEC,
+                Duration.ZERO,
+                "SELECT TUMBLE_START(event_time, INTERVAL '10' SECOND) AS window_start, user_id, "
+                        + "COUNT(*) AS n, SUM(amount) AS total FROM s0 "
+                        + "GROUP BY TUMBLE(event_time, INTERVAL '10' SECOND), user_id",
+                List.of(0, 1),
+                6,
+                4);
+        assertThat(rows)
+                .containsExactlyInAnyOrder(
+                        "0|100|2|30", // 10 + 20 = 30
+                        "0|200|1|30",
+                        "10000000000|100|1|40",
+                        "10000000000|200|1|50");
+    }
+
+    @Test
+    void win004_quickstartSection4sRegistrationRunsAsWrittenAndAgreesWithWin001(@TempDir Path dir) throws Exception {
+        // WIN-004. docs/QUICKSTART.md section 4, verbatim but for txn -> s0 and the status filter
+        // dropped (its own schema has no event_time, per DOC-011). The case predicted TUMBLE_END in
+        // the projection would hit the PRV-2020 refusal WIN-003 also predicted; per WIN-003 that
+        // refusal does not fire for the grouped form, so this registers and runs, keyed on user_id
+        // alone (--keys 1) exactly as the quickstart says. The remaining, real hazard the case
+        // named survives: keying on user_id alone means each window overwrites the last, so the
+        // view converges on the *last* window's numbers rather than holding one row per window.
+        List<String> rows = configured(
+                dir,
+                A,
+                SPEC,
+                Duration.ZERO,
+                "SELECT STREAM TUMBLE_END(event_time, INTERVAL '10' SECOND) AS window_end, "
+                        + "user_id, COUNT(*) AS txn_count, SUM(amount) AS total FROM s0 "
+                        + "GROUP BY TUMBLE(event_time, INTERVAL '10' SECOND), user_id",
+                List.of(1),
+                6,
+                2);
+        // Keyed on user_id alone: one row per user, holding whichever window last wrote that key --
+        // here window [10,20), the last one to fire for each user, not "one row per window".
+        assertThat(rows).containsExactlyInAnyOrder("20000000000|100|1|40", "20000000000|200|1|50");
+    }
+
+    @Test
+    void win005_tumbleOverAStreamWithNoDeclaredEventTimeNeverFiresRatherThanRefusing(@TempDir Path dir)
+            throws Exception {
+        // WIN-005. DESCRIPTOR(event_time) names a real column, so WindowAssignOperator is
+        // constructible even though the stream declared no event-time key -- the registration
+        // succeeds and nothing ever fires, silently, rather than being refused at plan time.
+        // v_t10 is the control: it must hold 4 rows in the same run, or the server itself is dead
+        // rather than this declaration being the cause.
+        // The control runs in the registry() helper every other WIN-0xx case already trusts, in its
+        // own registry, so that nothing about a second stream declared on the same registry (which
+        // measurably changes when this build's watermark reaches its maximum -- worth its own
+        // finding, noted below) can be blamed for the control's own answer.
+        List<String> controlRows =
+                configured(dir, A, SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), 6, 4);
+        assertThat(controlRows).hasSize(4);
+
+        Path data2 = dir.resolve("a2.csv");
+        Files.writeString(data2, A);
+        ViewCatalog views = new ViewCatalog();
+        // snoevent: the identical schema, minus the event-time declaration.
+        StreamSchema snoevent = StreamSchema.builder("snoevent")
+                .field("txn_id", Types.int64())
+                .field("user_id", Types.int64())
+                .field("amount", Types.int64())
+                .field("event_time", Types.timestamp())
+                .build();
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding("snoevent", "filesystem", Map.of("path", data2.toString(), "schema", SPEC)));
+        try (QueryRegistry registry = new QueryRegistry(views, snoevent)
+                .feedingFrom(feeds)
+                .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50))) {
+            RegisteredQuery underTest = registry.register(
+                    "v_noev",
+                    "SELECT window_start, window_end, user_id, COUNT(*) AS n, SUM(amount) AS total FROM "
+                            + "TABLE(TUMBLE(TABLE snoevent, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                            + "GROUP BY window_start, window_end, user_id",
+                    List.of(0, 1, 2),
+                    Principal.ANONYMOUS);
+            awaitRowsIn(underTest, 6);
+            Thread.sleep(500);
+            assertThat(new ViewQuery(views).execute("SELECT * FROM v_noev").rows())
+                    .as("no event-time declaration means every row is stamped 0, the watermark never "
+                            + "leaves 0, and no window ever fires -- registration succeeded and nothing "
+                            + "reports why the view stays empty")
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    void win006_descriptorOnANonTemporalColumnIsRefusedByCalciteNotByPravaha() {
+        // WIN-006. descriptorOrdinal itself does no type check (it matches by name or ordinal), so
+        // the case predicted DESCRIPTOR(amount) would resolve and the engine would window on money.
+        // In practice Calcite's own operand type checker for its built-in TUMBLE validates the
+        // descriptor's column type before Pravaha's descriptorOrdinal ever runs, and refuses this
+        // query at the validation layer -- a defence in depth the case did not anticipate, and worth
+        // recording precisely because the case's own premise ("no type check at all") is only true
+        // of Pravaha's half of the check.
+        assertThatThrownBy(() -> plan("SELECT window_start, window_end, user_id, COUNT(*) AS n, SUM(amount) AS total "
+                        + "FROM TABLE(TUMBLE(TABLE s0, DESCRIPTOR(amount), INTERVAL '10' SECOND)) "
+                        + "GROUP BY window_start, window_end, user_id"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("Cannot apply 'TUMBLE'");
+    }
+
+    @Test
+    void win012_explainRendersSizeAndSlideInMillisecondsNotNanoseconds() {
+        // WIN-012. WindowAssignOperator.label() divides sizeNanos by 1_000_000 -- the one place a
+        // human reads the window back is the one place the engine's own nanosecond time base is not
+        // used. Contrast with WIN-054, where a 100-microsecond size truncates to "0ms".
+        com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan = plan(tumble("s0", "10' SECOND"));
+        assertThat(findByLabel(plan, "WindowedAggregate").label())
+                .contains("WindowedAggregate(TUMBLING 10000ms")
+                .contains("2 aggregate(s)");
+        assertThat(findByLabel(plan, "WindowAssign").label())
+                .isEqualTo("WindowAssign(TUMBLING size=10000ms slide=10000ms on event_time)");
     }
 
     @Test
@@ -262,6 +308,223 @@ class WindowAnswerTest {
                 dir, C_PLUS, SPEC, Duration.ZERO, hop("s0", "10' SECOND", "20' SECOND"), List.of(0, 1, 2), 4, 4);
         assertThat(rows.stream().filter(r -> r.startsWith("-")).toList())
                 .containsExactly("-10000000000|10000000000|100|1|10");
+    }
+
+    @Test
+    void win015_windowEndsContainingAndTheSlicingAgreeOnEveryRow() {
+        // WIN-015. If a record's slice were not part of every window windowEndsContaining returns
+        // for it, the slicing would be wrong. hopping(20s, 10s): slice width gcd(20,10) = 10s.
+        SlicedWindows windows = new SlicedWindows(WindowSpec.hopping(20 * SECOND, 10 * SECOND));
+        for (long t : new long[] {5 * SECOND, 15 * SECOND, 25 * SECOND, 0L, 10 * SECOND - 1, 10 * SECOND, -1L}) {
+            long slice = windows.sliceStartFor(t);
+            List<Long> ends = windows.windowEndsContaining(t);
+            assertThat(ends).as("t=%d must belong to at least one window", t).isNotEmpty();
+            for (long end : ends) {
+                assertThat(windows.slicesOfWindowEnding(end))
+                        .as("t=%d's slice %d must be part of the window ending at %d", t, slice, end)
+                        .contains(slice);
+            }
+        }
+        // The two worked examples from the case text, checked exactly.
+        assertThat(windows.sliceStartFor(5 * SECOND)).isZero();
+        assertThat(windows.windowEndsContaining(5 * SECOND)).containsExactly(10 * SECOND, 20 * SECOND);
+        assertThat(windows.sliceStartFor(-1L)).isEqualTo(-10 * SECOND);
+        assertThat(windows.windowEndsContaining(-1L)).containsExactly(0L, 10 * SECOND);
+    }
+
+    @Test
+    void win016_aBareHopTableFunctionEmitsSliceBoundariesNotWindowBoundaries(@TempDir Path dir) throws Exception {
+        // WIN-016. Without an aggregate above it, WindowAssign never has its slice boundaries
+        // corrected to the window's own -- only WindowedAggregate.emitRow does that. A bare
+        // TABLE(HOP(...)) over a 20s window therefore reports a 10s-wide "window": the slice, not
+        // the window the query asked for, and no replication into every window the row belongs to.
+        List<String> rows = configured(
+                dir,
+                C_PLUS,
+                SPEC,
+                Duration.ZERO,
+                "SELECT txn_id, user_id, window_start, window_end FROM "
+                        + "TABLE(HOP(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND, INTERVAL '20' SECOND))",
+                List.of(0),
+                4,
+                4);
+        assertThat(rows).hasSize(4); // one row per input row, not the 8 SQL:2016 windowing implies
+        for (String row : rows) {
+            String[] parts = row.split("\\|");
+            long start = Long.parseLong(parts[2]);
+            long end = Long.parseLong(parts[3]);
+            assertThat(end - start)
+                    .as("the boundary columns name the 10s slice, not the 20s window the query asked for")
+                    .isEqualTo(10 * SECOND);
+        }
+    }
+
+    @Test
+    void win017_theSameBareTableFunctionOverTumbleIsCorrect(@TempDir Path dir) throws Exception {
+        // WIN-017. The control that isolates WIN-016 to hops: for TUMBLE, slice == window, so the
+        // bare table function's boundaries are correct even with no aggregate above it.
+        List<String> rows = configured(
+                dir,
+                A_PLUS,
+                SPEC,
+                Duration.ZERO,
+                "SELECT txn_id, user_id, window_start, window_end FROM "
+                        + "TABLE(TUMBLE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND))",
+                List.of(0),
+                7,
+                7);
+        assertThat(rows).hasSize(7);
+        for (String row : rows) {
+            String[] parts = row.split("\\|");
+            long start = Long.parseLong(parts[2]);
+            long end = Long.parseLong(parts[3]);
+            assertThat(end - start).isEqualTo(10 * SECOND);
+        }
+    }
+
+    @Test
+    void win018_theHopIntervalOrderIsSlideThenSize() {
+        // WIN-018. PhysicalPlanBuilder reverses Calcite's argument order: the first interval in the
+        // SQL text is the slide, the second is the size. Getting this backwards produces windows of
+        // the wrong width that still fire plausibly, which is why the label is asserted exactly.
+        com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan =
+                plan("SELECT window_start, window_end, COUNT(*) FROM TABLE(HOP(TABLE s0, DESCRIPTOR(event_time), "
+                        + "INTERVAL '10' SECOND, INTERVAL '20' SECOND)) GROUP BY window_start, window_end");
+        assertThat(findByLabel(plan, "WindowAssign").label())
+                .isEqualTo("WindowAssign(HOPPING size=20000ms slide=10000ms on event_time)");
+    }
+
+    @Test
+    void win023_aHopAndATumbleOfTheSameSizeAgreeOnEverySlice() {
+        // WIN-023. A record belongs to exactly one slice whatever the overlap: the hop's 1s slice
+        // must always sit inside the tumble's 10s slice containing the same instant.
+        for (long t : new long[] {0L, 1L, 999_999_999L, SECOND, 10 * SECOND - 1, 10 * SECOND, -1L, -10 * SECOND}) {
+            long tumbleSlice = Math.floorDiv(t, 10 * SECOND) * 10 * SECOND;
+            long hopSlice = Math.floorDiv(t, SECOND) * SECOND;
+            assertThat(hopSlice)
+                    .as("t=%d: the 1s slice must fall inside the 10s slice", t)
+                    .isGreaterThanOrEqualTo(tumbleSlice)
+                    .isLessThan(tumbleSlice + 10 * SECOND);
+        }
+    }
+
+    @Test
+    void win028_hopResultsAreZSetRowsWithWeightPlusOneAndNoDuplicate(@TempDir Path dir) throws Exception {
+        // WIN-028. A window that fires once must produce exactly one +1 insert per (window, key) and
+        // no retraction at all, because no late record arrives and dirty stays empty. The subscriber
+        // is attached before any row is awaited, so it cannot miss the commit.
+        Files.createDirectories(dir);
+        Path data = dir.resolve("data.csv");
+        Files.writeString(data, C_PLUS);
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = registry(views, dir, data, SPEC, Duration.ZERO)) {
+            RegisteredQuery query = registry.register(
+                    "v_h10_20", hop("s0", "10' SECOND", "20' SECOND"), List.of(0, 1, 2), Principal.ANONYMOUS);
+            // pause() stops the feed itself, not just accept(), so it is the race-free way to attach
+            // a subscriber before any row is committed on a dataset small enough to finish before a
+            // subscribe() call issued right after register() would otherwise be guaranteed to win.
+            registry.pause("v_h10_20");
+            List<com.ash.messaging.pravaha.serving.ViewChange> changes =
+                    java.util.Collections.synchronizedList(new ArrayList<>());
+            query.subscribe(batch -> changes.addAll(batch));
+            registry.resume("v_h10_20");
+            awaitRowsIn(query, 4);
+            awaitView(views, "SELECT * FROM v_h10_20", 4);
+            Thread.sleep(250);
+            assertThat(changes).as("one change per (window, key) of WIN-013").hasSize(4);
+            assertThat(changes).as("no retraction: no late record arrived").allMatch(c -> c.weight() == 1);
+        }
+    }
+
+    @Test
+    void win030_explainOnAHopNamesHoppingAndBothIntervals() {
+        // WIN-030. The window kind and both intervals must be visible in the plan; the aggregate's
+        // own label prints only the size, so the assign line is the only place the slide appears.
+        com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan = plan(hop("s0", "10' SECOND", "20' SECOND"));
+        assertThat(findByLabel(plan, "WindowedAggregate").label())
+                .startsWith("WindowedAggregate(HOPPING 20000ms")
+                .contains("2 aggregate(s)");
+        assertThat(findByLabel(plan, "WindowAssign").label())
+                .isEqualTo("WindowAssign(HOPPING size=20000ms slide=10000ms on event_time)");
+    }
+
+    // -------------------------------------------------------- 3. SESSION (no SQL surface)
+    @Test
+    void win042_aSessionsStateIsBoundedByOpenSessionsNotByHistory() {
+        // WIN-042, blocked-by-syntax. The falsifier is state approaching the record count; the case
+        // predicts a plateau of "roughly 1,000". Measured: because closedBy here runs only once per
+        // 1,000 records, at a watermark 2s behind the batch's own newest record, each check finds the
+        // most recent ~300 of that batch's keys not yet closeable (their 1s-gap session has not
+        // aged past the watermark) and the other ~700 already closed -- so the plateau is ~300, not
+        // ~1,000. Both numbers are "bounded, and nowhere near 100,000"; recording the true one rather
+        // than forcing the predicted one is the point of running this case at all.
+        SessionWindows sessions = new SessionWindows(SECOND);
+        long closedTotal = 0;
+        int lastKeyCount = 0;
+        int lastOpenSessions = 0;
+        for (int i = 1; i <= 100_000; i++) {
+            sessions.record(i % 1000, i * 10_000_000L);
+            if (i % 1000 == 0) {
+                closedTotal += sessions.closedBy(i * 10_000_000L - 2 * SECOND).size();
+                lastKeyCount = sessions.keyCount();
+                lastOpenSessions = sessions.openSessions();
+            }
+        }
+        assertThat(lastKeyCount)
+                .as("bounded by open sessions, not by the 100,000 records fed")
+                .isLessThan(2000);
+        assertThat(lastOpenSessions).isEqualTo(lastKeyCount); // one session per key at this gap
+        // Vacuity: every record is accounted for by either a still-open session or a closed one.
+        assertThat(closedTotal + lastOpenSessions).isEqualTo(100_000);
+    }
+
+    // -------------------------------------------------------- 4. CUMULATE (does not exist)
+    @Test
+    void win044_groupByCumulateProducesADifferentErrorThanTheTableForm() {
+        // WIN-044. isWindowFunction does not list CUMULATE, so the grouped form is handed to
+        // ExpressionCompiler as an ordinary scalar call instead of being recognised as a window.
+        assertThatThrownBy(() -> plan("SELECT user_id, COUNT(*) FROM s0 "
+                        + "GROUP BY CUMULATE(event_time, INTERVAL '2' SECOND, INTERVAL '10' SECOND), user_id"))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void win045_sqlSupportDocDoesNotMentionCumulateInEitherDirection() throws Exception {
+        // WIN-045. The Aggregation table lists TUMBLE, HOP and SESSION; CUMULATE parses (WIN-043)
+        // and has no row at all, so "not listed" and "refused" are not the same set.
+        java.nio.file.Path root = java.nio.file.Path.of("").toAbsolutePath();
+        while (!java.nio.file.Files.exists(root.resolve("docs/SQL_SUPPORT.md")) && root.getParent() != null) {
+            root = root.getParent();
+        }
+        String doc = java.nio.file.Files.readString(root.resolve("docs/SQL_SUPPORT.md"));
+        assertThat(doc.toLowerCase(java.util.Locale.ROOT)).doesNotContain("cumulate");
+    }
+
+    @Test
+    void win049_anUnknownWindowFunctionNameIsRefused() {
+        // WIN-049. The default arm must catch anything Calcite lets through with a windowing-looking
+        // name that is not one of the three the engine builds.
+        assertThatThrownBy(() ->
+                        plan("SELECT * FROM TABLE(TUMBLING(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND)))"))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void win050_lowerAndMixedCaseWindowFunctionNamesPlanIdentically() {
+        // WIN-050. buildWindowAssign upper-cases the operator name with Locale.ROOT, so case must
+        // not change whether a window is recognised.
+        String upper =
+                findByLabel(plan(tumble("s0", "10' SECOND")), "WindowAssign").label();
+        com.ash.messaging.pravaha.runtime.plan.PhysicalOperator lower = plan("SELECT window_start, window_end, "
+                + "user_id, COUNT(*) AS n, SUM(amount) AS total FROM "
+                + "TABLE(tumble(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                + "GROUP BY window_start, window_end, user_id");
+        com.ash.messaging.pravaha.runtime.plan.PhysicalOperator mixed = plan("SELECT window_start, window_end, "
+                + "user_id, COUNT(*) AS n, SUM(amount) AS total FROM "
+                + "TABLE(Tumble(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                + "GROUP BY window_start, window_end, user_id");
+        assertThat(findByLabel(lower, "WindowAssign").label()).isEqualTo(upper);
+        assertThat(findByLabel(mixed, "WindowAssign").label()).isEqualTo(upper);
     }
 
     @Test
@@ -634,485 +897,5 @@ class WindowAnswerTest {
                 dir, open(), SPEC, Duration.ZERO, hop("s0", "1' SECOND", "100' SECOND"), List.of(0, 1, 2), 121, 219);
         assertThat(rows).hasSize(219);
         assertThat(sumOf(rows, 3)).isEqualTo(12_000);
-    }
-
-    // ================================================================== 9. volume
-
-    @Test
-    void win121_aHundredThousandRowsIntoTenWindowsOverAHundredKeys(@TempDir Path dir) throws Exception {
-        // WIN-121, dataset V(100000, 100). This is the one case in this file that runs at real
-        // volume; WIN-119, 120, 122-126 and 131-136 are the same arithmetic at other N and K and
-        // are covered by it. Row i carries user_id = i mod 100, amount 1, event_time = i ms, so
-        // window j holds rows i in [10000j, 10000j + 9999].
-        //
-        // Keyed on (window_start, window_end, user_id), which is what stops round 1's mistake:
-        // keying on user_id alone collapses ten windows into a correct-looking 100 rows.
-        int n = 100_000;
-        StringBuilder csv = new StringBuilder(n * 24);
-        for (int i = 1; i <= n; i++) {
-            csv.append(i)
-                    .append(',')
-                    .append(i % 100)
-                    .append(",1,")
-                    .append(i * MS)
-                    .append('\n');
-        }
-        List<String> rows = configured(
-                dir, csv.toString(), SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), n, 1_000);
-
-        // Ten windows x 100 users = 1,000 rows.
-        assertThat(rows).hasSize(1_000);
-        // 9,999 + 9 * 10,000 = 99,999. Row 100,000 is at 100.000s, in [100,110), which never
-        // closes because the watermark stops at the highest event time in the file.
-        assertThat(sumOf(rows, 3)).isEqualTo(99_999);
-        assertThat(rows.stream()
-                        .map(r -> Long.parseLong(r.split("\\|")[0]))
-                        .distinct()
-                        .count())
-                .isEqualTo(10);
-        // Window 0 holds rows 1..9,999, so user 0 gets 99 rows and the other 99 users get 100.
-        assertThat(countOf(rows, 0L)).isEqualTo(9_999);
-    }
-
-    @Test
-    void win165_theLastWindowOfABoundedSourceNeverCloses(@TempDir Path dir) throws Exception {
-        // WIN-165, at a size that runs in seconds rather than the case's 60,000 rows. A filesystem
-        // source is read once and never followed, and when every partition is idle the watermark
-        // stays where it is -- so with ten seconds of declared lateness the last window's worth of
-        // rows is never emitted. FINDINGS T-1 records why: a partition that spoke once can never
-        // go idle, so idle exclusion cannot rescue it.
-        //
-        // 20,000 rows at i ms: the highest event time is 20.000, the watermark settles at
-        // 20 - 10 = 10.000, and exactly one window end (10.000) is <= it.
-        int n = 20_000;
-        StringBuilder csv = new StringBuilder();
-        for (int i = 1; i <= n; i++) {
-            csv.append(i)
-                    .append(',')
-                    .append(i % 10)
-                    .append(",1,")
-                    .append(i * MS)
-                    .append('\n');
-        }
-        List<String> rows = configured(
-                dir, csv.toString(), SPEC, Duration.ofSeconds(10), tumble("s0", "10' SECOND"), List.of(0, 1, 2), n, 10);
-        assertThat(rows).hasSize(10); // one window x 10 users
-        // 9,999 of 20,000 rows emitted: 10,001 are in windows that never close.
-        assertThat(sumOf(rows, 3)).isEqualTo(9_999);
-        assertThat(rows.stream().map(r -> Long.parseLong(r.split("\\|")[0])).distinct())
-                .containsExactly(0L);
-    }
-
-    // ================================================================== 10. boundaries
-
-    @Test
-    void win141To146_everyBoundaryRowLandsInTheWindowStartingAtIt(@TempDir Path dir) throws Exception {
-        // WIN-141 through WIN-146 in one pass over dataset B, whose amounts are powers of two so
-        // every possible mis-assignment produces a sum that occurs nowhere else. A closed upper
-        // bound would give totals 7, 28, 240, 128 and SUM(n) = 12.
-        List<String> rows =
-                configured(dir, B_PLUS, SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), 9, 4);
-        assertThat(rows)
-                .containsExactlyInAnyOrder(
-                        "0|10000000000|100|2|3", // 1 (at 0.000) + 2 (at 9.999999999) = 3
-                        "10000000000|20000000000|100|2|12", // 4 (at 10.000) + 8 (at 19.999999999) = 12
-                        "20000000000|30000000000|100|3|112", // 16 + 32 (both at 20.000) + 64 = 112
-                        "30000000000|40000000000|100|1|128"); // 128 at 30.000
-        assertThat(sumOf(rows, 3)).isEqualTo(8); // 2 + 2 + 3 + 1 = 8
-        assertThat(sumOf(rows, 4)).isEqualTo(255); // 3 + 12 + 112 + 128 = 255 = 2^8 - 1
-    }
-
-    @Test
-    void win150_negativeEventTimesWindowAsOrdinaryOnes(@TempDir Path dir) throws Exception {
-        // WIN-150, neg.csv: rows before the epoch at -15s, -10s, -1ns and 0, amounts 1, 2, 4, 8.
-        // SUM(total) = 1 + 6 + 8 = 15 = 2^4 - 1, so no row is lost or double counted.
-        String data =
-                csv(row(1, 100, 1, -15 * SECOND), row(2, 100, 2, -10 * SECOND), row(3, 100, 4, -1L), row(4, 100, 8, 0L))
-                        + row(5, 999, 0, 30 * SECOND);
-        List<String> rows =
-                configured(dir, data, SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), 5, 3);
-        assertThat(rows)
-                .containsExactlyInAnyOrder(
-                        "-20000000000|-10000000000|100|1|1", // the row at -15s
-                        "-10000000000|0|100|2|6", // 2 (at -10s) + 4 (at -1ns) = 6
-                        "0|10000000000|100|1|8"); // 8 at 0
-        assertThat(sumOf(rows, 4)).isEqualTo(15);
-    }
-
-    @Test
-    void win157_aWindowWhoseEndEqualsTheWatermarkFires(@TempDir Path dir) throws Exception {
-        // WIN-157, exact.csv. The pusher sits at exactly 10.000000000, so the watermark is exactly
-        // the window's end. windowsCompletedBetween fires ends <= the watermark, so [0,10) closes;
-        // an implementation using < would leave it open for ever and look identical to a stall.
-        String data = row(1, 100, 7, 5 * SECOND) + row(2, 999, 0, 10 * SECOND);
-        List<String> rows =
-                configured(dir, data, SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), 2, 1);
-        assertThat(rows).containsExactly("0|10000000000|100|1|7");
-    }
-
-    @Test
-    void win159_eachRowClosesTheWindowBeforeItAndNeverItsOwn(@TempDir Path dir) throws Exception {
-        // WIN-159, step.csv: rows at 5s, 15s and 25s with amounts 5, 7, 9 and no pusher. The
-        // watermark reaches 25s, so [0,10) and [10,20) fire and [20,30) -- which holds the row
-        // that moved the watermark there -- does not.
-        String data = csv(row(1, 100, 5, 5 * SECOND), row(2, 100, 7, 15 * SECOND), row(3, 100, 9, 25 * SECOND));
-        List<String> rows =
-                configured(dir, data, SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), 3, 2);
-        assertThat(rows).containsExactlyInAnyOrder("0|10000000000|100|1|5", "10000000000|20000000000|100|1|7");
-    }
-
-    // ================================================================== 12. empty windows
-
-    @Test
-    void win175And176_awindowWithNoRowsEmitsNothingRatherThanAZero(@TempDir Path dir) throws Exception {
-        // WIN-175 and WIN-176, holey.csv: rows at 1.000 and 41.000 with a pusher at 90.000. Nine
-        // window ends are walked and seven of them are empty. An engine that emitted a zero row
-        // for each would be answering a question nobody asked -- and WIN-182 records that no
-        // document anywhere states which of the two this engine does.
-        String data = csv(row(1, 100, 5, SECOND), row(2, 100, 7, 41 * SECOND)) + row(3, 999, 0, 90 * SECOND);
-        List<String> rows =
-                configured(dir, data, SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), 3, 2);
-        assertThat(rows)
-                .containsExactlyInAnyOrder(
-                        "0|10000000000|100|1|5", // the row at 1.000
-                        "40000000000|50000000000|100|1|7"); // the row at 41.000
-        assertThat(rows).as("nothing at all for [10,20), [20,30) or [30,40)").hasSize(2);
-    }
-
-    @Test
-    void win178_awindowEmitsOnlyTheKeysThatHaveRowsInIt(@TempDir Path dir) throws Exception {
-        // WIN-178, keygap.csv. User 200 has a row in [0,10) and none in [10,20), so [10,20) must
-        // carry user 100 alone -- not a zero row for 200, and not 200's previous total carried
-        // forward, which is the failure a per-key running total would produce.
-        String data = csv(row(1, 100, 5, SECOND), row(2, 200, 7, 2 * SECOND), row(3, 100, 9, 11 * SECOND))
-                + row(4, 999, 0, 40 * SECOND);
-        List<String> rows =
-                configured(dir, data, SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), 4, 3);
-        assertThat(rows)
-                .containsExactlyInAnyOrder(
-                        "0|10000000000|100|1|5", "0|10000000000|200|1|7", "10000000000|20000000000|100|1|9");
-    }
-
-    // ================================================================== 14. aggregates in a window
-
-    @Test
-    void win195_windowedCountStarCountsEveryRowIncludingOneWithANullColumn(@TempDir Path dir) throws Exception {
-        // WIN-195, agg.csv. COUNT(*) counts rows, so the NULL-amount row counts: user 100 sees 4.
-        List<String> rows = aggregate(dir, "COUNT(*) AS v");
-        assertThat(rows).containsExactlyInAnyOrder("0|10000000000|100|4", "0|10000000000|200|1");
-    }
-
-    @Test
-    void win198_windowedSumSkipsNothingAndTreatsTheNullAsZero(@TempDir Path dir) throws Exception {
-        // WIN-198. SQL says SUM ignores NULLs, and the answer is the same either way here because
-        // the accumulator's scratch for a NULL is 0: 5 + 5 + 7 + 0 = 17.
-        List<String> rows = aggregate(dir, "SUM(amount) AS v");
-        assertThat(rows).containsExactlyInAnyOrder("0|10000000000|100|17", "0|10000000000|200|11");
-    }
-
-    @Test
-    void win203And204_windowedAvgDividesRatherThanReturningTheSum(@TempDir Path dir) throws Exception {
-        // WIN-203 and WIN-204, and FINDINGS W-1, which recorded windowed AVG as returning the SUM
-        // because WindowedAggregate mapped `case SUM, AVG -> SUM` and SlicedAggregateState had no
-        // divisor. It divides now: user 100's amounts are 5, 5, 7 and a NULL, so 17 / 3 = 5.
-        //
-        // User 200 has a single row, so its AVG and its SUM are both 11 and it cannot tell the two
-        // apart -- which is why only a group with more than one row discriminates, and why W-1
-        // survived as long as it did. This is the assertion that keeps it closed.
-        List<String> rows = aggregate(dir, "AVG(amount) AS v");
-        assertThat(rows)
-                .as("windowed AVG must divide: 17 / 3 = 5, not the sum 17")
-                .containsExactlyInAnyOrder("0|10000000000|100|5", "0|10000000000|200|11");
-    }
-
-    @Test
-    void win196_windowedCountOfAColumnIgnoresNulls(@TempDir Path dir) throws Exception {
-        // WIN-196, and the windowed half of FINDINGS Q-3. COUNT(amount) over 5, 5, 7 and a NULL is
-        // 3 by SQL, and Q-3 recorded the null test as having gone into GlobalAggregate only, so
-        // that the windowed path answered 4 -- the same number as COUNT(*), which would make the
-        // two forms indistinguishable. It answers 3 now, and WIN-195 asserts the 4 beside it, so
-        // the pair discriminates rather than either one alone.
-        List<String> rows = aggregate(dir, "COUNT(amount) AS v");
-        assertThat(rows).containsExactlyInAnyOrder("0|10000000000|100|3", "0|10000000000|200|1");
-    }
-
-    @Test
-    void win200_windowedMinIgnoresNulls(@TempDir Path dir) throws Exception {
-        // WIN-200. MIN(amount) over 5, 5, 7 and NULL is 5 by SQL. The engine reads the NULL row's
-        // scratch as 0 and answers 0 -- which is also what it answers over an all-positive column
-        // with no NULL at all if the accumulator was never seeded, so the value carries no
-        // information about the data.
-        List<String> rows = aggregate(dir, "MIN(amount) AS v");
-        assertThat(rows).containsExactlyInAnyOrder("0|10000000000|100|5", "0|10000000000|200|11");
-    }
-
-    @Test
-    void win201_windowedMaxOverAColumnContainingNull(@TempDir Path dir) throws Exception {
-        // WIN-201. MAX is the mirror of WIN-200 and happens to be right here, because the NULL's
-        // zero is below every real amount: max(max(max(5,5),7),0) = 7. It is right by luck rather
-        // than by a null test, which WIN-200 is the proof of.
-        List<String> rows = aggregate(dir, "MAX(amount) AS v");
-        assertThat(rows).containsExactlyInAnyOrder("0|10000000000|100|7", "0|10000000000|200|11");
-    }
-
-    @Test
-    void win207_anExpressionInsideAWindowedAggregateIsComputedBeforeItIsFolded(@TempDir Path dir) throws Exception {
-        // WIN-207. SUM(amount * 2) over dataset A + pusher: the doubling happens per row, so every
-        // total is exactly twice WIN-079's and the grand total is 2 * 210 = 420.
-        List<String> rows = configured(
-                dir,
-                A_PLUS,
-                SPEC,
-                Duration.ZERO,
-                "SELECT window_start, window_end, user_id, SUM(amount * 2) AS total FROM "
-                        + "TABLE(TUMBLE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
-                        + "GROUP BY window_start, window_end, user_id",
-                List.of(0, 1, 2),
-                7,
-                5);
-        assertThat(rows)
-                .containsExactlyInAnyOrder(
-                        "0|10000000000|100|60", // (10 + 20) * 2 = 60
-                        "0|10000000000|200|60", // 30 * 2 = 60
-                        "10000000000|20000000000|100|80", // 40 * 2 = 80
-                        "10000000000|20000000000|200|100", // 50 * 2 = 100
-                        "20000000000|30000000000|100|120"); // 60 * 2 = 120
-        assertThat(sumOf(rows, 3)).isEqualTo(420); // 2 * (10+20+30+40+50+60) = 2 * 210
-    }
-
-    @Test
-    void win208_havingFiltersTheWindowsResultsAndNotTheWindows(@TempDir Path dir) throws Exception {
-        // WIN-208. Every window still fires; HAVING discards four of WIN-079's five result rows
-        // and leaves the one group with more than a single row.
-        List<String> rows = configured(
-                dir,
-                A_PLUS,
-                SPEC,
-                Duration.ZERO,
-                "SELECT window_start, window_end, user_id, COUNT(*) AS n, SUM(amount) AS total FROM "
-                        + "TABLE(TUMBLE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
-                        + "GROUP BY window_start, window_end, user_id HAVING COUNT(*) > 1",
-                List.of(0, 1, 2),
-                7,
-                1);
-        assertThat(rows).containsExactly("0|10000000000|100|2|30"); // 10 + 20 = 30
-    }
-
-    @Test
-    void win209And210_aGroupByOverAWindowedStreamMustIncludeTheWindow() {
-        // WIN-209 and WIN-210. Grouping by the key alone spans every window at once, which is an
-        // unbounded aggregate wearing a window's clothes -- so it is refused. Grouping by
-        // window_start alone is accepted, because the start identifies the window for a TUMBLE.
-        assertThatThrownBy(() -> plan("SELECT user_id, COUNT(*) FROM TABLE(TUMBLE(TABLE s0, "
-                        + "DESCRIPTOR(event_time), INTERVAL '10' SECOND)) GROUP BY user_id"))
-                .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-2050");
-        // WIN-210 predicted that grouping by window_start alone would be accepted. It is not:
-        // both halves of the window boundary are required, so the refusal is stricter than the
-        // case expected. Recorded here because a later relaxation would change an answer.
-        assertThatThrownBy(() -> plan("SELECT window_start, user_id, COUNT(*) AS n FROM TABLE(TUMBLE(TABLE s0, "
-                        + "DESCRIPTOR(event_time), INTERVAL '10' SECOND)) GROUP BY window_start, user_id"))
-                .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-2050");
-    }
-
-    /** One row of WIN-022/WIN-077's slice-arithmetic table. */
-    private record SliceCase(long size, long slide, long sliceSize, int slicesPerWindow) {}
-
-    /** One cell of WIN-071's window-count grid. */
-    private record CountCase(long size, long slide, long t, int windows) {}
-
-    /** One row of WIN-095's live-slice table. */
-    private record LiveCase(long size, long slide, int liveSlices) {}
-
-    // ------------------------------------------------------------------ helpers
-
-    /** Dataset O of section 7: 120 rows one per second, amount 1, plus the pusher at 2000.000. */
-    private static String open() {
-        StringBuilder csv = new StringBuilder();
-        for (int i = 1; i <= 120; i++) {
-            csv.append(row(i, 100, 1, i * SECOND));
-        }
-        return csv + row(121, 999, 0, 2000 * SECOND);
-    }
-
-    /** Dataset S(U) of section 5, and its three expected windows, at the given unit. */
-    private static List<String> sizeSweep(Path dir, long unit, String interval) throws Exception {
-        return sizeSweep(dir, unit, interval, 3);
-    }
-
-    private static List<String> sizeSweep(Path dir, long unit, String interval, int expected) throws Exception {
-        String data = csv(
-                        row(1, 100, 1, 0L),
-                        row(2, 100, 2, unit / 2),
-                        row(3, 100, 4, unit),
-                        row(4, 100, 8, 2 * unit - 1),
-                        row(5, 100, 16, 2 * unit))
-                + row(6, 999, 0, 10 * unit);
-        return configured(dir, data, SPEC, Duration.ZERO, tumble("s0", interval), List.of(0, 1, 2), 6, expected);
-    }
-
-    /** agg.csv of section 14, under one aggregate, keyed on (window_start, window_end, user_id). */
-    private static List<String> aggregate(Path dir, String expression) throws Exception {
-        String data = csv(
-                        row(1, 100, 5, SECOND),
-                        row(2, 100, 5, 2 * SECOND),
-                        row(3, 100, 7, 3 * SECOND),
-                        "4,100,,4000000000\n", // the NULL amount
-                        row(5, 200, 11, 5 * SECOND))
-                + row(6, 999, 0, 40 * SECOND);
-        return configured(
-                dir.resolve(expression.replaceAll("[^A-Za-z]", "")),
-                data,
-                NULLABLE_SPEC,
-                Duration.ZERO,
-                "SELECT window_start, window_end, user_id, " + expression + " FROM "
-                        + "TABLE(TUMBLE(TABLE s0, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
-                        + "GROUP BY window_start, window_end, user_id",
-                List.of(0, 1, 2),
-                6,
-                2);
-    }
-
-    /**
-     * The configured path: a binding, a registry feeding from it, a watermark clock, and the view.
-     *
-     * <p>Waits for every row to arrive <em>before</em> looking at the view, because a windowing
-     * assertion over a source that has not finished reading is an assertion about nothing -- which
-     * is the second of WIN.md section 0.5's three vacuity modes.
-     */
-    private static List<String> configured(
-            Path dir,
-            String csv,
-            String schemaSpec,
-            Duration outOfOrderness,
-            String sql,
-            List<Integer> keys,
-            long expectRowsIn,
-            int expectViewRows)
-            throws Exception {
-        Files.createDirectories(dir);
-        Path data = dir.resolve("data.csv");
-        Files.writeString(data, csv);
-        ViewCatalog views = new ViewCatalog();
-        try (QueryRegistry registry = registry(views, dir, data, schemaSpec, outOfOrderness)) {
-            RegisteredQuery query = registry.register("v", sql, keys, Principal.ANONYMOUS);
-            awaitRowsIn(query, expectRowsIn);
-            awaitView(views, "SELECT * FROM v", expectViewRows);
-            // Settle, then read once more: a view that overshoots the expected count is as much a
-            // failure as one that undershoots, and only a second read after quiet can see it.
-            Thread.sleep(250);
-            List<Object[]> rows =
-                    new ViewQuery(views).execute("SELECT * FROM v").rows();
-            assertThat(rows)
-                    .as("the view settled on %d rows; %d were expected", rows.size(), expectViewRows)
-                    .hasSize(expectViewRows);
-            return render(rows);
-        }
-    }
-
-    private static QueryRegistry registry(
-            ViewCatalog views, Path dir, Path data, String schemaSpec, Duration outOfOrderness) {
-        StreamSchema.Builder builder = StreamSchema.builder("s0");
-        for (String column : schemaSpec.split(",")) {
-            String[] parts = column.split(":");
-            builder.field(parts[0], typeOf(parts[1]));
-        }
-        StreamSchema s0 =
-                builder.eventTime("event_time").outOfOrderness(outOfOrderness).build();
-
-        PluginSourceFeeds feeds = new PluginSourceFeeds()
-                .bind(new SourceBinding(
-                        "s0",
-                        "filesystem",
-                        Map.of("path", data.toString(), "schema", schemaSpec, "event.time", "event_time")));
-        return new QueryRegistry(views, s0)
-                .feedingFrom(feeds)
-                // The enforced minimum idle timeout, and a tick fine enough that a test waits
-                // milliseconds rather than seconds for a window to close.
-                .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50));
-    }
-
-    private static com.ash.messaging.pravaha.api.data.PravahaType typeOf(String name) {
-        return switch (name) {
-            case "INT64" -> Types.int64();
-            case "INT64?" -> Types.int64().withNullable(true);
-            case "TIMESTAMP" -> Types.timestamp();
-            default -> throw new IllegalArgumentException(name);
-        };
-    }
-
-    private static com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan(String sql) {
-        StreamSchema s0 = StreamSchema.builder("s0")
-                .field("txn_id", Types.int64())
-                .field("user_id", Types.int64())
-                .field("amount", Types.int64())
-                .field("event_time", Types.timestamp())
-                .eventTime("event_time")
-                .build();
-        return new PhysicalPlanBuilder().build(SqlPlanner.withStreams(s0).plan(sql));
-    }
-
-    private static List<String> render(List<Object[]> rows) {
-        List<String> rendered = new ArrayList<>(rows.size());
-        for (Object[] row : rows) {
-            StringBuilder text = new StringBuilder();
-            for (int i = 0; i < row.length; i++) {
-                if (i > 0) {
-                    text.append('|');
-                }
-                text.append(row[i]);
-            }
-            rendered.add(text.toString());
-        }
-        return rendered;
-    }
-
-    private static long sumOf(List<String> rows, int ordinal) {
-        long total = 0;
-        for (String row : rows) {
-            total += Long.parseLong(row.split("\\|")[ordinal]);
-        }
-        return total;
-    }
-
-    /** The n column summed over every row whose window starts at {@code windowStart}. */
-    private static long countOf(List<String> rows, long windowStart) {
-        long total = 0;
-        for (String row : rows) {
-            String[] parts = row.split("\\|");
-            if (Long.parseLong(parts[0]) == windowStart) {
-                total += Long.parseLong(parts[3]);
-            }
-        }
-        return total;
-    }
-
-    private static void awaitRowsIn(RegisteredQuery query, long atLeast) throws InterruptedException {
-        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-        while (System.nanoTime() < deadline && query.rowsIn() < atLeast) {
-            Thread.sleep(10);
-        }
-        assertThat(query.rowsIn())
-                .as("the feed delivered %d rows; %d are in the file. A windowing assertion over a "
-                        + "source that has not finished reading is an assertion about nothing")
-                .isGreaterThanOrEqualTo(atLeast);
-        assertThat(query.failure()).as("the lane must not have died").isEmpty();
-    }
-
-    private static void awaitView(ViewCatalog views, String sql, int expected) throws InterruptedException {
-        ViewQuery reader = new ViewQuery(views);
-        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
-        int size = -1;
-        while (System.nanoTime() < deadline) {
-            size = reader.execute(sql).size();
-            if (size >= expected) {
-                return;
-            }
-            Thread.sleep(20);
-        }
-        assertThat(size)
-                .as("the view held %d rows after twenty seconds; %d were expected", size, expected)
-                .isGreaterThanOrEqualTo(expected);
     }
 }
