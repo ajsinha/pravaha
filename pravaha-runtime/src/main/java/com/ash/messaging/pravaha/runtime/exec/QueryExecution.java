@@ -832,6 +832,14 @@ public final class QueryExecution implements AutoCloseable {
                         + "; a checkpoint that some lanes joined and others did not is worse than none, so "
                         + "this one is abandoned rather than stored partially complete.");
             }
+            if (captured[0] == null) {
+                // The wait said the task had run and it had not produced a snapshot. Storing the
+                // null is what made a ticket bug into a data-loss bug: restore found no state under
+                // this key, skipped the operator, and reported success over an empty one.
+                throw new IllegalStateException("lane " + index + " reported its snapshot as taken but produced "
+                        + "nothing. Storing that would be a checkpoint this operator is absent from, and a "
+                        + "restore from it would resume with no history and no error.");
+            }
             state.put(operatorId, captured[0]);
         }
 
@@ -858,6 +866,16 @@ public final class QueryExecution implements AutoCloseable {
             InterpretedPipeline pipeline = pipelines.get(index);
             byte[] state = checkpoint.operatorState().get("lane-" + index);
             if (state == null) {
+                if (pipeline.isStateful()) {
+                    // A stateful operator with nothing to restore is not a no-op. Skipping it
+                    // resumes with empty accumulators beside restored source offsets, so every row
+                    // before the checkpoint is gone and the query reports RUNNING over the gap.
+                    throw new PravahaException(
+                            RuntimeErrors.LANE_FAILED,
+                            "the checkpoint holds no state for lane " + index + ", and this plan's lane " + index
+                                    + " is stateful. Restoring the offsets without the accumulators would resume "
+                                    + "past every row the checkpoint covered and answer from an empty operator.");
+                }
                 continue;
             }
             Lane lane = lanes.lane(index);

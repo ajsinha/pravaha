@@ -3216,3 +3216,46 @@ private.
 
 A method named in a document and renamed in a refactor is the rot nothing catches — no link checker
 sees a backticked identifier, and 3 of the 23 in this corpus had drifted.
+
+### PF-5 (HIGH) — a control-task ticket counts completions instead of naming a task, so a checkpoint can return before its snapshot is taken
+
+> **Status:** FIXED — `Lane.submitControlTask` now hands back an identity from `controlSubmitted` and `awaitControlTask` waits for `controlCompleted >= ticket`; tasks run strictly in submission order, so that is exactly "mine has run". `pravaha-runtime`'s `ControlTaskTicketTest` covers both shapes and **failed against the previous code** (2/2 failures: "a ticket that reports success for a task which has not run", "and task 2 had actually run by then"), passes after. 4,108 runtime + registry + it tests green.
+
+`submitControlTask` read `controlRun.get()` — a count of completions — and `awaitControlTask` returned
+once that count moved past it. Any task completing satisfied any waiter. Four things submit control
+tasks to a lane and wait on them: `advanceWatermark`, `publishContinuousAggregates`, `checkpoint`
+and `restore`. A watermark tick runs on a scheduler and a checkpoint on the checkpointer's thread,
+so two are routinely in flight at once.
+
+What that costs, in order:
+
+1. `checkpoint` submits `captured[0] = pipeline.snapshotState()`, and a concurrent watermark advance
+   retires its ticket. `awaitControlTask` returns `true`, `captured[0]` is still `null`, and the
+   checkpoint is stored with a null under `lane-0`.
+2. `restore` reads `operatorState().get("lane-0")`, finds `null`, and `continue`s. The source
+   offsets are restored and the accumulators are not, so the query resumes past every row the
+   checkpoint covered, answers from an empty operator, and reports RUNNING.
+
+Both halves are now closed. The ticket names its task; `checkpoint` refuses to store a snapshot it
+did not receive; and `restore` refuses a checkpoint holding no state for a lane whose plan is
+stateful, rather than skipping it.
+
+Found from `StateRestoreTest.state060` failing once in a full-reactor verify and passing alone three
+times, at class scope, at package scope, and across a whole-module run — with no second control task
+in flight there is nothing to retire the ticket early. It reads exactly like a flaky test.
+
+*A wrong turn worth recording, since the QA record is for whoever comes next:* the first diagnosis
+was a visibility race between `controlRun.incrementAndGet()` in a `finally` and `failure = t` in
+`run()`'s outer catch. A test built to catch that found 0 hits in 300 attempts, because
+`awaitControlTask` parks 50µs per poll and the lane unwinds in nanoseconds. The race is real and
+unreachable; the ticket aliasing is reachable and deterministic. The seed check is what told them
+apart.
+
+### PF-6 (MED) — `state062` asserted that restoring a checkpoint with no state for a stateful lane is a silent skip
+
+> **Status:** FIXED — `QueryExecution.restore` now refuses with `PRV-3010` naming the lane; `StateRestoreTest.state062_aCheckpointHoldingNoEntryForAStatefulLaneIsRefusedNotSkipped` asserts the refusal.
+
+The case took a checkpoint from a projection — not stateful, so no operator entry is written — and
+restored it into a windowed plan, asserting the skip took under 50ms and emitted nothing. It is the
+same class of mistake `restoreState`'s "the checkpoint holds N stateful operators and this plan has
+M" refusal exists for, and it slipped past that guard because there was no state to count.

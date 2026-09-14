@@ -116,12 +116,26 @@ public final class Lane implements AutoCloseable {
      * makes "advance the watermark" mean "advance it over the rows I had already been handed"
      * rather than "over whichever of them happen to have been applied by now".
      */
-    private record ControlTask(Runnable task, long[] barrier) {}
+    private record ControlTask(Runnable task, long[] barrier, long id) {}
 
     private final java.util.concurrent.ConcurrentLinkedQueue<ControlTask> control =
             new java.util.concurrent.ConcurrentLinkedQueue<>();
 
     private final java.util.concurrent.atomic.AtomicLong controlRun = new java.util.concurrent.atomic.AtomicLong();
+
+    /**
+     * Identities for control tasks, so a waiter can name the one it is waiting for.
+     *
+     * <p>{@code controlRun} counts completions and cannot do this. A ticket read off a counter is
+     * satisfied by whichever task finishes next, and four things submit control tasks to a lane --
+     * a watermark advance, a continuous-aggregate publish, a checkpoint and a restore -- with at
+     * least two of them routinely in flight at once. Tasks run strictly in submission order, so
+     * "the last completed id is at least mine" is exactly "mine has run".
+     */
+    private final java.util.concurrent.atomic.AtomicLong controlSubmitted =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    private volatile long controlCompleted = -1L;
 
     private volatile boolean running;
     private volatile State state = State.NEW;
@@ -236,12 +250,12 @@ public final class Lane implements AutoCloseable {
      *     exceeds the value returned here
      */
     public long submitControlTask(Runnable task) {
-        long ticket = controlRun.get();
+        long ticket = controlSubmitted.getAndIncrement();
         long[] barrier = new long[inboxes.length];
         for (int input = 0; input < inboxes.length; input++) {
             barrier[input] = inboxes[input].producerCursor();
         }
-        control.add(new ControlTask(task, barrier));
+        control.add(new ControlTask(task, barrier, ticket));
         return ticket;
     }
 
@@ -259,15 +273,15 @@ public final class Lane implements AutoCloseable {
     public boolean awaitControlTask(long ticket, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (System.nanoTime() < deadline) {
-            if (controlRun.get() > ticket) {
+            if (controlCompleted >= ticket) {
                 return true;
             }
             if (state == State.FAILED || state == State.STOPPED) {
-                return controlRun.get() > ticket;
+                return controlCompleted >= ticket;
             }
             LockSupport.parkNanos(50_000L);
         }
-        return controlRun.get() > ticket;
+        return controlCompleted >= ticket;
     }
 
     /** Starts the loop. Idempotent in the sense that starting twice is a bug and says so. */
@@ -562,9 +576,10 @@ public final class Lane implements AutoCloseable {
             try {
                 task.run();
             } finally {
-                // Counted even when the task threw: a coordinator waiting on it must not wait
+                // Recorded even when the task threw: a coordinator waiting on it must not wait
                 // forever because the work failed, and a failure it cannot see is worse than one
-                // it can.
+                // it can. It finds out by calling checkHealth() once the wait returns.
+                controlCompleted = queued.id();
                 controlRun.incrementAndGet();
             }
         }

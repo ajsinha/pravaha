@@ -618,7 +618,7 @@ class StateRestoreTest extends StateTestSupport {
     }
 
     @Test
-    void state062_aCheckpointHoldingNoEntryForALaneIsASilentSkipNotAFailure(@TempDir Path dir) throws Exception {
+    void state062_aCheckpointHoldingNoEntryForAStatefulLaneIsRefusedNotSkipped(@TempDir Path dir) throws Exception {
         try (RawExecution prj = rawProjection()) {
             InMemoryTxnReader reader = InMemoryTxnReader.ofRows(3, "u1", 1L, 0L);
             IngestPump pump = prj.execution.pumpInto(0, reader, BackpressurePolicy.defaults());
@@ -627,15 +627,17 @@ class StateRestoreTest extends StateTestSupport {
             Checkpoint c = prj.execution.checkpoint(1, Duration.ofSeconds(5));
             assertThat(c.operatorState()).isEmpty();
 
+            // The checkpoint came from a projection, which is not stateful and therefore stores no
+            // operator entry. Restoring it into a *windowed* plan used to be a silent skip: the
+            // source offsets came back, the accumulators did not, and the query resumed past every
+            // row the checkpoint covered while answering from an empty operator and reporting
+            // RUNNING. It is the same class of mistake restoreState's "operator count differs"
+            // refusal exists for, and it slipped past because there was no state to count.
             try (RawExecution b = rawWindowed()) {
-                long start = System.nanoTime();
-                b.execution.restore(c, Duration.ofSeconds(30));
-                long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
-                assertThat(elapsedMillis).as("a skip, not a lane round trip").isLessThan(50);
-
-                b.advanceWatermark(20_000_000_000L);
-                b.execution.checkHealth();
-                assertThat(b.emitted).isEmpty();
+                assertThatThrownBy(() -> b.execution.restore(c, Duration.ofSeconds(30)))
+                        .isInstanceOf(PravahaException.class)
+                        .hasMessageContaining("the checkpoint holds no state for lane 0")
+                        .hasMessageContaining("is stateful");
             }
         }
     }
