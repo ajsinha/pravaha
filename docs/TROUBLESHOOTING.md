@@ -176,6 +176,12 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-1024` | CONFIG_NOT_A_DATA_SIZE | config |
 | `PRV-1025` | CONFIG_NOT_AN_ENUM | config |
 | `PRV-1026` | CONFIG_OUT_OF_RANGE | config |
+| `PRV-1030` | CLIENT_MALFORMED_ENDPOINT | client (SDK) |
+| `PRV-1031` | CLIENT_INVALID_OPTIONS | client (SDK) |
+| `PRV-1040` | CLIENT_CONNECT_FAILED | client (SDK) |
+| `PRV-1041` | CLIENT_QUERY_REFUSED | client (SDK) |
+| `PRV-1042` | CLIENT_READ_FAILED | client (SDK) |
+| `PRV-1043` | CLIENT_CLOSED | client (SDK) — declared, never thrown; see ERRC-017 |
 | `PRV-2001` | SQL_PARSE_FAILED | sql |
 | `PRV-2002` | SQL_VALIDATION_FAILED | sql |
 | `PRV-2003` | SQL_UNKNOWN_STREAM | sql |

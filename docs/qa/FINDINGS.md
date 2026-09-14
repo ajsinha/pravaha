@@ -1060,3 +1060,69 @@ itself throws, masking the diagnostic. This is I-3, already `OPEN`. New detail: 
 row sandwiched between two good ones that the crash loses **every** row in the file, not the one
 malformed line the code comment beside the catch block promises — and that it is general to any
 `DECODE_FAILED` (also reproduces on a wrong-field-count line), not specific to the NULL/NOT-NULL case.
+
+---
+
+# ERRC — found executing `docs/qa/cases/ERRC.md`
+
+Cases run as real JUnit tests under `pravaha-it`'s new `qa.errc` package. Verdicts and evidence for
+every ERRC-nnn case are in `docs/qa/logs/ERRC.md`; this section is the defects only, added to as the
+round progresses (currently covers ERRC-001 … ERRC-017; more to follow in the same section).
+
+### E-7 (HIGH) — `PRV-1040 CLIENT_CONNECT_FAILED` is unreachable through the scenario every new user hits
+
+The case file (fact 8, ERRC-014) already names `PRV-1040` as the highest-severity item in the
+undocumented-codes list — it is the first error a new SDK/CLI user meets. Executing ERRC-014 found it
+is worse than undocumented: it may be **effectively unreachable** through the scenario that actually
+produces it. `PravahaFlightClient`'s sole throw site for `CLIENT_CONNECT_FAILED`
+(`PravahaFlightClient.java:152`) is inside `FlightClient.builder(...).build()`, and gRPC/Arrow-Flight
+builds a channel lazily — nothing about an unreachable host is known synchronously. `connect()` against
+a dead loopback port returns a working client object; the failure only surfaces on the first RPC, which
+a *different* handler catches and reports as `PRV-1041 QUERY_REFUSED` instead, with a bare,
+exception-shaped message: `pravaha queries --url grpc://127.0.0.1:19900` (nothing bound) prints
+`PRV-1041  io exception` and exits 1. Two further probes confirm the same code is used as a catch-all
+for other client-side failures with equally unhelpful messages: calling a closed client's `query(...)`
+raises `PRV-1041  Channel shutdown invoked`. An operator whose server is down, or whose client outlived
+its connection, searches `PRV-1041` — a code the CLI's own `PravahaFlightClient.java:196` comment says
+exists so "the server's own diagnosis, PRV code and all" survives — and finds no server diagnosis,
+because there was no server response to carry one.
+
+### E-8 (MEDIUM) — a genuine 34-deep, non-circular configuration reference chain is refused as circular
+
+`ConfigResolver.MAX_DEPTH = 32` (`ConfigResolver.java:40`) is a second guard, independent of the real
+cycle detector (the `visiting` set, which works correctly on an actual two-key cycle). It fires on raw
+nesting depth alone and cannot distinguish a long acyclic chain from a cycle. Measured exactly: a
+33-deep reference chain (`k1=${k0}`, `k2=${k1}`, … `k33=${k32}`) resolves; a 34-deep chain is refused as
+`PRV-1011 CONFIG_CIRCULAR_REFERENCE`, with a message naming a "circular reference" that does not exist.
+ERRC-004's own vacuity control (a case-suggested 100-deep terminating chain) trips this exact false
+positive — the case was written expecting the control to pass. Not fixed here: changing `MAX_DEPTH` is
+a real behavioural change to a shared recursion guard, not a small, obviously-safe one.
+
+### E-9 (MEDIUM) — `pravaha-server` and the Flight client SDK cannot share a classpath
+
+`pravaha-it`'s test classpath pulls `io.netty:netty-buffer:4.1.135.Final` transitively through
+`pravaha-server` alongside the `4.2.9.Final` line `pravaha-flight`/`pravaha-sdk-java-flight` need.
+Constructing an Arrow `FlightClient` on that combined classpath throws `AbstractMethodError` the moment
+`org.apache.arrow.flight.ArrowMessage`'s static initialiser runs (`ReferenceCountUpdater
+.setInitialValue`, a 4.1-vs-4.2 Netty ref-counting API change). Confirmed specific to this dependency
+combination, not to Arrow Flight itself: `pravaha-cli`'s own dependency tree is Netty `4.2.9.Final`
+throughout. Worked around in this round's test harness by running the CLI's shaded jar as a subprocess
+rather than constructing a `FlightClient` in-process. The product risk this flags: any real deployment
+that embeds both `pravaha-server` and the Flight client SDK on one classpath — an embedded gateway or a
+test harness of its own — would hit the identical crash.
+
+### Corrections to the case file found this round
+
+- **ERRC-012's own "one-line reach" example does not reach `PRV-1030`.** `--url nonsense` parses
+  successfully (`Endpoint.parse` treats a bare hostname with no colon as `host:9090`, TLS assumed); so
+  do two of the case's other four named examples (`http://h:9090` — `http`/`https` are documented
+  aliases for `grpc`/`grpc+tls`, `Endpoint.java:93` — and `grpc+tls://h`, which defaults to port 9090).
+  Only `grpc://` (no host) and `grpc://h:99999` (port out of range) of the five actually malform.
+- **ERRC-013 undercounts `ClientOptions`' throw sites by one.** The case names four line numbers;
+  `ClientOptions.Builder.build()` itself also refuses (a token over a plaintext endpoint without
+  `allowInsecureToken(true)`), correctly, with `PRV-1031`. Not a product defect — a completeness note
+  on the case's own enumeration.
+- **ERRC-002's "confirm all five carry a line number" does not hold for two of the five sites**
+  (`ConfigResolver`'s unclosed-reference throw and `ConfigurationBuilder`'s unregistered-extension
+  throw operate on a merged value/at the builder level, with no line to report) — see
+  `docs/qa/logs/ERRC.md` §1 for detail; a LOW-severity E3 gap, not re-stated as its own entry here.
