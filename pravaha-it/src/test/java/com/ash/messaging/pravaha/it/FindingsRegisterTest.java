@@ -54,7 +54,7 @@ class FindingsRegisterTest {
      */
     private static final int UNTRIAGED_CEILING = 0;
 
-    private static final Pattern HEADING = Pattern.compile("^#{2,3} ((?:[A-Z]+-\\d+|[A-Z]-\\d+))([^\\n]*)$");
+    private static final Pattern HEADING = Pattern.compile("^#{2,3} ([A-Z]+-[A-Z]?\\d+)([^\\n]*)$");
 
     private record Finding(String id, String status) {}
 

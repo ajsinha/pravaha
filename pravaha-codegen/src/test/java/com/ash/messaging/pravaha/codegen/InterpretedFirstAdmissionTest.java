@@ -264,7 +264,7 @@ class InterpretedFirstAdmissionTest {
         // admission does not wait for them: every query answers from the moment it is registered.
         MemoryAccess access = MemoryAccess.best();
         List<AdaptiveStage> stages = new ArrayList<>();
-        AtomicLong rowsBeforeAnyCompile = new AtomicLong();
+        AtomicLong interpretedRows = new AtomicLong();
 
         try (MemoryRegion region = access.allocate(4096);
                 StageUpgradeService service =
@@ -273,17 +273,27 @@ class InterpretedFirstAdmissionTest {
             long[] offsets = {0L};
 
             long start = System.nanoTime();
+            long emitted = 0;
             for (int i = 0; i < 1_000; i++) {
-                AdaptiveStage stage = AdaptiveStage.stateless("q-" + i, countingInterpreted(rowsBeforeAnyCompile));
+                AdaptiveStage stage = AdaptiveStage.stateless("q-" + i, countingInterpreted(interpretedRows));
                 stages.add(stage);
                 service.submit(stage, plan(), outcome -> {});
-                stage.onBatch(region, offsets, 1); // it answers immediately
+                emitted += stage.onBatch(region, offsets, 1); // it answers immediately
             }
             long admissionMillis = (System.nanoTime() - start) / 1_000_000L;
 
-            assertThat(rowsBeforeAnyCompile.get())
+            // Counted as rows out, not as interpreted invocations. A compiler thread can land an
+            // upgrade in the microseconds between submit and onBatch, and that query answered --
+            // it answered from generated code. Scoring it as a miss tests the swap, not admission.
+            assertThat(emitted)
                     .as("all thousand produced output during registration, without waiting for a compiler")
-                    .isEqualTo(1_000);
+                    .isEqualTo(1_000L);
+            assertThat(interpretedRows.get())
+                    .as(
+                            "and the interpreter served them: only %d of 1000 ran interpreted, which is"
+                                    + " what gating admission on compilation would look like",
+                            interpretedRows.get())
+                    .isGreaterThan(500L);
             assertThat(admissionMillis)
                     .as("admission is not gated on compilation: it took %d ms", admissionMillis)
                     .isLessThan(5_000L);

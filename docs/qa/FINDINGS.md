@@ -1788,6 +1788,8 @@ beats returning an object that can never do its job. Recorded as drift, not fixe
 
 ### API-F1 (informational) — `sqlName()` renders `STRING` as `VARCHAR NOT NULL`, not `STRING NOT NULL`
 
+> **Status:** BY DESIGN — `sqlName()` renders the Calcite type name, which is what a SQL surface should print; the eleven cases that expected `STRING NOT NULL` describe the DDL spelling, not the rendered type. Case text is what needs the edit.
+
 Not a defect. `PrimitiveType.sqlName()` returns the Pravaha type-name verbatim (`INT64 NOT NULL`,
 exactly as the case file assumes), but `StringType.sqlName()` returns the Calcite/SQL spelling,
 `VARCHAR NOT NULL` — and `PravahaTypeTest` already asserts this. `docs/qa/cases/API.md` was authored
@@ -1799,6 +1801,8 @@ across both surfaces. Affects the wording of API-018, 019, 023, 024, 026, 027, 0
 applicable** (case-text correction, no code change).
 
 ### API-F2 (LOW) — the codegen "happy path" case cannot be demonstrated with the shared `FILTERSQL` constant
+
+> **Status:** OPEN — a case-file defect, not a product one: `API.md`'s shared `FILTERSQL` constant cannot demonstrate the codegen happy path. The harness needs a second constant.
 
 `API.md`'s own `FILTERSQL` harness constant (`SELECT user_id, amount FROM txn WHERE status =
 'COMPLETED' AND amount > 100`) projects `user_id`, a `STRING`. `pravaha explain --level codegen`
@@ -1814,6 +1818,8 @@ FAIL needs an entry" rule since API-037 is marked FAIL in the log).
 
 ### API-F3 (LOW) — `run`'s open-failure messages never include the underlying OS cause
 
+> **Status:** OPEN — `run`'s open-failure messages still drop the underlying OS cause.
+
 `PRV-5040` messages from `RunCommand`'s source/sink open failures (`cannot read <path>`, `read
 failed at line 0`, `cannot open <path> for writing`) never include the underlying `IOException`
 detail text (e.g. `Permission denied`), and — per API-071 — `PRAVAHA_CLI_TRACE` does not help,
@@ -1826,6 +1832,8 @@ tell them what actually went wrong at the OS level. **Status: OPEN.**
 
 ### API-F4 (informational) — `run --out` auto-creates missing parent directories
 
+> **Status:** BY DESIGN — `run --out` creating missing parents is the behaviour a writer should have; the case expecting a refusal is what is wrong.
+
 API-049 expects `--out /tmp/nodir/out.csv` against an absent `/tmp/nodir` to fail before any work is
 done. Actual behaviour: it succeeds — `ok  6 in, 3 out`, exit 0 — and `/tmp/nodir` is created along
 with the file. Verified against a freshly `rm -rf`'d path, so this is not stale state. This is
@@ -1837,6 +1845,8 @@ does not exist yet" does not. **Status: not applicable** (behaviour is arguably 
 needs updating).
 
 ### API-F5 (informational) — the `H-SRV`/`H-OPEN` harness note "rows are pushed with DoPut" does not hold against a real `pravaha-server`
+
+> **Status:** BY DESIGN — a fact about the harness description rather than the product: `H-SRV`/`H-OPEN`'s "rows are pushed with DoPut" does not hold against a real `pravaha-server`.
 
 `grep -rn "DoPut\|acceptPut"` across the repository (excluding `.claude/`) finds exactly one hit,
 `PravahaFlightSqlProducer`, and that override is `acceptPutPreparedStatementQuery` — parameter
@@ -1854,6 +1864,8 @@ looking for a `DoPut`-based ingestion path that is not there.
 
 ### API-F6 (LOW) — `API-062` and `API-152` disagree about which PRV code an unknown view produces, and the executed evidence sides with `API-152`
 
+> **Status:** OPEN — `API-062` and `API-152` disagree on the PRV code for an unknown view; executed evidence sides with `API-152`, so `API-062` is the case to correct.
+
 `pravaha query --sql "SELECT * FROM nope"` against `H-SRV` with one view (`by_user`) registered
 returns `PRV-2002  Object 'nope' not found. Known streams: [by_user]`, not the `PRV-4023`/
 `this server serves [...]` form `API-062` predicts. `API-152`, in the same case file, gives the
@@ -1865,6 +1877,8 @@ correction: `API-062` should either register zero views to reach the `PRV-4023` 
 expected code/message should change to `PRV-2002`).
 
 ### API-F7 (MED) — a dead-server refusal on the CLI never names the address, and `subscribe` prints its success banner before the connection is known to have failed
+
+> **Status:** OPEN — a dead-server refusal on the CLI still never names the address, and `subscribe` still prints its success banner before the connection is known to have failed.
 
 Every one of the seven `H-CLI`-against-nothing-listening commands (`queries`, `query`, `register`,
 `drop`, `pause`, `resume`, `subscribe`) fails with the bare stderr text `PRV-1041  io exception` —
@@ -1880,6 +1894,8 @@ session's mandate (rule 5). **Status: OPEN.**
 
 ### API-F8 (LOW) — `explain`'s `?level=` (empty string) is treated as absent, not as an invalid value
 
+> **Status:** OPEN — `explain`'s `?level=` is still treated as absent rather than as an invalid value.
+
 `POST /api/v1/queries/explain?level=` (the query parameter present but empty) returns `200` with
 `level:"physical"` — the same result as omitting the parameter entirely. `API-083` expects it to be
 refused identically to `?level=PHYSICAL`, i.e. `400` with `PRV-0400`. Whatever reads the `level`
@@ -1891,6 +1907,8 @@ difference from the documented contract, and from `?level=PHYSICAL`'s behaviour 
 endpoint. **Status: OPEN.**
 
 ### API-F9 (MED-HIGH) — a null `sql` in a JSON body reaches the client as a raw `NullPointerException` message dressed up as `PRV-2010`
+
+> **Status:** OPEN — a null `sql` in a JSON body still surfaces a raw `NullPointerException` message dressed as `PRV-2010`.
 
 `POST /api/v1/queries/validate` with body `{}` or `{"sql":null}` returns `200` with
 `{"valid":false,"diagnostics":[{"code":"PRV-2010","message":"PRV-2010  Cannot invoke
@@ -1909,6 +1927,8 @@ guarding the null-`sql` path is more than the "small, obviously correct" bar thi
 under. **Status: OPEN.**
 
 ### API-F10 (LOW) — a lone unpaired UTF-16 surrogate in a JSON string is accepted by the deserializer, not rejected
+
+> **Status:** OPEN — a lone unpaired UTF-16 surrogate is still accepted by the deserializer; the executed `500` also contradicts the `400` the case names.
 
 `API-098`(d) expects `{"sql":"\ud800"}` (a lone high surrogate) to fail JSON deserialization with
 `400`. Actual: `200`, `valid:false`, `PRV-2001` (a SQL lexical error, `Encountered: <EOF>`) —
@@ -2023,6 +2043,8 @@ written pattern.
 docs/qa/logs/TYPE.md §13-15 (TYPE-118).
 
 ### API-F11 (MED) — the Swagger UI page is behind authentication even though `/api/docs` and the OpenAPI document are open by design
+
+> **Status:** OPEN — the Swagger UI page is still behind authentication although `/api/docs` and the OpenAPI document are open by design.
 
 `OPEN_PREFIXES` in `BearerTokenFilter` lists `/swagger-ui` as one of its five open prefixes, and
 `application.yaml` configures `springdoc.swagger-ui.path: /api/docs`. In practice: `GET /api/docs`
