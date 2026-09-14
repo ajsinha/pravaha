@@ -1729,3 +1729,86 @@ Jackson decodes the malformed surrogate rather than refusing the body, and the r
 handed to the SQL lexer, which fails cleanly. Not unsafe — the response is still valid JSON and no
 `500` occurs — but it contradicts the specific `400` the case names. **Status: OPEN** (case-file
 correction, low priority).
+
+# TYPE — found executing `docs/qa/cases/TYPE.md`
+
+## TY-1 (HIGH) — floating-point `%`/`MOD` is categorically refused as DECIMAL arithmetic
+
+`%`/`MOD` over `FLOAT32`/`FLOAT64` operands is refused outright with `PRV-2021`, e.g.
+`'MOD(CAST($3):DECIMAL(30,15), CAST($4):DECIMAL(30,15))' is DECIMAL arithmetic...`. Calcite's
+default rewrite casts both operands of `%`/`MOD` to `DECIMAL` before Pravaha's planner sees them —
+unlike `+ - * /`, which stay in their native floating type — so the query trips
+`ExpressionCompiler.refuseDecimalType` even though neither operand is ever declared `DECIMAL`.
+Floating modulo is therefore entirely unreachable through SQL: `x % y`, `MOD(x, y)`, and every
+mixed-width floating pair produce the identical refusal. Reproduced identically across five
+independent TYPE.md cases (TYPE-103, TYPE-106, TYPE-107, TYPE-109) and blocks a sixth (TYPE-115)
+from running at all.
+
+**Reproduction:** `pravaha validate --sql "SELECT id, x%y AS r FROM num" --schema
+"id:INT64,x:FLOAT64?,y:FLOAT64?"` → exit 1, `PRV-2021`, message above.
+
+**Status: OPEN.** Not seed-proven (out of the round's required scope), but reproduced with the exact
+same message across five independent type combinations. `docs/SQL_SUPPORT.md`'s "Integer and
+floating arithmetic ... ✅" row gives no indication `%` behaves differently from `+ - * /`; it should
+carry a caveat naming this exception. See docs/qa/logs/TYPE.md §13-15.
+
+## TY-2 (HIGH) — `pravaha run` discards the entire output batch, not just the offending row, on a mid-stream lane failure
+
+`QueryRunner`'s `Collector` (`pravaha-cli`) buffers every output row in memory and flushes to the
+sink only after `execution.close()` and `checkHealth()` both succeed. When a lane throws mid-stream
+(e.g. integer division by zero, `PRV-3010`), the process exits 1 as documented, but `out.csv` is
+created with **zero rows** rather than the rows that completed before the failing row — contradicting
+the `PRV-3010` message's own promise that "the record is routed to the DLQ rather than given a value
+that could be mistaken for an answer" (the *other* rows never reach the sink at all, DLQ or
+otherwise).
+
+**Reproduction:** TYPE-113 (`a/b` over `num.csv` with a zero divisor row, exit 1, `PRV-3010`,
+`out.csv` has 0 lines where 7 were expected to survive); independently reproduced by TYPE-120 step 4
+(a CASE guard that doesn't cover the row needing it, same `PRV-3010`, same 0-row output).
+
+**Status: OPEN.** Seed-proven for the underlying throw (`Expression.Arithmetic.evaluateLong`'s
+zero-case changed from `divideByZero()` to `0L` made the division silently succeed instead — confirms
+the throw is real and load-bearing); the batch-loss behaviour itself is confirmed by direct, repeated
+observation and root-caused by reading `QueryRunner`'s `Collector`, not by a further seed. See
+docs/qa/logs/TYPE.md §13-15 (TYPE-113, TYPE-120).
+
+## TY-3 (HIGH) — `NaN` sorts as greater than every value in `>` (and `<`, `>=`, `<=`) comparisons
+
+`Predicate` (`pravaha-runtime/.../plan/Predicate.java`) implements ordering comparisons via
+`Double.compare(...)`. `Double.compare`'s total-ordering contract places `NaN` above every other
+double, so `WHERE x/y > 0` wrongly includes a row whose `x/y` is `NaN` (`0.0/0.0`) — a silently wrong
+filter result, not a refusal. TYPE-115's own case text already flags the same `Double.compare`
+mechanism for `=` (`Double.compare(NaN,NaN)==0`, so `NaN = NaN` wrongly passes); this finding
+confirms it is broader and also corrupts ordering comparisons.
+
+**Reproduction:** `pravaha run --sql "SELECT id FROM num WHERE x/y > 0" --schema
+"id:INT64,x:FLOAT64?,y:FLOAT64?"` over a row where `x=0.0,y=0.0` → the NaN row's id is included in
+the output.
+
+**Status: OPEN.** Not seed-proven (out of required scope); root-caused by reading `Predicate.java`
+and confirmed by direct, repeated reproduction. `docs/SQL_SUPPORT.md`'s comparison-operator row
+carries no caveat for NaN-producing expressions.
+
+## TY-4 (MEDIUM) — two ordinary expression shapes crash with a raw, uncoded Java exception instead of a `PRV-` refusal
+
+(a) `r / 3.0E0` (a `FLOAT32` column divided by an `E`-suffixed `DOUBLE` literal) throws
+`ClassCastException: class java.lang.Double cannot be cast to class java.math.BigDecimal` — the
+mechanism TYPE.md's own preamble Fact #6 describes for a bare literal projection, now newly reachable
+through an ordinary division. (b) `CASE WHEN n > 5 THEN 1 ELSE 1.5 END` (INT64 THEN, FLOAT64 ELSE)
+throws `IllegalArgumentException: a CASE must produce one type, and this one produces INT64 on the
+THEN branch and FLOAT64 on the ELSE.` rather than a `PRV-2021` DECIMAL refusal.
+
+**Status: OPEN.** Not seed-proven (out of required scope); reproduced directly. Both are
+user-reachable through ordinary-looking SQL and should be coded `PravahaException`s. See
+docs/qa/logs/TYPE.md §13-15 (TYPE-106, TYPE-122).
+
+## TY-5 (MEDIUM) — `WHERE (CASE ... END) IS NULL` is refused
+
+`PredicateCompiler` has no compiled path for `IS NULL` wrapped around a `CASE` expression:
+`PRV-2021 cannot compile the expression 'IS NULL(CASE(...))' (IS_NULL)...`. This blocks an ordinary
+NULL-check idiom over a computed CASE result — the same class of limitation TYPE-124 already
+documents for a bare boolean CASE used directly in `WHERE`, but here it blocks a more commonly
+written pattern.
+
+**Status: OPEN.** Reproduced directly; not seed-proven (out of required scope). See
+docs/qa/logs/TYPE.md §13-15 (TYPE-118).
