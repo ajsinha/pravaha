@@ -575,8 +575,19 @@ public final class Lane implements AutoCloseable {
             Runnable task = queued.task();
             try {
                 task.run();
+            } catch (Throwable t) {
+                // Before the ticket is released, not after. The waiter's next act is checkHealth()
+                // -- QueryExecution.restore is exactly that shape -- and leaving the recording to
+                // run()'s outer catch means the exception must first unwind the control loop and
+                // the batch loop. A waiter scheduled inside that window sees a lane that has failed
+                // and does not say so, and restore returns success over a snapshot it refused.
+                // The catch runs before the finally, so the failure is visible before the ticket
+                // moves.
+                failure = t;
+                state = State.FAILED;
+                throw t;
             } finally {
-                // Recorded even when the task threw: a coordinator waiting on it must not wait
+                // Released even when the task threw: a coordinator waiting on it must not wait
                 // forever because the work failed, and a failure it cannot see is worse than one
                 // it can. It finds out by calling checkHealth() once the wait returns.
                 controlCompleted = queued.id();

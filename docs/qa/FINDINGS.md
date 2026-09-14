@@ -3244,12 +3244,11 @@ Found from `StateRestoreTest.state060` failing once in a full-reactor verify and
 times, at class scope, at package scope, and across a whole-module run — with no second control task
 in flight there is nothing to retire the ticket early. It reads exactly like a flaky test.
 
-*A wrong turn worth recording, since the QA record is for whoever comes next:* the first diagnosis
-was a visibility race between `controlRun.incrementAndGet()` in a `finally` and `failure = t` in
-`run()`'s outer catch. A test built to catch that found 0 hits in 300 attempts, because
-`awaitControlTask` parks 50µs per poll and the lane unwinds in nanoseconds. The race is real and
-unreachable; the ticket aliasing is reachable and deterministic. The seed check is what told them
-apart.
+**There were two defects here, not one, and the second is recorded as PF-7.** The first diagnosis
+was a visibility race between the ticket being released and the failure being recorded. A test built
+to catch it found 0 hits in 300 attempts on an idle machine, and I wrongly cleared it and moved on to
+the ticket aliasing. `state061` then failed the same way on the next full verify, which is what said
+the ordering mattered too. Under deliberate CPU contention the same test finds it: 1 of 400.
 
 ### PF-6 (MED) — `state062` asserted that restoring a checkpoint with no state for a stateful lane is a silent skip
 
@@ -3259,3 +3258,23 @@ The case took a checkpoint from a projection — not stateful, so no operator en
 restored it into a windowed plan, asserting the skip took under 50ms and emitted nothing. It is the
 same class of mistake `restoreState`'s "the checkpoint holds N stateful operators and this plan has
 M" refusal exists for, and it slipped past that guard because there was no state to count.
+
+
+### PF-7 (HIGH) — a control task's failure is recorded after its ticket is released, so a waiter can read a failed lane as healthy
+
+> **Status:** FIXED — `Lane.runControlTasks` now records `failure`/`State.FAILED` in a `catch` that runs before the `finally` releasing the ticket. `pravaha-runtime`'s `ControlTaskFailureVisibilityTest` runs 400 attempts under deliberate CPU contention and **catches the old ordering** (1 of 400 releases handed back a lane that had failed without saying so); passes three consecutive runs after the fix.
+
+`awaitControlTask` returns the moment the ticket is retired, and the waiter's next act is
+`checkHealth()` — `QueryExecution.restore` is exactly that shape. The failure was recorded by
+`run()`'s outer `catch`, which the exception reaches only after unwinding the control loop and the
+batch loop, while the ticket was released by a `finally` on the way out. In between, the lane has
+failed and does not say so.
+
+For `restore` that means a snapshot whose magic number or version was rejected is accepted in
+silence, which is the one outcome those checks exist to prevent. `StateRestoreTest.state060` (magic
+flipped) and `state061` (version patched to 1) both failed this way under full-reactor verifies and
+passed under every narrower scope.
+
+The window is nanoseconds wide on an idle machine, which is why 300 idle attempts found nothing and a
+full reactor build found it twice. A test for an ordering that only opens under scheduling pressure
+has to create the pressure; the contention threads in that test are the test, not scenery.
