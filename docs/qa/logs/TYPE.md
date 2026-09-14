@@ -24,7 +24,144 @@ Not every FAIL was independently seed-proven — most are pinned instead by dire
 reproduction plus a source-level root cause, which is stated in place of a seed where that is what
 was done.
 
+**A note on drift from TYPE.md's own preamble.** Facts 1 and 2 of the case file's preamble are
+stale against the current build, discovered executing TYPE-003/004/005/020. **`DATE` and `TIME` are
+now fully declarable** through every configured surface — `pravaha validate`/`run` with
+`d:DATE`/`t:TIME` in the schema string, and `POST /api/v1/streams` with the same, both succeed
+(exit 0 / HTTP 201) and round-trip real values. This directly falsifies TYPE-003 and TYPE-004 as
+written (see below); it does not change the answer for `DECIMAL`, `ARRAY`, `MAP` or `ROW`, which
+remain undeclarable exactly as Fact 1 describes. Separately, Fact 2's "`baseFromCalcite` throws a
+bare `IllegalArgumentException`, not a `PRV-` code" is also stale: `ARRAY`/`MAP`/`ROW` in a
+projection now throw a real `PravahaException`/`PRV-2021` (an improvement, though the message still
+does not name the offending type or column). Where a case's authored Expected rests on either stale
+fact, this is recorded case by case below rather than silently reconciled — following the precedent
+`docs/qa/FINDINGS.md`'s `ST-2`/STATE-round drift note sets.
+
 ---
+
+## §1-3 — Declaration, Projection, WHERE predicate (TYPE-001 … TYPE-032)
+
+Vehicle: `pravaha validate`/`run` over `types.csv`/`text.csv`, `POST /api/v1/streams` and node
+startup against fixture `S` (stood up on HTTP 18402/Flight 19402 — 18400/19400 were already bound by
+a concurrent QA agent in another worktree; only the port numbers differ from the spec). A
+programmatic `pravaha-it` JUnit fixture (built, exercised, then deleted) reached `DECIMAL`/`ARRAY`/
+`MAP`/`ROW` for the cases that need a `StreamSchema` built directly in Java, per the case file's own
+"reachable only by building a `StreamSchema` in Java" note.
+
+- **TYPE-001 — PASS.** Exact round-trip, `ok 5 in, 5 out`, including both documented lossy rows
+  (`f32`→`1.6777216E7`, `f64`→`9.007199254740992E15`).
+- **TYPE-002 — FAIL,** on several particulars, all four surfaces still refuse `DECIMAL`. The refusal
+  message now reads `...Supported: BOOLEAN,...,DATE, TIME, TIMESTAMP, DECIMAL(p,s)...ARRAY, MAP and
+  ROW are not supported by this engine at all` — a materially different list from the one Expected
+  quotes (DATE/TIME are now genuine supported names; DECIMAL(p,s) is advertised as supported but is
+  not actually reachable, see TY-7 below). `DECIMAL(10,2)` fails via a different mechanism than
+  Expected predicts: the schema-string parser splits the whole spec on `,` before any per-column
+  parser sees the fragment, so it fails as `unknown type 'DECIMAL(10'`. `POST /api/v1/streams`
+  returns **HTTP 500**, not a 4xx (`PRV-5040` is in the PLUGIN 5000-series, which
+  `ApiExceptionHandler` maps to 500, not the CONFIGURATION series mapped to 400). Node-startup
+  refusal does not name the stream (`d`) or column (`amt`). See Defects TY-7, TY-8, TY-9.
+- **TYPE-003 — FAIL, falsified.** `DATE` is now fully declarable: `validate`/`run` both succeed
+  (exit 0, correct round-trip of `19723`), `POST /api/v1/streams` returns HTTP 201 with `DATE NOT
+  NULL`. Confirms the preamble drift noted above.
+- **TYPE-004 — FAIL, falsified,** same shape as TYPE-003: `TIME` validates, runs (`01:00:00` →
+  `3600000000000` ns-of-day, consistent with the engine's own nanoseconds-of-day representation),
+  and registers via `POST` (HTTP 201, `TIME NOT NULL`).
+- **TYPE-005 — FAIL,** partially — Steps 1-2 (grammar refusal, unprojected-column planning) match
+  exactly. Steps 3-4 (ARRAY/MAP/ROW in a projection) now refuse with a real
+  `PravahaException`/`PRV-2021 no Pravaha type for SQL type ANY; the supported set is in
+  TypeMapping`, not the documented bare, code-less `IllegalArgumentException` — a positive drift
+  (Fact 2), though the message still doesn't name the offending type or column. See Defect TY-10.
+- **TYPE-006 — PASS.** All 20 runs (10 declarable types × bare/`?`) exit 0 with correct nullability
+  and correct alias resolution.
+- **TYPE-007 — FAIL.** Exit 1 as expected, but the message is
+  `UnsupportedOperationException: a plugin aborted a row mid-write... Report this -- it needs a
+  cancel path on RowInbox, not a workaround here`, naming neither the line nor the column, and the
+  whole batch (including the good row) is lost, not just the offending row — this is the pre-existing
+  OPEN defect tracked in `docs/qa/FINDINGS.md`'s summary table as **I-3**
+  (`DelegatingRowWriter.abort()` throwing `UnsupportedOperationException`), now reconfirmed on a
+  NOT-NULL violation as well as a genuine decode failure (TYPE-088/091). Vacuity control
+  (`s:STRING?`) passes exactly.
+- **TYPE-008 — FAIL,** for the same reason as TYPE-002: `DECIMAL(p,s)` is named "Supported" in the
+  refusal message but is unreachable via any surface (see TY-7) — meets the case's own Falsifier.
+- **TYPE-009 — FAIL.** Step 1 (bare BOOLEAN projection) is exact. Step 2 does not plan at all: a
+  boolean-valued `CASE WHEN ... THEN TRUE ELSE FALSE END` fails with `PRV-2021 function 'IS TRUE' in
+  'IS TRUE(...)' is not supported in a projection` — Calcite rewrites a boolean-typed CASE into
+  `IS TRUE(cond)` before Pravaha's compiler sees it, and the compiler's allowlist has no entry for
+  that rewritten form; confirmed the non-boolean-result CASE (`THEN 1 ELSE 0`) plans fine, isolating
+  the break to the boolean-result rewrite specifically. See Defect TY-11.
+- **TYPE-010 — PASS.** INT8 exact (`127/-128/[NULL]/0/1`); `explain` confirms `INT32` promotion for
+  `c` with values unchanged.
+- **TYPE-011 — PASS.** INT16, same pattern, exact.
+- **TYPE-012 — PASS.** INT32, row 5 exact (`16777217`, no truncation at this width).
+- **TYPE-013 — PASS.** INT64, row 5 exact (`9007199254740993`).
+- **TYPE-014 — PASS.** FLOAT32, row 5 exact both projected and re-encoded (`1.6777216E7`).
+- **TYPE-015 — PASS.** FLOAT64, row 5 exact (`9.007199254740992E15`).
+- **TYPE-016 — PASS.** STRING, step 2 byte-identical including `straße` and the 👍 emoji at the
+  correct UTF-8 byte sequences.
+- **TYPE-017 — FAIL.** Step 1 (valid BYTES round-trip) exact. Step 2 (`bin2.csv` carrying invalid
+  UTF-8 bytes `FF FE 00 41`) does not lossily round-trip as Expected predicts — `pravaha run` aborts
+  entirely with `PRV-5040 read failed at line 0` (the line-based UTF-8 text reader fails before any
+  row decodes), not a per-row U+FFFD substitution. See Defect TY-12.
+- **TYPE-018 — PASS.** TIMESTAMP_LTZ, exact nanosecond values including the adjacent `...000`/
+  `...001` pair and the negative instant (`-1`).
+- **TYPE-019 — PASS,** one message nuance. Reached `DECIMAL`/`DATE`/`TIME` programmatically via a
+  `StreamSchema` built directly in Java (the "reachable only in Java" route the case describes for
+  DECIMAL, and now an alternate route for DATE/TIME per the drift note above): all three values
+  decode exactly (`amt`, `d=19723`, `t=3600000000000`). `amt+1`/`amt*2` refuse with the exact
+  documented `PRV-2021` DECIMAL sentence. `d+1` is refused too, but with `PRV-2002 Cannot apply '+'
+  to arguments of type '<DATE> + <INTEGER>'`, not the `PRV-2021` Expected names — a message-family
+  nuance, not a functional failure (still cleanly refused, not a crash).
+- **TYPE-020 — FAIL,** mirrors TYPE-005: `SELECT id FROM n` (unprojected ARRAY/MAP/ROW column) plans
+  and runs. Projecting `arr`/`m`/`r`/`*` all refuse with the same real `PravahaException`/`PRV-2021`
+  as TYPE-005, not a bare `IllegalArgumentException`. `WHERE arr IS NULL`/`IS NOT NULL` both plan and
+  run correctly.
+- **TYPE-021 — PASS.** All eight BOOLEAN-predicate forms exact; 4-of-5 vacuity holds.
+- **TYPE-022 — PASS.** INT8, all ten operator checks exact; partition `1+1+2=4` holds (no
+  narrow-width read contamination).
+- **TYPE-023 — PASS.** INT16, all ten exact.
+- **TYPE-024 — PASS.** INT32, all core checks exact; the three 32-bit-overflow literal probes
+  (`=4294967296`, `=2147483648`, `>4294967295`) all correctly return **zero rows** rather than
+  wrapping into a false match.
+- **TYPE-025 — PASS.** INT64, all ten exact, including the `CompareInt`/`CompareLong` split
+  boundary values.
+- **TYPE-026 — PASS.** FLOAT32, all eight core checks exact, plus a sixth-row control value — no
+  4-byte/8-byte read corruption observed.
+- **TYPE-027 — FAIL.** All core checks exact, including the extreme-value probes
+  `=4.9E-324`→row 2 and `>9007199254740992`→row 1 only. But `WHERE f64 = 1.7976931348623157E308`
+  (Double.MAX_VALUE, confirmed by TYPE-015 to be row 1's actual stored value) and the equivalent
+  `>=` form both return **zero rows** — a silently wrong answer at the extreme, not a refusal. See
+  Defect TY-13.
+- **TYPE-028 — PASS, seed-proven.** All eight checks exact, including unicode (`straße`→row 5,
+  `👍ok`→row 6). **Seed:** `SqlPlanner`'s UTF-8 charset override and `saffron.properties` both
+  reverted to `ISO-8859-1`, rebuilt (`-Dspotless.check.skip=true`); `WHERE s='👍ok'` then failed
+  (`PRV-2010 Failed to encode '👍ok' in character set 'ISO-8859-1'`); reverted both files (clean
+  diff), rebuilt clean, row 6 returned again.
+- **TYPE-029 — PASS.** All four ordering operators refuse at plan time with the exact documented
+  `PRV-2021` sentence, including the reversed-operand case; the text-inside-a-larger-expression route
+  also matches.
+- **TYPE-030 — FAIL,** in the "already fixed" direction (positive finding, not a new defect). The
+  documented `AssertionError` on a TIMESTAMP literal in WHERE does not reproduce anywhere tried —
+  CLI `validate`/`run` (exit 0, `ok 5 in, 1 out`), server `register`/`queries`/`query` (RUNNING, 1
+  row, no thread death), and a second unrelated registration afterward all succeed cleanly. This
+  corroborates FINDINGS.md's existing X-2-style pattern of round-1 claims no longer reproducing. The
+  case's own documented *workaround* (bare/cast-BIGINT vs TIMESTAMP comparison) has separately
+  regressed to a clean `PRV-2002` refusal — the same mechanism TYPE-091 (§10-12) reconfirms for
+  `TIMESTAMP_LTZ` generally; see that section.
+- **TYPE-031 — FAIL.** `IS [NOT] NULL` over BYTES matches exactly (vacuity `2+3=5` holds). But
+  `=`/`<>`/`>` against a BYTES literal refuse with a generic
+  `PRV-2021 'CAST('cafe'):VARBINARY NOT NULL' has SQL type VARBINARY, which Pravaha cannot compute
+  with yet`, not the documented column-naming sentence — BYTES maps to a real Calcite `VARBINARY`
+  (unlike ARRAY/MAP/ROW, which map to `ANY`), so an implicit CAST is inserted and a generic
+  expression-level refusal fires first. See Defect TY-14.
+- **TYPE-032 — PASS.** `d = DATE '...'` and `t = TIME '...'` both plan **and run** correctly against
+  a programmatic row (the TYPE-030 AssertionError hazard does not occur for DATE/TIME literals);
+  `amt`/`arr`/`m`/`r` against a literal all refuse with the exact documented column-naming sentence;
+  `IS NULL` plans successfully on all six columns.
+
+**Section tally:** 19 PASS, 13 FAIL (2 of which — TYPE-003/004 — are the preamble-drift cases; 1 —
+TYPE-030 — is a "defect already fixed" finding rather than a regression), 0 BLOCKED, 0 NOT RUN
+(32 cases).
+
 
 ## §13-15 — Arithmetic, Division/modulo/zero, CASE WHEN (TYPE-102 … TYPE-124)
 

@@ -1872,3 +1872,100 @@ value, `--out-schema` matching; the value that reaches `out.csv` differs from th
 root-caused to `QueryRunner.Collector`'s fixed 512-byte row reservation. This is silent data
 corruption under a success exit code — the highest-severity class of defect this round found. See
 docs/qa/logs/TYPE.md §10-12 (TYPE-092).
+
+## TY-7 (MEDIUM-HIGH) — `DECIMAL(p,s)` is advertised as supported in the refusal message but is unreachable through any surface
+
+The schema-string parser splits the whole `name:TYPE,name:TYPE` spec on `,` before any per-column
+type parser runs, so a parenthesized, comma-bearing type like `DECIMAL(10,2)` is split mid-token and
+fails as `unknown type 'DECIMAL(10'` — a different, more confusing error than "DECIMAL is refused."
+The refusal message for a bare `DECIMAL` now *names* `DECIMAL(p,s)` as part of the supported set
+(`...DATE, TIME, TIMESTAMP, DECIMAL(p,s)...`), which is false: no surface (`validate`, `run`,
+`POST /api/v1/streams`, node startup) can ever parse a parenthesized type through the top-level
+comma-delimited schema-string grammar.
+
+**Reproduction:** `pravaha validate --schema "id:INT64,amt:DECIMAL(10,2)" --sql "SELECT id FROM d"`
+→ `unknown type 'DECIMAL(10'`, not a DECIMAL-specific refusal.
+
+**Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3
+(TYPE-002, TYPE-008).
+
+## TY-8 (MEDIUM) — a client schema-string mistake on `POST /api/v1/streams` returns HTTP 500, not 4xx
+
+`PRV-5040` (the schema-parse refusal) is in the PLUGIN 5000-series of error codes, which
+`ApiExceptionHandler` maps to HTTP 500 — the "the server is broken" status — rather than the
+CONFIGURATION series mapped to 400. A caller who sends an invalid `schema` string in the request body
+(e.g. naming `DECIMAL`) gets a 500 for what is, from the client's side, an ordinary bad request.
+
+**Reproduction:** `POST /api/v1/streams {"name":"d","schema":"id:INT64,amt:DECIMAL"}` → HTTP 500,
+body carries the `PRV-5040` sentence.
+
+**Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3 (TYPE-002).
+
+## TY-9 (LOW) — node-startup type refusal does not name the stream or column
+
+Starting a node with `pravaha.streams.d.schema: "id:INT64,amt:DECIMAL"` refuses to start (correct),
+but the message does not say which stream (`d`) or which column (`amt`) the unparseable type belongs
+to — an operator with several declared streams has to guess which one is wrong.
+
+**Status: OPEN.** See docs/qa/logs/TYPE.md §1-3 (TYPE-002).
+
+## TY-10 (LOW) — `ARRAY`/`MAP`/`ROW` in a projection now throw a coded refusal, but it still doesn't name the type or column
+
+Positive drift from TYPE.md's preamble Fact 2: projecting an `ARRAY`/`MAP`/`ROW` column now throws a
+real `PravahaException`/`PRV-2021 no Pravaha type for SQL type ANY; the supported set is in
+TypeMapping`, not the bare, code-less `IllegalArgumentException` the preamble describes. The message
+still doesn't say which type or column triggered it, unlike the column-naming pattern `ArrowSchemas`
+uses for the equivalent wire-serialization refusal (`PRV-6100`).
+
+**Status: OPEN, low priority** (already improved from the documented state). See
+docs/qa/logs/TYPE.md §1-3 (TYPE-005, TYPE-020).
+
+## TY-11 (HIGH) — a boolean-valued `CASE WHEN ... THEN TRUE ELSE FALSE END` cannot be projected at all
+
+Calcite rewrites a `CASE` whose branches are boolean literals into `IS TRUE(cond)` before Pravaha's
+planner sees it. The expression compiler's allowlist has no entry for `IS TRUE`, so the query is
+refused: `PRV-2021 function 'IS TRUE' in 'IS TRUE(...)' is not supported in a projection`. Confirmed
+isolated to the boolean-result rewrite specifically: the identical `CASE` with a non-boolean result
+(`THEN 1 ELSE 0`) plans and runs normally. This is an ordinary way to write "normalize a comparison
+to a boolean column" and is broken for every such query.
+
+**Reproduction:** `pravaha validate --sql "SELECT id, CASE WHEN i64 > 0 THEN TRUE ELSE FALSE END AS
+flag FROM types" --schema "<types schema>"` → `PRV-2021`.
+
+**Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3 (TYPE-009).
+
+## TY-12 (HIGH) — a BYTES column carrying invalid UTF-8 aborts the whole read instead of decoding lossily
+
+The filesystem source plugin reads delimited files line-by-line as UTF-8 text before any per-column
+decoding happens. A file containing genuinely invalid UTF-8 bytes in a BYTES field (`FF FE 00 41`)
+never reaches row decoding at all: `pravaha run` fails the whole file with `PRV-5040 read failed at
+line 0` (a wrapped `IOException` from the line reader), rather than the lossy U+FFFD-substitution
+round-trip TYPE.md's case predicts. A BYTES column therefore cannot actually carry arbitrary binary
+data through this source plugin if any byte sequence in the row is invalid UTF-8 — a real limitation
+on what "BYTES" can hold in practice, worth documenting explicitly.
+
+**Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3 (TYPE-017).
+
+## TY-13 (MEDIUM-HIGH) — `WHERE f64 = <the column's exact Double.MAX_VALUE literal>` silently returns zero rows
+
+`WHERE f64 = 1.7976931348623157E308` and the equivalent `>=` form both return **zero rows** against a
+row whose `f64` value is confirmed (via TYPE-015's exact projection) to be exactly that value — a
+silently wrong answer under exit 0, not a refusal, at the extreme end of the FLOAT64 range. Every
+other FLOAT64 comparison tested (including `=4.9E-324`, the subnormal minimum) is correct; only the
+Double.MAX_VALUE extremum misbehaves, suggesting an exact-BigDecimal-literal-vs-IEEE754-double
+comparison disagreement specific to this boundary.
+
+**Status: OPEN.** Not seed-proven (out of required scope) — root cause not yet isolated to a specific
+source line, only reproduced directly and repeatedly. See docs/qa/logs/TYPE.md §1-3 (TYPE-027).
+
+## TY-14 (LOW-MEDIUM) — a BYTES-vs-literal refusal names no column, unlike the equivalent ARRAY/MAP/ROW refusal
+
+`WHERE bin = 'cafe'` (and `<>`, `>`) refuses with a generic
+`PRV-2021 'CAST('cafe'):VARBINARY NOT NULL' has SQL type VARBINARY, which Pravaha cannot compute with
+yet` — because BYTES maps to a real Calcite `VARBINARY` type, Calcite inserts an implicit CAST and a
+generic expression-level refusal fires before Pravaha's column-naming refusal path is reached. The
+identical mistake against an ARRAY/MAP/ROW column (which map to `ANY`, no implicit CAST) gets the
+documented column-naming sentence instead (TYPE-032) — a consistency gap between two type families
+that should refuse identically.
+
+**Status: OPEN.** See docs/qa/logs/TYPE.md §1-3 (TYPE-031, contrast with TYPE-032).
