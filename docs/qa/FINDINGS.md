@@ -355,12 +355,23 @@ String partition = streamName + "#" + laneIndex + "/" + pumps.size() + partition
 replaces the other in the tracker, and the minimum-across-partitions rule is then computed over the
 wrong set. Also mine, from the same change.
 
-## T-3 (HIGH) — allowed lateness is the constant zero, with no way to change it
+## T-3 (HIGH) — allowed lateness is the constant zero, with no way to change it — **FIXED**
 
 No key, flag or clause sets it. So "late data arrives as a retraction and a correction" — stated in
 `CONCEPTS.md` and in `StreamSchema`'s javadoc — is **false for every TUMBLE query the planner
 builds**. The correction path is reachable only through HOP's overlapping windows. `lateRecords`
 stops at `QueryExecution` and reaches no metric, so the drops are invisible too.
+
+**Update (2026-09-13, WIN/INCR execution round).** `StreamSchema.Builder.allowedLateness(Duration)`
+now exists, and `PhysicalPlanBuilder.allowedLatenessOf` reads it from the scan beneath the aggregate
+through the ordinary planner path — no hand-built operator required, and it works for TUMBLE, not
+only HOP. Verified end to end (`WindowAnswerTest.win173`/`win173b`/`win174`,
+`IncrementalTest.incr022`) and seed-proven: reverting `allowedLatenessOf` to a constant `0L` makes
+`win173` fail exactly as this finding predicts; restoring it passes again. What is still true: the
+`EMIT CHANGES WITH ('allowed.lateness' = ...)` SQL clause design §11.2 describes does not exist, so a
+query cannot ask for lateness in its own text — only a stream's declaration can grant it, and the
+production default is still zero. `lateRecords()`/`corrections()` still reach no metric (WIN-172,
+unchanged, still OPEN). See `docs/qa/logs/WIN.md` and `docs/qa/logs/INCR.md`.
 
 ## T-4 (HIGH) — `advanceWatermark` mutates window and join state from the wrong thread
 
@@ -429,17 +440,31 @@ first registrant asked**. The second caller gets a view keyed differently from w
 with no error. The same path also skips the key-ordinal bounds check and discards the second
 registrant's retention setting.
 
-## I-4 (HIGH) — `COUNT(DISTINCT <string>)` in a window counts byte lengths
+## I-4 (HIGH) — `COUNT(DISTINCT <string>)` in a window counts byte lengths — **FIXED**
 
 `WindowedAggregate.process` calls `row.getLong(ordinal)` on a variable-width column, which reads the
 packed `(offset, length)` word rather than a value. The offset is constant per schema, so the answer
 is a function of string length. This is the mechanism behind "windowed `COUNT(DISTINCT)` always
 returns 1" — and it is the shape the documentation recommends as the bounded alternative.
 
-## I-5 (HIGH) — a window key that nets to zero is never withdrawn
+**Update (2026-09-13, WIN/INCR execution round).** The distinct argument is now read through
+`readKey(...)` at the column's declared type rather than `row.getLong(ordinal)`, and the same
+`present[i]` guard `COUNT(col)` uses now wraps the `COUNT_DISTINCT` arm, so a NULL is excluded rather
+than colliding with a literal zero. Verified with the case's own byte-length-collision dataset
+(`'alice'`/`'carol'`, both 5 bytes) reading the SQL-correct distinct count, and with the all-2-byte
+control also reading correctly. See `WindowAnswerTest.win197`, `IncrementalTest.incr014`,
+`docs/qa/logs/WIN.md` headline finding 2.
+
+## I-5 (HIGH) — a window key that nets to zero is never withdrawn — still OPEN
 
 `emitWindow` retracts a key whose values changed and silently forgets one that has disappeared from
 `state.fire()`. The stale row stands for ever, and no counter records it.
+
+**Confirmed still present (2026-09-13).** `IncrementalTest.incr026` (pre-existing, `@Disabled`)
+re-checked against the current build; still fails as described. The windowed-side manifestation of
+the same mechanism (`WIN-158` in `docs/qa/cases/WIN.md`, a group whose weights cancel at a window
+boundary) was identified this round but not yet reduced to a test — it is the highest-value case left
+in `docs/qa/logs/WIN.md`, and would extend this finding with a second, independent reproduction.
 
 ## I-6 (HIGH) — three of the four read-consistency modes never leave the client
 
@@ -877,15 +902,16 @@ Cases run as real JUnit tests under `pravaha-it`'s new `qa.lifecycle` package, d
 `QueryRegistry` in-process. Verdicts and evidence for every LIFE-nnn case are in
 `docs/qa/logs/LIFE.md`; this section is the defects only.
 
-### L-1 (HIGH) — `pause()` and `resume()` check the raw `state` field, not the reconciling getter
+### L-1 (HIGH) — `pause()`, `resume()` and `subscribe()` check the raw `state` field, not the reconciling getter
 
 `RegisteredQuery.state()` is reactive: when the raw `state` field is still `RUNNING` but
 `execution.laneFailure()` is present, it *reports* `FAILED` — the fix for the round-1 defect where
 ten surfaces said RUNNING over a dead lane. But that fix lives entirely in the getter.
-`RegisteredQuery.pause()` and `.resume()` call `requireLive`, which tests `state.isTerminal()` on the
-**raw field directly**, never through `state()`. A query whose lane died from an uncaught row error
-(LIFE-126's path — `MIN` refusing a retraction, in `SlicedAggregateState`) never has `fail()` called
-on it, so the raw field is still `RUNNING` when `pause()`/`resume()` inspect it.
+`RegisteredQuery.pause()`, `.resume()` **and `.subscribe()`** all test `state.isTerminal()` (or
+`state == QueryState.RUNNING`) on the **raw field directly**, never through `state()`. A query whose
+lane died from an uncaught row error (LIFE-126's path — `MIN` refusing a retraction, in
+`SlicedAggregateState`) never has `fail()` called on it, so the raw field is still `RUNNING` when any
+of the three inspect it.
 
 Consequence, reproduced in `LifePauseTest.life048` and `LifeResumeTest.life057` (both `@Disabled`
 with this note, so the suite stays green over a documented defect rather than hiding it):
@@ -902,6 +928,9 @@ with this note, so the suite stays green over a documented defect rather than hi
   laneFailure().isPresent()`) is true again and `state()` reports `FAILED` once more — so the
   masking in the previous bullet is specific to the paused window, not permanent, but the refusal
   itself never happens either way.
+- `subscribe(...)` on the same starting state (`LifeFailureTest.life130`, also `@Disabled`) **also
+  succeeds** instead of raising `PRV-8003`, and silently delivers nothing from then on — exactly the
+  "established and delivers nothing" outcome the case names as its falsifier.
 
 Fix shape: `requireLive` (and anywhere else in `RegisteredQuery` that reads the raw `state` field for
 a transition decision) should consult `state()` instead of `state`, or `fail()` should be invoked
