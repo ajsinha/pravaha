@@ -1501,6 +1501,9 @@ the write is attempted. The only way to make a checkpoint genuinely fail via per
 per-query leaf directory — confirmed directly (`StateFailureReportingTest.state044`, both arms in one
 test). Not a defect in the write path, which behaves exactly as its own STATE-090 comment intends;
 recorded because two other authored cases assume a failure mode that this same mechanism prevents.
+Confirmed for the journal too: `StateJournalTest.state073` shows the identical self-heal for
+`RegistryJournal.append`'s directory, and STATE-073's own setup ("chmod the journal's directory
+0500") had to move one level up (the directory's *parent*) for the same reason.
 
 ### ST-4 (MEDIUM) — `checkpointFailures()`/`lastCheckpointFailure()` count every checkpoint log line, not failures
 

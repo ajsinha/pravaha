@@ -383,9 +383,61 @@ now works for the real ingest path, which the case file's "Three facts" preamble
 
 ---
 
+## §G — The registry journal: append and replay (STATE-065 … STATE-076)
+
+Test class: `StateJournalTest`. H-JRN throughout. STATE-065 launches a standalone JVM under `strace
+-f` (`StraceJournalRunner`), the same pattern as STATE-039; without `-f`, the `fsync` from
+`channel.force(true)` was invisible in this sandbox (it lands on a thread `strace` without `-f` does
+not follow here) -- worth recording as a harness lesson, not a product fact.
+
+- **STATE-065 — PASS.** `state065_aRegistrationIsOnDiskFlushedBeforeRegisterReturns`: the file exists
+  and holds one record immediately after `register()` returns, with the exact `ControlWire` magic and
+  version bytes; a `strace -f` trace of an equivalent standalone append shows exactly one `fsync`.
+- **STATE-066 — PASS.** `state066_theRecordsFieldsAreExactlyWhatTheFormatSays`: decoded fields exactly
+  `["R","q",sql,"0,1","dana","7200000"]`; the record's framed length matches the hand-computed
+  UTF-8 byte arithmetic exactly, both the payload length and the whole file's size.
+- **STATE-067 — PASS.** `state067_replayReturnsTheRegistrationVerbatim`: all six fields round-trip.
+- **STATE-068 — PASS.** `state068_everyRetentionEncodingRoundTrips`: default (24h), forever, 1ms, and
+  a hand-written empty-field record (decodes as the 24h default, silently -- as the case predicts).
+- **STATE-069 — PASS.** `state069_everyBoundParameterTypeTagRoundTrips`: all 14 values from the
+  case's table, including the two adversarial strings (`"i:12"`, `"x:y"`) that contain a tag
+  character in the body position, and the 64 KiB string.
+- **STATE-070 — PASS.** `state070_narrowIntegersWidenOnReplayWhichCanSplitASharedComputation`: `a`
+  (bound `Integer(50)`) and `b` (bound `Long(50)`) share one computation before a restart
+  (`registry.size()==1`, the two bindings fingerprint alike); replaying into a second registry, both
+  names recover and the shared-identity relation is preserved after `decodeParameter` widens both to
+  `Long` -- recorded either way, since the case only asks that a change be checkable, not which way it
+  goes.
+- **STATE-071 — PASS.** `state071_manyRegistrationsReplayInRegistrationOrder`: 50 names, forward and
+  reversed registration order, both replay in exactly that order -- not lexical order, which the
+  reversed run would have produced if `apply`'s `LinkedHashMap` were not truly insertion-ordered.
+- **STATE-072 — PASS.** `state072_aRegistrationThatCannotStartIsNotJournalled`: an unknown stream, a
+  parse error, and a duplicate name all fail to register and leave the journal holding only the one
+  valid registration made alongside them (the control).
+- **STATE-073 — PASS, adapted per `ST-3`.** `state073_anUnwritableJournalFailsTheRegistrationRatherThanAcknowledgingIt`:
+  chmod'ing the journal's own directory is self-healed by `createOwnerOnly` exactly as `ST-3`
+  describes for checkpoints; blocking that directory's *parent* genuinely fails the append with
+  `PRV-8006` and the exact message. Whether the name leaks into `registry.names()` before the throw is
+  recorded as observed (both `names().contains("q")` and `find("q").isPresent()` checked and required
+  to agree, whichever way it goes) rather than asserted a specific way, since the case's own point is
+  that this is worth knowing, not a specific verdict.
+- **STATE-074 — PASS.** `state074_aNameRegisteredDroppedAndRegisteredAgainAppearsOnceWithTheLatestDefinition`:
+  one entry for `a`, with the latest SQL; replay order is `[b, a]`, confirming the case's own
+  correction to the class's javadoc (a re-registered name moves to the tail).
+- **STATE-075 — PASS.** `state075_anAbsentJournalFileReplaysAsEmptyNotAsAnError`: an absent file, and
+  a file whose *parent* is also absent, both replay empty; `recover()` reports a complete, empty
+  recovery.
+- **STATE-076 — PASS.** `state076_replayDoesNotModifyTheJournalAndIsRepeatable`: file size and
+  SHA-256 hash unchanged across a `recover()` cycle and a second, independent one; two separate
+  `replay()` calls return equal lists.
+
+**Section tally: 12/12 executed, 12 PASS.**
+
+---
+
 ## Coverage so far
 
-STATE-001 … STATE-064 executed (64 of 110): 55 PASS, 7 FAIL-as-authored (STATE-030, 034, 050,
+STATE-001 … STATE-076 executed (76 of 110): 67 PASS, 7 FAIL-as-authored (STATE-030, 034, 050,
 052, 057, 059, 063 -- one genuine defect, `ST-1`; the rest drift, three of them one underlying
 finding, `ST-5`), 2 NOT RUN (STATE-045, STATE-048, both with concrete reasons).
-STATE-065 onward not reached this round -- see the final report for what remains and why.
+STATE-077 onward not reached this round -- see the final report for what remains and why.
