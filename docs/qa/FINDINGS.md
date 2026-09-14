@@ -2051,3 +2051,93 @@ SEC-028 ("no HTTP controller reads the principal or the policy") and SEC-062 (`P
 the engine), both reconfirmed live and shown here to have a materially worse blast radius than
 previously measured (arbitrary schema publication with zero policy check, not merely "the write is a
 no-op").
+
+## SX-4 (HIGH) — a revoked or expired credential's already-open subscription keeps delivering new data indefinitely
+
+`mayRead`/authentication is checked once, at `subscribe` time. Nothing on the delivery path
+re-checks it. Confirmed live, twice, with different triggers: (1) revoking `ann`'s token mid-stream —
+a row committed 10 seconds after revocation still arrived on her already-open subscription, while a
+*second* `subscribe` attempt was correctly refused (`PRV-7002`); (2) a 20-second token — a row that
+arrived 15 seconds *after* expiry still delivered on the open subscription, while any fresh call made
+after expiry was correctly refused (`PRV-7001`). There is no bound on this exposure window: an open
+subscription outlives the credential that authorized it for as long as the connection stays open.
+This directly violates owner constraint 2 (only authenticated users may reach data) — the caller is
+no longer authenticated, or never re-proves it, yet keeps receiving new rows.
+
+**Reproduction:** subscribe as a principal, revoke/expire their credential, append a new row to the
+source, observe it arrive on the still-open subscription stream.
+
+**Status: OPEN.** Not seed-proven (no production code modified, per this file's own rule — this is
+the mechanism SECX.md's own Group G cases were written to measure, not a surprise, but it is elevated
+to HIGH here per the round's standing owner-constraint override regardless of the case file's own
+framing). See docs/qa/logs/SECX.md (SECX-081, SECX-084).
+
+## SX-5 (HIGH) — the existence oracle: three independent, measurable channels distinguish "denied" from "doesn't exist"
+
+Confirms and quantifies SX-1's mechanism with three simultaneous, independent signals for the same
+underlying gap: a denied-but-existing view answers `PRV-7002`/gRPC `UNAUTHORIZED`/a message naming
+just that view; a non-existent name answers `PRV-2002`/gRPC `INVALID_ARGUMENT`/a message enumerating
+**every currently registered view or stream name** on the node; and the two paths measurably differ
+in latency (100 iterations: denied median 23.8ms/p99 77.4ms vs absent median 13.4ms/p99 49.1ms). A
+caller need not ever be authorized for anything to map a deployment's full catalogue of view and
+stream names, and to learn which ones exist versus which are merely typos. Directly contradicts
+`docs/SECURITY.md`'s "metadata is data" claim (already corrected — see SX-1 and the doc-rot update).
+
+**Status: OPEN.** Not seed-proven (no production code modified, per this file's own rule). See
+docs/qa/logs/SECX.md (SECX-091, SECX-093).
+
+## SX-6 — mayAdminister/ownership: further corroboration of SX-2, no new mechanism
+
+SECX-077 and SECX-078 independently reproduce the same root cause SX-2 already records
+(`mayAdminister` defaults to `mayRead`; ownership is journalled and never consulted by
+drop/pause/resume): `carol` dropped a view she didn't register, `bob` paused one he didn't register,
+both with no ownership check. One narrower, *safer* divergence worth noting: after revoking a
+principal from a *shared* computation (SECX-078), that principal's own attempt to drop the shared
+view under their own name is *also* refused, because `mayAdminister` still checks `mayRead`, which
+now denies them — so a revoked co-owner cannot destroy a computation an entitled co-owner still
+depends on, even though SX-2's general finding (an entitled-but-unrelated reader can) still holds.
+No new finding; folded into SX-2's evidence. See docs/qa/logs/SECX.md (SECX-077, SECX-078).
+
+## SX-7 — the audit log records ALLOW for a read that was in fact refused
+
+A read whose row filter cannot be enforced on the target view (`PRV-7003`, per the "row filter is
+sound iff the view carries every filtered column" rule) is preceded by **two ALLOW audit events**
+("allowed with a row filter") for the same call, before the refusal is thrown. An investigator
+reading the audit log alone would conclude the read succeeded; it did not. This is an audit-integrity
+gap, not a data-disclosure one (no rows were actually returned), so it is recorded at MEDIUM rather
+than under the HIGH owner-constraint override.
+
+**Status: OPEN.** Not seed-proven (no production code modified, per this file's own rule). See
+docs/qa/logs/SECX.md (SECX-089, row 4).
+
+## SX-8 — `LIST`'s per-view authorization filtering produces zero audit events
+
+`pravaha queries` (Flight `ListFlightsAction`/the CLI `queries` verb) decides, per view, whether the
+calling principal may see it — but records nothing. It is the only verb in the audit-completeness
+matrix whose disclosure decisions (potentially many silent denials in a single call, for a principal
+probing what exists) are invisible to the audit trail entirely.
+
+**Status: OPEN.** Not seed-proven (no production code modified, per this file's own rule). See
+docs/qa/logs/SECX.md (SECX-089 row 10, SECX-090).
+
+## SX-9 (LOW-MEDIUM) — `AuditSink.InMemory`'s overflow eviction measurably degrades under load
+
+Once the 10,000-event limit is reached, each further `record()` call triggers `events.remove(0)` on a
+`CopyOnWriteArrayList` — an O(n) copy-and-shift on every single append past the limit. Measured: the
+first 10,000 events took 144ms; the next 10,000 (all past the limit, each triggering an eviction)
+took 498ms — **3.5× slower for equal volume**. The audit path gets slower exactly when a node is
+under the load that generates the most events to audit.
+
+**Status: OPEN.** Not seed-proven (no production code modified, per this file's own rule). See
+docs/qa/logs/SECX.md (SECX-090).
+
+## SX-10 (LOW) — `acceptPutPreparedStatementQuery` (the `doPut` leg of a prepared statement) applies no policy check
+
+Confirmed live: a different principal's `doPut` against another principal's already-prepared
+statement handle succeeds with no authorization check at that leg. The follow-on
+`getFlightInfoPreparedStatement` call does re-authorize and refuses before any row is returned, so no
+data actually escapes through this specific path — this is the already-documented gap
+(SECX.md's own case text anticipates it), now confirmed live rather than assumed.
+
+**Status: OPEN, low priority** (confirmed-as-documented, no new exposure found). See
+docs/qa/logs/SECX.md (SECX-094).
