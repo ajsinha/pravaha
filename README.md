@@ -26,46 +26,49 @@
 
 ---
 
-> **Project status: Wave 7 of 10 — an engine with a client protocol, an operator console, and no clustering.**
+> **Project status: Wave 7 of 10 — an engine, a client protocol, an operator console. No clustering.**
 >
-> Waves 1–7 are merged to `main` (see [`docs/gates/wave-7`](docs/gates/wave-7/), which records why
-> that merge happened without a passing performance gate). **SQL runs end to end today**, now
-> across the lane runtime: Calcite parses and optimises, the plan becomes Pravaha's own operator
-> tree, and rows travel from a plugin reader through an ingest pump into a lane's off-heap inbox and
-> out to a sink. Try it in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
->
-> Wave 3 added whole-stage code generation — roughly **10× the interpreted path** — the lane model,
-> the hash exchange between lanes, backpressure that reaches the source plugin, and adaptive
-> batching. Wave 4 added **windowed `GROUP BY`** end to end, window slicing and
-> session windows. Watermark handling *and* generation are both built now: a registered query
-> derives its watermark from the event-time column its stream declares, and a partition that goes
-> quiet stops holding the rest of the query back. Late-data correction by retraction is built and
-> **declared per stream** — `allowedLateness` defaults to zero, because a window that revises is no
-> longer safe for an append-only sink and that has to be a choice rather than a default. The
-> dead-letter queue, the changelog negotiation and the L0 state map were built and are not wired
-> into any running path.
->
-> **Gates P2 and P3 are both blocked on the same thing, and it is not code.** The throughput and
-> scaling figures need 16 physical homogeneous cores; the development machine is a 12-core
-> heterogeneous laptop part. The evidence packs in [`docs/gates`](docs/gates/) say exactly what is
-> and is not measurable, and no number from this machine is quoted as if it were.
->
-> Checkpointing and joins (Wave 5), backfill and the serving layer (Wave 6), and the Flight SQL
-> gateway with both SDKs, authentication, authorization and prepared statements (Wave 7) have all
-> landed. The README's query runs verbatim against a real Aerospike, and there is a test that proves
-> it rather than a claim that asserts it.
->
-> A query can now be **registered** — given a name, a state and an end — and consumers can
-> **subscribe** to one and receive changes per commit, with weights, so a late-data correction
-> arrives as a retraction and an insert.
->
-> **What is not built, stated plainly:** no Spring Boot starter. **Multi-node execution is
-> deferred** (ADR-034) — the engine targets one node scaled to its cores, and the clustering
-> coordination code is carried unused. The console exists and is a *functional
-> admin* console on purpose — it manages queries, tails a view and renders the documentation; it is
-> not the design-system product surface §23.20 describes. That is roughly wave 7 of 10. The Aerospike edition question in
-> [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
-> is worth settling early.
+> Written as *what is true now* rather than as a history of waves. The wave-by-wave version of this
+> section said "no UI" nine lines above a paragraph describing the console, and listed watermark
+> generation as unbuilt a year after it was built. A changelog is a bad status report: every
+> sentence is true of the moment it was written and none of them expire.
+
+### What works, end to end
+
+| | |
+|---|---|
+| **SQL** | Calcite parses and optimises; the plan becomes Pravaha's own operator tree; rows travel from a plugin reader through an ingest pump into a lane's off-heap inbox and out to a sink. Whole-stage code generation runs roughly **10× the interpreted path**. |
+| **Continuous queries** | Registered with a name, a state and an end. Paused, resumed, dropped. Identical SQL shares one computation under many names, so ten desks asking the same question cost one read of the source. |
+| **Windows** | Tumbling, sliding and session, with slicing. A window publishes when time passes its end and not before. |
+| **Event time** | Watermarks are generated as well as handled: a query derives one from the event-time column its stream declares, and a partition that goes quiet stops holding the rest of the query back. |
+| **Corrections** | Late data reopens a closed window as a retraction of the published answer plus the corrected one — declared per stream with `allowedLateness`, defaulting to zero, because a revising query is no longer safe for an append-only sink and that must be a choice. |
+| **Z-set weights** | Every change carries `+1` or `−1`, through the engine, across the wire, and into both SDKs. |
+| **Sources** | Filesystem (bounded, or `tail -f` with `follow: true`), feedfile, JDBC, Delta and Aerospike. Filters are pushed into the store on every path a deployment uses. |
+| **Joins** | Stream-to-stream, and temporal lookup joins against a dimension table, reachable from a registered query. |
+| **Serving** | The maintained view is read back by key in microseconds, or subscribed to for changes per commit. |
+| **Recovery** | Checkpoints carry operator state, source offsets and the served view; a restart resumes rather than replaying or starting empty. |
+| **Clients** | Flight SQL, a Java SDK, a Python SDK, a CLI, and a console. Authentication, authorisation, row filters and prepared statements. |
+
+### What is not built, stated plainly
+
+- **Multi-node execution is deferred** (ADR-034). The engine targets one node scaled to its cores;
+  the clustering coordination code is carried unused.
+- **No Spring Boot starter** (ADR-020). The engine core contains no Spring and sits behind a plain
+  `PravahaEngine` seam, so embedding it never dictates your Spring version.
+- **The dead-letter queue, changelog negotiation and the L0 state map** are built and wired into no
+  running path.
+- **The console is a functional admin console on purpose** — it manages queries, tails a view and
+  renders the documentation. It is not the design-system product surface §23.20 describes.
+- **Projection and partial-aggregate pushdown**, and a Cassandra plugin, are designed and not built.
+
+### What cannot be measured here
+
+**Gates P2 and P3 are blocked on hardware, not code.** The throughput and scaling figures need 16
+physical homogeneous cores; the development machine is a 12-core heterogeneous laptop part. The
+evidence packs in [`docs/gates`](docs/gates/) say exactly what is and is not measurable, and no
+number from this machine is quoted as if it were. The Aerospike edition question in
+[Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
+is worth settling early.
 
 ---
 
