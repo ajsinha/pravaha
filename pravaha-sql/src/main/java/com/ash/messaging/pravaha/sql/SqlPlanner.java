@@ -146,6 +146,25 @@ public final class SqlPlanner {
             }
         } catch (PravahaException e) {
             throw e;
+        } catch (StackOverflowError e) {
+            // An Error, not an Exception, so `catch (Exception)` below never saw it -- and Calcite's
+            // validator walks a predicate by recursing on it. A long enough boolean chain therefore
+            // exhausted the stack and the raw StackOverflowError went straight to the console of
+            // whatever was running: `pravaha validate` printed a stack trace instead of a refusal.
+            // About a second, on an ordinary query a client library can generate by rewriting a wide
+            // IN list into ORs.
+            //
+            // Caught here because this is the request boundary: the stack has fully unwound by the
+            // time we arrive, and the alternative is a process that dies on a query it could simply
+            // have refused.
+            throw new PravahaException(
+                    SqlErrors.PLANNING_FAILED,
+                    "this query nests too deeply for the planner to walk without exhausting the stack. "
+                            + "It is almost always a long chain of AND or OR -- a client library rewriting a "
+                            + "wide IN list is the usual source. Write it as IN (...), or split it into "
+                            + "several queries. The limit is the JVM's stack rather than a number this engine "
+                            + "chose, so it moves with -Xss.",
+                    e);
         } catch (Exception e) {
             throw new PravahaException(SqlErrors.PLANNING_FAILED, rootMessage(e), e);
         }

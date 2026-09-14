@@ -309,8 +309,16 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
                 assertThatThrownBy(() -> registry.register(reserved, sql, List.of(0), DANA))
                         .as("reserved=" + reserved)
                         .isInstanceOf(PravahaException.class)
-                        .hasMessageContaining("is a reserved word in SQL");
+                        .hasMessageContaining("cannot appear in a FROM clause")
+                        .hasMessageContaining("reserved word in SQL");
             }
+            // A long name is refused too, and for its own reason. It used to be told it was a
+            // reserved word, which is false and sends whoever chose it looking for a list they will
+            // not find themselves on: the refusal now quotes what the parser actually said.
+            String tooLong = "a".repeat(500);
+            assertThatThrownBy(() -> registry.register(tooLong, sql, List.of(0), DANA))
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("cannot appear in a FROM clause");
             // As executed on current develop: requireName checks for null before requireSayableName
             // (QueryRegistry.java:843-849, and its own comment records the fix), so null now throws
             // the intended IllegalArgumentException rather than an NPE -- STATE.md's authored

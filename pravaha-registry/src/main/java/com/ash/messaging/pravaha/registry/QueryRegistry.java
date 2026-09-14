@@ -833,10 +833,17 @@ public final class QueryRegistry implements AutoCloseable {
             org.apache.calcite.sql.parser.SqlParser.create("SELECT 1 FROM " + name)
                     .parseQuery();
         } catch (org.apache.calcite.sql.parser.SqlParseException | RuntimeException e) {
+            // What the parser said, not a diagnosis of our own. This used to answer every parse
+            // failure with "is a reserved word in SQL", which is the common cause and not the only
+            // one: a 500-character name is refused by Calcite's lexer for its length and was told it
+            // was a keyword -- false, and it sends the person who chose it looking for a list they
+            // will not find themselves on.
+            String reason =
+                    e.getMessage() == null ? e.toString() : e.getMessage().split("\n")[0];
             throw new PravahaException(
                     RegistryErrors.NAME_UNUSABLE,
-                    "'" + name + "' is a reserved word in SQL, so no query could read the view. Choose a name "
-                            + "that can appear in a FROM clause unquoted.");
+                    "'" + name + "' cannot appear in a FROM clause, so no query could read the view: " + reason
+                            + ". The usual cause is that the name is a reserved word in SQL.");
         }
     }
 

@@ -1148,6 +1148,36 @@ class ExpressionMatrixTest {
                 .isNull();
     }
 
+    @Test
+    void aPredicateTooDeepToWalkIsRefusedRatherThanCrashingTheProcess() {
+        // SQLX-171. Calcite's validator recurses on a predicate, so a long enough boolean chain
+        // exhausts the stack. A StackOverflowError is an Error, not an Exception, so the planner's
+        // catch never saw it: `pravaha validate` printed a raw stack trace to the console and the
+        // process died, in about a second, on a query a client library generates by rewriting a
+        // wide IN list into ORs.
+        //
+        // Six thousand terms is the width the case asks for. The assertion is not that this
+        // particular number is refused -- the limit is the JVM's stack and moves with -Xss -- but
+        // that whatever happens is a coded refusal and not an Error escaping.
+        StringBuilder wide = new StringBuilder("SELECT txn_id FROM txn WHERE amount > 0");
+        for (int i = 1; i <= 6_000; i++) {
+            wide.append(" OR amount > ").append(i);
+        }
+
+        String message;
+        try {
+            message = messageOf(wide.toString());
+        } catch (Error escaped) {
+            throw new AssertionError(
+                    "an Error escaped the planner instead of being turned into a refusal: " + escaped, escaped);
+        }
+        if (message != null) {
+            assertThat(message)
+                    .as("if it is refused, the refusal carries a code and says what to do about it")
+                    .startsWith("PRV-");
+        }
+    }
+
     private static List<String> answerOf(String sql) {
         PhysicalOperator plan = new PhysicalPlanBuilder()
                 .build(SqlPlanner.withStreams(TXN, OTHER).plan(sql));

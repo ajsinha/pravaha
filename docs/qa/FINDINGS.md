@@ -1090,7 +1090,7 @@ correlated scalar subquery in the select list is refused by `ExpressionCompiler`
 `$SCALAR_QUERY` function — both earlier and more generic than the `Correlate` branch the good message
 lives on. (SQLX-144)
 
-## X-10 (HIGH) — a raw, uncaught `StackOverflowError` on `pravaha validate` for a large disjunction
+## X-10 (HIGH) — FIXED — a raw, uncaught `StackOverflowError` on `pravaha validate` for a large disjunction
 
 A 102 KB query (`WHERE amount > 0 OR amount > 1 OR ... OR amount > 6087`, the width SQLX-171 asks
 for) crashes `pravaha validate` with an uncaught `java.lang.StackOverflowError` from
@@ -1101,6 +1101,12 @@ process; it returns `PRV-2001  null` instead (the Q-14 defect family), meaning t
 lets it propagate raw. Both took about a second — not a timeout, a genuine crash under ordinary load
 a user could reach by writing a long, redundant filter (e.g. a generated `IN`-to-`OR` rewrite from a
 client library). (SQLX-171)
+
+**FIXED.** `SqlPlanner.plan` catches `StackOverflowError` — an `Error`, which `catch (Exception)`
+never saw — and turns it into a coded refusal naming the usual cause and the way out. Caught at the
+request boundary, where the stack has fully unwound; the alternative is a process that dies on a
+query it could have refused. Seed-proven by catching a different `Error` subclass, which fails the
+test with "an Error escaped the planner instead of being turned into a refusal".
 
 ## X-11 (HIGH) — three more limits with no documented shape: 64 output columns, and a third failure mode for many boolean terms
 
@@ -1141,6 +1147,11 @@ Registering a 500-character name made entirely of the letter `a` is refused as
 `requireSayableName`'s probe-parse approach (parse `SELECT 1 FROM <name>` and treat any failure as
 "reserved word") conflates every parse failure with that one diagnosis; the real cause here is more
 likely an identifier-length limit inside Calcite's own lexer. (SQLX-179)
+
+**Half FIXED.** The refusal now quotes what the parser actually said and offers "reserved word" as
+the usual cause rather than asserting it, so a long name is no longer told it is a keyword and sent
+looking for a list it will not find itself on. The second half of X-13 — a registration under
+fingerprint sharing echoing the pre-existing name back in its confirmation — is still **OPEN**.
 
 Separately: `pravaha register --name <new-name> --sql-file q.sql`, where the SQL is identical to an
 already-registered query (so ADR-025's fingerprint sharing applies), prints
