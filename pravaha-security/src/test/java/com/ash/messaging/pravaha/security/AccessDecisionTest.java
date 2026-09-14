@@ -79,4 +79,43 @@ class AccessDecisionTest {
 
         assertThat(event.toString()).doesNotContain("s3cret");
     }
+
+    @Test
+    void aFilteredReaderMayNotAdministerTheViewTheyAreFilteredOn() {
+        // SECX-2. mayAdminister deferred wholesale to mayRead, so a row filter became an
+        // administrative right: a principal shown one row of a view could drop, pause or resume it
+        // for every other reader, including those entitled to all of it. Being shown a slice of
+        // something is the weakest claim on it there is.
+        SecurityPolicy filtered = (principal, view) -> AccessDecision.allowWithRowFilter("region = 'EU'");
+        Principal bob = new Principal("bob", "acme", java.util.Set.of("reader"), java.util.Map.of());
+
+        assertThat(filtered.mayRead(bob, "sales").allowed()).isTrue();
+        assertThat(filtered.mayAdminister(bob, "sales").allowed())
+                .as("a filtered read is not a claim on the whole view")
+                .isFalse();
+        assertThat(filtered.mayAdminister(bob, "sales").reason()).contains("row filter");
+    }
+
+    @Test
+    void anUnrestrictedReaderStillAdministers() {
+        // The default has to stay usable: it exists because the Flight control verbs authorized
+        // nothing at all, and a default that refused everybody would simply be turned off.
+        SecurityPolicy open = (principal, view) -> AccessDecision.allow();
+        Principal ann = new Principal("ann", "acme", java.util.Set.of("analyst"), java.util.Map.of());
+
+        assertThat(open.mayAdminister(ann, "sales").allowed()).isTrue();
+        // Anonymous too, under a permissive policy. A single-tenant development node has no
+        // credentials and pausing a query on it is an ordinary thing to do; a node that requires
+        // them refuses the anonymous *read* this defers to, which is where that belongs. Denying
+        // anonymous here as well broke exactly that case, in FlightRegistryTest, within a minute.
+        assertThat(open.mayAdminister(Principal.ANONYMOUS, "sales").allowed()).isTrue();
+    }
+
+    @Test
+    void aReaderWhoIsDeniedIsStillDeniedWithTheOriginalReason() {
+        SecurityPolicy closed = (principal, view) -> AccessDecision.deny("not an analyst");
+        Principal carol = new Principal("carol", "acme", java.util.Set.of("intern"), java.util.Map.of());
+
+        assertThat(closed.mayAdminister(carol, "sales").reason()).isEqualTo("not an analyst");
+    }
 }

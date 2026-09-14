@@ -76,9 +76,32 @@ public interface SecurityPolicy {
      * <p>It exists because the Flight control verbs authorized nothing at all: an unauthenticated
      * caller could drop every query on a node configured to serve only verified callers. The default
      * closes that without inventing a permission model nobody asked for.
+     *
+     * <p>Unrestricted reading, not merely reading. Deferring wholesale to {@link #mayRead} made a
+     * row filter into an administrative right: a principal shown one row of a view could drop it
+     * for every other reader, including those entitled to all of it. A restricted read is the
+     * weakest claim on a thing there is, and it does not carry the right to destroy it.
      */
     default AccessDecision mayAdminister(Principal principal, String view) {
-        return mayRead(principal, view);
+        AccessDecision read = mayRead(principal, view);
+        if (!read.allowed()) {
+            return read;
+        }
+        // Reading is not the same right as destroying, and this used to treat them as one. A
+        // principal entitled to a single row of a view could drop, pause or resume it -- for every
+        // other reader of it, including the ones who could see all of it. Being shown a slice of
+        // something is the weakest claim on it there is.
+        if (read.rowFilter().isPresent()) {
+            return AccessDecision.deny(principal.id() + " may read '" + view + "' only through a row filter ("
+                    + read.rowFilter().get() + "), which is not a claim on the whole view. Administering it "
+                    + "affects every reader, so it needs a policy that says so rather than inheriting a "
+                    + "restricted read.");
+        }
+        // No anonymous clause here, and that is deliberate. Adding one broke a permissive
+        // single-tenant node, where every caller is anonymous and pausing a query is an ordinary
+        // thing to do -- and it was redundant besides: a node that requires credentials refuses an
+        // anonymous *read* already, which this has just deferred to.
+        return read;
     }
 
     /**
