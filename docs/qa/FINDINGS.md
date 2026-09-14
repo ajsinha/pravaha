@@ -1201,7 +1201,8 @@ uniform rule. (SQLX-160, SQLX-161)
 
 Cases run as real JUnit tests under `pravaha-it`'s new `qa.errc` package. Verdicts and evidence for
 every ERRC-nnn case are in `docs/qa/logs/ERRC.md`; this section is the defects only, added to as the
-round progresses (currently covers ERRC-001 … ERRC-029; more to follow in the same section).
+round progresses (currently covers ERRC-001 … ERRC-029 and ERRC-089 … ERRC-103; more to follow in the
+same section).
 
 ### E-7 (HIGH) — `PRV-1040 CLIENT_CONNECT_FAILED` is unreachable through the scenario every new user hits
 
@@ -1276,6 +1277,56 @@ frequently hit refusal in the product (`ORDER BY`, `LIMIT`, `UNION`, outer joins
 run), and every one of its messages sends the reader only as far as an inline list of what the engine
 *does* support, never to the fuller document that explains alternatives.
 
+### E-12 (HIGH) — `PRV-6100` (DECIMAL on the wire) is thrown uncaught and never reaches the client
+
+`PravahaFlightSqlProducer.getFlightInfoStatement` is `Schema schema =
+ArrowSchemas.toArrow(plan(sql, context));`. `plan(...)` has its own try/catch and correctly turns a
+`PravahaException` into a `FlightRuntimeException` carrying the right `PRV-` code (confirmed elsewhere:
+`PRV-4023` reaches a client cleanly for an unknown view) — but `ArrowSchemas.toArrow(...)`, immediately
+after it and outside any try/catch, does not. A `PRV-6100` thrown from it (which only happens once
+planning has already *succeeded* — valid SQL, an unmappable wire type) escapes the gRPC service method
+uncaught, and the client receives Arrow's own generic internal-error text, **"There was an error
+servicing your request"** — no code, no column name, nothing actionable. Confirmed with a `DECIMAL`
+column (`ErrcFlightTest`, ERRC-089): `pravaha query` on it fails with `PRV-1041  There was an error
+servicing your request`, no `PRV-6100` anywhere. Not fixed here (a one-line try/catch addition is
+plausible but touches a shared, non-ERRC-owned file in a module other agents may also be touching).
+
+### E-13 (HIGH) — `PRV-8004`'s real throw sites do not match the scenario the case describes
+
+The case's Setup for `PRV-8004` is "a query that fails at runtime; then read it, and subscribe to it,"
+naming `Subscription.java:103,134` and `RegisteredQuery.java:191`. Traced all four of `QUERY_FAILED`'s
+throw sites (grep, exhaustive): `Subscription.java:103,134` are **subscriber-side** failures (the
+consumer callback itself throwing, or a subscriber falling behind under the `FAIL` overflow policy),
+unrelated to whether the underlying query's own lane died. `RegisteredQuery.java:189` is inside
+`RegisteredQuery.failure()`'s own body, and that getter has **zero callers anywhere in main sources** —
+dead code. `RegisteredQuery.java:238` fires synchronously to whoever calls `accept()`, and only for an
+unexpected *non*-`PravahaException` during row processing — not to a later reader. Subscribing to an
+**already**-failed query — the case's exact scenario — does not reach `PRV-8004` at all: it is refused
+earlier, by `RegisteredQuery`'s own state guard, as `PRV-8003` (`"cannot subscribe to 'v1': it is
+FAILED"`). A plain `SELECT` of the same failed query's view is not refused at all (confirms LIFE's "a
+failed query keeps answering" — `ViewQuery` has no reference to `QUERY_FAILED` anywhere).
+
+### E-14 (MEDIUM) — `resume()`/`pause()` accept same-state re-requests silently instead of refusing them
+
+`RegisteredQuery.resume()`'s only guard is `state().isTerminal()` (`FAILED` or `DROPPED`); `pause()`'s
+`requireLive` is the identical guard. Neither checks "already in the state being requested." The case's
+own ERRC-099 names exactly two "illegal transitions" — resume a RUNNING query, pause a PAUSED one — and
+neither is refused: both are silent no-ops. A query genuinely in a terminal state (`FAILED`) *is*
+correctly refused with `PRV-8003`. Not fixed here — whether same-state idempotence is desired behaviour
+or a gap is a product decision, not an obviously-safe one-liner.
+
+### E-15 (MEDIUM) — `PRV-6101`'s case citation names the wrong throw sites
+
+`PravahaFlightSqlProducer.java:423,618` are not Flight SQL metadata calls (`getSqlInfo`,
+`getCrossReference`, `getPrimaryKeys`, `beginTransaction`, as the case lists) — they are an
+unrecognised *custom Pravaha* action and a registry action against a server with none hosted. The
+class does not override any Flight SQL metadata method at all; confirmed directly that
+`getPrimaryKeys(...)`, fetched to completion, returns Arrow's own `UNIMPLEMENTED` status
+(`"Not implemented."`) from the framework's base class default — no `PRV-` code, and not the "empty
+result" the case's own falsifier names as the risk. A LOW-severity variant of the same class of finding
+as E-9/E-11: a metadata call the server does not implement is silently unattributable to Pravaha at
+all, in either direction (no code, no pointer to what *is* supported).
+
 ### Corrections to the case file found this round
 
 - **ERRC-012's own "one-line reach" example does not reach `PRV-1030`.** `--url nonsense` parses
@@ -1306,6 +1357,17 @@ run), and every one of its messages sends the reader only as far as an inline li
 - **ERRC-018's "E3 must carry the position" does not hold for one of its five sites** (a misspelled
   keyword parses as an identifier and fails validation-shaped, with no line/column) — the same shape as
   ERRC-002's gap above, LOW severity, not re-stated as its own entry.
+- **ERRC-099's two named "illegal transitions" are not illegal** (resume on RUNNING, pause on PAUSED —
+  see E-14); the transitions that genuinely are refused are on a terminal state (`FAILED`/`DROPPED`),
+  and "anything on a dropped one" is `PRV-8002`, not `PRV-8003` (dropping removes the name entirely).
+- **ERRC-100's Setup does not reach `PRV-8004`** (see E-13) — it reaches `PRV-8003` instead, by a
+  different throw site than either code's cited line numbers.
+- **ERRC-090's cited throw sites are not Flight SQL metadata calls** (see E-15); the case's own
+  falsifier ("returns an empty result") also does not hold — the real behaviour is Arrow's own
+  `UNIMPLEMENTED` status, which is a refusal, just one with no Pravaha code attached.
+- **ERRC-094's "all four refusals carry the same message" does not hold literally** between
+  no-credential and wrong-credential (two different messages) — but the security-relevant half of that
+  claim (two *different* wrong credentials must be indistinguishable) is confirmed true.
 
 ## JOIN — found executing `docs/qa/cases/JOIN.md`
 

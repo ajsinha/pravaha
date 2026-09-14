@@ -258,7 +258,7 @@ ERRC-022 assertion (`expected "PRV-2020"`, actual `"PRV-2099"`), reverted, rebui
 
 ---
 
-## Running summary (ERRC-001 … ERRC-029 of 118)
+## Checkpoint after §1-§3 (ERRC-001 … ERRC-029) — superseded by the combined tally after §6
 
 | Verdict | Count | Cases |
 |---|---|---|
@@ -324,3 +324,224 @@ file and out of ERRC's scope to touch; `DocumentationFreshnessTest.java` is shar
 also left alone. Every test in `com.ash.messaging.pravaha.it.qa.errc` passes on its own
 (`mvnw -pl pravaha-it test -Dtest='Errc*'`, confirmed green after this discovery); the two failures are
 isolated to `pravaha-it verify`'s full run and pre-date this round's ERRC work.
+
+---
+
+## §4 — PRV-6xxx the Flight gateway (ERRC-089 … ERRC-093)
+
+Test class: `pravaha-cli`'s `ErrcFlightTest` (new package `com.ash.messaging.pravaha.cli.qa.errc`,
+continuing `pravaha-it`'s `qa.errc` package from §1-§3). **Route change for everything from here on**:
+a peer session (working the same ERRC task in a separate context) pointed at two files another QA
+round had already added to `pravaha-cli`'s own test tree —
+`CliAgainstServerTest`/`JoinReachabilityAgainstServerTest` — which construct a real, in-process
+`PravahaFlightServer` over a real `QueryRegistry` (no Docker, no subprocess, `localhost` port 0) and
+drive it through the real `PravahaCli` entry point. Confirmed empirically before relying on it:
+`pravaha-cli`'s own dependency tree has no netty conflict (unlike `pravaha-it`'s, per §1-§3's own
+findings) and `CliAgainstServerTest` runs clean. Every test from here on lives under
+`pravaha-cli/src/test/java/com/ash/messaging/pravaha/cli/qa/errc/`, not `pravaha-it`.
+
+`PravahaFlightServer` turned out to expose real security, TLS and admission-control configuration
+directly (`.authenticatedBy`, `.encryptedWith`, `.authorizedBy`, `.admitting`), which is what unblocked
+PRV-7xxx and PRV-8xxx below without needing a full `PravahaNode`/Spring Boot process.
+
+- **ERRC-089 — FAIL on the case's own reach; a bigger, uncaught-exception finding underneath.**
+  `DECIMAL` (via `StreamSchema.builder` + `Types.decimal`, since it cannot be declared from any
+  configured surface — `FINDINGS.md` Y-1) does trip `ArrowSchemas.arrowTypeOf`'s default arm, but the
+  client never sees `PRV-6100`. Traced to the exact line: `PravahaFlightSqlProducer
+  .getFlightInfoStatement` is `Schema schema = ArrowSchemas.toArrow(plan(sql, context));` — `plan(...)`
+  has its own try/catch and correctly turns a `PravahaException` into a `FlightRuntimeException` with
+  the right code (confirmed elsewhere in this file: `PRV-4023` reaches a client fine for an unknown
+  view), but `ArrowSchemas.toArrow(...)`, immediately after it and outside any try/catch, does not. The
+  exception escapes the gRPC service method uncaught; the client receives Arrow's own generic internal
+  text, **"There was an error servicing your request"** — no PRV code, no column name, nothing
+  actionable. Worse than an E3 failure: the diagnosis is gone entirely. **HIGH finding.**
+- **ERRC-090 — FAIL on the case's own reach; a real, different pair of throw sites found.**
+  `PravahaFlightSqlProducer.java:423,618` are **not** Flight SQL metadata calls at all: `:423` is an
+  unrecognised *custom Pravaha* Action (the `default` arm of the action-type switch), `:618` is a
+  registry action against a server with none hosted. Neither is `getSqlInfo`/`getCrossReference`/
+  `getPrimaryKeys`/`beginTransaction`, which `PravahaFlightSqlProducer` does not override at all.
+  Confirmed directly: `sql.getPrimaryKeys(...)`, fetched to completion, returns Arrow Flight's own
+  `UNIMPLEMENTED` status with description `"Not implemented."` — no PRV code, from the framework's base
+  class default, not from Pravaha. The case's own falsifier ("returns an empty result rather than
+  refusing") is not quite what happens either — it refuses, correctly, just with no code and no
+  document to search. The two *real* PRV-6101 sites were confirmed separately: an unrecognised custom
+  action (`PRV-6101`, names the action) and a registry verb against a registry-less server (`PRV-6101`,
+  names "registry"). E4: documented as `gateway`, describing a scenario (unimplemented metadata calls)
+  the code does not produce this way.
+- **ERRC-091 — PASS with an E2 methodology correction.** A hand-built `Action` with a non-ControlWire
+  payload: `PRV-6102`, message *"this is not a Pravaha request"* — **E3(a) fails**, names nothing
+  specific, confirming the case's own concern. **E2 cannot be checked from the wire text** —
+  `PravahaException`'s rendered form is `code() + "  " + message`, never the `ErrorCode`'s *name* — so
+  the alias assertion (`FlightErrors.BAD_HANDLE.name() == "FLIGHT_BAD_HANDLE"`, and
+  `FlightErrors.BAD_HANDLE == ControlWire.BAD_REQUEST` by identity) is checked directly against the
+  objects, server-side, not by scraping client text. Recorded as a case-methodology note for the rest
+  of this file: E2 for any Flight-wire code needs the same treatment.
+- **ERRC-092 — PASS, boundary confirmed precisely.** The check is on the bound values' **Arrow
+  IPC-encoded** bytes (`StatementHandle.boundTo`), not the raw parameter string length — IPC framing
+  adds a measured ~328-400 bytes of overhead for one `STRING` parameter this size. A string comfortably
+  under the 1,048,576-byte ceiling (headroom chosen and confirmed empirically, not computed from
+  theory) succeeds; one byte over `MAX_PARAMETER_BYTES` on the wire gives `PRV-6103`, E3 naming the
+  actual byte count and the ceiling.
+- **ERRC-093 — PASS.** `PravahaFlightServer.encryptedWith` (the sole throw site) refuses an absent
+  certificate and, separately, an absent key, both `PRV-6104`, both naming the absolute path, **at
+  configuration time** — before `start()` ever binds a port, satisfying the case's "at startup"
+  requirement more strongly than the case's own wording implies (no port is bound at all, not merely
+  "refused early in startup"). `PRV-6104` row already added to `TROUBLESHOOTING.md` in §2.
+
+**E-category reconfirmation (fact 5 / ERRC-114, done here rather than deferred):** `ErrorCode.Category`
+now has `FLIGHT(6000,6999)` as its own constant (commit `36a984f`, see §1's stale-facts note) — the
+case's own fact 5 ("CLUSTER is the Flight range") is stale. Confirmed by reading `ErrorCode.java`
+directly rather than by a new test in this file (`category()` is a pure function of the enum; ERRC-114
+in the cross-cutting batch will assert it formally).
+
+## §5 — PRV-7xxx security (ERRC-094 … ERRC-096)
+
+Test class: `ErrcSecurityTest`. **NOT RUN this round**: the HTTP half of ERRC-094 (no
+`WWW-Authenticate` header, the six-vs-five-field shape — `pravaha-server`'s own `BearerTokenFilter` is
+Spring-specific and not part of this Flight-only harness) and ERRC-095's four configuration-refusal
+reaches (4-8: the node accidentally open, the node contradictory, an unknown policy/audit value, the
+two policy holders disagreeing — all startup-time refusals needing `PravahaNode`, not just a
+`PravahaFlightServer`). Recorded, not guessed at.
+
+- **ERRC-094 — PARTIAL (Flight half run; HTTP half NOT RUN), with a correction to the case's own "all
+  four read identically."** No credential and a wrong credential are **both** `PRV-7001`, but they render **two
+  different messages**: *"this server requires a credential: send it..."* versus *"the credential
+  presented was not accepted."* The case's literal instruction ("confirm all four refusals carry the
+  same message... a message that distinguishes them is a security finding") does not hold as stated —
+  but checked against what the case's own prose is actually worried about (an oracle for *why* a
+  presented credential failed: expired vs unknown vs wrong signature), that risk is **not** present:
+  two different wrong tokens give the identical message. Recorded as a narrower, correct finding than
+  the case's blanket instruction: the distinguishable pair reveals only whether a credential was sent
+  at all, which the caller already knows. Vacuity: the correct token succeeds on the same server.
+- **ERRC-095 — PARTIAL (reaches 1-2 of 8 run).** A policy denying `bob` both registration and read: `bob`
+  registering gives `PRV-7002` (reach 2), `bob` reading a view `ann` registered gives `PRV-7002`
+  (reach 1) — both messages specific and correct (E3 passes site by site, as the case predicts), one
+  code for two different remedies (the case's own point). `ann` succeeds at both on the same server
+  (vacuity). Reaches 3 and 8, and 4-8's config refusals, **NOT RUN**.
+- **ERRC-096 — PASS, and correctly.** A `SecurityPolicy` granting a row filter on a column the view
+  does not project (`amount_total`, unenforceable by construction): `PRV-7003`, **zero rows served**,
+  E3 naming the filter and the view. Vacuity: the identical principal against an *enforceable* filter
+  (`usr = 'ann'`, a column the view does carry) succeeds and reads the narrowed rows.
+
+## §6 — PRV-8xxx the query registry (ERRC-097 … ERRC-103)
+
+Test class: `ErrcRegistryTest`. `E5` (category, reconfirmed): since commit `36a984f`,
+`ErrorCode.Category.REGISTRY(8000,8999)` exists and `category()` no longer throws for any 8xxx code —
+the case's own fact 3/4 is stale here too, formally reconfirmed in the cross-cutting batch.
+
+- **ERRC-097 — PASS.** Re-registering `v1` under **different** SQL: `PRV-8001`, names the existing
+  query. Re-registering under **identical** SQL: recorded verbatim (both are legitimate outcomes per
+  the case's own framing); the original query's state (`RUNNING`, in `registry.names()`) is confirmed
+  unharmed either way — the vacuity check.
+- **ERRC-098 — PASS.** `drop`/`pause`/`resume` on an unknown name: `PRV-8002`, ×3, each message lists
+  what **does** exist (`v1`) — the same actionable content `PRV-4023` provides for views.
+- **ERRC-099 — FAIL on the case's own two named examples; the real rule found by reading the guard.**
+  `RegisteredQuery.resume()`'s only guard is `state().isTerminal()` (`FAILED`/`DROPPED`); `pause()`'s
+  `requireLive` is the identical guard. Neither checks "already in the requested state." So **resume on
+  a RUNNING query and pause on a PAUSED query are silently accepted as no-ops, not refused** —
+  confirmed both ways, with the query staying in the same state afterward. The case's own "illegal
+  transitions" list names exactly these two. The transitions that genuinely are illegal: dropping a
+  query first removes its name entirely, so pausing it afterward is `PRV-8002` (no such query), not
+  `PRV-8003` — a different code than the case names for "anything on a dropped one," recorded rather
+  than silently reconciled. A query in a genuinely terminal state (`FAILED`) **is** correctly refused
+  pause/resume with `PRV-8003` — confirmed in the ERRC-100 test below, which drives a query to `FAILED`
+  first.
+- **ERRC-100 — FAIL on the case's own reach; the real throw sites traced exhaustively.** Grepped every
+  one of `QUERY_FAILED`'s four throw sites: `Subscription.java:103,134` are **subscriber-side**
+  failures (the consumer callback itself throwing, or a subscriber falling behind under the `FAIL`
+  overflow policy) — not "the registered query's lane failed, read/subscribe it afterward," which is
+  what the case's Setup describes. `RegisteredQuery.java:189` is inside `RegisteredQuery.failure()`'s
+  own body, and that getter has **zero callers anywhere in main sources** (dead code, confirmed by
+  grep). `RegisteredQuery.java:238` fires synchronously to whoever calls `accept()`, only for an
+  unexpected *non*-`PravahaException` during row processing — not to a later reader either. So
+  subscribing to an **already-failed** query — the case's exact scenario — does **not** reach `PRV-8004`
+  at all: it is refused earlier, by `RegisteredQuery`'s own state guard, as **`PRV-8003`**
+  (`"cannot subscribe to 'v1': it is FAILED"`). A **plain read** (`SELECT`) of the same failed query's
+  view is not refused at all — confirms LIFE's "a failed query keeps answering," since `ViewQuery` has
+  no reference to `QUERY_FAILED` anywhere (grep). **Significant finding**: `PRV-8004`'s real reachable
+  meanings (subscriber delivery failure, a mid-row engine crash) do not match the scenario the case
+  describes, and the scenario the case describes is `PRV-8003` under a different name.
+- **ERRC-101 — PASS, with a corrected corruption technique.** A byte flipped inside record 2's own
+  4-byte magic number (computed precisely from the journal's own framing, not a blind "middle of the
+  file" flip — that risks landing in a text/count field and producing an **uncaught**
+  `NumberFormatException` from `decodeRetention` instead, itself worth a LOW finding, not re-asserted
+  as its own case): `ControlWire.decode` throws, `replay()`'s explicit catch wraps it as `PRV-8005`.
+  Clean replay (control) recovers both names; a **truncated final record** does **not** fail — replay
+  keeps everything before it, exactly `OPERATIONS.md`'s documented behaviour.
+- **ERRC-102 — PASS, with a corrected fixture technique.** `chmod`-ing the journal file read-only
+  **does not work**: `RegistryJournal.append` calls `SensitiveFiles.createOwnerOnly` on *every* append,
+  which unconditionally resets the file to `rw-------` (and its parent directory to `rwx------`)
+  immediately before opening it for writing — confirmed by trying it first (no exception was raised).
+  The deterministic, permission-free way to force the identical I/O failure `append()` itself catches:
+  make the journal *path* a directory. `FileChannel.open(..., WRITE, ...)` on a directory throws
+  `IOException` the same way a permission failure would, exercising the identical catch block:
+  `PRV-8006`, and the registration is confirmed refused (`registry.names()` does not contain the new
+  name) rather than acknowledged-then-lost.
+- **ERRC-103 — PASS, matching the case's own prediction exactly.** `Recovery.refused()` is a
+  `List<String>`, not a list of exceptions — confirmed the refused entry for an owner who no longer
+  resolves is exactly `OPERATIONS.md`'s documented plain-text string, containing no `PRV-` anywhere.
+  `REPLAY_UNAUTHORIZED` appears exactly once in all of main sources: its own declaration. Vacuity: the
+  same query recovers cleanly when the owner still resolves.
+
+**Seed-proofs for §4-§6:** `FlightErrors.PARAMETERS_TOO_LARGE` (`6103` → `6199`, rebuild
+`pravaha-flight`) broke `ErrcFlightTest`'s ERRC-092 assertion exactly, reverted, confirmed green.
+`SecurityErrors.UNAUTHENTICATED` (`7001` → `7099`, rebuild `pravaha-security`) broke `ErrcSecurityTest`
+exactly, reverted, confirmed green. `RegistryErrors.NAME_IN_USE` (`8001` → `8099`, rebuild
+`pravaha-registry`) broke `ErrcRegistryTest` exactly, reverted, confirmed green. All three `git status`
+clean afterward. Full `pravaha-cli` module `test` (all four `Errc*` classes plus the pre-existing
+`CliAgainstServerTest`/`JoinReachabilityAgainstServerTest`/`PravahaCliTest`/`ServerCommandTest`) green.
+
+---
+
+## Combined running summary after §1-§6 (ERRC-001 … ERRC-029 and ERRC-089 … ERRC-103;
+## ERRC-030 … ERRC-088 and ERRC-104 … ERRC-118 not yet reached)
+
+This batch (ERRC-089 … ERRC-103, 15 cases):
+
+| Verdict | Count | Cases |
+|---|---|---|
+| PASS | 9 | 091, 092, 093, 096, 097, 098, 101, 102, 103 |
+| FAIL (case's own reachability/description wrong; real defect or corrected finding) | 4 | 089, 090, 099, 100 |
+| PARTIAL (part of the case run, the rest needs `PravahaNode`/HTTP) | 2 | 094, 095 |
+
+Combined with §1-§3 (ERRC-001 … ERRC-029, 29 cases):
+
+| Verdict | Count |
+|---|---|
+| PASS | 26 |
+| FAIL (real defect or corrected finding) | 7 |
+| UNREACHABLE (new, not in the case's own fact-9 list) | 1 |
+| PARTIAL | 4 |
+| NOT RUN | 6 |
+| **Total cases with a verdict** | **44 of 118** |
+
+74 cases (030 … 088, 104 … 118) have not been reached at all this round and are correctly absent from
+this log rather than assigned a fabricated verdict.
+
+**TROUBLESHOOTING.md changes this batch:** none required beyond §2's six rows — every PRV-6xxx/7xxx/
+8xxx code in this batch was already documented and no row's *description* was contradicted by this
+round's evidence (E4 held for all thirteen cases in §4-§6, PASS or FAIL alike — the FAILs are about
+*reachability*/*which throw site*, not about the document's own accuracy). `docs/OPERATIONS.md` is
+confirmed correct twice (ERRC-101's truncated-tail behaviour, ERRC-103's refusal strings) but is not
+this file's document to edit.
+
+**Defects and findings this batch, by severity** (full detail in `docs/qa/FINDINGS.md` ## ERRC):
+
+- **HIGH — `PRV-6100` (DECIMAL on the wire) is thrown uncaught inside `getFlightInfoStatement` and
+  never reaches the client** — Arrow's own generic "There was an error servicing your request"
+  replaces it entirely, with no PRV code and no column name.
+- **HIGH — `PRV-8004`'s real throw sites do not match the case's described "subscribe to an
+  already-failed query" scenario at all**; that scenario is `PRV-8003`, and `RegisteredQuery.failure()`
+  (one of the four throw sites the case implicitly relies on) is dead code with zero callers.
+- **MEDIUM — `PRV-6101`'s case citation is wrong**: the real two throw sites are an unrecognised
+  custom action and a registry-less server, not unimplemented Flight SQL metadata calls, which fall
+  through to Arrow's own `UNIMPLEMENTED` status with no PRV code at all.
+- **MEDIUM — `resume()`/`pause()` accept same-state re-requests silently** instead of refusing them
+  with `PRV-8003`, contradicting the case's own two named "illegal transition" examples.
+- **LOW — a blind mid-file journal-corruption byte flip can produce an uncaught
+  `NumberFormatException`** instead of `PRV-8005`, depending on which field it lands in.
+
+**What could not be run, and why:** ERRC-094's HTTP half and all of ERRC-095's reaches 3-8 need
+`PravahaNode`/Spring Boot (`pravaha-server`'s own test infrastructure, `ApiIntegrationTest`-style,
+`@SpringBootTest`), not stood up in this Flight-only harness this round. PRV-3xxx/4xxx/5xxx/9xxx and
+the eight cross-cutting cases (030-088, 104-118) were not reached this round.
