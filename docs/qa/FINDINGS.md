@@ -4071,3 +4071,468 @@ one of their names, in the view, in every subscription, and in every SDK.
 
 The comment now records what the two digests do and do not buy. Carrying the key bytes rather than a
 hash remains the honest fix, which is what `L0StateMap` is for and what [ADR-035](../adr/035-wave-8-is-survival-not-distribution.md) puts in Wave 8.
+---
+
+## Streaming results — the subscription path (STRM), 18 findings
+
+Round STRM, 2026-09-14, `docs/qa/logs/STRM.md`. 116 of 120 cases executed. Eight of the case file's
+eighteen stated facts turned out false against this build, including the one the whole area was
+built around: the weight **does** reach a Flight subscriber. Three cases the case file wrote as
+expected failures passed for that reason (STRM-017, 027, 096/097) and are recorded there, not here.
+
+### STRM-1 (LOW) — a change with weight 0 is delivered as a positive change and applies nothing, where the Z-set model says the row is not there
+
+> **Status:** OPEN — reproduced in `SectionA.s007`: `feedW("u1", 300, 0, 1)` then `commit()` delivers `[+0[u1, 300]]` with `isRetraction() == false`, and `ServedView.get("u1")` still returns `[u1, 300]`.
+
+`docs/CONCEPTS.md` §4 and the authoring brief both say a net weight of zero means the row is not
+there. Two separate pieces of code disagree, in different ways.
+
+`ViewChange.isRetraction()` is `weight < 0`, so a zero-weight change reports itself as an addition.
+And `ServedView.applyWeighted` returns immediately on `weight == 0` without applying anything, so the
+view keeps whatever it held before — not the zero-weight row's values and not nothing:
+
+```
+FACT ZERO-WEIGHT :: a weight-0 change over an existing key leaves [k, 1]
+                    (the change carried [k, 9])
+```
+
+A consumer replaying the stream and a reader of the view therefore agree by accident here — both
+keep the old row — but a consumer that treats `isRetraction()` as the whole truth about a change is
+being told a zero-weight change is an insertion. Note that the case file's own description of this
+code is also wrong: it says `weight == 0` "takes the upsert arm", and it takes no arm at all.
+
+### STRM-2 (HIGH) — one subscriber's `FAIL` overflow policy terminates the computation every other subscriber is reading
+
+> **Status:** OPEN — reproduced in `SectionD.s057` against `RegisteredQuery.advanceWatermark`, both attach orders, with subscribers A (`SubscriptionOptions.of(1, FAIL)`), B and C (`DEFAULT`).
+
+`Subscription.admit`'s `FAIL` arm calls `close()` and then **throws**, from inside `onCommit` and
+outside the `try` that guards `consumer.accept` (`Subscription.java:132`–`:140`). The throw escapes
+`ViewSink.commit`'s listener loop mid-iteration (`ViewSink.java:92`–`:94`), reaches
+`RegisteredQuery.advanceWatermark`'s `catch (PravahaException e) { fail(e); throw e; }`
+(`RegisteredQuery.java:274`–`:276`), and the whole query goes `FAILED`.
+
+```
+FAIL-subscriber attached FIRST: A.closed=true B.received=0 C.received=0
+    advanceWatermark threw=PRV-8004  subscriber on 'q' fell more than 1 changes behind …
+    queryState=FAILED
+FAIL-subscriber attached LAST:  A.closed=true B.received=2 C.received=2
+    advanceWatermark threw=PRV-8004 … queryState=FAILED
+```
+
+`SubscriptionOptions.Overflow.FAIL`'s own javadoc frames it as failing *the subscription*: "Right
+when missing a change is not acceptable — a ledger, an audit feed. The subscriber finds out
+immediately and can reconnect and re-read the view". Nothing suggests it ends the computation. That
+the outcome for B and C depends on the order the three subscribers happened to attach in is the
+second half of the defect: the same inputs give two different answers.
+
+`FAIL` is currently unreachable from a remote client (STRM-16), which bounds the exposure to
+embedded and in-process consumers — and is not a fix, because the same escape would arrive with the
+first client that can select it.
+
+### STRM-3 (MEDIUM) — the CLI renders a retraction and an insertion as byte-identical lines, although the weight is on the wire and the SDK exposes it
+
+> **Status:** OPEN — reproduced in `SrvB.s019`, driving `ServerCommand.subscribe` in-process against the node on 19800 with `--view q19 --limit 2`.
+
+```
+CLI rendered data lines = [a19	300	SWAP, a19	300	SWAP]
+commit markers = 2
+the retraction and the insertion render differently: false
+```
+
+The two commit markers prove the subscription really delivered two separate commits, so this is
+information lost at the renderer, not at the carrier. `Row.weight()` and `Row.isRetraction()` both
+exist (`Row.java:146`, `:154`) and `ServerCommand.render(row)` uses neither. An operator watching
+`pravaha subscribe` cannot see a withdrawal, and neither the `--help` text nor the `subscribed to …`
+banner says so.
+
+### STRM-4 (MEDIUM) — subscription encoding is per subscriber, ADR-026 says it is not, and one stalled subscriber costs 69 % of ingest throughput
+
+> **Status:** OPEN — structural half in `PravahaFlightSqlProducer.streamSubscription` (`:548`, `:604`); measured half in `SrvC.s087` against the node on 19800.
+
+ADR-026's rationale is explicit: "**Encode once, write N times** makes the expensive work scale with
+*query* count and the cheap work scale with *subscriber* count", and it names "Encoding per
+subscriber" as the rejected alternative, "the one that turns a thousand clients into an outage".
+
+The code does the rejected thing. Each subscription allocates its own `VectorSchemaRoot` and calls
+its own `writeBatch` over the same `List<ViewChange>`, so N subscribers on one query perform N
+encodings of every batch.
+
+Measured, 60 000 distinct keys per run into one query, timed to the view reaching the expected key
+count, with N subscribers connected and never reading:
+
+```
+ 0 stalled -> 60000 rows ingested in   911ms (65861 rows/s)   <- baseline
+ 1 stalled -> 60000 rows ingested in  2909ms (20625 rows/s)   <- -69%
+ 5 stalled -> 60000 rows ingested in  4315ms (13904 rows/s)   <- -79%
+20 stalled -> 60000 rows ingested in  4256ms (14097 rows/s)
+```
+
+STRM-087's falsifier is "throughput within 10 % of baseline at every N". One stalled subscriber is
+already seven times outside it. The case named four candidate causes; two are now excluded —
+`SRVDBG` does not exist any more, and the handover uses `offer` so it cannot block — leaving
+per-subscriber encoding and the heap pressure of STRM-15, which were measured on the same node in
+the same session.
+
+ADR-026's **status line** is already honest ("Accepted; **one carrier built**"). Its rationale
+section is not, and the rationale is what a reader plans capacity from.
+
+### STRM-5 (HIGH) — after the first `VIEW_TOO_LARGE`, `ViewSink.pending` is never drained again, but only when a subscriber is attached
+
+> **Status:** OPEN — reproduced in `SectionD.s070` with a `ServedView` at `maxKeys = 1000` and a `ViewSink`, run twice over identical input with and without a listener.
+
+`ViewSink.commit` calls `view.commit(committedFrontier)` on its first line (`ViewSink.java:74`) and
+only then copies and clears `pending` (`:85`–`:91`). `ServedView.commit` throws `VIEW_TOO_LARGE`
+after applying and evicting (`ServedView.java:265`), so the throw leaves `pending` untouched — and
+`StagedRow.commit` keeps appending to it on every subsequent row for as long as anything keeps
+feeding.
+
+```
+with subscriber: firstCommit=ok secondCommit=PRV-4022 VIEW_TOO_LARGE
+                 pending.size after 100000 more rows = 100001
+no subscriber:   firstCommit=ok secondCommit=PRV-4022 VIEW_TOO_LARGE
+                 pending.size after 100000 more rows = 0
+```
+
+The two runs differ in nothing but the listener. `ViewSink`'s own comment explains why the
+no-subscriber path clears: "a sink with no subscribers must not accumulate a change log nobody will
+ever read, which is a leak that only appears in the deployments that never subscribe — that is, most
+of them." The leak that exists is the exact inverse: it appears only in the deployments that *do*
+subscribe, and it is unbounded, because a view that is over its ceiling stays over its ceiling.
+
+### STRM-6 (MEDIUM) — read-then-subscribe has a hole, the frontier that would close it is computed and discarded, and no client API can detect the loss
+
+> **Status:** OPEN — gap measured in `SrvC.s036`; the discarded frontier observed in `SectionC.s037`.
+
+`docs/TROUBLESHOOTING.md` tells a client that wants complete state to read the view and then
+subscribe. Changes committed between the read and the subscribe are in neither. Measured over five
+attempts at ~1000 rows/s, counting keys present in the final quiesced view that were in neither the
+pre-read key set nor the delivered stream:
+
+```
+keys in neither, per attempt: [100, 100, 50, 0, 100]
+```
+
+The frontier that would let a client prove it missed nothing exists and is thrown away.
+`ViewChangeListener.onCommit(List<ViewChange>, long frontier)` promises "every change in this batch
+belongs at or before it", and `ViewSink.commit` supplies `sink.appliedFrontier()`. A raw listener
+sees it:
+
+```
+raw listener frontiers=[5000, 9000]          (rows fed with sequence(5000) / sequence(9000))
+subscription batches=2
+frontier accessors on ViewChange/Subscription=[]
+```
+
+`Subscription.onCommit(changes, frontier)` ignores the parameter, and a reflective scan of the SDK's
+`Subscription` and `QueryResult` finds no `frontier` or `asOf` accessor either. So the hole is
+undetectable from the client, which is what makes it worse than its size.
+
+### STRM-7 (MEDIUM) — a subscription filter on a non-string column opens successfully and silently matches nothing
+
+> **Status:** OPEN — reproduced in `SrvB.s041` against the node on 19800, with a control run that differs only in the column.
+
+```
+--filter amount=300  (amount is INT64): subscription opened successfully=true
+                                        rows delivered=0 of 10 pushed
+--filter user_id=c41 (user_id is STRING): rows delivered=10
+```
+
+`streamSubscription` builds `Map<String, Object> equals` from `ControlWire` **strings**
+(`PravahaFlightSqlProducer.java:523`) and `SubscriptionFilter.accepts` compares with
+`Objects.equals` (`SubscriptionFilter.java:121`), so `String "300"` never equals `Long 300`. Over
+Flight this is not a possibility, it is a guarantee: a filter on any non-string column can never
+match anything.
+
+`SubscriptionFilter.matching` refuses an unknown *column* and explains itself at length — "A filter
+that was quietly ignored would leave you receiving everything while believing you asked for a
+slice". The same argument applies verbatim, and with the opposite sign, to a filter that matches
+nothing: the subscriber believes it asked for a slice and receives an empty stream, with no error,
+no counter and no way to tell that outcome from a quiet feed.
+
+### STRM-8 (MEDIUM) — a slow in-process subscriber blocks the engine, and the bounded buffer bounds a commit rather than a slow subscriber
+
+> **Status:** OPEN — the block reproduced in `SectionD.s047`, the inverted buffer semantics in `SectionF.s077`.
+
+`SubscriptionOptions`' javadoc, `CONCEPTS.md` §8 and `USER_GUIDE.md` all state the same model:
+"Blocking is not on the list: a subscriber that blocks the engine applies backpressure to the
+*query*, so one slow dashboard would slow the computation for everybody reading it." The measurement:
+
+```
+commit() with 1 subscriber sleeping 2000ms took 2001ms
+commit() with 3 such subscribers        took 6002ms
+```
+
+2000 ms against a 20 ms publish cadence is a 100× separation, and the 1-vs-3 ratio is
+`ViewSink.commit` iterating listeners serially on the caller's thread. In a configured node that
+caller is `PumpingFeed`'s publish timer, so one slow in-process listener stalls ingestion for every
+query that feed drives.
+
+The second half is that the bounded buffer does not mitigate it, because it bounds the wrong thing.
+`Subscription.onCommit` drains the buffer unconditionally before returning (`Subscription.java:89`–
+`:94`), so a subscriber cannot fall behind *in the buffer* at all:
+
+```
+Run A  slow consumer, 200 commits, 5ms sleep each, of(10, CONFLATE):
+       delivered=200 conflated=0 dropped=0 wallClock=1442ms
+Run B  instant consumer, one 100-row commit on 5 keys, same options:
+       delivered=10  conflated=90 dropped=0
+```
+
+The slow subscriber conflates nothing and the fast one conflates 90. `SubscriptionOptions` says the
+buffer "decides how far behind a subscriber may fall"; it decides how large a single commit may be.
+
+### STRM-9 (HIGH) — an unauthorised principal learns every query name on the node from a misspelled subscribe
+
+> **Status:** OPEN — reproduced in `SrvG.s102` against a `PravahaFlightServer` whose `SecurityPolicy.mayRead` denies the principal on every view.
+
+`streamSubscription` calls `required.require(viewName)` (`PravahaFlightSqlProducer.java:489`)
+**before** `policy.mayRead` (`:491`), and `QueryRegistry.require` builds its message from
+`names()` — every entry of `byName`, unfiltered by any policy (`QueryRegistry.java:746`–`:750`).
+Three attempts by one principal, one character apart:
+
+```
+(1) subscribe 'payroll'  -> PRV-7002  anonymous may not subscribe to 'payroll': that view belongs to acme
+(2) subscribe 'payrol'   -> PRV-8002  no query named 'payrol' is registered; this node has [payroll, headcount]
+(3) subscribe 'payroll' --filter nosuchcol=x
+                         -> PRV-7002  anonymous may not subscribe to 'payroll': that view belongs to acme
+```
+
+(1) and (2) differ, so the principal learns `payroll` exists — and (2) hands over the entire
+registry without being asked. Query names in this product carry business intent by construction:
+they are what an operator calls the thing, and they are chosen to be readable. This is the owner's
+third standing constraint — *a user receives only the data they are authorized for* — failing on the
+authorization **ordering**: the existence check runs before the permission check, so the refusal
+that protects the data leaks the catalogue of it.
+
+Two ordinary fixes exist and neither is in the code: evaluate `mayRead` first and return one
+indistinguishable refusal for "absent" and "forbidden", or keep the ordering and strip `names()`
+from the message. (3) confirms the rest of the ordering the case asked about: a bad filter column
+never reaches `SubscriptionFilter` for an unauthorised caller.
+
+### STRM-10 (MEDIUM) — a subscriber that falls behind loses whole batches and has no way to find out
+
+> **Status:** OPEN — reproduced in `SrvC.s049` with an SDK subscriber sleeping 5 s per batch against a 1000 rows/s feed for 60 s.
+
+```
+pushed 59700 rows; client rows()=1300 in 13 batches; loss = 58400 rows
+every zero-argument observable the SDK Subscription exposes = [rows(), batches(), isClosed()]
+stream state = (still running)
+```
+
+`handover` is a `LinkedBlockingQueue` of `SUBSCRIPTION_HANDOVER_BATCHES = 64` filled with `offer`,
+so once it is full whole batches are discarded and `droppedBatches` is incremented
+(`PravahaFlightSqlProducer.java:554`–`:556`). That count reaches an `AuditSink` — once, when the
+subscription **ends**, and only with `audit: memory|log` configured (`:609`–`:616`). It reaches the
+subscriber never.
+
+`docs/OPERATIONS.md` presents `dropped()`/`conflated()` on `Subscription` as how a consumer learns it
+is falling behind. Those are the *registry's* `Subscription`, in-process. The client-side
+`Subscription` in `sdk/pravaha-sdk-java-flight` has no equivalent, and there is no field on the
+stream that carries one. A dashboard that lost 98 % of its changes looks exactly like one that
+received everything.
+
+The choice to drop rather than block is right and STRM-050 confirms it is done cleanly — every
+delivered batch was a whole commit, never a fragment. What is missing is telling the client.
+
+### STRM-11 (HIGH) — a subscriber attaching during a commit receives a fragment of it, delivered as a completed batch
+
+> **Status:** OPEN — reproduced deterministically in `SectionD.s060` and at scale under scheduling pressure in `SectionE.s120`.
+
+The guard in `StagedRow.commit` is `if (!listeners.isEmpty())`, evaluated **per row**
+(`ViewSink.java:232`). A subscriber that attaches between two rows of the same commit is delivered
+the rows after it attached and not the ones before:
+
+```
+first batch size=2   batch=[+1[u2, 2], +1[u3, 3]]
+ServedView.commits rose by 1, covering 3 keys
+```
+
+`USER_GUIDE.md` promises "A batch is a commit. Never a partial window." `ViewSink`'s own comment
+says a subscriber "must see whole batches: between commits the view holds a partly applied window,
+and a total read from it would be one nobody should act on."
+
+On a windowed query this is the failure that comment exists to prevent. 1000 groups closing on one
+`advanceWatermark`, with a second thread subscribing mid-close and 24 busy spinner threads creating
+scheduling pressure, 50 attempts:
+
+```
+first-batch sizes observed = {1, 88, 427, 561, 616, 887, 889, 952, 1000}
+whole windows (1000)        = 41
+strict fragments (0<k<1000) =  9   -- 18% of attempts
+```
+
+A consumer summing the 427-group batch computes `427 × 406`, a total that never existed at any
+frontier, and it arrives flagged as a completed commit. Note the rate: this is not a theoretical
+interleaving, it is roughly one attach in five on a busy machine, and a dashboard attaching to a
+busy query is the ordinary case rather than the unusual one.
+
+### STRM-12 (MEDIUM) — dropping a query ends its streams with no reason, leaves in-process subscribers attached for ever, and `subscriberCount()` never returns to zero
+
+> **Status:** OPEN — the Flight half reproduced in `SrvC.s065`, the in-process half and the counter in `SectionE.s076`.
+
+`QueryRegistry.drop` sets the state to `DROPPED`; the Flight loop notices via
+`query.state().isTerminal()` and calls `listener.completed()`:
+
+```
+drop while subscribed: stream ended=true after 200ms with: completed normally, no error
+```
+
+No status, no code, no reason — indistinguishable from a client-initiated close, for an event that
+is the administrative destruction of the thing the client asked to watch. `CANCELLED` or `NOT_FOUND`
+with the reason is what a client can act on.
+
+In-process it is worse: nothing closes the `Subscription` and nothing removes it from
+`sink.listeners`, because `RegisteredQuery.close()` does not touch them. The twelve-observation
+sequence:
+
+```
+0 | 1 | 2 | q=3 q2=3 | q=4 q2=4 | 3 (graceful close) | 4 (throwing consumer attached)
+  | 3 (detached by the commit) | 3 (paused) | 3 (resumed)
+  | 3 (after drop q, q2 keeps the computation) | 3 (after drop q2, the computation is closed)
+```
+
+Every delta the case predicts is correct, including that the count is per computation and spans
+names — and it never returns to 0. Three `Subscription` objects report `isClosed() == false` with
+`failure()` empty, attached to a computation that has been closed, waiting for changes that will
+never come. `docs/OPERATIONS.md` offers `subscriberCount()` as the operator's signal that a query
+nobody is watching is a clue; after any drop it is a permanently wrong number.
+
+Related and recorded here because an operator meets them together: `subscriberCount()` is reachable
+from **no remote surface** — not on the SDK's `RegisteredQueryInfo` record, not as a `ControlWire`
+verb, and `GET /api/v1/queries` is 404. STRM-051 is BLOCKED on that.
+
+### STRM-13 (LOW, documentation) — two configuration surfaces say row filters are honoured on subscribe; subscribing is the one path that refuses them
+
+> **Status:** OPEN — `grep -rn "honoured on subscribe" docs/ pravaha-server/` against the behaviour reproduced in STRM-093.
+
+```
+pravaha-server/src/main/resources/application.yaml:87
+pravaha-server/src/main/java/.../security/SecurityProperties.java:35
+    "…mayRead on each view, row filters honoured on subscribe, per-source checks at
+     registration, principals from verified tokens…"
+```
+
+Both list it among mechanisms that were "built and tested". `streamSubscription` does the opposite
+and says so at length: a principal whose `AccessDecision` carries a row filter is **refused**
+(`PravahaFlightSqlProducer.java:498`–`:521`). The refusal is the right behaviour — the leak it
+replaced is on the record — and STRM-094 confirms the remedy it suggests works: the same principal
+reading the same view got 50 EU rows and 0 US rows.
+
+The problem is that nothing a user reads says it. A search of `docs/` for any statement that a
+conditional entitlement makes `subscribe` impossible returns only the QA case files. So switching a
+deployment to a policy that grants row filters silently removes the ability to subscribe from every
+conditionally-entitled principal, with no migration note and no mention in `CONCEPTS.md` §6, which
+lists "Subscription filters → Refuse the filter (`PRV-8002`)" as a *subscriber's* filter rule and
+not a security one.
+
+### STRM-14 (MEDIUM) — a subscriber keeps being streamed under a name the server says does not exist
+
+> **Status:** OPEN — reproduced in `SrvD.s068` with `q68` and `q68b` registered over byte-identical SQL, subscriber X attached to `q68`.
+
+```
+X subscribed under the name q68:
+    distinct keys before the drop = 50
+    after dropping q68 and pushing 50 more keys, X holds 100
+    X's stream is (still running)
+    a read of q68 at the same moment -> refused, the view does not exist
+```
+
+`drop("q68")` removes the name from `byName` and the view from the catalogue, but `removeName`
+returns false because `q68b` still holds the computation, so nothing terminal happens to it. X's
+loop holds the `RegisteredQuery` object directly and checks only `query.state().isTerminal()`, which
+is still `RUNNING`.
+
+Two server responses to the same name at the same instant contradict each other: one streams rows,
+the other says there is no such view. Neither can be explained as a stale client.
+
+The authorization consequence is the reason this is not cosmetic. `policy.mayRead(principal, "q68")`
+was evaluated once, at subscribe, against a view that now does not exist; the re-check loop
+(`:591`) keeps asking the policy about `"q68"` too, so a deployment whose policy answers by name is
+being asked about a name it can no longer have an opinion on. STRM-067 confirms the mirror case is
+right — a subscriber on the *surviving* name is correctly unaffected — so the fix is about the
+dropped name only.
+
+### STRM-15 (MEDIUM) — the handover bound is stated in batches, so it is not a bound on memory: 1.7 GB for one stalled subscriber
+
+> **Status:** OPEN — reproduced in `SrvC.s086` against the node on 19800, one SDK subscriber sleeping 600 s per batch.
+
+```
+20 x 50000-row appends, one stalled subscriber:
+    server RSS 1577MB -> 3262MB   (delta 1685MB)
+    client received rows()=10000 batches()=1
+```
+
+`SUBSCRIPTION_HANDOVER_BATCHES = 64` is justified in the code as "Small on purpose… A deep queue
+here would silently override that choice". 64 is small in batches. A batch is one commit, and a
+commit under a real feed was measured at up to 2830 rows (STRM-021), so the queue holds up to
+`64 × batch` `ViewChange` objects plus their `Object[]` payloads and their string contents. One
+stalled subscriber took 1.7 GB; ten would not fit on the machine that measured this one.
+
+The constant is the only thing standing between a stalled client and the node's heap, and it is
+denominated in the wrong unit. A row bound, or a byte bound, would say what it is for.
+
+### STRM-16 (LOW) — `CONFLATE` corrupts a weight-maintaining consumer's total, it is the default, and it is the only policy a remote subscriber can have
+
+> **Status:** OPEN — the corruption reproduced in `SectionF.s082`; the unreachability is structural, in `ControlWire.subscribeTicket` and `streamSubscription`.
+
+`SubscriptionOptions.CONFLATE`'s own javadoc says it is "Wrong for anything maintaining its own
+aggregate from the weights, because conflating drops the intermediate weights that aggregate is
+built from." Fed the sequence the case names — `+1 10, -1 10, +1 30, -1 30, +1 60` on one key —
+under `of(2, CONFLATE)`:
+
+```
+delivered = [+1[u1, 60], -1[u1, 10]]
+replayed weighted sum = 50        (the un-conflated truth is 60)
+conflated = 3, dropped = 0
+```
+
+`60` is computed from the input independently of the implementation, so `50` is a definite
+divergence, and it is silent from the client's side (STRM-10).
+
+The structural half is why it matters more than a documented hazard should.
+`ControlWire.subscribeTicket(view, filterPairs)` encodes `["subscribe", view, pairs…]` and nothing
+else (`ControlWire.java:141`–`:147`); `streamSubscription` passes `SubscriptionOptions.DEFAULT`
+(`:552`); and `ClientOptions.subscriberBufferRows` / `conflateOnOverflow` have **no reader** anywhere
+in `pravaha-flight` or `sdk/pravaha-sdk-java-flight`. So every remote subscriber is
+`(10 000, CONFLATE)` whatever it asked for, `OPERATIONS.md` presents the overflow policy as "per the
+subscriber's choice", and a client that sets `subscriberBufferRows(1)` gets a setting with no
+reachable effect.
+
+### STRM-17 (LOW) — the refusal to subscribe to a dropped query names a fingerprint the caller has never seen, instead of the name they asked for
+
+> **Status:** OPEN — reproduced in `SectionD.s066`: `registry.drop("q")` then `query.subscribe(...)`.
+
+```
+PRV-8003  cannot subscribe to 'a740dfd20964': it is DROPPED
+```
+
+The caller asked about `q`. `RegisteredQuery.anyName()` returns `fingerprint.shortForm()` once
+`removeName` has emptied the name set (`RegisteredQuery.java:375`–`:377`), and the two `subscribe`
+overloads both build their message from it (`:298`, `:320`). So the one message whose job is to tell
+somebody which query they cannot subscribe to names an identifier that appears nowhere in their
+code.
+
+Recorded alongside it, for `ERRC`: the identical situation over Flight is `PRV-8002 NO_SUCH_QUERY`,
+because `require(viewName)` fails first — two codes for one user-visible event, and `PRV-8002` is
+also the code a bad *filter column* gets (STRM-043).
+
+### STRM-18 (LOW) — `docs/qa/cases/STRM.md`'s `H-EA` harness cannot be registered, and three details of `H-S` are wrong
+
+> **Status:** OPEN — the case file is wrong, not the code; recorded so the next executor does not spend the afternoon this one did.
+
+Eight of the case file's eighteen stated facts are false against this build. The full table is in
+`docs/qa/logs/STRM.md`. Four are worth naming here because they change what can be run at all:
+
+- **`H-EA` does not exist.** `SELECT user_id, SUM(amount) AS total FROM txn GROUP BY user_id` is
+  refused at registration with `PRV-2050` — `PhysicalPlanBuilder.java:829` admits a keyed `GROUP BY`
+  only over a window. Eight cases name `H-EA`; they were run against a windowed substitute, and
+  STRM-013 is BLOCKED because its assertion ("five updates in one commit deliver nine changes") is
+  unreachable on any shape the build admits.
+- **There is no `DoPut` path for stream rows.** The case file says "Rows are pushed with `DoPut`".
+  `acceptPutPreparedStatementQuery` is the only put the producer implements and it carries prepared
+  statement parameters. A node is fed through `pravaha.sources.*`.
+- **`pravaha.streams.<n>` takes `schema:` in `name:TYPE` form**, not `fields: "user_id STRING, …"`.
+- **`pravaha.security.policy` has no `tenant` value.** It is `permissive` or `authenticated`, and no
+  configured policy can produce an `AccessDecision` carrying a row filter — so section G's cases
+  cannot be run against a configured node at all. They were run against an in-process
+  `PravahaFlightServer`, and STRM-100 is BLOCKED on the same fact.
