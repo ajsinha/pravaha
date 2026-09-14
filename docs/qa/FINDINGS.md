@@ -1969,3 +1969,85 @@ documented column-naming sentence instead (TYPE-032) — a consistency gap betwe
 that should refuse identically.
 
 **Status: OPEN.** See docs/qa/logs/TYPE.md §1-3 (TYPE-031, contrast with TYPE-032).
+
+# SECX — found executing `docs/qa/cases/SECX.md`
+
+Per the case file's own rule, no production code was modified for this area — none of the findings
+below are seed-proven; each is a direct, repeated reproduction against a live N-qa harness or a real
+server node. Severity follows the round's standing instruction: any result contradicting one of the
+owner's three constraints (enforcement at the Pravaha layer; only authenticated users reach data;
+a user receives only what they're authorized for) is HIGH regardless of what SECX.md's own Expected
+predicts.
+
+## SX-1 — `subscribe`'s denial is an existence oracle for every other view on the node (known extent, reconfirmed)
+
+A denial for an existing-but-forbidden view (`PRV-7002 carol may not subscribe to 'payroll_view'`)
+and a denial for a non-existent view (`PRV-8002 no query named 'zzz_nope' is registered; this node
+has [payroll_view, secret_pay, hr_summary, sales_view]`) are trivially distinguishable — the second
+one hands a denied caller the **full catalog of view names**, before `mayRead` is ever consulted
+(`require()` runs first). This matches the pattern SECX.md's own preamble already documents as known
+(SEC-058) and `docs/SECURITY.md`'s "metadata is data" claim already contradicts (see doc rot below).
+
+**Status: OPEN**, consistent with the case file's own framing (measuring extent, not discovering).
+See docs/qa/logs/SECX.md (SECX-028).
+
+## SX-2 (HIGH) — `mayAdminister` defaulting to `mayRead` turns a partial or conditional read entitlement into an unconditional power to destroy, freeze or unfreeze a computation
+
+Verified live, repeatedly, across all three destructive/disruptive verbs: `carol`, denied anything
+whose *name* contains "payroll," successfully **dropped** `secret_pay` — a payroll-derived
+computation registered under an innocuous name (SECX-032b) — and successfully **paused**
+(SECX-036b) and **resumed** (SECX-040b) it too. `bob`, entitled only to the `region = 'EU'` slice of
+`sales_view` under a read-time row filter, **dropped the entire view** (SECX-033) and **paused it
+for every reader**, not only his own filtered view of it (SECX-037) — `ann`'s row count froze along
+with `bob`'s. Because `SecurityPolicy.mayAdminister` defaults to `mayRead`, any principal who may
+read *any* rows of a view — even a single filtered slice, even one it was never supposed to be
+findable under — may destroy or freeze it for every other reader. This directly violates owner
+constraint 3 (a user receives only the data they are authorized for): destroying or freezing a
+computation is not "receiving data" in the read sense, but it is a total loss of availability
+imposed on every other principal's authorized access, triggered by a principal who was authorized
+for at most a slice of it.
+
+**Reproduction:** `carol drop secret_pay` (a view whose registered name doesn't contain "payroll")
+→ succeeds; `carol pause secret_pay` / `carol resume secret_pay` → succeed. `bob drop sales_view`
+→ succeeds, breaking `ann`'s subsequent read (`PRV-2002`); `bob pause sales_view` → freezes the row
+count for `ann` too.
+
+**Status: OPEN.** Not seed-proven (no production code modified, per this file's own rule); reproduced
+directly and repeatedly. `docs/SECURITY.md` documents nothing at all about `mayAdminister`/drop/
+pause/resume authorization — see doc rot below. See docs/qa/logs/SECX.md (SECX-032, 033, 036, 037,
+040, 041).
+
+## SX-3 (HIGH) — the HTTP REST surface (`StreamController`, `/api/v1/queries/validate`, `/explain`, `/status`) consults no policy, no audit, and no principal at all
+
+`StreamController` (and the sibling controllers behind `/api/v1/queries/*` and `/api/v1/status`)
+contain zero references to `Principal`, `SecurityPolicy` or `AuditSink` — confirmed by reading the
+source, and confirmed live on every HTTP case run in this round: a denied principal (`carol`) and a
+filtered principal (`bob`) receive **byte-identical** responses to the fully-privileged principal
+(`ann`) on every endpoint tested — `GET /api/v1/streams` and `/streams/payroll` (full schema,
+including the `salary` column, disclosed to `carol` despite her being denied every payroll-named
+view/stream on Flight — SECX-044/045), `POST /api/v1/queries/validate` and `/explain` (full,
+unfiltered plans for three payroll-reading queries returned to `carol` — SECX-052/053), and
+`/api/v1/status` (byte-identical bodies for all three principals — SECX-056/057). Worst: `POST
+/api/v1/streams` applies **no authorization check whatsoever** beyond "a bearer token verified" —
+`carol`, denied anything payroll-related, successfully published an arbitrary new stream schema
+(`carol_injected`, HTTP 201) that then appeared in every other principal's stream listing
+(SECX-048), while the equivalent action on Flight (registering a continuous query that reads
+`payroll`) is correctly refused for the identical principal. This is a direct violation of owner
+constraints 1 and 3 on an entire transport: authorization exists only on the Flight surface, and the
+HTTP surface — reachable with nothing but a verified token — behaves as if every authenticated
+caller were `ann`.
+
+**Reproduction:** with `carol-token-cccc`, `GET /api/v1/streams/payroll` on `N-auth` returns the same
+body as with `ann-token-aaaa`; `POST /api/v1/streams {"name":"carol_injected",...}` with `carol`'s
+token returns 201 and the stream is visible to every subsequent caller.
+
+**Status: OPEN.** Not seed-proven (no production code modified, per this file's own rule); reproduced
+directly across six independent endpoint pairs (list×2, validate/explain×2, status×2) plus the
+POST-write case. This is the single highest-impact finding of the SECX round: an entire transport
+with the exact same authentication as Flight (bearer tokens verified by the same
+`SecurityProperties`/`BearerTokenFilter` machinery) enforces none of the authorization Flight does.
+See docs/qa/logs/SECX.md (SECX-044, 045, 048, 052, 053, 056, 057), and round-1's already-known
+SEC-028 ("no HTTP controller reads the principal or the policy") and SEC-062 (`POST` never reaches
+the engine), both reconfirmed live and shown here to have a materially worse blast radius than
+previously measured (arbitrary schema publication with zero policy check, not merely "the write is a
+no-op").

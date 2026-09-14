@@ -45,6 +45,19 @@ tighten its rules without touching authentication.
 the one you already have. `StaticTokenVerifier` exists for tests and single-tenant installs and says
 so in its name.
 
+**These three seams apply to the Flight surface only.** `pravaha-server`'s HTTP REST controllers
+(`GET`/`POST /api/v1/streams`, `/api/v1/queries/validate`, `/explain`, `/api/v1/status`) authenticate
+a bearer token through the same `BearerTokenFilter` — a request with no token, or an invalid one, is
+correctly rejected — but once authenticated, **no controller behind that filter consults
+`SecurityPolicy` or `AuditSink` at all.** Confirmed live: a principal denied every payroll-named view
+on Flight receives the identical, unfiltered `payroll` schema and unfiltered query plans over HTTP,
+and `POST /api/v1/streams` accepts a new stream declaration from *any* authenticated caller with no
+policy check whatsoever — the write does not reach the query engine (see "What is not built" isn't
+the reason; this is a distinct gap), but the schema itself is published and visible to every other
+caller regardless of what that caller may register or read on Flight. Do not rely on `SecurityPolicy`
+rules to govern the HTTP surface: today, "has a valid token" is the entire HTTP authorization model.
+See `docs/qa/FINDINGS.md`'s SX-3.
+
 ## Setting it up
 
 ```java
@@ -75,6 +88,21 @@ to let them register.
 > not, and surprising exactly when somebody meant a permissive policy for a development server.
 > `SecurityPolicy.PERMISSIVE` is written out explicitly for that reason; it once said "everyone sees
 > everything" and then refused registration.
+
+## Drop, pause and resume are authorized as reads, not as ownership
+
+`mayAdminister` — the check behind `drop`, `pause` and `resume` — **defaults to `mayRead`**. The
+owning principal is recorded at registration and journalled, but nothing in the drop/pause/resume
+path consults it (§25 records the intent; the code does not implement it). The practical consequence,
+confirmed live in the SECX round: **any principal entitled to read any rows of a view may destroy or
+freeze it for every other reader**, even a principal entitled to only a filtered slice of it, and even
+one denied the view under the name it is registered against but who reaches it under a different,
+innocuous name that computation happens to share. A row-filtered principal who may read only the
+`region = 'EU'` rows of a view may `drop` the whole view out from under every other reader, or
+`pause` it and freeze the row count everyone else sees, not only their own filtered view of it. A
+deployment that needs drop/pause/resume gated on registration ownership, rather than read access,
+must implement and wire its own `SecurityPolicy.mayAdminister` override — the shipped default does
+not do this, and nothing here previously said so. See `docs/qa/FINDINGS.md`'s SX-2.
 
 ## Row filters, and the rule that bounds them
 
@@ -108,8 +136,18 @@ otherwise multiply engine state by the number of users and you would learn that 
 `getFlightInfo` is authorized as strictly as fetching rows. A schema is the list of columns an
 organisation keeps about its customers; the catalogue is a map of what a deployment does.
 
-A denial for a view that exists and one for a view that does not **read identically**
-(`AccessDecision.deniedWithoutDetail`), so a caller cannot enumerate a deployment by probing it.
+**Correction (QA, SECX round, 2026-09-14).** `AccessDecision.deniedWithoutDetail()` exists in
+`pravaha-security` but is **not called from any production code path** — it is dead API, not a wired
+mechanism. In practice a denial for a view that exists and one for a view that does not read
+*differently*, and the difference discloses the deployment's catalogue to a denied caller:
+`subscribe`/`drop`/`pause`/`resume` against an existing-but-forbidden view answer `PRV-7002` naming
+just that view, while the same verb against a name nobody registered answers `PRV-8002` naming
+**every currently registered view on the node**. A caller who is denied one view can still enumerate
+every other view's name by asking for a name that doesn't exist. If a deployment needs the
+non-enumerable behavior this section used to promise, its policy has to call
+`deniedWithoutDetail()` itself and the call sites that answer "does this name exist" need to honour
+it — neither is true of the shipped code today. See `docs/qa/logs/SECX.md` (SECX-028) and
+`docs/qa/FINDINGS.md`'s SX-1.
 
 ## Telling failures apart
 
