@@ -149,7 +149,18 @@ class LifeSharingTest extends LifecycleTestSupport {
         Thread feeder = new Thread(() -> {
             long id = 0;
             while (keepGoing.get()) {
-                push(useB.get() ? "b" : "a", ++id, "u" + (id % 10), id, 1);
+                try {
+                    push(useB.get() ? "b" : "a", ++id, "u" + (id % 10), id, 1);
+                } catch (RuntimeException refused) {
+                    // The drop lands while this thread is mid-push through "a", and pushing through
+                    // a dropped name is refused by design. Unhandled, that killed the feeder: it
+                    // never reached the line that switches to "b", so nothing fed the surviving
+                    // name and the case failed reporting that the computation had stopped -- which
+                    // was true of the test's own thread, not of the engine.
+                    if (!keepGoing.get()) {
+                        return;
+                    }
+                }
             }
         });
         feeder.start();
