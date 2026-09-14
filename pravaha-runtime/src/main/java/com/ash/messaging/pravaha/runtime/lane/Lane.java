@@ -576,15 +576,19 @@ public final class Lane implements AutoCloseable {
             try {
                 task.run();
             } catch (Throwable t) {
-                // Before the ticket is released, not after. The waiter's next act is checkHealth()
-                // -- QueryExecution.restore is exactly that shape -- and leaving the recording to
+                // The failure, and only the failure. The waiter's next act is checkHealth() --
+                // QueryExecution.restore is exactly that shape -- and checkHealth reads this field,
+                // so it has to be set before the finally below retires the ticket. Leaving it to
                 // run()'s outer catch means the exception must first unwind the control loop and
-                // the batch loop. A waiter scheduled inside that window sees a lane that has failed
-                // and does not say so, and restore returns success over a snapshot it refused.
-                // The catch runs before the finally, so the failure is visible before the ticket
-                // moves.
+                // the batch loop, and a waiter scheduled inside that window reads a lane that has
+                // failed and does not say so.
+                //
+                // State.FAILED is deliberately NOT set here, and the ordering is the whole reason.
+                // awaitControlTask gives up early when it sees FAILED, returning whether the ticket
+                // has moved -- so marking the lane failed before retiring the ticket makes the
+                // waiter answer "no" and the caller report a timeout instead of the refusal that
+                // actually happened. run()'s outer catch sets it, after this finally has run.
                 failure = t;
-                state = State.FAILED;
                 throw t;
             } finally {
                 // Released even when the task threw: a coordinator waiting on it must not wait

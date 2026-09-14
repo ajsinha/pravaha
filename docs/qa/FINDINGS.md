@@ -3501,7 +3501,7 @@ See `docs/qa/logs/CFG.md` (CFG-017).
 
 ### CFG-12 (HIGH) — `SensitiveFiles.createOwnerOnly` widens permissions rather than narrowing them, silently undoing an operator's deliberate lock on the journal and every checkpoint directory
 
-> **Status:** OPEN — reproduced live twice: a registry journal file `chmod 400`'d under a running node is reset to `-rw-------` and the next registration succeeds with no `PRV-8006`; a per-query checkpoint directory `chmod 500`'d under a running node is reset to `drwx------` by the next checkpoint, with no log line and no movement in any of the seven `pravaha_*` gauges.
+> **Status:** FIXED — `SensitiveFiles.narrow` now intersects the current mode with the ceiling instead of assigning it, so it can only ever remove permissions, and returns without a write when the target is already inside the ceiling. `StateFailureReportingTest#state044` asserts the operator's `chmod 500` on a per-query checkpoint directory now blocks the store and is recorded (`cannot store checkpoint`), where the same test previously carried a harness note saying the chmod was silently self-healed.
 
 `SensitiveFiles.narrow(target, mode)` calls `Files.setPosixFilePermissions(target, mode)`, which sets
 permissions **absolutely**. It is named for the case it was written for — a journal created at the
@@ -3734,3 +3734,27 @@ full-reactor build, and passed three consecutive times in isolation.
 
 The wait is bounded and closes regardless when the bound expires. Waiting for ever to avoid the
 accusation is how a real leak gets hidden.
+
+
+### PF-9 (HIGH) — marking a lane FAILED before retiring its ticket turns a refusal into a timeout
+
+> **Status:** FIXED — `Lane.runControlTasks`' catch sets `failure` only; `State.FAILED` is left to `run()`'s outer catch, which happens after the `finally` retires the ticket. `ControlTaskFailureVisibilityTest.aWaiterOnAThrowingTaskIsToldItRanRatherThanThatItTimedOut` covers it and **catches the bad ordering** under contention (6 of 400 waits), passing three consecutive runs after.
+
+A bug I introduced fixing PF-7, caught by the same suite that found the original. `awaitControlTask`
+gives up early when it observes `State.FAILED`, returning whether the ticket has moved:
+
+```java
+if (state == State.FAILED || state == State.STOPPED) {
+    return controlCompleted >= ticket;
+}
+```
+
+So marking the lane failed *before* retiring the ticket makes the waiter answer "no", and
+`QueryExecution.restore` turns that into `lane 0 did not restore its state within PT30S`. The caller
+is told the snapshot timed out when it was refused — a wrong diagnosis of a correct rejection, which
+is how a version check ends up blamed on the disk. `StateRestoreTest.state061` caught it on the next
+run, in 0.022s against a 30-second timeout.
+
+The two orderings are both required and they constrain opposite ends: `failure` must be set *before*
+the ticket is retired, because `checkHealth()` reads it; `State.FAILED` must be set *after*, because
+the waiter bails out on it. Three fields, one order, and getting two of them right is not enough.

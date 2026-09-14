@@ -76,12 +76,36 @@ public final class SensitiveFiles {
         }
     }
 
+    /**
+     * Removes every permission outside {@code mode}, and adds none.
+     *
+     * <p>It used to call {@code setPosixFilePermissions} with {@code mode} directly, which sets
+     * permissions absolutely. That closes the hole it was written for -- a journal created at the
+     * umask and therefore world-readable -- and on anything already tighter than {@code mode} it
+     * does the opposite of its name. {@code createOwnerOnly} runs on every append and every
+     * checkpoint, so an operator who {@code chmod 400}'d a journal to stop writes had it put back to
+     * {@code 600} within milliseconds, and the registration that should have been refused was
+     * accepted instead. The lock was not overridden by a decision; it was erased by a helper.
+     *
+     * <p>Intersecting with what is already there keeps the guarantee -- nothing outside {@code mode}
+     * survives -- while leaving a deliberate restriction alone. A caller wanting to widen has to say
+     * so somewhere that reads like widening.
+     */
     private static void narrow(Path target, String mode) {
         if (!target.getFileSystem().supportedFileAttributeViews().contains("posix")) {
             return;
         }
         try {
-            Files.setPosixFilePermissions(target, PosixFilePermissions.fromString(mode));
+            java.util.Set<java.nio.file.attribute.PosixFilePermission> ceiling = PosixFilePermissions.fromString(mode);
+            java.util.Set<java.nio.file.attribute.PosixFilePermission> current = Files.getPosixFilePermissions(target);
+            java.util.Set<java.nio.file.attribute.PosixFilePermission> narrowed =
+                    java.util.EnumSet.noneOf(java.nio.file.attribute.PosixFilePermission.class);
+            narrowed.addAll(current);
+            narrowed.retainAll(ceiling);
+            if (narrowed.equals(current)) {
+                return; // already at or inside the ceiling
+            }
+            Files.setPosixFilePermissions(target, narrowed);
         } catch (IOException | UnsupportedOperationException cannot) {
             LOG.log(
                     System.Logger.Level.WARNING,

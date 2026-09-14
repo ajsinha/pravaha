@@ -100,6 +100,47 @@ final class ControlTaskFailureVisibilityTest {
                 .isZero();
     }
 
+    @Test
+    @Timeout(180)
+    void aWaiterOnAThrowingTaskIsToldItRanRatherThanThatItTimedOut() throws Exception {
+        // The other half of the ordering, and a bug I introduced fixing the first half. The waiter
+        // gives up early when it sees State.FAILED, returning whether the ticket has moved -- so
+        // marking the lane failed *before* retiring the ticket makes it answer "no", and
+        // QueryExecution.restore turns that into "lane 0 did not restore its state within PT30S".
+        // The caller is then told the snapshot timed out when it was actually refused: a wrong
+        // diagnosis of a correct rejection, which is how a version check gets blamed on the disk.
+        AtomicBoolean stop = new AtomicBoolean();
+        Thread[] load = startContention(stop);
+        int reportedAsNotRun = 0;
+
+        try {
+            for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
+                try (Lane lane =
+                        new Lane(0, config(), MemoryAccess.best(), context -> (region, offsets, count) -> count)) {
+                    lane.start();
+                    long ticket = lane.submitControlTask(() -> {
+                        throw new IllegalStateException("this control task refuses");
+                    });
+                    if (!lane.awaitControlTask(ticket, Duration.ofSeconds(10))) {
+                        reportedAsNotRun++;
+                    }
+                }
+            }
+        } finally {
+            stop.set(true);
+            for (Thread thread : load) {
+                thread.join(Duration.ofSeconds(5).toMillis());
+            }
+        }
+
+        assertThat(reportedAsNotRun)
+                .as(
+                        "%d of %d waits reported a task that had run and thrown as one that never ran; the "
+                                + "caller then reports a timeout instead of the refusal",
+                        reportedAsNotRun, ATTEMPTS)
+                .isZero();
+    }
+
     /** Enough runnable threads that the lane is liable to lose its core mid-unwind. */
     private static Thread[] startContention(AtomicBoolean stop) {
         int threads = Math.max(4, Runtime.getRuntime().availableProcessors());

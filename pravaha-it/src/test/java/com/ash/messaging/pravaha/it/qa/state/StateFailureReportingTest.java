@@ -142,37 +142,40 @@ class StateFailureReportingTest extends StateTestSupport {
         try (QueryRegistry registry = new QueryRegistry(views, TXN_T).checkpointingTo(root, cfg)) {
             RegisteredQuery q = registry.register("w", WIN_SQL, List.of(0), DANA);
 
-            // Harness note, found while writing this case: chmod'ing root/w itself (as STATE-044
-            // literally says -- "make root/w read-only") does NOT make the store fail. Every
-            // FileCheckpointStore.store() call opens with SensitiveFiles.createOwnerOnly(temporary),
-            // whose first act is an unconditional narrow(parent, "rwx------") -- so the very next
-            // checkpoint attempt silently restores root/w's own write bit before writing anything.
-            // Confirmed directly: chmod'ing the leaf keeps checkpoints succeeding.
-            chmod(root.resolve("w"), "r-x------");
+            // A clean window first, with nothing chmod'd. This is the half that tells a counter of
+            // failures from a counter of log lines: ST-4's counter climbed here, because it was
+            // wired to PeriodicCheckpointer's general log consumer and counted every "checkpoint N
+            // stored" alongside the failures.
             sleepMillis(400);
-            // ST-4, found while writing this case and fixed since: the counter used to count every
-            // line PeriodicCheckpointer logged, because the registry wired
-            // query::recordCheckpointFailure as the *general* log consumer rather than a
-            // failure-only one. The leaf-chmod self-heals, so every attempt in this window actually
-            // succeeds -- which makes it the window that tells the two apart. A counter of log lines
-            // climbs here; a counter of failures does not.
             assertThat(q.checkpointFailures())
                     .as("every store() in this window succeeded, so nothing has failed to count")
                     .isZero();
             assertThat(q.lastCheckpointFailure())
                     .as("and there is no last failure to name")
                     .isEmpty();
-            chmod(root.resolve("w"), "rwx------");
 
-            // What genuinely blocks a store(): removing traversal on the checkpoint *root*, which
-            // narrow() cannot repair because it cannot even resolve the path root/w without it.
-            chmod(root, "r--------");
-            sleepMillis(1000);
-            assertThat(q.checkpointFailures()).isGreaterThanOrEqualTo(8);
+            // STATE-044 as written: make root/w read-only. This used to be a no-op, and the
+            // superseded harness note in this test said so -- FileCheckpointStore.store() opens
+            // through SensitiveFiles.createOwnerOnly, whose narrow() set permissions absolutely and
+            // so restored root/w's write bit before writing anything. CFG-12: narrow() now
+            // intersects rather than assigns, so it can only remove permissions. An operator's lock
+            // holds, and the case's own premise works.
+            chmod(root.resolve("w"), "r-x------");
+            awaitFailures(q, 3, Duration.ofSeconds(15));
+            assertThat(q.checkpointFailures())
+                    .as("the operator's chmod on the leaf now blocks the store instead of being undone")
+                    .isGreaterThanOrEqualTo(3);
             assertThat(q.lastCheckpointFailure())
                     .isPresent()
                     .hasValueSatisfying(msg ->
                             assertThat(msg).contains("checkpoint failed (").contains("cannot store checkpoint"));
+            chmod(root.resolve("w"), "rwx------");
+
+            // And the root, which blocked it even before CFG-12: without traversal on root the path
+            // root/w cannot be resolved at all, so there was nothing for narrow() to repair.
+            long beforeRootChmod = q.checkpointFailures();
+            chmod(root, "r--------");
+            awaitFailures(q, beforeRootChmod + 3, Duration.ofSeconds(15));
             chmod(root, "rwx------");
         }
     }
@@ -278,6 +281,17 @@ class StateFailureReportingTest extends StateTestSupport {
                     .count();
             assertThat(named).isEqualTo(1);
             chmod(root, "rwx------");
+        }
+    }
+
+    private static void awaitFailures(RegisteredQuery query, long target, Duration within) {
+        long deadline = System.nanoTime() + within.toNanos();
+        while (query.checkpointFailures() < target) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("only " + query.checkpointFailures() + " of " + target
+                        + " checkpoint failures were recorded on the query within " + within);
+            }
+            sleepMillis(20);
         }
     }
 
