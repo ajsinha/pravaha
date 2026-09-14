@@ -429,16 +429,12 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
 
     @Test
     void state034_droppingAQueryDeletesItsCheckpointDirectory(@TempDir Path root) throws Exception {
-        // FINDING (docs/qa/FINDINGS.md, ## STATE): as executed, this does NOT happen, even for a
-        // plain, non-shared registration. QueryRegistry.drop (:774-796) calls
-        // query.removeName(name) first, which empties the query's name set when "w" was its only
-        // name, and only then calls deleteCheckpointsOf(query.name()) -- but RegisteredQuery.name()
-        // is anyName(), which returns names.isEmpty() ? fingerprint.shortForm() : ... So by the time
-        // deleteCheckpointsOf runs, the query has no names left and query.name() returns a 12-hex-
-        // character fingerprint digest, never "w". deleteCheckpointsOf resolves that digest to a
-        // directory that never existed, Files.list throws NoSuchFileException, and the catch
-        // (IOException) swallows it -- root/w and its checkpoint files are never deleted. Every drop,
-        // shared computation or not, leaks its checkpoint directory.
+        // ST-1, fixed: drop used to re-derive the directory from query.name() *after*
+        // removeName had emptied the name set, so name() fell through to the fingerprint's 12-hex
+        // short form -- a directory that had never existed. Files.list threw NoSuchFileException
+        // into a catch that could not tell it from a real one, and every drop leaked its
+        // checkpoints. The registry now records the path the checkpointer was given and deletes
+        // that.
         ViewCatalog views = new ViewCatalog();
         try (QueryRegistry registry = new QueryRegistry(views, TXN_T).checkpointingTo(root, slowCfg())) {
             RegisteredQuery w = registry.register("w", WIN_SQL, List.of(0), DANA);
@@ -455,11 +451,11 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
                 remaining = files.map(p -> p.getFileName().toString()).toList();
             }
             assertThat(remaining)
-                    .as("STATE-034 as authored expects this empty; it is not -- see the FINDING above")
-                    .containsExactly("w");
+                    .as("the checkpoint directory goes with the computation that owned it")
+                    .isEmpty();
             assertThat(new FileCheckpointStore(root.resolve("w")).availableIds())
-                    .as("the three checkpoint files also survive the drop")
-                    .hasSize(3);
+                    .as("and so do the three checkpoint files in it")
+                    .isEmpty();
         }
     }
 
@@ -497,15 +493,12 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
                 afterDropBeta = files.map(p -> p.getFileName().toString()).toList();
             }
             assertThat(afterDropBeta)
-                    .as("alpha's directory outlives the computation. As executed the mechanism is not "
-                            + "quite STATE-035's own narrative (deleteCheckpointsOf('beta')): by the time "
-                            + "deleteCheckpointsOf(query.name()) runs, removeName('beta') has already "
-                            + "emptied the query's name set, so query.name() returns the fingerprint's "
-                            + "12-hex short form rather than 'beta' -- see STATE-034's FINDING. Either "
-                            + "way, the resolved directory does not exist and root/alpha is untouched.")
-                    .containsExactly("alpha");
+                    .as("the last name goes, so the computation goes, and alpha's directory goes with "
+                            + "it -- the directory the checkpointer was actually started with, which is "
+                            + "the thing neither the dropped name nor the fingerprint could name")
+                    .isEmpty();
             assertThat(new FileCheckpointStore(root.resolve("alpha")).availableIds())
-                    .hasSize(3);
+                    .isEmpty();
         }
     }
 }

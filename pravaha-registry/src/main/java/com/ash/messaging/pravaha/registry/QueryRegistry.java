@@ -489,11 +489,11 @@ public final class QueryRegistry implements AutoCloseable {
         // from an identifier and "../" in a view name should not be able to choose where a
         // checkpoint lands.
         String directory = checkpointDirectoryFor(name);
+        java.nio.file.Path checkpointDirectory = checkpointRoot.resolve(directory);
         com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer checkpointer =
                 com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer.from(
                                 execution,
-                                new com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore(
-                                        checkpointRoot.resolve(directory)),
+                                new com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore(checkpointDirectory),
                                 checkpointConfiguration,
                                 // The narrative channel: start-up line, a line per success, a line per
                                 // failure. Not the failure counter -- wiring the counter here counted all
@@ -507,14 +507,18 @@ public final class QueryRegistry implements AutoCloseable {
                         // it gets an answer.
                         .reportingFailuresTo(query::recordCheckpointFailure);
         checkpointer.start();
-        query.checkpointWith(checkpointer);
+        query.checkpointWith(checkpointer, checkpointDirectory);
     }
 
-    private void deleteCheckpointsOf(String name) {
-        if (checkpointRoot == null) {
-            return;
-        }
-        java.nio.file.Path directory = checkpointRoot.resolve(checkpointDirectoryFor(name));
+    /**
+     * Deletes a checkpoint directory that a dropped computation was writing to.
+     *
+     * <p>Takes the path the checkpointer was given rather than a name to re-derive it from. The
+     * previous version took a name and was called after the last name had already been removed, so
+     * it resolved a fingerprint digest that had never been a directory, deleted nothing, and the
+     * {@code NoSuchFileException} went into the catch below indistinguishable from a real one.
+     */
+    private void deleteCheckpointDirectory(java.nio.file.Path directory) {
         try (java.util.stream.Stream<java.nio.file.Path> entries = java.nio.file.Files.list(directory)) {
             for (java.nio.file.Path entry : entries.toList()) {
                 java.nio.file.Files.deleteIfExists(entry);
@@ -797,7 +801,7 @@ public final class QueryRegistry implements AutoCloseable {
             // The name the checkpointer was STARTED with, not the one being dropped. For a shared
             // computation those differ, so deleting by the dropped name removed nothing and left the
             // directory orphaned. Both are mine, from the same change.
-            deleteCheckpointsOf(query.name());
+            query.checkpointDirectory().ifPresent(this::deleteCheckpointDirectory);
         }
         // The journal entry was written before anything was released: a drop the client is told
         // failed must not have destroyed the computation, and a drop that succeeded must survive a

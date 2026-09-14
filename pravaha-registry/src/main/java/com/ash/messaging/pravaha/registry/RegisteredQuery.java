@@ -468,12 +468,27 @@ public final class RegisteredQuery implements AutoCloseable {
         checkpointFailures.incrementAndGet();
     }
 
+    private volatile java.nio.file.Path checkpointDirectory;
     private volatile String lastCheckpointFailure;
     private final AtomicLong checkpointFailures = new AtomicLong();
 
-    /** Attaches the checkpointer for this computation. Called once, by the registry that started it. */
-    void checkpointWith(AutoCloseable periodic) {
+    /**
+     * Attaches the checkpointer for this computation, and the directory it writes to.
+     *
+     * <p>Called once, by the registry that started it. The directory is kept rather than re-derived
+     * from a name at drop time: a shared computation checkpoints under the name it was *started*
+     * with, and by the time the last name is being dropped that name has already been removed --
+     * so re-deriving it produced a directory that never existed and deleted nothing. Recording the
+     * path the checkpointer was actually given removes the question.
+     */
+    void checkpointWith(AutoCloseable periodic, java.nio.file.Path directory) {
         this.checkpointer = periodic;
+        this.checkpointDirectory = directory;
+    }
+
+    /** Where this computation's checkpoints are, or empty if it is not checkpointing. */
+    java.util.Optional<java.nio.file.Path> checkpointDirectory() {
+        return Optional.ofNullable(checkpointDirectory);
     }
 
     /** Attaches the feed opened for this computation. Called once, by the registry that started it. */

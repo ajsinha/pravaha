@@ -1602,7 +1602,7 @@ right place to point at it rather than leaving it only inside a case file.
 ## STATE — found executing `docs/qa/cases/STATE.md`
 
 ### ST-1 (HIGH) — every `drop()` leaks its checkpoint directory, not only a shared computation's
-> **Status:** OPEN — `QueryRegistry.drop` still calls `query.removeName(name)` before `deleteCheckpointsOf(query.name())`, where `name()` delegates to `anyName()`; `StateCheckpointDirectoryTest#state034_droppingAQueryDeletesItsCheckpointDirectory` passes while asserting the checkpoint directory and its files survive the drop
+> **Status:** FIXED — the registry now records the path the checkpointer was given (`RegisteredQuery.checkpointWith(AutoCloseable, Path)`) and `drop` deletes that, so nothing is re-derived from a name that has already been removed. `deleteCheckpointsOf(String)` is gone, replaced by `deleteCheckpointDirectory(Path)`. `StateCheckpointDirectoryTest#state034` and `#state035` now assert the directory and its files are gone after the drop; 13/13 green, and 4,522 registry + state + lifecycle tests pass.
 
 
 `QueryRegistry.drop` (`QueryRegistry.java:774`–`796`) calls `query.removeName(name)` first and, when
