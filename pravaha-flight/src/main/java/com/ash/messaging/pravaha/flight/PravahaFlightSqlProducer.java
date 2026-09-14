@@ -486,8 +486,12 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             String viewName = fields.get(1);
             Principal principal = principalOf(context);
             QueryRegistry required = requireRegistry();
-            RegisteredQuery query = required.require(viewName);
 
+            // Authorized before resolved. Resolving first meant an unauthorized caller got the
+            // registry's answer -- "no query named 'payrol' is registered" for a name that does not
+            // exist, versus a policy refusal for one that does -- and the two replies distinguish
+            // them. The owner's third constraint is that a user receives only the data they are
+            // authorized for, and which names exist is data.
             AccessDecision decision = policy.mayRead(principal, viewName);
             audit.record(AuditEvent.of(principal, "subscribe", viewName, decision, filterText(fields)));
             if (!decision.allowed()) {
@@ -495,6 +499,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         SecurityErrors.FORBIDDEN,
                         principal.id() + " may not subscribe to '" + viewName + "': " + decision.reason());
             }
+            RegisteredQuery query = required.require(viewName);
             if (decision.rowFilter().isPresent()) {
                 // Refused, because this path cannot enforce it, and an entitlement that is silently
                 // discarded is worse than one that is refused.

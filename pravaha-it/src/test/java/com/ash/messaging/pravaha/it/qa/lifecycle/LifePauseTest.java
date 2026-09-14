@@ -192,11 +192,13 @@ class LifePauseTest extends LifecycleTestSupport {
 
     @Test
     void life049_pausingANameThatDoesNotExist() {
+        // The "[a]" half of this expectation is withdrawn by STRM-9 -- see LIFE-069 for why the
+        // registry no longer enumerates in a refusal.
         registry.register("a", S1, List.of(0), Principal.ANONYMOUS);
         assertThatThrownBy(() -> registry.pause("nope"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("no query named 'nope'")
-                .hasMessageContaining("[a]");
+                .hasMessageNotContaining("[a]");
     }
 
     @Test

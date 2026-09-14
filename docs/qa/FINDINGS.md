@@ -4334,7 +4334,7 @@ buffer "decides how far behind a subscriber may fall"; it decides how large a si
 
 ### STRM-9 (HIGH) — an unauthorised principal learns every query name on the node from a misspelled subscribe
 
-> **Status:** OPEN — reproduced in `SrvG.s102` against a `PravahaFlightServer` whose `SecurityPolicy.mayRead` denies the principal on every view.
+> **Status:** FIXED — both halves. `PravahaFlightSqlProducer.streamSubscription` now calls `policy.mayRead` **before** `required.require(viewName)`, so an unauthorized caller cannot tell a name that does not exist from one they may not read; and `QueryRegistry.require`'s refusal no longer appends `this node has [...]`. `ErrcRegistryTest#operationsOnAnUnknownNameAreRefusedWithoutListingWhatDoesExist`, `LifeDropTest#life069`, `LifePauseTest#life049` all assert the non-enumerating refusal. 4,114 tests green.
 
 `streamSubscription` calls `required.require(viewName)` (`PravahaFlightSqlProducer.java:489`)
 **before** `policy.mayRead` (`:491`), and `QueryRegistry.require` builds its message from
@@ -4633,3 +4633,26 @@ configuration at all, and finds out as a node that will not start.
 Found on the STRM path because STRM-022 compares every declared type across the subscription and
 read paths; the 12 types that are reachable agree exactly, `TIMESTAMP` at nanosecond precision and
 `BYTES` through both defensive clones included. `TYPE`/`CFG` own the fix.
+
+
+### PF-11 (LOW) — the actionable "this node has [...]" hint is gone from three refusals, and nothing replaced it in the CLI
+
+> **Status:** OPEN — a deliberate consequence of fixing STRM-9, recorded so the usability cost is visible rather than discovered later.
+
+`QueryRegistry.require`'s refusal used to end with every registered name, which is genuinely what a
+user wants after a typo — `ERRC-098` asserted it on purpose, calling it "the same actionable content
+PRV-4023 provides for views", and `LIFE-069` was named for it.
+
+It is gone because the registry sits below the policy and holds no principal, so it cannot decide
+whose names a caller may be told. Enumerating unconditionally is the wrong default for the layer that
+cannot ask, and STRM-9 showed exactly what it costs: one principal, denied read on every view,
+learned the whole catalogue by misspelling a single name.
+
+The information is still available where it can be authorized — `pravaha queries` and the Flight LIST
+action both go through `policy.mayRead`. What is missing is the *prompt*: nothing tells a user who
+just mistyped a name to go and run it.
+
+The fix is a suggestion at the authorized layer rather than a list at the unauthorized one: the
+Flight and HTTP paths know the principal, so a `PRV-8002` raised there could append the names that
+principal may read — a near-miss suggestion, filtered. Small, and worth doing before the CLI feels
+blunter than it was.

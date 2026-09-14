@@ -149,14 +149,20 @@ class LifeDropTest extends LifecycleTestSupport {
     }
 
     @Test
-    void life069_droppingANameThatNeverExistedListsWhatIsKnown() {
+    void life069_droppingANameThatNeverExistedDoesNotListWhatIsKnown() {
+        // LIFE-069 as authored expected the refusal to name what does exist. Withdrawn by STRM-9:
+        // a principal denied read on every view learned the node's catalogue by misspelling one
+        // name. QueryRegistry sits below the policy and holds no principal, so it cannot decide who
+        // may be told which names, and enumerating unconditionally is the wrong default for the
+        // layer that cannot ask. `pravaha queries` and the Flight LIST action still answer it, and
+        // both go through policy.mayRead.
         registry.register("a", S1, List.of(0), Principal.ANONYMOUS);
         registry.register("b", S1 + " WHERE id > 0", List.of(0), Principal.ANONYMOUS);
         assertThatThrownBy(() -> registry.drop("nope"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("no query named 'nope'")
-                .hasMessageContaining("a")
-                .hasMessageContaining("b");
+                .hasMessageNotContaining("[a")
+                .hasMessageNotContaining("b]");
     }
 
     @Test

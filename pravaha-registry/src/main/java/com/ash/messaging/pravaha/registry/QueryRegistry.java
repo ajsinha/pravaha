@@ -743,11 +743,22 @@ public final class QueryRegistry implements AutoCloseable {
         return Optional.ofNullable(byName.get(name));
     }
 
+    /**
+     * The query registered under {@code name}, or a refusal that does not enumerate the others.
+     *
+     * <p>The refusal used to end with "this node has [...]", every name in {@code byName},
+     * unfiltered by any policy. It is a useful thing to see when a name is misspelled and an
+     * unacceptable thing to hand to a caller who may read none of them: one principal, denied on
+     * every view, learned the whole catalogue by misspelling one name (STRM-9). Debugging
+     * convenience is not worth a tenant list.
+     *
+     * <p>A caller entitled to know what exists has {@code names()} and the LIST action, both of
+     * which are the right place for that question because both can be authorized.
+     */
     public synchronized RegisteredQuery require(String name) {
         return find(name)
                 .orElseThrow(() -> new PravahaException(
-                        RegistryErrors.NO_SUCH_QUERY,
-                        "no query named '" + name + "' is registered; this node has " + names()));
+                        RegistryErrors.NO_SUCH_QUERY, "no query named '" + name + "' is registered"));
     }
 
     /** Every name registered, in registration order. */

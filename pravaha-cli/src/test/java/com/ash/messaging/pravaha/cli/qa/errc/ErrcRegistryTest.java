@@ -138,15 +138,23 @@ class ErrcRegistryTest extends ErrcServerSupport {
     // ------------------------------------------------------------ ERRC-098 -- PRV-8002
 
     @Test
-    void operationsOnAnUnknownNameListWhatDoesExist() {
+    void operationsOnAnUnknownNameAreRefusedWithoutListingWhatDoesExist() {
         cli("register", "--url", url, "--name", "v1", "--sql", "SELECT usr, amount FROM txn", "--keys", "0");
 
         for (String verb : List.of("drop", "pause", "resume")) {
             ErrcServerSupport.CliResult r = cli(verb, "--url", url, "--name", "nosuch");
             assertThat(r.code()).as(verb).isEqualTo(1);
             assertThat(r.err()).as(verb).contains("PRV-1041").contains("PRV-8002");
-            // E3: lists what does exist -- the same actionable content PRV-4023 provides for views.
-            assertThat(r.err()).as(verb).contains("v1");
+            // The case's E3 expectation -- "lists what does exist", as PRV-4023 does for views --
+            // is withdrawn, and deliberately: STRM-9 reproduced one principal, denied read on every
+            // view, learning the node's whole catalogue by misspelling a single name. QueryRegistry
+            // is below the policy and holds no principal, so it cannot decide which names a caller
+            // may be told about, and a refusal that enumerates unconditionally is the wrong default
+            // for the one that cannot ask.
+            //
+            // The actionable content is not gone, it moved to where it can be authorized: `pravaha
+            // queries` and the Flight LIST action both go through policy.mayRead.
+            assertThat(r.err()).as(verb).doesNotContain("v1");
         }
     }
 
