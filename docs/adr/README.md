@@ -49,3 +49,4 @@ description of the system (DOCX-042, DOCX-046).
 | [032](032-parameters-are-values-not-queries.md) | Prepared statements bind at plan-build time so a value is never parsed; a `?` may stand where a value goes and nowhere else |
 | [033](033-the-ui-ships-as-its-own-artefact.md) | The UI ships as one self-contained artefact, reaches the engine only through the public API, and puts a stateless service layer between the browser and the SDK |
 | [034](034-distribution-deferred.md) | One node scaled to its cores. Multi-node deferred; key-partitioned aggregates built instead, which is the missing rung and distribution's foundation |
+| [035](035-wave-8-is-survival-not-distribution.md) | Wave 8 is survival on one node -- node ownership of durable state, real checkpoint barriers, a standby, and wiring three built-but-unreachable mechanisms. Not E7's cluster |

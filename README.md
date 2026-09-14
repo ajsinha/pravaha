@@ -356,7 +356,7 @@ operator console is its own artefact in [`console`](console).
 | 5 | 19–25 | Joins, Aerospike, checkpointing and recovery | ✅ built |
 | 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built |
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built · console included |
-| 8 | 39–45 | Cluster and HA | ▫️ not started |
+| 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ▫️ not started |
 | 9–10 | 46–62 | Time-travel debugger, Nexmark published head-to-head, **GA** | ▫️ not started |
 
 Waves 1–7 are merged to `main` at tag `M7`. "Built" means the code is there and tested; it does not

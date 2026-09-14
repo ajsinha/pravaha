@@ -20,7 +20,7 @@ otherwise have to rediscover the hard way.
 | Java tests | **1101** — 14 of them against real Aerospike and PostgreSQL servers in Docker |
 | Python tests | **39**, including the client driving a real Java Flight SQL server |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **34** |
+| ADRs | **35** |
 
 **Where the waves stand.** Waves 3, 4 and 5 (E4) are **complete** in scope, Wave 6 (E5) and Wave 7
 (E6) are complete in scope as well — see their sections below — and Gates P2, P3 and P6 are

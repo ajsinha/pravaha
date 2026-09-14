@@ -202,7 +202,7 @@ at the end of one.
 | **5** | E4 Aerospike, joins, durability | 19–25 | Exactly-once state proven by chaos test; W4 ≥ 5× |
 | **6** | E5 Backfill & serving | 26–32 | **First defensible demo** — W3 point lookup ≤ 200 µs |
 | **7** | E6 Gateways, clients, DX | 33–38 | W2 deploy ≤ 2 s; starter green on Spring Boot 3.2–3.5 |
-| **8** | E7 Cluster & HA | 39–45 | Rolling node kills, zero loss; W7 restore ≤ 30 s |
+| **8** | E7 Survival on one node ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)) | 39–45 | A killed node restarts onto its own state and nothing else's; a standby takes over and names what it lost |
 | **9** | E8 Control plane & self-tuning | 46–53 | W10 debugger finds a seeded bug and exports the fixture |
 | **10** | E9 Breadth, benchmarks, GA | 54–62 | All SLOs; W5 Nexmark published; **GA** |
 
@@ -426,7 +426,7 @@ Design §23 specifies the console. This epic runs **alongside** E3–E9 rather t
 | **5** | **E4** | 4 | 19–25 | Aerospike, bilinear incremental joins, checkpointing, recovery, pushdown |
 | **6** | **E5** | 5 | 26–32 | Backfill, blue/green updates, serving layer, consistency modes |
 | **7** | **E6** | 6 | 33–38 | gRPC + Arrow gateways, Avatica, typed clients, full CLI, error catalogue, TCK, docs-as-tests |
-| **8** | **E7** | 7 | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, multi-tenancy, elastic rescale |
+| **8** | **E7** | 7 | 39–45 | **Rescoped by [ADR-035](adr/035-wave-8-is-survival-not-distribution.md):** node ownership of durable state, aligned checkpoint barriers, standby + checkpoint failover, and wiring the dead-letter queue / L0 state map / changelog analysis. Ratis, membership, assignment, rebalance, multi-tenancy and elastic rescale stay deferred with ADR-034 |
 | **9** | **E8** | 8 | 46–53 | Control-plane UI, time-travel debugger, security, observability, self-tuning controllers |
 | **10** | **E9** | 9 | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, soak, security review, TCO validation, GA |
 
@@ -715,7 +715,7 @@ Each epic is one **wave** (§4.0). Epics are decomposed into stories at the star
 | **5** | **E4** Aerospike, joins, durability | 19–25 | Aerospike plugin (4 strategies), expression pushdown, idempotent sink, lookup join, bilinear incremental join, aligned checkpoints, recovery, capability negotiation | Exactly-once state proven by chaos test; Profile C **≥ 120 k rec/s/lane**; pushdown equivalence property green; **W4 ≥ 5× fewer bytes ingested** |
 | **6** | **E5** Backfill & serving | 26–32 | snapshot→CDC splice, adaptive throttling, blue/green cutover, served views, 4 consistency modes, read replicas, read admission control | 3 years backfilled with storage p99 impact **< 10 %**; **W3 p99 point lookup ≤ 200 µs**; a SQL change deployed with zero downtime and rolled back |
 | **7** | **E6** Gateways, clients, DX | 33–38 | gRPC + Arrow + credit flow control, Avatica, typed Java/Python/Go clients, **`pravaha-server` as a Spring Boot app (modes C/D)**, **`pravaha-spring-boot-starter` (mode B)**, full CLI, `PRV-nnnn` error catalogue, plugin TCK v2, docs-as-tests | Python client sustains **1 M rows/s**; DBeaver connects via Avatica; **W2 deploy ≤ 2 s**; every first-party plugin passes the TCK; server reaches ready in ≤ 2 s; starter green against Spring Boot 3.2, 3.3, 3.4 and 3.5 in the CI matrix |
-| **8** | **E7** Cluster & HA | 39–45 | Ratis metadata, membership, assignment, rebalance, failover, savepoints, tenant quotas, elastic rescale | 3-node cluster survives rolling kills with zero data loss; rebalance pause **≤ 5 s**; **W7 10 GB restore ≤ 30 s** |
+| **8** | **E7** Survival on one node | 39–45 | **Rescoped by [ADR-035](adr/035-wave-8-is-survival-not-distribution.md).** Node ownership of the checkpoint root and the registry journal (CFG-13, CFG-14); aligned checkpoint barriers, replacing the per-lane control task ADR-008 is currently served by; standby + checkpoint failover, no consensus; the dead-letter queue, L0 state map and changelog analysis made reachable or deleted. Ratis, membership, assignment, rebalance, savepoints, tenant quotas and elastic rescale stay deferred with ADR-034 | A node restarted beside a second node pointed at the same state comes up running its own registrations and no others; a standby takes over from the checkpoint and reports what the takeover lost rather than implying continuity; each of the three mechanisms is reachable from a supported path or gone |
 | **9** | **E8** Control plane & self-tuning | 46–53 | Spring Boot + React UI, all screens, time-travel debugger, OIDC/RBAC/audit, observability, skew remediation, live replanning, tier promotion | Full lifecycle driven from the UI; **W10** a seeded production bug is found by replay and exported as a passing JUnit fixture |
 | **10** | **E9** Breadth, benchmarks, GA | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, 72 h soak, security review, TCO validation, migration tooling, GA docs | All NFR SLOs met; **W5** ≥ parity on 18/22 Nexmark queries and ≥ 2× on 8; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated; soak clean; SBOM + security sign-off |
 
@@ -750,7 +750,7 @@ Time-boxed investigations that run *before* the story that depends on them, on `
 | M5 | 5 | It's durable, on Aerospike | 25 | Kill a node mid-checkpoint; exact recovery | Gate P4 |
 | **M6** | 6 | **First defensible demo** | **32** | Incremental compute over Aerospike with pushdown; 3 years backfilled safely; point queries in µs — no other system involved | **External/customer demo** |
 | M7 | 7 | It's usable | 38 | Python client at 1 M rows/s; DBeaver; 2 s deploy | Gate P6 |
-| M8 | 8 | It's highly available | 45 | Rolling node kills under load, zero loss | Gate P7 |
+| M8 | 8 | It survives itself | 45 | A killed node restarts onto its own state; a standby takes over and says what it lost | Gate P7 |
 | M9 | 9 | It's operable | 53 | Time-travel debug of a seeded production bug | Gate P8 |
 | M10 | 10 | **GA** | 62 | Nexmark numbers published head-to-head | Release 1.0.0 |
 
