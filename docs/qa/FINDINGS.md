@@ -2374,7 +2374,7 @@ auditing a token table for accidental duplicates.
 
 **Status: OPEN, low priority.** See docs/qa/logs/SECX.md (SECX-007).
 
-## SX-15 (HIGH) — a row filter that plans to no `FilterOperator` fails open, serving an unrestricted read with no error
+## SX-15 (HIGH) — FIXED — a row filter that planned to no `FilterOperator` failed open, serving an unrestricted read with no error
 
 `ViewQuery.withRowFilter` plans `SELECT * FROM <source> WHERE <filter>`, then walks the tree for the
 **first** `FilterOperator` and calls `injectAboveScan`; when Calcite's own optimizer has already
@@ -2393,6 +2393,18 @@ genuinely restrictive for another (a common shape — e.g., a filter keyed on a 
 and non-empty for most tenants but literally `1=1` for a default/superuser tenant) produces silent,
 total over-service for the tenant whose filter folds away, with the audit log actively misreporting
 it as filtered.
+
+**FIXED — fail closed.** `withRowFilter` refuses when no predicate survives planning, naming what
+happened and what to do: a policy meaning "this principal may read everything" says so with an
+unrestricted allow, not with a filter that restricts nothing. Between serving everything and
+refusing, a security decision refuses.
+
+Two of the three spellings turned out not to need it, and the distinction is worth recording because
+they look identical from outside. `1 = 1` is **not** folded away — it survives as a real predicate
+evaluating true per row, so the filter is applied and excludes nothing, which is what the policy
+asked for. `user_id = user_id` is refused for a reason of its own: a text column compared to a
+column is beyond the predicate compiler. Only `TRUE` left the plan with nothing in it, and only that
+case was serving unrestricted. Seed-proven by restoring the fail-open path.
 
 **Reproduction:** configure a row-filtered principal's `AccessDecision.allowWithRowFilter` predicate
 as `"TRUE"` or `"1 = 1"`, read any view through it → every row returned, `AuditEvent` reads "allowed

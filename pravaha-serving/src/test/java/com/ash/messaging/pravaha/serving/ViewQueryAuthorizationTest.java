@@ -134,6 +134,53 @@ class ViewQueryAuthorizationTest {
     }
 
     @Test
+    void aFilterThatLeavesNoPredicateIsRefusedRatherThanServedUnrestricted() {
+        // SECX-15, and the sharpest failure this campaign found. Calcite folds a predicate it can
+        // decide at plan time, so a filter of TRUE leaves no FilterOperator anywhere in the plan --
+        // and the injection walked the tree, found nothing, and returned the plan untouched. The
+        // read ran with no restriction while the audit recorded "allowed with a row filter": a
+        // false record of enforcement, which is worse than no record at all.
+        //
+        // Confirmed live before the fix: a principal entitled to two of four rows, with his filter
+        // text set to TRUE, received all four.
+        ViewQuery queries = queryWith((principal, view) -> AccessDecision.allowWithRowFilter("TRUE"));
+
+        assertThatThrownBy(() -> queries.execute("SELECT user_id FROM user_volume", ANALYST))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-7003")
+                .hasMessageContaining("left no predicate in the plan");
+    }
+
+    @Test
+    void aFilterThatSurvivesPlanningIsAppliedEvenWhenItMatchesEveryRow() {
+        // The distinction the fix turns on, and worth stating because the two look identical from
+        // outside. `1 = 1` is *not* folded away -- it survives as a real predicate that evaluates
+        // true per row, so the filter is applied and simply excludes nothing, which is what the
+        // policy asked for. Only the case where no predicate survives is a failure of enforcement,
+        // and only that one is refused.
+        //
+        // A third spelling, `user_id = user_id`, is refused for a reason of its own: comparing a
+        // text column to a column is beyond what the predicate compiler supports. Also safe, and
+        // not this fix's doing.
+        ViewQuery queries = queryWith((principal, view) -> AccessDecision.allowWithRowFilter("1 = 1"));
+
+        assertThat(queries.execute("SELECT user_id FROM user_volume", ANALYST).rows())
+                .as("a surviving predicate is applied even when it matches every row")
+                .isNotEmpty();
+    }
+
+    @Test
+    void aPolicyThatMeansEverythingSaysSoWithAllowRatherThanATautology() {
+        // Refusing a folded tautology is only defensible because there is a correct way to say the
+        // same thing, and it works.
+        ViewQuery queries = queryWith((principal, view) -> AccessDecision.allow());
+
+        assertThat(queries.execute("SELECT user_id FROM user_volume", ANALYST).rows())
+                .as("an unrestricted allow reads the whole view")
+                .isNotEmpty();
+    }
+
+    @Test
     void everyDecisionIsRecorded() {
         ViewQuery queries = queryWith((principal, view) ->
                 principal.hasRole("analyst") ? AccessDecision.allow() : AccessDecision.deny("not an analyst"));
