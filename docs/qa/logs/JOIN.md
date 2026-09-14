@@ -250,15 +250,125 @@ for every other JOIN-04x/05x case; confirmed stable over three repeated runs aft
 
 ---
 
+## §1/§2 revisited, §3 (lanes), §4 (reachability), §5 (SQL-level refusals)
+
+New this batch: `pravaha-it/src/test/java/com/ash/messaging/pravaha/it/JoinPlanningAndReachabilityTest.java`,
+covering everything in this round that needs `pravaha-sql` (a real plan built from SQL text) rather
+than a hand-built `JoinOperator`.
+
+Seed-proven: (1) the reversed-operand branch of `collectEquiKeys` (`leftKeys.add(second)` weakened to
+`leftKeys.add(first)`) — broke JOIN-010's test with an `IndexOutOfBoundsException`, confirming the
+branch is genuinely reached (not dead code Calcite's own canonicalisation makes unreachable — that
+was checked directly, with a debug print, before concluding so) and load-bearing; (2) `mapDownToScan`'s
+projection case (`project.sourceOrdinals().get(ordinal)` weakened to `ordinal`, i.e. ignoring the
+projection's reordering) — broke JOIN-042's test, silently dropping 200 pairs to 50 on four lanes with
+no exception, exactly the failure mode the case describes as "correct-looking, and wrong." Both
+reverted; `pravaha-sql` and `pravaha-runtime` confirmed clean (`git status`) and `mvn verify` re-run
+green on both modules afterward.
+
+Two assertions in the case file's own quoted text turned out not to match the engine exactly, found
+while writing the test and corrected with evidence rather than silently worked around:
+
+- **JOIN-029.** The case says "nothing in the message mentions months, intervals or variable-length
+  units." True of the *prose* — there is no sentence explaining the real reason — but the message
+  also interpolates Calcite's own rendering of the rejected condition
+  (`'>=($1, -($3, 1:interval month))'`), and that raw dump does spell out "month" (or "year").
+  Recorded as: no explanatory phrase, but the raw unit name is present via the condition dump.
+- **JOIN-043.** The case's quoted message reads `Compute(...)`; the engine's actual rendering, from
+  `ComputeOperator.label()`, is `Compute[...]` with square brackets. Checked against the real string.
+
+- **JOIN-009 — PASS.** `threeEquiKeysNarrowTheAnswerLikeTwoDoButForAThirdReason`. Three equalities
+  (`user_id`, `region`, `seg`); 2 of 3 orders match, the third differs on both of the extra columns.
+- **JOIN-010 — PASS.** `theEqualitysOperandsMayBeWrittenInEitherOrder`. `l.k = r.k` and `r.k = l.k`
+  give identical output rows, compared by value. Seed-proven.
+- **JOIN-013 — PASS.** `aFloat64KeyPlansFineAndFailsOnlyWhenThePipelineIsCompiled`. The plan itself
+  succeeds (nothing in `buildJoin` checks key type); `InterpretedPipeline.compile` is where `PRV-3021`
+  arrives, confirming the plan-time/run-time discrepancy the case's Intent names.
+- **JOIN-014 — PASS.** `aDecimalKeyPlansFineAndFailsOnlyWhenThePipelineIsCompiledWithAThinnerMessage`.
+  Same shape; message is one clause ("DECIMAL keys are not supported yet") with no "Round or cast"
+  remedy, confirmed absent by assertion rather than by reading.
+- **JOIN-029 — PASS** (superseding the earlier NOT RUN and the pre-existing `TemporalJoinTest` case,
+  now with the exact code and message checked). See the correction above.
+- **JOIN-035 — PASS (established by reading, reconfirmed).** `QueryRegistry:530` still hard-codes lane
+  count 1 and `PluginSourceFeeds:116` still calls `pumpInto`, not `pumpPartitionedInto`; grep re-run
+  this session, unchanged from the case file's own citation.
+- **JOIN-036 — PASS (pre-existing).** `JoinOnLanesTest.feedingAMultiLaneJoinFromAnUnroutedPumpIsRefused`,
+  re-run this session.
+- **JOIN-037, 038 — PASS (pre-existing, partial).**
+  `JoinOnLanesTest.aJoinAcrossFourLanesJoinsEveryPairWhenRowsAreRoutedByKey` establishes the count
+  (200) and that more than one lane did work, but not the case's stronger per-key single-lane
+  assertion, and not the explicit 1-lane-vs-4-lane equality as a comparison (038's own falsifier).
+  Recorded PASS on the existing evidence's own terms; the per-key and explicit-equality assertions are
+  additional rigor not yet written this round.
+- **JOIN-039 — NOT RUN.** 2 and 8 lanes, and lanes exceeding key count, are not covered by any
+  existing test at those specific counts.
+- **JOIN-040 — PASS (pre-existing).** `JoinOnLanesTest.aPartitionedPumpAdvancesEventTimeLikeAnUnpartitionedOne`.
+- **JOIN-041 — PASS.** `generatingWatermarksAfterAPumpHasAlreadyBeenCreatedIsRefused`.
+  `IllegalStateException`, no `PRV-` code, confirmed absent by assertion.
+- **JOIN-042 — PASS.** `theJoinKeyIsMappedDownThroughAReorderingProjectionRatherThanTakenAsIs`.
+  200 pairs on 1 lane and on 4, through a projection that puts the join's key at a different ordinal
+  than the scan's. Seed-proven.
+- **JOIN-043 — PASS.** `aJoinKeyThatPassesThroughAComputedColumnCannotBeRoutedAndIsRefused`.
+  `PRV-3021` naming `Compute[...]` (see correction above) and "Run this query on one lane"; the
+  1-lane run of the same query is then confirmed to actually work (1 pair), so the suggested remedy
+  is verified rather than assumed.
+- **JOIN-044 — PASS (reconfirmed).** `aLookupJoinCannotBePlannedAgainstAStreamCatalog`, alongside the
+  pre-existing `LookupJoinTest.joiningAStreamThisWayIsRefusedWithWhatToDoInstead`. The source-audit
+  half of this case (enumerating every `SqlPlanner.with*` call site) was re-confirmed by grep, not
+  re-run as a JUnit assertion — see JOIN-045 below for the same method.
+- **JOIN-045 — PASS (source audit, not a JUnit case).** `grep -rn "lookup" pravaha-server/src/main/resources/application.yaml`
+  found nothing; `StreamController`'s request handling (`pravaha-server/.../api/StreamController.java`)
+  takes only a schema, no lookup flag. No JUnit test is the right instrument for a "this key does not
+  exist anywhere" claim; recorded as HJ4/source-audit per the case's own Setup.
+- **JOIN-046 — PASS.** `aValidLookupPlanCannotBeStartedThroughTheFiveArgumentOverloadTheRegistryUses`.
+  `QueryExecution.start`'s five-argument overload (the one `QueryRegistry:530` calls) fails
+  synchronously, from the `start()` call itself, not on the first record.
+- **JOIN-047, 048 — PASS (pre-existing).** `LookupJoinTest.eachRecordIsEnrichedFromTheDimensionTable`
+  / `.anInnerLookupJoinDropsARecordWithNoMatch` / `.aRegisteredQueryCanReachALookupJoin` (047);
+  `.aLeftLookupJoinEmitsTheRecordWithNullsAndNeverRetractsIt` (048). Re-run this session.
+- **JOIN-054 — PASS.** `rightAndFullJoinsBothSayToSwapTheInputsAndUseLeft`. Both `PRV-2020`, both name
+  their own join type and "Swap the inputs and use LEFT" — the pre-existing `OuterJoinTest` only
+  covered RIGHT; FULL is new evidence this session.
+- **JOIN-058 — PASS.** Two tests. `aNonEquiConditionOnNonTimestampColumnsIsACrossProductAndIsRefused`
+  covers (a) and (b) — an equality present elsewhere in the same `AND` does not rescue the inequality.
+  `anInequalityBetweenTwoTimestampColumnsIsATimeBoundAndPlans` covers (c) — a plain `>` between two
+  event-time columns is recognised and plans, unlike the non-timestamp case. The bounds/off-by-one
+  observation the case also asks for (`>` recorded as `atLeast(0)`, admitting `delta == 0` through the
+  inclusive `>=` test) was not separately asserted this session.
+- **JOIN-059 — PASS.** `crossJoinIsRefused`: `CROSS JOIN` is rewritten by Calcite into a join whose
+  condition is the literal `true`, which reaches `collectEquiKeys`' own fall-through (`PRV-2020`,
+  "neither an equality... nor a time bound") — the specific one of the case's three candidate sites,
+  confirmed by reading the thrown exception's type and message rather than assumed.
+  `aTimeBoundWithNoEqualityIsRecognisedButHasNoKeyToIndexByAndIsRefused` covers the second shape.
+- **JOIN-060 — PASS (a, b); NOT RUN (c).** `aSelfJoinPlansSuccessfullyAndFailsWithoutACodeOnlyWhenThePipelineIsCompiled`:
+  the plan itself succeeds; `InterpretedPipeline.compile` throws an `UnsupportedOperationException`
+  ("appears on both sides of this plan... self-joins are not supported yet") with no `PRV-` code,
+  confirmed absent by assertion. The control (two distinct streams, same query shape) plans, compiles
+  and produces one pair. Part (c) — the SDK/CLI wraps a registration refusal as `PRV-1041
+  CLIENT_QUERY_REFUSED` (a real code, declared in `sdk/pravaha-sdk-java/.../ClientErrors.java`, that
+  belongs to the *client's* refusal-reporting rather than to the *server's* actual reason) — needs a
+  live node and the CLI/SDK round trip, not stood up this round; **NOT RUN**. This resolves what
+  first read as a contradiction in the case's own title ("without a code") versus its body ("wrapped
+  as PRV-1041"): both are true, at two different points in the same refusal's life.
+
+---
+
 ## Running tally (JOIN-001 … JOIN-060)
 
 | Verdict | Count | Cases |
 |---|---|---|
-| PASS | 32 | 003–008, 011, 012, 015–028, 030–032, 034, 049–053, 056, 057 |
-| NOT RUN | 8 | 001, 002, 009, 010, 013, 014, 029, 033 |
-| Not yet reached | 20 | 035–048, 054, 055, 058–060 |
+| PASS | 55 | 003–032, 034–038, 040–059 |
+| PASS (partial) | 1 | 060 — (a) and (b) PASS, (c) NOT RUN, needs a live node |
+| NOT RUN | 2 | 033, 039 |
+| Not yet reached | 2 | 001, 002 |
 
-This is two batches of a multi-batch round. §3 (lanes/routing) and the remainder of §4 (044–048,
-which are reachability and correctness cases needing the registry or `pravaha-sql`) and §5's
-SQL-level refusals (054, 055, 058–060), plus the deferred SQL-planning halves of
-JOIN-009/010/013/014/029, are picked up in the next batch under this same log file.
+NOT RUN: 033 (an instrumentation enumeration — the counters it names are all exercised individually
+elsewhere in this file, but the specific diagnosability point was not written up as its own assertion
+this round) and 039 (the 2-lane, 8-lane and lanes-exceed-keys counts have no test yet, though the
+1-lane/4-lane equality JOIN-038 asks for is established). **Not yet reached: 001, 002** — both need a
+live node (HJ3) or the CLI (HJ4/CLI for 001 specifically, since `RunCommand` has no second `--stream`
+flag to even attempt it); no node was stood up this round.
+
+This closes three batches of the round. What remains for a future batch: standing up HJ3 (a real
+`pravaha register`/`pravaha queries` node) for JOIN-001, 002 and JOIN-060(c); JOIN-039's lane-count
+sweep; and JOIN-033's diagnosability enumeration as its own assertion.
