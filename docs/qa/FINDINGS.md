@@ -2787,3 +2787,53 @@ tries to use it fails.
 
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/SECX.md (SECX-058 cell
 11/12, SECX-060c).
+
+### PF-1 (MED) — `benchmarks/results/lane-scaling.json` records a method that no longer exists, so the number cannot be reproduced
+
+> **Status:** OPEN — confirmed by inspection: the JSON's `"benchmark"` field reads `com.ash.messaging.pravaha.benchmarks.LaneScalingBenchmark.roundTrip`; the only `@Benchmark` in `LaneScalingBenchmark.java:141` is `oneRow`. See `docs/qa/logs/PERF.md` PERF-003 step 4.
+
+The recorded lane-scaling figures were produced by a harness the source no longer contains. They
+cannot be re-run, compared against, or regression-checked — the number has no path back to the code
+that made it. Either re-record it against `oneRow` or delete it; a committed baseline that cannot be
+reproduced is worse than no baseline, because it reads as evidence.
+
+### PF-2 (MED) — the build claims a CI benchmark regression gate that does not exist
+
+> **Status:** OPEN — reproduced: `grep -rn "benchmarks.skip" --include=pom.xml` returns exactly three lines (the declaration at `pom.xml:126` and two profile overrides at `:583`/`:607`), none of them a plugin `skip` parameter, and no workflow in `.github/workflows/` invokes JMH or compares a baseline. `package` with and without `-Pbench` produces byte-identical artefacts (sha256 `3584d287401e19fb…` both ways). See `docs/qa/logs/PERF.md` PERF-002.
+
+`pravaha-benchmarks/pom.xml:11` says "Baselines are committed; CI fails on a >10% regression" and
+`benchmarks/README.md:5`–`:7` says CI "fails the build on a regression greater than 10 %". No plugin
+reads `benchmarks.skip`, so the `bench` and `all` profiles flip a property nothing consults.
+
+The byte-diff is what makes this a statement about the build rather than about a grep: the profile is
+not merely unwired, it is provably inert.
+
+### PF-3 (MED) — eleven error messages tell an operator to change a setting that does not exist
+
+> **Status:** OPEN — reproduced: no `pravaha.lane.*` or `pravaha.arena.*` key is read anywhere in `src/main`, and a node started with `--pravaha.lane.count=4 --pravaha.arena.slab.size=16MB` started normally and never mentioned either key. See `docs/qa/logs/PERF.md` PERF-004.
+
+Seven sites name `arena.slab.size` (`RowArena.java:87`, `InterpretedPipeline.java:692` and `:754`,
+`LookupJoin.java:308`, `SymmetricHashJoin.java:170` and `:205`, `WindowAssign.java:68`) and four name
+`lane.inbox.cell.size` (`IngestPump.java:107`, `PartitionedIngestPump.java:107`, `RowInbox.java:223`,
+and `RowInbox.java:218` in javadoc). The PERF case file predicted five; there are eleven.
+
+What actually runs is hard-coded: `QueryRegistry.java:590` passes the literal `1` for the lane count
+and `RowArena.DEFAULT_SLAB_BYTES` is 4 MiB. An operator following the advice in the message edits a
+file, restarts, sees the same failure and has no way to learn why. The keys are unread rather than
+rejected, which is the variant that silently produces the wrong deployment.
+
+### PF-4 (MED) — no test covered a lane dying on the feed path, which is the shape of the defect that started this QA cycle
+
+> **Status:** FIXED — `pravaha-it`'s `LaneDeathVisibilityTest.aLaneThatDiesOnTheFeedPathIsAskableAbout`, seed-proven: with `QueryExecution.laneFailure()` stubbed to `Optional.empty()` it fails in 34s with "the lane never recorded a failure within PT30S", and passes in 2.5s against the real implementation. Seed reverted, runtime tree confirmed clean.
+
+`RegisteredQuery.state()` polling `execution.laneFailure()` is the fix for a lane that dies where
+nobody is looking. Every test of it drove `accept()` — `LifeFailureTest.life126/129/130` and
+`ContinuousQueryAnswerTest.cq053` all push a row in and catch the throw on the caller's thread. That
+is the path that was already working.
+
+A server-fed query never calls `accept()`: rows arrive through `PumpingFeed` to
+`IngestPump.pumpOnce` to `lane.claim()/publish()`, and `advanceWatermarkQuietly` swallows every
+`RuntimeException`. So the covered path and the broken path were different paths, and a regression
+that reconnected the recording to the caller's thread would have passed every existing test.
+
+The new test offers rows straight into `lane(0)` and never calls `accept()`.
