@@ -184,4 +184,4 @@ subscriber silently missing data is the failure the mechanism exists to make vis
 | [User guide](USER_GUIDE.md) | The whole surface, task by task |
 | [What SQL it runs](SQL_SUPPORT.md) | Every construct, checked by a test |
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code and what to do |
-| [Case studies](../examples/case-studies/) | Four worked systems you can copy |
+| [Case studies](../examples/case-studies/) | Five worked systems you can copy |

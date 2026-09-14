@@ -10,7 +10,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 | [Quickstart](QUICKSTART.md) | Clone to a running continuous query | First |
 | [Concepts](CONCEPTS.md) | The eight ideas everything follows from | Second, and it is the highest-value page here |
 | [User guide](USER_GUIDE.md) | The whole surface, task by task, in Java / Python / shell | When you start building |
-| [Case studies](../examples/case-studies/) | Four worked systems with stores, data and code to copy | When you want a template |
+| [Case studies](../examples/case-studies/) | Five worked systems with stores, data and code to copy | When you want a template |
 
 ## Reference
 

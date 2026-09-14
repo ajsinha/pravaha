@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
-Every case study needs somewhere for data to live. Two stores cover all four: **Aerospike** for the
+Every case study needs somewhere for data to live. Two stores cover all five: **Aerospike** for the
 studies that read a hot key-value store, **PostgreSQL** for the one that reads a ledger. You do not
 need both — each case study says which it uses.
 

@@ -279,7 +279,7 @@ following this line to 8080 lands you on the wrong process.) It is a *functional
 
 | | |
 |---|---|
-| [Case studies](../examples/case-studies/) | Four worked systems: banking, finance, trading, biology |
+| [Case studies](../examples/case-studies/) | Five worked systems: trade processing, banking, finance, trading, biology |
 | [Operations](OPERATIONS.md) | Running it: memory, disk, admission, what to watch |
 | [Security](SECURITY.md) | Authentication, authorization, audit |
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code |

@@ -49,10 +49,10 @@ public class SecurityProperties {
     /** {@code none} or {@code token}. */
     private String authentication = "none";
 
-    /** {@code permissive} (everyone sees everything) or {@code tenant} (a tenant sees its own). */
+    /** {@code permissive} (everyone sees everything) or {@code authenticated} (only verified callers see anything). Anything else is refused at startup with PRV-7002. */
     private String policy = "permissive";
 
-    /** {@code none}, {@code memory} or {@code log}. */
+    /** {@code none} or {@code memory}. Anything else is refused at startup with PRV-7002. */
     private String audit = "none";
 
     /**

@@ -53,7 +53,7 @@ team running both does not have to hold two mental models.
 
 ```bash
 pip install pravaha            # contracts only
-pip install 'pravaha[grpc]'    # with the transport, from Wave 7
+pip install 'pravaha[flight]'  # with the transport (pyarrow, which brings Flight and gRPC)
 ```
 
 ## Develop

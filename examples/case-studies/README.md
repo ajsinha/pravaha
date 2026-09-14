@@ -71,7 +71,7 @@ Stated up front so you can decide before investing an afternoon. The complete li
   this and shows the shape.
 - **No `ORDER BY` or `LIMIT`.** "Top ten" is sorted by your application over a narrowed result.
 - **No outer joins between two streams**, and no self-joins. A lookup join —
-  `LEFT JOIN … FOR SYSTEM_TIME AS OF` — is supported and is what all four studies use.
+  `LEFT JOIN … FOR SYSTEM_TIME AS OF` — is supported and is what the studies with a dimension table use.
 - **No unwindowed keyed `GROUP BY` over a stream.** It is refused, deliberately, because its state
   would grow with the number of distinct keys forever. Over a *view* it works, and the studies use it
   for their summary queries.

@@ -348,7 +348,7 @@ with connect("grpc://localhost:9090") as client:
 |---|---|
 | [Concepts](CONCEPTS.md) | The eight ideas. Read this next |
 | [User guide](USER_GUIDE.md) | The whole surface, task by task |
-| [Case studies](../examples/case-studies/) | Four worked systems — banking, finance, trading, biology — with a store to stand up and code to copy |
+| [Case studies](../examples/case-studies/) | Five worked systems — trade processing, banking, finance, trading, biology — with a store to stand up and code to copy |
 | [What SQL it runs](SQL_SUPPORT.md) | Every construct, checked by a test |
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code |
 

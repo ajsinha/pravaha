@@ -20,10 +20,17 @@ otherwise have to rediscover the hard way.
 | Java tests | **1101** — 14 of them against real Aerospike and PostgreSQL servers in Docker |
 | Python tests | **39**, including the client driving a real Java Flight SQL server |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **33** |
+| ADRs | **34** |
 
-**Session of 2026-09-09/10 — what changed.** Waves 3 and 4 are **complete** in scope, Wave 5 (E4) is
-complete except for what needs hardware or a cluster, and **Wave 6 (E5) has started**.
+**Where the waves stand.** Waves 3, 4 and 5 (E4) are **complete** in scope, Wave 6 (E5) and Wave 7
+(E6) are complete in scope as well — see their sections below — and Gates P2, P3 and P6 are
+unpassed for want of reference hardware rather than code. This header said "Wave 6 has started"
+for two waves after it had finished, which is what a session note becomes when it is not dated out
+of the way; the wave-by-wave detail below is the part to trust. **No gate pack exists for waves 5
+or 6** — `docs/gates/` holds wave-1 through wave-4 and wave-7 — so the evidence for those two
+waves is this document and the tests, and nothing else.
+
+**Session of 2026-09-09/10 — what changed at the time.**
 
 Wave 5 delivered: computed projections and expressions in `WHERE`; **stream-to-stream joins** end to
 end — SQL, runtime, off-heap state with real reclamation, checkpointed on both sides, recovery
