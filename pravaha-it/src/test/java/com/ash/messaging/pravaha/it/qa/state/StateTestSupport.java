@@ -231,4 +231,18 @@ abstract class StateTestSupport {
         query.accept("lkp", view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
         query.awaitApplied(Duration.ofSeconds(10));
     }
+
+    /**
+     * Reflective access to a {@code RegisteredQuery}'s checkpointer field, for tests that must force
+     * a checkpoint directly or read its in-memory {@code Stats} without touching the filesystem.
+     */
+    static com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer checkpointerOf(RegisteredQuery query) {
+        try {
+            java.lang.reflect.Field field = RegisteredQuery.class.getDeclaredField("checkpointer");
+            field.setAccessible(true);
+            return (com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer) field.get(query);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+    }
 }

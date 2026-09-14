@@ -1320,3 +1320,47 @@ landed after a case file was authored here rather than failing the case silently
 drift in this one file, across both its preamble and individual cases in sections C and F particularly,
 is worth a maintainer's attention: `STATE.md` should have a pass reconciling it against current
 `develop`, the way `LIFE.md`'s round evidently already got a partial one.
+
+### ST-3 (MEDIUM) — chmod'ing a checkpoint directory read-only is silently undone by the next checkpoint
+
+`FileCheckpointStore.store` opens every write with `SensitiveFiles.createOwnerOnly(temporary)`
+(`FileCheckpointStore.java:74`), whose first act, unconditionally, is `narrow(parent,
+OWNER_ONLY_DIRECTORY)` — a `chmod` of the checkpoint directory itself to `rwx------`
+(`SensitiveFiles.java:65`). So an operator (or a test, or a backup tool) that removes the write bit
+from a query's checkpoint directory has that protection **silently restored by the very next
+checkpoint attempt**, before the attempt does anything else. `RegistryJournal.append` has the
+identical shape for the journal file's directory. This is deliberate and, for the case it was written
+for (STATE-090: "an existing journal with loose permissions is narrowed on the next append"),
+correct — but it also means STATE-044 and STATE-046's literal setup ("chmod `root/w` to `0500`,
+confirm the store fails") does not, and cannot, produce a failing store: the mode is corrected before
+the write is attempted. The only way to make a checkpoint genuinely fail via permissions is to remove
+*traversal* on an ancestor `narrow()` cannot reach — the checkpoint root itself (its parent), not the
+per-query leaf directory — confirmed directly (`StateFailureReportingTest.state044`, both arms in one
+test). Not a defect in the write path, which behaves exactly as its own STATE-090 comment intends;
+recorded because two other authored cases assume a failure mode that this same mechanism prevents.
+
+### ST-4 (MEDIUM) — `checkpointFailures()`/`lastCheckpointFailure()` count every checkpoint log line, not failures
+
+`QueryRegistry.startCheckpointing` wires `query::recordCheckpointFailure` as `PeriodicCheckpointer`'s
+general-purpose `log` consumer (`QueryRegistry.java:503`), and `PeriodicCheckpointer` calls that
+consumer for **every** line it logs: the one-off `"checkpointing every ...ms"` at `start()`, every
+successful `"checkpoint N stored, M bytes"`, and every `"checkpoint failed (...)"`.
+`RegisteredQuery.recordCheckpointFailure` (`RegisteredQuery.java:454`) does not filter — it sets
+`lastCheckpointFailure = message` and increments `checkpointFailures` unconditionally, for whichever
+of the three arrived. So `RegisteredQuery.checkpointFailures()` is not a count of failures; it is a
+count of checkpoint-related log lines, and `lastCheckpointFailure()` can hold a success message.
+This is invisible whenever a query's checkpointing has been failing continuously (every recent log
+line genuinely is a failure, so the count and the name still read true by coincidence) — which is
+every scenario STATE-044/046/049 as authored construct. It surfaced here because `ST-3` made a
+genuinely-succeeding sequence of checkpoints available to check against: `StateFailureReportingTest
+.state044` registers a query, makes every checkpoint succeed (the `ST-3` self-heal), and shows
+`checkpointFailures()` climbing anyway, with `lastCheckpointFailure()` holding a `"checkpoint N
+stored, ... bytes"` line. An operator reading `checkpointFailures()` on a healthy, successfully
+checkpointing query sees a rising number with no indication it is not what the name says.
+
+**Shape of the fix:** give `PeriodicCheckpointer` a distinct callback for failures only (it already
+has the information — `checkpointQuietly`'s `catch` block, `PeriodicCheckpointer.java:150`–`:159` —
+and currently reuses the general `log` consumer for it), and have `QueryRegistry` wire
+`query::recordCheckpointFailure` to that one instead of to every log line. Not applied here: changing
+`PeriodicCheckpointer`'s public constructor/callback shape is a real API change, not a small,
+obviously-safe one, per this round's brief.

@@ -500,15 +500,4 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
                     .hasSize(3);
         }
     }
-
-    /** Reflective access to a {@code RegisteredQuery}'s checkpointer field, for tests that must force one. */
-    private static PeriodicCheckpointer checkpointerOf(RegisteredQuery query) {
-        try {
-            java.lang.reflect.Field field = RegisteredQuery.class.getDeclaredField("checkpointer");
-            field.setAccessible(true);
-            return (PeriodicCheckpointer) field.get(query);
-        } catch (ReflectiveOperationException e) {
-            throw new AssertionError(e);
-        }
-    }
 }

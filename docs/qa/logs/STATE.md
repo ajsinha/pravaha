@@ -195,7 +195,101 @@ harmless — the fix is an improvement), 1 FAIL-as-authored-and-defect (STATE-03
 
 ---
 
+## §D — Permissions, atomicity, and what "durable" actually means (STATE-036 … STATE-042)
+
+Test class: `StateDurabilityTest`. STATE-036/037 run a standalone JVM under a controlled `umask` via
+`bash -c 'umask 0022; exec java ...'` (`StatePermissionsRunner`, a small `main()` this test launches),
+because a JVM's umask cannot be changed once it has started. STATE-039 runs a second standalone JVM
+under `strace` (`StraceDurabilityRunner`) rather than attaching to the test's own JVM, because
+`ptrace(PTRACE_SEIZE, ...)` is refused in this sandbox (`Operation not permitted`) — launching a fresh
+process under `strace` does not need that permission and works. Seed-proven:
+`SensitiveFiles.createOwnerOnly`'s call to `narrow(file, OWNER_ONLY)` was commented out; STATE-036
+failed immediately (`rw-r--r--` instead of `rw-------`). Reverted and reconfirmed green.
+
+- **STATE-036 — PASS** (POSIX). `state036_aCheckpointFileIsMode0600`: under `umask 0022`,
+  `checkpoint-1.bin` is `rw-------`.
+- **STATE-037 — PASS** (POSIX). `state037_theCheckpointDirectoryIsMode0700`: before the first
+  `store()`, the directory is at the umask (`rwxr-xr-x`) — `Files.createDirectories` does not narrow;
+  after the first `store()`, `rwx------`. Both observations from one run, confirming which call does
+  the narrowing.
+- **STATE-038 — PASS.** `state038_aCheckpointIsPublishedByRenameAndIsNeverReadableHalfWritten`: a 64
+  MiB payload, a reader thread polling `availableIds()`/`load(1)` throughout the write; every observed
+  `load(1)` was either absent or present-and-complete (64 MiB exactly) — never present-and-short. No
+  `checkpoint-1.tmp` remains after `store()` returns.
+- **STATE-039 — PASS** (strace usable in this sandbox via direct launch). `state039_storeReturnsWithNoFsyncContraryToTheInterfacesContract`:
+  one `fsync` in the whole trace, attributable to `RegistryJournal.append`'s `channel.force(true)`;
+  zero from `FileCheckpointStore.store`. `checkpoint-1.tmp` and a rename (`renameat`/`renameat2`, or
+  `rename` depending on the glibc/kernel path taken) are both present in the trace, confirming the
+  publish mechanism was actually exercised.
+- **STATE-040 — PASS.** `state040_aTruncatedCheckpointIsSkippedAndThePreviousOneIsUsed`: all three
+  truncation arms (−4, −12, to 30 bytes) — `load(3)` empty, `latest()` falls back to id 2,
+  `availableIds()` still lists all three filenames.
+- **STATE-041 — PASS.** `state041_aFileWhoseMagicIsWrongIsSkippedNotRead`: run as two independent
+  arms (two directories), because arm one's corruption of `checkpoint-2.bin` would otherwise still be
+  in effect when arm two asks what the newest *readable* id is — the case's own text implies arm two
+  is independent ("in arm two it returns id 2"). Zero-magic file and the fixed-seed 4096-byte random
+  file are both skipped; `latest()` returns 1 (arm one) and 2 (arm two) respectively.
+- **STATE-042 — PASS.** `state042_aCheckpointFromADifferentFormatVersionThrowsOutOfLatestInsteadOfBeingSkipped`:
+  `load(2)` throws `IllegalStateException` with the exact message; `load(1)` still succeeds (the
+  control); `latest()` throws rather than falling back to 1; `prune(1)` still succeeds (does not call
+  `load`); `latest()` still throws afterward, confirming the asymmetry the case describes.
+
+**Section tally: 7/7 executed, 7 PASS.**
+
+---
+
+## §E — A failed checkpoint is reported, every time (STATE-043 … STATE-049)
+
+Test class: `StateFailureReportingTest`. Writing STATE-044 surfaced two further findings, both
+recorded in `docs/qa/FINDINGS.md`: `ST-3` (chmod'ing a checkpoint directory read-only is silently
+undone by the very next checkpoint attempt, because `createOwnerOnly` unconditionally narrows the
+parent on every write) and `ST-4` (`checkpointFailures()`/`lastCheckpointFailure()` count every
+checkpoint log line, not only failures, because `QueryRegistry` wires the query's failure recorder as
+`PeriodicCheckpointer`'s general log consumer). Neither changes this section's PASS verdicts — the
+scenarios STATE-044/046/049 construct are genuine, sustained failure windows, where every recent log
+line really is a failure, so the counters read correctly by coincidence — but STATE-044's test now
+demonstrates both findings directly, using the self-heal to show a run where every checkpoint
+succeeds and `checkpointFailures()` still climbs.
+
+- **STATE-043 — PASS.** `state043_aStoreFailureDoesNotStopTheScheduleAndIsCountedEveryTime`:
+  `taken()==0` (a failing store never reaches the increment), `failed()` in `[8,11]` over 1s at
+  100ms; every failure log line matches the exact format with `<n>` running 1, 2, 3, ... in order.
+- **STATE-044 — PASS, adapted for `ST-3`.** `state044_theFailureIsRecordedOnTheQueryWhereAnOperatorAsksAboutIt`:
+  chmod'ing `root/w` (as authored) does not fail a single checkpoint — demonstrated directly, and
+  `ST-4` alongside it. Chmod'ing the checkpoint *root* (its parent) does: `checkpointFailures() >= 8`,
+  `lastCheckpointFailure()` present and containing `checkpoint failed (` and `cannot store checkpoint`.
+- **STATE-045 — NOT RUN.** Needs a lane genuinely stuck mid-batch inside `QueryExecution`'s compiled
+  `InterpretedPipeline`. `QueryExecution.start` compiles a plan straight into a `LanePipeline`
+  (`QueryExecution.java` — the `LanePipeline` record adapting a lane's batches to the pipeline) with
+  no seam to substitute a blocking `LaneProcessor` the way `LaneTest` does at the raw `Lane` level, and
+  windowed aggregates do not call `RowOutput` per row (only on window close), so there is no way to
+  inject a block via the output sink either. Building a seam would mean forking `QueryExecution`/`Lane`
+  internals, out of scope for this round's remaining time.
+- **STATE-046 — PASS, adapted for `ST-3`.** `state046_aDirectoryThatBecomesUnwritableMidLifeDegradesRecoveryWithoutEndingIt`:
+  reads `PeriodicCheckpointer.stats().taken()` (in-memory, via reflection on `RegisteredQuery`'s
+  `checkpointer` field) rather than the filesystem while the checkpoint root is unwritable — reading
+  the store's own listing also needs to traverse the root, which is exactly what is blocked, so a
+  filesystem-based read would itself throw during the blocked window rather than showing "unchanged".
+  `taken()` frozen during the blocked window, `checkpointFailures() >= 12`, the three pre-existing
+  files survive; `taken()` resumes climbing once writable again; `state()` is `RUNNING` throughout;
+  `registry.find("w")` present throughout.
+- **STATE-047 — PASS.** `state047_theFailureMessageSaysTheFallbackIsGettingOlder`: first three
+  failure log lines match the exact text with `<n>` = 1, 2, 3; none names the query (checked against
+  the literal substrings `'w'` / `query 'w'`, not a bare `contains("w")`, since ordinary words in the
+  fixed text — "newest" — already contain the single letter).
+- **STATE-048 — NOT RUN.** Needs a real node (`H-SRV`): `pravaha queries`, the console's
+  `/api/v1/queries` and `/queries/{name}`, and `/actuator/health`, standing up together against one
+  running server. Not attempted this round.
+- **STATE-049 — PASS, chmod target adapted for `ST-3`.** `state049_aSharedComputationHasOneCheckpointerAndOneFailureCounterReachableUnderEitherName`:
+  `registry.size()==1`, `names()` is `[alpha, beta]`; `find("alpha")` and `find("beta")` are the same
+  object; both failure counts equal and ≥ 8; exactly one `pravaha-checkpointer` thread.
+
+**Section tally: 7 total, 5 PASS, 2 NOT RUN (STATE-045, STATE-048), with concrete reasons above.**
+
+---
+
 ## Coverage so far
 
-STATE-001 … STATE-035 executed (35 of 110). STATE-036 onward not reached this round — see the final
-report for what remains and why.
+STATE-001 … STATE-049 executed (49 of 110): 45 PASS, 2 FAIL-as-authored (STATE-030 drift-only,
+STATE-034 a genuine defect, `ST-1`), 2 NOT RUN (STATE-045, STATE-048, both with concrete reasons).
+STATE-050 onward not reached this round — see the final report for what remains and why.
