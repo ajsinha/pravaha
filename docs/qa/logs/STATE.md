@@ -435,9 +435,50 @@ not follow here) -- worth recording as a harness lesson, not a product fact.
 
 ---
 
+## §H — Re-authorization, drops, sharing, and ordering (STATE-077 … STATE-084)
+
+Test class: `StateReauthorizationTest`. H-JRN throughout, except STATE-084's arm C, which reuses the
+`RegisteredQuery.execution` reflection already established for the checkpointer field, this time to
+reach `QueryExecution.lane(0)` and submit an infinite control task -- the seam STATE-045 could not
+find at the `QueryExecution`/`Lane` level exists at the registry level, since `QueryRegistry` exposes
+`executingWith(LaneConfig, MemoryAccess)` to install a short `shutdownTimeout` for the test.
+
+- **STATE-077 — PASS.** `state077_aDroppedNameStaysDroppedAcrossARestart`: `b` dropped before a
+  restart; `recovered()` is `[a, c]`; the journal still holds all four records (three `R`, one `D`).
+- **STATE-078 — PASS.** `state078_registerDropRegisterAgainReplaysAsPresent`: `a` recovers, present.
+- **STATE-079 — PASS.** `state079_registerDropRegisterDropReplaysAsAbsent`: replay is empty; recovery
+  is complete and empty.
+- **STATE-080 — PASS.** `state080_aPrincipalWhoHasLostReadAccessDoesNotGetTheQueryBack`: a policy
+  denying `txn` refuses `q` on replay with the exact message; the same journal under the permissive
+  policy (the control) recovers it.
+- **STATE-081 — PASS.** `state081_theServersOwnerLookupGivesEveryRecordedIdARoleLessPrincipal`:
+  `PravahaNode::principalNamed`'s exact mapping (any non-blank id -> a role-less principal, tenant
+  `"unknown"`) reproduced directly against two policy arms over one journal -- permissive recovers all
+  three including the `nosuchuser`-owned one; a role-required policy recovers none of the three, since
+  the reconstructed principal never has the required role.
+- **STATE-082 — PASS.** `state082_anOwnerRecordedAsBlankIsTheOnlyWayToReachTheUnknownOwnerRefusal`:
+  a hand-journalled blank owner refuses with the exact "is not a principal this deployment knows"
+  message; `PRV-8007`'s unreachability is ERRC's own sweep and not re-derived here.
+- **STATE-083 — PASS.** `state083_bothNamesOfASharedComputationReplayAndShareAgain`: `size()==1` on
+  both sides of a restart; `alpha`/`beta` resolve to the same object; the new checkpoint root contains
+  exactly one directory, `alpha` -- the first replayed name.
+- **STATE-084 — PASS, all three arms.** `state084_aDropTheClientIsToldFailedMustNotComeBackOnRestartAndOneThatSucceededMustNotSurvive`:
+  Arm A (drop of an unregistered name) -- `PRV-8002`, journal hash unchanged. Arm B (journal write
+  fails) -- reusing `ST-3`'s pattern (block the journal directory's *parent*, not the directory
+  itself, which self-heals); `PRV-8006`, the query still present and still answering; restored and
+  replayed, it recovers. Arm C (release fails) -- a lane occupied by an infinite control task cannot
+  close within its (shortened, for the test) shutdown timeout; the drop throws
+  `PRV-3010 lane 0 did not stop within PT0.3S`, but the journal already has the `D` record and the
+  registry no longer serves the name -- confirming the case's own finding that the chosen ordering
+  makes "told it failed" mean "it partly succeeded" for the release half.
+
+**Section tally: 8/8 executed, 8 PASS.**
+
+---
+
 ## Coverage so far
 
-STATE-001 … STATE-076 executed (76 of 110): 67 PASS, 7 FAIL-as-authored (STATE-030, 034, 050,
+STATE-001 … STATE-084 executed (84 of 110): 75 PASS, 7 FAIL-as-authored (STATE-030, 034, 050,
 052, 057, 059, 063 -- one genuine defect, `ST-1`; the rest drift, three of them one underlying
 finding, `ST-5`), 2 NOT RUN (STATE-045, STATE-048, both with concrete reasons).
-STATE-077 onward not reached this round -- see the final report for what remains and why.
+STATE-085 onward not reached this round -- see the final report for what remains and why.
