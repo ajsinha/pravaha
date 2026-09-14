@@ -230,8 +230,20 @@ client.query("SELECT total FROM user_volume WHERE user_id = ?", ["u1"])
 
 ## Types
 
-Supported on the wire and in expressions: `BOOLEAN`, `TINYINT`, `SMALLINT`, `INTEGER`, `BIGINT`,
-`REAL`, `DOUBLE`, `VARCHAR`, `VARBINARY`, `DATE`, `TIME`, `TIMESTAMP`.
+Supported in expressions: `BOOLEAN`, `TINYINT`, `SMALLINT`, `INTEGER`, `BIGINT`, `REAL`, `DOUBLE`,
+`VARCHAR`, `VARBINARY`, `DATE`, `TIME`, `TIMESTAMP`.
+
+**Correction (QA, TYPE round, 2026-09-14): two of those are not actually usable on the wire today.**
+`VARBINARY` (`BYTES`) and `TIME` are both declarable, both compute correctly in expressions, and
+both are accepted by `ArrowSchemas.arrowTypeOf` when the schema is described to a client — but
+serializing a *non-null value* of either type to a real client crashes: a non-null BYTES value
+throws `ClassCastException: String cannot be cast to [B`, and a non-null TIME value throws
+`ClassCastException: TimeNanoVector cannot be cast to TimeStampNanoTZVector` (`ArrowSchemas.write`
+was not updated to match a since-fixed `arrowTypeOf`). `pravaha run` (the file-driven path) is
+unaffected by either — only client-facing wire serialization (`pravaha query`/`subscribe`, or any
+Arrow Flight SQL client) is. Everything else in this list serializes correctly, including the six
+plain numeric types, `VARCHAR`, `DATE`, and `TIMESTAMP`. See `docs/qa/FINDINGS.md`'s TY-17 (BYTES)
+and TY-18 (TIME).
 
 `DECIMAL` is refused rather than sent as a floating-point number, because the rounding decision
 belongs to whoever owns the ledger and not to a serialiser. Year–month intervals (`INTERVAL '1'

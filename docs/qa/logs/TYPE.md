@@ -163,6 +163,188 @@ TYPE-030 — is a "defect already fixed" finding rather than a regression), 0 BL
 (32 cases).
 
 
+## §4-6 — Aggregate argument, Join key, GROUP BY key (TYPE-033 … TYPE-059)
+
+Vehicle: `pravaha run`/`validate` over `types.csv` for §4 (TYPE-033..043). For §5/§6 (join/group-by,
+TYPE-044..059), the live fixture-S server proved unreliable for the join cases (see Defect TY-15
+below) and was reaped twice by the shared host, so after reproducing and diagnosing the key failure
+live, an in-process JUnit harness (`pravaha-it/.../qa/types/TypeBatch2Test.java`, 20 tests, all
+green; written for this sub-round and left uncommitted per scope) drove the real
+`SqlPlanner`→`PhysicalPlanBuilder`→`InterpretedPipeline` path — the same product code a registered
+query or `pravaha run` executes — with the case file's own fixture values (`jl.csv`/`jr.csv`).
+
+- **TYPE-033 — PASS.** INT64 baseline, all five aggregate kinds exact
+  (`COUNT(*)=5, COUNT(i64)=4, SUM=9007199254740992, MIN=-9223372036854775808,
+  MAX=9223372036854775807, AVG=2251799813685248`).
+- **TYPE-034 — PASS,** substance matches, two exact strings stale. `SUM/MIN/MAX/AVG(i32)` fail at
+  run time exactly as the fact predicts, but wrapped in a generic `PRV-3010` (`Lane.checkHealth`)
+  around the same `IllegalArgumentException`, and the leaked schema name carries an extra
+  `_projected` stage (`types_projected_aggregated`, not `types_aggregated`) — same underlying
+  defect, stale exact text. `COUNT(i32)`=4, exit 0.
+- **TYPE-035 — PASS,** identical pattern for INT16.
+- **TYPE-036 — PASS,** identical pattern for INT8. The 200-row widening re-check is contingent on a
+  fix landing (it hasn't) — NOT RUN for that sub-part.
+- **TYPE-037 — PASS.** FLOAT32 refused at plan time, exact `PRV-2020` message for all four aggregate
+  kinds.
+- **TYPE-038 — PASS.** FLOAT64, same, including the mixed `SUM(f64),COUNT(*)` projection.
+- **TYPE-039 — PASS.** `COUNT`/`COUNT(*)` over floating columns exempt from the refusal, exact
+  match. `COUNT(DISTINCT f32/f64)` refuses immediately with `PRV-2050` rather than the 5-minute hang
+  Q-6 describes — the case's own text anticipates this fork and asks it be recorded as such, not as
+  FAIL.
+- **TYPE-040 — FAIL,** one sub-part. `MIN`/`MAX(s)` plan and fail at run time as predicted;
+  `COUNT(s)`=3; `COUNT(DISTINCT s)` hits the same PRV-2050 fork as TYPE-039. But `SUM`/`AVG(s)`
+  refuse with `PRV-2021` (Calcite inserts an implicit `CAST(s AS DECIMAL(38,19))`, tripping the
+  DECIMAL-arithmetic guard), not the documented `PRV-2002` type-mismatch code — see Defect TY-16.
+- **TYPE-041 — PASS.** `COUNT(b)`=4; `SUM/AVG(b)`→exact `PRV-2002`; `MIN/MAX(b)`→matching run-time
+  failure; `COUNT(DISTINCT b)` hits the PRV-2050 fork.
+- **TYPE-042 — PASS,** one sub-question left open. `COUNT(bin)`=3; `SUM(bin)`→exact `PRV-2002`;
+  `MIN/MAX(bin)`→matching run-time failure. `COUNT(DISTINCT bin)`: PRV-2050 fires first, so the
+  case's question of *which* BYTES-comparison exception would otherwise fire is BLOCKED, not
+  answered.
+- **TYPE-043 — PASS,** exact match (the one non-INT64 aggregate argument that should work, and
+  does): `MIN(ts)=-1`, `MAX(ts)=1700000000000000001`, `COUNT(ts)=4`; `SUM/AVG(ts)`→exact `PRV-2002`;
+  `COUNT(DISTINCT ts)` hits the PRV-2050 fork.
+- **TYPE-044 — PASS** on the isolated STRING-key mechanism (3 rows, inverted control 0 rows) /
+  **BLOCKED as literally specified** against fixture S's own `jl`/`jr` — see Defect TY-15.
+- **TYPE-045 — PASS** isolated (INT64 key) / **BLOCKED as specified** (TY-15).
+- **TYPE-046 — PASS** isolated (INT32 key) / **BLOCKED as specified** (TY-15).
+- **TYPE-047 — PASS** isolated (INT8 and INT16 keys, including sign extension) / **BLOCKED as
+  specified** (TY-15).
+- **TYPE-048 — PASS** isolated (BOOLEAN key, 5-row match) / **BLOCKED as specified** (TY-15).
+- **TYPE-049 — PASS** isolated (TIMESTAMP_LTZ key, 3-row match) / **BLOCKED as specified** (TY-15).
+- **TYPE-050 — PASS.** Both FLOAT64 and FLOAT32 join keys refused with the exact documented
+  `PRV-3021` message, confirmed to fire at pipeline construction, not at planning alone; the
+  documented `CAST(... AS BIGINT)` rewrite works, exact 3-row match.
+- **TYPE-051 — PASS, defect already fixed.** BYTES join keys are now refused with `PRV-3021` at
+  pipeline construction (before any row), not "plans, dies on the first row" as the preamble's Fact
+  9 and the case's own text predict — meets the case's own falsifier as a positive finding. The
+  ARRAY/MAP/ROW half fails *earlier and less informatively* (the pre-existing ANY-type dead end,
+  `PRV-2021`, no column/side/type named) — the same, already-known TYPE-020/Fact-2 limitation, not a
+  new defect.
+- **TYPE-052 — PASS** for the STRING key (unpaired rows never appear; 10,000 all-NULL rows appended
+  to each side leave `joinRowsHeld()`/`joinKeysHeld()` unchanged); the same non-pairing is confirmed
+  implicitly for the other six key types via their exact row counts in TYPE-045..049, though the
+  10,000-row bulk-growth check itself was run only for the STRING key.
+- **TYPE-053 — PASS.** 4 groups over a bounded view read, counts sum to 5, NULL group = 2.
+- **TYPE-054 — PASS,** with a case-file arithmetic note. INT8/16/32/64 all give 5 groups of 1 over
+  the base fixture; a merge-check row (all four columns = 1) merges INT8/INT16 to 5 groups
+  (confirming no cross-width contamination) but genuinely does **not** merge INT32/INT64, because
+  the fixture's own row-5 values for those widths (`16777217`, `9007199254740993`) aren't `1` — the
+  case's own "the same for i16, i32 and i64" claim doesn't hold for its own stated fixture; the
+  structural property it exists to prove (no contamination) still holds.
+- **TYPE-055 — PASS.** FLOAT32/FLOAT64 are legal group keys (9 groups over the cumulative fixture,
+  `0.0` and `-0.0` correctly distinct groups) and illegal aggregate arguments (`SUM(f64)`→`PRV-2020`).
+- **TYPE-056 — PASS.** 3 groups (true/false/NULL), sum 5, `COUNT(b)` over the NULL group = 0.
+- **TYPE-057 — PASS.** 5 groups of 1 at nanosecond resolution; a duplicate-timestamp row correctly
+  merges to a 5th group, not a 6th.
+- **TYPE-058 — PASS.** BYTES and DECIMAL group keys both refused at run time with the exact
+  documented `PRV-3020` message (DECIMAL reached via a programmatic schema, per Fact 1); DATE and
+  TIME succeed as the positive control — consistent with the preamble-drift note in §1-3 above (DATE/
+  TIME no longer need the programmatic route either, confirmed independently here).
+- **TYPE-059 — PASS.** 5 groups of 1; a multi-column key with NULLs in different positions
+  (`NULL,NULL` vs `true,NULL`) stays correctly separated; `COUNT(s)` sums to 3.
+
+**Section tally:** 24 PASS (6 of which — TYPE-044..049 — pass only via the isolated harness and are
+simultaneously BLOCKED against the literal fixture-S Setup, see TY-15), 2 FAIL, 0 fully BLOCKED,
+1 partial NOT RUN sub-check (27 cases).
+
+
+## §7-9 — Window boundary, ORDER, Wire serialisation (TYPE-060 … TYPE-079)
+
+Vehicle: fixture S (`pravaha register`/`query`/`subscribe`) for windowed and wire cases; a direct
+`ServedView`/`PravahaFlightServer` harness (mirroring `FlightSqlEndToEndTest`'s own pattern) for
+TYPE-068..079, after the literal fixture-S `tv`/`n` views turned out to be blocked by defects
+unrelated to the case under test (see Defects TY-17, TY-18, TY-19 below).
+
+- **TYPE-060 — PASS.** TUMBLE over TIMESTAMP: exact 2-row match
+  (`window_end=..010000000000, u1, n=2, total=202` / `u2, n=1, total=7`).
+- **TYPE-061 — PASS.** TUMBLE over an INT64 event-time column refused at registration,
+  `PRV-2002`/`PRV-1041` naming the `TUMBLE` argument type mismatch.
+- **TYPE-062 — PASS.** `window_end` typed `TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL`; the
+  `TUMBLE_START`/`TUMBLE_END` pair matches exactly (10-second diff, computed by hand — Calcite
+  itself refuses a direct `TIMESTAMP - TIMESTAMP` subtraction, `PRV-2002`, an incidental,
+  non-blocking finding, not part of this case).
+- **TYPE-063 — PASS, seed-proven.** Both `pravaha query` and a real Arrow Flight SQL client read
+  `window_end` as `Timestamp(NANOSECOND, UTC)` with no exception, including over the live subscribe
+  path (two further windows closing and delivering correctly). **Seed:** `ArrowSchemas.write`'s
+  `case TIME, TIMESTAMP_LTZ` cast reverted from `TimeStampNanoTZVector` to the historical
+  `TimeStampNanoVector`, rebuilt `pravaha-flight`+`pravaha-server`, restarted the node — reproduced
+  the historical regression byte-for-byte (`TimeStampNanoTZVector cannot be cast to
+  TimeStampNanoVector`, both via CLI and a real Flight client); reverted, rebuilt, restarted:
+  PASS again.
+- **TYPE-064 — PASS.** STRING/BOOLEAN/FLOAT64 named as the window's time column all refused at
+  registration with `PRV-2002`, in both the classic and `TABLE(TUMBLE(...))` spellings — Calcite's
+  own validator stops all four forms before `descriptorOrdinal`'s name-only lookup is ever reached;
+  no wrong-answer defect.
+- **TYPE-065 — FAIL.** 14 of 15 ORDER BY/related forms refused with `PRV-2020` naming `LogicalSort`,
+  exactly as documented. But `SELECT * FROM (SELECT id FROM types ORDER BY id) x` **plans and runs
+  successfully** instead of being refused — Calcite's optimizer drops the non-limited `ORDER BY`
+  inside a derived table before a `Sort` node ever reaches the physical plan, so
+  `PhysicalPlanBuilder` never sees anything to refuse. See Defect TY-20.
+- **TYPE-066 — Mixed.** Steps 1 and 3 (ORDER BY refused, `PRV-2020`) PASS exactly. Step 2 (order
+  stability across repeated reads) is BLOCKED against the literal 5-row `tv` fixture, because every
+  query against `tv` throws — see TY-17 (BYTES on the wire). Worked around with a `bin`-free `tv2`:
+  5 consecutive reads returned the same 2 rows in the same order — stability holds for what's
+  visible — but only 2 of 5 rows are visible at all, due to the independent, unrelated defect TY-21
+  (silent 24h retention eviction against the fixture's intentionally wide timestamp spread).
+- **TYPE-067 — PASS.** All ten constructs (`LIMIT`/`OFFSET`/set operations/`VALUES` →`PRV-2020`;
+  `ROW_NUMBER() OVER`/`IN (subquery)`→`PRV-2021`) refused with the documented codes, matching
+  `docs/SQL_SUPPORT.md`'s own table exactly.
+- **TYPE-068 — PASS** (direct-harness vehicle; see TY-17). BOOLEAN on the wire: nullable, values and
+  null bitmap exact.
+- **TYPE-069 — PASS** (same vehicle). INT8/16/32/64 all correctly typed and valued, including the
+  wide row-5 extremes with no float coercion.
+- **TYPE-070 — PASS** (same vehicle). FLOAT32/64 extremes exact, including the same row-5 precision
+  loss TYPE-001 already documents.
+- **TYPE-071 — PASS** (same vehicle, plus `tv`'s own `s` column). All 8 `text.csv` rows exact,
+  including `straße`, `👍ok`, and the padded-spaces row; the two independent NULL rows distinguished
+  correctly by the null bitmap alone.
+- **TYPE-072 — FAIL, critical, reproduced twice independently.** `SELECT id, bin FROM tv` (or any
+  non-null BYTES projection) throws `class java.lang.String cannot be cast to class [B`, via both
+  the real fixture-S server and a direct harness supplying a genuine `byte[]` (ruling out bad test
+  data). `WHERE bin IS NULL` and the no-BYTES-column control both succeed exactly as documented. See
+  Defect TY-17.
+- **TYPE-073 — PASS** (same vehicle). TIMESTAMP_LTZ exact, including the epoch, the adjacent-ns
+  pair, and the negative instant.
+- **TYPE-074 — FAIL, critical, the round's headline finding.** `arrowTypeOf` has already been fixed
+  to give TIME its own distinct Arrow type (`Time(NANOSECOND,64)`, not the same as TIMESTAMP_LTZ's
+  `Timestamp(NANOSECOND,UTC)`) — contradicting preamble Fact 8, which is stale. But
+  `ArrowSchemas.write()`'s switch was never updated to match: `case TIME, TIMESTAMP_LTZ ->
+  ((TimeStampNanoTZVector) vector).setSafe(...)` still casts both to the same vector type. Since the
+  schema now allocates a genuine `TimeNanoVector` for a TIME field, the cast throws deterministically
+  — reproduced twice, identical stack trace, surfaced to a real Arrow Flight SQL client as an
+  `INTERNAL` error. See Defect TY-18.
+- **TYPE-075 — PASS** (isolated `id,d` view, to avoid TY-19's collateral effect). DATE exact,
+  `Date(DAY)`, raw value `19723`.
+- **TYPE-076 — Mixed.** Part 1 (`getFlightInfo` refuses DECIMAL before any row is read) **PASSES,
+  seed-proven** — exact `PRV-6100  column 'amt': ...` match; **seed:** disabled
+  `arrowTypeOf(Field)`'s catch-and-rethrow, rebuilt — the `column 'amt':` prefix disappeared exactly
+  as expected, confirming the wrapper supplies it; reverted, rebuilt, confirmed restored. Part 2 (the
+  "second failure hiding behind the first") is now a **positive finding**: a raw DECIMAL row read
+  through `ServedView.apply` throws a clean `PRV-4025` naming the view and column, not the dangerous
+  offset/length misread the preamble's Fact 7 describes. But the case's own control
+  (`SELECT id FROM n` must succeed) **fails** given its own literal Setup (a view holding
+  `id, amt DECIMAL, d, t` together): `field 1 ('amt') is fixed-width; use the typed setter`, thrown
+  even though `amt` is never selected. See Defect TY-19.
+- **TYPE-077 — PASS,** with one drift. ARRAY/MAP/ROW projection and `*` all refused with
+  `PRV-2021 no Pravaha type for SQL type ANY...`, not the bare, code-less `IllegalArgumentException`
+  the case's own Expected predicts — consistent with the §1-3 preamble-drift note (Fact 2), the
+  message still names neither the type nor the column.
+- **TYPE-078 — PASS** (run over `tv`'s 10 non-BYTES columns, since `bin` is unconditionally broken —
+  TY-17). Every field, including `id`, is nullable on the wire; row 3's null bitmap is set on all 9
+  non-id columns; no column renders a type default in place of NULL.
+- **TYPE-079 — PASS,** one drift. Ordinary-type parameter schemas exact
+  (`param_1 utf8`, `param_2 int64`, `b=? → bool`, `ts>? → timestamp[ns,tz=UTC]`). BYTES/DECIMAL
+  placeholders refuse *earlier* than predicted — at `prepare()` with `PRV-2062`, not at bind/execute
+  with `PRV-2021` — and the `PRV-2062` message text ("a Long was bound") is misleading before any
+  client bind has occurred. NULL-binding and the `IS NULL` control both match exactly.
+
+**Section tally:** 15 PASS (2 of which — TYPE-063, TYPE-076 part 1 — are seed-proven, matching the
+round's two remaining named fixes: TIME-as-nanoseconds-on-the-wire and PRV-6100 naming the column),
+3 FAIL (2 of them — TYPE-072, TYPE-074 — the most severe findings of the whole round), 1 mixed
+(TYPE-066, partially BLOCKED by an unrelated defect), 0 fully BLOCKED, 0 NOT RUN (20 cases).
+
+
 ## §13-15 — Arithmetic, Division/modulo/zero, CASE WHEN (TYPE-102 … TYPE-124)
 
 Vehicle: `pravaha run`/`validate`/`explain` over `num.csv`, `case.csv` (per TYPE.md Fixtures).

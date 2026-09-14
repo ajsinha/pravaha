@@ -1970,6 +1970,128 @@ that should refuse identically.
 
 **Status: OPEN.** See docs/qa/logs/TYPE.md §1-3 (TYPE-031, contrast with TYPE-032).
 
+## TY-15 (HIGH) — a join crashes with an uncoded exception whenever any row on either side carries a BYTES/ARRAY/MAP/ROW column, not only when it's the key
+
+`JoinSide.add`/`markMatched` → `sameRow` → `RowValues.sameFields` compares **every** column of a
+row (not just the key ordinals) to decide Z-set-element identity, and `RowValues.equal`'s `default`
+branch throws for BYTES/ARRAY/MAP/ROW (`pravaha-runtime/.../exec/RowValues.java:44-52`). The instant
+two rows on one side of the join share the join key — nothing to do with what the join is keyed on —
+the comparison touches the row's *other* columns and crashes with an uncoded
+`UnsupportedOperationException` (no `PRV-` code). Confirmed twice: in-process (a JUnit harness
+reproducing it directly) and live against fixture S's own `jl`/`jr` streams, which carry a BYTES
+column (`kbin`) on every row unrelated to the STRING key under test — the registered query emitted 1
+of 3 expected rows, then silently went `FAILED`, invisible to a subsequent `pravaha query` read of
+the view (no error surfaced to the caller at all).
+
+**Status: OPEN.** Seed-proven (the failure itself is deterministic and was reproduced twice via
+independent vehicles; the mechanism was root-caused by reading `RowValues.java` rather than by a
+further code mutation, consistent with this round's brief for a FAIL that is its own evidence). This
+blocked TYPE-044 through TYPE-049 and part of TYPE-052 against their literal fixture-S Setup; those
+cases were instead confirmed via an isolated in-process harness that avoids the unrelated BYTES
+column, and are recorded PASS on the join-key mechanism itself / BLOCKED against the literal fixture.
+See docs/qa/logs/TYPE.md §4-6.
+
+## TY-16 (LOW) — `SUM`/`AVG` over a STRING column is refused by the wrong code
+
+Calcite inserts an implicit `CAST(s AS DECIMAL(38,19))` ahead of `SUM`/`AVG` on a STRING operand,
+rather than rejecting the operand type outright — so Pravaha's DECIMAL-arithmetic guard
+(`PRV-2021`) fires, not the plain type-mismatch `PRV-2002` TYPE.md's case expects. Still refused,
+still exit 1 — low severity — but the code is wrong and reveals `SUM`/`AVG` implicitly attempt a
+numeric coercion of a STRING operand rather than rejecting the type outright.
+
+**Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §4-6 (TYPE-040).
+
+## TY-17 (HIGH) — BYTES on the wire is broken: any non-null value crashes the read
+
+`SELECT ... <bytes column> ...` against any view with a non-null BYTES value throws
+`ClassCastException: class java.lang.String cannot be cast to class [B`, reproduced via two
+independent vehicles: the real fixture-S server (`pravaha register`+`pravaha query`) and a direct
+harness supplying a genuinely correct `byte[]` (ruling out corrupted test data). Two distinct
+coercion sites are implicated: `InterpretedPipeline.copyField`
+(`pravaha-runtime/.../exec/InterpretedPipeline.java:771-789`) has no `case BYTES` and defaults to
+`to.setString(toOrdinal, from.getString(fromOrdinal))`, corrupting a registered continuous query's
+BYTES output to a String at registration time; and even a directly-supplied, never-corrupted
+`byte[]` still throws the identical exception the moment the column is selected through the ad-hoc
+read path, so a second, downstream coercion also exists. `WHERE bin IS NULL` and a no-BYTES-column
+control both work correctly — this is specific to actually reading a non-null BYTES value.
+
+**Reproduction:** register or read any view whose schema includes a BYTES column with at least one
+non-null value, project that column → `ClassCastException`.
+
+**Status: OPEN.** Not seed-proven by code mutation (out of required scope), but reproduced twice via
+independent vehicles (real server, direct harness) — the failure itself is deterministic evidence.
+`docs/SQL_SUPPORT.md`'s wire-types line has been corrected (see below). See docs/qa/logs/TYPE.md
+§7-9 (TYPE-066 partial block, TYPE-072).
+
+## TY-18 (HIGH) — TIME on the wire crashes: `ArrowSchemas.write()` was not updated when `arrowTypeOf` was fixed to give TIME its own Arrow type
+
+`ArrowSchemas.arrowTypeOf(TypeName)` now maps `TIME` to a distinct `Time(NANOSECOND, 64)` Arrow
+type — no longer sharing `TIMESTAMP_LTZ`'s `Timestamp(NANOSECOND, "UTC")`, which is a genuine fix
+(preamble Fact 8 is stale). But `ArrowSchemas.write(...)`'s switch statement was not updated to
+match: `case TIME, TIMESTAMP_LTZ -> ((TimeStampNanoTZVector) vector).setSafe(index,
+((Number) value).longValue())` still casts both types' vectors identically. Since the schema now
+declares a genuine `Time` field, Arrow allocates a `TimeNanoVector` for it, not a
+`TimeStampNanoTZVector`, and the cast throws deterministically the moment any non-null TIME value is
+serialized: `class org.apache.arrow.vector.TimeNanoVector cannot be cast to class
+org.apache.arrow.vector.TimeStampNanoTZVector`, surfaced to a real Arrow Flight SQL client as an
+`INTERNAL` error. Reproduced twice, identical stack trace both times.
+
+**Fix shape:** give `TIME` its own `write()` case using a `TimeNanoVector` (`org.apache.arrow.vector.
+TimeNanoVector`), parallel to the `Time(NANOSECOND,64)` case in `arrowTypeOf`, rather than sharing
+the `TIME, TIMESTAMP_LTZ` case with `TimeStampNanoTZVector`. Not applied here per this round's rule
+against fixing defects unless small and obviously correct with an already-passing test to prove it —
+this needs a new test asserting a real TIME value survives the wire, which does not exist yet.
+
+**Status: OPEN.** Seed-proven — the failure is itself the evidence the seed-proof rule asks for (per
+this round's guidance, a FAIL that reproduces deterministically twice via independent code paths
+needs no further mutation to prove it real). This is one of the round's three named recently-fixed
+areas (TIME held as nanoseconds-of-day) turning out to be only half-fixed: the *value* is correctly
+nanoseconds-of-day, but it can never reach a client at all. See docs/qa/logs/TYPE.md §7-9 (TYPE-063
+control case still passes; TYPE-074 is the regression).
+
+## TY-19 (HIGH) — a DECIMAL column poisons every query against its view, even when the column is never selected
+
+`SELECT id FROM n` (a view whose schema includes `id, amt DECIMAL, d, t`, per TYPE-019's own
+programmatic-schema Setup) fails even though `amt` is never selected:
+`BinaryRowWriter.setBytes`: `field 1 ('amt') is fixed-width; use the typed setter`
+(`pravaha-common/.../row/BinaryRowWriter.java:223`) — the ad-hoc scan/materialise path attempts to
+write the DECIMAL column through the wrong setter regardless of projection. Unlike ARRAY/MAP/ROW
+(refused earlier, at planning, via `PRV-2021`) or an unselected BYTES column (works fine), DECIMAL
+is a real, planned type that reaches this broken materialisation step regardless of what the query
+actually projects — so a view is entirely unqueryable the moment its schema contains a DECIMAL
+column, independent of which case tried to test something else about that view.
+
+**Status: OPEN.** Not seed-proven (out of required scope), reproduced directly. This is a positive
+counterpoint worth noting alongside the finding: the specific *dangerous* raw-offset/length misread
+preamble Fact 7 describes for DECIMAL no longer reproduces — reading a DECIMAL value directly now
+throws a clean, coded `PRV-4025` naming the view and column, rather than silently misinterpreting
+the bytes. See docs/qa/logs/TYPE.md §7-9 (TYPE-076).
+
+## TY-20 (MEDIUM) — `ORDER BY` inside a non-limited derived table plans and runs instead of being refused
+
+`SELECT * FROM (SELECT id FROM types ORDER BY id) x` plans successfully (exit 0) instead of being
+refused with `PRV-2020` like every other unlimited `ORDER BY` form. Calcite's optimizer drops the
+meaningless, non-limited sort inside the derived table before a `Sort` node ever reaches the physical
+plan builder, so `PhysicalPlanBuilder` never sees anything to refuse — the refusal mechanism is
+plan-shape-dependent rather than a reliable guarantee that `ORDER BY` never silently succeeds.
+
+**Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §7-9 (TYPE-065).
+
+## TY-21 (HIGH) — silent 24-hour retention eviction against a view whose event-time column spans years
+
+`QueryRegistry.register()` always uses `Retention.DEFAULT` (24h) with no YAML-reachable override.
+A plain pass-through view's `appliedFrontier` tracks the running *maximum* event time ever applied,
+and `ServedView.commit` evicts any row whose own event time is more than 24h behind that maximum.
+`types.csv`'s intentionally wide 1969-2023 timestamp spread (used across many TYPE.md cases as
+"just some rows") means most of its rows are silently evicted from any bounded view read the moment
+a row near "now" is applied — observed directly as only 2 of 5 rows surviving in a view built from
+this exact fixture. This is a correctness trap for any view built over data with a realistic
+timestamp spread, with no configuration escape hatch.
+
+**Status: OPEN.** Not seed-proven (out of required scope; root-caused by reading `QueryRegistry`/
+`ServedView` and confirmed by direct reproduction). See docs/qa/logs/TYPE.md §7-9 (TYPE-066).
+
+
 # SECX — found executing `docs/qa/cases/SECX.md`
 
 Per the case file's own rule, no production code was modified for this area — none of the findings
