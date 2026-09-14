@@ -254,6 +254,7 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |
 | `PRV-6103` | FLIGHT_PARAMETERS_TOO_LARGE | gateway |
+| `PRV-6104` | FLIGHT_TLS_UNREADABLE | gateway |
 | `PRV-7001` | SECURITY_UNAUTHENTICATED | security |
 | `PRV-7002` | SECURITY_FORBIDDEN | security |
 | `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |

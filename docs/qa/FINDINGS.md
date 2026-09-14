@@ -1201,7 +1201,8 @@ uniform rule. (SQLX-160, SQLX-161)
 
 Cases run as real JUnit tests under `pravaha-it`'s new `qa.errc` package. Verdicts and evidence for
 every ERRC-nnn case are in `docs/qa/logs/ERRC.md`; this section is the defects only, added to as the
-round progresses (currently covers ERRC-001 … ERRC-029 and ERRC-089 … ERRC-103; more to follow in the
+round progresses (currently covers ERRC-001 … ERRC-029, ERRC-089 … ERRC-103, and the four tractable
+cross-cutting cases ERRC-111/114/116/118; more to follow in the
 same section).
 
 ### E-7 (HIGH) — `PRV-1040 CLIENT_CONNECT_FAILED` is unreachable through the scenario every new user hits
@@ -1368,6 +1369,10 @@ all, in either direction (no code, no pointer to what *is* supported).
 - **ERRC-094's "all four refusals carry the same message" does not hold literally** between
   no-credential and wrong-credential (two different messages) — but the security-relevant half of that
   claim (two *different* wrong credentials must be indistinguishable) is confirmed true.
+- **ERRC-111's fact 1 ("110 declarations") is itself stale.** A concurrent STATE-round commit added an
+  eleventh code, `PRV-8008 REGISTRY_NAME_UNUSABLE` (this file's own `ST-2` entry), between when
+  `ERRC.md` was authored and when this round's cross-cutting case ran — confirmed 111 distinct declared
+  numbers, one name each. The same class of drift `ST-2` names for `STATE.md`, here in `ERRC.md`.
 
 ## JOIN — found executing `docs/qa/cases/JOIN.md`
 

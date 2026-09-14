@@ -386,7 +386,8 @@ PRV-7xxx and PRV-8xxx below without needing a full `PravahaNode`/Spring Boot pro
   certificate and, separately, an absent key, both `PRV-6104`, both naming the absolute path, **at
   configuration time** — before `start()` ever binds a port, satisfying the case's "at startup"
   requirement more strongly than the case's own wording implies (no port is bound at all, not merely
-  "refused early in startup"). `PRV-6104` row already added to `TROUBLESHOOTING.md` in §2.
+  "refused early in startup"). `PRV-6104` row **added to `TROUBLESHOOTING.md` now, on this evidence**
+  (§2's own text incorrectly said this was already done — corrected here, not silently).
 
 **E-category reconfirmation (fact 5 / ERRC-114, done here rather than deferred):** `ErrorCode.Category`
 now has `FLIGHT(6000,6999)` as its own constant (commit `36a984f`, see §1's stale-facts note) — the
@@ -545,3 +546,78 @@ this file's document to edit.
 `PravahaNode`/Spring Boot (`pravaha-server`'s own test infrastructure, `ApiIntegrationTest`-style,
 `@SpringBootTest`), not stood up in this Flight-only harness this round. PRV-3xxx/4xxx/5xxx/9xxx and
 the eight cross-cutting cases (030-088, 104-118) were not reached this round.
+
+---
+
+## §7 — Cross-cutting: four tractable cases (ERRC-111, ERRC-114, ERRC-116, ERRC-118)
+
+Test class: `ErrcCrossCuttingTest`. **NOT RUN**: ERRC-112 and ERRC-115 (syntheses needing every one of
+the nine/ten unreachable-code cases first; 039, 043, 059, 061, 067, 074, 107 are in PRV-4xxx/5xxx/9xxx
+families not yet reached), ERRC-113 and ERRC-117 (need `pravaha-server`'s own HTTP/Spring Boot surface,
+not part of this Flight-only harness).
+
+- **ERRC-111 — PASS on the corrected count.** The case's own fact 1 ("110 declarations") is itself
+  stale: a concurrent STATE-round commit added an eleventh code, `PRV-8008 REGISTRY_NAME_UNUSABLE`
+  (`docs/qa/FINDINGS.md`'s `ST-2` entry), between when `ERRC.md` was authored and when this case ran —
+  confirmed **111** distinct declared numbers, all still mapping to exactly one name each. Documented
+  count is not asserted against a hardcoded total for the same reason (moving independently of this
+  round's own additions); the reason-attributable claim is the undocumented **set**: exactly `PRV-5090`,
+  `PRV-5091`, `PRV-5092` — the server-ingest family, not yet reached this round — after this round's
+  seven additions (§2's six, plus `PRV-6104` in this batch). Spurious set (documented-not-declared):
+  empty, confirming the case's own one-directional claim.
+- **ERRC-114 — PASS, formally reconfirming §4's informal note.** `ErrorCode.Category` has nine
+  constants (sampled across the full 1000-9999 range, not exhaustive per-number); `FlightErrors
+  .UNSUPPORTED_TYPE.category()` is `Category.FLIGHT`, `PRV-9001` is `Category.CLUSTER`, `PRV-8001` is
+  `Category.REGISTRY` — the case's fact 5 ("CLUSTER is the Flight range") is stale, fixed by commit
+  `36a984f` before this round began. E6 (the ranges table omits `PRV-9xxx`) still holds — visually
+  confirmed against the document, unchanged.
+- **ERRC-116 — PASS, with the honest half recorded as NOT DETERMINED rather than guessed.** `helpUrl()`
+  is `https://docs.pravaha.io/errors/PRV-nnnn` for a documented code, an undocumented one (`PRV-1030`)
+  and the unreachable one (`PRV-1043`) alike — confirmed the field is well-formed even where it cannot
+  help. Whether `docs.pravaha.io` resolves: `InetAddress.getByName` fails instantly with "Name or
+  service not known" in this sandbox, which cannot be distinguished from "the domain genuinely does not
+  exist" without knowing whether DNS itself is reachable here at all — recorded as NOT DETERMINED, not
+  claimed either way.
+- **ERRC-118 — PASS on the static table (the part done); the live probe recorded, not fully
+  reproduced.** `FlightErrors.statusFor`, read directly: `PRV-4026`/`4027`/`4028` all
+  `RESOURCE_EXHAUSTED` (the document's only claim); `PRV-7001` `UNAUTHENTICATED`; **`PRV-7002` and
+  `PRV-7003` both `UNAUTHORIZED`** — confirming case fact/E-3's point that a driver cannot distinguish
+  an authorization denial from a configuration refusal even at the Flight-status layer, since both
+  share the identical status on top of already sharing the identical code; a representative `PRV-2xxx`
+  (`2050`) is `INVALID_ARGUMENT`, not retryable. A live saturation probe (eight concurrent CLI calls
+  against a 1-permit, single-tenant `ReadAdmission`) reliably produced `PRV-4028` (the tenant-share
+  rule, since a single tenant's share of one permit is the whole permit) rather than the generic
+  `PRV-4026` — recorded as what actually happened rather than forced to match the specific code the
+  static table was written to check; both arrive as `RESOURCE_EXHAUSTED` per the static assertions
+  above, which is the property this case is actually about.
+
+**Seed-proof:** `FlightErrors.statusFor`'s `PRV-7002` case was removed from the switch (falling to the
+`default -> INVALID_ARGUMENT` arm), rebuilding `pravaha-flight`; confirmed `ErrcCrossCuttingTest`'s
+ERRC-118 assertion fails exactly (`expected UNAUTHORIZED but was INVALID_ARGUMENT`), reverted, rebuilt,
+confirmed green, `git status` clean.
+
+**TROUBLESHOOTING.md correction found and made in this batch:** the `PRV-6104` row §4/ERRC-093
+generates direct evidence for was written up as "already added in §2" by a drafting error — it had not
+actually been added. Added now, on ERRC-093's evidence, and the log entry corrected rather than left
+silently wrong.
+
+---
+
+## Combined running summary after §1-§7 (48 of 118 cases with a verdict)
+
+| Verdict | Count |
+|---|---|
+| PASS | 30 |
+| FAIL (real defect or corrected finding relative to the case's own description) | 7 |
+| UNREACHABLE (new, not in the case's own fact-9 list) | 1 |
+| PARTIAL | 4 |
+| NOT RUN | 6 |
+| **Total** | **48 of 118** |
+
+70 cases (030 … 088, 104 … 110, 112, 113, 115, 117) have not been reached at all this round and are
+correctly absent from this log rather than assigned a fabricated verdict. PRV-3xxx (runtime/codegen,
+030-037), PRV-4xxx (state/backfill/serving, 038-055 beyond the admission-control sampling in §7),
+PRV-5xxx (plugins, 056-088 — the largest remaining family, 33 cases), and PRV-9xxx (cluster, 104-110,
+likely mostly blocked by the same CFG-030 configuration gap the case file itself predicts) are the
+next-highest-value targets for a future round; PRV-5xxx's filesystem-plugin subset is reachable via
+`pravaha run` with a crafted CSV, no live server needed, the same technique §3 used for PRV-2xxx.
