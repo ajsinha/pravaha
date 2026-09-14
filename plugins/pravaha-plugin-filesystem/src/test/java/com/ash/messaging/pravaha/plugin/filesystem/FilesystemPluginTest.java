@@ -374,6 +374,70 @@ class FilesystemPluginTest {
     }
 
     /** Collects decoded rows into an arena, as a lane would. */
+    // ------------------------------------------------------------------ written dates and times
+
+    @Test
+    void aTimeWrittenTheWayAPersonWritesItIsStoredInTheEnginesUnits(@TempDir Path dir) throws IOException {
+        // A TIME column read a bare number and stored it unscaled, and the engine holds a time as
+        // nanoseconds of day. So the natural spelling -- 3600000 milliseconds for an hour -- became
+        // 3.6 milliseconds, and every `WHERE tm < TIME '00:00:01'` over that data returned the
+        // wrong rows with a success status. There was no spelling that worked: comparing the column
+        // to a bare integer is separately refused.
+        Path input = dir.resolve("times.csv");
+        Files.writeString(input, "1,01:00:00\n2,00:00:01\n3,23:59:59.999\n");
+
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", "id:INT64,tm:TIME")));
+            source.open();
+            try (PartitionReader reader =
+                            source.createReader(source.partitions("txn").get(0), null);
+                    Collector out = new Collector(source.schema())) {
+                while (reader.poll(out, 100) > 0) {
+                    // drain
+                }
+                assertThat(out.rows).hasSize(3);
+                assertThat(out.rows.get(0).getLong(1))
+                        .as("an hour is 3,600,000,000,000 nanoseconds, not 3,600,000")
+                        .isEqualTo(3_600_000_000_000L);
+                assertThat(out.rows.get(1).getLong(1)).isEqualTo(1_000_000_000L);
+                assertThat(out.rows.get(2).getLong(1)).isEqualTo(86_399_999_000_000L);
+            }
+        }
+    }
+
+    @Test
+    void aDateAndATimestampMayBeWrittenOrGivenInTheEnginesUnits(@TempDir Path dir) throws IOException {
+        // Both spellings, because a file this codec wrote uses the engine's units and must read
+        // back identically, while a file a person wrote uses ISO-8601 and must mean what it says.
+        Path input = dir.resolve("stamps.csv");
+        Files.writeString(input, "1,2026-09-14,2026-09-14T00:00:01Z\n2,20345,1000000000\n");
+
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", "id:INT64,d:DATE,ts:TIMESTAMP")));
+            source.open();
+            try (PartitionReader reader =
+                            source.createReader(source.partitions("txn").get(0), null);
+                    Collector out = new Collector(source.schema())) {
+                while (reader.poll(out, 100) > 0) {
+                    // drain
+                }
+                assertThat(out.rows.get(0).getInt(1))
+                        .as("2026-09-14 as days since the epoch")
+                        .isEqualTo((int) java.time.LocalDate.of(2026, 9, 14).toEpochDay());
+                assertThat(out.rows.get(0).getLong(2))
+                        .as("one second past the epoch day, in nanoseconds")
+                        .isEqualTo(
+                                java.time.Instant.parse("2026-09-14T00:00:01Z").getEpochSecond() * 1_000_000_000L);
+                assertThat(out.rows.get(1).getInt(1))
+                        .as("a bare number stays days")
+                        .isEqualTo(20345);
+                assertThat(out.rows.get(1).getLong(2))
+                        .as("a bare number stays nanoseconds")
+                        .isEqualTo(1_000_000_000L);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ follow (tail -f)
 
     private static final String SMALL = "id:INT64,user:STRING";

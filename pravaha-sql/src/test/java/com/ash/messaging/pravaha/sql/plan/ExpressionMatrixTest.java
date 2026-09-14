@@ -1127,6 +1127,27 @@ class ExpressionMatrixTest {
         assertThat(messageOf("SELECT NULL FROM txn")).startsWith("PRV-").contains("CAST(NULL AS BIGINT)");
     }
 
+    @Test
+    void aStringLiteralMayContainAnyCharacterTheDataMay() {
+        // SQLX-176. Calcite validates string literals against a default charset of ISO-8859-1, and
+        // nothing overrode it -- so `WHERE user_id = '日本語'` was refused with "Failed to encode
+        // '日本語' in character set 'ISO-8859-1'". The same characters as column data have always
+        // worked, which made the gap invisible from the data side: a user could store a name and
+        // never write it down in a query.
+        //
+        // It survived a whole QA campaign because the standing hostile-unicode fixture, ünïcødé, is
+        // built from Latin-1-representable accents -- adversarial-looking and, by accident, in
+        // agreement with the defect. So the cases below are deliberately above U+00FF.
+        for (String literal : List.of("日本語", "✓", "🙂", "Ω", "עברית")) {
+            assertThat(messageOf("SELECT txn_id FROM txn WHERE user_id = '" + literal + "'"))
+                    .as("a literal containing %s must plan", literal)
+                    .isNull();
+        }
+        // And the accented case that used to pass keeps passing, so this is a widening.
+        assertThat(messageOf("SELECT txn_id FROM txn WHERE user_id = 'ünïcødé'"))
+                .isNull();
+    }
+
     private static List<String> answerOf(String sql) {
         PhysicalOperator plan = new PhysicalPlanBuilder()
                 .build(SqlPlanner.withStreams(TXN, OTHER).plan(sql));

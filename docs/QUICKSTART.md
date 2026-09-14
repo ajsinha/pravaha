@@ -150,6 +150,12 @@ A followed file that is rotated or rewritten is picked up from the start of its 
 line is a row only once its newline has arrived — so a writer caught mid-line does not produce half
 a record.
 
+**Dates and times are written the way you write them.** A `DATE`, `TIME` or `TIMESTAMP` column
+accepts ISO-8601 — `2026-09-14`, `01:00:00`, `2026-09-14T09:30:00Z` — and a bare number is taken as
+the engine's own unit for that type: days for a date, nanoseconds for the other two, which is what
+the sink writes so a file round-trips. A time written as milliseconds used to be stored unscaled,
+which made every predicate over it quietly wrong.
+
 **If the query is windowed, name the event-time column.** `event.time` tells the source which column
 holds each row's own time. Without it every row carries the time it was *read*, the watermark runs at
 wall-clock, and every row is dropped as late — an empty view under a query reporting `RUNNING`. The

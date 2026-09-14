@@ -55,6 +55,30 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  */
 public final class SqlPlanner {
 
+    static {
+        // UTF-8 for string literals, because Calcite's default is ISO-8859-1 and nothing overrode
+        // it. `WHERE name = '日本語'` -- or any literal containing a character above U+00FF, which
+        // is most CJK, every emoji and a great many symbols -- was refused outright:
+        //
+        //     PRV-2010  Failed to encode '日本語' in character set 'ISO-8859-1'
+        //
+        // The same characters as column *data* have always worked: read from a file, compared,
+        // uppercased, substringed byte-exact. Only writing one down in SQL was impossible.
+        //
+        // A system property rather than connection configuration, because that is where Calcite
+        // reads it: CalciteSystemProperty resolves calcite.default.charset once, in a static
+        // initialiser, and no per-planner setting reaches it. Set before Calcite is touched, and
+        // only when a deployment has not chosen for itself.
+        //
+        // It survived a whole QA campaign because the standing "hostile unicode" fixture, ünïcødé,
+        // is made entirely of Latin-1-representable accents -- a test string chosen to look
+        // adversarial that happened to agree with the defect.
+        if (System.getProperty("calcite.default.charset") == null) {
+            System.setProperty("calcite.default.charset", "UTF-8");
+            System.setProperty("calcite.default.nationalcharset", "UTF-8");
+        }
+    }
+
     private final PravahaSchema schema;
 
     public SqlPlanner(PravahaSchema schema) {

@@ -119,6 +119,44 @@ final class DelimitedCodec {
         }
     }
 
+    /**
+     * A DATE, TIME or TIMESTAMP field, in the units the engine holds it in.
+     *
+     * <p>A bare number is taken as those units already -- days for a DATE, nanoseconds for the other
+     * two -- which is what this codec has always done and what its own writer emits, so a file it
+     * wrote reads back identically.
+     *
+     * <p>Text is the addition, and it is why this method exists. A TIME column read a bare number
+     * and stored it unscaled, so the only spelling that worked was nanoseconds-of-day; a person
+     * writing the natural thing, 3600000 for an hour, got 3.6 milliseconds. Every
+     * {@code WHERE <time column> < TIME '00:00:01'} over that data was then silently wrong -- not
+     * refused, not an error, a wrong row set under a success status -- and there was no spelling to
+     * work around it with, because comparing the column to a bare integer is separately refused.
+     */
+    private static final java.util.regex.Pattern NUMERIC = java.util.regex.Pattern.compile("[+-]?\\d+");
+
+    private static long temporal(TypeName type, String raw) {
+        String text = raw.strip();
+        // A sign only at the front. Allowing '-' anywhere made 2026-09-14 look like a number, and
+        // the parse then failed reporting that a date is not a number -- true, and useless.
+        if (NUMERIC.matcher(text).matches()) {
+            return Long.parseLong(text);
+        }
+        return switch (type) {
+            case DATE -> java.time.LocalDate.parse(text).toEpochDay();
+            case TIME -> java.time.LocalTime.parse(text).toNanoOfDay();
+            default -> {
+                // With a zone or without: an offset-bearing stamp keeps its instant, a bare one is
+                // read as UTC rather than as the machine's zone, so the same file means the same
+                // thing wherever it is read.
+                java.time.Instant instant = text.endsWith("Z") || text.contains("+") || text.lastIndexOf('-') > 7
+                        ? java.time.OffsetDateTime.parse(text).toInstant()
+                        : java.time.LocalDateTime.parse(text).toInstant(java.time.ZoneOffset.UTC);
+                yield instant.getEpochSecond() * 1_000_000_000L + instant.getNano();
+            }
+        };
+    }
+
     private void setField(RowWriter writer, int ordinal, String raw, long lineNumber) {
         TypeName type = schema.field(ordinal).type().typeName();
         try {
@@ -126,9 +164,21 @@ final class DelimitedCodec {
                 case BOOLEAN -> writer.setBoolean(ordinal, Boolean.parseBoolean(raw));
                 case INT8 -> writer.setByte(ordinal, Byte.parseByte(raw));
                 case INT16 -> writer.setShort(ordinal, Short.parseShort(raw));
-                case INT32, DATE -> writer.setInt(ordinal, Integer.parseInt(raw));
-                case INT64, TIME, TIMESTAMP_LTZ -> {
+                case INT32 -> writer.setInt(ordinal, Integer.parseInt(raw));
+                case DATE -> writer.setInt(ordinal, (int) temporal(type, raw));
+                case INT64 -> {
                     long value = Long.parseLong(raw);
+                    writer.setLong(ordinal, value);
+                    // Remembered so the reader can stamp the row with it. Nothing did, so every row
+                    // a file produced carried event time zero -- and a watermark derived from zero
+                    // never reaches a window in the present, so windowed queries ingested every row
+                    // and emitted nothing, for ever, while reporting RUNNING.
+                    if (schema.eventTimeOrdinal().orElse(-1) == ordinal) {
+                        lastEventTimeNanos = value;
+                    }
+                }
+                case TIME, TIMESTAMP_LTZ -> {
+                    long value = temporal(type, raw);
                     writer.setLong(ordinal, value);
                     // Remembered so the reader can stamp the row with it. Nothing did, so every row
                     // a file produced carried event time zero -- and a watermark derived from zero

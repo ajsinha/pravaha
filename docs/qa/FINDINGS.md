@@ -998,7 +998,7 @@ nothing in this round's reading found it closed.
 
 # SQL surface and aggregates, checked against answers — found executing `docs/qa/cases/SQLX.md` and `docs/qa/cases/AGG.md`
 
-## X-1 (HIGH) — a `TIME` column predicate against a `TIME` literal is wrong by a factor of 1,000,000
+## X-1 (HIGH) — FIXED — a `TIME` column predicate against a `TIME` literal was wrong by a factor of 1,000,000
 
 `ExpressionCompiler.literal` converts a Calcite `TIME` literal to nanoseconds
 (`getValueAs(Integer.class) * 1_000_000L`, since Calcite carries `TIME` in milliseconds-of-day and the
@@ -1009,9 +1009,13 @@ stored as if it were already nanoseconds. Every `WHERE <TIME col> <op> TIME '...
 data ingested through the shipped filesystem plugin is therefore silently wrong for any time other
 than midnight: not refused, not an error, a wrong row set under a success status. Reproduced
 (SQLX-059): `WHERE tm < TIME '00:00:01'` matches all three rows of a fixture where two of them are
-meant to represent 1 and 2 hours after midnight. A user cannot work around it by matching the codec's
-own units either — comparing the column to a bare integer is separately refused by Calcite
-(`PRV-2002`, `TIME(0) = INTEGER`). **OPEN.**
+meant to represent 1 and 2 hours after midnight. A user could not work around it by matching the
+codec's own units either — comparing the column to a bare integer is separately refused by Calcite
+(`PRV-2002`, `TIME(0) = INTEGER`).
+
+**FIXED.** `DelimitedCodec` accepts ISO-8601 for `DATE`, `TIME` and `TIMESTAMP`, and keeps a bare
+number meaning the engine's own unit so a file the sink wrote reads back identically. Seed-proven by
+storing a time unscaled again, which fails with 3,600,000 against 3,600,000,000,000.
 
 ## X-2 — probable corrections to Q-5, Q-6, Q-7 and Q-11 (round 1), not yet confirmed against a commit
 
@@ -1112,7 +1116,7 @@ predicate, verbatim>` — a third distinct failure mode from X-10's `StackOverfl
 pair for what is structurally the same kind of input, and like SQLX-085/142, the error message
 interpolates the whole predicate rather than summarising it. (SQLX-174)
 
-## X-12 (HIGH) — a SQL string literal outside Latin-1 is refused; the same character as column data is not
+## X-12 (HIGH) — FIXED — a SQL string literal outside Latin-1 was refused; the same character as column data was not
 
 `WHERE user_id = '日本語'` (or any literal containing a character above U+00FF — an emoji, most CJK,
 common symbols) fails: `PRV-2010  Failed to encode '日本語' in character set 'ISO-8859-1'`. Calcite
@@ -1123,8 +1127,12 @@ repeatedly across this campaign, including an emoji surviving `SUBSTRING` byte-e
 own standing "hostile unicode" fixture string, `ünïcødé`, happens to use only Latin-1-representable
 accented characters (U+00FC/00EF/00F8/00E9, all ≤ U+00FF) — which is why every SQLX case that filters
 on it passed and this defect went unnoticed until a checkmark and an emoji were tried as literals.
-A user cannot write `WHERE name = '<any non-Latin-1 character>'` at all, ever, through this engine.
+A user could not write `WHERE name = '<any non-Latin-1 character>'` at all, ever, through this engine.
 (SQLX-176)
+
+**FIXED.** `calcite.default.charset` is set to UTF-8 before Calcite initialises — a system property
+rather than connection configuration, because that is the only place Calcite reads it from.
+Seed-proven: with the default restored, the test fails naming ISO-8859-1.
 
 ## X-13 — two messaging bugs, one that misdiagnoses a name and one that echoes the wrong one
 
