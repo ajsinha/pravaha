@@ -1222,3 +1222,34 @@ run), and every one of its messages sends the reader only as far as an inline li
 - **ERRC-018's "E3 must carry the position" does not hold for one of its five sites** (a misspelled
   keyword parses as an identifier and fails validation-shaped, with no line/column) — the same shape as
   ERRC-002's gap above, LOW severity, not re-stated as its own entry.
+
+## JOIN — found executing `docs/qa/cases/JOIN.md`
+
+All 60 cases PASS (`docs/qa/logs/JOIN.md`). No new production defect was found this round — every
+result confirmed what the case file's own preamble already established by reading the source. Worth
+recording anyway, because two of the case file's own quoted claims did not hold exactly as written,
+and one confirmed defect is real even though it was anticipated rather than discovered.
+
+### J-1 (LOW-MEDIUM, confirmed rather than discovered) — a null-keyed left row is never emitted null-padded from a `LEFT` join
+
+`JoinSide.add` drops a null-keyed row entirely (`isMatchable` returns early), so it is never in state
+when eviction runs the outer-join callback. SQL says a left row whose key is `NULL` matches nothing and
+must still appear, null-padded on the right. This build drops it silently instead: `rowsHeldLeft()` is
+one lower than the number of left rows fed, and nothing counts the drop as anything other than "one
+fewer row held." The case file's own Intent already names this as "a genuine outer-join defect," so
+this is confirmation (`JOIN-057`, `SymmetricHashJoinBehaviorTest.aNullKeyedLeftRowIsNeverEmittedNullPadded`,
+seed-proven by removing the `isMatchable` guard in `JoinSide.add` and observing this test (and two
+others) fail on `rowsHeldLeft()`, then reverting), not
+a new finding. Recorded here because it is a real, reachable defect and the round's own log is the
+right place to point at it rather than leaving it only inside a case file.
+
+### Corrections to the case file found this round
+
+- **JOIN-029's claim "nothing in the message mentions months, intervals or variable-length units" is
+  true of the message's prose but not of the full string.** The refusal also interpolates Calcite's own
+  rendering of the rejected condition (`'>=($1, -($3, 1:interval month))'`), and that raw dump does
+  spell out "month" (or "year"). A reader grepping the log line for the word would find it; a reader
+  looking for a sentence that explains the real reason (a month has no fixed length) would not.
+- **JOIN-043's quoted refusal message uses `Compute(...)`; the engine's actual rendering is
+  `Compute[...]`, with square brackets** — `ComputeOperator.label()`'s own format. Checked against the
+  live string, not the case's prose.
