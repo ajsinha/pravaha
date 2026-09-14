@@ -103,12 +103,6 @@ class LifeFailureTest extends LifecycleTestSupport {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled(
-            "LIFE-130 defect, the same family as FINDINGS Lifecycle L-1: subscribe()'s terminal-state "
-                    + "guard also reads the raw `state` field rather than the reconciling state() getter. A "
-                    + "query failed by a lane death (never explicitly fail()-ed) still has state==RUNNING "
-                    + "internally, so subscribe() succeeds and silently delivers nothing -- exactly the "
-                    + "'established and delivers nothing' outcome LIFE-130 calls the falsifier.")
     void life130_aNewSubscriptionToAFailedQueryIsRefused() {
         registry.register("healthy", S1, List.of(0), Principal.ANONYMOUS);
         driveToFailedByMinRetraction("v_min");

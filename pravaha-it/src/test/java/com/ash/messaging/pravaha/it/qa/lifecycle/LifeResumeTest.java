@@ -110,12 +110,6 @@ class LifeResumeTest extends LifecycleTestSupport {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled(
-            "LIFE-057 defect (FINDINGS: Lifecycle), same root cause as LIFE-048: resume()'s requireLive "
-                    + "reads the raw `state` field, which a lane failure never touches -- only the reactive "
-                    + "state() getter reports FAILED, by checking execution.laneFailure() when the raw field "
-                    + "is still RUNNING. So resume() on a lane-failed query sees RUNNING, treats it as a "
-                    + "harmless no-op resume (LIFE-056), and never raises the documented refusal at all.")
     void life057_resumingAFailedQueryIsRefusedWithTheDocumentedReason() {
         driveToFailedByMinRetraction("v_min");
         assertThat(registry.require("v_min").state()).isEqualTo(QueryState.FAILED);

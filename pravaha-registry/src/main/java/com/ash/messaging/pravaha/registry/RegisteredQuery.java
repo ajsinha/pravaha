@@ -104,8 +104,24 @@ public final class RegisteredQuery implements AutoCloseable {
         // it -- so a query whose lane had died went on reporting RUNNING to `pravaha queries`, to
         // the status page, to the health endpoint and to every SDK, with an empty log. Ten surfaces
         // agreeing on the wrong answer because none of them asked.
-        if (state == QueryState.RUNNING && execution.laneFailure().isPresent()) {
-            return QueryState.FAILED;
+        //
+        // Latched rather than computed. This used to return FAILED while leaving the field saying
+        // RUNNING, and everything that decides whether a query may be acted on reads the field:
+        // pause, resume and subscribe all succeeded on a query this method was already calling
+        // dead, and pause relabelled the failure as PAUSED for as long as it lasted. One transition
+        // recorded once is the difference between a getter that reports and a getter that lies to
+        // its own object.
+        if (state == QueryState.RUNNING) {
+            java.util.Optional<Throwable> dead = execution.laneFailure();
+            if (dead.isPresent()) {
+                fail(
+                        dead.get() instanceof PravahaException known
+                                ? known
+                                : new PravahaException(
+                                        RegistryErrors.ILLEGAL_TRANSITION,
+                                        "query '" + anyName() + "' stopped because its lane died: " + dead.get(),
+                                        dead.get()));
+            }
         }
         return state;
     }
@@ -275,9 +291,11 @@ public final class RegisteredQuery implements AutoCloseable {
     public Subscription subscribe(
             SubscriptionOptions options,
             java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
-        if (state.isTerminal()) {
+        // state(), not the field. Attaching a subscriber to a query whose lane has died gives it a
+        // handle that will never deliver anything and never say why.
+        if (state().isTerminal()) {
             throw new PravahaException(
-                    RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state);
+                    RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state());
         }
         return subscribe(options, SubscriptionFilter.none(), consumer);
     }
@@ -295,9 +313,11 @@ public final class RegisteredQuery implements AutoCloseable {
             SubscriptionOptions options,
             SubscriptionFilter filter,
             java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
-        if (state.isTerminal()) {
+        // state(), not the field. Attaching a subscriber to a query whose lane has died gives it a
+        // handle that will never deliver anything and never say why.
+        if (state().isTerminal()) {
             throw new PravahaException(
-                    RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state);
+                    RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state());
         }
         return new Subscription(
                 anyName(),
@@ -365,7 +385,7 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     void resume() {
-        if (state.isTerminal()) {
+        if (state().isTerminal()) {
             throw new PravahaException(
                     RegistryErrors.ILLEGAL_TRANSITION,
                     "query '" + anyName() + "' is " + state + " and cannot be resumed. A failed query is "
@@ -377,7 +397,9 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     private void requireLive(String action) {
-        if (state.isTerminal()) {
+        // state(), not the field: a lane that has died has not written to the field yet, and
+        // refusing on a stale RUNNING is how a failed query got paused.
+        if (state().isTerminal()) {
             throw new PravahaException(
                     RegistryErrors.ILLEGAL_TRANSITION,
                     "cannot " + action + " query '" + anyName() + "': it is " + state);

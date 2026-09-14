@@ -902,7 +902,13 @@ Cases run as real JUnit tests under `pravaha-it`'s new `qa.lifecycle` package, d
 `QueryRegistry` in-process. Verdicts and evidence for every LIFE-nnn case are in
 `docs/qa/logs/LIFE.md`; this section is the defects only.
 
-### L-1 (HIGH) — `pause()`, `resume()` and `subscribe()` check the raw `state` field, not the reconciling getter
+### L-1 (HIGH) — FIXED — `pause()`, `resume()` and `subscribe()` checked the raw `state` field, not the reconciling getter
+
+**Fixed.** `state()` now *latches* the transition instead of reporting a view of it: when it sees a
+dead lane it calls `fail(...)` once, so the field and the getter cannot disagree. `requireLive`,
+`resume` and both `subscribe` overloads ask `state()` rather than reading the field. Seed-proven by
+restoring the reporting-without-latching form, which fails with "query 'v_min' is RUNNING and cannot
+be resumed" for a query the getter is already calling FAILED.
 
 `RegisteredQuery.state()` is reactive: when the raw `state` field is still `RUNNING` but
 `execution.laneFailure()` is present, it *reports* `FAILED` — the fix for the round-1 defect where

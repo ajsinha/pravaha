@@ -158,14 +158,6 @@ class LifePauseTest extends LifecycleTestSupport {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled(
-            "LIFE-048 defect (FINDINGS: Lifecycle): pause()'s requireLive reads the raw `state` field "
-                    + "directly rather than the reconciling state() getter. A query whose lane died (state() "
-                    + "and pravaha queries already report FAILED, per life048_aLaneFailureIsVisible...) still "
-                    + "has state==RUNNING internally, because nothing ever called fail() on it explicitly -- "
-                    + "so pause() sees a live query, succeeds, and sets state=PAUSED. Because the getter's "
-                    + "FAILED override only fires when state==RUNNING, the query now reports PAUSED instead "
-                    + "of FAILED: a dead lane is relabelled as something an operator would expect to resume.")
     void life048_pausingAFailedQueryIsRefusedWithIllegalTransition() {
         driveToFailedByMinRetraction("v_min");
         assertThat(registry.require("v_min").state()).isEqualTo(QueryState.FAILED);
