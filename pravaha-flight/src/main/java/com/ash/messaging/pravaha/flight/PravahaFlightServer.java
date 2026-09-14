@@ -140,7 +140,6 @@ public final class PravahaFlightServer implements AutoCloseable {
         requireNotStarted("authorization");
         this.policy = java.util.Objects.requireNonNull(policy, "policy");
         this.audit = java.util.Objects.requireNonNull(audit, "audit");
-        requireOnePolicy();
         return this;
     }
 
@@ -177,7 +176,6 @@ public final class PravahaFlightServer implements AutoCloseable {
     public PravahaFlightServer hosting(com.ash.messaging.pravaha.registry.QueryRegistry registry) {
         requireNotStarted("a registry");
         this.registry = java.util.Objects.requireNonNull(registry, "registry");
-        requireOnePolicy();
         return this;
     }
 
@@ -192,6 +190,9 @@ public final class PravahaFlightServer implements AutoCloseable {
      *
      * <p>Identity rather than equality, deliberately: two policies that behave the same today are
      * still two objects somebody can change independently tomorrow.
+     *
+     * <p>Called from {@link #start}, so a caller may configure the registry and the policy in
+     * either order.
      */
     private void requireOnePolicy() {
         if (registry == null || policy == null) {
@@ -215,6 +216,16 @@ public final class PravahaFlightServer implements AutoCloseable {
      *     a test wants, and the reason {@link #port()} exists
      */
     public PravahaFlightServer start(String host, int port) {
+        // Checked here, where configuration is finished, rather than in each setter.
+        //
+        // Run per setter it was order-dependent and wrong about it: this server starts with a
+        // default policy, so hosting(registry) compared a registry's real policy against that
+        // default and refused -- before authorizedBy had been reached. Configuring in the order the
+        // javadoc shows threw, and the only way to succeed was to call authorizedBy first, which
+        // nothing said. The authenticated test fixture hit it and could not start, so five
+        // authentication tests skipped every run reporting "the Pravaha server did not start; is
+        // the module built?" -- an environmental-sounding message for a configuration refusal.
+        requireOnePolicy();
         Location requested =
                 certificateChain == null ? Location.forGrpcInsecure(host, port) : Location.forGrpcTls(host, port);
         try {

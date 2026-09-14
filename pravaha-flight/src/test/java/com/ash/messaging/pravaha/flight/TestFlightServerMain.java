@@ -171,7 +171,21 @@ public final class TestFlightServerMain {
                 .field("product_type", Types.string())
                 .field("trade_json", Types.string())
                 .build();
-        QueryRegistry registry = new QueryRegistry(catalog, SecurityPolicy.PERMISSIVE, AuditSink.NONE, tradeSchema);
+        // One policy object, shared by the registry and the server.
+        //
+        // The registry used to be built with PERMISSIVE and the server handed a different policy
+        // afterwards. The engine refuses that on purpose -- registering would be judged by one and
+        // reading by the other, and the more permissive would decide -- so the authenticated
+        // fixture never started, and the Python SDK's five authentication tests skipped every run
+        // saying "the Pravaha server did not start; is the module built?". A skip that names the
+        // wrong cause is worse than a failure, because it reads as environmental.
+        SecurityPolicy policy = authenticated
+                ? (principal, viewName) -> principal.hasRole("analyst")
+                        ? AccessDecision.allowWithRowFilter(
+                                "tier = '" + principal.claim("tier").orElse("none") + "'")
+                        : AccessDecision.deny("only analysts read " + viewName)
+                : SecurityPolicy.PERMISSIVE;
+        QueryRegistry registry = new QueryRegistry(catalog, policy, AuditSink.NONE, tradeSchema);
 
         PravahaFlightServer configured = new PravahaFlightServer(catalog).hosting(registry);
         if (authenticated) {
@@ -184,12 +198,7 @@ public final class TestFlightServerMain {
                                     ANALYST_TOKEN,
                                     new Principal("dana", "acme", Set.of("analyst"), Map.of("tier", "gold")))
                             .and(INTERN_TOKEN, new Principal("sam", "acme", Set.of("intern"), Map.of())))
-                    .authorizedBy(
-                            (principal, viewName) -> principal.hasRole("analyst")
-                                    ? AccessDecision.allowWithRowFilter(
-                                            "tier = '" + principal.claim("tier").orElse("none") + "'")
-                                    : AccessDecision.deny("only analysts read " + viewName),
-                            AuditSink.NONE);
+                    .authorizedBy(policy, AuditSink.NONE);
         }
 
         java.nio.file.Path feedFile = java.nio.file.Files.createTempFile("pravaha-feed", ".csv");

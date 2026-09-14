@@ -7,6 +7,7 @@ would prove the fake works.
 import os
 import pathlib
 import subprocess
+import threading
 import sys
 import time
 
@@ -37,7 +38,8 @@ def _classpath() -> str:
 
 
 @pytest.fixture(scope="module")
-def engine_url():
+def engine():
+    """The engine's URL and the path of the file it tails, as a pair."""
     if not FLIGHT_CLASSES.exists():
         pytest.skip("pravaha-flight is not built; run ./mvnw -pl pravaha-flight test-compile")
     java = os.environ.get("JAVA_HOME", "")
@@ -57,15 +59,27 @@ def engine_url():
         stderr=subprocess.STDOUT,
         text=True,
     )
-    port = None
+    # Drained on a thread for the whole run. Reading until the port appears and then stopping
+    # leaves the pipe to fill, and the next thing the engine writes blocks it -- which presents as
+    # an engine that accepts a subscription and never delivers, and is indistinguishable from a
+    # product defect until you look at the process.
+    found = {}
+
+    def drain():
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                return
+            if line.startswith("PRAVAHA_FLIGHT_PORT="):
+                found["port"] = int(line.strip().split("=", 1)[1])
+            elif line.startswith("PRAVAHA_FEED_FILE="):
+                found["feed"] = line.strip().split("=", 1)[1]
+
+    threading.Thread(target=drain, daemon=True).start()
     deadline = time.time() + 90
-    while time.time() < deadline:
-        line = process.stdout.readline()
-        if not line:
-            break
-        if line.startswith("PRAVAHA_FLIGHT_PORT="):
-            port = int(line.strip().split("=", 1)[1])
-            break
+    while time.time() < deadline and not ("port" in found and "feed" in found):
+        time.sleep(0.05)
+    port = found.get("port")
     if port is None:
         process.kill()
         tail = ""
@@ -84,9 +98,35 @@ def engine_url():
             + (tail or "none")
         )
 
-    yield f"grpc://localhost:{port}"
+    yield f"grpc://localhost:{port}", found.get("feed")
     process.kill()
     process.wait(timeout=30)
+
+
+@pytest.fixture(scope="module")
+def engine_url(engine):
+    """Just the URL, for the many tests that do not feed anything."""
+    return engine[0]
+
+
+@pytest.fixture
+def feed(engine):
+    """Appends rows to the stream the engine is tailing, so a query can actually change.
+
+    Without this the console's tests ran against a real engine and a query nothing fed: every
+    screen was exercised against a view that would never move, which is most of what an operator
+    console exists to show.
+    """
+    feed_file = engine[1]
+    if feed_file is None:
+        pytest.skip("the engine did not report a feed file; rebuild pravaha-flight's test classes")
+
+    def append(trade_id, product_type, payload="{}", weight=1):
+        with open(feed_file, "a", encoding="utf-8") as handle:
+            handle.write(f"{trade_id},{product_type},{payload},{weight}\n")
+            handle.flush()
+
+    return append
 
 
 @pytest.fixture
@@ -400,6 +440,109 @@ def test_a_slow_browser_loses_its_oldest_rows_rather_than_blocking(engine_url):
         assert newest[-1]["n"] == Broadcaster.BUFFER + 24
     finally:
         subscriber.close()
+
+
+def test_the_console_shows_a_continuous_query_answering(client, feed):
+    """A query registered from the console, fed, and its answer visible on the console.
+
+    Every screen test above runs against a real engine and a query nothing feeds -- so they prove
+    the pages render, and prove nothing about what an operator is actually there to watch. This one
+    changes the data underneath and reads the change back through the console's own HTTP surface.
+    """
+    client.post("/queries", data={"name": "ui_live", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        feed("UI-1", "SWAP")
+        feed("UI-2", "EQUITY")
+
+        deadline = time.time() + 30
+        seen = 0
+        while time.time() < deadline:
+            seen = _rows_in(client.get("/api/v1/queries").json(), "ui_live")
+            if seen >= 2:
+                break
+            time.sleep(0.2)
+
+        assert seen >= 2, f"the console never saw the rows the query consumed: {seen}"
+
+        # And the query's own page reports it, which is the screen an operator opens.
+        detail = client.get("/api/v1/queries/ui_live").json()
+        assert detail["rows_in"] >= 2
+        assert detail["state"] == "RUNNING"
+    finally:
+        client.post("/queries/ui_live/drop")
+
+
+def test_the_consoles_query_page_reports_rows_arriving(client, feed):
+    """The detail page's row count moves as the stream moves.
+
+    An operator's first question about a query is whether it is doing anything. A page that renders
+    a fixed zero answers it wrongly and looks healthy doing so.
+    """
+    client.post("/queries", data={"name": "ui_counting", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        before = client.get("/api/v1/queries").json()
+        feed("UI-10", "SWAP")
+        feed("UI-11", "SWAP")
+
+        deadline = time.time() + 30
+        after = before
+        while time.time() < deadline:
+            after = client.get("/api/v1/queries").json()
+            if _rows_in(after, "ui_counting") > _rows_in(before, "ui_counting"):
+                break
+            time.sleep(0.2)
+
+        assert _rows_in(after, "ui_counting") > _rows_in(before, "ui_counting"), (
+            "the console's query list never showed the rows arriving"
+        )
+        page = client.get("/queries/ui_counting")
+        assert page.status_code == 200
+    finally:
+        client.post("/queries/ui_counting/drop")
+
+
+def _rows_in(payload, name):
+    """The rows-in count the console reports for one query."""
+    for entry in payload.get("items", []):
+        if entry.get("name") == name:
+            return entry.get("rows_in") or 0
+    return 0
+
+
+def test_a_browser_watching_a_view_receives_what_the_engine_publishes(engine, feed):
+    """The live tail: one engine subscription, fanned out to browsers, actually carrying rows.
+
+    The ref-counting test above proves one subscription serves many watchers. It does not prove
+    that anything travels along it -- and nothing did, because nothing fed the stream.
+    """
+    from core.services import Services
+
+    engine_url, _ = engine
+    services = Services(Engine(engine_url))
+    client_side = fastapi_testclient  # noqa: F841 -- imported for symmetry with the other tests
+
+    # Register through the SDK the console itself uses, then watch the view it maintains.
+    services.engine.register("ui_tail", TRADE_SQL, [0])
+    subscriber = services.feeds.subscribe("ui_tail")
+    try:
+        time.sleep(1.0)
+        feed("UI-20", "SWAP")
+
+        deadline = time.time() + 30
+        seen = []
+        while time.time() < deadline and not seen:
+            seen = subscriber.drain(limit=50)
+            if seen:
+                break
+            time.sleep(0.2)
+
+        assert seen, "a browser watching the view received nothing while the stream moved"
+    finally:
+        subscriber.close()
+        try:
+            services.engine.drop("ui_tail")
+        except Exception:  # noqa: BLE001 -- the drop is cleanup, not the assertion
+            pass
 
 
 def test_every_screen_renders_before_its_javascript_does(client):

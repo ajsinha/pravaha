@@ -57,9 +57,12 @@ def secure_server():
     )
 
     port = None
+    read = []
     deadline = time.time() + 90
     while time.time() < deadline:
         line = process.stdout.readline()
+        if line:
+            read.append(line)
         if not line:
             break
         if line.startswith("PRAVAHA_FLIGHT_PORT="):
@@ -67,7 +70,25 @@ def secure_server():
             break
     if port is None:
         process.kill()
-        pytest.skip("the Pravaha server did not start; is the module built?")
+        # What the loop already read, plus whatever is left. Reading only the remainder gave
+        # "Output: none" every time, because the loop had consumed the very lines that said why.
+        tail = "".join(read)
+        try:
+            tail += process.stdout.read() or ""
+        except Exception:  # noqa: BLE001, S110 -- the output is a nicety; the skip is the point
+            pass
+        tail = tail[-500:]
+        # Says why. This skipped with "is the module built?" for months while the real cause was a
+        # configuration refusal the server printed on the line below -- the fixture handed the
+        # registry one SecurityPolicy and the server another, and PRV-7002 refused it. Five
+        # authentication tests vanished every run and the suite reported success, because a skip is
+        # not a failure. A message that names the wrong cause is worse than no message.
+        pytest.skip(
+            "the Pravaha server did not start using java at '"
+            + java_bin
+            + "' (set JAVA_HOME, or put java 21 on PATH). Output: "
+            + (tail or "none")
+        )
 
     yield port
     process.kill()
