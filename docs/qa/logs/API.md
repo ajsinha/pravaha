@@ -415,3 +415,86 @@ register them, exactly as the case file expects streams to persist across a sect
   validate was either `valid:true` with exactly the two expected output fields, or `valid:false`
   with a `Known streams:`-bearing message — never a third outcome. All 30 `race_N` streams appear
   exactly once in the final listing.
+
+## REST §D. Authentication (API-105–114)
+
+Restarted as `H-SRVA`: `--pravaha.security.authentication=token --pravaha.security.policy=
+authenticated --pravaha.security.audit=memory --pravaha.security.allow-anonymous=false`, two
+tokens (`ann`/`acme`, `bob`/`globex`), plaintext Flight (unused in this REST-only batch). HTTP on
+`18080` again.
+
+- **API-105 — PASS.** All seven documented paths return `401` with the exact `PRV-7001` body the
+  case specifies (`message`, `helpUrl`, `path` matching the request URI, `timestamp`); the
+  unauthenticated `POST /api/v1/streams` created nothing (`GET /api/v1/streams` with a valid token
+  afterwards shows only `["txn"]`).
+- **API-106 — PASS.** `Bearer <token>`, `bearer <token>` (lower-case scheme), `BEARER <token>`, and
+  a bare token with no scheme at all -> all `200` (confirms the case-insensitive-scheme and
+  no-scheme leniency). `Bearer wrong-token`, `Bearer ` (empty), and `Basic ...` -> all `401`. Two
+  headers with different values (wrong-token first, valid second) -> `401` -- the first header (or
+  the malformed combination) wins, not the valid one; recorded as the case asks.
+- **API-107 — PASS with a path correction, and a real finding.** `/api/v1/openapi.json` -> `200`,
+  and `grep -ic 'txn|by_user|token'` on the body is `0` -- no stream name, no query text, no
+  credential leaks into the API description. `/api/docs` -> `302` (a redirect, not a `200` -- but
+  still open, no credential required) to `/api/swagger-ui/index.html`. That redirect target,
+  however, is **`401`** -- the actual Swagger UI page requires a credential. See `FINDINGS.md`
+  `API-F11`.
+- **API-108 — PASS.** `/actuator/health`, its two probe sub-paths, and `/actuator/info` are `200`
+  with no credential; `/actuator/metrics`, its sub-path, `/actuator/prometheus` and `/actuator`
+  itself are `401` without a credential and `200` with one. Unauthenticated health body is
+  `{"status":"UP","groups":["liveness","readiness"]}` -- no component details, consistent with
+  `show-details: when-authorized` and an anonymous caller not being "authorized".
+- **API-109 — PASS — no bypass found.** All eight near-miss probes are `404` (unmatched route,
+  Spring's shape) or `401` (the filter ran and refused); the two `../`-traversal forms both resolve
+  (after URL normalisation) to a real, protected route and correctly answer `401`, not `200` with
+  content. No authentication bypass in this sample.
+- **API-110 — PASS.** `ann` and `bob`'s `GET /api/v1/streams` bodies are byte-identical; `bob`
+  (tenant `globex`) successfully registers `bobs_stream` (`201`) and it is immediately visible to
+  `ann`'s listing -- confirmed no per-tenant restriction anywhere on this surface.
+- **API-111, 112, 113, 114 — NOT RUN.** Time budget. API-111 (`authentication: none` filter
+  present-but-disabled) and API-112 (the refuse-to-start-open guard) need the `dev`/no-profile
+  server restarts already exercised in CLI §G's `H-SRV` and in `DEPLOY`/`CFG`'s areas respectively;
+  API-113 (query-string/cookie credentials rejected) and API-114 (what an unauthenticated caller can
+  still learn) are straightforward extensions of API-105/107/108 above but were not separately
+  scripted this session.
+
+## REST §E. Disclosure (API-115–120)
+
+- **API-115 — PASS.** `/actuator/env` and `/actuator/env/pravaha.security.tokens.*` are `401`
+  unauthenticated (the filter runs before the exposure-list check fires) and `404` once
+  authenticated (not in `management.endpoints.web.exposure.include`).
+- **API-116 — PASS.** As `bob` (unrelated to `txn`): `GET /api/v1/streams/nope` message ends
+  `Registered: [txn, bobs_stream]`; an unknown-column validate ends
+  `Known streams: [txn, bobs_stream]` -- both enumerate the full inventory to a verified-but-unrelated
+  caller, exactly as the case describes (and, per API-110, the plain listing discloses the same
+  thing anyway on this authenticated-only-no-authorization surface).
+- **API-117 — PASS.** `/actuator/beans` and `/actuator/configprops`: `401` unauthenticated, `404`
+  authenticated.
+- **API-118 — PASS.** `/actuator/heapdump` and `/actuator/threaddump`: `401` unauthenticated (234/236
+  byte bodies), `404` authenticated (106/108 byte bodies) -- nowhere near the multi-megabyte
+  falsifier.
+- **API-119 — PASS.** `GET`/`POST /actuator/loggers`, `GET /actuator/mappings`,
+  `POST /actuator/shutdown`: `401` unauthenticated, `404` authenticated (verified all three
+  authenticated as a follow-up); the node answered `{"status":"UP",...}` after the shutdown attempt.
+- **API-120 — PASS.** Of the 24 stock actuator ids, exactly four (`health`, `info`, `metrics`,
+  `prometheus`) return `200`; the other twenty return `404`. `GET /actuator` (authenticated) lists
+  only those four (plus HAL sub-links for the parameterised ones) under `_links`.
+
+## REST §F. The error body (API-121–125)
+
+- **API-121 — PASS.** All four provoked failures (`PRV-2003` unknown stream, a duplicate-name
+  `PRV-2002`, `PRV-5040` malformed spec, `PRV-0400` from `?level=weird`) have exactly the five-key
+  set `["code","helpUrl","message","path","timestamp"]`; the `IllegalArgumentException` arm's
+  `helpUrl` is confirmed the **empty string** `""`, exactly as the case states.
+- **API-122 — PASS for the HTTP-reachable rows (PLANNING->400, PLUGIN->500); the non-HTTP-reachable
+  rows were not independently unit-tested this session.** Consistent with API-097/099/101.
+- **API-123 — NOT RUN.** Needs a direct unit call to `ApiExceptionHandler.statusFor` with an 8xxx/9xxx
+  code (`RegistryErrors.NO_SUCH_QUERY`, `ClusterErrors.INSUFFICIENT_GUARANTEE`); not reachable over
+  HTTP and no such unit test was written this session -- time budget. This is the case that would
+  catch the first REST endpoint reaching an 8xxx/9xxx code and getting a raw 500 instead of an
+  `ApiError`.
+- **API-124 — PASS.** The four framework failures (404, 405, 415, malformed-JSON 400) share the
+  key set `["error","path","status","timestamp"]`, distinct from `ApiError`'s five.
+- **API-125 — PASS.** The 401 body parses under `jq -e .`; `timestamp` matches the ISO-8601 pattern
+  the case specifies. A path containing a quote/backslash/newline was not separately constructed
+  this session (time budget) -- the general parseability claim is confirmed on every body collected
+  in §D/§F, not on that specific adversarial path.

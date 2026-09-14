@@ -1812,3 +1812,20 @@ written pattern.
 
 **Status: OPEN.** Reproduced directly; not seed-proven (out of required scope). See
 docs/qa/logs/TYPE.md §13-15 (TYPE-118).
+
+### API-F11 (MED) — the Swagger UI page is behind authentication even though `/api/docs` and the OpenAPI document are open by design
+
+`OPEN_PREFIXES` in `BearerTokenFilter` lists `/swagger-ui` as one of its five open prefixes, and
+`application.yaml` configures `springdoc.swagger-ui.path: /api/docs`. In practice: `GET /api/docs`
+on `H-SRVA` (no credential) answers `302 Location: /api/swagger-ui/index.html` (open, as intended),
+but that redirect target, `GET /api/swagger-ui/index.html`, answers `401` — because the actual
+resource path is `/api/swagger-ui/...`, which does not start with the configured prefix
+`/swagger-ui`. The raw `/api/v1/openapi.json` document (open, `200`, confirmed to disclose no
+stream/query/token text) is unaffected, so a code generator working from the JSON schema is fine,
+but a person clicking through to the interactive docs UI hits an authentication wall the design
+intends to avoid ("they describe the shape of the API and disclose no row data, and a client that
+cannot fetch the schema cannot generate a client" — API-107's own stated intent, for the schema; the
+UI page was meant to be open by the same logic and is not). One-line fix candidate:
+`OPEN_PREFIXES` should contain `/api/swagger-ui` (or, more robustly, derive the open prefix from
+`springdoc.swagger-ui.path`'s configured value rather than hard-coding `/swagger-ui`) — not applied
+under this QA session's mandate since it touches security-filter configuration. **Status: OPEN.**
