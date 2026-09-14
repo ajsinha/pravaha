@@ -157,12 +157,20 @@ class LifeSharingTest extends LifecycleTestSupport {
         long bBefore = registry.require("b").rowsIn();
         registry.drop("a");
         useB.set(true);
-        Thread.sleep(50);
+
+        // Waited for, not slept through. A fixed pause asserts that the feeder got a turn inside
+        // it, which on a loaded machine it does not: this failed with 258 rows against 258 -- the
+        // count had not gone backwards, it had simply not moved yet. A test that needs the machine
+        // to be quiet is a test that fails for a reason that has nothing to do with the product.
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline && registry.require("b").rowsIn() <= bBefore) {
+            Thread.sleep(10);
+        }
         keepGoing.set(false);
         feeder.join(Duration.ofSeconds(5).toMillis());
 
         assertThat(registry.require("b").rowsIn())
-                .as("V-rows: b kept advancing across the drop")
+                .as("V-rows: b kept advancing across the drop, within ten seconds")
                 .isGreaterThan(bBefore);
         assertThat(rows("SELECT usr FROM b")).isNotNull();
     }
