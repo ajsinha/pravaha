@@ -3807,7 +3807,39 @@ The shape of a fix is a cap on the number of ends one advance may emit, or a wal
 slices rather than over every boundary in the range. `SlicedAggregateState` already knows which
 slices exist.
 
-### TIME-2 (HIGH) — the engine's only watermark instrument reads `NaN` on a query whose watermark is advancing
+### TIME-2 (HIGH) — a `DESCRIPTOR` naming a timestamp column that is not the stream's declared event time is accepted, and the answer is nonsense
+
+> **Status:** OPEN — reproduced on a live node with a two-timestamp stream. `TUMBLE(TABLE ev, DESCRIPTOR(other_time), …)` where `pravaha.streams.ev.event-time: event_time` plans, registers and serves **one** window holding all 121 rows; the identical query with `DESCRIPTOR(event_time)` serves the correct twelve. `WindowAssign.process` (`pravaha-runtime/.../exec/WindowAssign.java:62`) slices on `row.getLong(operator.eventTimeOrdinal())`, which `PhysicalPlanBuilder` fills from `descriptorOrdinal(descriptor, schema)` (`:617`, `:729`); the watermark that fires those slices comes from the *stamped* event time. Nothing checks they are the same column.
+
+There **is** a guard, and it is the wrong one. A descriptor on a non-temporal column is refused by
+Calcite's validator:
+
+```
+PRV-1041  PRV-2002  Cannot apply 'TUMBLE' to arguments of type 'TUMBLE(<RECORDTYPE(BIGINT ID,
+VARCHAR USR, BIGINT AMOUNT, TIMESTAMP_WITH_LOCAL_TIME_ZONE(9) EVENT_TIME)>, <COLUMN_LIST>,
+<INTERVAL SECOND>)'. Supported form(s): TUMBLE(TABLE table_name, DESCRIPTOR(timecol), …)
+```
+
+That is a **type** check. It says nothing about *which* timestamp column, and a schema with two of
+them walks straight through it. Reproduction, on `$QA/conf/t014b.yaml` — 121 rows with
+`event_time` = T0+k (declared, `out-of-orderness: 0s`) and `other_time` = k **nanoseconds**:
+
+| Query (one identifier apart) | View |
+|---|---|
+| `DESCRIPTOR(other_time)` | **1 row**: `window_start 0, window_end 10000000000, n 121, total 7260` |
+| `DESCRIPTOR(event_time)` | **12 rows**, totals 45, 145, … 1145 |
+
+Assignment runs on a clock that reaches 120 nanoseconds past 1970; firing runs on a watermark at
+T0+120, which is ~1.77×10^18 past every window that clock can produce. Every row lands in the single
+window `[0, 10s)` and it fires immediately. `Σ total` is 7260, so nothing was dropped — the query is
+not lossy, it is **wrong**, and it reports RUNNING with a full `ROWS IN` while being so.
+
+Two timestamp columns on one stream is not exotic: an `event_time` and an `ingest_time`, a
+`trade_time` and a `settle_time`. The planner holds the `StreamSchema` at `PhysicalPlanBuilder.java:617`
+and `eventTimeOrdinal()` is one call away, so refusing a descriptor that is not the declared event
+time — or at minimum warning — costs one comparison at plan time.
+
+### TIME-12 (HIGH) — the engine's only watermark instrument reads `NaN` on a query whose watermark is advancing
 
 > **Status:** OPEN — reproduced on a live node: `pravaha_query_watermark_lag_seconds{query="w10"} NaN` on a query serving eleven correct windows, in the same scrape as two queries that genuinely have no watermark. `RegisteredQuery.advanceWatermark` (`pravaha-registry/.../RegisteredQuery.java:266`) is the only writer of `watermarkNanos`, and `QueryExecution.advanceWatermarkQuietly` (`pravaha-runtime/.../exec/QueryExecution.java:442`) calls `QueryExecution.advanceWatermark` instead.
 
@@ -3825,9 +3857,28 @@ pravaha_query_watermark_lag_seconds{query="w10n"} NaN       # no event-time decl
 
 `w10` and `w10n` are the same SQL over byte-identical files and differ only in one configuration
 line; one is healthy and one is the failure mode the whole watermark subsystem exists to make
-visible. The instrument cannot tell them apart. Combined with TIME-8 — there is no idle-partition,
-exclusion or regression count on any surface either — an operator diagnosing a frozen watermark has
-the row count, an empty view, and a gauge that says "no watermark" about a working query.
+visible. The instrument cannot tell them apart. A fourth kind of query — one with no source bound at
+all — reads `NaN` too. Combined with TIME-8, an operator diagnosing a frozen watermark has the row
+count, an empty view, and a gauge that says "no watermark" about a working query.
+
+### TIME-13 (MEDIUM) — a late row reaches every still-open window of its slice and never reopens one that has closed, which is not what the HOP correction path promises
+
+> **Status:** OPEN — reproduced on a live node with a `follow: true` paced feed. `HOP(… INTERVAL '10' SECOND, INTERVAL '20' SECOND)` over `ev`, `out-of-orderness: 0s`, fed T0+0 … T0+105 so the window `[T0+80, T0+100)` had fired at `n = 20, total = 1790`. Injecting `904,u0,500,T0+95` left it at **1790** with no retraction and no re-emission; the same row then appeared in `[T0+90, T0+110)`, which emitted later as `n = 21, total = 2490` (= 1990 + 500).
+
+`WindowedAggregate.process` (`pravaha-runtime/.../exec/WindowedAggregate.java:170-179`) accepts a row
+when `lastWindowEnd + allowedLatenessNanos > watermark`, and `lastWindowEndFor(T0+90)` is T0+110,
+above the watermark of T0+105 — so the row is accepted, exactly as TIME-096 predicts. What does not
+happen is the second half: the already-emitted window T0+100 is not marked dirty and re-emitted, so
+the retraction-plus-correction the case (and `WindowedAggregate.java:52-58`) describes never reaches
+a subscriber.
+
+The result is a third outcome the design does not name: a row is **partially** applied. The windows
+of its slice that are still open get it; the ones that have fired do not; and the two published
+answers for overlapping windows covering the same instant now disagree by 500. Nothing reports it —
+`lateRecords` is not incremented either, because the row was not treated as late.
+
+This is separable from TIME-7 (there is no way to set allowed lateness on a server): here the row was
+inside the band the code itself computed, and the correction still did not fire.
 
 ### TIME-3 (MEDIUM) — `out-of-orderness` has no unit bound, so `60` is sixty milliseconds and looks exactly like a correct configuration
 

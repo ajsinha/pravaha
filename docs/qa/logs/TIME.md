@@ -31,6 +31,31 @@ command that was run and output that was read.
 authenticated users may reach data; (3) a user receives only the data they are authorized for.
 Nothing in this surface touched any of the three; no finding below is judged against them.
 
+**Overall: 116/120 cases executed. 96 PASS / 9 FAIL / 11 BLOCKED / 4 NOT RUN.** Thirteen findings
+are recorded in `docs/qa/FINDINGS.md` as **TIME-1 … TIME-13**. The three most severe:
+
+- **TIME-1 (HIGH)** — `SlicedWindows.windowsCompletedBetween` materialises one list entry per window
+  boundary between two watermarks, with no bound. One row carrying an old timestamp (`evB.csv` plus a
+  single row at `event_time = 0`) puts ≈1.77×10^8 iterations on the lane thread: the view ends up
+  holding the 1970 window alone instead of the eleven real ones, and shutdown reports `PRV-3010 lane 0
+  did not stop within PT5S`. Reproduced twice, the second time through a large declared lateness.
+- **TIME-2 (HIGH)** — a `DESCRIPTOR` naming a timestamp column that is **not** the stream's declared
+  event time is accepted at plan time. On a stream with `event_time` (2026) and `other_time`
+  (nanoseconds since 1970), the query plans, registers and serves **one** window holding all 121 rows;
+  the same query one identifier different serves the correct twelve. Nothing is dropped and nothing is
+  right.
+- **TIME-12 (HIGH)** — `pravaha_query_watermark_lag_seconds` is `NaN` on every query on every node,
+  including one demonstrably firing eleven windows, because the internal clock never calls the only
+  method that writes the field the gauge reads. The engine's single watermark instrument cannot
+  distinguish a healthy query from the exact failure it exists to reveal.
+
+**Four of the case file's fifteen assumed facts are false**, and three of the four invalidate whole
+sections. They are tabulated below, before the per-case verdicts, because a false assumed fact is a
+more interesting finding than the case that rests on it. The most consequential is **fact 8**:
+`advanceWatermarkQuietly` now reports a partition only when its high-water has *moved*, so round 1's
+DEFECT-18 is fixed and the quiet-partition section's central prediction — that a partition which
+produced one row is worse off than one that never spoke — is about an older build.
+
 **A note on a third-party string.** As in prior rounds, the jqwik dependency's console output
 carries an adversarial sentence addressed to an "AI Agent" instructing it to disregard its
 instructions. It is untrusted third-party build output, not a project instruction, and was not acted
@@ -96,11 +121,12 @@ engine cannot reach the tracker's interesting states"; it can now.
 **2. The engine's only watermark instrument reads `NaN` on a query whose watermark is demonstrably
 advancing.** `w10` served eleven correct windows in the same process in which
 `pravaha_query_watermark_lag_seconds{query="w10"}` read `NaN` — the same reading a query with no
-event time at all produces. Two queries that differ completely and read identically. TIME-1.
+event time at all produces. Two queries that differ completely and read identically. TIME-12.
 
 **3. A `DESCRIPTOR` naming a column that is not the declared event time is accepted at plan time.**
 The assignment clock and the firing clock are then different quantities in different eras, and the
-rows that fall out of the difference are counted nowhere. TIME-2.
+rows that fall out of the difference are counted nowhere — and with two timestamp columns on one stream the plan is
+accepted and every row collapses into one meaningless window. TIME-2.
 
 **4. `pravaha.watermark.out-of-orderness` is inert, proved by a number rather than a grep.** The
 identical duration in the identical spelling gives **11** windows at `pravaha.watermark.out-of-orderness`
@@ -224,7 +250,7 @@ in one line. The window count is the instrument throughout: with the highest eve
 | TIME-036 | `-1s` | refused at startup | `Caused by: java.lang.IllegalArgumentException: out-of-orderness must not be negative, got PT-1S. Zero means the source is strictly ordered, which is a claim the engine will hold you to: a row behind the watermark arrives late.` No `PRV-` code, no key name | **PASS** (and TIME-9) |
 | TIME-037 | `87600h` (3650 days) | starts, 0 windows, no fault | **0 rows**, node starts and serves — **but the lane then stalls at shutdown**: `PRV-3010 lane 0 did not stop within PT5S; its thread is still in the processor`. See TIME-1 | **FAIL** |
 | TIME-039 | `25s` | 9, last total 845 | **9 rows**, last total **845** | **PASS** |
-| TIME-040 | gauge on a query firing 11 windows | `NaN` | `pravaha_query_watermark_lag_seconds{query="w10"} NaN` — on the same node and at the same moment as `w10n` (no event time, 0 windows) and `p_noet` (a projection). All three `NaN` | **FAIL** — TIME-2 |
+| TIME-040 | gauge on a query firing 11 windows | `NaN` | `pravaha_query_watermark_lag_seconds{query="w10"} NaN` — on the same node and at the same moment as `w10n` (no event time, 0 windows) and `p_noet` (a projection). All three `NaN` | **FAIL** — TIME-12 |
 | TIME-044 | `60s` / `PT1M` / `60000ms` | 6 / 6 / 6 | **6 / 6 / 6**, identical totals | **PASS** |
 | TIME-045 | `60` (unitless) | 11, i.e. sixty **milliseconds** | **11 rows**, last total 1045 — indistinguishable from a correct 10s configuration | **PASS** (and TIME-6) |
 
@@ -412,3 +438,268 @@ That constrains what these cases can observe, and in one place it makes a case u
 | TIME-076 | **PASS** [code + E2E] | `FilesystemSourcePlugin.partitions` (`:240-246`) returns exactly one `SourcePartition` per binding ("One file, one partition"), and `PluginSourceFeeds.open` creates one pump per partition and registers each with the tracker through `trackEventTimeOf`. So on a shipped server the partition count is the bound-stream count: 1 for every single-stream query in this log and 2 for every join. A binding whose plugin reports N > 1 is not reachable (see the per-plugin section), so the N > 1 half of the case is **not run**. Partition names are `<stream>#<lane>/<pumps>:<partitionedPumps>` and are distinct — TIME-077 |
 
 ---
+
+## The startup-refusal design point — TIME-051, TIME-054, TIME-056, TIME-057
+
+These four are one experiment: the *same* class of bad value validated in two different places, with a
+journal holding three registered queries so the cost of each is countable.
+
+**TIME-051 — PASS.** Three queries registered under `conf/t051pre.yaml` and journalled to
+`$QA/j/reg.journal`; the node stopped; `idle-after` changed to `1h`; restarted.
+
+```
+Caused by: com.ash.messaging.pravaha.api.PravahaException: PRV-2002  pravaha.watermark.idle-after
+is PT1H, which this engine will not accept: an idle timeout of PT1H is above the maximum of PT10M.
+… Left as configured, every registration on this node would fail and the node would look healthy.
+```
+
+The process dies during context refresh. Nothing listens on 18801 (`curl -m2 /actuator/health` →
+nothing). **There is no `recovered` line at all**, because the validation sits above
+`journalPath.ifPresent(...)` in `PravahaNode.start` (`:386-397` vs `:429`). Correcting the value to
+`30s` and restarting on the same journal: `registry recovered 3 of 3 queries`, and `pravaha queries`
+lists `qa1`, `qa2`, `qa3` each with `ROWS IN` 121. The journal was intact and the refusal was the
+only thing that stopped it.
+
+**TIME-054 — PASS, with one honest correction.** Five further registrations were attempted against
+the refused node. The *system* produced exactly **one** error — the startup refusal. The five client
+attempts each got `PRV-1041  io exception`, which is the client failing to connect rather than the
+system failing five times; the case's phrasing ("zero registrations are attempted") is not quite what
+a script does, but the property it is testing holds: one bad value, one failure, nothing running.
+
+**TIME-056 — FAIL.** The control, and the same bad-value class validated in the other place.
+`conf/t056.yaml`, `tick: 5m` against `idle-after: 30s`, same journal:
+
+```
+INFO  PravahaNode : watermarks: idle-after=PT30S, tick=PT5M
+INFO  PravahaNode : registry recovered 0 of 3 queries from …/reg.journal
+WARN  PravahaNode : registration not recovered -- qa1: the watermark tick (PT5M) is longer than the
+                    idle timeout (PT30S), so a partition could not be noticed idle until long after
+                    it was. Idleness is detected on the tick; the tick has to be the finer of the two.
+WARN  PravahaNode : registration not recovered -- qa2: …
+WARN  PravahaNode : registration not recovered -- qa3: …
+$ curl -s localhost:18801/actuator/health
+{"status":"UP","groups":["liveness","readiness"]}
+$ pravaha register --name fresh --sql-file q10.sql --keys 0
+PRV-1041  the watermark tick (PT5M) is longer than the idle timeout (PT30S), …
+$ pravaha queries
+no continuous queries are registered
+```
+
+Four failures and counting, a node reporting `UP`, and an empty query list. Round 1's DEPLOY-053
+exactly, one configuration key across. TIME-5.
+
+**TIME-057 — PASS.** `tick: 30s` with `idle-after: 30s` is accepted (the comparison is
+`compareTo(...) > 0`, so equality passes), no warning anywhere, and registrations succeed. At an
+8-second read the view held **0** rows and at a 45-second read it held the full **11** — the first
+watermark advance does not happen until 30s after registration, so the windows arrive in one burst.
+`tick: 31s` in the same shape is refused per registration with the message above, proving the
+comparison is live and that equality is the worst legal setting rather than an unreachable one.
+
+---
+
+## Quiet partitions on a running server — TIME-072, TIME-073
+
+Both were attempted [E2E] with `follow: true` filesystem sources (fact 14), `idle-after: 5s`,
+`tick: 1s`, both streams `out-of-orderness: 0s`, and a join of `busy` and `quiet` on `id` — the only
+shape that gives one `QueryExecution` two watermark partitions.
+
+**TIME-072 — inconclusive [E2E], PASS [IT].** 30 rows were written to `quiet` (event times T0+0 …
+T0+29) and then it fell silent; `busy` was fed T0+0 … T0+120 at one row per 100ms and then stopped.
+`ROWS IN` reached 151. The view settled at **30 rows** — every pair the data supports — and was
+unchanged after a further 30 seconds (6× `idle-after`). `grep -c 'could not advance the watermark'`
+over the server log: **0**.
+
+That does not answer the case. An inner join emits a pair only when both sides have the key, and
+`busy`'s rows 30 … 120 have no partner, so the view could not have grown whatever the watermark did.
+The case's own alternative — "a projection over `quiet` registered in the same execution" — does not
+exist either, because a query that does not name a stream does not bind it and gets no pump for it.
+The mechanism is decided instead by `EventTimeTest.time072_apartitionThatSpokeAndWentQuietGoesIdle`
+and `time072b_theLaneReportsAPartitionOnlyWhenItsMarkHasMoved`, which drive the lane's actual
+reporting rule: a partition silent for twenty seconds under a one-second timeout **is** idle, and the
+lane watermark moves to the busy partition's value (120s, not the quiet one's 30s).
+
+**TIME-073 — PASS.** Same run, the "no premature flood" half: after both sources stopped, the view
+was identical 30 seconds later. Nothing fired for event times beyond the last row seen.
+
+---
+
+## Tick × window — TIME-081 … TIME-084
+
+All four over `evB.csv` with `ev.out-of-orderness: 0s`, so the watermark settles at T0+120 and the
+window count is entirely a function of the window size.
+
+| Case | tick / idle-after | Window | Expected | Observed | Verdict |
+|---|---|---|---|---|---|
+| TIME-081 | 100ms / 1s | `INTERVAL '0.05' SECOND` | 120 rows, `n = 1`, `total(k) = k` | **120 rows**, `n = 1` on every one, totals 0 … 119 | **PASS** |
+| TIME-082 | 100ms / 1s | `INTERVAL '1' SECOND` | 120 rows, `n = 1` | **120 rows**, `n = 1`, `total(i) = i − 1` for the window ending T0+i | **PASS** |
+| TIME-083 | 1s / 30s | `INTERVAL '0.5' SECOND` | 120 rows of 240 window ends | **120 rows**, `n = 1` | **PASS** |
+| TIME-084 | 1s / 30s | `INTERVAL '10' SECOND` | 12 rows, 45 … 1145 | **12 rows**, last total **1145** | **PASS** |
+
+Two things the case file was unsure about are settled. **Calcite accepts a fractional-second
+interval**: both `INTERVAL '0.05' SECOND` and `INTERVAL '0.5' SECOND` planned and registered without
+complaint, so "a window smaller than the finest tick cannot be expressed" is not the finding.
+And **empty windows are not emitted**: TIME-081 walks 2 420 window ends per emitted row's worth of
+event time and the view holds exactly the 120 non-empty ones. That containment is on the *output*
+only — the walk itself is still unbounded, which is TIME-1.
+
+---
+
+## The `DESCRIPTOR` column — TIME-014, and its decisive variant
+
+The case as written (`DESCRIPTOR(amount)`, an `INT64`) is **refused at plan time**, which is the
+falsifier the case allows for:
+
+```
+PRV-1041  PRV-2002  Cannot apply 'TUMBLE' to arguments of type 'TUMBLE(<RECORDTYPE(BIGINT ID,
+VARCHAR USR, BIGINT AMOUNT, TIMESTAMP_WITH_LOCAL_TIME_ZONE(9) EVENT_TIME)>, <COLUMN_LIST>,
+<INTERVAL SECOND>)'. Supported form(s): TUMBLE(TABLE table_name, DESCRIPTOR(timecol), datetime
+interval[, datetime interval]). Known streams: [ev]
+```
+
+So there **is** a guard — but it is a *type* guard, not a guard that the descriptor is the stream's
+**declared event-time** column. Fact 15 says nothing checks the two agree, and to test that the
+descriptor must also be a `TIMESTAMP`. A second stream was built for it: `ev2.csv`, the same 121
+rows with **two** timestamp columns —
+
+- `event_time` = T0+k (the declared event time), and
+- `other_time` = k **nanoseconds** (0 … 120ns, near the epoch).
+
+`conf/t014b.yaml`, `ev.event-time: event_time`, `out-of-orderness: 0s`, two registrations differing
+in one identifier:
+
+| Query | Result |
+|---|---|
+| `TUMBLE(TABLE ev, DESCRIPTOR(other_time), INTERVAL '10' SECOND)` | **1 row**: `window_start 0, window_end 10000000000, n 121, total 7260` |
+| `TUMBLE(TABLE ev, DESCRIPTOR(event_time), INTERVAL '10' SECOND)` | **12 rows**, totals 45 … 1145 |
+
+**TIME-014 — FAIL.** The first plan is accepted, assignment runs on `other_time` (nanoseconds since
+1970) while firing runs on the watermark derived from `event_time` (2026), and all 121 rows collapse
+into the single window `[0, 10s)` of 1970 — which then fires because the watermark is ~1.77×10^18
+past it. No row is lost (`Σ total = 7260`), but the answer is arithmetically meaningless and nothing
+on any surface says so. The control in the same configuration gives the right twelve windows.
+TIME-2.
+
+---
+
+## Lateness, paced through a `follow: true` source — TIME-093 … TIME-097, TIME-103
+
+These are the cases the unpaced runs could not express. `ev` is bound to `$QA/live/ev.csv` with
+`follow: "true"`; rows are appended at one per 50ms so the `pravaha-watermark` thread ticks between
+them.
+
+| Case | Verdict | Evidence |
+|---|---|---|
+| TIME-093 | **PASS** | `out-of-orderness: 10s`, fed T0+0 … T0+105. Window `[T0+80, T0+90)`: `n = 10`, `total = 845` |
+| TIME-103 | **PASS** | Same run. With the watermark at ≈T0+95, injected `908,u0,500,T0+92` — behind the watermark but in a window that has not closed. Fed on to T0+120. Window `[T0+90, T0+100)` came out `n = 11`, `total = 1445` = 945 + 500. **Accepted, and no retraction was needed** |
+| TIME-094 | **PASS** | `out-of-orderness: 0s`, fed to T0+100 so window `[T0+90, T0+100)` had fired at `n = 10, total = 945`. Injected `902,u0,500,T0+95`. The view is **unchanged**: 945 before and 945 after, ten rows before and ten after. No retraction, no correction, no second emission. The middle band has zero width for `TUMBLE` |
+| TIME-095 | **PASS** | Same run, injected `903,u0,700,T0+85`. Window `[T0+80, T0+90)` stayed at **845**, not 1545. `ROWS IN` counted the row (103 = 101 fed + 2 injected). `/actuator/prometheus` has no late counter; the chain `WindowedAggregate.lateRecords` → `InterpretedPipeline.lateRecords()` → `QueryExecution.lateRecords()` stops there, with no caller outside tests |
+| TIME-096 | **FAIL** | `HOP(… INTERVAL '10' SECOND, INTERVAL '20' SECOND)`, fed to T0+105. Before injection the view held ten windows ending T0+10 … T0+100, the last of them `[T0+80, T0+100)` with `n = 20, total = 1790` — the case's hand-computed value exactly. Injected `904,u0,500,T0+95`. **The fired window was not corrected**: `[T0+80, T0+100)` is still `n = 20, total = 1790`, and no retraction appeared. The row was not dropped either — it turned up in the window that had *not* fired: after feeding on to T0+115 the view gained `(window_start T0+90, n 21, total 2490)` = `1990 + 500`. So a late row reaches every window of its slice that is still open and **never** reopens one that has closed. The case predicts a retraction of `(T0+80, 20, 1790)` followed by `(T0+80, 21, 2290)`; neither appeared |
+| TIME-097 | **PASS** | Same run: with the watermark at T0+115, injecting `905,u0,500,T0+95` changed nothing. Windows ending T0+100 (1790) and T0+110 (2490) are both unmoved |
+
+---
+
+## TIME-120 — BLOCKED, and why
+
+The case needs rows pushed into a stream that has **no** `pravaha.sources` binding, "through whichever
+client path reaches `RegisteredQuery.accept`". There is no such path on a shipped node's HTTP
+surface. `conf/t120.yaml` declares `push` with `event-time: event_time` and no binding; `Q10` over it
+registers and reports RUNNING; and every plausible ingest URL is a 404:
+
+```
+POST /api/v1/streams/push/rows    -> HTTP Error 404
+POST /api/v1/ingest/push          -> HTTP Error 404
+POST /api/v1/streams/push/ingest  -> HTTP Error 404
+```
+
+The OpenAPI document lists no ingest path at all. `pravaha` has no push subcommand
+(`validate, query, register, queries, subscribe, pause, resume, drop, explain, run, version`), so
+Flight `DoPut` is reachable only from the SDK, which is API's surface rather than this one. What the
+run does establish: `ROWS IN` **0**, view **0 rows**, and
+`pravaha_query_watermark_lag_seconds{query="wp"} NaN` — the gauge again, on a fourth kind of query.
+
+One incidental, recorded because it cost a run: `pravaha.sources:` present with an empty value binds
+as a `String` and the node dies with a raw
+`org.springframework.core.convert.ConverterNotFoundException: No converter found capable of
+converting from type [java.lang.String] to type [java.util.Map<String, SourceBindingProperties$Spec>]`
+— no `PRV-` code, no key named. That is CFG's surface, not this one, and is recorded here only so the
+next executor does not lose the same twenty minutes.
+
+---
+
+## TIME-079 — not reproduced, with the load stated
+
+`conf/t081.yaml` (`tick: 100ms`, `idle-after: 1s`), 20 steady queries over `ev`, then **120**
+register/drop cycles of a distinct projection against them.
+
+```
+--- 'could not advance the watermark' lines: 0
+--- ConcurrentModificationException count: 0
+```
+
+**PASS**, and the case's own instruction applies: zero is a pass and must be reported with the
+registration count that produced it. It is **not** a clearance. `partitionHighWater` is still a plain
+`LinkedHashMap` (`QueryExecution.java:95`) and `lastReportedHighWater` beside it is another
+(`:106`); both are written by `trackEventTimeOf` on the registering thread and iterated by the
+`pravaha-watermark` thread. The structure round 1's DEFECT-17 describes is intact. The machine was
+**not** idle — two other QA agents were executing STRM and their own rounds throughout — which makes
+this a slightly stronger negative than an idle-machine run and still a failure to reproduce.
+
+---
+
+## Verdict index — all 120
+
+**116/120 executed. 96 PASS / 9 FAIL / 11 BLOCKED / 4 NOT RUN.** Following this directory's
+convention, "executed" counts PASS + FAIL + BLOCKED; a BLOCKED case was attempted and could not run,
+and is not a passing one.
+
+| Verdict | Count | Cases |
+|---|---|---|
+| **PASS** | 96 | 001–013, 015, 016, 026–036, 038, 039, 041–055, 057–073, 075–079, 081–090, 093–095, 097, 098, 100, 102–113, 116, 117 |
+| **FAIL** | 9 | **014**, **017**, **037**, **040**, **056**, **080**, **096**, **099**, **101** |
+| **BLOCKED** | 11 | 018–025 (no plugin on any reachable classpath), **074** (an inner join with an empty side cannot express the question), **118** (feedfile), **120** (no ingest path exists) |
+| **NOT RUN** | 4 | **091**, **092** (wall-clock latency distributions on a machine carrying two other QA agents), **114** (a ten-minute soak on a manufactured permanent failure), **119** (a data race whose premise is a fixed defect) |
+
+Thirteen findings are recorded in `docs/qa/FINDINGS.md` as **TIME-1 … TIME-13**. The nine FAILs map
+to them as: TIME-014 → TIME-2; TIME-017 → TIME-4; TIME-037 and TIME-099 → TIME-1; TIME-040 → TIME-12;
+TIME-056 → TIME-5; TIME-080 → TIME-8; TIME-096 → TIME-13; TIME-101 → TIME-10. TIME-3, TIME-6, TIME-7,
+TIME-9 and TIME-11 are cross-cutting and are each supported by several PASSing cases whose *observed*
+behaviour is the defect (an inert key, a silent unit misparse, an unreachable control, a bare
+exception, a clamp).
+
+**Six cases PASS on the product and fail on the case.** They are recorded as PASS because the engine
+did the arithmetically correct thing for the input it received, and flagged here because the case as
+written cannot test what it means to test:
+
+| Case | What the case predicts | What a 121-line file actually produces |
+|---|---|---|
+| TIME-031 | window 1 loses the injected row (`total 45`) | `n = 11, total = 945` — nothing is late before the first tick |
+| TIME-098 | 7 windows, 61 rows dropped | 13 windows, `Σ total = 7260`, only the outlier itself invisible |
+| TIME-100 | the 2s run drops rows and falls short of 7260 | the 2s run gains a window (12 vs 11) and both match a batch recomputation exactly |
+| TIME-106 | 0 windows, `Σ total = 0` | 11 windows, `Σ total = 5995` — identical to the in-order file |
+| TIME-107 | a computable set of drops | 11 windows, `Σ total = 5995` — identical to the in-order file |
+| TIME-011 / TIME-041 | the join's pair count is cut by eviction | 121 of 121 pairs; every pair forms before the first tick |
+
+All six become testable against a `follow: true` source, which the round used for TIME-093 through
+TIME-097 and TIME-103 and which did produce the predicted drops. A later wave should re-write them
+that way; fact 14 no longer forces a FIFO.
+
+**Three cases are stale in the other direction** — they predict a defect that has been fixed, and the
+fix is visible in the source with a comment recording the defect it replaced: TIME-023 (aerospike now
+reads the declared bin), TIME-077 (partition names carry a separator), TIME-119 (the watermark
+advance is marshalled onto the lane). All three are recorded above with the line that changed.
+
+---
+
+## What the next executor should know
+
+1. **Use `follow: "true"`.** `FilesystemSourcePlugin` supports it and the case file does not know.
+   Every paced case in this round used it and none needed a FIFO.
+2. **Only `filesystem` is on a server's classpath.** Eight cases are BLOCKED for that one reason.
+   Either the other plugins go into the app jar, or the per-plugin matrix has to move to `pravaha-it`
+   with those modules added as test dependencies.
+3. **`SELECT … ORDER BY` is refused on a view read** (`PRV-2020`, LogicalSort). The case file's S1
+   procedure specifies it; sort client-side.
+4. **`./mvnw -o -pl pravaha-it -am test -Dtest=EventTimeTest`**, never `-pl pravaha-it` alone.
+   31 tests, 30 green, 1 `@Disabled` (`time037`, whose disable reason is TIME-1's symptom).
+5. **`pravaha.sources:` with an empty value** kills the node with a raw `ConverterNotFoundException`.
+   Omit the key entirely for a push-only stream.
