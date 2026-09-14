@@ -4073,7 +4073,7 @@ The comment now records what the two digests do and do not buy. Carrying the key
 hash remains the honest fix, which is what `L0StateMap` is for and what [ADR-035](../adr/035-wave-8-is-survival-not-distribution.md) puts in Wave 8.
 ---
 
-## Streaming results — the subscription path (STRM), 18 findings
+## Streaming results — the subscription path (STRM), 19 findings
 
 Round STRM, 2026-09-14, `docs/qa/logs/STRM.md`. 116 of 120 cases executed. Eight of the case file's
 eighteen stated facts turned out false against this build, including the one the whole area was
@@ -4366,9 +4366,9 @@ frontier, and it arrives flagged as a completed commit. Note the rate: this is n
 interleaving, it is roughly one attach in five on a busy machine, and a dashboard attaching to a
 busy query is the ordinary case rather than the unusual one.
 
-### STRM-12 (MEDIUM) — dropping a query ends its streams with no reason, leaves in-process subscribers attached for ever, and `subscriberCount()` never returns to zero
+### STRM-12 (MEDIUM) — every way a subscription ends for a reason the client should act on reaches it as a clean completion, in-process subscribers are left attached for ever, and `subscriberCount()` never returns to zero
 
-> **Status:** OPEN — the Flight half reproduced in `SrvC.s065`, the in-process half and the counter in `SectionE.s076`.
+> **Status:** OPEN — the drop reproduced in `SrvC.s065`, the restart in `SrvT.s072`, the in-process half and the counter in `SectionE.s076`.
 
 `QueryRegistry.drop` sets the state to `DROPPED`; the Flight loop notices via
 `query.state().isTerminal()` and calls `listener.completed()`:
@@ -4380,6 +4380,24 @@ drop while subscribed: stream ended=true after 200ms with: completed normally, n
 No status, no code, no reason — indistinguishable from a client-initiated close, for an event that
 is the administrative destruction of the thing the client asked to watch. `CANCELLED` or `NOT_FOUND`
 with the reason is what a client can act on.
+
+A **server restart** arrives the same way, and there it is worse:
+
+```
+SIGTERM, then restart:
+    the client's run() ended with: completed normally, no error
+    after the journal replay: q72 [RUNNING, c625056598e3, 0 rows]
+```
+
+`UNAVAILABLE` is what the case expected and what a client could act on. What it gets is the signal
+for "this stream is finished", because the graceful shutdown drains in-flight Flight calls and
+`listener.completed()` fires on the way out — the same path `PF-8`'s `SHUTDOWN_DRAIN` fix made
+orderly. The query is journalled and comes back `RUNNING`; nothing replays the subscription. So a
+client that believes a clean completion means the stream is over stops, keeps the 500 keys it had,
+and never learns the view moved on without it.
+
+Three different events — an administrative drop, a restart, and the client's own `close()` — are one
+signal on the wire. Only one of the three is an end the client should accept.
 
 In-process it is worse: nothing closes the `Subscription` and nothing removes it from
 `sink.listeners`, because `RegisteredQuery.close()` does not touch them. The twelve-observation
@@ -4492,7 +4510,7 @@ divergence, and it is silent from the client's side (STRM-10).
 The structural half is why it matters more than a documented hazard should.
 `ControlWire.subscribeTicket(view, filterPairs)` encodes `["subscribe", view, pairs…]` and nothing
 else (`ControlWire.java:141`–`:147`); `streamSubscription` passes `SubscriptionOptions.DEFAULT`
-(`:552`); and `ClientOptions.subscriberBufferRows` / `conflateOnOverflow` have **no reader** anywhere
+(`:550`); and `ClientOptions.subscriberBufferRows` / `conflateOnOverflow` have **no reader** anywhere
 in `pravaha-flight` or `sdk/pravaha-sdk-java-flight`. So every remote subscriber is
 `(10 000, CONFLATE)` whatever it asked for, `OPERATIONS.md` presents the overflow policy as "per the
 subscriber's choice", and a client that sets `subscriberBufferRows(1)` gets a setting with no
@@ -4524,7 +4542,7 @@ Eight of the case file's eighteen stated facts are false against this build. The
 `docs/qa/logs/STRM.md`. Four are worth naming here because they change what can be run at all:
 
 - **`H-EA` does not exist.** `SELECT user_id, SUM(amount) AS total FROM txn GROUP BY user_id` is
-  refused at registration with `PRV-2050` — `PhysicalPlanBuilder.java:829` admits a keyed `GROUP BY`
+  refused at registration with `PRV-2050` — `PhysicalPlanBuilder.java:828` admits a keyed `GROUP BY`
   only over a window. Eight cases name `H-EA`; they were run against a windowed substitute, and
   STRM-013 is BLOCKED because its assertion ("five updates in one commit deliver nine changes") is
   unreachable on any shape the build admits.
@@ -4536,3 +4554,31 @@ Eight of the case file's eighteen stated facts are false against this build. The
   configured policy can produce an `AccessDecision` carrying a row filter — so section G's cases
   cannot be run against a configured node at all. They were run against an in-process
   `PravahaFlightServer`, and STRM-100 is BLOCKED on the same fact.
+
+### STRM-19 (MEDIUM) — `DECIMAL(p,s)` cannot be written in the only schema grammar a configured node has, and the node refuses to start when you try
+
+> **Status:** OPEN — found while building STRM-022's type-coverage stream; reproduced by starting a node with `pravaha.streams.typ.schema: "c_i64:INT64,c_dec:DECIMAL(18,2)"`.
+
+```
+APPLICATION FAILED TO START
+Caused by: com.ash.messaging.pravaha.api.ConfigurationException:
+  PRV-5040  unknown type 'DECIMAL(18'. Supported: BOOLEAN, INT8, INT16, INT32, INT64,
+  FLOAT32, FLOAT64, STRING, BYTES, DATE, TIME, TIMESTAMP, DECIMAL(p,s). …
+    at FilesystemSourcePlugin.decimalOrRefusal(FilesystemSourcePlugin.java:171)
+    at FilesystemSourcePlugin.parseSchema(FilesystemSourcePlugin.java:152)
+    at PravahaNode.lambda$registerDeclaredStreams$0(PravahaNode.java:225)
+```
+
+`parseSchema` splits the spec on `,` and then parses each `name:TYPE`, so the comma inside
+`DECIMAL(18,2)` ends the field. The refusal message then lists `DECIMAL(p,s)` among the supported
+types, which is true of `typeFor` and false of the grammar that reaches it.
+
+This is the same parser behind `pravaha.streams.*.schema`, `POST /api/v1/streams`, `--schema` and
+`--out-schema` — the comment above `parseSchema` says so, and records that six types were once
+unreachable for a related reason. One still is. A deployment that needs a decimal column — which is
+most financial ones, and `SQL_SUPPORT.md` documents `DECIMAL` as supported — cannot declare it from
+configuration at all, and finds out as a node that will not start.
+
+Found on the STRM path because STRM-022 compares every declared type across the subscription and
+read paths; the 12 types that are reachable agree exactly, `TIMESTAMP` at nanosecond precision and
+`BYTES` through both defensive clones included. `TYPE`/`CFG` own the fix.

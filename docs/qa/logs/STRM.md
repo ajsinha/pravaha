@@ -11,9 +11,9 @@ by `./mvnw -o -T1C install -DskipTests` (Java 21, `/usr/lib/jvm/java-21-openjdk-
 any case in this file.** Every verdict below carries the command that produced it and the output it
 produced; nothing is inferred from a neighbouring case.
 
-**Overall: 116/120 cases executed. 88 PASS / 22 FAIL / 3 BLOCKED / 7 NOT RUN.**
+**Overall: 109/120 cases executed. 83 PASS / 23 FAIL / 3 BLOCKED / 11 NOT RUN.**
 
-Eighteen new findings are recorded in `docs/qa/FINDINGS.md` as **STRM-1 … STRM-18**. The three most
+Nineteen new findings are recorded in `docs/qa/FINDINGS.md` as **STRM-1 … STRM-19**. The three most
 severe:
 
 - **STRM-2 (HIGH)** — one subscriber's `FAIL` overflow policy **terminates the whole computation**.
@@ -35,6 +35,12 @@ severe:
   with a listener `ViewSink.pending.size()` reached **100 001** and kept rising; with no listener it
   stayed at **0**. The leak appears in exactly the deployments that subscribe, which is the inverse
   of the leak the `listeners.isEmpty()` branch was written to prevent.
+
+Three further failures are worth the reader's attention before the tables: **STRM-11** (a subscriber
+attaching mid-commit receives a fragment of it, flagged as a completed batch — 9 of 50 attempts at
+1000 groups), **STRM-4** (one stalled subscriber costs 69 % of ingest throughput, against ADR-026's
+claim that subscriber count is a capacity line item), and **STRM-12** (a drop, a restart and the
+client's own `close()` are one indistinguishable signal on the wire).
 
 **Eight of the case file's stated facts are false against this build**, including the three the area
 is built around — the weight *does* reach a Flight subscriber, `SRVDBG` is gone, and `mayRead` *is*
@@ -72,7 +78,7 @@ PRV-2050  GROUP BY user_id has no bound on its key space, so its state grows wit
 distinct keys and never shrinks. …
 ```
 
-`PhysicalPlanBuilder.java:829` refuses every keyed `GROUP BY` over an unwindowed stream. The nearest
+`PhysicalPlanBuilder.java:828` refuses every keyed `GROUP BY` over an unwindowed stream. The nearest
 shape that produces a real retract/insert pair per update is a **windowed** keyed aggregate, and it
 was used wherever the case's intent survives the substitution:
 
@@ -135,8 +141,8 @@ eight do not.**
 
 | # | The case file says | Holds? | What is true |
 |---|---|---|---|
-| 1 | `H-EA` is `SELECT user_id, SUM(amount) AS total FROM txn GROUP BY user_id` | **NO** | Refused at registration with `PRV-2050`; `PhysicalPlanBuilder.java:829` admits a keyed `GROUP BY` only over a window. `H-EA′` (windowed) was substituted |
-| 2 | `writeBatch` writes `change.values()` into a root with **no weight field**; `ChangeBatch`/`Row` expose no weight accessor (STRM-017, the case file's "run this first") | **NO** | `ArrowSchemas.subscriptionSchema` (`ArrowSchemas.java:98`) appends `_pravaha_weight: Int64 not null` carrying metadata `pravaha.weight`; `writeBatch` (`PravahaFlightSqlProducer.java:645`) fills it; `Row.weight()` / `Row.isRetraction()` (`Row.java:146`, `:154`) read it by that metadata mark. Observed on the wire: `_pravaha_weight: Int(64, true) not null` |
+| 1 | `H-EA` is `SELECT user_id, SUM(amount) AS total FROM txn GROUP BY user_id` | **NO** | Refused at registration with `PRV-2050`; `PhysicalPlanBuilder.java:828` admits a keyed `GROUP BY` only over a window. `H-EA′` (windowed) was substituted |
+| 2 | `writeBatch` writes `change.values()` into a root with **no weight field**; `ChangeBatch`/`Row` expose no weight accessor (STRM-017, the case file's "run this first") | **NO** | `ArrowSchemas.subscriptionSchema` (`ArrowSchemas.java:98`) appends `_pravaha_weight: Int64 not null` carrying metadata `pravaha.weight`; `writeBatch` (`PravahaFlightSqlProducer.java:653`) fills it; `Row.weight()` / `Row.isRetraction()` (`Row.java:146`, `:154`) read it by that metadata mark. Observed on the wire: `_pravaha_weight: Int(64, true) not null` |
 | 3 | `PravahaFlightSqlProducer` prints `SRVDBG` on every subscribe and every batch (STRM-027) | **NO** | `grep -c SRVDBG` over the subscription path and over a server log carrying ~1 000 000 rows and dozens of subscriptions: **0**. No such string exists in the file |
 | 4 | `policy.mayRead` is evaluated **once**, at subscribe time; nothing re-checks it (STRM-096, STRM-097) | **NO** | `PravahaFlightSqlProducer.java:101` `REAUTHORIZE_EVERY = 2s`; the loop re-checks both `middleware.credentialStillValid()` and `policy.mayRead` and ends the stream with `UNAUTHENTICATED` / `FORBIDDEN`. Reproduced: revocation ended a live stream in 1035 ms, a withdrawn credential in 637 ms |
 | 5 | `ServedView.applyValues` "branches on `weight < 0`" (STRM-006 … STRM-011) | **NO** | It maintains a **net** weight per key (`weights` + `pendingWeight`) and branches on `net <= 0` (`ServedView.java:194`). `+1, +1, commit, -1, commit` leaves the key **present**, which a `weight < 0` branch would not |
@@ -145,7 +151,7 @@ eight do not.**
 | 8 | "Rows are pushed with `DoPut`" | **NO** | There is no `DoPut` path for stream rows. `acceptPutPreparedStatementQuery` is the only put the producer implements, and it is for prepared-statement parameters. A node is fed through `pravaha.sources.*` |
 | 9 | `SubscriptionOptions.DEFAULT` is `(10_000, CONFLATE)` | yes | `SubscriptionOptions.java:32` |
 | 10 | `SUBSCRIPTION_HANDOVER_BATCHES = 64`, filled with `offer`, never `put` | yes | `PravahaFlightSqlProducer.java:111`, `:554` |
-| 11 | `streamSubscription` hard-codes `SubscriptionOptions.DEFAULT`, so a client's overflow policy is ignored | yes | `PravahaFlightSqlProducer.java:552`; `ControlWire.subscribeTicket` (`ControlWire.java:141`) encodes `["subscribe", view, pairs…]` and nothing else; `ClientOptions.subscriberBufferRows` has **no reader** anywhere in `pravaha-flight` or the Flight SDK |
+| 11 | `streamSubscription` hard-codes `SubscriptionOptions.DEFAULT`, so a client's overflow policy is ignored | yes | `PravahaFlightSqlProducer.java:550`; `ControlWire.subscribeTicket` (`ControlWire.java:141`) encodes `["subscribe", view, pairs…]` and nothing else; `ClientOptions.subscriberBufferRows` has **no reader** anywhere in `pravaha-flight` or the Flight SDK |
 | 12 | `SubscriptionFilter` refuses an unknown column but compares values with `Objects.equals`, and the Flight path builds the map from wire **strings** | yes | `SubscriptionFilter.java:121`; `PravahaFlightSqlProducer.java:523`. Confirmed behaviourally: `--filter amount=300` opens and delivers 0 of 10 |
 | 13 | `ordinalOf` is `equalsIgnoreCase` on the name; `accepts` is case-**sensitive** on the value | yes | `SubscriptionFilter.java:106`, `:121`. Four subscriptions over one feed gave 5, 5, 5, 0 |
 | 14 | `ViewSink.commit` calls `view.commit(frontier)` before touching `pending` | yes | `ViewSink.java:74`–`:91`. This is what STRM-070 turns into a leak |
@@ -202,13 +208,13 @@ for it.
 | STRM-019 | **FAIL** | the CLI renders `render(row)` with no weight: data lines `[a19\t300\tSWAP, a19\t300\tSWAP]`, commit markers `2`, and the two lines are byte-identical. The weight is on the wire and `Row.weight()` exposes it; `ServerCommand.render` does not use it. See finding **STRM-3** |
 | STRM-020 | **PASS** | `Arrow batch row counts in arrival order = [3, 1] batches()=2 rows()=4`. The 800 ms gap is 40× the publish tick |
 | STRM-021 | **PASS** | 50 000 rows in one append: `rows=50000 arrowBatches=36 largestBatch=2830 elapsed=1129ms`, subscription still open. Outcome **(b)**: the commit boundary is the 20 ms publish tick, not the size of the write, so `writeBatch` never sees a 50 000-row commit from a configured feed. No allocator failure |
-| STRM-022 | **PASS** | see below (run against the `hs2` node) |
+| STRM-022 | **PASS** | the same row through both paths, on a stream declaring one column of each nameable type: subscribed `[k1, true, 7, 300, 70000, 9000000000, 1.5, 2.25, byte[], 1789389296789000000, 20710, 45296000000000]`, queried identically, **equal on every column** — including `TIMESTAMP` at nanosecond precision (ADR-012) and the `BYTES` column through both defensive clones. **12 of the engine's 16 types were reachable**: `DECIMAL(p,s)` is named by the schema parser's own error message and cannot be written in the comma-separated `name:TYPE` grammar at all — `pravaha.streams.typ.schema: "…,c_dec:DECIMAL(18,2)"` splits on the comma inside the parameters and the node refuses to start with `PRV-5040  unknown type 'DECIMAL(18'. Supported: … DECIMAL(p,s)`. `ARRAY`, `MAP` and `ROW` are unsupported by the engine. See finding **STRM-19** |
 | STRM-023 | **PASS** | A mutated `change.values()[1] = 999L`; B saw `300`, the view holds `300`, A's own second `values()` call returned `300`. `ViewChange.values()` clones on every call |
 | STRM-024 | **PASS** | (b) valid ticket → stream opened, schema as above. (c) first 4 bytes → falls through to `super.getStream`, Flight SQL's own `There was an error servicing your request.` (d) 6 bytes → `PRV-6102 this is not a Pravaha request`. (e) 8 zero bytes → falls through. (f) magic + 40 random → `PRV-6102 this request was built by a different version of the client`. No bare `NullPointerException` or `ArrayIndexOutOfBoundsException` anywhere |
 | STRM-025 | **PASS** | `PRV-8002  no query named 'no_such_view_25' is registered; this node has […]`, immediate, non-zero exit. Both spellings give the identical class of error under `permissive`. Under a denying policy the same message is a disclosure — STRM-102, finding **STRM-9** |
 | STRM-026 | **PASS** | all five verbs against a `PravahaFlightServer` built with no registry: `subscribe`, `pravaha.register`, `pravaha.drop`, `pravaha.pause`, `pravaha.resume` each → `PRV-6101  this server serves views but does not host a registry, so it cannot register, drop or subscribe to queries. Start it with a QueryRegistry if it should` |
 | STRM-027 | **PASS** | **the case's premise is refuted.** `grep -c SRVDBG $QA/logs/server-hs-phase1.log` = **0** over a node that carried ~1 000 000 rows and dozens of subscriptions; and no `SRVDBG` string exists in `PravahaFlightSqlProducer.java` |
-| STRM-028 | **FAIL** | ADR-026's central rationale — "Encode once, write N times … a thousand subscribers at 20 Hz is 20 000 serialisations a second instead of 20" — is falsified by the code: `streamSubscription` allocates its **own** `VectorSchemaRoot` per subscription (`PravahaFlightSqlProducer.java:548`) and calls its own `writeBatch`, so encoding scales with N. The measured consequence is STRM-087's ingest collapse. ADR-026's own status line is already honest about the carriers ("one carrier built — Flight/gRPC. There is no WebSocket implementation anywhere"), so only the rationale is stale. See finding **STRM-4** |
+| STRM-028 | **FAIL** | ADR-026's central rationale — "Encode once, write N times … a thousand subscribers at 20 Hz is 20 000 serialisations a second instead of 20" — is falsified by the code: `streamSubscription` allocates its **own** `VectorSchemaRoot` per subscription (`PravahaFlightSqlProducer.java:547`) and calls its own `writeBatch`, so encoding scales with N. The measured consequence is STRM-087's ingest collapse. ADR-026's own status line is already honest about the carriers ("one carrier built — Flight/gRPC. There is no WebSocket implementation anywhere"), so only the rationale is stale. See finding **STRM-4** |
 
 ## Section C — once, in order, without gaps (STRM-029–046)
 
@@ -250,7 +256,7 @@ for it.
 | STRM-057 | **FAIL** | `FAIL`-overflow subscriber attached **first**: `A.closed=true B.received=0 C.received=0 advanceWatermark threw=PRV-8004 … queryState=FAILED`. Attached **last**: `B.received=2 C.received=2 … queryState=FAILED`. B and C's outcome depends on attach order, and one subscriber's declared policy terminates the computation. See finding **STRM-2** |
 | STRM-058 | **PASS** | `q58` and `q58b`, byte-identical SQL: both resolve to fingerprint `6b68f41d507b` with the same `rowsIn`; X on `q58` and Y on `q58b` each received **100** changes summing **5050** from rows pushed once |
 | STRM-059 | **PASS** | 2 000 000 rows over 100 keys, committing every 10 000, **no subscriber at any point**: `ViewSink.pending.size()=0 rowsApplied=2000000 viewKeys=100 heapUsedAfterGc=10MB`. The claim the existing test does not check is true |
-| STRM-060 | **FAIL** | row 1 fed, then subscribe, then rows 2–3, then one `commit()`: **first batch size=2**, `[+1[u2, 2], +1[u3, 3]]`, while `ServedView.commits` rose by exactly 1 covering 3 keys. A batch that is not a commit, which `USER_GUIDE.md` promises never happens. See finding **STRM-11** (with STRM-120) |
+| STRM-060 | **FAIL** | row 1 fed, then subscribe, then rows 2–3, then one `commit()`: **first batch size=2**, `[+1[u2, 2], +1[u3, 3]]`, while `ServedView.commits` rose by exactly 1 covering 3 keys. A batch that is not a commit, which `USER_GUIDE.md` promises never happens. See finding **STRM-11** (with case STRM-120) |
 
 ## Section E — lifecycle interaction (STRM-061–076)
 
@@ -258,7 +264,7 @@ for it.
 |---|---|---|
 | STRM-061 | **PASS** | subscribe to a `PAUSED` query succeeds, `subscriberCount=1`; `accept()` returned `true` for **0 of 10** rows; `rowsIn 0→0`; `deliveredWhilePaused=0`; after `resume`, `delivered=1` |
 | STRM-062 | **PASS** | over `H-S`: the client's stream was `(still running)` throughout a 10 s pause and never errored; `batches()` stopped rising and resumed. One nuance the case does not predict: the 1000 rows appended while paused **did** reach the view after resume (`view holds 1200 keys`), because the filesystem source's reader is still positioned on them — the embedded "a paused query drops rows" contract does not carry to a file-backed node |
-| STRM-063 | see below | 3-minute pause (900 empty 200 ms polls), CPU and liveness measured |
+| STRM-063 | **PASS** | after a **180 s** pause — 900 empty 200 ms polls — the stream state was `(still running)`, and after `resume` all **10** rows were delivered (`rows()=10`). The liveness half holds: the loop neither exits nor stops working. The CPU half is **not established**: the only figure available was whole-process (478 850 ms over the pause) on a node still ingesting other queries' feeds, so it is not attributable to the subscription thread and is not quoted as one |
 | STRM-064 | **PASS** | `batches=[[a], [d]] delivered=2 viewKeys=[a, d]` — `b` and `c`, fed while paused, appear in neither the stream nor the view |
 | STRM-065 | **FAIL** | `pravaha drop --name q65` with a live subscriber: the stream ended **200 ms** later with `completed normally, no error`. No status, no reason, no `CANCELLED`/`NOT_FOUND` — indistinguishable from a client-initiated close. In-process the same drop leaves the `Subscription` reporting `isClosed()==false` with `failure()` empty, still in `sink.listeners`, never to receive another change (measured in STRM-076: the count never returns to 0). See finding **STRM-12** |
 | STRM-066 | **FAIL** | embedded: `PRV-8003  cannot subscribe to 'a740dfd20964': it is DROPPED`. The message names a **fingerprint short-form**, not `q` — `RegisteredQuery.anyName()` falls back to `fingerprint.shortForm()` once `removeName` has emptied the name set, so the caller is told about an identifier it has never seen. Over Flight the same situation is `PRV-8002 NO_SUCH_QUERY` — two codes for one user-visible event, which `ERRC` owns. See finding **STRM-17** |
@@ -267,9 +273,9 @@ for it.
 | STRM-069 | **PASS** | driven to `FAILED` through STRM-057's route: `queryState=FAILED queryFailure=PRV-8004 …`; the in-process watcher was **never notified** (`isClosed=false failure=false batchesReceived=0`); `resume` refused with `PRV-8003  query 'q' is FAILED and cannot be resumed. A failed query is not restarted in place…` |
 | STRM-070 | **FAIL** | with a subscriber attached: first commit ok, second `PRV-4022 VIEW_TOO_LARGE`, then **`pending.size` after 100 000 more rows = 100 001**. Identical run with **no** subscriber: `pending.size = 0`. See finding **STRM-5** |
 | STRM-071 | **PASS** | 10 000 keys spread over 300 s of event time with `Retention.ofAge(60s)`: the stream replay holds **10 000** keys, the view holds **2001**, `evicted()` = **7999**, and `10000 − 7999 = 2001` reconciles exactly. `delivered=10000 dropped=0` — **no change was delivered for any evicted key**. Documented behaviour, pinned; the subscriber's only route to the reconciliation is a server-side counter it cannot read |
-| STRM-072 | see below | measured against the `hs2` node with a registry journal |
+| STRM-072 | **FAIL** | the subscriber held 500 keys; the node was stopped with `SIGTERM` and restarted. The client's `run()` ended with **`completed normally, no error`** — not `UNAVAILABLE`, not any transport error. A server restart is byte-for-byte indistinguishable from an orderly end of stream, because the graceful shutdown drains in-flight Flight calls and `listener.completed()` fires on the way out. After the journal replay the query is back: `q72 [RUNNING, c625056598e3, 0 rows]` — registered again, `rowsIn` reset to 0, and nothing replays the subscription. A client that treats a clean completion as "the stream is finished" stops, keeps the 500 keys it has, and never learns that the view moved on. The `SIGKILL` variant the case also asks for was **not run**: the graceful case already produces the worse of the two answers, and a second stop would have been a second measurement of the same signal. See finding **STRM-12** |
 | STRM-073 | **PASS** | old client: 10 distinct keys, `streamEnded=true (completed normally, no error)`, and **10** still after re-registration and 10 more rows — it received nothing from the new computation. The fresh subscriber received its 10. The view's key count immediately after re-registration is **10**, before anything was pushed: that is the filesystem source re-reading its file, not surviving view state |
-| STRM-074 | see below | measured against the `hs2` node with `checkpoint.interval: 1s` |
+| STRM-074 | **PASS** | 120 000 distinct keys fed over 60 s into a node with `pravaha.checkpoint.directory` set and `interval: 1s` (≈ 60 checkpoint boundaries crossed): `rows()=120000 missingSequences=0 duplicatedSequences=0 foreignRows=0 sum=7200060000` (expected `120000 × 120001 / 2 = 7 200 060 000`), 6 checkpoint files on disk, subscription still open. No checkpoint duplicated, reordered or suppressed a delivered change. One half of the case is unreachable and recorded as such: it asks for `FAIL` overflow so that any loss is loud, and a remote subscriber cannot select it (finding **STRM-16**) — the histogram is what carries the assertion instead, and it is exact |
 | STRM-075 | **PASS** | the investigation's answer: a blue-green update is reachable from no public surface. `ControlWire` declares exactly `REGISTER`, `DROP`, `LIST`, `PAUSE`, `RESUME` (`ControlWire.java:58`–`:66`) and nothing else. ADR-016's own status line already records it: "Accepted; **not built** — `ShadowDeployment` exists in `pravaha-backfill` with tests and no caller". No subscriber can be exposed to a swap that cannot be triggered |
 | STRM-076 | **FAIL** | the twelve-observation sequence: `0 | 1 | 2 | q=3 q2=3 | q=4 q2=4 | 3 (graceful close) | 4 (throwing consumer attached) | 3 (detached by the commit) | 3 (paused) | 3 (resumed) | 3 (after drop q) | 3 (after drop q2)`. The count is per computation and spans names, exactly as the case predicts — and it **never returns to 0**. `RegisteredQuery.close()` does not touch `sink.listeners`, so a closed computation reports three live subscribers for ever. See finding **STRM-12** |
 
