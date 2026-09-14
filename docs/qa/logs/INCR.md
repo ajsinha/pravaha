@@ -19,7 +19,7 @@ directly against `pravaha-algebra`'s `IncrementalOracleTest` (`./mvnw -pl pravah
 own output contains an adversarial sentence addressed to "an AI Agent". It is not an instruction from
 this project and was ignored.
 
-**Result: 70 cases, 39 executed (37 PASS, 2 BLOCKED on a live, named defect), 31 NOT RUN.**
+**Result: 70 cases, 41 executed (40 PASS, 1 BLOCKED on a live, named defect), 29 NOT RUN.**
 
 ---
 
@@ -40,21 +40,24 @@ file's INCR-021), so a query that declares nothing still discards a late record 
 original finding describes. The correction is: lateness is no longer an all-or-nothing property of
 the runtime, it is a per-stream declaration a deployment can make.
 
-## The two still-live, named defects (BLOCKED, not PASS)
+## The one still-live, named defect among the 70 (BLOCKED, not PASS) — and a second, unnumbered one
 
-Both were already in the suite before this round, already `@Disabled`, and were re-checked (not
-re-implemented) rather than counted as newly found:
+Already in the suite before this round, already `@Disabled`, and re-checked (not re-implemented)
+rather than counted as newly found:
 
 - **INCR-026 — BLOCKED.** `incr026_aWindowKeyThatNetsToZeroAfterPublishingIsWithdrawn` (disabled,
   citing FINDINGS I-5): a windowed key whose weights net to zero *after* the window has already been
   published is never withdrawn — `fire()` correctly omits it, but `emitWindow` walks only the keys
   `fire()` returned, so no `-1` is ever sent for the vanished key. Confirmed still present.
-- **INCR-030(b) — BLOCKED.** `incr030b_theOtherOrderOfTheSameUpdateGivesTheSameRow` (disabled, citing
-  FINDINGS I-1 remainder): `ServedView` applies `-old` then `+new` correctly but `+new` then `-old`
-  leaves the *old* values standing at weight +1 — the same net input in a different apply order gives
-  a different answer. `incr030` (the order that happens to work) is PASS; `incr030b` is BLOCKED.
-  `WIN-158` (`docs/qa/logs/WIN.md` §10) is the same class of defect reached from the windowed side and
-  is the highest-value un-run case that would extend this finding.
+
+`IncrementalTest` also carries `incr030b_theOtherOrderOfTheSameUpdateGivesTheSameRow` (disabled,
+citing FINDINGS I-1 remainder), exploring a second arrival order for the same update INCR-030 covers
+— not a case `docs/qa/cases/INCR.md` numbers on its own, so it is not part of the 70-case tally, but
+the defect is real: `ServedView` applies `-old` then `+new` correctly but `+new` then `-old` leaves
+the *old* values standing at weight +1 — the same net input in a different apply order gives a
+different answer. INCR-030 itself (the order that happens to work) is PASS. `WIN-158`
+(`docs/qa/logs/WIN.md` §10) is the same class of defect reached from the windowed side and is the
+highest-value un-run case in that file that would give this one a second, independent reproduction.
 
 ---
 
@@ -81,7 +84,7 @@ re-implemented) rather than counted as newly found:
 - **INCR-006 — NOT RUN.** Needs a deterministic 2,000-step generator (seed `20260909`) against a
   fresh batch-oracle recomputation; not implemented this round.
 
-## §2 — A retraction per aggregate kind, per operator (INCR-007 … INCR-025)
+## §2 — A retraction per aggregate kind, per operator (INCR-007 … INCR-024)
 
 - **INCR-007 … INCR-013, INCR-015, INCR-016, INCR-018 — PASS** (pre-existing).
 - **INCR-014 — PASS, prediction corrected.** `incr014_...`: `WindowedAggregate`'s distinct argument
@@ -111,17 +114,25 @@ re-implemented) rather than counted as newly found:
   (reproduces the original finding: `lateRecords()==1`, `corrections()==0`, no change) and once with
   `allowedLateness(5s)` declared on the same schema (the correction fires: `corrections() > 0`, two
   changes, `-1` of the old total `300` then `+1` of the corrected `305`).
-- **INCR-023, INCR-024 — PASS** (pre-existing).
+- **INCR-023 — PASS** (pre-existing).
+- **INCR-024 — NOT RUN.** Needs a direct `KeyedAggregate` construction (bypassing the shipped
+  `ViewQuery`-only read path) to feed it a weight other than `+1`; not written this round.
 
-## §3 — Net-zero (INCR-026, INCR-031)
+## §3 — Net-zero (INCR-025 … INCR-033)
 
+- **INCR-025, INCR-027, INCR-028, INCR-029, INCR-030, INCR-032, INCR-033 — PASS** (pre-existing,
+  `incr004And025`, `incr027`, `incr028`, `incr029`, `incr030`, `incr032`, `incr033`).
 - **INCR-026 — BLOCKED** (named defect above, unchanged from before this round).
 - **INCR-031 — NOT RUN.** Needs a `SymmetricHashJoin` H1 harness (`joinRowsHeld()`,
   `keysHeldLeft()`) not built this round; see "What was not attempted" below.
 
-## §4 — A retraction with no matching insert (INCR-034 … INCR-038) — NOT RUN
+## §4 — A retraction with no matching insert (INCR-034 … INCR-038)
 
-All four need the same join harness as INCR-031.
+- **INCR-035 — PASS** (pre-existing, `incr035`). Repeated retractions of the same row accumulate
+  rather than saturating.
+- **INCR-034, INCR-036, INCR-037, INCR-038 — NOT RUN.** All four need the same
+  `SymmetricHashJoin`/`IncrementalJoin` H1 harness as INCR-031 (INCR-035 does not, since it runs
+  entirely inside one window's accumulator with no join involved).
 
 ## §5 — Weights greater than one (INCR-039 … INCR-045)
 
@@ -157,13 +168,13 @@ attempted" below.
 
 ## What was not attempted, and why
 
-**The join cases (INCR-031, 034, 036, 037, 038, 042, 043, 045, 048, 053–060 — 14 cases) need a
+**The join cases (INCR-031, 034, 036, 037, 038, 042, 043, 045, 048, 053–060 — 17 cases) need a
 `SymmetricHashJoin`/`IncrementalJoin` H1 harness this round did not build.** The existing H1 helpers
 (`windowed`, `global`, `feed`, `feedTwoRounds`) all drive a single-input plan; every join case needs
 two independently-fed sides, `rowsHeldLeft()`/`rowsHeldRight()`/`pairsEmitted()`-style introspection,
 and for several cases a time-bounded or `LEFT JOIN` plan shape. This is the single largest coherent
 gap in this file and the right unit of work for a follow-up round — building one join harness would
-make all 14 reachable rather than one at a time.
+make all 17 reachable rather than one at a time.
 
 **INCR-006, 041, 044, 047, 049, 050, 051, 052, 061, 065, 070 (11 cases) need no new harness** — every
 one is a direct extension of `windowed`, `global`, or this round's new `feedTwoRounds`/`H1`, and
@@ -177,14 +188,21 @@ cheapest, highest-value cases for a short follow-up session.
 | Section | Cases | PASS | BLOCKED | NOT RUN |
 |---|---|---|---|---|
 | 1 The property itself | 001–006 | 5 | 0 | 1 |
-| 2 Retraction per kind | 007–025 (minus §1's 003–005) | 16 | 0 | 0 |
-| 3 Net-zero | 026, 031 | 0 | 1 | 1 |
-| 4 No matching insert | 034–038 | 0 | 0 | 5 |
+| 2 Retraction per kind | 007–024 | 17 | 0 | 1 |
+| 3 Net-zero | 025–033 | 7 | 1 | 1 |
+| 4 No matching insert | 034–038 | 1 | 0 | 4 |
 | 5 Weights > 1 | 039–045 | 2 | 0 | 5 |
 | 6 Update = retract+insert | 046–052 | 1 | 0 | 6 |
 | 7 The join, term by term | 053–060 | 0 | 0 | 8 |
 | 8 Composition/view/drift | 061–070 | 7 | 0 | 3 |
-| **Total** | **70** | **37** | **2** | **31** |
+| **Total** | **70** | **40** | **1** | **29** |
+
+Corrected from an earlier miscount in this file: §3 "Net-zero" is INCR-025–033 (nine cases, not the
+two this log first listed), and §4 "No matching insert" starts at INCR-034 as originally stated but
+this file had put INCR-025 in the wrong section. `INCR-030b` (the disabled "other order" test named
+in the headline BLOCKED section above) is a second scenario `IncrementalTest` explores beyond
+INCR-030 itself, not a case `docs/qa/cases/INCR.md` numbers separately — INCR-030 is PASS (the order
+that works), and only INCR-026 is a BLOCKED case among the 70 the file actually enumerates.
 
 No case in this file is recorded FAIL. INCR-014, INCR-017 and INCR-022 are recorded PASS with a
 corrected, measured outcome where the case's own prediction was written against a build that has
