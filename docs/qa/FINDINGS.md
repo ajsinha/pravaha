@@ -784,7 +784,7 @@ pass every case in this file while disagreeing on a narrow integer or on `-0.0`.
 # API surfaces — 180 cases across CLI, REST and Flight
 
 ## P-1 (HIGH) — REST authenticates and never authorizes
-> **Status:** UNTRIAGED
+> **Status:** SUPERSEDED — by SX-3, which re-examines this exact defect in detail: `StreamController`/`QueryController` now inject `HttpAuthorizer` and call `requireRead`/`requireAdminister` (commit `9597579`), `HttpAuthorizationTest` passes, and SX-3 records the narrower remaining gap itself
 
 
 Any valid token, from any tenant, reads and writes everything on the HTTP surface. The
@@ -792,7 +792,7 @@ Any valid token, from any tenant, reads and writes everything on the HTTP surfac
 the contradictory configuration is now refused at startup; that closed one hole and left this one.
 
 ## P-2 (HIGH) — the listing filter is bypassed on the subscribe path
-> **Status:** UNTRIAGED
+> **Status:** SUPERSEDED — by SX-1 and SX-5, which reconfirm and quantify this exact existence-oracle mechanism and remain OPEN; `PravahaFlightSqlProducer.streamSubscription` still calls `required.require(viewName)` before `policy.mayRead(...)`
 
 
 `pravaha.list` filters by `mayRead`, and three error paths undo it: `PRV-8002`, `PRV-2002` and
@@ -803,13 +803,13 @@ does not exist.
 `drop` is the contrast that proves the mechanism is available: it authorizes first and leaks nothing.
 
 ## P-3 (HIGH) — `--token` over `grpc://` ships a bearer token in clear text, silently
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `ServerCommand.connect()` still unconditionally calls `.allowInsecureToken(true)` whenever `--token` is supplied, with no warning printed, even though `ClientOptions.Builder.build()` now refuses a plaintext token by default
 
 
 `allowInsecureToken` is set by the CLI and enforced by nothing. No warning, no refusal.
 
 ## P-4 — no command has help, and one of them makes a network call to say so
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced against the built CLI jar: `queries --help` still dials the network and fails with `PRV-1041`, `query --help`/`register --help` still report missing required options, and only the top-level `pravaha --help` is recognised by `PravahaCli.isHelp`
 
 
 `--help` is parsed as a bare flag: six commands report a missing required option, `queries --help`
@@ -817,7 +817,7 @@ does not exist.
 command's flags from the binary.
 
 ## P-5 — the API contract has drifted from its own lock file
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `openapi.lock.json` still records 200 for `POST /api/v1/streams` against a 201 `HttpStatus.CREATED`, an unknown stream still throws a 400 that enumerates every registered stream, and `ApiExceptionHandler` still has no handler for framework failures (404/405/415, malformed JSON); the 401-body sub-part (`BearerTokenFilter.refuse`) is now fixed as part of E-4 but the rest of the finding stands
 
 
 `POST /api/v1/streams` returns **201** where `openapi.lock.json` records 200. An unknown stream is
@@ -830,7 +830,7 @@ failures (404/405/415, malformed JSON), which are not `ApiError` at all. The cod
 times that it will not have two error shapes.
 
 ## P-6 — Flight is unusable from a SQL client
-> **Status:** UNTRIAGED
+> **Status:** OPEN — no `getSchema` override exists in `PravahaFlightSqlProducer` (still Arrow's default `UNIMPLEMENTED`), `ArrowSchemas.toArrow`/`parametersToArrow` still call `FieldType.nullable(...)` unconditionally, and `doAction`'s `DROP`/`PAUSE`/`RESUME` still do an unchecked `fields.get(0)`
 
 
 `getSchema` is `UNIMPLEMENTED` while `getFlightInfo` returns a schema. Every Flight SQL metadata
@@ -840,7 +840,7 @@ calls `getTables` first cannot connect. Arrow marks **every** field nullable whi
 `INTERNAL` with an array index in the message.
 
 ## P-7 — the smallest one, and it ships
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `ServerCommand.lifecycle` (line 132) still prints `Ansi.good(action + "ped ") + name`, so `pause` still renders `pauseped` and `resume` still renders `resumeped`; no test pins the string
 
 
 `pravaha pause` prints **`pauseped`** and `resume` prints **`resumeped`** — the code is
@@ -863,7 +863,7 @@ four-column file.
 - **There are 38 `pravaha.*` settings**, not 37 — 36 YAML keys plus two system properties.
 
 ## E-1 (HIGH) — the document describes eight failures the engine cannot report
-> **Status:** UNTRIAGED
+> **Status:** OPEN — all nine codes (1043, 4002, 4013, 5012, 5020, 5053, 5064, 8007, 9004) still have zero throw sites anywhere in main sources; corroborated by E-10, which finds a tenth unreachable code, `PRV-2041`
 
 
 **Nine codes have no throw site at all**: 1043, 4002, 4013, 5012, 5020, 5053, 5064, 8007, 9004. Eight
@@ -872,7 +872,7 @@ surfaces instead as a generic read failure, and `PRV-5064` (a rotated feed file)
 **silence**.
 
 ## E-2 (HIGH) — `ErrorCode.Category.CLUSTER` is the Flight range
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `ErrorCode.java` now declares `FLIGHT(6000, 6999)` and `CLUSTER(9000, 9999)` separately, matching `TROUBLESHOOTING.md`'s ranges table; `pravaha-api`'s `ErrorCodeTest` passes (13/13)
 
 
 `CLUSTER` is declared as `(6000, 6999)`. Real cluster codes are 9xxx and have **no** category, so
@@ -881,7 +881,7 @@ surfaces instead as a generic read failure, and `PRV-5064` (a rotated feed file)
 `PRV-9xxx` is absent from the ranges table entirely while all seven appear below it.
 
 ## E-3 (HIGH) — one code, fifteen throw sites, four unrelated meanings
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `SecurityErrors.FORBIDDEN` (`PRV-7002`) is now thrown from 19 sites across `PravahaNode`, `HttpAuthorizer`, `ViewQuery`, `PravahaFlightSqlProducer`, `PravahaFlightServer` and `QueryRegistry` — more unrelated meanings sharing one code than the finding originally described, with no split into distinct codes
 
 
 `PRV-7002` now means: an authorization denial; the startup refusal of an open server; the
@@ -891,7 +891,7 @@ four meanings today.** `PRV-2002` has the same shape: three of its five sites ar
 configuration refusals wearing an SQL code.
 
 ## E-4 — four more of mine, all in code I wrote this morning
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `PersistenceProperties.checkpointConfiguration()` now writes `pravaha.checkpoint.timeout`; `SecurityProperties.trimmedAuthentication()` validates and throws `IllegalArgumentException` on anything but `none`/`token`; `PravahaNode.refuseAccidentalOpenServer`'s guard is keyed on policy type instead of `!authenticates()`; `BearerTokenFilter.refuse` now emits `PRV-7001` in exactly `ApiError`'s 5-field shape — each fix carries a comment citing the original bug
 
 
 - **`pravaha.checkpoint.timeout` is inert.** `PeriodicCheckpointer.from` reads three keys; my
@@ -906,7 +906,7 @@ configuration refusals wearing an SQL code.
   in a six-field body where `ApiError` has five.
 
 ## E-5 — my health indicator may not be the one an orchestrator polls
-> **Status:** UNTRIAGED
+> **Status:** FIXED — `application.yaml` now sets `management.endpoint.health.group.readiness.include: readinessState,engine`; `PravahaNodeTest#aNodeNoClientCanReachIsNotHealthy` passes
 
 
 `/actuator/health` is correctly DOWN with Flight off, but **the readiness group is not configured to
@@ -1920,7 +1920,7 @@ correction, low priority).
 # TYPE — found executing `docs/qa/cases/TYPE.md`
 
 ## TY-1 (HIGH) — floating-point `%`/`MOD` is categorically refused as DECIMAL arithmetic
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: `validate --sql "SELECT id, x%y AS r FROM num"` exits 1 with `PRV-2021 'MOD(...)' is DECIMAL arithmetic`; `ExpressionCompiler.call`/`typeOf` has no MOD/% special case.
 
 
 `%`/`MOD` over `FLOAT32`/`FLOAT64` operands is refused outright with `PRV-2021`, e.g.
@@ -1942,7 +1942,7 @@ floating arithmetic ... ✅" row gives no indication `%` behaves differently fro
 carry a caveat naming this exception. See docs/qa/logs/TYPE.md §13-15.
 
 ## TY-2 (HIGH) — `pravaha run` discards the entire output batch, not just the offending row, on a mid-stream lane failure
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: a div-by-zero row still yields `PRV-3010`, exit 1, and a 0-row output file; `QueryRunner.Collector` still buffers all rows and only calls `sink.write(collector.rows())` after `execution.close()`/`checkHealth()` succeed.
 
 
 `QueryRunner`'s `Collector` (`pravaha-cli`) buffers every output row in memory and flushes to the
@@ -1964,7 +1964,7 @@ observation and root-caused by reading `QueryRunner`'s `Collector`, not by a fur
 docs/qa/logs/TYPE.md §13-15 (TYPE-113, TYPE-120).
 
 ## TY-3 (HIGH) — `NaN` sorts as greater than every value in `>` (and `<`, `>=`, `<=`) comparisons
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: `WHERE x/y > 0` over a NaN row still keeps it; `Predicate.CompareDouble.test`/`CompareExpressions.test` call `Double.compare` with no `isNaN` handling.
 
 
 `Predicate` (`pravaha-runtime/.../plan/Predicate.java`) implements ordering comparisons via
@@ -1989,7 +1989,7 @@ returns *all* rows including the NaN one, where SQL's three-valued `=` should ma
 self-comparison UNKNOWN and drop it. See docs/qa/logs/TYPE.md §10-12 (TYPE-089, TYPE-090).
 
 ## TY-4 (MEDIUM) — two ordinary expression shapes crash with a raw, uncoded Java exception instead of a `PRV-` refusal
-> **Status:** UNTRIAGED
+> **Status:** OPEN — both shapes still raw/uncoded: a numeric-literal cast throws `ClassCastException` from `ExpressionCompiler.literal`, and the mixed CASE throws `IllegalArgumentException` straight from `Expression.Case`'s compact constructor, unwrapped.
 
 
 (a) `r / 3.0E0` (a `FLOAT32` column divided by an `E`-suffixed `DOUBLE` literal) throws
@@ -2010,7 +2010,7 @@ ordinary-looking, user-reachable shape that crashes uncoded. See docs/qa/logs/TY
 (TYPE-099, TYPE-101).
 
 ## TY-5 (MEDIUM) — `WHERE (CASE ... END) IS NULL` is refused
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: still returns `PRV-2021 cannot compile the expression 'IS NULL(CASE(...))'`; `PredicateCompiler.nullCheck` still requires `instanceof RexInputRef`.
 
 
 `PredicateCompiler` has no compiled path for `IS NULL` wrapped around a `CASE` expression:
@@ -2081,7 +2081,7 @@ refusing is the better answer and is not built.
 Seed-proven by removing the check, which lets the oversized write through again.
 
 ## TY-7 (MEDIUM-HIGH) — `DECIMAL(p,s)` is advertised as supported in the refusal message but is unreachable through any surface
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: still gives `PRV-5040 unknown type 'DECIMAL(10'`; `FilesystemSourcePlugin.parseSchema` still splits the spec on `,` before per-column parsing.
 
 
 The schema-string parser splits the whole `name:TYPE,name:TYPE` spec on `,` before any per-column
@@ -2099,7 +2099,7 @@ comma-delimited schema-string grammar.
 (TYPE-002, TYPE-008).
 
 ## TY-8 (MEDIUM) — a client schema-string mistake on `POST /api/v1/streams` returns HTTP 500, not 4xx
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `DelimitedCodec.DECODE_FAILED` (5040) is category PLUGIN, and `ApiExceptionHandler.statusFor` still maps PLUGIN to `INTERNAL_SERVER_ERROR`, i.e. HTTP 500.
 
 
 `PRV-5040` (the schema-parse refusal) is in the PLUGIN 5000-series of error codes, which
@@ -2113,7 +2113,7 @@ body carries the `PRV-5040` sentence.
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3 (TYPE-002).
 
 ## TY-9 (LOW) — node-startup type refusal does not name the stream or column
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `PravahaNode.registerDeclaredStreams()` calls `parseSchema(name, declaration.getSchema())` with no added context, and the refusal message never includes the stream or column name.
 
 
 Starting a node with `pravaha.streams.d.schema: "id:INT64,amt:DECIMAL"` refuses to start (correct),
@@ -2123,7 +2123,7 @@ to — an operator with several declared streams has to guess which one is wrong
 **Status: OPEN.** See docs/qa/logs/TYPE.md §1-3 (TYPE-002).
 
 ## TY-10 (LOW) — `ARRAY`/`MAP`/`ROW` in a projection now throw a coded refusal, but it still doesn't name the type or column
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `TypeMapping.baseFromCalcite`'s default throws `PRV-2021` with only the SQL type name; its caller `PhysicalPlanBuilder.schemaOf` holds `field.getName()` but never passes or wraps it in.
 
 
 Positive drift from TYPE.md's preamble Fact 2: projecting an `ARRAY`/`MAP`/`ROW` column now throws a
@@ -2136,7 +2136,7 @@ uses for the equivalent wire-serialization refusal (`PRV-6100`).
 docs/qa/logs/TYPE.md §1-3 (TYPE-005, TYPE-020).
 
 ## TY-11 (HIGH) — a boolean-valued `CASE WHEN ... THEN TRUE ELSE FALSE END` cannot be projected at all
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: `CASE WHEN ... THEN TRUE ELSE FALSE END` still gives `PRV-2021 function 'IS TRUE' ... is not supported in a projection`; `ExpressionCompiler.call()` has no `SqlKind.IS_TRUE` case.
 
 
 Calcite rewrites a `CASE` whose branches are boolean literals into `IS TRUE(cond)` before Pravaha's
@@ -2152,7 +2152,7 @@ flag FROM types" --schema "<types schema>"` → `PRV-2021`.
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3 (TYPE-009).
 
 ## TY-12 (HIGH) — a BYTES column carrying invalid UTF-8 aborts the whole read instead of decoding lossily
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `FilesystemPartitionReader` still uses `Files.newBufferedReader(path, UTF_8)` (REPORT coding-error action), wrapped by `poll()` as `PRV-5040 read failed at line N`; unrelated to TY-17's wire fix and untouched.
 
 
 The filesystem source plugin reads delimited files line-by-line as UTF-8 text before any per-column
@@ -2166,7 +2166,7 @@ on what "BYTES" can hold in practice, worth documenting explicitly.
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3 (TYPE-017).
 
 ## TY-13 (MEDIUM-HIGH) — `WHERE f64 = <the column's exact Double.MAX_VALUE literal>` silently returns zero rows
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live via `run`: `WHERE f64 = 1.7976931348623157E308` and `>=` both return 0 of 1 rows at exit 0; root cause traced to `PredicateCompiler.compare` → `Constant.asDouble()` → `Predicate.CompareDouble` but not further isolated.
 
 
 `WHERE f64 = 1.7976931348623157E308` and the equivalent `>=` form both return **zero rows** against a
@@ -2180,7 +2180,7 @@ comparison disagreement specific to this boundary.
 source line, only reproduced directly and repeatedly. See docs/qa/logs/TYPE.md §1-3 (TYPE-027).
 
 ## TY-14 (LOW-MEDIUM) — a BYTES-vs-literal refusal names no column, unlike the equivalent ARRAY/MAP/ROW refusal
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: `WHERE bin = 'cafe'` still returns `PRV-2021 'CAST('cafe'):VARBINARY NOT NULL' has SQL type VARBINARY, which Pravaha cannot compute with yet`, naming no column.
 
 
 `WHERE bin = 'cafe'` (and `<>`, `>`) refuses with a generic
@@ -2229,7 +2229,7 @@ project the column away, because it reaches a user as a failed query rather than
 error. Seed-proven by restoring the refusal for BYTES.
 
 ## TY-16 (LOW) — `SUM`/`AVG` over a STRING column is refused by the wrong code
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: `SUM`/`AVG` over a STRING column still returns `PRV-2021 'CAST($1):DECIMAL(38, 19) NOT NULL' is DECIMAL arithmetic`, not a STRING-specific code.
 
 
 Calcite inserts an implicit `CAST(s AS DECIMAL(38,19))` ahead of `SUM`/`AVG` on a STRING operand,
@@ -2297,7 +2297,7 @@ control case still passes; TYPE-074 is the regression).
 **FIXED.** `TIME` is written through `TimeNanoVector`, matching the `Time(NANOSECOND, 64)` the schema already declared. It had been swept into `TIMESTAMP`'s case when the fix beside it corrected that type's vector, and the two had shared a branch since before either worked. Seed-proven by restoring the timestamp vector, which throws `ClassCastException` on the first non-null value.
 
 ## TY-19 (HIGH) — a DECIMAL column poisons every query against its view, even when the column is never selected
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `ViewQuery.write()` iterates the full view schema rather than the projected `outputSchema`; with no DECIMAL case it falls to `setString`/`setBytes`, throwing regardless of the SELECT list.
 
 
 `SELECT id FROM n` (a view whose schema includes `id, amt DECIMAL, d, t`, per TYPE-019's own
@@ -2317,7 +2317,7 @@ throws a clean, coded `PRV-4025` naming the view and column, rather than silentl
 the bytes. See docs/qa/logs/TYPE.md §7-9 (TYPE-076).
 
 ## TY-20 (MEDIUM) — `ORDER BY` inside a non-limited derived table plans and runs instead of being refused
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `PhysicalPlanBuilder.build()`'s switch still has no `Sort` case; live `SqlPlanner` run of an unlimited `ORDER BY` inside a derived table still plans and runs (a `ProjectOperator`, exit 0) because Calcite drops the Sort first.
 
 
 `SELECT * FROM (SELECT id FROM types ORDER BY id) x` plans successfully (exit 0) instead of being
@@ -2329,7 +2329,7 @@ plan-shape-dependent rather than a reliable guarantee that `ORDER BY` never sile
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §7-9 (TYPE-065).
 
 ## TY-21 (HIGH) — silent 24-hour retention eviction against a view whose event-time column spans years
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `QueryRegistry.register()` still defaults to `Retention.DEFAULT` (24h); no `retention` field exists in config, and `ServedView.evict()` is silently by design with only an `evicted()` counter.
 
 
 `QueryRegistry.register()` always uses `Retention.DEFAULT` (24h) with no YAML-reachable override.
@@ -2346,7 +2346,7 @@ timestamp spread, with no configuration escape hatch.
 
 
 ## TY-22 (MEDIUM) — `SUBSTRING(... FOR <a length near Long.MAX_VALUE>)` silently returns an empty string
-> **Status:** UNTRIAGED
+> **Status:** OPEN — `Expression.Substring.evaluateString` still computes `until = from + Math.max(0L, length...)` unchecked; `1L + Long.MAX_VALUE` wraps to `Long.MIN_VALUE`, returning "".
 
 
 `Expression.Substring.evaluateString` computes `until = from + Math.max(0L, length)` in `long`
@@ -2363,7 +2363,7 @@ empty string, not the original value.
 reading `Expression.java`. See docs/qa/logs/TYPE.md §16-19 (TYPE-138).
 
 ## TY-23 (MEDIUM) — `||` silently accepts a numeric literal, or a CAST-to-text of one, while correctly refusing the identical mismatch against a real column
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live: `user_id || 5` and `user_id || CAST(5 AS VARCHAR)` still succeed (constant-folded before `ExpressionCompiler.cast()`'s check) while `user_id || amount` is correctly refused; `CONCAT(...)` still fails on Calcite's own `PRV-2002` since no custom `SqlOperatorTable` is registered.
 
 
 `s || <bare numeric literal>` succeeds (Calcite coerces the literal to text before Pravaha's
@@ -2382,7 +2382,7 @@ functions... ❌ PRV-2021" row implies.
 matching `explain` plans. See docs/qa/logs/TYPE.md §16-19 (TYPE-139).
 
 ## TY-24 (LOW) — several refusals are intercepted by Calcite's own validator before reaching Pravaha's coded message
-> **Status:** UNTRIAGED
+> **Status:** OPEN — reproduced live for all five sub-cases (ABS/ROUND arity, FLOOR parse, LTRIM/RTRIM unknown-function, CAST-to-INTEGER, CAST-to-BOOLEAN) — each still short-circuits through Calcite's own validator before Pravaha's coded message.
 
 
 A consistent, low-severity pattern across four independent cases: a construct that *should* reach
