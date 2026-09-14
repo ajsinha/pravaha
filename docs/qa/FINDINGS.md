@@ -2837,3 +2837,382 @@ A server-fed query never calls `accept()`: rows arrive through `PumpingFeed` to
 that reconnected the recording to the caller's thread would have passed every existing test.
 
 The new test offers rows straight into `lane(0)` and never calls `accept()`.
+
+### DOCX-1 (HIGH) — `docs/QUICKSTART.md`'s first two commands did not run, and no test could have noticed
+
+> **Status:** FIXED — commit 51b27f5 corrected steps 2 and 3; both now run and produce exactly the output the document prints, verified by executing them verbatim from a clean directory containing only `examples/01-filter-and-project/transactions.csv`.
+
+Step 2 and step 3 both omitted `--out-schema`, which `RunCommand` requires, and both declared a
+two-column `--schema` for a four-column CSV. Executed verbatim:
+
+```
+$ pravaha run --sql "SELECT user_id, amount FROM txn WHERE amount > 100" \
+      --schema "user_id:STRING,amount:INT64" --stream txn --in transactions.csv --out out.csv
+--out-schema is required. Supplied: [sql, schema, stream, in, out]
+EXIT=2
+```
+
+Step 2 also quoted `examples/01`'s output — `alice,500 / dave,150 / frank,1200` — for a *different*
+predicate: the example filters on `status = 'COMPLETED' AND amount > 100`, the quickstart only on
+`amount > 100`, which is four rows. So even had `--out-schema` been there the printed output was
+wrong. Step 3 exists to teach `PRV-2050`, and the lesson was never reached because argument parsing
+refused first.
+
+This is round 1's DOC-005/006 and its Re-QA, unfixed through two rounds. What kept it alive is
+DOCX-047: `docs/HANDOVER.md:57` promised these commands were executed by `ExamplesTest`, which never
+opens the file.
+
+### DOCX-2 (HIGH) — `docs/HANDOVER.md` told the next session the server cannot ingest, and it can
+
+> **Status:** FIXED — commit 51b27f5 rewrote `HANDOVER.md`'s "The server has no ingestion path" paragraph against a measured run: `ROWS IN 10`, three windows closed on the derived watermark, `pravaha subscribe` delivering each commit.
+
+`HANDOVER.md:394` stated: "**The server has no ingestion path.** … A query registered against a
+running server never sees a row, `rows_in` stays at zero". `README.md`'s evaluation banner carried
+the same three claims in round 1 and has since been corrected; `HANDOVER.md` was not, and
+`HANDOVER.md` is the document whose stated purpose is to tell the next session what is true.
+
+Measured on a node with `pravaha.sources.txn.plugin: filesystem`, `follow: true`:
+
+```
+$ pravaha queries --url grpc://localhost:19670
+NAME          STATE    FINGERPRINT   ROWS IN
+user_volume   RUNNING  8a86337b7b50  10
+$ pravaha query --sql "SELECT * FROM user_volume" --url grpc://localhost:19670
+1789376760000000000  u1  1  700
+1789376820000000000  u2  1  800
+```
+
+and the server log at startup: `sources bound: [txn <- filesystem[schema, event.time, follow, path]]`
+and `watermarks: idle-after=PT30S, tick=PT1S`. The path is `SourceBinding` → `PumpingFeed`, one
+thread per computation. Appending three rows to the followed file while a subscription was open
+produced two further commits at the tap.
+
+### DOCX-3 (HIGH) — three error codes existed, were reachable, and were undocumented under a claim of completeness
+
+> **Status:** FIXED — commit 51b27f5 added the `PRV-5090`/`5091`/`5092` rows and changed `ErrcCrossCuttingTest.theInventoryIsOneHundredAndTenDistinctCodesTenUndocumentedZeroSpurious` from `containsExactly("PRV-5090","PRV-5091","PRV-5092")` to `isEmpty()`, so the gap cannot reopen. The test prints `ERRC-111: 111 declared, 111 documented` and is green.
+
+`docs/TROUBLESHOOTING.md` closed with "Generated from the source, not from memory … If a code is
+missing here it does not exist in the engine." 111 codes are declared in `src/main`; 108 were in the
+table. `PRV-5090 INGEST_NO_SUCH_PLUGIN`, `PRV-5091 INGEST_BINDING_FAILED` and `PRV-5092
+INGEST_FEED_FAILED` (`pravaha-server/.../ingest/IngestErrors.java:35,38,41`) were absent, and two of
+the three are trivially reachable:
+
+```
+$ # a source naming a plugin that is not on the classpath
+PRV-1041  PRV-5090  no source plugin named 'nosuchplugin' is on the classpath, so stream 'txn'
+                    cannot be fed. Available: [filesystem]
+```
+
+The sharp part is the test. `ErrcCrossCuttingTest` **asserted the undocumented set was exactly those
+three codes** — so a previous round's honest record of a gap had become the thing preventing its
+repair: adding the rows would have turned the build red. The assertion is now `isEmpty()` in both
+directions, which is what `TROUBLESHOOTING.md`'s closing paragraph always claimed and never was. That
+same walk also now excludes nested `.claude` worktrees relative to the root it found.
+
+### DOCX-4 (MED) — `docs/OPERATIONS.md` printed a Flight port no other surface uses
+
+> **Status:** FIXED — commit 51b27f5 changed `docs/OPERATIONS.md:325` from `port: 8815` to `port: 9090`, matching `pravaha-server/src/main/resources/application.yaml:72`.
+
+The "Starting a node" YAML block printed `pravaha.flight.port: 8815` — Arrow Flight's registered
+port. The shipped default is `9090`, and `application.yaml`'s own comment explains at length why:
+"9090, because that is what the CLI, both SDKs, every case study and the console already default to."
+An operator who copied the block got a node their own `pravaha queries` could not reach on the URL
+every other document prints, with no error naming the mismatch.
+
+### DOCX-5 (MED) — `docs/OPERATIONS.md` contradicted itself twice, and both stale halves were the pessimistic ones
+
+> **Status:** FIXED — commit 51b27f5 rewrote the Disk section and the "What is not solved" list.
+
+Two claims in the operator's document were false of the build:
+
+- "`FileCheckpointStore.prune(keep)` exists and **nothing calls it automatically**" (`:55`) and "**No
+  automatic checkpoint pruning.** The known disk-growth path" (`:482`). `QueryRegistry.java:492`
+  constructs a `PeriodicCheckpointer` per registration and `PeriodicCheckpointer.java:149` calls
+  `store.prune(keep)` after every checkpoint.
+- "**No metrics endpoint.** Counters exist on objects; nothing scrapes them" (`:483`) — two hundred
+  lines below `:333`, which documents `/actuator/prometheus` with a table of per-query metric names.
+  Every name in that table was read back off a live node: `pravaha_query_rows_in{query="user_volume"}
+  10.0`, `pravaha_query_view_size 2.0`, `pravaha_query_view_updates 8.0`,
+  `pravaha_query_watermark_lag_seconds NaN`.
+
+`docs/QUICKSTART.md:355` repeated the second as "Metrics endpoint, time-travel debugging | Wave 9".
+An operator told there is no metrics endpoint does not go looking for one.
+
+### DOCX-6 (MED) — `pravaha.watermark.out-of-orderness` is shipped, documented three ways, and read by nothing
+
+> **Status:** OPEN — proved by experiment, not by grep. Four nodes over the same out-of-order fixture: the global key at `0s` and at `10m` produce an identical view; the stream-level key at `0s` and at `10m` differ. No documentation fix is right here — the key either needs a reader or needs removing from `application.yaml`, which is a code decision.
+
+The fixture appends a late row one watermark tick after the row that should have closed its window,
+so lateness is the only variable:
+
+```
+A  pravaha.watermark.out-of-orderness: 0s    window 09:00-09:01 -> count 1, total 100
+B  pravaha.watermark.out-of-orderness: 10m   window 09:00-09:01 -> count 1, total 100   (identical)
+C  pravaha.streams.txn.out-of-orderness: 0s  window 09:00-09:01 -> count 1, total 100
+D  pravaha.streams.txn.out-of-orderness: 10m window 09:00-09:01 -> count 2, total 150   (the late row lands)
+```
+
+C and D are the control: the pair one level down in the same tree does change the answer, so the
+fixture exercises lateness and A == B is inertness rather than an inert fixture. Confirmed
+statically: `setOutOfOrderness` exists only on `StreamDeclarationProperties.Declaration`, which binds
+`pravaha.streams.<n>.out-of-orderness`; the literal string `pravaha.watermark.out-of-orderness`
+appears in `src/main` exactly once, in `StreamSchema.java:53`'s javadoc.
+
+It is shipped in `application.yaml:182` with a default of `10s`, documented in `docs/CONCEPTS.md:66`
+and `docs/OPERATIONS.md:222`, and named in a javadoc as the way "a deployment moves this". An
+operator who tunes it observes no change and has nothing to search for. Every other key in the
+shipped `application.yaml` has a reader; this is the only one that does not.
+
+### DOCX-7 (MED) — the only working lateness control is documented nowhere by name
+
+> **Status:** OPEN — the fix is a section in `docs/OPERATIONS.md` naming `pravaha.streams.<n>.out-of-orderness` and `pravaha.streams.<n>.event-time`, and it belongs with whoever settles DOCX-6, since the two keys have to be described together or not at all.
+
+`pravaha.streams.<n>.out-of-orderness` is bound (`StreamDeclarationProperties.Declaration:91`) and is
+the key that decides whether a late row is accepted or dropped — proved in DOCX-6's run C/D.
+`docs/OPERATIONS.md:222` alludes to it ("the default; a stream overrides it at creation") without
+naming it. `pravaha.streams.<n>.event-time` is in the same position. Neither string occurs anywhere
+in the 68-file corpus.
+
+Two mitigations found by running, which is why this is MED and not HIGH. The source-level
+`event.time` option *is* documented (`docs/QUICKSTART.md:159`) and is sufficient on its own: a node
+declaring only `pravaha.sources.txn.options.event.time` ingests, advances its watermark and closes
+windows, with `ROWS IN 10` and two rows in the view. Round 1 ranked the missing stream-level
+`event-time` the worst documentation defect in the repository on the grounds that the failure was
+silent and permanent; it is now avoidable through a documented key.
+
+`pravaha.lookups.<n>.plugin` and `pravaha.lookups.<n>.options.*` are in the same state — bound at
+`SourceBindingProperties.java:83`, described in that class's javadoc, and absent from every document.
+
+### DOCX-8 (MED) — a TLS key with no certificate starts a plaintext node and says nothing
+
+> **Status:** OPEN — a code fix (refuse the half-configured pair at startup, as the policy/authentication pair already is). Recorded here rather than fixed because bending a document to describe this would be documenting a trap instead of closing it.
+
+```yaml
+pravaha:
+  flight:
+    tls:
+      key: /etc/pravaha/tls.key      # certificate deliberately unset
+```
+```
+INFO  PravahaNode : security: authentication=none, policy=permissive, audit=none,
+                    flight transport=PLAINTEXT
+INFO  PravahaNode : Flight SQL listening on 0.0.0.0:19673
+```
+
+The node starts, serves plaintext, and the only signal is one word in an INFO line an operator who
+believes they configured TLS has no reason to read. The neighbouring contradiction —
+`policy: authenticated` with `authentication: none` — is refused outright with `PRV-7002` and a
+paragraph of explanation, so the mechanism for refusing an incoherent pair exists and was not applied
+to this one. `docs/SECURITY.md` already records the adjacent gap ("Several TLS certificate/key
+misconfigurations are not caught at startup"); this is the specific case, measured.
+
+### DOCX-9 (LOW) — `docs/OPERATIONS.md` claimed a startup validation the node does not perform
+
+> **Status:** FIXED — commit 51b27f5 rewrote `docs/OPERATIONS.md:267` to say the ordering *should* hold, that it is not validated, and that only `idle-after` itself is bounds-checked.
+
+"The **tick must be finer than the idle timeout**, and a configuration where it is not is refused."
+A node with `watermark.tick: 30s` and `watermark.idle-after: 5s` starts and logs
+`watermarks: idle-after=PT5S, tick=PT30S` without complaint. The same document's *other* bound claim
+is accurate and was verified in the same run — `idle-after` at `500ms`, `20m` and `-1s` are each
+refused `PRV-2002` with the bound named, `45s` is accepted, and nothing is clamped.
+
+### DOCX-10 (LOW) — `pravaha pause` and `pravaha resume` print "pauseped" and "resumeped"
+
+> **Status:** OPEN — a code defect found while executing `docs/USER_GUIDE.md:186-188` literally. Not fixed: no document quotes this output, so there is no documentation rot to repair, and this round does not change product code.
+
+```
+$ pravaha pause  --name t1 --url grpc://localhost:19670
+pauseped t1
+$ pravaha resume --name t1 --url grpc://localhost:19670
+resumeped t1
+$ pravaha drop   --name t1 --url grpc://localhost:19670
+dropped t1
+```
+
+`pravaha-cli/src/main/java/com/ash/messaging/pravaha/cli/ServerCommand.java:132`:
+`out.println(Ansi.good(action + "ped ") + name)`. The suffix is correct for exactly one of the three
+verbs it serves.
+
+### DOCX-11 (MED) — `console/README.md` documented no configuration at all, including the gate without which nobody can sign in
+
+> **Status:** FIXED — commit 51b27f5 added a Configuration section to `console/README.md` listing all ten settings with their environment variables, defaults and effects, the password gate first.
+
+`console/config/application.yaml` reads ten settings. `console/README.md` mentioned two of them
+(`server.port` and `engine.url`, in passing, inside an override example) and **no occurrence of
+`CONSOLE_PASSWORD` or the word "password"**. The gate was documented only in `docs/QUICKSTART.md`
+§7, two directories away, so a reader who opened the console's own README and could not sign in had
+no recourse in the document they were reading. `console.session_secret`, `CONSOLE_HOST`,
+`PRAVAHA_TOKEN`, the three `ui.*` limits and `LOG_LEVEL` were documented nowhere at all.
+
+The console itself is correct and was verified running: `make install` succeeded, the server came up,
+and every route the QUICKSTART table and the README table name answered 200 (`/`, `/about`,
+`/overview`, `/queries`, `/queries/{name}`, `/workbench`, `/help`, `/tutorials`, `/health`,
+`/login`). All four documented keyboard shortcuts are bound (`theme.js:102-109`).
+
+### DOCX-12 (MED) — the ADR set gave built and unbuilt decisions the same status
+
+> **Status:** FIXED — commit 51b27f5 gave twelve ADRs a qualified `Status` row with one line of evidence each, added the convention to `docs/adr/README.md`, gave ADR-009 the ADR-034 pointer the README's own supersession rule asks for, and struck ADR-008's "registered queries are not checkpointed at all", which is fixed.
+
+Thirty-four ADRs, and until this round thirty-two of them read `| Status | Accepted |` whether the
+decision was in the tree or not. Measured examples: ADR-020's `pravaha-spring-boot-starter`,
+`@PravahaListener` and `PravahaTemplate` return zero hits in every `src/`; ADR-016's
+`ShadowDeployment` has fourteen references and every one is its own test; ADR-027's `LaneMultiplexer`
+and ADR-010's `PluginClassLoader` are constructed from nothing in any `src/main`; ADR-026 names three
+subscription carriers and the tree has one, the other two being a console-side SSE re-encode and a
+WebSocket that `console/routes/api_routes.py:118` explains was deliberately not built.
+
+The ADR index itself is clean in all three directions — 34 files, 34 index rows, every `ADR-nnn`
+citation in the corpus *and* in `src/main` javadoc resolves, no dangling numbers. Rows 021 and 018
+sit after 022 in the index; cosmetic, recorded so a later reader does not chase it.
+
+### DOCX-13 (MED) — `system_design.md` and `implementation_plan.md` are linked as specification and describe a system that partly does not exist
+
+> **Status:** FIXED — commit 51b27f5 put a header on each saying it is the intent and not the build, naming the symbols an audit found absent, and pointing at `HANDOVER.md`, `ARCHITECTURE.md` and the ADRs instead.
+
+4,955 lines, linked from the README as the full specification, unchanged since before most of this
+engine existed, and carrying no marker distinguishing what was built from what was designed. Named
+absences confirmed by grep over every non-`target`, non-`.claude` source: there is no type
+`PravahaConfig` and no `fromYaml` (`system_design.md:2726` documents both as the binding path), no
+`PravahaProperties` and no test reflecting over the pair, no `pravaha-ui/` module
+(`:2968` describes its vendored-asset directory), no `@PravahaTest`, and `mode: HA` is a value the
+code rejects. Requested live: `/actuator/pravaha` (`:3257`) and
+`POST /api/v1/queries/{id}/backfill` (`:2595`) both return 404 on a node configured as the document
+says. `implementation_plan.md:50` claims "a script resolves every cross-reference against the target
+document's headings and fails the build"; no such script exists and no workflow runs one, and its
+`:164` golden-plan directory `pravaha-sql/src/test/resources/` does not exist either.
+
+Labelling rather than correcting is the honest fix: 4,955 lines cannot be audited per round, and a
+header that tells a reader which document to trust costs two minutes and removes the trap.
+
+### DOCX-14 (MED) — three documents claimed a test executes commands it never reads
+
+> **Status:** FIXED — commit 51b27f5 corrected `docs/HANDOVER.md:57`, `examples/README.md:5` and the freshness-test claims in `README.md:298` and `docs/README.md:47`.
+
+The class of defect that stops people checking, which is worse than the thing it conceals.
+
+- `docs/HANDOVER.md:57`: "every command in [QUICKSTART] is executed by `ExamplesTest`, so it cannot
+  silently rot." `ExamplesTest` never opens `docs/QUICKSTART.md`. It opens the two example READMEs
+  and hard-codes two quickstart-*shaped* command lines whose SQL and schema do not appear in the
+  quickstart at all. Coverage from the file: **0 / 31**. This is precisely why DOCX-1 could rot green.
+- `examples/README.md:5`: "The commands in every `README.md` here are executed by `ExamplesTest`."
+  Measured **3 / 9** — the `run` and `validate` commands of examples 01 and 02. The `explain`
+  commands and all five lines of example 03's classpath incantation are uncovered. The covered half
+  is the strongest documentation enforcement in the repository and is worth saying so: it runs the
+  command, asserts the output, *and* asserts the README still contains the string it quotes.
+- `README.md:298` and `docs/README.md:47`: the freshness test "checks that every internal link
+  resolves". Its corpus is thirteen files and its regex requires a file extension, so it sees 83 of
+  the corpus's 252 relative links — a third. `docs/adr/`, `examples/`, `console/` and `sdk/` are
+  entirely outside it, and anchors are stripped before resolution, so no test in the repository
+  checks any of the 63 anchors. Seeded proof: six broken links, two of them in `README.md` itself,
+  left the build green.
+
+### DOCX-15 (LOW) — six documents said four case studies and five said five; there are five
+
+> **Status:** FIXED — commit fbe02eb corrected `examples/case-studies/SETUP.md:6`, `examples/case-studies/README.md:74`, `docs/CONCEPTS.md:187`, `docs/README.md:13`, `docs/QUICKSTART.md:351` and `docs/USER_GUIDE.md:282`.
+
+`ls examples/case-studies/` gives five: trade-processing, banking-card-velocity,
+finance-counterparty-exposure, trading-order-flow, biology-sequencing-qc. The defect is less the
+number than that a reader had no way to tell which half of the corpus was current. `SETUP.md`'s was
+load-bearing in a second way — "two stores cover all four" is the sentence that tells a reader which
+infrastructure to stand up.
+
+### DOCX-16 (LOW) — `HANDOVER.md` counted 33 ADRs, dated its own status two waves behind, and no gate pack exists for waves 5 or 6
+
+> **Status:** FIXED — commit fbe02eb corrected the ADR count to 34, replaced the stale session header with a wave-status paragraph that keeps the original note under its own date, and recorded the missing gate packs.
+
+`| ADRs | **33** |` against 34 files. The header said "**Wave 6 (E5) has started**" while the same
+document's body says "### Wave 7 (E6) — complete" and the README badge says Wave 7 of 10 — a session
+note that became a status claim because nothing made it expire. Separately, `docs/gates/` holds
+`wave-1` through `wave-4` and `wave-7`: waves 5 and 6 are described as complete in `HANDOVER.md` and
+have no evidence pack, which no document said. `DocumentationFreshnessTest` compares the README's
+stated wave against the *newest* gate directory, so a missing middle pack fails nothing.
+
+### DOCX-17 (LOW) — `sdk/python/README.md` documents an extra that does not exist
+
+> **Status:** FIXED — commit fbe02eb changed `pip install 'pravaha[grpc]'` to `'pravaha[flight]'`.
+
+`sdk/python/pyproject.toml:31` defines `flight = ["pyarrow>=15.0.0"]`. There is no `grpc` extra, so
+the documented command installs the contracts, silently installs none of the transport, and does not
+fail — `pravaha.connect` then raises on its lazy `pyarrow` import. The working form is what
+`console/Makefile:20` already uses: `pip install -e ../sdk/python[flight]`.
+
+### DOCX-18 (LOW) — `SecurityProperties`' javadoc named two values the node refuses at startup
+
+> **Status:** FIXED — commit fbe02eb corrected both javadoc lines to the values the code accepts and named the refusal code.
+
+`SecurityProperties.java:52` offered `permissive` or **`tenant`**; `:55` offered `none`, `memory` or
+**`log`**. `PravahaNode.java:298` and `:318` accept `permissive`/`authenticated` and `none`/`memory`
+and refuse anything else. Reproduced: `policy: strict` gives
+`PRV-7002  pravaha.security.policy is 'strict', which is not a policy this node knows. Use
+'permissive' or 'authenticated'`. A javadoc is documentation to the next engineer, and this one cost
+a restart to disprove. The owner has named this exact failure mode before — `pravaha.streams` was in
+a javadoc before it existed.
+
+### DOCX-19 (MED) — `PRV-7002` has four unrelated meanings and `PRV-2002` wears an SQL code for configuration refusals
+
+> **Status:** OPEN — a code fix (give configuration refusals a 1xxx code), not a documentation one. A runbook entry listing four causes under one code moves the ambiguity rather than removing it.
+
+`PRV-7002` has 18 throw sites across four modules: 12 authorization denials, 1 startup refusal of an
+open server, 1 policy/authentication contradiction, 1 split-policy refusal, and **3 bad configuration
+*values***. `docs/TROUBLESHOOTING.md:78` gives one remedy — "Ask for access — a new credential will
+not help" — which is wrong for six of the eighteen. An operator whose node will not boot because of a
+typo in a YAML value is told to ask for access.
+
+`PRV-2002` is worse-shaped: of its five sites, three are startup configuration refusals
+(`PravahaNode.java:220,251,391` — a stream with no schema, an `event-time` naming a missing column,
+`watermark.idle-after` out of bounds), one is a duplicate schema version, and **one** is genuine SQL
+validation. The ranges table puts 2xxx under "SQL — parsing, planning, what the engine will and will
+not run", so an operator whose node refuses to boot on a YAML typo is pointed at their SQL.
+
+### DOCX-20 (MED) — documented remedies the engine then refuses, and eight messages naming keys that do not exist
+
+> **Status:** OPEN — code fixes. Recorded rather than repaired because the honest correction is to make the advice work, not to delete it from the document.
+
+Following the advice verbatim:
+
+- The `||` refusal's own message suggests `CAST(… AS VARCHAR)`. `SELECT name || CAST(amount AS
+  VARCHAR)` produces a byte-identical refusal, because Calcite inserted the same cast for the user's
+  first attempt. Sharper still: the message at `Expression.java:391` that offers the advice is
+  unreachable, and would carry no `PRV` code if it were.
+- Eight messages name a configuration key that does not exist — seven say `arena.slab.size`
+  (`RowArena.java:87`, `WindowAssign.java:68`, `InterpretedPipeline.java:692,754`,
+  `SymmetricHashJoin.java:170,205`, `LookupJoin.java:308`) and one says `state.slab.size`
+  (`RowStore.java:119`). Overlaps PF-3, measured independently here.
+- The unbounded-`LEFT`-join refusal says "Swap the inputs and use LEFT"; doing so produces a second,
+  different refusal. Two attempts where one message would have done.
+
+Six remedies were followed and **worked**, recorded so this is a measurement and not a complaint:
+the `TUMBLE`/`HOP` block, "over a view it is allowed", `pravaha queries --url`, "Use TUMBLE or HOP"
+for `SESSION`, `CAST(NULL AS BIGINT)`, and `SUM(CAST(price AS BIGINT))` for the float-aggregate
+refusal.
+
+### DOCX-21 (MED) — `docs.pravaha.io` is NXDOMAIN, three tests assert on it, and no document warns
+
+> **Status:** OPEN — registering the domain or removing the URL is a decision for the owner, not a documentation edit this round can make.
+
+```
+$ host docs.pravaha.io
+Host docs.pravaha.io not found: 3(NXDOMAIN)
+```
+
+`ErrorCode.java:27` builds `https://docs.pravaha.io/errors/PRV-nnnn` for every failure.
+`ExamplesTest.java:152`, `PravahaCliTest.java:90` and `ApiIntegrationTest.java:91` each assert the URL
+appears in output, so the build enforces a link nobody can visit. No document in the corpus tells a
+reader it is not live.
+
+A second, opposite defect sits beside it: only the three in-process CLI commands print the URL at all.
+`ServerCommand.fail` (`ServerCommand.java:238-246`) prints the message and nothing else, so `query`,
+`register`, `queries`, `drop`, `pause`, `resume` and `subscribe` omit it. Today that is a kindness.
+
+### DOCX-22 (LOW) — `docs/SECURITY.md` named a method that does not exist and attributed a fixed defect to it
+
+> **Status:** FIXED — commit 51b27f5 rewrote the paragraph: there is no `PravahaFlightServer.location()` (it is a private field; the accessors are `port()`, `uri()`, `catalog()`, `isEncrypted()`), the scheme half of SX-16 is fixed, and the ephemeral-port half is restated against the `Location` that actually reaches `getFlightInfo`.
+
+`PravahaFlightServer.java:229-230` now builds the advertised `Location` with `forGrpcTls` when a
+certificate is configured, so the "a genuinely-TLS node reports `grpc+tcp://`" half of the claim is
+no longer true. The port half is: that `Location` carries the *requested* port, so
+`--pravaha.flight.port=0` advertises `0`. `ServerCommand.connect()` is likewise `connect(Args)` and
+private.
+
+A method named in a document and renamed in a refactor is the rot nothing catches — no link checker
+sees a backticked identifier, and 3 of the 23 in this corpus had drifted.
