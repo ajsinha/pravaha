@@ -404,7 +404,7 @@ public class PravahaNode implements SmartLifecycle {
         SecurityPolicy policy = securityPolicy();
         AuditSink audit = auditSink();
         registry = new QueryRegistry(views, policy, audit, streams.all().toArray(new StreamSchema[0]));
-        // The knobs five error messages have been telling operators to turn (PF-3). Nothing on this
+        // The knobs eleven error messages have been telling operators to turn (PF-3). Nothing on this
         // path ever called executingWith, so every query on every node ran with the library's sizes
         // -- chosen for one high-throughput query, and paid for by each of a thousand small ones.
         registry.executingWith(lanes.toLaneConfig(), com.ash.messaging.pravaha.common.memory.MemoryAccess.best());

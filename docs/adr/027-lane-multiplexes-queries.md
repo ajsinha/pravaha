@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **not built** — `LaneMultiplexer` is constructed from nothing in any `src/main` |
+| Status | Accepted; **partly built** (2026-09-15) — the *thread* half shipped in Wave 9: `LaneRunner` drives many lanes from a fixed pool of one thread per core and `QueryRegistry` owns one, so a query no longer costs a platform thread (W9-4, W9-5). The *memory* half has not: a lane still runs one pipeline, so the inbox and the arena are still per query, and `LaneMultiplexer` is constructed from nothing in any `src/main` — blocked on the row header, which carries a schema version where it needs a stream identity (W9-8, W9-9) |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

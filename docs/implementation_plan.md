@@ -215,10 +215,17 @@ at the end of one.
 | **6** | E5 Backfill & serving | 26–32 | **First defensible demo** — W3 point lookup ≤ 200 µs |
 | **7** | E6 Gateways, clients, DX | 33–38 | W2 deploy ≤ 2 s; starter green on Spring Boot 3.2–3.5 |
 | **8** | E7 Survival on one node ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)) | 39–45 | A killed node restarts onto its own state and nothing else's; a standby takes over and names what it lost |
-| **9** | E8 Control plane & self-tuning | 46–53 | W10 debugger finds a seeded bug and exports the fixture |
-| **10** | E9 Breadth, benchmarks, GA | 54–62 | All SLOs; W5 Nexmark published; **GA** |
+| **9** | ES One node, thousands of queries ([ADR-036](adr/036-one-node-thousands-of-queries.md), [ADR-037](adr/037-state-that-degrades-instead-of-dying.md)) | — | `NodeScaleTest` registers thousands rather than hundreds inside a test JVM; a node's thread count follows its cores, not its query count |
+| **10** | E8 Control plane & self-tuning | 46–53 | W10 debugger finds a seeded bug and exports the fixture |
+| **11** | E9 Breadth, benchmarks, GA | 54–62 | All SLOs; W5 Nexmark published; **GA** |
 
-Epic **EU** (the console) runs across waves 3–10 rather than owning one, because it ships a surface
+**Wave 9 was inserted, not renamed.** [ADR-036](adr/036-one-node-thousands-of-queries.md) puts
+scale-out and hardening on one node ahead of E8's control-plane features — "building a time-travel
+debugger on top of an unmeasured foundation puts a floor above a hole" — so E8 and E9 keep their
+content and their sprint estimates and move down one. The inserted wave's own length was never
+estimated, which is why its Sprints cell is a dash rather than a guess.
+
+Epic **EU** (the console) runs across waves 3–11 rather than owning one, because it ships a surface
 alongside each engine capability (§6.2).
 
 Each wave ends with an evidence pack under `docs/gates/` — benchmark output, test reports, and a
@@ -439,8 +446,9 @@ Design §23 specifies the console. This epic runs **alongside** E3–E9 rather t
 | **6** | **E5** | 5 | 26–32 | Backfill, blue/green updates, serving layer, consistency modes |
 | **7** | **E6** | 6 | 33–38 | gRPC + Arrow gateways, Avatica, typed clients, full CLI, error catalogue, TCK, docs-as-tests |
 | **8** | **E7** | 7 | 39–45 | **Rescoped by [ADR-035](adr/035-wave-8-is-survival-not-distribution.md):** node ownership of durable state, aligned checkpoint barriers, standby + checkpoint failover, and wiring the dead-letter queue / L0 state map / changelog analysis. Ratis, membership, assignment, rebalance, multi-tenancy and elastic rescale stay deferred with ADR-034 |
-| **9** | **E8** | 8 | 46–53 | Control-plane UI, time-travel debugger, security, observability, self-tuning controllers |
-| **10** | **E9** | 9 | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, soak, security review, TCO validation, GA |
+| **9** | **ES** | 7b | — | **Inserted by [ADR-036](adr/036-one-node-thousands-of-queries.md):** lane multiplexing onto shared threads, a shared watermark/checkpoint clock, arena and inbox sizing as settings, an Aerospike scan interval, a descriptor ceiling the node reports, and state a query reports against its ceiling ([ADR-037](adr/037-state-that-degrades-instead-of-dying.md) B1). Built. Not built: one Aerospike reader feeding many queries, a lane that multiplexes pipelines, and B2's on-disk tier |
+| **10** | **E8** | 8 | 46–53 | Control-plane UI, time-travel debugger, security, observability, self-tuning controllers |
+| **11** | **E9** | 9 | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, soak, security review, TCO validation, GA |
 
 ---
 
@@ -728,8 +736,9 @@ Each epic is one **wave** (§4.0). Epics are decomposed into stories at the star
 | **6** | **E5** Backfill & serving | 26–32 | snapshot→CDC splice, adaptive throttling, blue/green cutover, served views, 4 consistency modes, read replicas, read admission control | 3 years backfilled with storage p99 impact **< 10 %**; **W3 p99 point lookup ≤ 200 µs**; a SQL change deployed with zero downtime and rolled back |
 | **7** | **E6** Gateways, clients, DX | 33–38 | gRPC + Arrow + credit flow control, Avatica, typed Java/Python/Go clients, **`pravaha-server` as a Spring Boot app (modes C/D)**, **`pravaha-spring-boot-starter` (mode B)**, full CLI, `PRV-nnnn` error catalogue, plugin TCK v2, docs-as-tests | Python client sustains **1 M rows/s**; DBeaver connects via Avatica; **W2 deploy ≤ 2 s**; every first-party plugin passes the TCK; server reaches ready in ≤ 2 s; starter green against Spring Boot 3.2, 3.3, 3.4 and 3.5 in the CI matrix |
 | **8** | **E7** Survival on one node | 39–45 | **Rescoped by [ADR-035](adr/035-wave-8-is-survival-not-distribution.md).** Node ownership of the checkpoint root and the registry journal (CFG-13, CFG-14); aligned checkpoint barriers, replacing the per-lane control task ADR-008 is currently served by; standby + checkpoint failover, no consensus; the dead-letter queue, L0 state map and changelog analysis made reachable or deleted. Ratis, membership, assignment, rebalance, savepoints, tenant quotas and elastic rescale stay deferred with ADR-034 | A node restarted beside a second node pointed at the same state comes up running its own registrations and no others; a standby takes over from the checkpoint and reports what the takeover lost rather than implying continuity; each of the three mechanisms is reachable from a supported path or gone |
-| **9** | **E8** Control plane & self-tuning | 46–53 | Spring Boot + React UI, all screens, time-travel debugger, OIDC/RBAC/audit, observability, skew remediation, live replanning, tier promotion | Full lifecycle driven from the UI; **W10** a seeded production bug is found by replay and exported as a passing JUnit fixture |
-| **10** | **E9** Breadth, benchmarks, GA | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, 72 h soak, security review, TCO validation, migration tooling, GA docs | All NFR SLOs met; **W5** ≥ parity on 18/22 Nexmark queries and ≥ 2× on 8; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated; soak clean; SBOM + security sign-off |
+| **9** | **ES** One node, thousands of queries | — | **Inserted by [ADR-036](adr/036-one-node-thousands-of-queries.md).** Lane multiplexing onto a shared runner pool; one watermark/checkpoint clock for the process; arena and inbox sizing as `pravaha.lane.*` settings; an Aerospike `scan.interval.ms`; a descriptor ceiling reported at startup; per-query state published against its ceiling ([ADR-037](adr/037-state-that-degrades-instead-of-dying.md) B1). Deferred within the wave: one Aerospike reader per binding, a lane that multiplexes pipelines, and B2's on-disk tier | `NodeScaleTest` registers thousands rather than hundreds inside a test JVM, and reports cost per query rather than a rate — **no throughput claim is made or accepted here**, because the hardware to measure one does not exist |
+| **10** | **E8** Control plane & self-tuning | 46–53 | Spring Boot + React UI, all screens, time-travel debugger, OIDC/RBAC/audit, observability, skew remediation, live replanning, tier promotion | Full lifecycle driven from the UI; **W10** a seeded production bug is found by replay and exported as a passing JUnit fixture |
+| **11** | **E9** Breadth, benchmarks, GA | 54–62 | Cassandra/PostgreSQL/Redis plugins, `WITH RECURSIVE`, Nexmark publication, 72 h soak, security review, TCO validation, migration tooling, GA docs | All NFR SLOs met; **W5** ≥ parity on 18/22 Nexmark queries and ≥ 2× on 8; **W6** recursive query runs; **W1 ≤ 40 % vCPU** validated; soak clean; SBOM + security sign-off |
 
 `W1`–`W10` are the win conditions from design §2.5.
 

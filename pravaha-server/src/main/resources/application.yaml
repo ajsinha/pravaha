@@ -157,36 +157,12 @@ pravaha:
     journal: ""
 
 
-  # What a query had accumulated, so a restart recovers answers and not only questions.
-  #
-  # The journal above remembers which queries exist; this remembers what they had computed. A node
-  # with a journal and no checkpoint directory comes back knowing every question and none of the
-  # answers -- which is what this server did, because nothing ever constructed a checkpointer.
-  #
-  # Unset means no checkpoints, and the node says so at startup rather than leaving it to be
-  # discovered during a recovery. Each query checkpoints into its own directory beneath this one:
-  # one shared store would make pruning global, so a busy query would evict a quiet one's only
-  # fallback.
-  # Whether this node may write state into a directory another node already owns.
-  #
-  # A node claims its checkpoint directory and its registry journal's directory at startup, writing
-  # a .pravaha-owner marker naming itself, its host, its port and its pid, refreshed on a lease. Two
-  # nodes sharing one checkpoint root prune each other's checkpoints; two sharing one journal replay
-  # each other's registrations and each comes up running queries it never registered. Both were
-  # reachable from two lines of this file and neither reported anything (CFG-13, CFG-14).
-  #
-  # The directory is namespaced by node.id rather than by host and port on purpose: an address
-  # identifies a location, a node id identifies a node, and a node restarting on a new pod IP has to
-  # find its own checkpoints. The address lives in the marker instead, where it answers the question
-  # the node id cannot -- whether the other owner is still running.
-  #
-  # A node reclaiming its *own* state after a crash does not need this flag; an expired claim under
-  # the same node id is taken over automatically. Set it only to let two nodes share on purpose.
   # What one registered query costs in memory, and how its lane waits.
   #
-  # These existed in the engine and could not be reached from here, which is why five error messages
-  # told operators to raise "arena.slab.size" -- a setting that did not exist (PF-3). The defaults
-  # below are the engine's own, so a node that sets nothing behaves exactly as it did.
+  # These existed in the engine and could not be reached from here, which is why eleven error
+  # messages told operators to change "arena.slab.size" or "lane.inbox.cell.size" -- neither of
+  # which existed (PF-3). The defaults below are the engine's own, so a node that sets nothing
+  # behaves exactly as it did.
   #
   # They matter when a node holds many queries, and the measured numbers are worth having here
   # because the obvious guess is wrong. As of W9-6/W9-7, per query (NodeScaleTest):
@@ -211,6 +187,8 @@ pravaha:
   #
   # The inbox is per query only because each query has a lane of its own. LaneMultiplexer would make
   # many queries share one; W9-8 and W9-10 record what that still needs.
+  #
+  # Documented for operators in docs/OPERATIONS.md, "Sizing a node for many queries".
   lane:
     batch-size: 512
     wait-strategy: BACKOFF_PARK
@@ -221,6 +199,21 @@ pravaha:
       slab-bytes: 4194304
       max-slabs: 8
 
+  # Whether this node may write state into a directory another node already owns.
+  #
+  # A node claims its checkpoint directory and its registry journal's directory at startup, writing
+  # a .pravaha-owner marker naming itself, its host, its port and its pid, refreshed on a lease. Two
+  # nodes sharing one checkpoint root prune each other's checkpoints; two sharing one journal replay
+  # each other's registrations and each comes up running queries it never registered. Both were
+  # reachable from two lines of this file and neither reported anything (CFG-13, CFG-14).
+  #
+  # The directory is namespaced by node.id rather than by host and port on purpose: an address
+  # identifies a location, a node id identifies a node, and a node restarting on a new pod IP has to
+  # find its own checkpoints. The address lives in the marker instead, where it answers the question
+  # the node id cannot -- whether the other owner is still running.
+  #
+  # A node reclaiming its *own* state after a crash does not need this flag; an expired claim under
+  # the same node id is taken over automatically. Set it only to let two nodes share on purpose.
   state:
     allow-shared: false
 
@@ -243,6 +236,16 @@ pravaha:
   standby:
     enabled: false
 
+  # What a query had accumulated, so a restart recovers answers and not only questions.
+  #
+  # The journal above remembers which queries exist; this remembers what they had computed. A node
+  # with a journal and no checkpoint directory comes back knowing every question and none of the
+  # answers -- which is what this server did, because nothing ever constructed a checkpointer.
+  #
+  # Unset means no checkpoints, and the node says so at startup rather than leaving it to be
+  # discovered during a recovery. Each query checkpoints into its own directory beneath this one:
+  # one shared store would make pruning global, so a busy query would evict a quiet one's only
+  # fallback.
   checkpoint:
     directory: ""
     interval: 1m

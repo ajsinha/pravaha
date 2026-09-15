@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — scope decision, not yet built |
+| Status | Accepted — **largely built** (2026-09-15). Shipped: the scan interval (§3, SRC-8), arena and inbox sizing as settings (§1, W9-6/W9-7), lane multiplexing onto shared threads (§2, W9-4/W9-5) and the shared schedulers (§4, W9-3), plus a descriptor ceiling the node reports (SRC-4). **Not built:** one Aerospike reader feeding many queries (§3's second half, SRC-3) and `LaneMultiplexer`, which would share the inbox and arena as well as the thread (W9-8, blocked on W9-9). The measurements in the tables below are the *before* figures and are kept as the record of what the wave was scoped against; the *after* figures are in `HANDOVER.md` and the findings they cite |
 | Date | 2026-09-15 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-004 (partitioned lanes), ADR-027 (lane multiplexing), ADR-029 (Aerospike scan-only), ADR-034 (distribution deferred), ADR-035 (Wave 8) |
@@ -46,8 +46,8 @@ were chosen for the case this engine was first built for: one query, a source th
 latency that matters more than a core. A thousand small continuous queries is the opposite case, and
 it inherits sizes nobody chose for it.
 
-Neither is configurable — `PRV-4003`'s sibling problem, recorded as PF-3: five error messages tell an
-operator to raise `arena.slab.size`, and no such setting exists. So the first work is to make them
+Neither is configurable — `PRV-4003`'s sibling problem, recorded as PF-3: eleven error messages tell
+an operator to change `arena.slab.size` or `lane.inbox.cell.size`, and neither setting exists. So the first work is to make them
 settings and to pick defaults per registration rather than per build.
 
 This is the cheapest large win in the wave and it is where it starts.
