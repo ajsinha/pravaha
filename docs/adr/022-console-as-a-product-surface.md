@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **partly built** — the console exists and is a functional admin console, not the flagship surface with its own design system this decides. No Storybook, no visual-regression baseline, no WCAG 2.2 AA audit, no Monaco, no plan DAG, no time-travel debugger; §23.20's release gate is unmet. Its shape is now ADR-024 and ADR-033 |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

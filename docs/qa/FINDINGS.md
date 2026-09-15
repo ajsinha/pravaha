@@ -5407,3 +5407,40 @@ missing page, at the moment somebody is already debugging something else.
 DOCX-21 recorded this and recorded that no document warns. Deciding what to do about the URL is the
 owner's; telling the reader where the reference actually is costs nothing and is the page they have
 already opened.
+
+### DOCR-19 (MED) — two more ADRs wore a bare `Accepted` that the index says means "built"
+
+> **Status:** FIXED — ADR-022 and ADR-023 Status rows qualified, checked against the console as it is: no Storybook, no `*.stories.*`, no visual-regression tooling anywhere under `console/`, and `console/` is its own artefact rather than one deployable
+
+`docs/adr/README.md` states the convention: "A bare `Accepted` means built." DOCX-12 applied it to
+twelve ADRs; three more had slipped past it, two of them here and `006` in DOCR-6.
+
+**ADR-022** decides "The console is a flagship product surface with its own design system, built as a
+continuous workstream from Phase 3", resourced with a dedicated frontend engineer. What shipped is a
+server-rendered admin console with no build step — which `README.md` and `QUICKSTART.md` both say
+plainly, and which the ADR set said nothing about. A decision that was deliberately descoped and a
+decision that shipped looked identical, which is the exact failure the convention exists to prevent.
+
+**ADR-023** decides two things and only one of them survived. The API rule holds: the console reaches
+the engine through the published SDK and nothing else. Its packaging half — "one artefact by default"
+— was reversed by ADR-024 and ADR-033, and the index row for 024 says so while ADR-023 itself did
+not. `docs/adr/README.md`'s own supersession rule asks for the pointer to be on the superseded file,
+because that is the one a reader arrives at from a citation; ADR-009 was given one in the DOCX round
+and ADR-023 was missed.
+
+### DOCR-20 (MED) — the ADR index said key-partitioned aggregates were built instead of distribution; they are refused
+
+> **Status:** FIXED — `docs/adr/README.md`'s row for ADR-034 and ADR-034's own Status row corrected against `QueryExecution.refuseUnpartitionedAggregate`, which throws `PRV-3020` for a keyed aggregate on more than one lane
+
+`docs/adr/README.md` summarised ADR-034 as "Multi-node deferred; **key-partitioned aggregates built
+instead**, which is the missing rung and distribution's foundation."
+
+ADR-034's own body does not say that. It says the work "goes instead into key-partitioned ingestion
+for aggregates", as the thing to do, and its ladder table marks the rung "Refused for keyed
+aggregates (`PRV-3020`)". The code agrees with the body: `pumpPartitionedInto` routes by **join** key
+and refuses a query with no join, and `refuseUnpartitionedAggregate` refuses a keyed aggregate on
+more than one lane outright, because every lane would keep its own partial total and emit it.
+
+The index is where a reader looks to find out what a decision was, and it turned an intention into a
+capability in one word. It now says the rung is the work ADR-034 names and is not built, which is
+what the ADR it indexes says.

@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted on the API rule, which holds — the console reaches the engine only through the published SDK. **Its packaging half is superseded by [ADR-024](024-console-as-a-separate-process.md)**: the console is a separate Python process and its own artefact ([ADR-033](033-the-ui-ships-as-its-own-artefact.md)), not "one artefact by default" |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

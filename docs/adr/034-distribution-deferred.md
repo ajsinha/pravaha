@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted — the deferral is in force. The work it redirects to, **key-partitioned ingestion for aggregates, is not built**: `QueryExecution.refuseUnpartitionedAggregate` refuses a keyed aggregate on more than one lane with `PRV-3020`, and `pumpPartitionedInto` routes by join key and requires a join |
 | Date | 2026-09-12 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-004 (partitioned lanes), ADR-009 (embedded Raft metadata), §21, §13 |
