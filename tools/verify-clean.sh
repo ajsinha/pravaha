@@ -105,11 +105,25 @@ exec 9>&-
 # measured on this machine before being offered, and kept opt-in because a shared
 # port or a shared directory between two test classes fails only under it, and
 # fails confusingly.
-FORKS=""
-if [[ -n "${PRAVAHA_FORKS:-}" ]]; then
-    FORKS="-DforkCount=${PRAVAHA_FORKS} -DreuseForks=true"
-    echo "surefire forks: ${PRAVAHA_FORKS}"
-fi
+# Half a fork per core. Measured on this machine, both runs complete and green:
+# 6:36 single-JVM, 5:50 with this and -T1C, for the same 2,274 tests.
+#
+# That is ~11%, and it is worth writing down that the first figure taken here was
+# 3:30 -- from a run that *failed* at pravaha-server and so never reached
+# pravaha-it, which is 3:24 of the build on its own. Comparing a complete run with
+# an aborted one is how a speedup gets overstated by a factor of four. The honest
+# ceiling is low because pravaha-it dominates and much of it is deliberately slow:
+# SourceScaleTest 40s, AerospikeSourceScaleIT 33s, StandbyWatchTest 20s. Those
+# measure things, and making them quick would mean measuring less.
+#
+# Turning it on found a real defect rather than needing a workaround: two
+# @SpringBootTest classes both bound the *fixed* Flight port 9090, which collides
+# whenever they do not run sequentially -- and would collide equally with a node
+# the developer happens to be running. Both now use port 0. If a future test fails
+# only under forks, that is the same smell: look for shared fixed state before
+# reaching for PRAVAHA_FORKS=1.
+FORKS="-DforkCount=${PRAVAHA_FORKS:-0.5C} -DreuseForks=true"
+echo "surefire forks: ${PRAVAHA_FORKS:-0.5C}"
 
 if [[ $# -eq 0 ]]; then
     echo "running the full verify"

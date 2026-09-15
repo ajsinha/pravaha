@@ -52,7 +52,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  *
  * <p>Regenerate deliberately with {@code -Dpravaha.openapi.update=true}, and read the diff.
  */
-@SpringBootTest(properties = "pravaha.security.allow-anonymous=true")
+@SpringBootTest(
+        properties = {
+            "pravaha.security.allow-anonymous=true",
+            // Port 0, so the operating system assigns one. This is a MockMvc test and needs no
+            // Flight client, but the node it boots starts a real Flight server -- and on the
+            // default 9090 that collides with anything else holding the port: the other
+            // @SpringBootTest in this module when surefire runs them in separate JVMs, and a
+            // developer's own node on their own machine. A test that binds a fixed port is
+            // fragile whether or not anything is running in parallel.
+            "pravaha.flight.port=0"
+        })
 @AutoConfigureMockMvc
 class OpenApiContractTest {
 
