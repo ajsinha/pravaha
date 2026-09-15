@@ -16,9 +16,6 @@
 package com.ash.messaging.pravaha.runtime.exec;
 
 import java.time.Duration;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -85,7 +82,7 @@ public final class PeriodicCheckpointer implements AutoCloseable {
      */
     private volatile Consumer<String> onFailure = message -> {};
 
-    private final ScheduledExecutorService scheduler;
+    private volatile java.util.concurrent.ScheduledFuture<?> schedule;
     private final AtomicLong nextId = new AtomicLong(1);
     private final AtomicLong taken = new AtomicLong();
     private final AtomicLong failed = new AtomicLong();
@@ -119,12 +116,6 @@ public final class PeriodicCheckpointer implements AutoCloseable {
         // Resume numbering above whatever is already stored, so ids stay monotonic across restarts
         // and "checkpoint 4" means one thing for the life of the directory.
         store.availableIds().stream().max(Long::compare).ifPresent(highest -> nextId.set(highest + 1));
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "pravaha-checkpointer");
-            // Daemon: a checkpointer must never be the reason a JVM will not exit.
-            thread.setDaemon(true);
-            return thread;
-        });
     }
 
     /** Reads interval, keep and timeout from {@code pravaha.checkpoint.*}. */
@@ -156,8 +147,11 @@ public final class PeriodicCheckpointer implements AutoCloseable {
         if (!running.compareAndSet(false, true)) {
             return;
         }
-        scheduler.scheduleWithFixedDelay(
-                this::checkpointQuietly, interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
+        // The process's clock, fired on a virtual thread. This was a scheduler of its own per
+        // query -- a platform thread per checkpointed registration -- and a checkpoint writes and
+        // fsyncs, so sharing one *worker* across queries would let one slow disk delay every other
+        // query's checkpoint. SharedClock shares the timing and not the waiting (W9-3).
+        schedule = SharedClock.every(interval, "checkpoint", this::checkpointQuietly);
         log.accept("checkpointing every " + interval.toMillis() + "ms, keeping the newest " + keep);
     }
 
@@ -179,6 +173,14 @@ public final class PeriodicCheckpointer implements AutoCloseable {
     }
 
     private void checkpointQuietly() {
+        if (!running.get()) {
+            // close() cancels the schedule, which stops the timer firing again -- it does not reach
+            // a firing already handed to a virtual thread. That used to be a shutdownNow() on this
+            // checkpointer's own scheduler, which interrupted the thread mid-task; sharing the clock
+            // means the guard has to be here instead. Without it, close() was followed by one more
+            // checkpoint (STATE-007).
+            return;
+        }
         try {
             Checkpoint checkpoint = checkpointNow();
             log.accept("checkpoint " + checkpoint.id() + " stored, " + checkpoint.sizeBytes() + " bytes");
@@ -203,6 +205,11 @@ public final class PeriodicCheckpointer implements AutoCloseable {
     @Override
     public void close() {
         running.set(false);
-        scheduler.shutdownNow();
+        // Cancels this query's schedule, not the clock: the clock is the process's and every other
+        // checkpointed query is still on it.
+        java.util.concurrent.ScheduledFuture<?> current = schedule;
+        if (current != null) {
+            current.cancel(true);
+        }
     }
 }

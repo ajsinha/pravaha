@@ -20,9 +20,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
@@ -105,7 +102,7 @@ public final class QueryExecution implements AutoCloseable {
      */
     private final Map<String, Long> lastReportedHighWater = new LinkedHashMap<>();
 
-    private ScheduledExecutorService watermarkClock;
+    private java.util.concurrent.ScheduledFuture<?> watermarkClock;
     private final List<PartitionedIngestPump> partitionedPumps = new ArrayList<>();
     private final PhysicalOperator plan;
     private final MemoryAccess access;
@@ -382,13 +379,16 @@ public final class QueryExecution implements AutoCloseable {
         // Bounds are the tracker's, and it refuses rather than clamps: a timeout quietly changed to
         // something the operator did not ask for is how a tuned value becomes a mystery later.
         this.watermarks = new WatermarkTracker(idleAfter.toNanos());
-        this.watermarkClock = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "pravaha-watermark");
-            thread.setDaemon(true);
-            return thread;
-        });
-        long period = Math.max(1, tick.toMillis());
-        watermarkClock.scheduleWithFixedDelay(this::advanceWatermarkQuietly, period, period, TimeUnit.MILLISECONDS);
+        // The process's clock, not one of this query's own. This was a
+        // newSingleThreadScheduledExecutor per execution -- a platform thread per registered query,
+        // and after ADR-027 removed the lane's, the binding constraint on how many a node holds.
+        //
+        // SharedClock keeps time on one thread for the JVM and fires each tick on a virtual thread,
+        // because a tick is mostly waiting: advanceWatermarkQuietly submits a control task to every
+        // lane and awaits each with a ten-second timeout. Sharing a single *worker* would let one
+        // slow lane stall every other query's clock, which is a worse failure than the threads it
+        // saves.
+        this.watermarkClock = SharedClock.every(tick, "watermark tick", this::advanceWatermarkQuietly);
         return this;
     }
 
@@ -1072,8 +1072,10 @@ public final class QueryExecution implements AutoCloseable {
     @Override
     public void close() {
         if (watermarkClock != null) {
-            // Before the lanes stop, so a tick cannot arrive at a closed pipeline.
-            watermarkClock.shutdownNow();
+            // Before the lanes stop, so a tick cannot arrive at a closed pipeline. Cancelling this
+            // query's schedule rather than shutting a clock down: the clock is the process's and
+            // every other query is still using it.
+            watermarkClock.cancel(true);
         }
         pumps.forEach(IngestPump::close);
         partitionedPumps.forEach(PartitionedIngestPump::close);

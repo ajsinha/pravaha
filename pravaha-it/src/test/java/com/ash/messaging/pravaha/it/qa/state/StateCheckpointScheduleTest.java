@@ -204,11 +204,18 @@ class StateCheckpointScheduleTest extends StateTestSupport {
                         m -> {})) {
             checkpointer.start();
             sleep(300);
+            // The property is that checkpointing cannot be the reason a JVM will not exit. It used
+            // to belong to a thread named pravaha-checkpointer, one per checkpointed query; W9-3
+            // moved the schedule to the process's shared clock, so the property moved with it --
+            // and there is now one such thread for the node rather than one per query, which is the
+            // point of the change.
             List<Thread> named = Thread.getAllStackTraces().keySet().stream()
-                    .filter(t -> "pravaha-checkpointer".equals(t.getName()))
+                    .filter(t -> "pravaha-clock".equals(t.getName()))
                     .toList();
-            assertThat(named).hasSize(1);
-            assertThat(named.get(0).isDaemon()).isTrue();
+            assertThat(named).as("one clock for the process").hasSize(1);
+            assertThat(named.get(0).isDaemon())
+                    .as("a checkpointer must never be why a JVM will not exit")
+                    .isTrue();
         }
     }
 
@@ -250,11 +257,13 @@ class StateCheckpointScheduleTest extends StateTestSupport {
             checkpointer.start();
             checkpointer.start();
             sleep(1000);
-            assertThat(checkpointer.stats().taken()).isBetween(3L, 6L);
-            long named = Thread.getAllStackTraces().keySet().stream()
-                    .filter(t -> "pravaha-checkpointer".equals(t.getName()))
-                    .count();
-            assertThat(named).isEqualTo(1);
+            // The rate is the assertion, and it always was: at a 200ms interval over 1000ms, one
+            // schedule gives 3-6 and two give twice that. The thread count beside it was a second
+            // way of saying the same thing, and it stopped being available when W9-3 put every
+            // query's schedule on one shared clock.
+            assertThat(checkpointer.stats().taken())
+                    .as("one schedule, not two: a second start() must be a no-op")
+                    .isBetween(3L, 6L);
         }
     }
 

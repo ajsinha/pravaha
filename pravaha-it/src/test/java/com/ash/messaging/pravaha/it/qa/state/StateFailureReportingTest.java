@@ -282,10 +282,14 @@ class StateFailureReportingTest extends StateTestSupport {
             awaitFailures(a, 3, Duration.ofSeconds(20));
             assertThat(a.checkpointFailures()).isEqualTo(b.checkpointFailures());
 
-            long named = Thread.getAllStackTraces().keySet().stream()
-                    .filter(t -> "pravaha-checkpointer".equals(t.getName()))
-                    .count();
-            assertThat(named).isEqualTo(1);
+            // Asked of the object rather than counted by thread name. There was a thread called
+            // pravaha-checkpointer per checkpointed query, and counting them was a fair proxy for
+            // "one computation, one checkpointer" -- until W9-3 moved the schedule to the process's
+            // shared clock and there were no such threads to count. Identity is what the case means
+            // and it is now stated directly.
+            assertThat(checkpointerOf(a))
+                    .as("one computation has one checkpointer, reachable under either of its names")
+                    .isSameAs(checkpointerOf(b));
             chmod(root, "rwx------");
         }
     }

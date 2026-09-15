@@ -75,12 +75,10 @@ final class NodeScaleTest {
      *
      * <p>Platform threads per query that this build is allowed to cost.
      *
-     * <p>A ratchet, and it may only fall. **Measured at exactly 1.00**: the lane. The feed is virtual
-     * since W9-2, and the two schedulers W9-3 records -- the watermark clock and the checkpointer --
-     * do not start in this fixture, because neither `generatingWatermarks` nor `checkpointingTo` is
-     * configured. A node that enables both pays three, so this number is the floor for a registry
-     * and not the whole story for a server; the 1.00 is what the lane costs and what ADR-027's
-     * multiplexing has to remove.
+     * <p>A ratchet, and it may only fall. Measured at exactly 1.00 when written -- the lane -- with
+     * the feed already virtual (W9-2). This fixture now turns watermarks on, so it also covers the
+     * clock that W9-3 moved to a shared timer; what it still does not cover is checkpointing, which
+     * needs a directory.
      *
      * <p>Set at the measured value rather than a hoped-for one. A ceiling nobody meets is a ceiling
      * that gets raised.
@@ -94,7 +92,10 @@ final class NodeScaleTest {
 
         ViewCatalog views = new ViewCatalog();
         List<String> names = new ArrayList<>();
-        try (QueryRegistry registry = new QueryRegistry(views, TXN)) {
+        // Watermarks on, because that is what a server does and it is where the second per-query
+        // thread used to be. Measuring without them measured the easy case (W9-3).
+        try (QueryRegistry registry =
+                new QueryRegistry(views, TXN).generatingWatermarks(Duration.ofSeconds(30), Duration.ofSeconds(1))) {
             long start = System.nanoTime();
             for (int i = 0; i < QUERIES; i++) {
                 // Distinct SQL per query: the threshold differs, so each is its own computation.
