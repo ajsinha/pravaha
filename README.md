@@ -68,8 +68,10 @@
   renders the documentation. It is not the design-system product surface §23.20 describes.
 - **A lane still runs one query.** `LaneRunner` shares a lane's *thread* between lanes, which is
   what removed the thread-per-query cost; `LaneMultiplexer` — which would share one inbox and one
-  arena between many pipelines — is built, tested and wired to nothing, blocked on a row header that
-  carries a schema *version* where it needs a stream identity (W9-8, W9-9).
+  arena between many pipelines — is built, tested and wired to nothing (W9-8). It is no longer
+  *blocked*: a row now carries the identity of the stream it came from (W9-9). It is *large*, and
+  the aligned checkpoint barrier is why — three hundred queries on one lane each advancing a
+  watermark every second would cut the lane's batches short several hundred times a second (W9-10).
 - **N queries over one Aerospike set are still N scans**, one reader per registration. Each scan is
   now throttled to `scan.interval.ms` (one second by default), which is what made the load
   survivable; one reader feeding many queries is designed and not built (ADR-036 §3, SRC-3).

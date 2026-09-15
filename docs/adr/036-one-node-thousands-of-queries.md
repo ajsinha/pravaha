@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — **largely built** (2026-09-15). Shipped: the scan interval (§3, SRC-8), arena and inbox sizing as settings (§1, W9-6/W9-7), lane multiplexing onto shared threads (§2, W9-4/W9-5) and the shared schedulers (§4, W9-3), plus a descriptor ceiling the node reports (SRC-4). **Not built:** one Aerospike reader feeding many queries (§3's second half, SRC-3) and `LaneMultiplexer`, which would share the inbox and arena as well as the thread (W9-8, blocked on W9-9). The measurements in the tables below are the *before* figures and are kept as the record of what the wave was scoped against; the *after* figures are in `HANDOVER.md` and the findings they cite |
+| Status | Accepted — **largely built** (2026-09-15). Shipped: the scan interval (§3, SRC-8), arena and inbox sizing as settings (§1, W9-6/W9-7), lane multiplexing onto shared threads (§2, W9-4/W9-5) and the shared schedulers (§4, W9-3), plus a descriptor ceiling the node reports (SRC-4). **Not built:** one Aerospike reader feeding many queries (§3's second half, SRC-3) and `LaneMultiplexer`, which would share the inbox and arena as well as the thread (W9-8 — unblocked by W9-9, and wave-sized for the reason W9-10 records). The measurements in the tables below are the *before* figures and are kept as the record of what the wave was scoped against; the *after* figures are in `HANDOVER.md` and the findings they cite |
 | Date | 2026-09-15 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-004 (partitioned lanes), ADR-027 (lane multiplexing), ADR-029 (Aerospike scan-only), ADR-034 (distribution deferred), ADR-035 (Wave 8) |

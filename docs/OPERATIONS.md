@@ -728,7 +728,9 @@ Listed because you will meet them, not to be thorough:
   on-disk tier that would let the query keep running slower instead is B2, scoped and not started
 - **A lane still runs one query.** The thread is shared (`LaneRunner`); the inbox and the arena are
   not, so per-query off-heap is still ~1 MiB idle. `LaneMultiplexer` is the answer and is wired to
-  nothing, blocked on the row header (W9-8, W9-9)
+  nothing — no longer blocked (a row now identifies its stream, W9-9) but wave-sized, because the
+  aligned checkpoint barrier and three hundred watermark ticks a second on one lane are in tension
+  (W9-8, W9-10)
 - **N Aerospike-backed queries over one set are N scans**, each throttled to `scan.interval.ms` but
   none of them shared. One reader per *binding* is designed and not built (SRC-3)
 - **No clustering, no rebalance, no multi-node execution.** Deferred under

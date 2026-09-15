@@ -257,10 +257,20 @@ workload cost 400 before. `SharedClock` did the same for the watermark and check
 
 **Not built (W9-8):** a lane still runs exactly one processor. `LaneMultiplexer` — 250 lines, tested,
 referenced from nothing in `src/main` — is the piece that would put many pipelines on one lane and so
-share the *inbox and arena* as well as the thread. It cannot simply be wired: a row's header carries
-`schema().version()` where the multiplexer needs a stream identity, so every row of every stream
-carries the same id and wiring it as it stands would deliver one stream's rows to queries subscribed
-to another (W9-9). That is a row-format change, not a wiring change.
+share the *inbox and arena* as well as the thread.
+
+It was blocked until recently, on a row header carrying `schema().version()` where the multiplexer
+needs a stream identity: every row of every stream had the same id, so wiring it would have delivered
+one stream's rows to queries subscribed to another. A row now carries a `streamId` the registry
+assigns, and the multiplexer refuses an unassigned one rather than guessing (W9-9).
+
+What remains is size rather than correctness, and the **aligned checkpoint barrier** is the reason
+(W9-10). A lane clamps each batch at the nearest control marker so a checkpoint sees the stream
+exactly where it was submitted — correct, and what makes a checkpoint mean anything — but the clamp
+costs a short batch. Three hundred queries on one lane, each advancing a watermark every second,
+would cut the lane's batches short several hundred times a second and spend its budget on barriers
+rather than rows. Lane ownership also has to move from the execution to the registry, or one query
+closing would stop a lane serving the other two hundred and ninety-nine.
 
 So the per-query costs that remain are the inbox and the arena, and both are now settings
 (`pravaha.lane.*`) rather than build-time constants.

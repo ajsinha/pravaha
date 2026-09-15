@@ -41,7 +41,7 @@ description of the system (DOCX-042, DOCX-046).
 | [024](024-console-as-a-separate-process.md) | The console is a separate Python FastAPI process built on the published SDK; supersedes ADR-023 on packaging |
 | [025](025-registration-and-subscription-separated.md) | Registration and subscription are separate objects; sharing is by canonical fingerprint including security predicates |
 | [026](026-one-subscription-model-three-carriers.md) | One subscription model behind gRPC, WebSocket and SSE; encode once, write N times |
-| [027](027-lane-multiplexes-queries.md) | The lane, not the query, owns threads, inboxes, arenas and timer wheels; a lane multiplexes many query pipelines — **partly built**: lanes share threads (W9-4/W9-5), they do not yet share an inbox or an arena (W9-8) |
+| [027](027-lane-multiplexes-queries.md) | The lane, not the query, owns threads, inboxes, arenas and timer wheels; a lane multiplexes many query pipelines — **partly built**: lanes share threads (W9-4/W9-5), they do not yet share an inbox or an arena — unblocked by W9-9, and wave-sized for the reason W9-10 records |
 | [028](028-connectors-earn-their-place.md) | A connector earns its place by proving an SPI capability or by deployment demand, never by breadth; three shapes, one kit |
 | [029](029-aerospike-scan-only.md) | The Aerospike plugin ships scan-based ingest only; XDR strategies are out of scope, and the cost is that deletes are invisible |
 | [030](030-flight-sql-as-the-client-protocol.md) | Arrow Flight SQL is the one client protocol for subscriptions and request/response alike; amends ADR-007, drops Avatica |

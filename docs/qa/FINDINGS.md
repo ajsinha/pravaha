@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **290 findings carrying a
-status — 128 FIXED, 147 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **291 findings carrying a
+status — 129 FIXED, 147 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -5505,7 +5505,7 @@ reported "4,408 tests" is **2,207**. Nothing about pass or fail was affected —
 summed the same way and was zero either way — but every magnitude was wrong, and a doubled number
 quoted with confidence is worse than no number.
 
-## Wave 9 — one node, thousands of continuous queries (W9), 9 findings, 7 fixed
+## Wave 9 — one node, thousands of continuous queries (W9), 10 findings, 8 fixed
 
 [ADR-036](../adr/036-one-node-thousands-of-queries.md) scoped the wave; these are what it found and
 what it did about it. They were appended under the Wave 8 documentation-rot heading above, which is
@@ -6060,6 +6060,12 @@ every "~5 MiB", every roadmap row, and every error message that names a setting.
 The rule applied throughout: **where the document was right and the code was wrong, the code was left
 alone and recorded.** DOCS-9 is the one that happened.
 
+W9-9 and W9-10 landed on `develop` while this sweep was in progress, so every page that said
+`LaneMultiplexer` is *blocked on the row header* was rewritten again before the sweep was committed:
+it is unblocked and wave-sized, and the aligned barrier is why. That is the second time in two weeks
+a document has been corrected twice in one day, which is an argument for the tests below rather than
+against the sweep.
+
 ### DOCS-1 (HIGH) — the README said wave 8 of 10 after wave 9 had landed, in three places at once
 
 > **Status:** FIXED — badge, status line and roadmap all moved to "wave 9 of 11", with a wave-9 row naming ADR-036 and ADR-037 and the control-plane and GA waves moved down one. `DocumentationFreshnessTest.theReadmeStatusBadgeTheStatusLineAndTheRoadmapAgree` holds the three against each other and is green on the new numbering.
@@ -6112,7 +6118,7 @@ into a `` `pravaha_query_view_updates` / `_removals` `` shorthand that no operat
 
 ### DOCS-5 (MEDIUM) — `ARCHITECTURE.md` described a lane as owning a dedicated platform thread
 
-> **Status:** FIXED — the lane's four owned things now read "one driver thread **at a time**", with the reason confinement survives sharing: a lane belongs to one runner thread from the moment it is hosted until it is removed. The thread table's lane row is `availableProcessors`, fixed at construction; two rows are added for the virtual and shared-clock tiers. The 10 000-query budget table separates *designed* from *as built*, and *What is not built yet* now separates the half that shipped (the thread) from the half that did not (the inbox and arena, blocked on the row header).
+> **Status:** FIXED — the lane's four owned things now read "one driver thread **at a time**", with the reason confinement survives sharing: a lane belongs to one runner thread from the moment it is hosted until it is removed. The thread table's lane row is `availableProcessors`, fixed at construction; two rows are added for the virtual and shared-clock tiers. The 10 000-query budget table separates *designed* from *as built*, and *What is not built yet* now separates the half that shipped (the thread) from the half that did not (the inbox and arena), and says why the second half is wave-sized rather than blocked (W9-10).
 
 The page's own governing rule — *"nothing whose cost is per-query may be a thread, a ring buffer, an
 arena, or a timer wheel"* — was half true for the first time, and the page said neither half.
