@@ -127,7 +127,24 @@ final class SubscriptionThreadCostTest {
                 .isTrue();
 
         long during = flightCallThreads();
+        long eventLoops = nettyEventLoops();
         stop.set(true);
+
+        // The half of the answer that was always fine, and that nobody had checked. Flight is gRPC,
+        // gRPC is Netty, and Netty is an event loop: a bounded set of threads each holding many
+        // sockets through epoll. The same property Apache MINA is chosen for -- Netty is MINA's
+        // successor, by the same author -- so the transport was never the thread-per-client problem.
+        // The application executor was, and that is the assertion below this one.
+        //
+        // Asserted rather than printed: surefire swallows stdout, and a number nobody sees is not
+        // evidence.
+        assertThat(eventLoops)
+                .as(
+                        "%d netty event loops carried %d subscriptions. They are sized from the processor "
+                                + "count (%d here), so the transport does not grow a thread per client",
+                        eventLoops, SUBSCRIBERS, Runtime.getRuntime().availableProcessors())
+                .isPositive()
+                .isLessThanOrEqualTo(2L * Runtime.getRuntime().availableProcessors());
 
         assertThat(during - before)
                 .as(
@@ -137,6 +154,20 @@ final class SubscriptionThreadCostTest {
                                 + "bounded by the scheduler's parallelism, not by the subscriber count",
                         SUBSCRIBERS, during - before)
                 .isLessThan(SUBSCRIBERS / 2);
+    }
+
+    /**
+     * Netty's event-loop threads, which multiplex every socket this server holds.
+     *
+     * <p>Named {@code grpc-nio-worker-ELG-*} or {@code grpc-default-worker-ELG-*} depending on
+     * transport. The count comes from {@code Runtime.availableProcessors}, not from the number of
+     * connections, which is the property that lets one process hold thousands of them.
+     */
+    private static long nettyEventLoops() {
+        return Thread.getAllStackTraces().keySet().stream()
+                .filter(thread -> thread.getName().contains("worker-ELG")
+                        || thread.getName().startsWith("grpc-nio"))
+                .count();
     }
 
     /**

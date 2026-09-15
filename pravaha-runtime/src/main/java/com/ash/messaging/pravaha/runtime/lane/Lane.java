@@ -158,6 +158,20 @@ public final class Lane implements AutoCloseable {
     private volatile Throwable failure;
     private volatile boolean inBatch;
 
+    // Loop state. Fields rather than locals of run(), so one iteration can be a method call and a
+    // lane can be stepped by a thread it does not own. Touched only by the thread currently pumping
+    // this lane, which is the confinement the whole class rests on; the volatile counters above are
+    // the copies other threads are allowed to read.
+    private long[] batch;
+    private long[] room;
+    private long mark;
+    private int idle;
+    private long localRowsIn;
+    private long localRowsOut;
+    private long localBatches;
+    private long localIdle;
+    private long localExchangedIn;
+
     // Written only by the lane thread, once per batch rather than once per row, and read by whoever
     // asks for metrics. A volatile store per batch is a rounding error; one per row would not be.
     private volatile long rowsIn;
@@ -480,108 +494,15 @@ public final class Lane implements AutoCloseable {
     }
 
     private void run() {
-        long[] batch = new long[config.batchSize()];
-        long[] room = new long[inboxes.length];
-        long mark = arena.mark();
-        int idle = 0;
-        long localRowsIn = 0;
-        long localRowsOut = 0;
-        long localBatches = 0;
-        long localIdle = 0;
-        long localExchangedIn = 0;
+        batch = new long[config.batchSize()];
+        room = new long[inboxes.length];
+        mark = arena.mark();
         try {
-            while (true) {
-                // Raised before the drain, not after it. An observer that sees an empty inbox and
-                // a lane not in a batch concludes the lane is quiescent; setting the flag after the
-                // drain would leave a window where rows had been taken and nobody was accountable
-                // for them. Written only on the transition, so an idle spin does not keep writing
-                // to a line other threads read.
-                if (!inBatch) {
-                    inBatch = true;
-                }
-                // Inbound exchange first. Those rows are already inside the engine and another
-                // lane is blocked on the room they occupy, so draining them before pulling new work
-                // from outside is what keeps a shuffle moving rather than merely correct.
-                int exchanged = drainExchange(batch);
-                if (exchanged > 0) {
-                    localRowsIn += exchanged;
-                    localExchangedIn += exchanged;
-                }
-                // Every input, in turn, one batch each. Round-robin rather than draining input 0
-                // until it is empty: a join whose left side is faster would otherwise never reach
-                // its right side, and a join that stops reading one side stops producing entirely
-                // while still looking busy.
-                //
-                // How far this iteration may go, per input, worked out before a single row is
-                // taken. See the note on `room`.
-                takeableRows(room);
-                int count = 0;
-                for (int input = 0; input < inboxes.length; input++) {
-                    RowInbox from = inboxes[input];
-                    if (room[input] <= 0) {
-                        continue; // at a marker on this input, or nothing new on it
-                    }
-                    int taken = from.drain(batch, (int) Math.min(batch.length, room[input]));
-                    if (taken == 0) {
-                        continue;
-                    }
-                    count += taken;
-                    idle = 0;
-                    localRowsIn += taken;
-                    localRowsOut += processor.onBatch(input, from.region(), batch, taken);
-                    localBatches++;
-
-                    // Only now are this input's cells reusable and the output rows dead. See the
-                    // class javadoc: this order is the difference between a correct lane and a
-                    // rare, load-dependent corruption. Released per input, before the next one is
-                    // drained, because the batch array is about to be overwritten.
-                    from.release();
-                }
-                // After the drain, not before it. Control tasks used to run at the top of the loop,
-                // which let a watermark advance close a window over rows still sitting in the inbox
-                // -- a dense feed published a partial second as if it were final, non-deterministically
-                // and without anything failing. Running here, behind a barrier, is the ordering the
-                // rest of the engine already assumes.
-                int controlRan = runControlTasks(false);
-                if (count == 0 && exchanged == 0) {
-                    if (controlRan > 0) {
-                        // A marker was reached and its task has run, which is why this iteration
-                        // took no rows: the batch was cut short at it. Going round again rather
-                        // than parking, because the clamp has just been lifted and the rows behind
-                        // the marker are already sitting in the inbox. Parking here would put a
-                        // wait-strategy backoff between every barrier and the rows after it.
-                        continue;
-                    }
-                    inBatch = false;
-                    if (!running) {
-                        // Drained, so nothing is still coming and every barrier is moot. Anything
-                        // still queued runs now rather than leaving its submitter waiting out a
-                        // timeout on a lane that has stopped.
-                        runControlTasks(true);
-                        break; // stop only once the inboxes are drained, so shutdown loses nothing
-                    }
-                    localIdle++;
-                    idleCycles = localIdle;
-                    // Before parking, not after: an operator holding a finished result should
-                    // release it now rather than after the wait it is about to take.
-                    processor.onIdle();
-                    waitStrategy.idle(++idle);
-                    continue;
-                }
-                if (count == 0) {
-                    // Exchange rows were processed this iteration; go back for more rather than
-                    // treating an empty inbox as idle.
-                    rowsIn = localRowsIn;
-                    rowsOut = localRowsOut;
-                    batches = localBatches;
-                    exchangedIn = localExchangedIn;
-                    continue;
-                }
-                arena.resetTo(mark);
-
-                rowsIn = localRowsIn;
-                rowsOut = localRowsOut;
-                batches = localBatches;
+            while (pumpOnce()) {
+                // Each iteration is one step of this lane and nothing else's. Extracted so a lane
+                // can be driven by a thread it does not own -- ADR-027's multiplexing -- without
+                // the loop itself changing, because the loop is where every ordering rule in this
+                // class lives and rewriting it to share a thread would rewrite those too.
             }
             state = State.STOPPED;
         } catch (Throwable t) {
@@ -590,13 +511,126 @@ public final class Lane implements AutoCloseable {
             inBatch = false;
         } finally {
             running = false;
+            publishCounters();
+            closeQuietly();
+        }
+    }
+
+    /**
+     * One iteration: drain the exchange, take a batch from each input, run any control task whose
+     * marker has been reached.
+     *
+     * <p>Returns whether this lane wants another iteration. {@code false} means it has stopped and
+     * its inboxes are drained, which is the only condition under which a lane may be abandoned --
+     * anything still queued has already been run by then.
+     *
+     * <p>Package-private and stateless across calls except through this lane's own fields, so a
+     * runner may call it for several lanes in turn on one thread. What it must never be is called
+     * for one lane from two threads: every ordering rule in this class assumes a single caller, and
+     * the arena and operator state are confined to it.
+     */
+    boolean pumpOnce() {
+        // Raised before the drain, not after it. An observer that sees an empty inbox and
+        // a lane not in a batch concludes the lane is quiescent; setting the flag after the
+        // drain would leave a window where rows had been taken and nobody was accountable
+        // for them. Written only on the transition, so an idle spin does not keep writing
+        // to a line other threads read.
+        if (!inBatch) {
+            inBatch = true;
+        }
+        // Inbound exchange first. Those rows are already inside the engine and another
+        // lane is blocked on the room they occupy, so draining them before pulling new work
+        // from outside is what keeps a shuffle moving rather than merely correct.
+        int exchanged = drainExchange(batch);
+        if (exchanged > 0) {
+            localRowsIn += exchanged;
+            localExchangedIn += exchanged;
+        }
+        // Every input, in turn, one batch each. Round-robin rather than draining input 0
+        // until it is empty: a join whose left side is faster would otherwise never reach
+        // its right side, and a join that stops reading one side stops producing entirely
+        // while still looking busy.
+        //
+        // How far this iteration may go, per input, worked out before a single row is
+        // taken. See the note on `room`.
+        takeableRows(room);
+        int count = 0;
+        for (int input = 0; input < inboxes.length; input++) {
+            RowInbox from = inboxes[input];
+            if (room[input] <= 0) {
+                continue; // at a marker on this input, or nothing new on it
+            }
+            int taken = from.drain(batch, (int) Math.min(batch.length, room[input]));
+            if (taken == 0) {
+                continue;
+            }
+            count += taken;
+            idle = 0;
+            localRowsIn += taken;
+            localRowsOut += processor.onBatch(input, from.region(), batch, taken);
+            localBatches++;
+
+            // Only now are this input's cells reusable and the output rows dead. See the
+            // class javadoc: this order is the difference between a correct lane and a
+            // rare, load-dependent corruption. Released per input, before the next one is
+            // drained, because the batch array is about to be overwritten.
+            from.release();
+        }
+        // After the drain, not before it. Control tasks used to run at the top of the loop,
+        // which let a watermark advance close a window over rows still sitting in the inbox
+        // -- a dense feed published a partial second as if it were final, non-deterministically
+        // and without anything failing. Running here, behind a barrier, is the ordering the
+        // rest of the engine already assumes.
+        int controlRan = runControlTasks(false);
+        if (count == 0 && exchanged == 0) {
+            if (controlRan > 0) {
+                // A marker was reached and its task has run, which is why this iteration
+                // took no rows: the batch was cut short at it. Going round again rather
+                // than parking, because the clamp has just been lifted and the rows behind
+                // the marker are already sitting in the inbox. Parking here would put a
+                // wait-strategy backoff between every barrier and the rows after it.
+                return true;
+            }
+            inBatch = false;
+            if (!running) {
+                // Drained, so nothing is still coming and every barrier is moot. Anything
+                // still queued runs now rather than leaving its submitter waiting out a
+                // timeout on a lane that has stopped.
+                runControlTasks(true);
+                return false; // stop only once the inboxes are drained, so shutdown loses nothing
+            }
+            localIdle++;
+            idleCycles = localIdle;
+            // Before parking, not after: an operator holding a finished result should
+            // release it now rather than after the wait it is about to take.
+            processor.onIdle();
+            waitStrategy.idle(++idle);
+            return true;
+        }
+        if (count == 0) {
+            // Exchange rows were processed this iteration; go back for more rather than
+            // treating an empty inbox as idle.
             rowsIn = localRowsIn;
             rowsOut = localRowsOut;
             batches = localBatches;
-            idleCycles = localIdle;
             exchangedIn = localExchangedIn;
-            closeQuietly();
+            return true;
         }
+        arena.resetTo(mark);
+
+        rowsIn = localRowsIn;
+        rowsOut = localRowsOut;
+        batches = localBatches;
+        return true;
+    }
+
+    /** Publishes this lane's counters, which are read by other threads and written only here. */
+    private void publishCounters() {
+        rowsIn = localRowsIn;
+        rowsOut = localRowsOut;
+        batches = localBatches;
+        idleCycles = localIdle;
+        exchangedIn = localExchangedIn;
     }
 
     /**
