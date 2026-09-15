@@ -65,6 +65,28 @@ public final class PravahaFlightServer implements AutoCloseable {
     private java.io.File certificateChain;
     private java.io.File privateKey;
     private java.time.Duration readDeadline = java.time.Duration.ZERO;
+    /**
+     * The threads that serve calls, one virtual thread per call.
+     *
+     * <p>Flight's default is a cached pool of <em>platform</em> threads, and this server's most
+     * expensive call parks rather than computes: a subscription sits in {@code
+     * PravahaFlightSqlProducer.streamSubscription} polling a handover queue for the life of the
+     * subscription, waking every 200ms to check whether the client is still entitled to read. One
+     * platform thread per subscriber means a megabyte of stack each and a thousand subscribers
+     * costing a gigabyte before a row has moved — for threads that are, almost always, parked.
+     *
+     * <p>That is what Loom is for, and the HTTP side of this node already uses it
+     * ({@code server.threads.virtual.enabled}). The data plane did not, which left the engine's
+     * cheapest-to-scale surface running on its most expensive threads.
+     *
+     * <p>Safe here specifically because nothing on the serving path blocks inside {@code
+     * synchronized}: the handover is a {@code BlockingQueue}, so its {@code poll} parks on a
+     * {@code ReentrantLock} and releases the carrier. A {@code synchronized} block around a
+     * blocking call would pin the carrier instead and this would be worse than what it replaced.
+     */
+    private final java.util.concurrent.ExecutorService callThreads =
+            java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
+
     private final AtomicReference<FlightServer> server = new AtomicReference<>();
     private final boolean ownsAllocator;
     private Location location;
@@ -240,6 +262,7 @@ public final class PravahaFlightServer implements AutoCloseable {
             if (certificateChain != null) {
                 builder.useTls(certificateChain, privateKey);
             }
+            builder.executor(callThreads);
             FlightServer started = builder.build().start();
             server.set(started);
             this.location = Location.forGrpcInsecure(host, started.getPort());
@@ -289,6 +312,9 @@ public final class PravahaFlightServer implements AutoCloseable {
                 // A server already gone is not a shutdown failure.
             }
         }
+        // After the transport has stopped accepting, before the allocator: a call still unwinding
+        // holds Arrow buffers, and awaitInFlightCalls below is what waits for it to let go.
+        callThreads.shutdownNow();
         if (ownsAllocator) {
             awaitInFlightCalls();
             allocator.close();

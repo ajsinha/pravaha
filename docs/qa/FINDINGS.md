@@ -5495,3 +5495,38 @@ commit messages and reports were roughly double. The summing expression matched 
 reported "4,408 tests" is **2,207**. Nothing about pass or fail was affected — the failures column was
 summed the same way and was zero either way — but every magnitude was wrong, and a doubled number
 quoted with confidence is worse than no number.
+
+### W9-1 (HIGH) — the data plane ran on platform threads, one per parked subscriber
+
+> **Status:** FIXED — `PravahaFlightServer` passes `Executors.newVirtualThreadPerTaskExecutor()` to `FlightServer.Builder.executor(...)` and shuts it down in `close()`. `SubscriptionThreadCostTest.platformThreadsDoNotGrowWithTheNumberOfSubscribers` measures it and is seed-proven: with the executor removed, **40 concurrent subscriptions add exactly 40 `flight-server-default-executor-*` threads**; with it, zero.
+
+Found while answering the owner's question about whether Pravaha is ready for thousands of client
+connections. The honest answer was no, for a reason that took one line to fix and would not have been
+found by any test in the suite, because every one of them uses a handful of subscribers.
+
+`FlightServer.builder(...)` was called without `.executor(...)`, so Flight used its default: a cached
+pool of **platform** threads. And the longest-lived, least busy call this server serves is a
+subscription — `streamSubscription` parks on a handover queue for the life of the subscription,
+waking every 200ms to re-check that the client may still read.
+
+So every parked subscriber held a platform thread and about a megabyte of stack. A thousand
+subscribers cost roughly a gigabyte of stack before a row moved, for threads that are, almost always,
+doing nothing at all. The one-to-one relationship is now measured rather than reasoned about: 40 in,
+40 threads.
+
+`server.threads.virtual.enabled: true` has been set for the HTTP control plane since Wave 7, with a
+comment in `application.yaml` explaining that I/O-bound request handling is exactly what Loom is for.
+The data plane — the surface that should scale most cheaply — was running on the most expensive
+threads available, and nothing said so because the setting that looked like it covered this covers
+Tomcat only.
+
+**Why it is safe here specifically**, which is the part worth checking before copying the change
+anywhere else: a virtual thread that blocks inside `synchronized` pins its carrier, and that would
+have made this worse than what it replaced. Nothing on the serving path does. The handover is a
+`BlockingQueue`, so `poll` parks on a `ReentrantLock` and releases the carrier; `PravahaFlightSqlProducer`
+contains no `synchronized` at all.
+
+This does not make the node ready for thousands of subscribers — it removes the first hard limit.
+STRM-4 measured one stalled subscriber costing 69% of ingest throughput, which is a different
+constraint and still open, and the PERF section that would measure any of this at scale is still
+unexecuted for want of homogeneous hardware.
