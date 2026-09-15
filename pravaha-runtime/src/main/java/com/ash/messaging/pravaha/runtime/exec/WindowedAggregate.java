@@ -51,11 +51,17 @@ import com.ash.messaging.pravaha.runtime.window.SlicedWindows;
  * values)}). This used to say the fix was {@code L0StateMap} and that Wave 8 would wire it; that was
  * wrong twice over. {@code L0StateMap} takes a fixed-width key and a group key containing a
  * {@code STRING} has no fixed width, so it could never have held this state -- and it has been
- * deleted (W8-12). What is left is a 128-bit digest in {@link SlicedAggregateState} and, narrower, a
- * 64-bit fold of it in this class's {@code emitted} map, where a collision would suppress one
- * group's retraction rather than merge two sums. Neither is constructible the way the string case
- * was, so neither has a test that can prove a fix, and changing the key type changes the checkpoint
- * format -- recorded as W8-14 rather than done blind.
+ * deleted (W8-12). The 64-bit fold in this class's {@code emitted} map is now gone too: it is keyed
+ * by the group's values, which were already carried in {@link Published} so a vanished key could be
+ * named when it is withdrawn. That fold turned out to be the easiest collision of the three to
+ * construct -- {@code keyHigh ^ (keyLow * C)} collides for {@code (H, 0)} and {@code (H ^ C, 1)},
+ * one line, no search (see {@code SlicedAggregateStateTest}). A collision there suppresses one
+ * group's retraction with another's, leaving a stale row in the view for ever.
+ *
+ * <p>What remains is {@link SlicedAggregateState}'s 128-bit {@code SliceKey}, still a digest with no
+ * comparison of values behind it. Narrowing that is a larger change -- it is the per-row hot path
+ * rather than the once-per-window-per-key path this one was -- and it is recorded as W8-14 rather
+ * than done on the way past.
  *
  * <p>Firing is driven by {@link #advanceWatermark}, and end of input fires everything still open.
  * A bounded source -- a file, a backfill -- would otherwise leave its last windows unemitted, which
@@ -107,8 +113,40 @@ final class WindowedAggregate implements RowProcessor {
      */
     private record Published(Object[] keyValues, long windowStartNanos, long[] values) {}
 
+    /**
+     * A group, by its values, so two groups cannot become one.
+     *
+     * <p>This map used to be keyed by {@code WindowResult.key()} -- {@code keyHigh ^ (keyLow *
+     * 0x9E37...)}, 128 bits of digest folded down to 64. A collision there does not merge sums the
+     * way PF-10's did; it makes one group's retraction suppress another's, so the wrong row is
+     * withdrawn and a stale one stands in the view for ever. The narrowest state key in the engine
+     * guarding the operation that is hardest to notice going wrong.
+     *
+     * <p>{@code KeyedAggregate} one operator over already does this, and says why: "a hash alone
+     * would collide -- rarely, silently, and by merging two groups". The values were already here,
+     * carried in {@link Published} so a vanished key can be named when it is withdrawn, so keying by
+     * them costs an array comparison on a path that runs once per window per key, not per row.
+     */
+    private record GroupKey(Object[] values) {
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof GroupKey key && java.util.Arrays.equals(values, key.values);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Arrays.hashCode(values);
+        }
+
+        @Override
+        public String toString() {
+            return java.util.Arrays.toString(values);
+        }
+    }
+
     /** What each window last emitted per key, so a correction can retract it exactly. */
-    private final java.util.Map<Long, java.util.Map<Long, Published>> emitted = new java.util.HashMap<>();
+    private final java.util.Map<Long, java.util.Map<GroupKey, Published>> emitted = new java.util.HashMap<>();
     /** Windows a late record has changed since they last fired. */
     private final java.util.Set<Long> dirty = new java.util.LinkedHashSet<>();
 
@@ -308,24 +346,25 @@ final class WindowedAggregate implements RowProcessor {
     }
 
     private void emitWindow(long windowEnd) {
-        java.util.Map<Long, Published> previous = emitted.get(windowEnd);
-        java.util.Map<Long, Published> current = new java.util.HashMap<>();
+        java.util.Map<GroupKey, Published> previous = emitted.get(windowEnd);
+        java.util.Map<GroupKey, Published> current = new java.util.HashMap<>();
 
         for (SlicedAggregateState.WindowResult result : state.fire(windowEnd)) {
+            GroupKey key = new GroupKey(result.keyValues());
             if (previous != null) {
-                Published before = previous.get(result.key());
+                Published before = previous.get(key);
                 if (before != null) {
                     if (java.util.Arrays.equals(before.values(), result.values())) {
                         // Unchanged by the correction. Emitting a retraction and an identical
                         // insertion would be two rows that consolidate to nothing, which is
                         // arithmetically harmless and pure noise on the wire.
-                        current.put(result.key(), before);
+                        current.put(key, before);
                         continue;
                     }
                     emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, before.values(), -1L);
                 }
             }
-            current.put(result.key(), new Published(result.keyValues(), result.windowStartNanos(), result.values()));
+            current.put(key, new Published(result.keyValues(), result.windowStartNanos(), result.values()));
             emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, result.values(), 1L);
         }
 
@@ -335,7 +374,7 @@ final class WindowedAggregate implements RowProcessor {
         // retracted a key whose *values* had changed and forgot one that had disappeared, which is
         // the harder half and the one a Z-set exists to get right.
         if (previous != null) {
-            for (java.util.Map.Entry<Long, Published> gone : previous.entrySet()) {
+            for (java.util.Map.Entry<GroupKey, Published> gone : previous.entrySet()) {
                 if (!current.containsKey(gone.getKey())) {
                     Published row = gone.getValue();
                     emitRow(row.keyValues(), row.windowStartNanos(), windowEnd, row.values(), -1L);
@@ -413,11 +452,15 @@ final class WindowedAggregate implements RowProcessor {
         out.writeLong(corrections);
 
         out.writeInt(emitted.size());
-        for (java.util.Map.Entry<Long, java.util.Map<Long, Published>> window : emitted.entrySet()) {
+        for (java.util.Map.Entry<Long, java.util.Map<GroupKey, Published>> window : emitted.entrySet()) {
             out.writeLong(window.getKey());
             out.writeInt(window.getValue().size());
-            for (java.util.Map.Entry<Long, Published> perKey : window.getValue().entrySet()) {
-                out.writeLong(perKey.getKey());
+            for (java.util.Map.Entry<GroupKey, Published> perKey :
+                    window.getValue().entrySet()) {
+                // No separate key field any more. It used to write the 64-bit fold here and the key
+                // columns immediately below, which is the same group named twice -- once exactly and
+                // once approximately. The approximate one is gone and the key is rebuilt from the
+                // columns on read, so the restored map cannot disagree with the one that was saved.
                 Published row = perKey.getValue();
                 // The key's own columns travel with the values. Without them a restored operator
                 // can retract a row whose numbers changed and cannot retract one whose key has
@@ -449,16 +492,15 @@ final class WindowedAggregate implements RowProcessor {
         for (int w = 0; w < windows; w++) {
             long windowEnd = in.readLong();
             int keys = in.readInt();
-            java.util.Map<Long, Published> perWindow = new java.util.HashMap<>();
+            java.util.Map<GroupKey, Published> perWindow = new java.util.HashMap<>();
             for (int k = 0; k < keys; k++) {
-                long key = in.readLong();
                 long windowStart = in.readLong();
                 Object[] keyValues = readTaggedValues(in);
                 long[] values = new long[in.readInt()];
                 for (int v = 0; v < values.length; v++) {
                     values[v] = in.readLong();
                 }
-                perWindow.put(key, new Published(keyValues, windowStart, values));
+                perWindow.put(new GroupKey(keyValues), new Published(keyValues, windowStart, values));
             }
             emitted.put(windowEnd, perWindow);
         }

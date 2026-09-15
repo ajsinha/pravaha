@@ -398,7 +398,15 @@ public final class InterpretedPipeline implements AutoCloseable {
      * that outer joins need. An older snapshot is refused rather than read: the fields would parse,
      * in the wrong places, and the query would resume from state that is wrong without looking wrong.
      */
-    private static final int SNAPSHOT_VERSION = 2;
+    /**
+     * Version 3: the windowed aggregate's {@code emitted} map dropped its 64-bit key field.
+     *
+     * <p>It wrote the group twice -- once as a fold of two digests and once as the key columns
+     * themselves -- and the fold is gone, so the layout changed. A version 2 snapshot is refused
+     * rather than read, which is what this field is for: the alternative is parsing one field as
+     * another and resuming from state that is wrong without being obviously wrong.
+     */
+    private static final int SNAPSHOT_VERSION = 3;
 
     public byte[] snapshotState() {
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();

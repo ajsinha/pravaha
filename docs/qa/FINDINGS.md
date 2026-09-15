@@ -4946,7 +4946,7 @@ was the one place a careful reader would have believed the guard was active.
 
 ### W8-14 (LOW) — the windowed aggregate still keys state by a digest, and the narrowest of them is 64 bits
 
-> **Status:** OPEN — no test can prove a fix, which is the reason it is recorded rather than changed. Found while establishing W8-12
+> **Status:** OPEN — narrowed to one half. The 64-bit fold is gone (W8-8); what remains is `SlicedAggregateState`'s 128-bit `SliceKey`, a digest with no comparison of values behind it, on the per-row hot path.
 
 W8-12 removed the class that was nominated as the fix for PF-10 but not the thing PF-10 half-fixed.
 Two digests remain in the windowed path:
@@ -4962,6 +4962,16 @@ Two digests remain in the windowed path:
 `KeyedAggregate`, one operator over, already does the honest thing (`record Key(Object[] values)`,
 `Arrays.equals`) and its javadoc says why: "a hash alone would collide — rarely, silently, and by
 merging two groups". The fix is to do the same here.
+
+**Correction, from doing it: the 64-bit fold is trivially constructible after all.** The reasoning
+below was right about the *values* — finding two group tuples that collide does need a birthday
+search — and wrong about the fold itself. `key()` is `keyHigh ^ (keyLow * C)`, and XOR is its own
+inverse, so `(H, 0)` and `(H ^ C, 1)` collide in one line with no search. That is now a test. It does
+not make an end-to-end failing test possible, because reaching those two digests still needs the
+search, but "rarely and silently" was the wrong description of the hazard and a concrete one is
+better.
+
+The original reasoning, kept because the second half still holds for `SliceKey`:
 
 It is not done in this change for two reasons, and both are worth stating rather than leaving as a
 silence. Neither collision is *constructible* the way PF-10's was — PF-10 was two strings sharing a
@@ -5036,3 +5046,29 @@ and `AlignedCheckpointBarrierTest`'s two stale references are corrected.
 An uncaptured finding and one that was never written are indistinguishable from outside, which is
 the same property that made the original narrative file untrustworthy — reached this time through
 the mechanism built to prevent it.
+
+
+### W8-8 (MEDIUM) — the narrowest state key in the engine was a 64-bit fold, and the collision is one line to construct
+
+> **Status:** FIXED — `WindowedAggregate.emitted` is keyed by `GroupKey(Object[] values)` with `Arrays.equals`, the way `KeyedAggregate` one operator over already was. The snapshot no longer writes the fold at all, so the group is named once rather than twice; `SNAPSHOT_VERSION` 2 → 3, and a version 2 snapshot is refused rather than misread. `SlicedAggregateStateTest.theFoldedKeyIsNotAnIdentityAndTwoDistinctGroupsCanShareOne` constructs the collision; `StateRestoreTest` state053/054/061 assert the new format and the refusal. Clean verify: 4,408 tests green.
+
+The first half of W8-14. `emitted` records what each window last published so a correction can
+retract it exactly, and it was keyed by `WindowResult.key()` — `keyHigh ^ (keyLow * C)`, 128 bits of
+digest folded into 64. A collision there does not merge two sums the way PF-10's did; it makes one
+group's retraction suppress another's, so the wrong row is withdrawn and a stale one stands in the
+view for ever. The narrowest key in the engine, guarding the operation hardest to notice going wrong.
+
+**W8-14 said neither remaining collision was constructible. That was wrong about this one.** XOR is
+its own inverse, so `(H, 0)` and `(H ^ C, 1)` fold to the same key — one line, no search. Reaching
+those two digests from real group values still needs a birthday search, so there is no end-to-end
+test that fails before this change and passes after; but "rarely and silently" was the wrong
+description of the hazard, and the constructed pair is now a test.
+
+The values were already present. `Published` has carried `keyValues` since I-5, so a key that
+vanished could be named when it was withdrawn — which means keying by them costs an array comparison
+on a path that runs once per window per key, not once per row. The fold was never buying anything
+here.
+
+The snapshot wrote the group twice, once as the fold and once as the key columns. The approximate
+copy is gone and the key is rebuilt from the columns on read, so a restored map cannot disagree with
+the one that was saved.

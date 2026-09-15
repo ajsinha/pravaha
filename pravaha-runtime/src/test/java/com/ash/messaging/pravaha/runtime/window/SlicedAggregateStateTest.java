@@ -250,4 +250,37 @@ class SlicedAggregateStateTest {
                 .isZero();
         assertThat(state.discardSlicesEndingBefore(45 * SECOND, 30 * SECOND)).isEqualTo(1);
     }
+
+    @Test
+    void theFoldedKeyIsNotAnIdentityAndTwoDistinctGroupsCanShareOne() {
+        // W8-14. WindowResult.key() folds 128 bits of digest into 64: keyHigh ^ (keyLow * C). That
+        // is a bucket, not an identity, and the collision is not hypothetical arithmetic -- it is
+        // one line to construct, because XOR is its own inverse:
+        //
+        //     (H, 0)      -> H ^ (0 * C) = H
+        //     (H ^ C, 1)  -> (H ^ C) ^ (1 * C) = H
+        //
+        // No birthday search, no 2^32 anything. Two distinct 128-bit group digests, one 64-bit key.
+        //
+        // WindowedAggregate used this as the key of its `emitted` map -- what each window last
+        // published, so a correction can retract it exactly. A collision there does not merge sums:
+        // it makes one group's retraction suppress another's, so the wrong row is withdrawn and a
+        // stale one stands in the view for ever. That map is keyed by the group's own values now.
+        // This test stays because the fold is still what it always was, and the next person to reach
+        // for it as an identity should find this written down.
+        long c = 0x9E3779B97F4A7C15L;
+        long high = 0x0123456789ABCDEFL;
+
+        SlicedAggregateState.WindowResult first =
+                new SlicedAggregateState.WindowResult(high, 0L, new Object[] {"ann"}, 0L, 1_000L, new long[] {1L}, 1L);
+        SlicedAggregateState.WindowResult second = new SlicedAggregateState.WindowResult(
+                high ^ c, 1L, new Object[] {"bob"}, 0L, 1_000L, new long[] {2L}, 1L);
+
+        assertThat(first.key())
+                .as("two different groups, one folded key -- constructed, not searched for")
+                .isEqualTo(second.key());
+        assertThat(first.keyValues())
+                .as("and they are plainly different groups, which is the whole point")
+                .isNotEqualTo(second.keyValues());
+    }
 }

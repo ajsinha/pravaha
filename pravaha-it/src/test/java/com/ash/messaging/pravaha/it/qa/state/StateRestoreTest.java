@@ -231,7 +231,7 @@ class StateRestoreTest extends StateTestSupport {
             assertThat(s[1]).isEqualTo((byte) 0x56);
             assertThat(s[2]).isEqualTo((byte) 0x53);
             assertThat(s[3]).isEqualTo((byte) 0x54);
-            assertThat(intAt(s, 4)).isEqualTo(2); // SNAPSHOT_VERSION
+            assertThat(intAt(s, 4)).isEqualTo(3); // SNAPSHOT_VERSION -- 3 since W8-14 dropped the folded key
             assertThat(intAt(s, 8)).isEqualTo(1); // windowed operator count
         }
     }
@@ -258,7 +258,7 @@ class StateRestoreTest extends StateTestSupport {
             assertThat(s).isNotNull();
             assertThat(s.length).isGreaterThan(0);
             assertThat(intAt(s, 0)).isEqualTo(0x50565354);
-            assertThat(intAt(s, 4)).isEqualTo(2);
+            assertThat(intAt(s, 4)).isEqualTo(3);
             assertThat(intAt(s, 8))
                     .as("windowed count is zero for a join-only plan")
                     .isEqualTo(0);
@@ -591,7 +591,7 @@ class StateRestoreTest extends StateTestSupport {
     }
 
     @Test
-    void state061_aVersion1SnapshotIsRefusedRatherThanReadIntoVersion2Layouts() {
+    void state061_aVersion1SnapshotIsRefusedRatherThanReadIntoCurrentLayouts() {
         RawExecution a = rawWindowed();
         a.feedAt("u1", 1, 0L);
         assertThat(a.execution.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
@@ -612,7 +612,7 @@ class StateRestoreTest extends StateTestSupport {
         try (RawExecution b = rawWindowed()) {
             assertThatThrownBy(() -> b.execution.restore(patched, Duration.ofSeconds(30)))
                     .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("this snapshot is version 1 and this engine writes version 2")
+                    .hasMessageContaining("this snapshot is version 1 and this engine writes version 3")
                     .hasMessageContaining("Replay the stream from a source offset instead.");
         }
     }
