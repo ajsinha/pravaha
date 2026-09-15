@@ -41,7 +41,7 @@ import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * W8-1 and W8-2 -- a checkpoint taken while rows are flowing has to name one point in the stream.
+ * W8-2 and W8-3 -- a checkpoint taken while rows are flowing has to name one point in the stream.
  *
  * <p>Every existing test in this area quiesces the query first, feeds nothing, takes the checkpoint
  * and restores it. That exercises the serialisation and nothing else: with no producer running there
@@ -128,7 +128,7 @@ class AlignedCheckpointBarrierTest extends StateTestSupport {
     }
 
     // -----------------------------------------------------------------------------------------
-    // W8-2: several lanes. One cut across all of them, and every source's offset in it.
+    // W8-3: several lanes. One cut across all of them, and every source's offset in it.
     // -----------------------------------------------------------------------------------------
 
     @Test

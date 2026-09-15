@@ -4975,7 +4975,7 @@ migrating, which is a wave-scoped decision rather than a side effect of a wiring
 The 64-bit fold is the half worth doing first: widening `emitted` to the full `(keyHigh, keyLow)` pair
 costs nothing, is confined to one class, and removes the narrowest key in the engine.
 
-### W8-2 (HIGH) — a standby node, and a takeover that says what it lost
+### W8-6 (HIGH) — a standby node, and a takeover that says what it lost
 
 > **Status:** FIXED — `pravaha-server`'s `StandbyWatch` plus `pravaha.standby.enabled`. `StandbyWatchTest` covers all five outcomes (waits while the primary refreshes, promotes once it stops, never takes another node's state, waits out an unreadable marker, takes an unowned directory immediately); `PravahaNodeTest.aStandbyNodeHoldsNothingUntilThePrimaryIsGoneAndThenTakesOver` and `aStandbyWithNoCheckpointDirectoryIsRefusedRatherThanWaitingForever` cover it at node level. Seed-proven — disabling standby mode fails both node tests.
 
@@ -5008,3 +5008,31 @@ Three refusals are deliberate and each has a test:
 The window in which both processes could believe they own the state is the lease, which is why the
 lease is generous and the refresh frequent. This is not a consensus protocol and does not claim to
 be one.
+
+### W8-7 (HIGH) — every Wave 8 finding was invisible to the findings register, and a duplicate identifier went unnoticed
+
+> **Status:** FIXED — `FindingsRegisterTest`'s `HEADING` widened to `[A-Z]+[0-9]*-[A-Z]?\d+`, plus two new checks: `everyFindingIdentifiesExactlyOneFinding` and `everyHeadingThatLooksLikeAFindingIsCaptured`. Both seed-proven — the first reports `[W8-6 (x2)]`, the second names all ten W8 findings when the old pattern is restored.
+
+The register's heading pattern was `[A-Z]+-[A-Z]?\d+`. A `W8-` prefix has a digit inside it, so
+**none of the ten Wave 8 findings matched** — not the ones I wrote, not either agent's. They sat in
+the file, well-formed and readable, exempt from every check in the class: no status requirement, no
+FIXED-needs-evidence requirement, and no contribution to the untriaged ratchet.
+
+This is the second time. `API-F1`..`API-F11` escaped the same pattern through a letter before the
+number, and closing that hole is what the pattern's current shape was for. Widening it again fixes
+today and does nothing about the third shape.
+
+So the register now checks its own coverage. `everyHeadingThatLooksLikeAFindingIsCaptured` matches
+headings with a much looser pattern and fails on any that the strict one ignores. A loose pattern
+cannot decide what a finding is, but it can say "this heading names something-dash-something and the
+strict pattern walked past it", and that is the whole failure mode.
+
+The duplicate is what exposed it. Three of us appended findings to one file in an afternoon and two
+chose `W8-2`; the register could not have caught it even had the pattern matched, because it never
+checked uniqueness. Both sides of a duplicate are well-formed entries that read correctly alone,
+which is exactly why a person does not spot it in a diff. The standby finding is renumbered `W8-6`
+and `AlignedCheckpointBarrierTest`'s two stale references are corrected.
+
+An uncaptured finding and one that was never written are indistinguishable from outside, which is
+the same property that made the original narrative file untrustworthy — reached this time through
+the mechanism built to prevent it.

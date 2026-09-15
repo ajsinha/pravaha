@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,7 +55,28 @@ class FindingsRegisterTest {
      */
     private static final int UNTRIAGED_CEILING = 0;
 
-    private static final Pattern HEADING = Pattern.compile("^#{2,3} ([A-Z]+-[A-Z]?\\d+)([^\\n]*)$");
+    /**
+     * What a finding's heading looks like.
+     *
+     * <p>Widened twice, and both times because findings had quietly stopped being covered. First for
+     * {@code API-F1}..{@code API-F11}, whose letter before the number slipped past {@code [A-Z]+-\d+}.
+     * Then for {@code W8-1}..{@code W8-14} -- every Wave 8 finding, written by three people in one
+     * afternoon -- whose digit inside the prefix slipped past {@code [A-Z]+-}. Ten findings were in
+     * the file, well-formed and readable, and the register could not see one of them.
+     *
+     * <p>{@link #everyHeadingThatLooksLikeAFindingIsCaptured()} exists so the third shape is caught
+     * by the build rather than by somebody noticing.
+     */
+    private static final Pattern HEADING = Pattern.compile("^#{2,3} ([A-Z]+[0-9]*-[A-Z]?\\d+)([^\\n]*)$");
+
+    /**
+     * Anything that reads like a finding identifier, however it is spelled.
+     *
+     * <p>Deliberately looser than {@link #HEADING}. Its job is to notice headings that {@code
+     * HEADING} does not, which is the only way a pattern can report its own blind spot.
+     */
+    private static final Pattern LOOKS_LIKE_A_FINDING =
+            Pattern.compile("^#{2,3} ([A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+)\\b.*$");
 
     private record Finding(String id, String status) {}
 
@@ -146,5 +168,49 @@ class FindingsRegisterTest {
             path = path.getParent();
         }
         return path == null ? Path.of("").toAbsolutePath() : path;
+    }
+
+    @Test
+    void everyFindingIdentifiesExactlyOneFinding() throws IOException {
+        // Three agents recorded findings into this file in one afternoon and two of them chose W8-2.
+        // A register whose identifiers are not unique cannot answer "what is the status of W8-2",
+        // which is the only question it exists to answer -- and the duplicate is invisible in a diff,
+        // because each side is a well-formed entry that reads correctly on its own.
+        Map<String, Long> byId = findings().stream()
+                .collect(java.util.stream.Collectors.groupingBy(Finding::id, java.util.stream.Collectors.counting()));
+        List<String> duplicated = byId.entrySet().stream()
+                .filter(entry -> entry.getValue() > 1)
+                .map(entry -> entry.getKey() + " (x" + entry.getValue() + ")")
+                .sorted()
+                .toList();
+
+        assertThat(duplicated)
+                .as("these identifiers name more than one finding, so neither can be looked up: %s", duplicated)
+                .isEmpty();
+    }
+
+    @Test
+    void everyHeadingThatLooksLikeAFindingIsCaptured() throws IOException {
+        // The register's own blind spot, made visible. Twice now a new identifier shape has walked
+        // past HEADING and taken its findings out of every other check in this class -- silently,
+        // because an uncaptured finding looks exactly like one that was never written.
+        //
+        // A loose pattern cannot decide what a finding is, but it can say "this heading names
+        // something-dash-something and the strict pattern ignored it", which is enough.
+        String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
+        List<String> uncaptured = new ArrayList<>();
+        for (String line : text.split("\n", -1)) {
+            if (LOOKS_LIKE_A_FINDING.matcher(line).matches()
+                    && !HEADING.matcher(line).matches()) {
+                uncaptured.add(line.length() > 90 ? line.substring(0, 90) + "..." : line);
+            }
+        }
+
+        assertThat(uncaptured)
+                .as(
+                        "these headings name a finding that HEADING does not match, so every check in this "
+                                + "class silently skips them -- widen HEADING: %s",
+                        uncaptured)
+                .isEmpty();
     }
 }

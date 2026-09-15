@@ -201,10 +201,14 @@ class StateFailureReportingTest extends StateTestSupport {
             // stats() (in-memory) rather than the filesystem while root is unwritable: reading
             // root/w's own listing also needs to traverse root, which is exactly what is blocked.
             chmod(root, "r--------");
-            sleepMillis(3000);
+            // Waited for, not timed. This asserted 12 failures after a 3000ms sleep and a loaded
+            // machine produced 9 -- and the aligned checkpoint barrier now freezes ingest for the
+            // length of each attempt, so the rate legitimately moved too. Neither is what the case
+            // is about: it is about failures continuing to be recorded while the directory is
+            // unwritable, and nothing new being stored.
+            awaitFailures(q, 3, Duration.ofSeconds(20));
             long b = checkpointer.stats().taken();
             assertThat(b).as("no new checkpoint was stored while unwritable").isEqualTo(a);
-            assertThat(q.checkpointFailures()).isGreaterThanOrEqualTo(12);
 
             chmod(root, "rwx------");
             sleepMillis(1000);
@@ -266,14 +270,16 @@ class StateFailureReportingTest extends StateTestSupport {
             registry.register("beta", WIN_SQL, List.of(0), DANA);
             // root, not root/alpha -- see STATE-044's harness note.
             chmod(root, "r--------");
-            sleepMillis(1000);
 
             assertThat(registry.size()).isEqualTo(1);
             assertThat(registry.names()).containsExactly("alpha", "beta");
             RegisteredQuery a = registry.find("alpha").orElseThrow();
             RegisteredQuery b = registry.find("beta").orElseThrow();
             assertThat(a).isSameAs(b);
-            assertThat(a.checkpointFailures()).isGreaterThanOrEqualTo(8);
+            // Waited for rather than timed, as in STATE-046. The count in a fixed window is a
+            // property of the machine and of how long a checkpoint attempt takes; what this case is
+            // about is that one shared computation has one counter, reachable under either name.
+            awaitFailures(a, 3, Duration.ofSeconds(20));
             assertThat(a.checkpointFailures()).isEqualTo(b.checkpointFailures());
 
             long named = Thread.getAllStackTraces().keySet().stream()
