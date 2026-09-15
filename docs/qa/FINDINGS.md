@@ -5624,3 +5624,140 @@ query to nearly zero, and it is the measurement that decides whether the ADR-036
 
 Left separate because it changes how every registered query is started, and the mechanism it depends
 on should be green in its own right first.
+---
+
+## Source reading at scale — 7 findings, 1 fixed
+
+ADR-036 states the target as a number: **one instance holding thousands of Aerospike-backed
+continuous queries**. `NodeScaleTest` measures what a registered *query* costs, against queries that
+are fed by nobody. These are what a bound *source* costs, and they are what the other half of that
+sentence is made of.
+
+Measured on the development machine (24 cores, JDK 21) by `SourceScaleTest`, and against a real
+Aerospike Community 8.1.2.4 node in Docker by `AerospikeSourceScaleIT`. Where something is read from
+the code rather than measured, the finding says so.
+
+### SRC-1 (BLOCKER) — one Aerospike-backed query scans its set as fast as the cluster will answer, for ever
+
+> **Status:** OPEN — measured: `AerospikeSourceScaleIT`, one query over a 200-record set produced 43–50 scans per second and took the cluster's own `process_cpu_pct` from 1% to 203%. Four queries: 79–131 scans/s and 388–579%.
+
+`LutScanReader.scan()` runs whenever `poll()` finds its buffer empty, and `PumpingFeed` polls every
+millisecond (`IDLE_NAP_NANOS`). **There is no scan interval and no configuration option for one.**
+The plugin's `records.per.second` throttles records *within* a scan; nothing throttles how often a
+scan starts.
+
+The class's own javadoc says "the latency is the scan interval and not the write latency", which
+describes a scan interval that was never implemented. `SourceCapabilities.typicalLatency` — which
+every source declares and this one declares as one second — is read by nothing (SRC-7).
+
+This is the first thing in the way of the stated target and it is in the way at **one** query, not at
+a thousand. A single continuous query consumes roughly two cores of the Aerospike node continuously
+with nothing changing in the set; a handful saturate it. The load lands on somebody else's cluster,
+which is exactly where ADR-036 §3 says the owner does not want it.
+
+### SRC-2 (HIGH) — an Aerospike-backed query costs two platform threads and a private client, not the one ADR-036 budgets
+
+> **Status:** OPEN — measured: `AerospikeSourceScaleIT` counts platform threads by name with multiplicity. Four registrations added `pravaha-query-0` ×4 (the lane) **and `tend` ×4** — the Aerospike client's cluster thread, one per client, one client per registration.
+
+`AerospikeSourcePlugin.open()` constructs its own `AerospikeClient`, and `PluginSourceFeeds.discover`
+constructs a fresh plugin instance per binding per registration. So every Aerospike-backed query gets
+its own cluster object, its own copy of the 4096-entry partition map, its own `tend` thread and its
+own connection pool.
+
+ADR-036's table says **1.00 platform threads per query**, measured against a registry with no
+sources. For the workload the target actually names it is **two**, and W9-2's win — making the feed
+loop virtual — is given back by a plugin the ADR does not look at.
+
+`ClientPolicy` is built fresh in `configure()` and sets only `timeout` and `failIfNotConnected`.
+`maxConnsPerNode` is left at the client's default of **100**, `tendInterval` at 1000 ms. A thousand
+queries is therefore a thousand tend threads, a thousand info requests a second to the cluster for
+tending alone, and a socket ceiling of a hundred thousand.
+
+### SRC-3 (HIGH) — N queries over one source are N readers; nothing below the fingerprint is shared
+
+> **Status:** OPEN — measured both ways. Filesystem: `SourceScaleTest.twoQueriesOverOneSourceShareNothingButTheSchema` — a second registration of *identical* SQL opens no descriptor, a registration of *different* SQL over the same file opens one. Aerospike: four queries over one set produced 79–131 scans/s against 43–50 for one.
+
+This is what ADR-036 §3 asserts from reading the code, now measured. `QueryFingerprint` shares one
+computation across identical normalised plans, and `QueryRegistry.start` opens the feed per
+computation — so identical SQL shares the feed, the plugin instance and the reader, and that is real
+and it works.
+
+**Different SQL over the same source shares nothing at all.** Two questions about one set are two
+plans, two fingerprints, two executions, two feeds, two plugin instances, two clients and two scans.
+That is the common case: a deployment with a thousand continuous queries has a thousand different
+questions, not a thousand copies of one.
+
+Sharing by fingerprint is sharing at the wrong level for this. What is wanted is one reader per
+*binding* feeding many computations, which is a different seam from the one that exists.
+
+### SRC-4 (HIGH) — the file-descriptor ceiling is unset, unchecked, and reported as something else entirely
+
+> **Status:** OPEN — measured by running the real plugins under `ulimit -n 300`. Filesystem: the **276th** bound source failed with `PRV-5040 (FILESYSTEM_DECODE_FAILED) cannot open <path>`, cause `java.nio.file.FileSystemException: ... Too many open files`. Aerospike: the **224th** failed with `PRV-5080 (AEROSPIKE_CONNECT_FAILED) plugin 's223' cannot reach Aerospike at 127.0.0.1:3000 ... Check the host list, that the cluster is up, and that this process can reach the service port`.
+
+Nothing in `src/main` anywhere in this repository reads, checks, reports or documents `ulimit -n`.
+One bound source is one descriptor (`SourceScaleTest`, measured at exactly 1.00 per source); an
+Aerospike-backed one is about 1.3 at idle and may grow to `maxConnsPerNode` under load. At the
+common default of 1024 that is somewhere under a thousand sources — which is the same order as the
+stated target, so it is not a distant ceiling.
+
+**The failure is worse than the limit.** The Aerospike message is the sharp one: the cluster *is*
+up, the host list *is* right, the service port *is* reachable, and every remedy the sentence offers
+is wrong. The words "file descriptor" appear nowhere. Worse, the client discards the underlying
+`SocketException` — its `AerospikeException$Connection` has no cause at all — so the plugin cannot
+detect this case even if it wanted to, and the only way to diagnose it is to check the descriptor
+count before connecting.
+
+The filesystem message named a file whose permissions, encoding and schema are all correct, under a
+*decode* error code. That half is fixed (SRC-5); the Aerospike half and the missing ceiling check are
+not.
+
+### SRC-5 (MED) — a failure to open a file threw away the operating system's own diagnosis
+
+> **Status:** FIXED — `FilesystemPartitionReader.why` keeps the `IOException`'s message and, when the reason is a descriptor exhaustion, says so and acquits the file. Two tests in `FilesystemPluginTest`; seed-proved by stubbing `why` to return `""`, which fails both with `expected "/data/events.csv: Input/output error" but was ""`.
+
+All four wrap sites read `"cannot open " + path` and put the `IOException` in the cause, where a
+person reading a one-line error never sees it. The path is the one thing the caller already knows.
+
+The error **code** is deliberately unchanged. `PRV-5040 FILESYSTEM_DECODE_FAILED` is wrong for a
+resource exhaustion, but 5040 is a published identifier and changing it is a separate decision from
+making the sentence say what happened.
+
+### SRC-6 (MED) — a followed file costs about 13 ms of CPU per second while completely idle
+
+> **Status:** OPEN — measured: `SourceScaleTest`. 100 followed files with nothing being written to them: 1782 ms of process CPU per second of wall clock against an unbound baseline of 504 ms, i.e. **12.8 ms/s per source**. At 50 sources, 16.9 ms/s per source — roughly flat, so it is a per-source constant and not a constant of the node.
+
+`PumpingFeed` naps `IDLE_NAP_NANOS` (1 ms) after a poll that moved nothing, so every bound source is
+polled a thousand times a second whether or not anything has happened. In follow mode each of those
+polls is a `Files.readAttributes` (a `stat`) plus a `read`, which is why following costs 12.8 ms/s
+against 3.0 ms/s for a bound source that has latched exhausted.
+
+A hundred idle followed files is **1.8 cores**. Extrapolated to the target's order of magnitude it is
+more cores than the machine has — at which point the cost stops growing and the latency starts, since
+the virtual scheduler's carriers are bounded by `availableProcessors`. Either way nothing is reading
+any rows.
+
+The number is a per-source constant multiplied by a poll interval that no deployment chose: 1 ms is
+a compile-time constant in a package-private class, and no source's declared latency or any setting
+reaches it.
+
+### SRC-7 (MED) — `LutScanReader` buffers an entire scan on heap, and `maxRecords` bounds only what it emits
+
+> **Status:** OPEN — read from the code, not measured; the arithmetic below is arithmetic, not a measurement.
+
+`scan()` collects the whole result into an `ArrayList<Record>` through a callback that does
+`found::add`, then drains it into an unbounded `ArrayDeque`. `poll(sink, maxRecords)` respects
+`maxRecords` when *emitting* from that deque and not when filling it, and no `maxRecords` is set on
+the `ScanPolicy`.
+
+The first scan of a fresh registration resumes from `SourceOffset.BEGINNING`, so `watermarkNanos` is
+zero and the filter is `lastUpdate() >= 0` — **every record in the set**. A set of ten million
+records is ten million `Record` objects on heap before the first row reaches a lane.
+
+This contradicts the property `IngestPump`'s own javadoc claims for this boundary: *"It never asks
+for more than it can hold... there is no queue between the reader and the lane to grow."* There is
+one, it is here, and it is the size of the set.
+
+Also recorded here because it is the same seam: `SourceCapabilities.typicalLatency` is declared by
+every source and read by **nothing** — `grep` finds no consumer in `src/main`. It is the obvious
+place a scan interval would come from, which makes it the obvious place for SRC-1's fix and the
+reason the declaration exists at all.

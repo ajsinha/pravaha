@@ -96,7 +96,7 @@ final class FilesystemPartitionReader implements PartitionReader {
         try {
             this.reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot open " + path, e);
+            throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot open " + path + ": " + why(e), e);
         }
         rememberFile();
         try {
@@ -111,8 +111,41 @@ final class FilesystemPartitionReader implements PartitionReader {
                 }
             }
         } catch (IOException e) {
-            throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot seek in " + path, e);
+            throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot seek in " + path + ": " + why(e), e);
         }
+    }
+
+    /**
+     * What the operating system said, and what it means when it said the one thing a node running
+     * many sources hits first.
+     *
+     * <p>Every failure to open a file here was reported as {@code "cannot open <path>"} and nothing
+     * else: the {@code IOException}'s own message -- which is the only part naming the <em>reason</em>
+     * -- went into the cause and out of the sentence anybody reads. For most failures that costs a
+     * click. For one it costs an afternoon.
+     *
+     * <p>That one is the descriptor ceiling. A node holding a followed file per query holds one
+     * descriptor per query (SRC-4), and the query that crosses {@code ulimit -n} fails with
+     * {@code FILESYSTEM_DECODE_FAILED} naming a file that is perfectly fine -- so the person reading
+     * it goes and inspects that file's permissions, its encoding and its schema, none of which is
+     * wrong. Measured at {@code ulimit -n 300}: the 276th bound source failed, and the words "too
+     * many open files" appeared nowhere an operator would look.
+     *
+     * <p>The error <em>code</em> is deliberately left alone. It is wrong -- this is not a decode
+     * failure -- but 5040 is a published identifier and changing it is a separate decision from
+     * making the message say what happened.
+     */
+    static String why(IOException failure) {
+        String reason = failure.getMessage() == null || failure.getMessage().isBlank()
+                ? failure.getClass().getSimpleName()
+                : failure.getMessage();
+        if (reason.toLowerCase(java.util.Locale.ROOT).contains("too many open files")) {
+            return reason
+                    + ". This is the process's file-descriptor limit, not this file: a node holds one "
+                    + "descriptor per bound source, so raise `ulimit -n` or bind fewer sources. The file "
+                    + "named above is almost certainly fine";
+        }
+        return reason;
     }
 
     /** Notes the file's current size and identity, for spotting a replacement later. */
@@ -161,7 +194,7 @@ final class FilesystemPartitionReader implements PartitionReader {
         try {
             reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot reopen " + path, e);
+            throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot reopen " + path + ": " + why(e), e);
         }
         lineNumber = 0;
         // Whatever was half-read belonged to the file that has just gone.
@@ -171,7 +204,8 @@ final class FilesystemPartitionReader implements PartitionReader {
                 reader.readLine();
                 lineNumber++;
             } catch (IOException e) {
-                throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot read header of " + path, e);
+                throw new ConfigurationException(
+                        DelimitedCodec.DECODE_FAILED, "cannot read header of " + path + ": " + why(e), e);
             }
         }
         rememberFile();

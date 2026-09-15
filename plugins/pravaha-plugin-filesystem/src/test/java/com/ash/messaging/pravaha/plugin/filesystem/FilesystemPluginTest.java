@@ -54,6 +54,63 @@ class FilesystemPluginTest {
         return new Ctx("txn", config);
     }
 
+    // ------------------------------------------------------------------ what went wrong
+
+    /**
+     * A failure to open says what the operating system said about it.
+     *
+     * <p>It did not. Every {@code IOException} on the way in became {@code "cannot open <path>"},
+     * and the reason -- the only part of the diagnostic that is about anything other than the path
+     * the caller already knows -- went into the cause, where the person reading a one-line error
+     * never sees it.
+     *
+     * <p>Driven through the message builder rather than by causing a real open failure, and that is
+     * not laziness: the open failures a test can cause on demand are the ones whose {@code
+     * IOException} carries no reason at all (a missing file's message is the path), and a directory
+     * -- the obvious candidate -- does not fail on open on Linux at all, which is finding I-8. The
+     * failures that carry a reason are the ones a test cannot arrange, which is precisely why the
+     * reason was being thrown away without anybody noticing.
+     */
+    @Test
+    void aFailureToOpenNamesTheOperatingSystemsReason() {
+        assertThat(FilesystemPartitionReader.why(
+                        new java.nio.file.FileSystemException("/data/events.csv", null, "Input/output error")))
+                .as("the reason, which used to reach only the cause")
+                .isEqualTo("/data/events.csv: Input/output error");
+
+        assertThat(FilesystemPartitionReader.why(new IOException()))
+                .as("an exception with nothing to say is named rather than rendered as 'null'")
+                .isEqualTo("IOException");
+    }
+
+    /**
+     * The descriptor ceiling explains itself rather than blaming the file it happened to be opening.
+     *
+     * <p>Measured at {@code ulimit -n 300}: the 276th bound filesystem source fails, and before this
+     * the message was {@code PRV-5040 cannot open <path>} -- a decode error code, naming a file
+     * whose permissions, encoding and schema are all correct. The person reading it inspects that
+     * file. The limit is the process's and the file is innocent, and the sentence has to say so
+     * because the error code cannot: 5040 is published and is not changed here.
+     *
+     * <p>Driven through the message builder rather than by exhausting descriptors: a test JVM's
+     * {@code ulimit -n} is whatever the machine sets, this one's is half a million, and a test that
+     * opened half a million files to prove a sentence would be a worse test.
+     */
+    @Test
+    void tooManyOpenFilesSaysSoRatherThanBlamingTheFile() {
+        String message = FilesystemPartitionReader.why(
+                new java.nio.file.FileSystemException("/data/events.csv", null, "Too many open files"));
+
+        assertThat(message)
+                .as("the operating system's own words, kept")
+                .contains("Too many open files")
+                .as("and what they mean for a node holding one descriptor per bound source")
+                .contains("file-descriptor limit")
+                .contains("ulimit -n")
+                .as("and an explicit acquittal of the file, because that is where the reader will go first")
+                .contains("almost certainly fine");
+    }
+
     // ------------------------------------------------------------------ schema parsing
 
     @Test
