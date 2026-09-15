@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **291 findings carrying a
-status — 131 FIXED, 145 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **292 findings carrying a
+status — 132 FIXED, 145 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6195,3 +6195,38 @@ history — "this was true, and this is one of the three reasons" — which read
 
 The first sentence of that paragraph, *"one lane per query"*, is still true and should survive the
 edit. What should go is the clause after the dash.
+
+
+### W9-11 (HIGH) — the ADR-036 target, run rather than extrapolated to
+
+> **Status:** FIXED — `ThousandQueryTest` registers **1,000 distinct continuous queries** on one node and measures it. Default sizing: **3,736 ms to register (3.7 ms each), +24 platform threads on 24 cores, 1,000 MiB off-heap (1,024 KiB per query), 66 MiB heap (53 KiB per query)**. Sized as `OPERATIONS.md` recommends: **61 MiB for the thousand, 62 KiB per query.**
+
+ADR-036 says the wave is done "when it can register thousands rather than hundreds inside a test
+JVM — which is the same statement as the target, made falsifiable". Every figure reported before this
+was measured at fifty to two hundred queries and multiplied, and multiplying is what this exists to
+stop.
+
+**It holds, and one extrapolation was wrong in the good direction.** Registration was measured at
+~16 ms each over 200 queries and is 3.7 ms over a thousand — the earlier figure was paying for JIT
+warm-up and charging it to the engine. A thousand queries register in under four seconds, not the
+sixteen the arithmetic predicted.
+
+Threads are exactly what the wave claimed: **+24 on a 24-core machine, flat.** Before ADR-027's
+multiplexing a thousand queries were a thousand platform threads.
+
+And the per-query memory is a rate rather than a coincidence of small numbers: 1,024 KiB per query at
+a thousand, the same as at fifty.
+
+**What the run settles about what to do next.** At default sizing a thousand queries hold a gigabyte
+off-heap, all of it inbox. `LaneMultiplexer` (W9-8) would take that to a share of one inbox per lane
+— but **sizing the inbox as `OPERATIONS.md` already advises takes the same thousand queries to 61
+MiB**, today, with no code change and no barrier question to answer first.
+
+That reorders the wave's own plan. The multiplexer stops being the thing between this node and the
+target and becomes an optimisation on a target already met; W9-10's barrier tension no longer blocks
+anything urgent. The honest next constraint at a thousand queries is not memory and not threads —
+neither is close — it is whatever SRC-2's per-source Aerospike `tend` thread and connection pool do
+at that count, which this test does not exercise because it feeds no real source.
+
+*Also checked here for the first time:* the sizing advice in `OPERATIONS.md`. A recommendation nobody
+runs is how a default becomes folklore, and this project has already found two of those.
