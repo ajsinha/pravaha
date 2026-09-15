@@ -293,6 +293,45 @@ class ContinuousQueryAnswerTest {
     }
 
     @Test
+    void aFailOverflowSubscriberFailsItselfAndNotTheQuery() {
+        // STRM-2. Subscription.admit's FAIL arm threw from inside onCommit, outside the try guarding
+        // the consumer -- so it escaped ViewSink.commit's listener loop mid-iteration and reached
+        // advanceWatermark's catch, which failed the whole computation. Whether the two healthy
+        // subscribers got their batch then depended on where the failing one sat in the list.
+        //
+        // Attached first, which is the order that used to lose everything.
+        registry.register("q", WINDOWED, List.of(0), Principal.ANONYMOUS);
+        RegisteredQuery query = registry.require("q");
+
+        List<ViewChange> b = new ArrayList<>();
+        List<ViewChange> c = new ArrayList<>();
+        try (Subscription failing =
+                        query.subscribe(SubscriptionOptions.of(1, SubscriptionOptions.Overflow.FAIL), batch -> {});
+                Subscription healthyB = query.subscribe(SubscriptionOptions.DEFAULT, b::addAll);
+                Subscription healthyC = query.subscribe(SubscriptionOptions.DEFAULT, c::addAll)) {
+
+            push("q", 1, "ann", 100, 1, 100_000_000L);
+            push("q", 2, "bob", 200, 1, 200_000_000L);
+            push("q", 3, "cal", 300, 1, 300_000_000L);
+            advanceTo("q", 5_000_000_000L);
+
+            assertThat(query.state())
+                    .as("one subscriber's overflow policy is not a statement about the query")
+                    .isEqualTo(QueryState.RUNNING);
+            assertThat(failing.isClosed())
+                    .as("the failing subscriber closed itself")
+                    .isTrue();
+            assertThat(failing.failure())
+                    .as("and can say why, on its own channel")
+                    .isPresent();
+            assertThat(b)
+                    .as("the healthy subscribers were served regardless of attach order")
+                    .isNotEmpty();
+            assertThat(c).isNotEmpty();
+        }
+    }
+
+    @Test
     void groupKeysThatShareAJavaStringHashAreDifferentGroups() {
         // "Aa" and "BB" both have String.hashCode() 2112, and compositeKey feeds that int into the
         // digest for a STRING column. Both the high and the low digest read the same 2112, so the

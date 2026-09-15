@@ -130,13 +130,23 @@ public final class Subscription implements AutoCloseable {
                 dropped.incrementAndGet();
             }
             case FAIL -> {
+                // Recorded and closed, not thrown. FAIL is this subscriber's answer to falling
+                // behind -- it asked to be failed rather than lose a change -- and it is not a
+                // statement about the query. Thrown from here it left admit(), left onCommit(),
+                // escaped ViewSink.commit's listener loop mid-iteration and reached
+                // advanceWatermark's catch, which failed the whole computation: two healthy
+                // subscribers attached after this one received nothing, and the same three
+                // subscribers on the same input got a different answer depending on attach order.
+                //
+                // This is what the consumer-threw path above already does, and the two arms should
+                // not disagree about whether one subscriber can end a query everyone else reads.
+                // The subscriber learns from failure() and isClosed(), which is its own channel.
                 failure = new PravahaException(
                         RegistryErrors.QUERY_FAILED,
                         "subscriber on '" + queryName + "' fell more than " + options.bufferRows()
                                 + " changes behind and asked to be failed rather than lose any. "
                                 + "Reconnect and re-read the view to catch up");
                 close();
-                throw failure;
             }
         }
     }

@@ -4154,7 +4154,7 @@ code is also wrong: it says `weight == 0` "takes the upsert arm", and it takes n
 
 ### STRM-2 (HIGH) — one subscriber's `FAIL` overflow policy terminates the computation every other subscriber is reading
 
-> **Status:** OPEN — reproduced in `SectionD.s057` against `RegisteredQuery.advanceWatermark`, both attach orders, with subscribers A (`SubscriptionOptions.of(1, FAIL)`), B and C (`DEFAULT`).
+> **Status:** FIXED — two layers. `Subscription.admit`'s `FAIL` arm records and closes without throwing, matching what the consumer-threw arm five lines above already did; and `ViewSink.commit`'s listener loop isolates each listener, so no listener can end the commit the others are waiting for. `ContinuousQueryAnswerTest.aFailOverflowSubscriberFailsItselfAndNotTheQuery` attaches the failing subscriber **first** — the order that used to lose everything — and asserts the query stays RUNNING, the failing subscriber closes itself and can say why, and both healthy subscribers are served. Seed-proven: with both layers reverted it errors.
 
 `Subscription.admit`'s `FAIL` arm calls `close()` and then **throws**, from inside `onCommit` and
 outside the `try` that guards `consumer.accept` (`Subscription.java:132`–`:140`). The throw escapes

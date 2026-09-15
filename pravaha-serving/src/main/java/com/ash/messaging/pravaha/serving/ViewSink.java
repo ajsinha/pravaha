@@ -42,6 +42,8 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  */
 public final class ViewSink {
 
+    private static final System.Logger LOG = System.getLogger(ViewSink.class.getName());
+
     private final ServedView view;
     private final StreamSchema schema;
     private final AtomicLong frontier = new AtomicLong(Long.MIN_VALUE);
@@ -90,7 +92,23 @@ public final class ViewSink {
             pending.clear();
         }
         for (ViewChangeListener listener : listeners) {
-            listener.onCommit(batch, committedFrontier);
+            try {
+                listener.onCommit(batch, committedFrontier);
+            } catch (RuntimeException | Error escaped) {
+                // One listener cannot end the commit every other listener is waiting for. Escaping
+                // here stopped the loop mid-iteration, so whether a subscriber received its batch
+                // depended on where it sat in the listener list -- and the throw went on to fail
+                // the whole query (STRM-2).
+                //
+                // A listener is expected to handle its own failure; Subscription records it and
+                // closes. This is the backstop for one that does not, and it is deliberately last:
+                // it cannot tell which subscriber threw, so it says what it can and keeps going.
+                LOG.log(
+                        System.Logger.Level.WARNING,
+                        "a view change listener threw and was skipped for this commit; the listener "
+                                + "is responsible for its own failure and this is only the backstop",
+                        escaped);
+            }
         }
     }
 
