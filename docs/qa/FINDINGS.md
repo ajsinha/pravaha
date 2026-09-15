@@ -5892,7 +5892,7 @@ for a query fed by a source that scans once a second and will never produce one.
 
 ### W9-8 (HIGH) — `LaneMultiplexer` is built, tested and wired to nothing, and it is the answer to the per-query inbox
 
-> **Status:** OPEN — `pravaha-runtime`'s `LaneMultiplexer` is 250 lines with `LaneMultiplexerTest` green at 8/8, and `grep` finds no reference to it from any `src/main` outside its own file.
+> **Status:** OPEN — and **blocked on the row format**, which is the more useful half of this entry. `LaneMultiplexer` is 250 lines, `LaneMultiplexerTest` is green at 8/8, nothing in `src/main` references it — and wiring it as it stands would deliver one stream's rows to queries subscribed to another. See *Why it cannot simply be wired* below.
 
 A fourth built-but-unreachable mechanism, after the three Wave 8 found (W8-11 … W8-13). Its own
 javadoc states the goal this wave is for: *"At the density design section 13.7 asks for — ten thousand
@@ -5941,3 +5941,42 @@ followed by one more checkpoint. The `running` guard W9-3 added is not enough on
 a firing already handed to a virtual thread can pass it before `close()` clears it. `shutdownNow()`
 on a scheduler of the query's own used to interrupt exactly that, so `close()` now waits out an
 in-flight firing, bounded.
+
+
+### W9-9 (HIGH) — the row header's "schema id" is a schema *version*, so it cannot identify a stream
+
+> **Status:** OPEN — `BinaryRowWriter.begin` writes `layout.schema().version()` into `RowLayout.OFFSET_SCHEMA_ID`; `StreamSchema.Builder` defaults `version` to 1 and only `evolve()` increments it. So every row of every stream carries the same id.
+
+Found while wiring `LaneMultiplexer` (W9-8), and it is why that cannot be wired yet.
+
+The multiplexer's central claim is that dispatch is by stream and never a scan: *"Rows carry a schema
+id in their header (design section 8.3), so the batch is grouped by that and handed only to the
+pipelines subscribed to it. An idle query — one whose stream has no rows in this batch — is not
+consulted at all, and that is what makes a thousand mostly-quiet queries cost a lane almost
+nothing."*
+
+The field it reads is a **schema evolution version**. Two different streams both have version 1, so
+grouping by it puts every row in one group and hands it to every pipeline on the lane. That is not a
+lost optimisation, it is a wrong answer: a query subscribed to `txn` would be handed rows from
+`orders` and would process them as its own.
+
+**Its tests cannot see this**, and the reason is worth recording. They write the id straight into the
+region — `region.putInt(offset + RowLayout.OFFSET_SCHEMA_ID, schemaId)` — rather than through
+`BinaryRowWriter`. So they prove the dispatch logic is correct given distinct ids and never exercise
+the thing that produces ids. A component can be right in isolation and unusable in place, and a test
+that constructs its own inputs is exactly the test that will not notice.
+
+**The one piece of good news is decisive:** `grep` finds no production reader of a row's schema id
+other than the multiplexer. The field is written and read by nothing, so its meaning can be changed
+without breaking anything that exists — which makes this a contained piece of work rather than a row
+format migration.
+
+What it needs is a stable per-stream identity in the header. Two shapes, and the choice matters:
+
+- **Assigned by the catalog** at registration, sequential. Exact, no collisions, and needs the id to
+  reach `BinaryRowWriter`, which today sees only a `RowLayout`.
+- **Derived from the stream name** by hashing. No plumbing, and it reintroduces exactly the defect
+  PF-10 and W8-8 were: two names sharing an id, silently, with one stream's rows delivered as
+  another's. Rejected on that basis; it is the same mistake wearing a different hat.
+
+Until then `LaneMultiplexer` stays unwired, and the per-query inbox stays at 1,024 KiB.
