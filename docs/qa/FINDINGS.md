@@ -4229,7 +4229,7 @@ section is not, and the rationale is what a reader plans capacity from.
 
 ### STRM-5 (HIGH) — after the first `VIEW_TOO_LARGE`, `ViewSink.pending` is never drained again, but only when a subscriber is attached
 
-> **Status:** OPEN — reproduced in `SectionD.s070` with a `ServedView` at `maxKeys = 1000` and a `ViewSink`, run twice over identical input with and without a listener.
+> **Status:** FIXED — `ViewSink.commit` now drains `pending` in a `finally`, so a `VIEW_TOO_LARGE` refusal from `view.commit` no longer skips it. `ViewSink.pendingChanges()` was added so the change log's depth can be asked about at all. `ViewSinkTest.aCommitRefusedAsTooLargeStillDrainsTheChangeLog` asserts it is zero after the refusal and stays zero across a second one, with a subscriber attached; seed-proven — restoring the unguarded call fails it.
 
 `ViewSink.commit` calls `view.commit(committedFrontier)` on its first line (`ViewSink.java:74`) and
 only then copies and clears `pending` (`:85`–`:91`). `ServedView.commit` throws `VIEW_TOO_LARGE`

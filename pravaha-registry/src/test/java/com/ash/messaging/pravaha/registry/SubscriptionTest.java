@@ -223,12 +223,19 @@ class SubscriptionTest {
 
         feed("u1", 1L);
         feed("u2", 2L);
-        assertThatThrownBy(query::commit).isInstanceOf(PravahaException.class);
+        // commit() no longer throws, and that half of the expectation is withdrawn by STRM-2. The
+        // caller of commit() is the engine, not the subscriber: the throw escaped ViewSink.commit's
+        // listener loop mid-iteration and reached advanceWatermark, which failed the whole query --
+        // so one subscriber's buffer policy ended a computation two others were reading, and which
+        // of them got their batch depended on attach order. The sibling case immediately below,
+        // where a consumer throws, already worked this way.
+        query.commit();
 
-        // For a ledger or an audit feed, finding out immediately beats carrying on with a gap you
-        // do not know about.
+        // The subscriber still finds out immediately, which is what FAIL is for. On its own
+        // channel, where the news concerns it and nobody else.
         assertThat(subscription.isClosed()).isTrue();
         assertThat(subscription.failure()).isPresent();
+        assertThat(subscription.failure().orElseThrow()).hasMessageContaining("fell more than 1 changes behind");
     }
 
     @Test

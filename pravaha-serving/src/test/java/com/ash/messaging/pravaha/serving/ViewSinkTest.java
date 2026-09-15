@@ -15,15 +15,18 @@
  */
 package com.ash.messaging.pravaha.serving;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowKind;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * What a query writes when its answer is served rather than shipped.
@@ -50,6 +53,41 @@ class ViewSinkTest {
 
     private static ServedView view() {
         return new ServedView("user_volume", SCHEMA, List.of(0), 100);
+    }
+
+    @Test
+    void aCommitRefusedAsTooLargeStillDrainsTheChangeLog() {
+        // STRM-5. ServedView.commit applies and evicts and *then* refuses with VIEW_TOO_LARGE, so
+        // the rows are in the view by the time it throws -- and the throw used to leave
+        // ViewSink.commit before pending was ever touched, with StagedRow.commit still appending on
+        // every subsequent row. Measured at 100 001 entries and climbing.
+        //
+        // A subscriber has to be attached: the no-listener path cleared unconditionally, so the
+        // leak needed the case the old comment claimed was safe.
+        ServedView view = new ServedView("user_volume", SCHEMA, List.of(0), 2);
+        ViewSink sink = sink(view);
+        List<ViewChange> received = new ArrayList<>();
+        sink.onCommit((batch, frontier) -> received.addAll(batch));
+
+        sink.begin().setString(0, "u1").setLong(1, 1).weight(1).sequence(1).commit();
+        sink.begin().setString(0, "u2").setLong(1, 2).weight(1).sequence(2).commit();
+        sink.begin().setString(0, "u3").setLong(1, 3).weight(1).sequence(3).commit();
+
+        assertThatThrownBy(() -> sink.commit(sink.appliedFrontier()))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-4022");
+
+        assertThat(sink.pendingChanges())
+                .as("the refusal is about the view's size, not a reason to keep the change log for ever")
+                .isZero();
+        assertThat(received)
+                .as("and the changes that were applied before it refused still reached the subscriber")
+                .isNotEmpty();
+
+        // And it stays drained: the next rows do not accumulate on top of the first refusal.
+        sink.begin().setString(0, "u4").setLong(1, 4).weight(1).sequence(4).commit();
+        assertThatThrownBy(() -> sink.commit(sink.appliedFrontier())).isInstanceOf(PravahaException.class);
+        assertThat(sink.pendingChanges()).isZero();
     }
 
     @Test

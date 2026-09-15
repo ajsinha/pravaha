@@ -947,7 +947,11 @@ class SubscriptionAnswerTest {
                     q.subscribe(SubscriptionOptions.of(1, SubscriptionOptions.Overflow.FAIL), changes -> {})) {
                 feedInto(ownArena, q, "u1", 1);
                 feedInto(ownArena, q, "u2", 2);
-                assertThatThrownBy(q::commit).isInstanceOf(PravahaException.class);
+                // The throw out of commit() is withdrawn by STRM-2: it escaped ViewSink's listener
+                // loop and failed the whole query, so one FAIL subscriber ended a computation
+                // others were reading. What STRM-084 is actually about -- an actionable message on
+                // the subscriber's own channel -- is unchanged and asserted below.
+                q.commit();
                 assertThat(subscription.isClosed()).isTrue();
                 assertThat(subscription.failure()).isPresent();
                 assertThat(subscription.failure().orElseThrow().getMessage())

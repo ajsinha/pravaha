@@ -73,11 +73,40 @@ public final class ViewSink {
      * engine knows what a complete prefix of the input is.
      */
     public void commit(long committedFrontier) {
-        view.commit(committedFrontier);
+        // In a finally, because view.commit can throw. ServedView.commit applies and evicts and
+        // *then* refuses with VIEW_TOO_LARGE, so the rows are in the view by the time it throws --
+        // and the throw used to leave this method before pending was ever touched. StagedRow.commit
+        // kept appending for as long as anything fed the query: 100 001 entries and climbing after
+        // the first refusal.
+        //
+        // The comment that used to sit here had it exactly backwards. It warned about "a leak that
+        // only appears in the deployments that never subscribe"; the no-listener path was the one
+        // that cleared, and the leak needed a subscriber attached. Measured both ways on identical
+        // input: 100 001 pending with a subscriber, 0 without (STRM-5).
+        try {
+            view.commit(committedFrontier);
+        } finally {
+            drainPending(committedFrontier);
+        }
+    }
+
+    /**
+     * Changes applied but not yet published, which should be zero between commits.
+     *
+     * <p>Worth being able to ask. When {@code view.commit} refused with {@code VIEW_TOO_LARGE} the
+     * drain below was skipped, and this number climbed for as long as anything fed the query --
+     * invisibly, because nothing exposed it (STRM-5).
+     */
+    public int pendingChanges() {
+        synchronized (pending) {
+            return pending.size();
+        }
+    }
+
+    private void drainPending(long committedFrontier) {
         if (listeners.isEmpty()) {
             // Still cleared: a sink with no subscribers must not accumulate a change log nobody
-            // will ever read, which is a leak that only appears in the deployments that never
-            // subscribe -- that is, most of them.
+            // will ever read.
             synchronized (pending) {
                 pending.clear();
             }
