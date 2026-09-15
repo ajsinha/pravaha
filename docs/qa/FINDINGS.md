@@ -5466,3 +5466,32 @@ of, not alongside, the detail — and an evaluator who reads this page and stops
 product cannot do things it demonstrably does. The counts (`428 executed`) are stale too, and are
 left alone rather than guessed: the execution logs record their totals in four different formats and
 several record none, so an accurate recount is real work rather than an edit.
+
+### DOCR-22 (MEDIUM) — the lock added to verify-clean.sh leaked into every process it started, and deadlocked the next run
+
+> **Status:** FIXED — every maven invocation in `tools/verify-clean.sh` now runs with `9>&-`, and the lock is released with `exec 9>&-` once the install is done rather than held for the length of the tests. Demonstrated: a second run no longer waits (`waiting for it` count 0) and no process holds the lock file after the install.
+
+The script deletes shared state — Pravaha's artefacts in `~/.m2` — and two copies running at once is
+one build deleting the jars another is resolving. A concurrent agent hit exactly that. The fix was a
+`flock`, and the `flock` was wrong in a way that took a deadlock to see.
+
+`exec 9>"$LOCK"` opens the descriptor in the shell, and **a redirection is inherited by children**.
+So the first maven the script started held the lock too. Killing the script left maven running and
+holding a lock on behalf of a process that no longer existed, and the next run waited on it for ever
+with nothing in the process list to say why.
+
+A lock whose holder cannot be identified is worse than no lock. It is also the same shape as most of
+what this week's rounds turned up — shared state with an owner nobody wrote down — arrived at inside
+the tool built to stop the previous instance of it.
+
+Two changes, and the second matters as much as the first: maven runs with fd 9 closed so it cannot
+inherit the lock, and the lock covers only the delete and the install. The tests that follow take
+minutes and read nothing another run would remove, so holding it through them would serialise the
+slow part for nothing.
+
+*Also recorded here because it was found in the same pass:* the test counts quoted in this session's
+commit messages and reports were roughly double. The summing expression matched both the per-class
+`Tests run: N ... -- in Class` lines and the per-module summary lines, and added both. The verify that
+reported "4,408 tests" is **2,207**. Nothing about pass or fail was affected — the failures column was
+summed the same way and was zero either way — but every magnitude was wrong, and a doubled number
+quoted with confidence is worse than no number.
