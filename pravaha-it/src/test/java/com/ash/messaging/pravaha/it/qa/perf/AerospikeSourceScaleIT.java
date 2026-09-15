@@ -322,15 +322,27 @@ class AerospikeSourceScaleIT {
             // Named rather than counted in the aggregate, because the aggregate also contains the
             // virtual scheduler's carriers and the JDK's NIO pollers, which are bounded pools and
             // do not scale with the query count. These two do.
-            assertThat(added.getOrDefault("pravaha-query-0", 0L))
-                    .as("the lane, one per query -- ADR-036's measured 1.00, seen here for comparison")
-                    .isEqualTo(QUERIES);
+            // The lane's threads are reported and not asserted, because W9-4 is in the middle of
+            // changing what that number is: lanes can now share a thread, so "one per query" is a
+            // fact about a particular build rather than about the engine. NodeScaleTest owns that
+            // ratchet and states it as a bound on cores.
+            System.out.printf(
+                    "  lane threads for %d queries: %d (reported, not asserted -- W9-4 shares them)%n",
+                    QUERIES, added.getOrDefault("pravaha-query-0", 0L));
+
+            // This one is asserted, and it is the point. `tend` is the Aerospike client's cluster
+            // thread: one per client, one client per registration, because AerospikeSourcePlugin
+            // .open() constructs its own and nothing shares it. It is a *platform* thread and it
+            // scales with the query count, which is exactly the property W9-2 and W9-4 removed from
+            // everything else a query owns.
+            //
+            // Named rather than counted in the aggregate, because the aggregate also holds the
+            // virtual scheduler's carriers and the JDK's NIO pollers, which are bounded pools.
             assertThat(added.getOrDefault("tend", 0L))
                     .as(
-                            "%d Aerospike-backed registrations started %d `tend` threads -- the Aerospike "
-                                    + "client's cluster thread, one per client, one client per registration. So an "
-                                    + "Aerospike-backed query costs TWO platform threads and not the one ADR-036 "
-                                    + "budgets, for exactly the workload the target names. See SRC-2",
+                            "%d Aerospike-backed registrations started %d `tend` threads. As the engine stops "
+                                    + "paying a thread per query, this becomes the one that is left: the plugin "
+                                    + "gives every registration its own client. See SRC-2",
                             QUERIES, added.getOrDefault("tend", 0L))
                     .isEqualTo(QUERIES);
         }

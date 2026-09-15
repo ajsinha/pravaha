@@ -161,7 +161,14 @@ with nothing being written to any of them.
 
 Measured at two source counts to check it is a per-source constant rather than a constant of the
 node — 16.9 ms/s each at 50, 12.8 at 100, roughly flat and slightly sublinear as the carriers begin
-to contend. Hundreds of followed files is single-digit cores of pure polling. It does not fail; it
+to contend.
+
+**Those two figures come from running the test on its own, and that restriction is not a formality.**
+Process CPU counts the whole JVM, so inside a full `mvn verify` the verify's own compilation and
+garbage collection land in the same counter: the same test run that way reported *minus* 25.8 ms/s
+per source at fifty and a heap delta of minus three gigabytes. The test therefore reports the CPU and
+ratchets only the counts — descriptors and platform threads — which came out identical in both runs.
+A CPU number from this engine is quotable only from a quiet machine. Hundreds of followed files is single-digit cores of pure polling. It does not fail; it
 simply consumes the machine, and then the latency degrades instead of the CPU growing, because the
 virtual scheduler's carriers are capped at `availableProcessors`.
 
@@ -188,7 +195,8 @@ order of magnitude as the target, not a distant ceiling.
 ### What is measured, what is extrapolated, and what is unknown
 
 **Measured**, on one machine, and repeatable by running the two tests: every number in the tables
-above. The Aerospike figures are the cluster's own counters. The descriptor limits come from running
+above. The CPU figures need the tests run on their own; see the note above on what a busy machine
+does to them. The descriptor and thread counts are stable either way. The Aerospike figures are the cluster's own counters. The descriptor limits come from running
 the real plugins under a real lowered `ulimit`.
 
 **Extrapolated**, and to be read as arithmetic rather than as a result: anything multiplied up to a

@@ -216,21 +216,25 @@ final class SourceScaleTest {
                         SOURCES, following.platformThreads() - unbound.platformThreads())
                 .isLessThanOrEqualTo(PLATFORM_THREAD_CEILING);
 
-        // Reported as a ratio rather than asserted tightly: CPU on a machine with other work on it
-        // is not a number to hang a build on. What the range excludes is the two answers that would
-        // change the conclusion -- a cost that is really a constant of the node (ratio near 2, since
-        // the same constant is divided by half as many sources) and one that is superlinear.
-        double linearity = halfEach == 0 ? 1.0 : fullEach / halfEach;
+        // Reported and deliberately NOT asserted, and the reason is a failure this test already
+        // caused. Process CPU is only a measurement of this engine when nothing else is running,
+        // and the place this test runs is a full `mvn verify` -- so the other work is the verify
+        // itself, compiling and garbage-collecting between the baseline window and the measured
+        // one. Run inside one, the hundred-source figure came out *negative*: the followed sources
+        // appeared to use less CPU than no sources at all.
+        //
+        // NodeScaleTest states the rule this breaks -- "a ratchet on a noisy number is a ratchet
+        // somebody will delete" -- and a build failing on the machine's mood is worse than no
+        // ratchet. The two counts that are counts, descriptors and platform threads, carry the
+        // ratchets; the CPU figure is evidence for the extrapolation in ADR-036 and is quotable
+        // only from a run on a quiet machine, which is what the line below says out loud.
+        double linearity = halfEach == 0 ? Double.NaN : fullEach / halfEach;
         System.out.printf(
-                "  linearity: %.0f us/s per source at n=%d, %.0f at n=%d -- ratio %.2f%n",
+                "  idle cpu per source: %.0f us/s at n=%d, %.0f at n=%d -- ratio %.2f%n"
+                        + "  Quotable only from a quiet machine. Inside a full verify this is noise:%n"
+                        + "  the verify's own compilation lands in the same process-CPU counter.%n"
+                        + "  A ratio near 1 says the cost is per-source; near 2, a constant of the node.%n",
                 halfEach, followingHalf.sources(), fullEach, following.sources(), linearity);
-        assertThat(linearity)
-                .as(
-                        "the idle cost of a followed source measured %.0f us/s at %d sources and %.0f us/s at "
-                                + "%d. If this is not roughly flat it is not a per-source cost and must not be "
-                                + "multiplied by a thousand",
-                        halfEach, followingHalf.sources(), fullEach, following.sources())
-                .isBetween(0.5, 1.6);
     }
 
     /**

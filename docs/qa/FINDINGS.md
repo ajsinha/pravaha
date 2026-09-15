@@ -5724,7 +5724,7 @@ making the sentence say what happened.
 
 ### SRC-6 (MED) — a followed file costs about 13 ms of CPU per second while completely idle
 
-> **Status:** OPEN — measured: `SourceScaleTest`. 100 followed files with nothing being written to them: 1782 ms of process CPU per second of wall clock against an unbound baseline of 504 ms, i.e. **12.8 ms/s per source**. At 50 sources, 16.9 ms/s per source — roughly flat, so it is a per-source constant and not a constant of the node.
+> **Status:** OPEN — measured: `SourceScaleTest`. 100 followed files with nothing being written to them: 1782 ms of process CPU per second of wall clock against an unbound baseline of 504 ms, i.e. **12.8 ms/s per source**. At 50 sources, 16.9 ms/s per source — roughly flat, so it is a per-source constant and not a constant of the node. Both figures need the test run on its own: process CPU counts the whole JVM, and inside a full `mvn verify` the same test reported minus 25.8 ms/s per source. The test reports this number and ratchets only the counts.
 
 `PumpingFeed` naps `IDLE_NAP_NANOS` (1 ms) after a poll that moved nothing, so every bound source is
 polled a thousand times a second whether or not anything has happened. In follow mode each of those
