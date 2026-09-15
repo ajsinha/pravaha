@@ -208,6 +208,73 @@ class DocumentationFreshnessTest {
     }
 
     @Test
+    void theReadmeStatusBadgeTheStatusLineAndTheRoadmapAgree() throws IOException {
+        // Wave 8 shipped and the README said three different things about it: a badge reading
+        // "wave 7 of 10", a status line reading "Wave 7 of 10", and a roadmap row marking Wave 8
+        // "not started" -- while ADR-035, the implementation plan and HANDOVER all described it as
+        // the wave being worked on. The check above only compares the status line with the newest
+        // gate directory, and a gate pack lags the work by design, so it passed over all of it.
+        //
+        // Three statements of one fact, in one file, is rot waiting to happen. This makes them
+        // disagree loudly instead.
+        String readme = Files.readString(repoRoot().resolve("README.md"), StandardCharsets.UTF_8);
+
+        Matcher badge =
+                Pattern.compile("badge/status-wave%20(\\d+)%20of%20(\\d+)").matcher(readme);
+        assertThat(badge.find())
+                .as("the README must carry a status badge naming the wave")
+                .isTrue();
+        Matcher line = Pattern.compile("Project status: Wave (\\d+) of (\\d+)").matcher(readme);
+        assertThat(line.find())
+                .as("the README must carry a 'Project status: Wave N of M' line")
+                .isTrue();
+
+        int badged = Integer.parseInt(badge.group(1));
+        int claimed = Integer.parseInt(line.group(1));
+        assertThat(badged)
+                .as("the status badge says wave %d and the status line says wave %d", badged, claimed)
+                .isEqualTo(claimed);
+        assertThat(badge.group(2))
+                .as("the badge and the status line disagree on how many waves there are")
+                .isEqualTo(line.group(2));
+
+        // Every roadmap row, against that one number. A row is "| 8 | 39-45 | milestone | state |",
+        // and its wave column may be a range ("9-10"), in which case the first number rules.
+        List<String> disagreements = new ArrayList<>();
+        Matcher row = Pattern.compile("^\\| (\\d+)(?:[^|]*?) \\| [^|]*\\|[^|]*\\|([^|]*)\\|$", Pattern.MULTILINE)
+                .matcher(readme);
+        int rows = 0;
+        while (row.find()) {
+            int wave = Integer.parseInt(row.group(1));
+            String state = row.group(2);
+            rows++;
+            boolean built = state.contains("\u2705");
+            boolean notStarted = state.contains("not started");
+            if (wave <= claimed && !built) {
+                disagreements.add("wave " + wave + " is at or below the claimed wave " + claimed
+                        + " and its roadmap row does not say it is built: " + state.strip());
+            }
+            if (wave > claimed && !notStarted) {
+                disagreements.add("wave " + wave + " is above the claimed wave " + claimed
+                        + " and its roadmap row does not say it is not started: " + state.strip());
+            }
+            if (built && notStarted) {
+                disagreements.add("wave " + wave + " is marked built and not started at once");
+            }
+        }
+
+        assertThat(rows)
+                .as("the roadmap table must have rows; the row pattern found none")
+                .isPositive();
+        assertThat(disagreements).as("""
+                        The README's roadmap contradicts its own status line.
+
+                        A wave that has shipped must be marked built, and one that has not must be
+                        marked not started -- the roadmap is the only place a reader looks for
+                        either.""").isEmpty();
+    }
+
+    @Test
     void theQuickstartExistsAndNamesRunnableCommands() throws IOException {
         // A quickstart that cannot be followed is worse than none: it is the first thing an
         // evaluator tries, and for a closed-source product they cannot fall back to reading code.

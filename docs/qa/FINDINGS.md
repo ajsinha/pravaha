@@ -5072,3 +5072,338 @@ here.
 The snapshot wrote the group twice, once as the fold and once as the key columns. The approximate
 copy is gone and the key is rebuilt from the columns on read, so a restored map cannot disagree with
 the one that was saved.
+
+---
+
+## DOCR — documentation rot after Wave 8
+
+A sweep of the high-traffic documents against the tree at `de859d2`, a day after the DOCX round and
+twenty-five commits later. Round DOCX corrected the documentation the code had outgrown; Wave 8, the
+STRM and CFG fixes and ADR-035 then landed on top of it, and the same documents went stale again in
+new places. Every entry below was checked against the code or by running the command, never against
+another document. Where the **code** is what is wrong, the code is left alone and the entry says so.
+
+### DOCR-1 (HIGH) — the README said Wave 7 in three places after Wave 8 shipped, and the freshness test could only ever fail in one direction
+
+> **Status:** FIXED — badge, status line and roadmap row 8 corrected; `DocumentationFreshnessTest.theReadmeStatusBadgeTheStatusLineAndTheRoadmapAgree` added and seed-proven by reverting each of the three in turn
+
+`README.md` is the first document anyone reads and the owner has twice found it obsolete. After Wave
+8 it said, in one file:
+
+* `badge/status-wave%207%20of%2010` (line 19);
+* "**Project status: Wave 7 of 10**" (line 28);
+* a roadmap row `| 8 | 39–45 | Survival on one node … | ▫️ not started |` (line 363).
+
+Wave 8 is built: `StateOwnership`, `StandbyWatch`, `pravaha run --dlq`, aligned barriers,
+`L0StateMap` deleted. `ADR-035` says in its own Consequences section that this row "must be corrected
+in the same change that accepts this ADR, or this becomes another documented capability that does not
+exist" — and it was not.
+
+`DocumentationFreshnessTest.theReadmeStatedWaveMatchesTheNewestRecordedGate` passed throughout. It
+asserts `claimed >= newestGate`, and the newest gate directory is `wave-7`, so a README stuck at 7
+satisfies it for ever. A gate pack lags the work by design, so that check cannot be tightened into a
+useful one.
+
+The new check compares the README against **itself** instead, which needs no external oracle: the
+badge's wave number must equal the status line's, and every roadmap row at or below that wave must
+be marked built while every row above it must be marked not started. Three statements of one fact in
+one file now have to agree.
+
+### DOCR-2 (HIGH) — `OPERATIONS.md` told an operator that nothing feeds a registered query and that the view is not checkpointed; the code does both
+
+> **Status:** FIXED — both paragraphs rewritten against `PravahaNode.startFeeds`/`QueryRegistry.start`; verified by reading `feeds.open(name, execution, sourceStreams(plan), query::commit, resumeFrom)` and `.checkpointingViewWith(view::snapshot, view::restore)` in the tree
+
+Two claims, each the opposite of the code, in the document an operator reads before deploying.
+
+> *"**What is still missing: nothing feeds it.** No source plugin is connected to a registered query,
+> so rows arrive only from whatever calls `accept` — an embedder, or a test."*
+
+`PravahaNode` binds every `pravaha.sources.<stream>` into a `PluginSourceFeeds` and hands it to the
+registry (`registry.feedingFrom(feeds)`); `QueryRegistry.start` opens a feed per computation. The
+node even logs `no sources are bound, ...` when there are none, precisely so the two cases are
+distinguishable. This is DOCX-2 again — the same false claim, found in `HANDOVER.md` and fixed there,
+left standing in `OPERATIONS.md`.
+
+> *"**Views are not checkpointed.** They are rebuilt by the query, so a restart means a warm-up
+> rather than a restore."*
+
+`QueryRegistry.start` calls `.checkpointingViewWith(view::snapshot, view::restore)`, with a comment
+saying why it must: a filter or a projection has no operator accumulators, so the view is the entire
+answer, and a restore that rewound the offsets without it "resumed the source past every row it had
+read and served an empty view, with the query reporting RUNNING". `ARCHITECTURE.md` carried the same
+sentence ("A view is not checkpointed at all") and is corrected with it.
+
+The rot is expensive in a specific way: an operator who believes views are not checkpointed has no
+reason to configure `pravaha.checkpoint.directory`, and gets exactly the warm-up the document
+promised — for the opposite reason.
+
+### DOCR-3 (HIGH) — the quickstart's dead-letter-queue example printed counts and a file that no run of it produces
+
+> **Status:** FIXED — example rewritten around a file that has a bad line in it, output captured from a real run; `QuickstartCommandsTest` added, which runs the quickstart's four serverless blocks out of the document and checks what they print
+
+`docs/QUICKSTART.md` §2 said:
+
+```
+pravaha run --sql "SELECT user_id, amount FROM txn" … --in transactions.csv --out out.csv --dlq rejects.jsonl
+```
+```
+ok  3 in, 2 out
+  1 rejected -> rejects.jsonl
+```
+
+Run verbatim against the shipped `examples/01-filter-and-project/transactions.csv`, it prints
+`ok  6 in, 6 out`, writes no `rejects.jsonl` at all, and demonstrates nothing — the file has six rows
+and every one of them decodes. It also omitted `--stream txn` while the neighbouring example carries
+it. The counts were plausible, which is what let them survive review; the DOCX round had corrected
+the two commands on either side of this one and not this one.
+
+The rewritten example creates a three-line file with one undecodable field and shows both halves: the
+default refusal (`PRV-5040  line 2, column 'amount' (INT64): 'not-a-number' is not a number`, exit 1)
+and the same run with `--dlq` (`ok  2 in, 2 out` / `1 rejected -> rejects.jsonl`, exit 0). Both were
+captured from a real run, and the note that a rejected line is *not* counted in is now stated,
+because "2 in" from a three-line file is otherwise a second surprise.
+
+**The test is worth more than the fix.** `ExamplesTest` never opens `QUICKSTART.md`: it reads two
+example READMEs and hard-codes two quickstart-*shaped* command lines of its own, so the document and
+the assertions drift apart the moment somebody edits one. `HANDOVER.md` had already named the remedy
+— "extracting its commands from the file is the cheapest fix available here" — and
+`QuickstartCommandsTest` is it: a four-verb interpreter (`cd`, `printf > file`, `cat`, `pravaha
+run`/`validate`/`explain`), one scratch directory shared in document order because the examples share
+files, and a comparison against the fenced output block underneath each command. Blocks needing a
+server are skipped rather than half-run, and a second test pins how many runnable blocks there are so
+the coverage cannot be deleted by rewording a fence.
+
+### DOCR-4 (MED) — three documents described checkpointing as per-lane with no barrier, which Wave 8 had already built
+
+> **Status:** FIXED — `docs/OPERATIONS.md`'s "What is not solved" bullet, `docs/HANDOVER.md`'s Wave 5 row and its new Wave 8 section rewritten against `QueryExecution.freezeIngest`/`refuseWhileRowsCrossTheExchange` and `AlignedCheckpointBarrierTest`; ADR-008's own implementation status re-verified symbol by symbol and found accurate
+
+`OPERATIONS.md` listed "**Aligned checkpoint barriers across the exchange** are not implemented;
+checkpointing is per-lane, which is sound only while lanes share nothing" among the things not
+solved, and `HANDOVER.md`'s Wave 5 table carried the same row with a ❌.
+
+Wave 8 item 2 built the barrier (W8-2, W8-3, W8-4). A checkpoint is now one cut across every input:
+`IngestPump`/`PartitionedIngestPump` hold every source between rows for the length of the cut,
+`QueryExecution.checkpoint` reads every offset and hands every lane its marker inside that freeze, a
+lane cuts *at* the marker rather than a batch beyond it, and `partitionedPumps` — the only way to
+feed a multi-lane query — is in the offsets map at last.
+
+What remains true is narrower and is now what the documents say: a row **in flight between two
+lanes** is not cut, `refuseWhileRowsCrossTheExchange` refuses the checkpoint rather than storing one
+that drops it, and no pipeline this engine compiles sends on the exchange. ADR-008's status row and
+implementation section were checked against the code rather than taken on trust — every symbol they
+name (`freezeIngest`, `refuseWhileRowsCrossTheExchange`, `partitionedPumps`,
+`AlignedCheckpointBarrierTest`, `ControlTaskBarrierTest`) exists where they say — and they are
+accurate.
+
+### DOCR-5 (MED) — every operator-facing thing Wave 8 shipped was documented nowhere an operator reads
+
+> **Status:** FIXED — `docs/OPERATIONS.md` gains "Who owns the state, and the standby"; `README.md` gains a Survival row; `docs/HANDOVER.md` gains a Wave 8 section; `application.yaml`'s commented `streams` example gains `event-time` and `out-of-orderness`
+
+`pravaha.state.allow-shared`, `pravaha.standby.enabled`, `PRV-4003`, `PRV-4004`, the
+`.pravaha-owner` marker and the thirty-second lease appeared in `application.yaml`'s comments, in
+`TROUBLESHOOTING.md`'s code table, and nowhere else. A grep of the whole documentation set for
+`allow-shared` or `standby` returned one roadmap row that said Wave 8 had not started.
+
+That is the failure mode ADR-035 item 4 exists to close, arriving from the other direction: not a
+capability that reads as built and is unreachable, but one that is built and reads as absent. An
+operator running two nodes against one checkpoint root now meets `PRV-4003` at startup with no
+document that has ever mentioned it.
+
+The new `OPERATIONS.md` section gives the refusal verbatim, the two settings, the reason the
+directory is namespaced by node id rather than by address, the fact that a crash restart reclaims its
+own state automatically, and the promotion line — including its statement that a takeover buys
+**recovery time, not continuity**, which is the sentence an operator most needs and the one a
+"failover complete" message would have hidden.
+
+### DOCR-6 (MED) — ADR-035 said "not yet built" and ADR-006 said a bare "Accepted", both against the convention the ADR index states
+
+> **Status:** FIXED — ADR-035's Status row and a new implementation-status section; ADR-006 and ADR-015 Status rows qualified
+
+`docs/adr/README.md` says: "**The `Status` row says whether the decision is in the tree.** A bare
+`Accepted` means built. Anything else qualifies it." Two rows broke it in opposite directions.
+
+ADR-035 read `Accepted — scope decision, not yet built` while all four of its items had shipped. It
+now reads `Accepted; **built**` and carries an implementation-status section naming where each item
+landed, which finding recorded it, and the one deliberate exception — `ChangelogAnalysis` is kept
+unwired because nothing binds a query to a sink, with `ErrcSqlTest` asserting that precondition so it
+fails the moment one appears (W8-13).
+
+ADR-006 (tiered state) read a bare `Accepted` above its own section beginning "**Not built.**". The
+row now says so. ADR-015's row is extended to record that `ChangelogAnalysis`'s unwired state is now
+a reviewed decision rather than an accident.
+
+### DOCR-7 (MED) — `SECURITY.md` described an enumeration leak that STRM-9 had closed, in a paragraph headed "Correction"
+
+> **Status:** FIXED — rewritten against `PravahaFlightSqlProducer.streamSubscription`, `requireAdministrable` and `QueryRegistry.require` as they are now; the residue that is still true is kept and named
+
+The paragraph said `subscribe`/`drop`/`pause`/`resume` "against a name nobody registered answers
+`PRV-8002` naming **every currently registered view on the node**", so "a caller who is denied one
+view can still enumerate every other view's name by asking for a name that doesn't exist".
+
+Both halves of the mechanism are gone. `streamSubscription` now calls `policy.mayRead` **before**
+`required.require(viewName)`, with a comment saying why, and `requireAdministrable` does the same for
+the other three verbs — so a denied principal gets `PRV-7002` naming only the view they asked for,
+whether or not it exists. And `QueryRegistry.require` no longer appends `this node has [...]`: its
+refusal is `no query named 'x' is registered` (STRM-9).
+
+A correction that has itself gone stale is worse than the original error, because its heading asks to
+be trusted. What is still true is kept: `AccessDecision.deniedWithoutDetail()` has tests and no
+production caller, and a broadly-allowed principal — everybody, under the default `permissive`
+policy — can still probe which names exist.
+
+### DOCR-8 (MED) — three surfaces sent an operator to `pravaha.watermark.out-of-orderness`, which is read by nothing
+
+> **Status:** FIXED — the documents now name the key that works: `docs/CONCEPTS.md`, `docs/OPERATIONS.md`, `StreamSchema`'s javadoc and `application.yaml`'s comment now name `pravaha.streams.<name>.out-of-orderness` and say plainly that the engine-wide key has no reader. The key itself is **left in place**: DOCX-6 stays open, and giving it a reader or removing it is a code decision
+
+DOCX-6 proved by experiment that `pravaha.watermark.out-of-orderness` changes no answer, and
+concluded that no documentation fix was right. That is true of the *key*; it is not true of the
+documents, which were sending readers to it as though it worked:
+
+* `CONCEPTS.md:65` — "A stream that says nothing gets **10 seconds**, which a deployment moves with
+  `pravaha.watermark.out-of-orderness`" (also TIME-10);
+* `OPERATIONS.md:236` — a YAML block showing it with the comment "the default; a stream overrides it
+  at creation", and a paragraph saying "The configuration key is the default for streams that do not
+  say";
+* `StreamSchema.java:53` — "A deployment moves this with `pravaha.watermark.out-of-orderness`";
+* `application.yaml:213` — "This is the DEFAULT".
+
+`PravahaNode` binds `pravaha.watermark.idle-after` and `pravaha.watermark.tick` with `@Value` and
+does **not** bind `out-of-orderness`; the only key that reaches `StreamSchema.Builder.outOfOrderness`
+is `pravaha.streams.<name>.out-of-orderness`, through `StreamDeclarationProperties`. Naming the key
+that works is a documentation fix and is not the same act as deciding what to do with the key that
+does not — which is why the key is still there, with a comment that now says it does nothing.
+
+`OPERATIONS.md` also gains `pravaha.streams.<name>.event-time`, which had the same problem: it is the
+difference between a windowed query working and one reporting `RUNNING` over an empty view for ever,
+and it appeared in `QUICKSTART.md` and in no reference document (DOCX-7).
+
+### DOCR-9 (MED, documentation) — `CONCEPTS.md` promised a correction a server-registered query cannot produce
+
+> **Status:** FIXED — `docs/CONCEPTS.md` §2 now separates out-of-orderness from allowed lateness and says which of the two a server can set; closes the documentation half of TIME-10
+
+> *"Note what this is **not**. It decides how long the engine waits before calling a window complete.
+> A row arriving after that is still applied — as a retraction and a correction — which is what the
+> weights are for."*
+
+Allowed lateness is a `StreamSchema.Builder` method and nothing else: `StreamDeclarationProperties`
+has fields for `schema`, `event-time` and `out-of-orderness` and no fourth, so no server
+configuration can raise it above the zero default (TIME-7). On a server-registered `TUMBLE` query a
+row arriving after the window closed is counted in `WindowedAggregate.lateRecords` and sent to a
+`lateOutput` wired to nothing.
+
+`StreamSchema`'s own javadoc had already been corrected — it records that the sentence "was not true
+of any query the planner built" — and `CONCEPTS.md`, the document the README calls the highest-value
+page, still carried the unqualified version.
+
+### DOCR-10 (LOW) — two configuration surfaces listed "row filters honoured on subscribe" among the mechanisms that work
+
+> **Status:** FIXED — `application.yaml`'s security comment and `SecurityProperties`' javadoc corrected, and `docs/SECURITY.md` gains the section a migrating deployment needs; closes STRM-13
+
+Subscribing is the one path that refuses a principal carrying a row filter, deliberately and at
+length (`PravahaFlightSqlProducer.streamSubscription`). Nothing a user reads said so, so switching a
+deployment to a policy that grants row filters silently removes the ability to subscribe from every
+conditionally-entitled principal. The remedy — read the view, where the predicate is ANDed into the
+plan — works, and now appears in the document rather than only in a source comment.
+
+### DOCR-11 (LOW) — `HANDOVER.md`'s first table was three months of drift in five rows, and contradicted itself two hundred lines later
+
+> **Status:** FIXED — every figure re-measured: `main` is `01f7733` with tags `M1` `M2` `M7`, `develop` is 208 commits ahead, `pom.xml` declares 30 modules, and `sdk/python` collects 67 tests with 34 more for the console
+
+| Said | Is |
+|---|---|
+| `main` at `fe2717e`, tags `M1` `M2`, "Waves 1 and 2 complete" | `01f7733`, tags `M1` `M2` `M7`, Waves 1–7 complete |
+| `develop` **68 commits ahead** | 208 |
+| Modules **27** | 30 Maven modules, plus `sdk/python` and `console`, which are not Maven |
+| Python tests **39** | 67 in `sdk/python`, and the same document says "All 46 Python tests" 250 lines further down |
+
+The wave paragraph said waves 3–7 were complete and stopped there; Wave 6's heading still read
+"started" after that same paragraph called it complete. `HANDOVER.md` is the file a fresh session
+reads first and the only evidence for the waves that never got a gate pack, so a stale figure here
+costs more than the same figure anywhere else. It now carries a Wave 8 section as well, and records
+that no gate pack exists for waves 5, 6 **or** 8.
+
+### DOCR-12 (LOW) — three documents said the error-code table is generated, and one overstated the link check
+
+> **Status:** FIXED — `docs/HANDOVER.md` §3b corrected in both places; `docs/README.md` and `README.md` already carried the accurate version and gain the new quickstart check
+
+"`TROUBLESHOOTING.md` — Every `PRV-` code; table generated from the source" and "the error-code table
+is generated from `ErrorCode` declarations". It is hand-maintained; `ErrcCrossCuttingTest` compares
+it against the declarations in both directions and fails the build on a disagreement, which is a
+different and better claim — it means somebody has to write the row, and the build will not let them
+forget. Saying "generated" invites a reader to assume a new code documents itself.
+
+The same paragraph said `DocumentationFreshnessTest` verifies "every internal link resolves". It
+reaches thirteen files and only targets carrying a file extension — roughly a third of the
+repository's internal links, with `docs/adr/`, `examples/`, `console/` and `sdk/` outside it and
+anchors checked by nothing (DOCX-034, DOCX-050). `docs/README.md` had already been corrected;
+`HANDOVER.md` had not.
+
+### DOCR-13 (LOW) — `ARCHITECTURE.md`'s module table still described `pravaha-state` as holding the L0 map
+
+> **Status:** FIXED — the module row rewritten; the memory-budget table two hundred lines above it already recorded the deletion, which is what made the contradiction visible
+
+`L0StateMap` was deleted in Wave 8 (W8-12). `ARCHITECTURE.md:189` says so; `ARCHITECTURE.md:553`
+still summarised the module as "Off-heap state: the L0 map, the block store joins hold rows in, and
+checkpoints." One document, two answers, and the summary line is the one a reader skims.
+
+### DOCR-14 (LOW) — `USER_GUIDE.md`'s `FAIL` row did not say what `FAIL` fails
+
+> **Status:** FIXED — the overflow-policy section now says a `FAIL` subscriber ends its own subscription, and records that it used to end the query; verified against `Subscription.admit`'s `case FAIL`
+
+"Being told beats carrying on with a gap" was true of the subscriber and used to be true of everyone
+else as well: the exception escaped `admit()`, `onCommit()` and `ViewSink.commit`'s listener loop and
+failed the whole computation, so two healthy subscribers attached after the slow one received nothing
+(STRM-2). It is now recorded and closed on the subscription alone, surfaced through `failure()` and
+`isClosed()`. A user choosing between three policies needs to know which blast radius they are
+choosing.
+
+### DOCR-15 (LOW) — the quickstart's console step pointed at the wrong step for its prerequisite
+
+> **Status:** FIXED — "(step 2 above)" → "(step 4 above)"
+
+Step 7 said its prerequisite was "an engine listening on `9090` (step 2 above)". Step 2 is *Run a
+query with no server at all*; the server starts in step 4. A reader following the pointer lands on
+the one step in the document that explains how not to need a server.
+
+### DOCR-16 (MED) — ADR-035 promises Wave 8 a gate pack and there is none; the code is not wrong, the deliverable is missing
+
+> **Status:** OPEN — `docs/gates/` holds `wave-1` … `wave-4` and `wave-7`. Recorded rather than invented: a gate pack is an evidence record, and writing one from outside the work that produced it would be the kind of documentation this round exists to remove
+
+ADR-035 closes with "Wave 8 gets a gate pack, which waves 5 and 6 never got." It did not.
+`implementation_plan.md` §13 gives milestone M8 the acceptance "A killed node restarts onto its own
+state; a standby takes over and says what it lost" behind Gate P7, and nothing records whether that
+was demonstrated.
+
+This also leaves `DocumentationFreshnessTest.theReadmeStatedWaveMatchesTheNewestRecordedGate`
+comparing a README that says Wave 8 against a newest gate of 7 — which passes, because the assertion
+is one-directional, and which is why DOCR-1's replacement check compares the README against itself
+instead. `README.md`, `docs/HANDOVER.md` and ADR-035 now all say the pack is missing, so the gap is
+at least visible.
+
+### DOCR-17 (LOW) — `TROUBLESHOOTING.md` named checkpoint files as the known disk-growth path, and they are pruned
+
+> **Status:** FIXED — the "Disk growing" row rewritten against `PeriodicCheckpointer.checkpointNow`, which calls `store.prune(keep)` after every checkpoint, and `QueryRegistry.startCheckpointing`, which constructs one per registration when `pravaha.checkpoint.directory` is set
+
+> *"| Disk growing | **Checkpoint files.** `FileCheckpointStore.prune(keep)` exists and nothing calls
+> it automatically. This is the known disk-growth path |"*
+
+`OPERATIONS.md`'s Disk section had already been corrected — it says in as many words that "this
+section used to say the opposite" — and `TROUBLESHOOTING.md`, which is where somebody actually goes
+when a disk is filling, still carried the old answer. It now points at
+`pravaha.checkpoint.keep` and then at the registry journal, which is the thing that does grow until
+it is compacted.
+
+A correction applied to one document and not to the one a reader reaches for under pressure is the
+shape of rot this round kept finding: DOCR-2, DOCR-7, DOCR-12 and this are all the same mistake.
+
+### DOCR-18 (LOW) — every error message points at a host that does not exist, and no document said so
+
+> **Status:** FIXED for the reader — `docs/TROUBLESHOOTING.md` now opens by saying the URL does not resolve and that this file is what it was meant to reach. The URL itself is **left alone**: DOCX-21 stays open, and registering the domain or dropping the line from the message is the owner's decision
+
+Every `PRV-` refusal ends with `https://docs.pravaha.io/errors/PRV-nnnn`. The host is not registered,
+so the link does not 404 — it fails to connect, which reads as a network problem rather than as a
+missing page, at the moment somebody is already debugging something else.
+
+DOCX-21 recorded this and recorded that no document warns. Deciding what to do about the URL is the
+owner's; telling the reader where the reference actually is costs nothing and is the page they have
+already opened.
