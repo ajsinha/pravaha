@@ -69,6 +69,28 @@ class FindingsRegisterTest {
      */
     private static final Pattern HEADING = Pattern.compile("^#{2,3} ([A-Z]+[0-9]*-[A-Z]?\\d+)([^\\n]*)$");
 
+    /** The severity token in a heading, where the heading carries one. */
+    private static final Pattern SEVERITY = Pattern.compile("^ \\(([A-Z-]+)\\)");
+
+    /**
+     * The only severity words this register may use.
+     *
+     * <p>Before the triage it used six spellings for three levels -- {@code MED} and {@code MEDIUM}
+     * both, {@code MED-HIGH} and {@code MEDIUM-HIGH} both. A register that cannot be sorted by
+     * severity cannot be triaged by severity, which is most of why 144 findings sat undisposed.
+     */
+    private static final Set<String> SEVERITIES =
+            Set.of("BLOCKER", "HIGH", "MEDIUM-HIGH", "MEDIUM", "LOW-MEDIUM", "LOW");
+
+    /**
+     * What an open finding says about a release.
+     *
+     * <p>GA-BLOCKER is reserved for a promise broken <em>silently</em> -- a wrong answer returned as
+     * correct, data lost without a refusal, or data reaching a principal not authorised for it.
+     * NOTE means the entry is not a defect at all.
+     */
+    private static final Set<String> DISPOSITIONS = Set.of("GA-BLOCKER", "GA-REQUIRED", "POST-GA", "WON'T-FIX", "NOTE");
+
     /**
      * Anything that reads like a finding identifier, however it is spelled.
      *
@@ -78,7 +100,7 @@ class FindingsRegisterTest {
     private static final Pattern LOOKS_LIKE_A_FINDING =
             Pattern.compile("^#{2,3} ([A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+)\\b.*$");
 
-    private record Finding(String id, String status) {}
+    private record Finding(String id, String status, String disposition, String severity) {}
 
     private static List<Finding> findings() throws IOException {
         String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
@@ -90,14 +112,19 @@ class FindingsRegisterTest {
                 continue;
             }
             String status = null;
-            // The status line comes straight after the heading, blank line permitted.
-            for (int j = i + 1; j < Math.min(i + 4, lines.length); j++) {
-                if (lines[j].startsWith("> **Status:**")) {
+            String disposition = null;
+            // The status line comes straight after the heading, blank line permitted. The
+            // disposition line, where there is one, follows the status line.
+            for (int j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+                if (status == null && lines[j].startsWith("> **Status:**")) {
                     status = lines[j].substring("> **Status:**".length()).trim();
-                    break;
+                } else if (lines[j].startsWith("> **Disposition:**")) {
+                    disposition =
+                            lines[j].substring("> **Disposition:**".length()).trim();
                 }
             }
-            found.add(new Finding(heading.group(1), status));
+            Matcher severity = SEVERITY.matcher(heading.group(2));
+            found.add(new Finding(heading.group(1), status, disposition, severity.find() ? severity.group(1) : ""));
         }
         return found;
     }
@@ -247,5 +274,87 @@ class FindingsRegisterTest {
                                 + "class silently skips them -- widen HEADING: %s",
                         uncaptured)
                 .isEmpty();
+    }
+
+    @Test
+    void everyOpenFindingSaysWhatItMeansForARelease() throws IOException {
+        // The check that makes the triage a fact about the build rather than a document that rots.
+        // An open finding with no disposition is one nobody has decided about, and 144 of those is
+        // what made this register impossible to argue a release against.
+        List<String> undisposed = findings().stream()
+                .filter(finding -> finding.status() != null && finding.status().startsWith("OPEN"))
+                .filter(finding -> finding.disposition() == null)
+                .map(Finding::id)
+                .toList();
+
+        assertThat(undisposed)
+                .as(
+                        "every OPEN finding needs a `> **Disposition:**` line. Add one of %s, with the reason "
+                                + "on the same line. A new finding is not triaged by being written down",
+                        DISPOSITIONS)
+                .isEmpty();
+    }
+
+    @Test
+    void everyDispositionIsOneThisProjectRecognises() throws IOException {
+        List<String> wrong = findings().stream()
+                .filter(finding -> finding.disposition() != null)
+                .filter(finding -> DISPOSITIONS.stream()
+                        .noneMatch(known -> finding.disposition().startsWith(known)))
+                .map(finding -> finding.id() + " -> " + finding.disposition())
+                .toList();
+
+        assertThat(wrong)
+                .as(
+                        "a disposition must begin with one of %s. An invented word is a finding that looks "
+                                + "triaged and is not",
+                        DISPOSITIONS)
+                .isEmpty();
+    }
+
+    @Test
+    void severityUsesOneVocabulary() throws IOException {
+        List<String> wrong = findings().stream()
+                .filter(finding -> !finding.severity().isEmpty())
+                .filter(finding -> !SEVERITIES.contains(finding.severity()))
+                .map(finding -> finding.id() + " -> " + finding.severity())
+                .toList();
+
+        assertThat(wrong)
+                .as(
+                        "severity must be one of %s. This register carried MED and MEDIUM, MED-HIGH and "
+                                + "MEDIUM-HIGH, and so could not be sorted by the thing triage sorts by",
+                        SEVERITIES)
+                .isEmpty();
+    }
+
+    @Test
+    void theHeaderTriageCountsMatchTheDispositionsBeneathIt() throws IOException {
+        // The same ratchet the status counts already have. A triage summary that drifts from the
+        // register is worse than none, because it is the part a release argument would quote.
+        String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
+        Matcher header = Pattern.compile(
+                        "\\*\\*19 are\\s+GA-BLOCKER, (\\d+) GA-REQUIRED, (\\d+) POST-GA and (\\d+) are not defects")
+                .matcher(text);
+        assertThat(header.find())
+                .as("the header's triage sentence must still be there and still be machine-readable")
+                .isTrue();
+
+        List<Finding> open = findings().stream()
+                .filter(finding -> finding.status() != null && finding.status().startsWith("OPEN"))
+                .toList();
+        assertThat(count(open, "GA-BLOCKER"))
+                .as("GA-BLOCKER count in the header")
+                .isEqualTo(19);
+        assertThat(count(open, "GA-REQUIRED")).isEqualTo(Integer.parseInt(header.group(1)));
+        assertThat(count(open, "POST-GA")).isEqualTo(Integer.parseInt(header.group(2)));
+        assertThat(count(open, "NOTE")).isEqualTo(Integer.parseInt(header.group(3)));
+    }
+
+    private static long count(List<Finding> open, String disposition) {
+        return open.stream()
+                .filter(finding ->
+                        finding.disposition() != null && finding.disposition().startsWith(disposition))
+                .count();
     }
 }
