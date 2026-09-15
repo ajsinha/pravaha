@@ -16,7 +16,7 @@
 
 *Pravaha* (Sanskrit: *continuous, uninterrupted flow*) · pronounced *pruh-VAA-huh*
 
-[![Status](https://img.shields.io/badge/status-wave%208%20of%2010-blue)](docs/HANDOVER.md)
+[![Status](https://img.shields.io/badge/status-wave%209%20of%2011-blue)](docs/HANDOVER.md)
 [![Java](https://img.shields.io/badge/Java-21%20LTS-orange)](docs/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/implementation_plan.md)
 [![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
@@ -25,8 +25,9 @@
 
 ---
 
-> **Project status: Wave 8 of 10 — an engine, a client protocol, an operator console, and a node that
-> survives its own restart. No clustering.**
+> **Project status: Wave 9 of 11 — an engine, a client protocol, an operator console, a node that
+> survives its own restart, and a node whose thread and memory cost stops following its query count.
+> No clustering.**
 >
 > Written as *what is true now* rather than as a history of waves. The wave-by-wave version of this
 > section said "no UI" nine lines above a paragraph describing the console, and listed watermark
@@ -48,6 +49,7 @@
 | **Serving** | The maintained view is read back by key in microseconds, or subscribed to for changes per commit. |
 | **Recovery** | Checkpoints carry operator state, source offsets and the served view, cut at one point across every input (ADR-008); a restart resumes rather than replaying or starting empty. |
 | **Survival** | A node claims the checkpoint root and the registry journal it writes, so two nodes cannot silently prune and replay each other's state (`PRV-4003`, override with `pravaha.state.allow-shared`). A standby (`pravaha.standby.enabled`) takes over when the claim goes stale and reports what the takeover lost rather than implying continuity. A bad input line goes to a dead-letter queue (`pravaha run --dlq <file>`) instead of ending the run. |
+| **Scale on one node** | A registered query no longer costs a platform thread. Lanes are driven by a fixed pool sized to the cores (`LaneRunner`, ADR-027), the watermark and checkpoint clocks are one shared timer for the process, and 200 queries cost **24 platform threads — one per core, fixed** — where they used to cost 400. Off-heap per query is **~1,024 KiB idle, ~1,328 KiB active**, down from ~5 MiB, and every component reports its own bytes by name (ADR-036). |
 | **Clients** | Flight SQL, a Java SDK, a Python SDK, a CLI, and a console. Authentication, authorisation, row filters and prepared statements. |
 
 ### What is not built, stated plainly
@@ -64,6 +66,16 @@
   could not key a `GROUP BY` containing a string.
 - **The console is a functional admin console on purpose** — it manages queries, tails a view and
   renders the documentation. It is not the design-system product surface §23.20 describes.
+- **A lane still runs one query.** `LaneRunner` shares a lane's *thread* between lanes, which is
+  what removed the thread-per-query cost; `LaneMultiplexer` — which would share one inbox and one
+  arena between many pipelines — is built, tested and wired to nothing, blocked on a row header that
+  carries a schema *version* where it needs a stream identity (W9-8, W9-9).
+- **N queries over one Aerospike set are still N scans**, one reader per registration. Each scan is
+  now throttled to `scan.interval.ms` (one second by default), which is what made the load
+  survivable; one reader feeding many queries is designed and not built (ADR-036 §3, SRC-3).
+- **State spills nowhere.** A query that reaches its ceiling is still refused, not degraded; what
+  Wave 9 added is the ability to *see* the ceiling coming (ADR-037 B1). The on-disk tier is B2,
+  scoped and not started.
 - **Projection and partial-aggregate pushdown**, and a Cassandra plugin, are designed and not built.
 
 ### What cannot be measured here
@@ -74,6 +86,10 @@ evidence packs in [`docs/gates`](docs/gates/) say exactly what is and is not mea
 number from this machine is quoted as if it were. The Aerospike edition question in
 [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
 is worth settling early.
+
+What Wave 9 *can* report is a **cost per query** — threads, off-heap bytes, file descriptors,
+registration time — which is a count rather than a rate and is measured by `NodeScaleTest` and
+`SourceScaleTest` on the machine that exists. No throughput number is quoted from either.
 
 ---
 
@@ -184,8 +200,8 @@ Full competitive analysis, including the ten measurable claims this has to satis
 |---|---|
 | **Language** | Java 21 LTS, single language. Calcite plans; generated fused operators execute. [Why not Scala →](docs/system_design.md#4-language-decision-java-vs-scala) |
 | **Execution** | Whole-stage code generation (Janino) over binary flyweight rows in off-heap arenas. No `Map<String,Object>`, no boxing, no allocation on the hot path. |
-| **Concurrency** | Partitioned lanes, single-writer principle. One thread, one ring buffer, one state slice, one timer wheel per lane. No locks in steady state. |
-| **State** | Off-heap hash arena, plus checkpoint files. **Designed** as three tiers with RocksDB as L1 (D5); the RocksDB tier is *not built* and is not a dependency. The defence against unbounded state today is refusal at plan time, not spill. |
+| **Concurrency** | Partitioned lanes, single-writer principle. One ring buffer, one state slice, one timer wheel per lane, and exactly one thread driving a lane *at a time* — since W9-4 that thread is shared: a fixed runner pool, one thread per core, drives every lane, so the node's thread count follows its cores and not its queries. No locks in steady state. |
+| **State** | Off-heap hash arena, plus checkpoint files. **Designed** as three tiers with RocksDB as L1 (D5); the RocksDB tier is *not built* and is not a dependency. The defence against unbounded state today is refusal at plan time, not spill — but the ceiling is now visible before it is hit, through `pravaha_query_state_held` / `_ceiling` / `_fraction` (ADR-037). |
 | **Correctness** | Exactly-once **state**: a checkpoint holds every source between rows, cuts every lane at one point and records the offsets of that same point, so restored state and replayed rows never overlap or gap (ADR-008). Rows crossing the lane-to-lane exchange are *not* cut and a checkpoint refuses rather than dropping them — no plan the engine compiles sends on the exchange, so that case is unreachable today. Output is **effectively-once**: `DeduplicatingSink` exists and is not yet wired, so a sink that is neither idempotent nor transactional can still see a duplicate after a restore. |
 | **Operations** | Adaptive batching and backpressure to the source plugin are built. *Designed, not built:* skew remediation, elastic rescaling, blue/green updates, and the time-travel debugger. What runs today is a single node with a registry, checkpoints, metrics and a console. |
 
@@ -308,7 +324,12 @@ supported constructs have their answer asserted), `ErrcCrossCuttingTest` fails t
 `QuickstartCommandsTest` runs the quickstart's serverless commands out of the document and checks
 what they print, and a freshness test checks that every module is described, that every decision a
 document cites has an ADR, and that this file's status badge, status line and roadmap table agree
-about which wave it is. Its link check reaches only thirteen files and only links with a file
+about which wave it is. Four checks added after the Wave 9 sweep close the gaps that sweep found:
+every `pravaha.lane.*` setting and every per-query gauge must be named in
+[`OPERATIONS.md`](docs/OPERATIONS.md), a message telling an operator to raise `pravaha.x.y` must name
+a key `application.yaml` actually declares, every ADR must have a row in its index with the count in
+[`HANDOVER.md`](docs/HANDOVER.md) held against the directory, and
+[`FINDINGS.md`](docs/qa/FINDINGS.md)'s own header totals must match the register beneath them. Its link check reaches only thirteen files and only links with a file
 extension — roughly a third of the repository's internal links; `docs/adr/`, `examples/`, `console/` and `sdk/` are
 outside it, and anchors are not checked at all (DOCX-034, DOCX-050).
 
@@ -365,11 +386,16 @@ operator console is its own artefact in [`console`](console).
 | 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built |
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built · console included |
 | 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ✅ built · gate P7 pack not written |
-| 9–10 | 46–62 | Time-travel debugger, Nexmark published head-to-head, **GA** | ▫️ not started |
+| 9 | — | One node, thousands of queries — lane multiplexing onto shared threads, a shared clock, arena and inbox sizing, an Aerospike scan interval, state you can watch approach its ceiling ([ADR-036](docs/adr/036-one-node-thousands-of-queries.md), [ADR-037](docs/adr/037-state-that-degrades-instead-of-dying.md)) | ✅ built · no gate pack |
+| 10–11 | 46–62 | Time-travel debugger, Nexmark published head-to-head, **GA** | ▫️ not started |
 
-Waves 1–7 are merged to `main` at tag `M7`; Wave 8 is on `develop` and not yet merged or tagged.
+Waves 1–7 are merged to `main` at tag `M7`; Waves 8 and 9 are on `develop` and not yet merged or
+tagged. **Wave 9 was inserted by [ADR-036](docs/adr/036-one-node-thousands-of-queries.md)** ahead of
+the control-plane and GA waves, which keep their content and their week estimates and move down by
+one — its own length was never estimated, which is why its Weeks cell is empty rather than invented.
 "Built" means the code is there and tested; it does not mean a performance gate passed, and
-[`docs/gates`](docs/gates/) says which ones did not and why — it holds no pack for waves 5, 6 or 8.
+[`docs/gates`](docs/gates/) says which ones did not and why — it holds no pack for waves 5, 6, 8
+or 9.
 
 [Full roadmap with acceptance gates →](docs/system_design.md#31-delivery-roadmap)
 

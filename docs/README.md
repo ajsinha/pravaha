@@ -52,6 +52,16 @@ Several of them are **checked by the build** rather than maintained by memory:
   the README's status badge, status line and roadmap table agree about which wave this is. Its link
   check is narrower than it sounds: thirteen files, and only targets carrying a file extension, so
   about a third of the repository's internal links. Anchors are checked by nothing
+- `OPERATIONS.md` — every `pravaha.lane.*` key `application.yaml` declares must be named there, and
+  every per-query gauge `PravahaMetrics` registers must appear in its metric table. A setting or a
+  gauge that ships undocumented fails the build (DOCS-3, DOCS-4)
+- Error messages — a message telling an operator to "raise `pravaha.x.y`" fails the build unless
+  `application.yaml` declares that key. Eleven of them named settings that did not exist for a whole
+  wave (PF-3)
+- `docs/adr/` — every ADR file has a row in its index, and `HANDOVER.md`'s ADR count is held against
+  the directory
+- `FINDINGS.md` — every finding carries a recognised status with evidence, identifiers are unique,
+  and the file's own header totals are held against the register beneath them (`FindingsRegisterTest`)
 
 That is deliberate. Documentation that drifts is worse than none, because a reader has no way to tell
 which half is true.

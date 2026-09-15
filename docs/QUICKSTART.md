@@ -387,14 +387,16 @@ with connect("grpc://localhost:9090") as client:
 
 ## What is not built
 
-Stated so you do not go looking. Roughly wave 8 of 10:
+Stated so you do not go looking. Roughly wave 9 of 11:
 
 | | |
 |---|---|
 | Clustering, rebalance, multi-node execution | Deferred ([ADR-034](adr/034-distribution-deferred.md)) — **one node, scaled to its cores**. Wave 8 bought survival on that node, not distribution across several ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)) |
 | Continuous failover | A standby (`pravaha.standby.enabled`) takes over from the newest checkpoint and says what that cost. It buys **recovery time, not continuity** |
-| Time-travel debugging | Wave 9. Prometheus metrics are live now — `/actuator/prometheus`, see [Operations](OPERATIONS.md#watching-a-running-node) |
-| Kafka, Cassandra, Redis plugins | Wave 10. Filesystem, JDBC and Aerospike work now |
+| Time-travel debugging | Wave 10 — it moved down one when [ADR-036](adr/036-one-node-thousands-of-queries.md) inserted the scale wave ahead of it. Prometheus metrics are live now, including per-query state against its ceiling — `/actuator/prometheus`, see [Operations](OPERATIONS.md#watching-a-running-node) |
+| Kafka, Cassandra, Redis plugins | Wave 11. Filesystem, JDBC and Aerospike work now |
 | Spring Boot starter | ADR-020 planned it; not built |
+| One Aerospike scan feeding many queries | Each registration opens its own reader. Each scan is throttled to `scan.interval.ms` (one second by default) so a single query no longer saturates a cluster, but N queries over one set are still N scans (ADR-036 §3) |
+| State that spills instead of failing | A query that reaches its ceiling is refused, not degraded. You can now *watch* it approach — `pravaha_query_state_fraction` — which is [ADR-037](adr/037-state-that-degrades-instead-of-dying.md) B1; the on-disk tier is B2 and is not started |
 | Column masking | Out of ADR-031 until a deployment asks |
 | Performance evidence | Gates P2/P3/P6 unmeasured — needs reference hardware |

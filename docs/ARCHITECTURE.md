@@ -85,9 +85,9 @@ them.
 
 ## What a lane is
 
-A **lane** is the engine's unit of execution: one thread and the memory only that thread may touch.
-It is not a cache, not a staging area clients read from, and not a queue — it is a slice of the
-engine that owns its work end to end.
+A **lane** is the engine's unit of execution: one *driver* and the memory only that driver may
+touch. It is not a cache, not a staging area clients read from, and not a queue — it is a slice of
+the engine that owns its work end to end.
 
 ```
    ingest threads                    ┌──────────── one lane ────────────┐
@@ -103,7 +103,7 @@ Four things, all exclusively owned:
 
 | | |
 |---|---|
-| **One thread** | A dedicated platform thread, never a virtual one — see the next section. |
+| **One driver thread at a time** | A platform thread, never a virtual one — see the next section. Since W9-4 it is *shared*: a `LaneRunner` of one thread per core steps each of its lanes in turn, the event-loop shape. Confinement needs one thread per lane **at a time**, not one thread per lane, and a lane never moves between runner threads once hosted. |
 | **One inbox** | A bounded ring of fixed-size off-heap cells. Many ingest threads write; exactly one lane reads. This is the only cross-thread handoff on the data path. |
 | **One arena** | Bump-pointer off-heap slabs holding the rows the operators *produce*, rewound in a single assignment at the end of every batch. |
 | **One processor** | Built per lane by a factory, so its mutable state is thread-confined by construction rather than by convention. |
@@ -127,6 +127,10 @@ registration) which are then assigned to lanes (design §21.1). The indirection 
 on one node and is what makes rescaling tractable: moving work means reassigning partitions, never
 rehashing a key, so a key's state moves as one piece and its ordering survives.
 
+A step that throws is caught by the runner, recorded on the lane that threw, and **that lane alone
+is dropped** — which is what a thread dying used to do when a lane owned one. On a shared thread an
+escaping throw would have turned one bad row into an outage for every query the runner carried.
+
 What a lane deliberately does *not* have is a lock. Concurrency comes from partitioning: a given key
 is only ever touched by one thread, so there is no `synchronized`, no `ConcurrentHashMap` and no CAS
 on a shared aggregate anywhere in the steady state. That is also why the gate is stated *per lane*
@@ -136,22 +140,25 @@ nothing.
 
 ## Threads: what is an OS thread here, and what is not
 
-Connection count must never become thread count. Three tiers, chosen by what the work actually does:
+Connection count must never become thread count. Five tiers, chosen by what the work actually does
+— and the last two are Wave 9's, where a query's own threads went from three to none:
 
 | Work | Thread | Count scales with |
 |---|---|---|
-| Lane workers — the hot loop | **Platform**, optionally pinned | `physicalCores − 2`, never with load |
+| Lane workers — the hot loop | **Platform**, optionally pinned, and shared between lanes | `availableProcessors`, fixed at construction — never with load and, since W9-5, never with the query count |
 | Control plane (validate, explain, register), plugin and source I/O, async lookup joins | **Virtual (Loom)** | unbounded — they cost nothing while parked |
 | Streaming subscriber fan-out | **Netty event loops**, roughly 8 | nothing; thousands of sockets share them |
+| Flight call handling, source feed loops | **Virtual (Loom)** since W9-1/W9-2 | nothing. A parked subscription and a napping feed each cost a continuation, not a thread |
+| Watermark advance, periodic checkpoints | one **`SharedClock`** daemon thread for the process, each tick on a virtual thread | nothing. These were two `newSingleThreadScheduledExecutor`s *per query* before W9-3 |
 
 Virtual threads are Java 21's, and the baseline is Java 21 precisely because of them (design §4.5).
 They are already on for the server — `spring.threads.virtual.enabled` in `application.yaml` — since
 the control plane is short, blocking, I/O-bound requests in large numbers, which is exactly the
 workload Loom exists for.
 
-**Lanes stay platform threads for the inverse reason.** A lane loop is CPU-bound and never blocks,
-so it has nothing to gain from unmounting and everything to lose: a virtual thread migrates between
-carriers, and migration discards the L1/L2 warmth the binary-row layout exists to exploit. Loom is
+**Lanes stay platform threads for the inverse reason, and now share them.** A lane loop is
+CPU-bound and never blocks, so it has nothing to gain from unmounting and everything to lose: a
+virtual thread migrates between carriers, and migration discards the L1/L2 warmth the binary-row layout exists to exploit. Loom is
 for work that blocks; a lane never does. True core affinity needs a native call the JDK does not
 expose, so it is left to `taskset`, `numactl` or an affinity library in the host — the lane exposes
 its thread so a deployment can apply one. Claiming the JVM pins threads would not be true.
@@ -195,7 +202,7 @@ is sized by cores — roughly 30 of them on this class of box, whatever the quer
 > That combination is refused (`PRV-3020`) rather than left to be discovered in the numbers. Run a
 > keyed aggregate on one lane until key-partitioned ingestion exists.
 
-| Inbox, arena, timer wheel, thread | **0** | ~150 MB total | Per lane, ~30 of them |
+| Inbox, arena, timer wheel, thread | **0** *designed* | ~150 MB total | Per lane, ~30 of them. **As built: the thread is shared and the inbox and arena are not.** `LaneRunner` gives the node one thread per core whatever the query count (W9-5), but a lane still runs one query, so its inbox is per query — 1,024 KiB by default, and the arena's first slab is allocated on the first row rather than at registration (W9-6). Measured: **1,024 KiB per idle query, 1,328 KiB active**, down from ~5 MiB. Sized down with `pravaha.lane.*`, a thousand idle queries is a few tens of MB |
 | Aerospike connections | **0** | one pool | Node-wide, shared |
 
 The 64 GB heap is therefore *not* where the money goes, and that is deliberate: the heap holds
@@ -240,11 +247,23 @@ through the backlog. The fallback stops being only a safety net and becomes the 
 
 ### What is not built yet
 
-Points 1 and 2 above are **not in the code today.** The lane implemented for Wave 3 runs exactly one
-processor, which is right for a single-query pipeline and does not multiplex. Saying so here, rather
-than letting the diagram imply otherwise, is the point: the lane's ownership model (its own inbox,
-arena, thread and processor instance) is what makes multiplexing a change *inside* the lane rather
-than a redesign, but the change is real work and it is scheduled, not done.
+Points 1 and 2 above are **still not in the code**, and the half of point 1 that *is* built is worth
+separating from the half that is not.
+
+**Built (W9-4, W9-5):** the thread is no longer per query. `LaneRunner` drives many lanes from a
+fixed pool of one thread per core and `QueryRegistry` owns one runner, so a node's thread count
+follows its cores — `NodeScaleTest` measures 200 queries adding 24 platform threads where the same
+workload cost 400 before. `SharedClock` did the same for the watermark and checkpoint schedulers.
+
+**Not built (W9-8):** a lane still runs exactly one processor. `LaneMultiplexer` — 250 lines, tested,
+referenced from nothing in `src/main` — is the piece that would put many pipelines on one lane and so
+share the *inbox and arena* as well as the thread. It cannot simply be wired: a row's header carries
+`schema().version()` where the multiplexer needs a stream identity, so every row of every stream
+carries the same id and wiring it as it stands would deliver one stream's rows to queries subscribed
+to another (W9-9). That is a row-format change, not a wiring change.
+
+So the per-query costs that remain are the inbox and the arena, and both are now settings
+(`pravaha.lane.*`) rather than build-time constants.
 
 Also open at 10 000: per-query quotas so one hot query cannot starve the ~300 sharing its lane
 (FR-9, design §21.4), and a metaspace measurement with 10 000 queries *live* — the existing leak test covers

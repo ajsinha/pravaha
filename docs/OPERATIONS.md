@@ -46,9 +46,10 @@ to fit would silently lose matches the query asked for, and a wrong answer is wo
 
 These are on the objects and through the SDK. They are **also** published to Prometheus by the
 server — see *Watching a running node* below, which is the part that was added later and left this
-sentence contradicting it. What is still absent is engine-internal metrics (lane throughput,
-backpressure); wiring those to
-Micrometer is Wave 9 work. Saying so beats implying a dashboard exists.
+sentence contradicting it. Per-query **state** is published too, since ADR-037 B1 — see the table
+under *Watching a running node*. What is still absent is engine-internal metrics (lane throughput,
+backpressure); wiring those to Micrometer belongs to the control-plane wave. Saying so beats implying
+a dashboard exists.
 
 ## Disk
 
@@ -72,6 +73,103 @@ the view refuses and the message names both:
 Sizing rule of thumb: **rows ≈ arrival rate × retention window × distinct keys touched**. If that
 exceeds the ceiling, one of the two numbers is wrong, and which one is a product question rather than
 an engineering one.
+
+## Sizing a node for many queries
+
+The defaults were chosen for **one** query with a source that never stops: latency mattering more
+than a core, a wide row, a batch that never spans a slab. A node holding hundreds of small
+continuous queries is the opposite workload, and until ADR-036 it inherited sizes nobody had chosen
+for it — and could not change them, which is why eleven error messages told operators to change
+`arena.slab.size` or `lane.inbox.cell.size`, neither of which existed (PF-3). They name the real
+keys now.
+
+```yaml
+pravaha:
+  lane:
+    batch-size: 512            # rows drained from the inbox per step
+    wait-strategy: BACKOFF_PARK
+    inbox:
+      cells: 2048              # ring cells; one cell holds one row
+      cell-bytes: 512          # a row that does not fit is refused at ingest, not buffered
+    arena:
+      slab-bytes: 4194304      # 4 MiB
+      max-slabs: 8
+```
+
+| Key | Default | What it decides |
+|---|---|---|
+| `pravaha.lane.batch-size` | 512 | Rows drained from the inbox per step |
+| `pravaha.lane.wait-strategy` | `BACKOFF_PARK` | How a lane waits when its inbox is empty |
+| `pravaha.lane.inbox.cells` | 2048 | Ring cells, so how deep the buffer is |
+| `pravaha.lane.inbox.cell-bytes` | 512 | The widest row that can be ingested at all |
+| `pravaha.lane.arena.slab-bytes` | 4194304 | Off-heap slab size, and the largest single output row |
+| `pravaha.lane.arena.max-slabs` | 8 | The lane arena's ceiling, `slab-bytes × max-slabs` |
+
+**The arithmetic.** Off-heap per query, with no rows moving:
+
+| | Bytes | Default |
+|---|---|---|
+| Inbox | `inbox.cells × inbox.cell-bytes` | 2048 × 512 = **1,024 KiB** |
+| Lane arena | up to `arena.slab-bytes × arena.max-slabs`, **allocated on the first row, not at registration** | 0 idle, 4 MiB per slab once it writes |
+| Pipeline arena | sized from the plan's widest output row × `batch-size` | 284 KiB for a four-column schema |
+
+So an **idle** query holds its inbox and nothing else — `NodeScaleTest` measures **1,024 KiB**, down
+from about 5 MiB before the first slab became lazy (W9-6) — and an **active** one measured
+**1,328 KiB** on the same schema (W9-7). A thousand idle queries is therefore about a gigabyte, not
+five.
+
+**Sizing down.** A query reading a narrow projection does not need a 4 MiB slab or a 512-byte cell:
+
+```yaml
+pravaha:
+  lane:
+    arena: { slab-bytes: 262144 }   # 256 KiB
+    inbox: { cells: 256, cell-bytes: 256 }
+```
+
+That is 64 KiB per idle query — about **64 MB** for the same thousand, and a few hundred megabytes
+once they are all active. Two rules when sizing down, and both fail loudly rather than quietly:
+
+- a **cell must fit the widest row the query will see** — a row that does not fit is refused at
+  ingest (`PRV-3001`, and the message names `pravaha.lane.inbox.cell-bytes`);
+- the **arena must fit one batch of output rows** — `batch-size × widest output row` — or the batch
+  exhausts it (`PRV-3001`, naming `pravaha.lane.arena.slab-bytes` or `pravaha.lane.batch-size`).
+
+The node logs its lane sizing at startup, so what it is actually running with is in the log rather
+than inferred from the file.
+
+**Threads do not enter this arithmetic.** A query costs no platform thread of its own: lanes share a
+fixed runner pool of one thread per core, the periodic work shares one process-wide clock, and the
+feed loop and Flight's call executor are virtual. The one exception is the Aerospike plugin, which
+builds an `AerospikeClient` per registration and so a `tend` thread per registration — the only
+per-query platform thread left on the node, and it is in the connector the product leads with
+(SRC-2, open).
+
+## File descriptors
+
+**The ceiling a node holding many sources reaches first**, and until SRC-4 nothing here read,
+checked, reported or documented it. One bound source costs about **one descriptor**, held for the
+life of the query. At the common default of `ulimit -n 1024` that lands somewhere under a thousand
+sources — the same order of magnitude as the target, not a distant ceiling.
+
+The node now says so at startup:
+
+```
+file descriptors: 148 of 1024 file descriptors in use, 876 remaining -- one bound source costs
+about one, so this is roughly the ceiling on how many sources this node can hold
+```
+
+and a source that fails to open while the process is near that ceiling gets an extra sentence naming
+`ulimit -n` and `LimitNOFILE` rather than sending the reader to the network. Measured under a real
+`ulimit -n 300`: silent at 6 of 300, and saying so at 280 of 300.
+
+Two failures still name the wrong thing when they are really exhaustion, and the message is what you
+will see first:
+
+| | |
+|---|---|
+| `PRV-5040 FILESYSTEM_DECODE_FAILED cannot open <path>` | A decode code for a resource exhaustion. The path it names is correct; the category is not (SRC-4, code unchanged) |
+| `PRV-5080 AEROSPIKE_CONNECT_FAILED ... Check the host list, that the cluster is up, ...` | Every remedy in that sentence is wrong when the cause is descriptors. The Aerospike client's exception carries no cause, so this cannot be improved by catching it — the descriptor line above is the diagnosis |
 
 ## Admission control
 
@@ -262,6 +360,35 @@ should get three tolerances rather than the worst of them. Configuration does th
 time. Without it every row carries the time it was read, the watermark runs at wall-clock, and a
 windowed query reports `RUNNING` over an empty view for ever.
 
+### How hard a source is polled
+
+**Aerospike: `scan.interval.ms`, one second by default.** The plugin is scan-only (ADR-029), and
+until SRC-8 there was no interval at all: `LutScanReader.scan()` started a new scan whenever `poll()`
+found its buffer empty, and the feed polls every millisecond. Measured against a real Aerospike
+Community node, **one** continuous query over a 200-record set produced **43–153 scans per second**
+across runs and took the cluster's own `process_cpu_pct` from 1% to **203%** — with nothing changing
+in the set. Four queries took it to 388–579%.
+
+```yaml
+pravaha:
+  sources:
+    txn:
+      plugin: aerospike
+      options:
+        scan.interval.ms: 1000     # the default; 0 restores the old flat-out behaviour
+```
+
+It is **1.0 scans per second** now, and four queries are 3.8 — linear, where the rate previously
+fell per query because the cluster was saturated. `records.per.second` is a different knob: it
+throttles records *within* a scan and never throttled how often one started. Raise the interval on a
+shared cluster; the cost of raising it is staleness, bounded by the interval.
+
+**Filesystem with `follow: true` costs about 13 ms of CPU per second per source while completely
+idle** — a `stat` and a `read` a thousand times a second, whether or not anything was written.
+Measured at 100 followed files: 12.8 ms/s each; at 50: 16.9 ms/s each. A hundred idle followed files
+is 1.8 cores. This is open (SRC-6), and it is the number to remember before binding hundreds of
+followed files to one node.
+
 ### Idle timeout: how long a partition may say nothing
 
 A query's watermark is the **minimum across its partitions** — necessary, because if one is behind,
@@ -321,9 +448,22 @@ queries had no lane, no arena, no checkpointing and no watermarks.
 `false` when that inbox is full, which is backpressure rather than an error. Anything needing a row
 reflected in the view before it reads waits with `awaitApplied`.
 
-**One lane per query, so one thread per query.** Fine at tens of queries. Keyed aggregates are
-single-lane anyway (ADR-034), and ADR-027's plan for a lane to multiplex several queries is what
-this wants before it reaches hundreds.
+**One lane per query — but not one thread per query, since W9-4/W9-5.** `QueryRegistry` owns a
+single `LaneRunner`: a fixed pool of platform threads, **one per core**, that drives every lane in
+turn. Confinement is unchanged — a lane belongs to one runner thread from the moment it is hosted
+until it is removed, and a runner steps its lanes sequentially — so the single-writer rules still
+hold. What changed is the arithmetic: `NodeScaleTest` measures **200 queries adding 24 platform
+threads**, 0.12 each, where the same workload cost 400 before this wave (a lane and a watermark
+clock each). Ten times as many queries adds none.
+
+A lane still runs exactly *one* query's pipeline. `LaneMultiplexer` — which would put many pipelines
+on one lane and so share the inbox and arena as well as the thread — is built and wired to nothing
+(W9-8). Keyed aggregates remain single-lane (ADR-034).
+
+**The periodic work is one timer for the process.** `SharedClock` keeps time on a single daemon
+thread and fires each query's watermark advance and each checkpoint on a *virtual* thread, so a slow
+lane or a slow disk parks its own tick instead of stalling every other query's clock. Before this
+each registration had two `newSingleThreadScheduledExecutor`s of its own.
 
 **Sources feed it.** A binding under `pravaha.sources.<stream>` is opened per computation when the
 first query naming that stream registers, and its rows go into the lane. A query whose streams have
@@ -367,10 +507,19 @@ Prometheus metrics are at `/actuator/prometheus`. Per continuous query:
 |---|---|
 | `pravaha_query_running{query=}` | Is it alive — 1 running, 0 terminal |
 | `pravaha_query_rows_in{query=}` | Is anything arriving |
+| `pravaha_query_state_held{query=}` | Accumulators and join rows the query holds **now** |
+| `pravaha_query_state_ceiling{query=}` | What those are refused at. Zero means the plan has no bounded state at all, which is not the same as empty |
+| `pravaha_query_state_fraction{query=}` | The ratio, 0 to 1. **The one to alert on** — `PRV-4001` used to be the first anybody heard of a query's state, and the query at nine tenths could not be seen at all (ADR-037 B1) |
 | `pravaha_query_view_size{query=}` | How many keys the view holds |
 | `pravaha_query_view_evicted{query=}` | What retention has removed. **Flat at zero on a long-running query** means either nothing is old enough yet or retention is longer than anyone intended |
-| `pravaha_query_view_updates` / `_removals` | Corrections and retractions applied |
+| `pravaha_query_view_updates` | Corrections applied |
+| `pravaha_query_view_removals` | Retractions applied |
 | `pravaha_query_watermark_lag_seconds{query=}` | How far behind **event time** it is |
+
+`state_held` and `state_ceiling` are counted in the units the ceiling is expressed in —
+accumulators for a windowed aggregate, rows for a join — **not in bytes**. They are what
+`PRV-4001 STATE_TOO_LARGE` compares, so a query at `state_fraction` 0.9 is the one worth acting on
+before it is refused.
 
 Lag is event-time lag, not processing latency: a query can be fast and still far behind, because
 this measures the data rather than the engine. A query that has never seen a row reports `NaN`, not
@@ -572,8 +721,16 @@ Node upgrades are a stop and start — there is no clustering to roll through.
 
 Listed because you will meet them, not to be thorough:
 
-- **No engine-internal metrics.** Per-query gauges are published (see *Watching a running node*);
-  lane throughput and backpressure are not
+- **No engine-internal metrics.** Per-query gauges are published (see *Watching a running node*),
+  including state against its ceiling; lane throughput and backpressure are not
+- **State is refused, not degraded.** A query that reaches its ceiling still dies with `PRV-4001`
+  and takes its lane with it. Wave 9 made the ceiling visible before it arrives (ADR-037 B1); the
+  on-disk tier that would let the query keep running slower instead is B2, scoped and not started
+- **A lane still runs one query.** The thread is shared (`LaneRunner`); the inbox and the arena are
+  not, so per-query off-heap is still ~1 MiB idle. `LaneMultiplexer` is the answer and is wired to
+  nothing, blocked on the row header (W9-8, W9-9)
+- **N Aerospike-backed queries over one set are N scans**, each throttled to `scan.interval.ms` but
+  none of them shared. One reader per *binding* is designed and not built (SRC-3)
 - **No clustering, no rebalance, no multi-node execution.** Deferred under
   [ADR-034](adr/034-distribution-deferred.md); Wave 8 bought survival on one node, not
   distribution across several ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)). The

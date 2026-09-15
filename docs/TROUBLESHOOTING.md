@@ -146,13 +146,20 @@ schema is where you stop yourself.
 | | |
 |---|---|
 | `PRV-4022` view too large | Retention is applied *before* this check, so hitting it means either the view keeps everything and should not, or the window genuinely holds more rows than the ceiling. The message says which |
-| `PRV-4001` state too large | An operator's state passed its ceiling |
+| `PRV-4001` state too large | An operator's state passed its ceiling, and the lane it was running on dies with it. **Do not meet this for the first time here**: `pravaha_query_state_fraction` reports how full every query is, and `_held` / `_ceiling` report the two numbers behind it. Alert at 0.9. Spilling to disk instead of failing is ADR-037 B2 and is not built — a query that hits the ceiling still stops |
 | `PRV-4003` state not ours | Another node owns this checkpoint directory or registry journal, or a second instance of this node is running. The message names the holder's node id, host, port and how long ago it was last seen. Give this node its own directory, stop the other instance, or set `pravaha.state.allow-shared=true` if sharing really is intended. A node reclaiming *its own* state after a crash does **not** hit this: an expired claim under the same node id is taken over automatically |
 | `PRV-4004` ownership marker unreadable | The `.pravaha-owner` file in a state directory exists and cannot be read, written, or names no node. Refused rather than assumed free, because a truncated marker and an absent one mean different things. Delete it only if the directory is genuinely unowned |
-| `PRV-3001` arena exhausted | Off-heap arena full — usually a batch far larger than expected |
+| `PRV-3001` arena exhausted | Off-heap arena full — usually a batch far larger than expected, or a slab sized for narrower rows than the query produces. The message names the setting to change: `pravaha.lane.arena.slab-bytes`, or `pravaha.lane.batch-size` to make each batch smaller. The rule is `batch-size × widest output row` must fit one slab. A *row* that does not fit an inbox cell is the same code from the ingest side and names `pravaha.lane.inbox.cell-bytes` instead. These are real settings as of ADR-036; until then eleven messages named `arena.slab.size` and `lane.inbox.cell.size`, neither of which existed (PF-3) |
+| Too many open files | One bound source costs about one descriptor. The node logs its descriptor ceiling at startup, and a source that fails to open near that ceiling gets a sentence naming `ulimit -n` and `LimitNOFILE`. Two codes still name the wrong thing when descriptors are the real cause: `PRV-5040 FILESYSTEM_DECODE_FAILED` (a decode code for a resource exhaustion) and `PRV-5080 AEROSPIKE_CONNECT_FAILED`, whose every suggested remedy is wrong in that case — the Aerospike client's exception carries no cause, so it cannot be told apart by catching it (SRC-4) |
 | Disk growing | **Not checkpoints, unless you configured it that way.** `PeriodicCheckpointer` prunes after every checkpoint, keeping the newest `pravaha.checkpoint.keep` (default 3) per query; this row used to say nothing called `prune`, and something does. Check `pravaha.checkpoint.keep`, and then the registry journal, which grows until it is compacted. See [`OPERATIONS.md`](OPERATIONS.md) |
 
 ## Connection problems
+
+**The Aerospike cluster is at 200–300% CPU and nothing is changing in the set.** One continuous
+query used to scan the set as fast as the cluster would answer, for ever — there was no scan
+interval. There is one now: `scan.interval.ms`, one second by default, under the source's `options`.
+Raise it on a shared cluster; the cost is staleness bounded by the interval. `records.per.second` is
+a different knob and throttles records *within* a scan, which is why it never helped here.
 
 **Aerospike connects and then hangs.** Run the container with `--network host`. A containerised node
 reports its *bridge* address to clients, so the client connects to the seed and is then redirected

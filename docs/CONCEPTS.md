@@ -21,9 +21,15 @@ pravaha query    --sql "SELECT * FROM card_velocity WHERE card_id = ?" --params 
 ```
 
 The consequence worth internalising: **registering is expensive and querying is cheap.** A
-registration commits the node to memory and a share of every lane for as long as it exists. That is
+registration commits the node to memory and to a share of a lane for as long as it exists. That is
 why registering is authorized separately from reading, and why an anonymous caller may read but not
 register.
+
+What it costs, measured rather than asserted: about **1 MiB of off-heap while idle** and **1.3 MiB
+once rows are moving**, ~65 KiB of heap, ~16 ms to register (mostly planning), and — since the lanes
+were multiplexed onto a shared runner pool — **no platform thread of its own**. A node's thread count
+follows its cores, not its query count. Sizing is under `pravaha.lane.*`; see
+[Operations](OPERATIONS.md#sizing-a-node-for-many-queries).
 
 ## 2. Event time, not clock time
 
@@ -165,6 +171,11 @@ are bounded; only one is allowed to change what you get back.
 And where the engine cannot bound something at all, it **refuses the query**: `GROUP BY user_id`
 with no window keeps one accumulator per key forever, so it is rejected at planning (`PRV-2050`)
 rather than deployed to fail months later.
+
+A ceiling you cannot see coming is a ceiling you meet as an outage, so each query now reports what it
+holds against what it may hold — `pravaha_query_state_held`, `_ceiling` and `_fraction`. Alert on the
+fraction; `PRV-4001` used to be the first news anybody had of a query's state, and the query at nine
+tenths of the way there was invisible.
 
 ## 8. Registration and subscription are separate
 

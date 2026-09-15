@@ -231,7 +231,7 @@ each individually valid but do not match each other lets the node start and repo
   clustering ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)), and a standby talks to
   a directory rather than to its primary, so there is no node-to-node channel to secure yet
 - **Secret management integration** (`SecretProvider` SPI in the design) — not built
-- **Security review and SBOM** — Wave 10
+- **Security review and SBOM** — Wave 11 (the GA wave, which moved down one when ADR-036 inserted the scale wave)
 
 ## A conditional entitlement cannot subscribe
 
