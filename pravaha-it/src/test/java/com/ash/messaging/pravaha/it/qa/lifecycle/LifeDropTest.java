@@ -41,16 +41,17 @@ class LifeDropTest extends LifecycleTestSupport {
 
     @Test
     void life062_droppingTheSoleNameReleasesTheComputation() {
-        long before = queryLaneThreadCount();
+        long before = computations(registry);
         registry.register("v1", S1, List.of(0), Principal.ANONYMOUS);
         push("v1", 1, "ann", 100, 1);
-        assertThat(awaitQueryLaneThreadCount(before + 1, Duration.ofSeconds(2))).isEqualTo(before + 1);
+        assertThat(awaitComputations(registry, before + 1, Duration.ofSeconds(2)))
+                .isEqualTo(before + 1);
 
         registry.drop("v1");
 
         assertThat(registry.names()).isEmpty();
         assertThatThrownBy(() -> rows("SELECT usr FROM v1")).isInstanceOf(RuntimeException.class);
-        assertThat(awaitQueryLaneThreadCount(before, Duration.ofSeconds(2))).isEqualTo(before);
+        assertThat(awaitComputations(registry, before, Duration.ofSeconds(2))).isEqualTo(before);
     }
 
     @Test
@@ -256,7 +257,7 @@ class LifeDropTest extends LifecycleTestSupport {
 
     @Test
     void life074_fiftyRegisterDropCyclesLeakNothing() {
-        long threadsBefore = queryLaneThreadCount();
+        long threadsBefore = computations(registry);
         for (int cycle = 0; cycle < 50; cycle++) {
             String name = "v_" + cycle;
             registry.register(name, S1 + " WHERE id > " + (-cycle - 1), List.of(0), Principal.ANONYMOUS);
@@ -267,7 +268,7 @@ class LifeDropTest extends LifecycleTestSupport {
             registry.drop(name);
         }
         assertThat(registry.names()).isEmpty();
-        assertThat(awaitQueryLaneThreadCount(threadsBefore, Duration.ofSeconds(3)))
+        assertThat(awaitComputations(registry, threadsBefore, Duration.ofSeconds(3)))
                 .isEqualTo(threadsBefore);
     }
 

@@ -217,19 +217,20 @@ class LifePauseTest extends LifecycleTestSupport {
 
     @Test
     void life052_aPausedQueryStillHoldsItsLane() {
-        long before = queryLaneThreadCount();
+        long before = computations(registry);
         registry.register("v1", S1, List.of(0), Principal.ANONYMOUS);
-        assertThat(awaitQueryLaneThreadCount(before + 1, Duration.ofSeconds(2))).isEqualTo(before + 1);
+        assertThat(awaitComputations(registry, before + 1, Duration.ofSeconds(2)))
+                .isEqualTo(before + 1);
 
         registry.pause("v1");
-        assertThat(queryLaneThreadCount())
+        assertThat(computations(registry))
                 .as("pause stops work, not the lane thread itself")
                 .isEqualTo(before + 1);
     }
 
     @Test
     void life053_pauseAndResumeFiftyTimesLeaksNothing() {
-        long threadsBefore = queryLaneThreadCount();
+        long threadsBefore = computations(registry);
         registry.register("v1", S1, List.of(0), Principal.ANONYMOUS);
         long id = 0;
         for (int cycle = 0; cycle < 50; cycle++) {
@@ -242,7 +243,7 @@ class LifePauseTest extends LifecycleTestSupport {
         assertThat(registry.require("v1").rowsIn())
                 .as("V-rows: the source kept advancing across all 50 cycles")
                 .isEqualTo(50);
-        assertThat(queryLaneThreadCount())
+        assertThat(computations(registry))
                 .as("still exactly one lane thread after 50 pause/resume cycles")
                 .isEqualTo(threadsBefore + 1);
     }

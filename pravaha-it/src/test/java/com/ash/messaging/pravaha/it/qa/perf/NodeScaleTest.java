@@ -71,7 +71,9 @@ final class NodeScaleTest {
     private static final int QUERIES = 200;
 
     /**
-     * Platform threads per query that this build is allowed to cost.
+     * Retained for the report line only; the assertion is an absolute bound on threads.
+     *
+     * <p>Platform threads per query that this build is allowed to cost.
      *
      * <p>A ratchet, and it may only fall. **Measured at exactly 1.00**: the lane. The feed is virtual
      * since W9-2, and the two schedulers W9-3 records -- the watermark clock and the checkpointer --
@@ -131,13 +133,18 @@ final class NodeScaleTest {
                     heapDuring / 1024,
                     heapEachKb);
 
-            assertThat(threadsEach)
+            // Bounded by cores, not by queries -- which is the whole of ADR-027 and the difference
+            // between holding tens and holding thousands. Asserted as an absolute rather than a
+            // ratio on purpose: a per-query ratio passes trivially by registering more queries, and
+            // would have been satisfied by the very design this replaced.
+            long cores = Runtime.getRuntime().availableProcessors();
+            assertThat(threadsDuring - threadsBefore)
                     .as(
-                            "%d queries added %d platform threads (%.2f each). This is the number that decides "
-                                    + "how many continuous queries one instance holds, and it may only fall: a lane "
-                                    + "each is ADR-027's multiplexing, and two schedulers each is W9-3",
-                            QUERIES, threadsDuring - threadsBefore, threadsEach)
-                    .isLessThanOrEqualTo(PLATFORM_THREADS_PER_QUERY);
+                            "%d queries added %d platform threads (%.2f each) on a %d-core machine. Before "
+                                    + "ADR-027's multiplexing this was exactly one per query; it is now the "
+                                    + "runner's fixed set, and registering ten times as many adds none",
+                            QUERIES, threadsDuring - threadsBefore, threadsEach, cores)
+                    .isLessThanOrEqualTo(2 * cores);
 
             // Registered is not enough: a query that cannot answer is not a query. Spot-check the
             // ends rather than all of them, because reading every view is a different test.

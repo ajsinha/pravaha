@@ -233,7 +233,7 @@ class LifeNamesTest extends LifecycleTestSupport {
     @Test
     void life020_aNameIsRefusedAndNothingIsLeftBehind() {
         int namesBefore = registry.names().size();
-        long threadsBefore = queryLaneThreadCount();
+        long threadsBefore = computations(registry);
 
         List<String> refusedNames = List.of("primary", "has space", "1leading", "../evil", "select", "user", "group");
         for (String name : refusedNames) {
@@ -247,19 +247,19 @@ class LifeNamesTest extends LifecycleTestSupport {
         assertThat(registry.names())
                 .as("50 failed registrations leak nothing into the listing")
                 .hasSize(namesBefore);
-        assertThat(awaitQueryLaneThreadCount(threadsBefore, java.time.Duration.ofSeconds(1)))
+        assertThat(awaitComputations(registry, threadsBefore, java.time.Duration.ofSeconds(1)))
                 .as("no lane thread was started for a registration that never got past its name")
                 .isEqualTo(threadsBefore);
 
         // Control: a successful registration between the baselines must move both numbers, and
         // dropping it must return them -- proving these counters measure what the case claims.
         registry.register("v_ok", S1, List.of(0), Principal.ANONYMOUS);
-        assertThat(awaitQueryLaneThreadCount(threadsBefore + 1, java.time.Duration.ofSeconds(2)))
+        assertThat(awaitComputations(registry, threadsBefore + 1, java.time.Duration.ofSeconds(2)))
                 .isEqualTo(threadsBefore + 1);
         assertThat(registry.names()).hasSize(namesBefore + 1);
         registry.drop("v_ok");
         assertThat(registry.names()).hasSize(namesBefore);
-        assertThat(awaitQueryLaneThreadCount(threadsBefore, java.time.Duration.ofSeconds(2)))
+        assertThat(awaitComputations(registry, threadsBefore, java.time.Duration.ofSeconds(2)))
                 .isEqualTo(threadsBefore);
     }
 }

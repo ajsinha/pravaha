@@ -46,12 +46,13 @@ class LifeSharingTest extends LifecycleTestSupport {
 
     @Test
     void life083_twoIdenticalQueriesAreOneComputationWithTwoNames() {
-        long before = queryLaneThreadCount();
+        long before = computations(registry);
         registry.register("a", S1, List.of(0), Principal.ANONYMOUS);
-        assertThat(awaitQueryLaneThreadCount(before + 1, Duration.ofSeconds(2))).isEqualTo(before + 1);
+        assertThat(awaitComputations(registry, before + 1, Duration.ofSeconds(2)))
+                .isEqualTo(before + 1);
 
         registry.register("b", S1, List.of(0), Principal.ANONYMOUS);
-        assertThat(queryLaneThreadCount())
+        assertThat(computations(registry))
                 .as("the second name costs zero additional threads")
                 .isEqualTo(before + 1);
         assertThat(registry.require("a").fingerprint())
@@ -60,7 +61,7 @@ class LifeSharingTest extends LifecycleTestSupport {
         assertThat(registry.size()).isEqualTo(1);
 
         registry.register("c", S1 + " WHERE id > 0", List.of(0), Principal.ANONYMOUS);
-        assertThat(queryLaneThreadCount())
+        assertThat(computations(registry))
                 .as("a genuinely different query raises the thread count again, proving the counter moves")
                 .isEqualTo(before + 2);
     }
@@ -324,11 +325,11 @@ class LifeSharingTest extends LifecycleTestSupport {
 
     @Test
     void life095_tenRegistrationsOfOneQueryCostOneLane() {
-        long before = queryLaneThreadCount();
+        long before = computations(registry);
         for (int i = 1; i <= 10; i++) {
             registry.register("n" + i, S1, List.of(0), Principal.ANONYMOUS);
         }
-        assertThat(awaitQueryLaneThreadCount(before + 1, Duration.ofSeconds(2)))
+        assertThat(awaitComputations(registry, before + 1, Duration.ofSeconds(2)))
                 .as("ten names, one lane")
                 .isEqualTo(before + 1);
 
@@ -341,23 +342,24 @@ class LifeSharingTest extends LifecycleTestSupport {
         for (int i = 1; i <= 10; i++) {
             registry.register("m" + i, S1 + " WHERE id > " + (-i - 1), List.of(0), Principal.ANONYMOUS);
         }
-        assertThat(awaitQueryLaneThreadCount(before + 11, Duration.ofSeconds(2)))
+        assertThat(awaitComputations(registry, before + 11, Duration.ofSeconds(2)))
                 .as("ten genuinely different queries: threads rise to eleven")
                 .isEqualTo(before + 11);
     }
 
     @Test
     void life096_tenSharesDroppedOneAtATimeReleaseOnTheTenth() {
-        long before = queryLaneThreadCount();
+        long before = computations(registry);
         for (int i = 1; i <= 10; i++) {
             registry.register("n" + i, S1, List.of(0), Principal.ANONYMOUS);
         }
         push("n1", 1, "ann", 100, 1);
-        assertThat(awaitQueryLaneThreadCount(before + 1, Duration.ofSeconds(2))).isEqualTo(before + 1);
+        assertThat(awaitComputations(registry, before + 1, Duration.ofSeconds(2)))
+                .isEqualTo(before + 1);
 
         for (int i = 1; i <= 9; i++) {
             registry.drop("n" + i);
-            assertThat(queryLaneThreadCount())
+            assertThat(computations(registry))
                     .as("the lane survives drops 1..9")
                     .isEqualTo(before + 1);
             String survivor = "n" + (i + 1);
@@ -366,7 +368,7 @@ class LifeSharingTest extends LifecycleTestSupport {
                     .hasSize(1);
         }
         registry.drop("n10");
-        assertThat(awaitQueryLaneThreadCount(before, Duration.ofSeconds(2)))
+        assertThat(awaitComputations(registry, before, Duration.ofSeconds(2)))
                 .as("released on the tenth drop")
                 .isEqualTo(before);
     }
@@ -411,7 +413,8 @@ class LifeSharingTest extends LifecycleTestSupport {
                 .journalTo(new com.ash.messaging.pravaha.registry.RegistryJournal(journalFile));
         try {
             journalled.register("a", S1, List.of(0), Principal.ANONYMOUS);
-            long before = queryLaneThreadCount();
+            // This case has its own registry; the shared field is not the one under test here.
+            long before = computations(journalled);
 
             java.nio.file.Path brokenJournal = tempDir.resolve("broken-is-a-dir.log");
             java.nio.file.Files.createDirectory(brokenJournal);
@@ -428,7 +431,7 @@ class LifeSharingTest extends LifecycleTestSupport {
             // pinned open forever.
             journalled.journalTo(new com.ash.messaging.pravaha.registry.RegistryJournal(journalFile));
             journalled.drop("a");
-            assertThat(awaitQueryLaneThreadCount(before - 1, Duration.ofSeconds(2)))
+            assertThat(awaitComputations(journalled, before - 1, Duration.ofSeconds(2)))
                     .isEqualTo(before - 1);
         } finally {
             journalled.close();
@@ -447,7 +450,7 @@ class LifeSharingTest extends LifecycleTestSupport {
         QueryRegistry journalled = new QueryRegistry(views, TXN)
                 .journalTo(new com.ash.messaging.pravaha.registry.RegistryJournal(brokenJournal));
         try {
-            long before = queryLaneThreadCount();
+            long before = computations(registry);
             for (int i = 0; i < 5; i++) {
                 String name = "v" + i;
                 String sql = S1 + " WHERE id > " + (-i - 1);
@@ -457,7 +460,7 @@ class LifeSharingTest extends LifecycleTestSupport {
                         .hasMessageContaining("8006");
             }
             assertThat(journalled.names()).isEmpty();
-            assertThat(awaitQueryLaneThreadCount(before, Duration.ofSeconds(2)))
+            assertThat(awaitComputations(registry, before, Duration.ofSeconds(2)))
                     .as("no lane thread survives any of the five failed registrations")
                     .isEqualTo(before);
         } finally {

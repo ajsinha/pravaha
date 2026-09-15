@@ -5616,7 +5616,7 @@ Three things this had to get right, each with a test:
 
 ### W9-5 (HIGH) — the registry still gives every query its own lane thread
 
-> **Status:** OPEN — `LaneRunner` exists and nothing uses it. `QueryRegistry` calls `QueryExecution.start(plan, 1, ...)`, which builds a `LaneGroup` that starts each lane on a thread of its own.
+> **Status:** FIXED — `QueryRegistry` owns one `LaneRunner` and hosts every query's lane on it. `NodeScaleTest` measures the result: **200 queries added 24 platform threads, 0.12 each, down from 1.00** — and 24 is one per core, fixed, so ten times as many queries adds none. The assertion is now an absolute bound (threads added ≤ 2 × cores) rather than a per-query ratio, because a ratio passes trivially by registering more queries and would have been satisfied by the design this replaced.
 
 The mechanism is built and proven (W9-4); what remains is for the registry to own one runner and host
 every query's lane on it. That is where `NodeScaleTest`'s ratchet falls from 1.00 platform threads per

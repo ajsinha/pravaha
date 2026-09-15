@@ -157,23 +157,33 @@ abstract class LifecycleTestSupport {
     static final Principal ALICE = Principal.of("alice");
     static final Principal HR = Principal.of("hr");
 
-    /** Threads whose name starts with the registry's lane prefix -- one per running query. */
-    static long queryLaneThreadCount() {
-        return Thread.getAllStackTraces().keySet().stream()
-                .filter(t -> t.getName().startsWith("pravaha-query"))
-                .count();
+    /**
+     * Distinct computations the registry holds -- one per fingerprint, however many names point at it.
+     *
+     * <p>This counted threads named {@code pravaha-query*}, one per running query, which was a fair
+     * proxy while a lane owned a thread. ADR-027's multiplexing removed those threads: lanes are now
+     * driven by a fixed set of runner threads, so the proxy reads zero however many queries are
+     * registered.
+     *
+     * <p>Asking the registry is what these cases meant anyway. "Ten names cost one lane" is a claim
+     * about sharing, and counting computations states it directly instead of inferring it from a
+     * thread that happened to exist per computation.
+     */
+    static long computations(QueryRegistry registry) {
+        return registry.size();
     }
 
     /**
-     * Polls {@link #queryLaneThreadCount()} until it settles, rather than reading it the instant
-     * after a close() call. A lane thread's own shutdown is asynchronous, so a bare read racing it
-     * is a source of flakiness that has nothing to do with the leak the case is checking for.
+     * Polls {@link #computations(QueryRegistry)} until it reaches {@code expected}.
+     *
+     * <p>Kept polling rather than read once: a drop releases its computation asynchronously, and a
+     * bare read racing that is a source of flakiness with nothing to do with the leak being checked.
      */
-    static long awaitQueryLaneThreadCount(long expected, Duration timeout) {
+    static long awaitComputations(QueryRegistry registry, long expected, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         long last;
         do {
-            last = queryLaneThreadCount();
+            last = computations(registry);
             if (last == expected) {
                 return last;
             }

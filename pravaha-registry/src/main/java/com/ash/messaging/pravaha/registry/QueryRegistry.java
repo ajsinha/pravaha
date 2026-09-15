@@ -93,6 +93,32 @@ public final class QueryRegistry implements AutoCloseable {
      * <p>{@code BACKOFF_PARK} is what {@code WaitStrategy} documents for exactly this, and nothing
      * ever selected it.
      */
+    /**
+     * The threads every query's lane runs on, created on first use and shared by all of them.
+     *
+     * <p>ADR-027. A lane used to own a thread, so a thousand registrations were a thousand platform
+     * threads -- which is what "fine at tens" meant and why it was true. A runner drives many lanes
+     * from a fixed set of threads, sized by cores, so the count stops following the registrations.
+     *
+     * <p>Confinement is unchanged and is the reason this is a runner rather than a pool: a lane
+     * belongs to one runner thread from the moment it is hosted until it is dropped, and a runner
+     * steps its lanes one at a time. Nothing about the lock-free hot path changes.
+     *
+     * <p>Lazily created so a registry that never registers anything starts no threads, which is what
+     * a great many of this project's tests are.
+     */
+    private volatile com.ash.messaging.pravaha.runtime.lane.LaneRunner laneRunner;
+
+    private synchronized com.ash.messaging.pravaha.runtime.lane.LaneRunner laneRunner() {
+        if (laneRunner == null) {
+            laneRunner = new com.ash.messaging.pravaha.runtime.lane.LaneRunner(
+                    com.ash.messaging.pravaha.runtime.lane.LaneRunner.defaultThreads(),
+                    "pravaha-lane-runner",
+                    laneConfig.waitStrategy());
+        }
+        return laneRunner;
+    }
+
     private LaneConfig laneConfig = LaneConfig.defaults()
             .withWaitStrategy(com.ash.messaging.pravaha.common.queue.WaitStrategy.Kind.BACKOFF_PARK)
             .withThreads("pravaha-query", true);
@@ -597,7 +623,7 @@ public final class QueryRegistry implements AutoCloseable {
         // had no lane, no arena, no checkpointing and no watermarks: everything the runtime offers
         // belonged to the other path, and the server ran this one.
         QueryExecution execution = QueryExecution.start(
-                        plan, 1, laneConfig, access, () -> (RowOutput) sink::begin, lookups)
+                        plan, 1, laneConfig, access, () -> (RowOutput) sink::begin, lookups, laneRunner())
                 // The view goes in the checkpoint too. A filter or a projection has no operator
                 // accumulators, so the view is the entire answer -- and a restart that restored
                 // offsets without it resumed the source past every row it had read and served an
@@ -825,6 +851,14 @@ public final class QueryRegistry implements AutoCloseable {
         byName.clear();
         byFingerprint.clear();
         all.forEach(RegisteredQuery::close);
+        // After the queries, not before: a hosted lane's final step is what releases its arena and
+        // inbox, and only its runner may take that step. Closing the runner first would leave every
+        // lane unable to finish, and each close would time out blaming a stall that never happened.
+        com.ash.messaging.pravaha.runtime.lane.LaneRunner runner = laneRunner;
+        laneRunner = null;
+        if (runner != null) {
+            runner.close();
+        }
     }
 
     /**

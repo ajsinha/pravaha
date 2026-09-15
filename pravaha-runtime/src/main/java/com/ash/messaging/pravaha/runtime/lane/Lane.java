@@ -438,6 +438,12 @@ public final class Lane implements AutoCloseable {
         inBatch = false;
         running = false;
         closeQuietly();
+        // Last, and it must be here. A failed lane is dropped by its runner and never stepped
+        // again, so the shutdown branch that normally sets this is unreachable for it -- and
+        // close() would then wait out its whole timeout for a step that can never come, reporting
+        // a stall on a lane that had already finished failing. closeQuietly() above has released
+        // what it owned, so by this line there is genuinely nothing left to wait for.
+        drained = true;
     }
 
     // ---------------------------------------------------------------- producer side
@@ -960,10 +966,14 @@ public final class Lane implements AutoCloseable {
             if (!drained) {
                 throw new PravahaException(
                         RuntimeErrors.LANE_FAILED,
-                        "lane " + laneId + " did not finish its last step within " + config.shutdownTimeout()
-                                + " on the runner driving it, so the inbox and arena it owns cannot be released. "
-                                + "Another lane on that runner is most likely stuck in its processor -- which is "
-                                + "the cost of a shared thread, and the place to look.");
+                        // Opens with the same words as the unhosted message on purpose. A caller
+                        // asking "did this lane stop" should not have to know which of the two
+                        // threading modes it was in to recognise the answer.
+                        "lane " + laneId + " did not stop within " + config.shutdownTimeout()
+                                + ": its last step on the runner driving it has not finished, so the inbox and "
+                                + "arena it owns cannot be released. Another lane on that runner is most likely "
+                                + "stuck in its processor -- which is the cost of a shared thread, and the place "
+                                + "to look.");
             }
             return;
         }

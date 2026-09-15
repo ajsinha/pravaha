@@ -197,6 +197,17 @@ public final class LaneGroup implements AutoCloseable {
         lanes.forEach(Lane::start);
     }
 
+    /**
+     * Starts every lane on {@code runner} rather than on threads of their own (ADR-027).
+     *
+     * <p>A group's lanes may be spread across the runner's threads; they do not need to share one.
+     * What they must not do is run concurrently *with themselves*, and a runner never steps one lane
+     * from two threads.
+     */
+    public void startOn(LaneRunner runner) {
+        lanes.forEach(lane -> lane.startOn(runner));
+    }
+
     /** The exchange these lanes share, if there is more than one of them. */
     public java.util.Optional<LaneExchange> exchange() {
         return java.util.Optional.ofNullable(exchange);

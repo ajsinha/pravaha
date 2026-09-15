@@ -156,6 +156,25 @@ public final class QueryExecution implements AutoCloseable {
             MemoryAccess access,
             Supplier<RowOutput> sinkPerLane,
             Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups) {
+        return start(plan, laneCount, config, access, sinkPerLane, lookups, null);
+    }
+
+    /**
+     * Starts a query whose lanes are driven by {@code runner}, or by threads of their own if it is
+     * null.
+     *
+     * <p>ADR-027. A registry that hosts every query's lanes on one runner costs threads by its cores
+     * rather than by its registrations, which is the difference between holding tens of continuous
+     * queries and holding thousands.
+     */
+    public static QueryExecution start(
+            PhysicalOperator plan,
+            int laneCount,
+            LaneConfig config,
+            MemoryAccess access,
+            Supplier<RowOutput> sinkPerLane,
+            Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups,
+            com.ash.messaging.pravaha.runtime.lane.LaneRunner runner) {
 
         List<InterpretedPipeline> pipelines = new ArrayList<>(laneCount);
         List<String> streams = streamsOf(plan);
@@ -180,7 +199,11 @@ public final class QueryExecution implements AutoCloseable {
                     return new LanePipeline(pipeline, views, streams);
                 },
                 streams.size());
-        group.start();
+        if (runner == null) {
+            group.start();
+        } else {
+            group.startOn(runner);
+        }
         return new QueryExecution(group, pipelines, inputSchema[0], streams, plan, access);
     }
 
