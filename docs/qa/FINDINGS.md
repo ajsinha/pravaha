@@ -5,7 +5,7 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 142 FIXED, 138 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 138 open, **11 are
+status — 143 FIXED, 137 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 137 open, **10 are
 GA-BLOCKER, 24 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -28,7 +28,7 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 11 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-BLOCKER** | 10 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 24 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
@@ -40,8 +40,9 @@ and the audit that logs ALLOW for a refused read.) Silently wrong
 answers: `TIME-2`, `STRM-11`. (`TY-3` and `TY-13` are **fixed** — NaN outranking every value, and a
 literal that compiled to `Infinity`.) (`TY-21` and `I-3` are **fixed** — and both had
 been written down as correct somewhere: `win067` expected a total of 28 where the right answer is
-31, and three lifecycle cases asserted the sharing defect as intended behaviour.) Silent loss: `TY-2`, `W-2`,
-`TIME-4`, `TIME-1`. Declared and does nothing: `I-6`, `S-3`.
+31, and three lifecycle cases asserted the sharing defect as intended behaviour.) Silent loss: `TY-2`, `W-2`, `TIME-4`. (`TIME-1` is **fixed**; `TIME-4` was attempted and
+reverted — the skip needs a cancel path on `RowInbox` or a server DLQ key, not a change to the
+reader.) Declared and does nothing: `I-6`, `S-3`.
 
 **`SX-11`, the worst of them, is fixed.** Authorization was keyed on the *registered view name*,
 never on what the query actually reads, so a principal denied everything named "payroll" saw 6 of 8
@@ -3985,8 +3986,7 @@ the waiter bails out on it. Three fields, one order, and getting two of them rig
 
 ### TIME-1 (HIGH) — one stale event time makes the window emitter walk every window boundary since that timestamp, and the lane stops answering
 
-> **Status:** OPEN — reproduced twice on a real `pravaha-server` node. `SlicedWindows.windowsCompletedBetween` (`pravaha-runtime/.../window/SlicedWindows.java:104-120`) materialises one `ArrayList` entry per window end between the previous watermark and the new one, with no bound. Over `evPast.csv` (`evB.csv` plus one row at `event_time = 0`) with 10-second windows the loop runs ≈1.77×10^8 times on the lane thread; the view ends up holding the 1970 window alone instead of the eleven real ones, and shutdown reports `PRV-3010 lane 0 did not stop within PT5S`.
-> **Disposition:** GA-BLOCKER — one stale event time stops the lane
+> **Status:** FIXED — `windowsCompletedBetween` is bounded at 10,000,000 windows per advance and refuses beyond it with `PRV-3022 RUNTIME_WINDOW_SPAN_IMPLAUSIBLE`, naming the span, the two instants and the slide, and pointing the reader at the event-time column of the earliest row. **Refused rather than skipped**, deliberately: this class knows the shape of the windows and not which hold slices, so it cannot show the skipped ones are empty — and a lane that stops with a message beats one that quietly emits a different set of windows than the query asked for. The bound is generous by design (a day of one-second windows is 86,400; a year of hourly ones 8,760), because a bad timestamp is larger by orders of magnitude rather than by a factor. `SlicedWindowsTest` +4, including a day-long legitimate catch-up that must still fire; seed-proven by removing the bound, which fails 2.
 
 ```java
 long firstEnd = Math.floorDiv(previousWatermarkNanos, spec.slideNanos()) * spec.slideNanos() + spec.slideNanos();
@@ -4140,7 +4140,7 @@ query that is ingesting perfectly emits nothing for ever (TIME-035, TIME-037).
 
 ### TIME-4 (MEDIUM-HIGH) — one unparseable field reduces a source to zero rows, with no log line anywhere
 
-> **Status:** OPEN — reproduced on a live node. `evNull.csv` is `evB.csv` with row k=50's `event_time` replaced by an empty field. The stream delivered `ROWS IN` = **0** — not 120, not 121 — and the whole startup log contains no WARN or ERROR beyond the two unrelated ones about checkpoints and the journal.
+> **Status:** OPEN — **attempted and reverted on 2026-09-15, and the attempt found the real blocker.** Skipping the bad line needs `writer.abort()`, and on the no-DLQ path `DelegatingRowWriter.refuseAbort` throws `UnsupportedOperationException`: "a plugin aborted a row mid-write, which the ingest path cannot yet undo — the claimed inbox cell would stay unpublished and stall this lane". So the skip produced a *worse* failure than the one it replaced, and hid the decode message behind a "report this" that named nothing useful — which is precisely what the code comment there already warned would happen.
 > **Disposition:** GA-BLOCKER — one unparseable field takes a source to zero rows with no log line
 
 Setup: `$QA/conf/t017.yaml`, `ev` bound to `evNull.csv` with
@@ -4158,7 +4158,23 @@ null row — excluded from its window, or assigned by a zero stamp — and neith
 single bad line took the other 120 with it. A field spec is `NOT NULL` by default
 (`StreamSchema.sqlName()` renders `VARCHAR NOT NULL`), so refusing the row is defensible. Refusing
 the file is not, and doing it without a line in the log is the part that costs an operator an
-afternoon: the symptom is identical to a missing event-time declaration (TIME-002), to a lateness
+afternoon.
+
+**Two ways to fix it, and neither is a change to this reader.** Either `RowInbox` gains a cancel
+path so a claimed cell can be returned unpublished — which is what `DelegatingRowWriter`'s own
+message asks for — or a server gains the `pravaha.dlq.*` key it does not have (W8-11), so the
+guarded path that already works is the path a node actually takes. The second is smaller and closes
+this finding for every deployment; the first is what makes skipping possible at all when no DLQ is
+configured. **A workaround inside `FilesystemPartitionReader` is not one of the options**, and the
+comment there says so in as many words.
+
+**The reasoning behind the current behaviour was sound, which is why it lasted.** The reader already had a
+dead-letter path; when no DLQ is attached `reject()` answers false and the code rethrew, on the
+explicit principle that *a record is not dropped just because nobody arranged somewhere to put it*.
+That is right about the record and wrong about the file: the alternative it chose was losing every
+**other** record, silently. Skipping is only defensible because it is now counted, kept and logged
+— and a server still has no `pravaha.dlq.*` key (W8-11, open), so the no-DLQ path is the one every
+node actually takes: the symptom is identical to a missing event-time declaration (TIME-002), to a lateness
 larger than the data (TIME-035), and to a query whose watermark has frozen (TIME-8).
 
 ### TIME-5 (MEDIUM) — `tick` longer than `idle-after` starts a healthy node on which every registration fails

@@ -214,4 +214,53 @@ class SlicedWindowsTest {
         assertThatThrownBy(() -> new SlicedWindows(WindowSpec.session(30 * SECOND)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void oneStaleEventTimeIsRefusedRatherThanWalkedThrough() {
+        // TIME-1. The loop's length is (watermark - previousWatermark) / slide, and both ends of
+        // that subtraction come from the data. A single row timestamped at the epoch in a stream of
+        // present-day rows makes the first window start there; at a one-second slide that is on the
+        // order of a billion iterations, during which the lane does nothing else and looks hung.
+        SlicedWindows windows = new SlicedWindows(WindowSpec.tumbling(SECOND));
+        long now = java.time.Instant.parse("2026-09-15T00:00:00Z").getEpochSecond() * SECOND;
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> windows.windowsCompletedBetween(0L, now))
+                .as("a lane that stops with a message naming the span is worth more than one that "
+                        + "spins for an hour looking like a hang")
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-3022")
+                .hasMessageContaining("event time");
+    }
+
+    @Test
+    void theRefusalNamesTheSpanAndPointsAtTheEarliestRow() {
+        SlicedWindows windows = new SlicedWindows(WindowSpec.tumbling(SECOND));
+        long now = java.time.Instant.parse("2026-09-15T00:00:00Z").getEpochSecond() * SECOND;
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> windows.windowsCompletedBetween(0L, now))
+                .as("an operator needs to be sent to the data, not to the window configuration")
+                .hasMessageContaining("1970")
+                .hasMessageContaining("2026")
+                .hasMessageContaining("earliest row");
+    }
+
+    @Test
+    void aLongButLegitimateCatchUpIsStillFired() {
+        // The property the bound must not cost. A day of one-second windows is 86,400 -- well within
+        // the limit -- and a node that was down for a day must still emit every window it missed.
+        SlicedWindows windows = new SlicedWindows(WindowSpec.tumbling(SECOND));
+        long aDay = 24L * 60 * 60 * SECOND;
+
+        assertThat(windows.windowsCompletedBetween(0L, aDay))
+                .as("catching up after an outage is not the same shape as a bad timestamp: one is "
+                        + "large by a factor, the other by orders of magnitude")
+                .hasSize(86_400);
+    }
+
+    @Test
+    void anOrdinaryAdvanceIsUnchanged() {
+        SlicedWindows windows = new SlicedWindows(WindowSpec.tumbling(60 * SECOND));
+        assertThat(windows.windowsCompletedBetween(0L, 180 * SECOND))
+                .containsExactly(60 * SECOND, 120 * SECOND, 180 * SECOND);
+    }
 }

@@ -18,6 +18,9 @@ package com.ash.messaging.pravaha.runtime.window;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.runtime.RuntimeErrors;
+
 /**
  * The slicing arithmetic: which slice a record falls in, and which slices a window is made of.
  *
@@ -101,6 +104,16 @@ public final class SlicedWindows {
      * @param previousWatermarkNanos the watermark at the last firing
      * @param watermarkNanos the watermark now
      */
+    /**
+     * The most windows one watermark advance may fire.
+     *
+     * <p>Generous on purpose: a day of one-second windows is 86,400 and a year of hourly ones is
+     * 8,760, so a legitimate catch-up after a long outage stays well inside this. What it refuses is
+     * the shape produced by a bad timestamp, which is larger by orders of magnitude rather than by a
+     * factor.
+     */
+    private static final long MAX_WINDOWS_PER_ADVANCE = 10_000_000L;
+
     public List<Long> windowsCompletedBetween(long previousWatermarkNanos, long watermarkNanos) {
         List<Long> ends = new ArrayList<>();
         // The first window end strictly after the previous watermark. Strictly after is what stops a
@@ -113,6 +126,31 @@ public final class SlicedWindows {
         // it is called out here rather than quietly deleted.
         long firstEnd =
                 Math.floorDiv(previousWatermarkNanos, spec.slideNanos()) * spec.slideNanos() + spec.slideNanos();
+        // TIME-1. Bounded, because this loop's length is (watermark - previousWatermark) / slide and
+        // both ends of that subtraction come from the data. One row timestamped 1970 in a stream of
+        // present-day rows makes the first window start in 1970, and a one-second slide then means
+        // something on the order of a billion iterations -- during which the lane does nothing else
+        // and looks, from outside, exactly like a hang.
+        //
+        // Refused rather than skipped. Skipping forward would be silent, and the windows being
+        // skipped cannot be shown to be empty from here: this class knows the shape of the windows
+        // and not which of them hold slices. A lane that stops with a message naming the span and
+        // the likely cause is worth more than one that quietly emits a different set of windows
+        // than the query asked for -- and the actual defect is a timestamp nobody meant to send,
+        // which no amount of skipping fixes.
+        long span = watermarkNanos - firstEnd;
+        if (span > 0 && span / spec.slideNanos() > MAX_WINDOWS_PER_ADVANCE) {
+            throw new PravahaException(
+                    RuntimeErrors.WINDOW_SPAN_IMPLAUSIBLE,
+                    "one watermark advance would fire " + (span / spec.slideNanos() + 1) + " windows, between "
+                            + java.time.Instant.ofEpochSecond(0L, firstEnd) + " and "
+                            + java.time.Instant.ofEpochSecond(0L, watermarkNanos) + ", at a slide of "
+                            + java.time.Duration.ofNanos(spec.slideNanos()) + ". That span almost always means a "
+                            + "single row carried an event time far outside the rest of the stream -- an unset "
+                            + "field read as the epoch, a value in the wrong unit, or a parse that silently "
+                            + "produced zero. Check the event-time column of the earliest row this query saw. "
+                            + "If the span is genuinely intended, the window is too fine for it.");
+        }
         for (long end = firstEnd; end <= watermarkNanos; end += spec.slideNanos()) {
             ends.add(end);
         }

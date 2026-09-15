@@ -23,6 +23,16 @@ public final class RuntimeErrors {
     public static final ErrorCode ARENA_EXHAUSTED = new ErrorCode(3001, "RUNTIME_ARENA_EXHAUSTED");
     public static final ErrorCode BACKPRESSURED = new ErrorCode(3002, "RUNTIME_BACKPRESSURED");
     public static final ErrorCode LANE_FAILED = new ErrorCode(3010, "RUNTIME_LANE_FAILED");
+    /**
+     * A watermark advance that would fire an implausible number of windows.
+     *
+     * <p>TIME-1. Not a limit anybody wanted -- it is how a single stale event time announces itself.
+     * One row timestamped 1970 in a stream of present-day data makes the first window start there,
+     * and the emitter then walks every slide from then to now: for a one-second slide that is on the
+     * order of a billion iterations, during which the lane does nothing else and looks hung.
+     */
+    public static final ErrorCode WINDOW_SPAN_IMPLAUSIBLE = new ErrorCode(3022, "RUNTIME_WINDOW_SPAN_IMPLAUSIBLE");
+
     public static final ErrorCode UNSUPPORTED_AGGREGATE = new ErrorCode(3020, "RUNTIME_UNSUPPORTED_AGGREGATE");
 
     /** A join Pravaha will not run: an unsupported key type, or a shape with no bounded execution. */
