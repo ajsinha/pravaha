@@ -5558,7 +5558,7 @@ the parked time, which is nearly all of it.
 
 ### W9-3 (MEDIUM) — two per-query schedulers are still platform threads, and sharing them is not a one-line change
 
-> **Status:** OPEN — the remaining half of W9-2, deliberately not done in the same pass.
+> **Status:** FIXED — `SharedClock` keeps time on one daemon thread for the process and fires each tick on a virtual thread; `QueryExecution`'s watermark clock and `PeriodicCheckpointer`'s schedule both use it and cancel their own `ScheduledFuture` on close. `NodeScaleTest` now registers with watermarks enabled — the path that has a scheduler — and measures **200 queries at 26 platform threads**, where before this wave the same workload was 400 (a lane and a clock each).
 
 `QueryExecution`'s watermark clock and `PeriodicCheckpointer`'s scheduler are each
 `Executors.newSingleThreadScheduledExecutor` with a platform thread factory, one per query. Java 21
@@ -5566,15 +5566,36 @@ has no virtual-thread `ScheduledExecutorService`, so "make them virtual" is not 
 to **share** a scheduler across queries and give each execution a `ScheduledFuture` it cancels on
 close.
 
-That is the right change and it is not a small one, for a reason worth stating before someone tries
-it: the two tasks are not alike. A watermark tick submits control tasks and returns, so it is short
-and safe to share. A checkpoint does I/O — `checkpointNow` writes and fsyncs — and one slow
-checkpoint on a shared single-thread scheduler would delay every other query's. They need different
-treatment: the watermark clock can be one shared thread for the node, the checkpointer needs a small
-pool sized so a slow disk cannot starve the rest.
+**The reasoning that follows was right that they cannot share a worker, and wrong about why.** It
+said a watermark tick "submits control tasks and returns, so it is short and safe to share". It is
+not short: `advanceWatermarkQuietly` submits a control task to every lane and awaits each with a
+ten-second timeout, so a shared single-threaded scheduler would let one slow lane stall every other
+query's clock exactly as a slow disk would. The two tasks are alike after all, and both are the
+dangerous kind.
 
-Until then a node still pays two platform threads per registered query, which is the binding
-constraint on how many queries one node holds.
+The answer is to share the *timing* and not the *waiting*. One daemon thread keeps time for the
+process; each firing goes to a virtual thread, where blocking parks rather than occupies. The same
+division W9-1 gave Flight: bounded threads for the scheduling, virtual threads for what waits.
+
+Two things it shook out, both the shape W9-5 kept producing — something that was true only because a
+query owned a thread of its own:
+
+- **`close()` no longer interrupts the work.** It was `shutdownNow()` on this query's own scheduler,
+  which interrupted the thread mid-task; cancelling a shared schedule reaches the timer, not a firing
+  already dispatched. `checkpointQuietly` checks `running` on entry, without which `close()` was
+  followed by one more checkpoint (STATE-007).
+- **Three more thread-name proxies.** STATE-006 asserted a daemon thread named
+  `pravaha-checkpointer`; STATE-008 counted them to prove one schedule; STATE-049 counted them to
+  prove one shared computation has one checkpointer. All three assert the property now — the clock is
+  a daemon and there is one per process, the checkpoint rate proves one schedule and always did, and
+  identity proves one checkpointer. That is five such proxies in two days: a thread was a convenient
+  thing to count and was never the thing being claimed.
+
+The original reasoning, kept because its conclusion held even where its argument did not:
+
+A watermark tick submits control tasks and returns, so it is short and safe to share. A checkpoint
+does I/O — `checkpointNow` writes and fsyncs — and one slow checkpoint on a shared single-thread
+scheduler would delay every other query's.
 
 ### W9-4 (HIGH) — lanes can share a thread, so a node's thread count follows its cores rather than its queries
 
