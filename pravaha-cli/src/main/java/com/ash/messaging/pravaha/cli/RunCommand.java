@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.cli;
 
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -37,15 +38,29 @@ final class RunCommand {
 
     int run(List<String> arguments) {
         Args args = Args.parse(arguments);
+        String deadLetterFile = args.get("dlq", "");
         QueryRunner.Result result = QueryRunner.run(
                 args.require("sql"),
                 args.get("stream", "txn"),
                 args.require("schema"),
                 args.require("in"),
                 args.require("out-schema"),
-                args.require("out"));
+                args.require("out"),
+                1,
+                deadLetterFile.isBlank() ? null : Path.of(deadLetterFile));
 
         out.println(Ansi.good("ok") + "  " + result.rowsRead() + " in, " + result.rowsWritten() + " out");
+        if (result.rowsRejected() > 0) {
+            // On stdout next to the counts it belongs with, and never silently: a run that reports
+            // "ok" while having discarded input is the failure a dead-letter queue exists to make
+            // visible, not one it is allowed to create.
+            out.println(Ansi.bad("  " + result.rowsRejected() + " rejected") + Ansi.dim(" -> " + deadLetterFile));
+        }
+        if (result.deadLetterFailures() > 0) {
+            err.println(Ansi.bad("  " + result.deadLetterFailures()
+                    + " rejected records could not be written to " + deadLetterFile
+                    + "; that many are gone with no record of them"));
+        }
         out.println(Ansi.dim("  plan " + result.planMicros() + " us, execute " + result.executeMicros() + " us"));
         return PravahaCli.EXIT_OK;
     }

@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.cli;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,8 @@ import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.plugin.filesystem.CollectingWriter;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSinkPlugin;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
+import com.ash.messaging.pravaha.runtime.dlq.DeadLetterQueue;
+import com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
@@ -63,8 +67,22 @@ import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
  */
 public final class QueryRunner {
 
-    /** What a run produced. */
-    public record Result(long rowsRead, long rowsWritten, long planMicros, long executeMicros) {}
+    /**
+     * What a run produced.
+     *
+     * @param rowsRejected records the source could not decode, which went to the dead-letter queue.
+     *     Always zero without {@code --dlq}, because without one a bad record still fails the run
+     * @param deadLetterFailures entries the dead-letter queue could not write. Non-zero means the
+     *     run's own record of what it discarded is incomplete, which is worth more attention than
+     *     the discards themselves
+     */
+    public record Result(
+            long rowsRead,
+            long rowsWritten,
+            long planMicros,
+            long executeMicros,
+            long rowsRejected,
+            long deadLetterFailures) {}
 
     private record Ctx(String instanceName, Map<String, String> config) implements PluginContext {}
 
@@ -78,7 +96,7 @@ public final class QueryRunner {
             String inputPath,
             String outputSchemaSpec,
             String outputPath) {
-        return run(sql, streamName, inputSchemaSpec, inputPath, outputSchemaSpec, outputPath, 1);
+        return run(sql, streamName, inputSchemaSpec, inputPath, outputSchemaSpec, outputPath, 1, null);
     }
 
     /** Plans and runs, returning counts and timings. */
@@ -90,6 +108,29 @@ public final class QueryRunner {
             String outputSchemaSpec,
             String outputPath,
             int lanes) {
+        return run(sql, streamName, inputSchemaSpec, inputPath, outputSchemaSpec, outputPath, lanes, null);
+    }
+
+    /**
+     * Plans and runs, sending records the source cannot decode to {@code deadLetterFile}.
+     *
+     * <p>Without a file, one unparseable line ends the run and nothing is written -- the behaviour
+     * this command has always had, and the right default: a record is not discarded merely because
+     * nobody said where to put it. With one, the run finishes, the good rows are written, and every
+     * rejected line is on disk with its line number and its original bytes, which is what somebody
+     * needs to fix the file and re-run it.
+     *
+     * @param deadLetterFile where rejected records are written, or {@code null} for none
+     */
+    public static Result run(
+            String sql,
+            String streamName,
+            String inputSchemaSpec,
+            String inputPath,
+            String outputSchemaSpec,
+            String outputPath,
+            int lanes,
+            Path deadLetterFile) {
 
         StreamSchema sourceSchema = FilesystemSourcePlugin.parseSchema(streamName, inputSchemaSpec);
 
@@ -101,6 +142,8 @@ public final class QueryRunner {
         long executeStart = System.nanoTime();
         long rowsRead = 0;
         long rowsWritten;
+        long rowsRejected = 0;
+        long deadLetterFailures = 0;
 
         try (FilesystemSourcePlugin source = new FilesystemSourcePlugin();
                 FilesystemSinkPlugin sink = new FilesystemSinkPlugin()) {
@@ -122,11 +165,15 @@ public final class QueryRunner {
             // stays in the plan either way, which is what makes the offer safe to make blindly.
             ReadRequest request = Pushdown.requestFor(plan, streamName, source.capabilities());
             try (PartitionReader reader =
-                    source.createReader(source.partitions(streamName).get(0), null, request)) {
+                            source.createReader(source.partitions(streamName).get(0), null, request);
+                    DeadLetterQueue deadLetters = openDeadLetters(deadLetterFile)) {
                 QueryExecution execution =
                         QueryExecution.start(plan, lanes, laneConfig, MemoryAccess.best(), () -> collector);
                 try {
                     IngestPump pump = execution.pumpInto(0, reader, BackpressurePolicy.defaults());
+                    if (deadLetters != null) {
+                        pump.deadLetteringTo(deadLetters, streamName);
+                    }
                     // Pump until the source is exhausted. A pump returns zero both when the source
                     // has nothing right now and when it has nothing ever, and a file source is the
                     // one case where those are the same thing.
@@ -172,11 +219,39 @@ public final class QueryRunner {
                 execution.checkHealth();
                 rowsWritten = sink.write(collector.rows());
                 sink.flush();
+                if (deadLetters != null) {
+                    rowsRejected = deadLetters.count();
+                    deadLetterFailures = deadLetters.failures();
+                }
             } finally {
                 collector.close();
             }
         }
-        return new Result(rowsRead, rowsWritten, planMicros, (System.nanoTime() - executeStart) / 1_000L);
+        return new Result(
+                rowsRead,
+                rowsWritten,
+                planMicros,
+                (System.nanoTime() - executeStart) / 1_000L,
+                rowsRejected,
+                deadLetterFailures);
+    }
+
+    /**
+     * Opens the dead-letter file, or returns {@code null} when none was asked for.
+     *
+     * <p>Failing to open it fails the run, and deliberately: an operator who typed {@code --dlq}
+     * asked for the rejected records to be kept, and continuing without keeping them would discard
+     * exactly the records they said they wanted.
+     */
+    private static DeadLetterQueue openDeadLetters(Path file) {
+        if (file == null) {
+            return null;
+        }
+        try {
+            return new FileDeadLetterQueue(file);
+        } catch (IOException e) {
+            throw new IllegalStateException("cannot open the dead-letter file " + file.toAbsolutePath(), e);
+        }
     }
 
     // The Batch class that used to live here is gone. It buffered decoded rows on the calling

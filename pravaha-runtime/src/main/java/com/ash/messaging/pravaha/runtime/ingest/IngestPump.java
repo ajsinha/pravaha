@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.runtime.ingest;
 
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongConsumer;
 
@@ -23,9 +24,13 @@ import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
+import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
+import com.ash.messaging.pravaha.runtime.dlq.DeadLetter;
+import com.ash.messaging.pravaha.runtime.dlq.DeadLetterQueue;
 import com.ash.messaging.pravaha.runtime.lane.Lane;
 
 /**
@@ -77,6 +82,40 @@ public final class IngestPump implements AutoCloseable {
     private long pausedSince;
     private long claimed = -1L;
 
+    /**
+     * Where records that could not be decoded go, or {@code null} when nothing asked for one.
+     *
+     * <p>Null rather than a no-op implementation on purpose: the reader has to be able to tell the
+     * difference. With no queue, {@link PartitionReader.RecordSink#reject} answers {@code false} and
+     * the reader fails exactly as it always has. A do-nothing queue would answer {@code true} and
+     * turn every deployment into one that discards bad records silently.
+     */
+    private DeadLetterQueue deadLetters;
+
+    private String deadLetterQueryId = "";
+
+    /**
+     * A cell-sized buffer rows are decoded into while a dead-letter queue is attached.
+     *
+     * <p><strong>This is the one copy the fast path does not pay.</strong> Ordinarily the plugin
+     * decodes straight into a claimed inbox cell, which is what makes ingest one copy end to end --
+     * and it is also why a decode failure cannot simply be shrugged off: the cell is already
+     * claimed, {@code RowInbox.drain} "stops at the first cell that is claimed but not yet
+     * published", and there is no way to give a claim back. A reader that aborted its row and kept
+     * going would leave that cell claimed for ever and the lane would never see another row.
+     *
+     * <p>So dead-lettering decodes into this buffer instead and copies the finished row into the
+     * inbox on commit. A record that fails to decode never reaches the inbox at all, and there is
+     * nothing to give back. The cost is one extra copy per row, paid only by a deployment that has
+     * asked for a dead-letter queue, and it buys the property the queue exists for: a bad record
+     * does not stop the pipeline.
+     */
+    private MemoryRegion staging;
+
+    private BinaryRowWriter stagingWriter;
+
+    private final AtomicLong rowsRejected = new AtomicLong();
+
     public IngestPump(PartitionReader reader, Lane lane, StreamSchema schema, BackpressurePolicy policy) {
         this(reader, lane, 0, schema, policy);
     }
@@ -126,7 +165,7 @@ public final class IngestPump implements AutoCloseable {
         if (room == 0) {
             return 0;
         }
-        int moved = reader.poll(this::beginRow, Math.min(maxRecords, room));
+        int moved = reader.poll(sink, Math.min(maxRecords, room));
         rowsPumped.addAndGet(moved);
         return moved;
     }
@@ -158,7 +197,42 @@ public final class IngestPump implements AutoCloseable {
      * room -- so a claim failing here is a bug in the bookkeeping rather than backpressure, and it
      * says so instead of returning something the plugin cannot use.
      */
+    private final PartitionReader.RecordSink sink = new PartitionReader.RecordSink() {
+
+        @Override
+        public RowWriter beginRow() {
+            return IngestPump.this.beginRow();
+        }
+
+        @Override
+        public boolean reject(byte[] raw, String sourceOffset, String reason) {
+            DeadLetterQueue queue = deadLetters;
+            if (queue == null) {
+                return false;
+            }
+            // accept must not throw -- the reader is already handling a failure and cannot handle a
+            // second one. FileDeadLetterQueue counts its own write failures instead, which is what
+            // failures() is for.
+            queue.accept(new DeadLetter(
+                    deadLetterQueryId,
+                    reason,
+                    sourceOffset,
+                    raw,
+                    UUID.randomUUID().toString(),
+                    System.nanoTime()));
+            rowsRejected.incrementAndGet();
+            return true;
+        }
+    };
+
     private RowWriter beginRow() {
+        if (deadLetters != null) {
+            // Decode into staging; the row reaches the inbox only if it decodes.
+            stagingWriter.begin(staging, 0, lane.inboxCellBytes());
+            // Abandoning a staged row is free: nothing has been claimed, so there is nothing to
+            // give back. That is the whole reason rows are staged while a queue is attached.
+            return new DelegatingRowWriter(stagingWriter, this::publishStagedRow, eventTimeObserver, () -> {});
+        }
         claimed = lane.claim(input);
         if (claimed == com.ash.messaging.pravaha.common.queue.RowInbox.NO_SPACE) {
             throw new PravahaException(
@@ -169,6 +243,59 @@ public final class IngestPump implements AutoCloseable {
         }
         writer.begin(lane.inboxRegion(input), lane.cellOffset(input, claimed));
         return new DelegatingRowWriter(writer, () -> lane.publish(input, claimed), eventTimeObserver);
+    }
+
+    private void publishStagedRow() {
+        if (!lane.offer(input, staging, 0, stagingWriter.sizeSoFar())) {
+            throw new PravahaException(
+                    RuntimeErrors.BACKPRESSURED,
+                    "lane " + lane.laneId() + "'s inbox filled during a poll that was sized to fit. Either "
+                            + "another producer is writing to this lane's inbox, which the single-writer ingest "
+                            + "path does not allow, or the free-cell calculation is wrong.");
+        }
+    }
+
+    /**
+     * Sends records this pump's reader cannot decode to {@code queue} instead of failing the source.
+     *
+     * <p>Set once, at wiring time, before the pump is first polled -- it changes how every row is
+     * written, not just the failing ones (see {@link #staging}), so changing it mid-stream would
+     * change the meaning of a claim the pump is already holding.
+     *
+     * <p>Passing {@code null} is how a deployment stays as it is, and it is the default. This is
+     * opt-in because the two rules a dead-letter queue exists to keep -- never drop a record
+     * silently, never let one record stop the pipeline -- pull against each other for anybody who
+     * has not set the queue up: without somewhere durable to put the record, "keep going" is just
+     * "drop it".
+     *
+     * @param queryId which query is rejecting, recorded on every entry; one source can feed many
+     */
+    public void deadLetteringTo(DeadLetterQueue queue, String queryId) {
+        if (queue == null) {
+            closeStaging();
+            this.deadLetters = null;
+            this.deadLetterQueryId = "";
+            return;
+        }
+        if (staging == null) {
+            this.staging = MemoryAccess.best().allocate(lane.inboxCellBytes());
+            this.stagingWriter = new BinaryRowWriter(layout);
+        }
+        this.deadLetters = queue;
+        this.deadLetterQueryId = queryId == null ? "" : queryId;
+    }
+
+    /** Records this pump could not decode and sent to the dead-letter queue. */
+    public long rowsRejected() {
+        return rowsRejected.get();
+    }
+
+    private void closeStaging() {
+        if (staging != null) {
+            staging.close();
+            staging = null;
+            stagingWriter = null;
+        }
     }
 
     /**
@@ -218,6 +345,12 @@ public final class IngestPump implements AutoCloseable {
 
     @Override
     public void close() {
-        reader.close();
+        try {
+            reader.close();
+        } finally {
+            // The queue itself belongs to whoever handed it over -- closing it here would close it
+            // under the other pumps feeding the same query.
+            closeStaging();
+        }
     }
 }

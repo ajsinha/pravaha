@@ -38,6 +38,7 @@ public final class DelegatingRowWriter implements RowWriter {
     private final BinaryRowWriter delegate;
     private final Runnable onCommit;
     private final LongConsumer onEventTime;
+    private final Runnable onAbort;
 
     /**
      * The event time this row was given, held until the row is handed over.
@@ -57,9 +58,29 @@ public final class DelegatingRowWriter implements RowWriter {
     }
 
     public DelegatingRowWriter(BinaryRowWriter delegate, Runnable onCommit, LongConsumer onEventTime) {
+        this(delegate, onCommit, onEventTime, DelegatingRowWriter::refuseAbort);
+    }
+
+    /**
+     * With somewhere for an abandoned row to go.
+     *
+     * <p>Only safe when the writer is not pointed at a claimed inbox cell -- see {@link #abort()}.
+     * The pump uses it when a dead-letter queue is attached, because then rows are assembled in a
+     * staging buffer and a cell is claimed only once the row is known to be complete.
+     */
+    public DelegatingRowWriter(
+            BinaryRowWriter delegate, Runnable onCommit, LongConsumer onEventTime, Runnable onAbort) {
         this.delegate = delegate;
         this.onCommit = onCommit;
         this.onEventTime = onEventTime;
+        this.onAbort = onAbort;
+    }
+
+    private static void refuseAbort() {
+        throw new UnsupportedOperationException(
+                "a plugin aborted a row mid-write, which the ingest path cannot yet undo: the claimed "
+                        + "inbox cell would stay unpublished and stall this lane. Report this -- it needs a "
+                        + "cancel path on RowInbox, not a workaround here.");
     }
 
     public BinaryRowWriter delegate() {
@@ -177,14 +198,15 @@ public final class DelegatingRowWriter implements RowWriter {
 
     @Override
     public void abort() {
-        // The cell stays claimed and unpublished. The lane's drain stops at an unpublished cell
-        // rather than skipping it, so an aborted row would stall this lane's input permanently.
-        // Nothing in the SPI aborts today; if something starts to, this needs a cancel path on
-        // the inbox rather than a comment.
+        // On the fast path the cell is already claimed and unpublished, and the lane's drain stops
+        // at an unpublished cell rather than skipping it -- so an aborted row would stall this
+        // lane's input permanently. There is still no cancel path on RowInbox, so that case still
+        // refuses.
+        //
+        // The other case is now real: with a dead-letter queue attached the pump assembles rows in
+        // a staging buffer and claims a cell only on commit, so an abandoned row has claimed
+        // nothing and there is nothing to undo. That is what the fourth constructor argument says.
         delegate.abort();
-        throw new UnsupportedOperationException(
-                "a plugin aborted a row mid-write, which the ingest path cannot yet undo: the claimed "
-                        + "inbox cell would stay unpublished and stall this lane. Report this -- it needs a "
-                        + "cancel path on RowInbox, not a workaround here.");
+        onAbort.run();
     }
 }

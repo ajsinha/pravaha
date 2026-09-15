@@ -21,6 +21,10 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -193,6 +197,135 @@ class PravahaCliTest {
         // Plan and execute time are reported separately: planning is paid once at registration and
         // execution per record, and a slow run needs to say which half is slow.
         assertThat(stdout()).contains("3 in, 1 out").contains("plan").contains("execute");
+    }
+
+    // ------------------------------------------------------------ W8-11: the dead-letter queue
+
+    private static final String ONE_BAD_LINE =
+            "1,alice,500,COMPLETED\n" + "2,bob,NOTANUMBER,COMPLETED\n" + "3,carol,900,COMPLETED\n";
+
+    @Test
+    void aBadLineWithNoDeadLetterFileStillFailsTheRunAndNamesTheLineAndColumn(@TempDir Path dir) throws IOException {
+        // The default has to stay what it was. A record is not discarded merely because nobody said
+        // where to put it -- that is the half of the dead-letter queue's two rules that matters
+        // more, because a query producing slightly wrong answers from quietly discarded input is
+        // one nobody investigates.
+        Path input = dir.resolve("txn.csv");
+        Files.writeString(input, ONE_BAD_LINE);
+
+        int code = run(
+                "run",
+                "--sql",
+                "SELECT user_id, amount FROM txn",
+                "--schema",
+                SCHEMA,
+                "--in",
+                input.toString(),
+                "--out",
+                dir.resolve("out.csv").toString(),
+                "--out-schema",
+                "user_id:STRING,amount:INT64");
+
+        assertThat(code).isEqualTo(1);
+        // And it says what was actually wrong. It used to say "a plugin aborted a row mid-write,
+        // which the ingest path cannot yet undo ... Report this": the reader aborted the row before
+        // reporting the decode failure, abort() refused because it cannot give back a claimed inbox
+        // cell, and its internal complaint replaced the one fact the person needed.
+        assertThat(stderr())
+                .contains("line 2")
+                .contains("amount")
+                .contains("NOTANUMBER")
+                .doesNotContain("Report this");
+    }
+
+    @Test
+    void withADeadLetterFileTheRunFinishesAndTheRejectedLineIsOnDiskWithItsBytes(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("txn.csv");
+        Files.writeString(input, ONE_BAD_LINE);
+        Path output = dir.resolve("out.csv");
+        Path dlq = dir.resolve("rejects.jsonl");
+
+        int code = run(
+                "run",
+                "--sql",
+                "SELECT user_id, amount FROM txn",
+                "--schema",
+                SCHEMA,
+                "--in",
+                input.toString(),
+                "--out",
+                output.toString(),
+                "--out-schema",
+                "user_id:STRING,amount:INT64",
+                "--dlq",
+                dlq.toString());
+
+        assertThat(code).isZero();
+        // The other two rows are answered: one bad record does not stop the pipeline.
+        assertThat(Files.readAllLines(output)).containsExactly("alice,500", "carol,900");
+        // And it is not silent about it.
+        assertThat(stdout()).contains("1 rejected");
+
+        List<String> letters = Files.readAllLines(dlq);
+        assertThat(letters).hasSize(1);
+        assertThat(letters.get(0)).contains("\"offset\":\"line 2\"").contains("NOTANUMBER");
+        // The raw bytes as received, Base64 and never re-encoded: a record that failed to decode
+        // cannot be described any other way, and the first question asked of a dead letter is
+        // whether it can be replayed.
+        Matcher raw = Pattern.compile("\"raw\":\"([^\"]*)\"").matcher(letters.get(0));
+        assertThat(raw.find()).isTrue();
+        assertThat(new String(Base64.getDecoder().decode(raw.group(1)), StandardCharsets.UTF_8))
+                .isEqualTo("2,bob,NOTANUMBER,COMPLETED");
+    }
+
+    @Test
+    void theLaneKeepsDrainingAfterARejection(@TempDir Path dir) throws IOException {
+        // The reason rows are staged while a queue is attached. On the fast path the plugin decodes
+        // straight into a claimed inbox cell, RowInbox.drain "stops at the first cell that is
+        // claimed but not yet published", and there is no way to hand a claim back -- so a reader
+        // that abandoned a row and kept going would stall the lane for ever, and the run would time
+        // out with every row after the first bad one missing.
+        //
+        // Enough rows to cross many poll batches, with bad lines throughout, so a stall shows up as
+        // missing output rather than as luck.
+        StringBuilder input = new StringBuilder();
+        int rows = 600;
+        int bad = 0;
+        for (int i = 1; i <= rows; i++) {
+            boolean broken = i % 7 == 3;
+            if (broken) {
+                bad++;
+            }
+            input.append(i)
+                    .append(",user")
+                    .append(i)
+                    .append(',')
+                    .append(broken ? "BAD" : "10")
+                    .append(",COMPLETED\n");
+        }
+        Path file = dir.resolve("txn.csv");
+        Files.writeString(file, input.toString());
+        Path output = dir.resolve("out.csv");
+        Path dlq = dir.resolve("rejects.jsonl");
+
+        int code = run(
+                "run",
+                "--sql",
+                "SELECT user_id, amount FROM txn",
+                "--schema",
+                SCHEMA,
+                "--in",
+                file.toString(),
+                "--out",
+                output.toString(),
+                "--out-schema",
+                "user_id:STRING,amount:INT64",
+                "--dlq",
+                dlq.toString());
+
+        assertThat(code).isZero();
+        assertThat(Files.readAllLines(output)).hasSize(rows - bad);
+        assertThat(Files.readAllLines(dlq)).hasSize(bad);
     }
 
     @Test

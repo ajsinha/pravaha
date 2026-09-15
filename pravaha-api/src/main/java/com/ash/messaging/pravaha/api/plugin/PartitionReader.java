@@ -53,5 +53,34 @@ public interface PartitionReader extends AutoCloseable {
     interface RecordSink {
         /** Begins a row. The caller must {@code commit()} or {@code abort()} it. */
         RowWriter beginRow();
+
+        /**
+         * Offers a record the reader could not turn into a row.
+         *
+         * <p>Every decoder in this project used to have the same shape at its failure point: abort
+         * the row, throw, and carry a comment saying the engine's dead-letter queue would take it
+         * from here. Nothing did. The throw left the reader, ended the poll, and stopped that
+         * source's ingest -- for the life of the process on a server, and for the whole run on the
+         * command line -- because one line of one file had a letter where a number should be.
+         *
+         * <p><strong>Returning {@code false} means there is nowhere to put it</strong>, and the
+         * reader must then fail as it always did. That is the default, so a deployment that has not
+         * asked for a dead-letter queue keeps exactly the behaviour it has: a bad record is still
+         * refused loudly rather than quietly tolerated. Silently swallowing records by default would
+         * be the worse half of the two rules in {@code DeadLetterQueue} -- a query producing
+         * slightly wrong answers because some input was discarded, which nobody investigates because
+         * nobody notices.
+         *
+         * @param raw the bytes as received, never re-encoded; a record that failed to decode cannot
+         *     be described any other way
+         * @param sourceOffset where it came from, in the source's own terms -- a line number, a
+         *     Kafka offset -- because the first question asked of a dead letter is "can I replay it?"
+         * @param reason what was wrong, in a sentence rather than a class name
+         * @return {@code true} if the record was accepted for dead-lettering, {@code false} if the
+         *     caller must fail instead
+         */
+        default boolean reject(byte[] raw, String sourceOffset, String reason) {
+            return false;
+        }
     }
 }

@@ -202,6 +202,17 @@ Three files hold what a customer would call their data, and all three are now cr
 | Checkpoints | Serialised operator state, which is the aggregated data itself |
 | The dead-letter queue | The raw bytes of every record that failed |
 
+The dead-letter queue is written only when something asks for one, and `pravaha run --dlq <file>`
+is the only thing that can today — a server has no `pravaha.dlq.*` key yet. Without it a record that
+cannot be decoded still fails loudly rather than being discarded: the `run` command exits non-zero
+naming the line, the column and the value, and on a server the source feed for that query stops and
+says so in `describe()`, though the query goes on reporting `RUNNING`. With it, the run finishes,
+the good rows are written, and every rejected record is one JSON object per line — timestamp, query,
+correlation id, source offset, reason, and the original bytes in Base64 — meant to be read with
+`grep` and `jq` during an incident. The count of rejects is printed next to the row counts, and if
+the queue itself could not write, that count goes to stderr: a run that reports `ok` while having
+quietly discarded input is the thing the queue exists to prevent, not something it may cause.
+
 Two of the three previously carried a comment telling the operator to permission them like data.
 An instruction to somebody who may never read it is not a control.
 

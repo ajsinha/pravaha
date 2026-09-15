@@ -265,14 +265,41 @@ final class FilesystemPartitionReader implements PartitionReader {
                 } catch (RuntimeException e) {
                     // One malformed line must not cost the batch. The engine's DLQ handles the
                     // record; the reader's job is to keep going.
+                    //
+                    // That comment was the plan and `throw e` was the code, for as long as this
+                    // reader has existed: one letter where a number should be, in one line of a
+                    // twenty-thousand-line file, ended the poll and stopped the source. reject()
+                    // is what the comment was describing. It answers false when no dead-letter
+                    // queue is attached, and then this fails exactly as it always did -- a record
+                    // is not dropped just because nobody arranged somewhere to put it.
+                    //
+                    // Offered before the row is abandoned, and the abandon only happens if it was
+                    // taken. On the unguarded path abort() refuses -- it cannot return a claimed
+                    // inbox cell -- and aborting first meant its "report this" message replaced
+                    // the decode failure that caused it, so the one thing the person needed (the
+                    // line, the column, the value that would not convert) never reached them.
+                    if (!sink.reject(line.getBytes(StandardCharsets.UTF_8), "line " + lineNumber, reasonFor(e))) {
+                        throw e;
+                    }
                     writer.abort();
-                    throw e;
                 }
             }
         } catch (IOException e) {
             throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "read failed at line " + lineNumber, e);
         }
         return produced;
+    }
+
+    /**
+     * What was wrong with the record, as a sentence.
+     *
+     * <p>The decoder's message already names the line, the column, the declared type and the value
+     * that would not convert -- which is the whole of what a person needs. A class name is not, so
+     * the exception's type is only used when there is no message at all.
+     */
+    private static String reasonFor(RuntimeException failure) {
+        String message = failure.getMessage();
+        return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
     }
 
     @Override

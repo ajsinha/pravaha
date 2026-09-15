@@ -137,7 +137,7 @@ public final class PravahaCli {
         out.println("            Show the plan the engine would execute.");
         out.println();
         out.println("  run       --sql <query> --schema <spec> --in <file>");
-        out.println("            --out <file> --out-schema <spec>");
+        out.println("            --out <file> --out-schema <spec> [--dlq <file>]");
         out.println("            Run a query over a delimited file.");
         out.println();
         out.println("  version");

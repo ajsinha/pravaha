@@ -72,6 +72,22 @@ frank,1200
 That is the whole engine — parse, plan, off-heap execution — with no process to start. It is how the
 embedded mode works, and how the tests run.
 
+**A line the file cannot decode.** By default one bad line ends the run, naming the line, the column
+and the value — no output is written. Add `--dlq <file>` to finish the run anyway and get the
+rejected lines on disk, one JSON object each, with their original bytes:
+
+```bash
+pravaha run --sql "SELECT user_id, amount FROM txn" \
+            --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
+            --out-schema "user_id:STRING,amount:INT64" \
+            --in transactions.csv --out out.csv --dlq rejects.jsonl
+```
+
+```
+ok  3 in, 2 out
+  1 rejected -> rejects.jsonl
+```
+
 ## 3. See a query the engine refuses
 
 Worth doing early, because it is the thing that surprises people:
