@@ -86,6 +86,23 @@ final class LutScanReader implements PartitionReader {
 
     private long watermarkNanos;
     private long scanStartedNanos;
+
+    /**
+     * The least time between one scan finishing and the next starting.
+     *
+     * <p>There was none, and the cost was not subtle: {@link #poll} starts a scan whenever the
+     * buffer is empty, and the ingest pump polls about once a millisecond, so scans ran back to back
+     * for as long as a query was registered. Against a real Community node, one query took the
+     * cluster from 1% to 200-310% CPU and 43-153 scans a second of a set nobody was writing to.
+     *
+     * <p>This class's own javadoc already called the scan interval the source of this strategy's
+     * latency. It was describing something that did not exist.
+     */
+    private final long scanIntervalNanos;
+
+    /** When the last scan finished, so the next one can be made to wait. */
+    private long lastScanEndedNanos = Long.MIN_VALUE;
+
     private long recordsRead;
     private long scans;
     private boolean paused;
@@ -101,6 +118,7 @@ final class LutScanReader implements PartitionReader {
             int firstPartition,
             int partitionCount,
             int recordsPerSecond,
+            int scanIntervalMillis,
             int socketTimeoutMillis,
             int totalTimeoutMillis,
             SourceOffset resumeFrom,
@@ -112,6 +130,8 @@ final class LutScanReader implements PartitionReader {
         this.firstPartition = firstPartition;
         this.partitionCount = partitionCount;
         this.recordsPerSecond = recordsPerSecond;
+        this.scanIntervalNanos =
+                java.time.Duration.ofMillis(Math.max(0, scanIntervalMillis)).toNanos();
         this.socketTimeoutMillis = socketTimeoutMillis;
         this.totalTimeoutMillis = totalTimeoutMillis;
         this.request = request == null ? ReadRequest.NOTHING : request;
@@ -147,7 +167,13 @@ final class LutScanReader implements PartitionReader {
             return 0;
         }
         if (buffered.isEmpty()) {
+            if (!readyToScan()) {
+                // Nothing buffered and too soon to ask again. Zero means idle to the pump, which
+                // naps -- rather than this reader spinning a scan against the cluster per poll.
+                return 0;
+            }
             scan();
+            lastScanEndedNanos = System.nanoTime();
         }
         int emitted = 0;
         while (emitted < maxRecords && !buffered.isEmpty()) {
@@ -171,6 +197,14 @@ final class LutScanReader implements PartitionReader {
             emitted++;
         }
         return emitted;
+    }
+
+    /** Whether enough time has passed since the last scan ended for another to be worth running. */
+    private boolean readyToScan() {
+        if (scanIntervalNanos <= 0 || lastScanEndedNanos == Long.MIN_VALUE) {
+            return true; // no interval configured, or nothing scanned yet
+        }
+        return System.nanoTime() - lastScanEndedNanos >= scanIntervalNanos;
     }
 
     /** A record's event time: its declared bin, or the scan's start when none was declared. */

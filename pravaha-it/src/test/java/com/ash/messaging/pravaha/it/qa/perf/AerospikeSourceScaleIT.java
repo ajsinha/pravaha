@@ -244,11 +244,11 @@ class AerospikeSourceScaleIT {
                             + "  its own tend thread -- a *platform* thread, on top of the lane's -- and its own%n"
                             + "  per-node connection pool. ClientPolicy is built fresh in configure() and%n"
                             + "  maxConnsPerNode is left at the client's default of 100. Nothing shares one.%n"
-                            + "%n  There is no scan interval. LutScanReader.scan() runs whenever poll() finds%n"
-                            + "  its buffer empty, and PumpingFeed polls every millisecond, so the scan rate%n"
-                            + "  is bounded by how fast the cluster answers and by nothing else. The per-query%n"
-                            + "  rate falls as queries are added because the cluster is already saturated,%n"
-                            + "  which is the finding and not an artefact of it.%n",
+                            + "%n  The scan rate is now bounded by scan.interval.ms, one second by default.%n"
+                            + "  It was bounded by nothing: LutScanReader.scan() ran whenever poll() found its%n"
+                            + "  buffer empty and PumpingFeed polls every millisecond, so one query alone took%n"
+                            + "  the cluster from 1%% to 200-310%% CPU. Scans still scale with registrations%n"
+                            + "  rather than with sets, which is what ADR-036 section 3's shared scan is for.%n",
                     QUERIES,
                     NAMESPACE,
                     SET,
@@ -289,6 +289,22 @@ class AerospikeSourceScaleIT {
                     .as("one continuous query over an Aerospike set must produce scans of it, or the plugin is "
                             + "not reading and every other number here is meaningless")
                     .isPositive();
+
+            // The scan interval, which this test is what found the absence of. LutScanReader started
+            // a scan whenever poll() found its buffer empty and the pump polls every millisecond, so
+            // one query ran 43-153 scans a second of a set nobody was writing to and took the
+            // cluster from 1% to 200-310% CPU. That is a defect at one query, not at a thousand.
+            //
+            // Bounded by scan.interval.ms, one second by default. Generously asserted -- three
+            // scans a second against a configured one -- because the first scan does not wait and a
+            // slow scan pushes the next one out rather than in. What it refuses is the old
+            // behaviour, which was two orders of magnitude above this line.
+            assertThat(scansPerSecondOne)
+                    .as(
+                            "one query produced %.1f scans/s. With scan.interval.ms at its %dms default the rate "
+                                    + "is bounded by the interval rather than by how fast the cluster can answer",
+                            scansPerSecondOne, 1000)
+                    .isLessThan(3.0);
 
             // The measurement ADR-036 section 3 asserts from the code. Recorded as an assertion so
             // that the day a shared scan exists, this test is what says so.

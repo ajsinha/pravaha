@@ -93,6 +93,7 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
     private AerospikeStrategy strategy;
     private int partitions;
     private int recordsPerSecond;
+    private int scanIntervalMillis;
     private int socketTimeoutMillis;
     private int totalTimeoutMillis;
     private Host[] hosts;
@@ -153,6 +154,25 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
             throw new ConfigurationException(
                     AerospikeErrors.BAD_CONFIGURATION,
                     "records.per.second must not be negative, got " + recordsPerSecond);
+        }
+        // The gap between one scan finishing and the next starting.
+        //
+        // There was none. LutScanReader starts a scan whenever poll() finds its buffer empty, and
+        // the ingest pump polls about once a millisecond -- so scans ran back to back for as long as
+        // a query was registered. Measured against a real Community node: one query took the cluster
+        // from 1% to 200-310% CPU, and 43-153 scans a second of a set nobody was writing to.
+        //
+        // The class javadoc already described "the scan interval" as the source of this strategy's
+        // latency. It was describing something the code did not have.
+        //
+        // One second by default, which is a real change in latency for anyone relying on the old
+        // behaviour -- and the old behaviour was a hot loop against their database. Set it to 0 to
+        // get it back deliberately.
+        this.scanIntervalMillis = Integer.parseInt(context.get("scan.interval.ms", "1000"));
+        if (scanIntervalMillis < 0) {
+            throw new PravahaException(
+                    AerospikeErrors.BAD_CONFIGURATION,
+                    "scan.interval.ms must not be negative, got " + scanIntervalMillis);
         }
         this.socketTimeoutMillis = Integer.parseInt(context.get("scan.socket.timeout.ms", "30000"));
         this.totalTimeoutMillis = Integer.parseInt(context.get("scan.total.timeout.ms", "120000"));
@@ -255,6 +275,7 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
                 Integer.parseInt(partition.properties().getOrDefault("firstPartition", "0")),
                 Integer.parseInt(partition.properties().getOrDefault("partitionCount", "4096")),
                 recordsPerSecond,
+                scanIntervalMillis,
                 socketTimeoutMillis,
                 totalTimeoutMillis,
                 resumeFrom,

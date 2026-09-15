@@ -5770,3 +5770,29 @@ Also recorded here because it is the same seam: `SourceCapabilities.typicalLaten
 every source and read by **nothing** — `grep` finds no consumer in `src/main`. It is the obvious
 place a scan interval would come from, which makes it the obvious place for SRC-1's fix and the
 reason the declaration exists at all.
+
+### SRC-8 (HIGH) — the Aerospike reader had no scan interval, so one query ran a hot loop against the cluster
+
+> **Status:** FIXED — `scan.interval.ms`, one second by default, enforced in `LutScanReader.poll`. Measured against a real Aerospike Community node by `AerospikeSourceScaleIT`: **1.0 scans/s for one query, down from 43–153/s**, and 3.8 for four queries — 1.0 each, linear, where it previously fell per query because the cluster was saturated. The IT now asserts the bound.
+
+`LutScanReader.poll` started a scan whenever it found its buffer empty, and `PumpingFeed` polls about
+once a millisecond. So scans ran back to back for as long as a query was registered, bounded by how
+fast the cluster could answer and by nothing else.
+
+One query took the cluster from 1% to **200–310% CPU**, scanning a set nobody was writing to.
+
+**This is a defect at one query, not at a thousand**, which is what makes it the first item in
+ADR-036's source work rather than the third. Sharing one scan across many queries — the thing the
+section was written for — would have shared something already running flat out, and made the
+measurement look better while the cluster burned exactly as much.
+
+The class's own javadoc says "the latency is the scan interval and not the write latency". It was
+describing a thing that did not exist; the sentence reads as a design statement and was in fact a
+description of an intention.
+
+One second is a real change for anyone relying on the previous behaviour, and the previous behaviour
+was a hot loop against their database. `scan.interval.ms: 0` restores it deliberately.
+
+Scans still scale with registrations rather than with sets — a thousand queries over one set is a
+thousand scans of it, at one a second each rather than a hundred. That is ADR-036 section 3's shared
+scan, still open, and now worth doing for throughput rather than to stop a fire.
