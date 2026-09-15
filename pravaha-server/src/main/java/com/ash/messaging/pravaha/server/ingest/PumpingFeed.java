@@ -84,10 +84,24 @@ final class PumpingFeed implements SourceFeed {
         this.resources = List.copyOf(resources);
         this.description = description;
         this.afterDelivery = afterDelivery == null ? () -> {} : afterDelivery;
-        this.thread = new Thread(this::run, "pravaha-feed-" + queryName);
-        // A daemon, so a feed thread cannot be the reason a JVM will not exit. Close is what stops
-        // it properly; this is only the backstop for a process that skipped that.
-        this.thread.setDaemon(true);
+        // Virtual, and the paragraph above is why it can be. What that reasoning defends is
+        // *confinement* -- one thread of execution owning the pump, its reader and its staging
+        // buffer, seeing every poll -- and a virtual thread is exactly that. It differs only in not
+        // occupying a carrier while parked, which is what this loop does almost all of the time:
+        // IDLE_NAP_NANOS between polls that moved nothing, and a query whose source is quiet naps
+        // for ever. A platform thread per registered query is the cost that makes QueryRegistry's
+        // own note -- "fine at tens" -- true, and this is one of the three.
+        //
+        // The caveat, recorded because it is not visible from here: on JDK 21 a blocking *file*
+        // read pins the carrier for its duration, so a filesystem source still occupies one while
+        // it is actually reading. Socket-backed sources -- Aerospike, JDBC -- unmount properly, and
+        // every source unmounts while napping. The win is in the parked time, which is most of it.
+        this.thread = Thread.ofVirtual()
+                // A virtual thread is always a daemon, so the backstop the platform version needed
+                // is implicit: a feed thread can never be the reason a JVM will not exit. Close is
+                // still what stops it properly.
+                .name("pravaha-feed-" + queryName)
+                .unstarted(this::run);
     }
 
     void start() {

@@ -5530,3 +5530,48 @@ This does not make the node ready for thousands of subscribers — it removes th
 STRM-4 measured one stalled subscriber costing 69% of ingest throughput, which is a different
 constraint and still open, and the PERF section that would measure any of this at scale is still
 unexecuted for want of homogeneous hardware.
+
+### W9-2 (HIGH) — a registered query cost three platform threads; the feed was one of them
+
+> **Status:** FIXED — `PumpingFeed`'s thread is virtual. `FeedThreadCostTest.aFeedCostsNoPlatformThread` measures it and is seed-proven: **30 feeds added 30 platform threads** before, zero after.
+
+`QueryRegistry`'s own note says a thread per query is "fine at tens, and the reason ADR-027 wants a
+lane to multiplex several queries before this reaches hundreds". It undercounts. A registration cost
+**three** platform threads, not one: the lane, the feed, and two schedulers — watermark clock and
+checkpointer — making four where a query is checkpointed.
+
+The feed is the one this closes. Its loop naps on `LockSupport.parkNanos` between polls that moved
+nothing, and a query whose source is quiet naps for ever, so it is parked almost all of the time and
+was holding a megabyte of stack to do it.
+
+`PumpingFeed`'s javadoc defends a thread per computation on grounds a pool would break — the pump
+holds a reader and a staging buffer only one thread may touch, and its backpressure hysteresis is
+edge-triggered and assumes it sees every poll. **That reasoning is about confinement, and a virtual
+thread satisfies it exactly**: still one thread of execution owning the pump, differing only in not
+occupying a carrier while parked. Nothing in the argument was ever about platform threads; it read
+that way because there was no other kind when it was written.
+
+Recorded because it is not visible from the call site: on JDK 21 a blocking **file** read pins the
+carrier for its duration, so a filesystem source still holds one while actually reading. Socket-backed
+sources — Aerospike, JDBC — unmount properly, and every source unmounts while napping. The win is in
+the parked time, which is nearly all of it.
+
+### W9-3 (MEDIUM) — two per-query schedulers are still platform threads, and sharing them is not a one-line change
+
+> **Status:** OPEN — the remaining half of W9-2, deliberately not done in the same pass.
+
+`QueryExecution`'s watermark clock and `PeriodicCheckpointer`'s scheduler are each
+`Executors.newSingleThreadScheduledExecutor` with a platform thread factory, one per query. Java 21
+has no virtual-thread `ScheduledExecutorService`, so "make them virtual" is not available; the fix is
+to **share** a scheduler across queries and give each execution a `ScheduledFuture` it cancels on
+close.
+
+That is the right change and it is not a small one, for a reason worth stating before someone tries
+it: the two tasks are not alike. A watermark tick submits control tasks and returns, so it is short
+and safe to share. A checkpoint does I/O — `checkpointNow` writes and fsyncs — and one slow
+checkpoint on a shared single-thread scheduler would delay every other query's. They need different
+treatment: the watermark clock can be one shared thread for the node, the checkpointer needs a small
+pool sized so a slow disk cannot starve the rest.
+
+Until then a node still pays two platform threads per registered query, which is the binding
+constraint on how many queries one node holds.
