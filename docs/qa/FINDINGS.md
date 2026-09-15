@@ -5668,6 +5668,13 @@ ADR-036's table says **1.00 platform threads per query**, measured against a reg
 sources. For the workload the target actually names it is **two**, and W9-2's win — making the feed
 loop virtual — is given back by a plugin the ADR does not look at.
 
+**W9-4 and W9-5 make this the finding that is left.** Once the registry hosts every lane on a shared
+`LaneRunner`, the engine stops paying a platform thread per query entirely — and the Aerospike
+client's `tend` thread becomes the *only* per-query platform thread on the node, in the connector the
+product leads with. The measurement above was taken before W9-5 lands and shows both: four
+`pravaha-query-0` and four `tend`. Afterwards only the second column moves with the query count,
+which is why the IT asserts that one and merely reports the other.
+
 `ClientPolicy` is built fresh in `configure()` and sets only `timeout` and `failIfNotConnected`.
 `maxConnsPerNode` is left at the client's default of **100**, `tendInterval` at 1000 ms. A thousand
 queries is therefore a thousand tend threads, a thousand info requests a second to the cluster for
@@ -5688,7 +5695,9 @@ That is the common case: a deployment with a thousand continuous queries has a t
 questions, not a thousand copies of one.
 
 Sharing by fingerprint is sharing at the wrong level for this. What is wanted is one reader per
-*binding* feeding many computations, which is a different seam from the one that exists.
+*binding* feeding many computations, which is a different seam from the one that exists — and a
+different seam from W9-4's, which shares a *thread* between lanes and leaves every lane its own
+reader.
 
 ### SRC-4 (HIGH) — the file-descriptor ceiling is unset, unchecked, and reported as something else entirely
 
