@@ -144,10 +144,10 @@ than inferred from the file.
 
 **Threads do not enter this arithmetic.** A query costs no platform thread of its own: lanes share a
 fixed runner pool of one thread per core, the periodic work shares one process-wide clock, and the
-feed loop and Flight's call executor are virtual. The one exception is the Aerospike plugin, which
-builds an `AerospikeClient` per registration and so a `tend` thread per registration — the only
-per-query platform thread left on the node, and it is in the connector the product leads with
-(SRC-2, open).
+feed loop and Flight's call executor are virtual. The Aerospike plugin was the one exception — an
+`AerospikeClient` and so a `tend` thread per registration — and since SRC-2 it shares one client per
+cluster **per credential**, so that is one thread for all of them however many register. **No
+per-query platform thread is left on the node.**
 
 ## File descriptors
 

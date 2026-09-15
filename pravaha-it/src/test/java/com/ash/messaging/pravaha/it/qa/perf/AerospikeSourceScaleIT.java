@@ -65,13 +65,14 @@ import static org.assertj.core.api.Assumptions.assumeThat;
  *   <li><strong>Scans.</strong> {@code pi_query_*} on the namespace counts primary-index queries,
  *       which is what {@code scanPartitions} is. If N queries over one set were one scan, this would
  *       not move with N.
- *   <li><strong>Connections.</strong> {@code client_connections} on the node. Each {@code
- *       AerospikeSourcePlugin.open()} constructs its own {@code AerospikeClient}, which is its own
- *       cluster object, its own tend thread and its own per-node connection pool.
+ *   <li><strong>Connections.</strong> {@code client_connections} on the node. Since SRC-2 every
+ *       {@code AerospikeSourcePlugin.open()} against one cluster and credential shares a single
+ *       {@code AerospikeClient} -- one cluster object, one tend thread, one per-node pool. It was
+ *       one of each per registration, and both assertions below used to demand exactly that.
  * </ul>
  *
  * <p>The queries deliberately have <strong>different SQL over the same set</strong>. Identical SQL
- * shares one computation by fingerprint and therefore one feed and one client, which is well covered
+ * shares one computation by fingerprint and therefore one feed, which is well covered
  * elsewhere and is not the case a deployment is in. Different questions over the same data is the
  * case the target describes.
  *
@@ -239,11 +240,11 @@ class AerospikeSourceScaleIT {
                             + "    no queries: %3d      1 query: %3d (+%d)      %d queries: %3d (+%d)%n"
                             + "  the cluster's own cpu, as it reports it:%n"
                             + "    no queries: %3d%%      1 query: %3d%%              %d queries: %3d%%%n"
-                            + "%n  Each registration constructs its own AerospikeClient in%n"
-                            + "  AerospikeSourcePlugin.open(): its own cluster object, its own partition map,%n"
-                            + "  its own tend thread -- a *platform* thread, on top of the lane's -- and its own%n"
-                            + "  per-node connection pool. ClientPolicy is built fresh in configure() and%n"
-                            + "  maxConnsPerNode is left at the client's default of 100. Nothing shares one.%n"
+                            + "%n  Registrations now share one AerospikeClient per cluster per credential%n"
+                            + "  (SRC-2): one cluster object, one partition map, one tend thread, one pool for%n"
+                            + "  all of them. It was one of each per registration -- so the tend thread was a%n"
+                            + "  *platform* thread that scaled with the query count, and maxConnsPerNode's%n"
+                            + "  default of 100 was a per-query ceiling rather than a node-wide one.%n"
                             + "%n  The scan rate is now bounded by scan.interval.ms, one second by default.%n"
                             + "  It was bounded by nothing: LutScanReader.scan() ran whenever poll() found its%n"
                             + "  buffer empty and PumpingFeed polls every millisecond, so one query alone took%n"
@@ -318,15 +319,18 @@ class AerospikeSourceScaleIT {
                             QUERIES, scansPerSecondMany, scansPerSecondOne)
                     .isGreaterThan(scansPerSecondOne * 1.5);
 
+            // SRC-2 fixed: one client per cluster per credential, shared by every registration.
+            // This assertion used to demand the opposite -- connections >= QUERIES -- and it was
+            // right to, because that was the behaviour. It is inverted rather than deleted so the
+            // day sharing regresses, this is what says so.
             assertThat(connectionsAll - connectionsIdle)
                     .as(
-                            "%d registrations opened %d client connections. Each is a separate AerospikeClient "
-                                    + "with its own cluster tend thread and its own pool, and ClientPolicy is "
-                                    + "constructed fresh in configure() with maxConnsPerNode left at the client's "
-                                    + "default of 100 -- so the ceiling at a thousand queries is a hundred "
-                                    + "thousand sockets against a `ulimit -n` nothing checks. See SRC-2, SRC-4",
+                            "%d registrations opened %d client connections. They share one client, so the "
+                                    + "connection count follows the work in flight rather than the number of "
+                                    + "registrations -- the ceiling is one pool's maxConnsPerNode, not a "
+                                    + "thousand of them. See SRC-2",
                             QUERIES, connectionsAll - connectionsIdle)
-                    .isGreaterThanOrEqualTo(QUERIES);
+                    .isLessThan(QUERIES);
 
             // The number ADR-036 does not have. NodeScaleTest measures one platform thread per
             // query -- the lane -- against a registry whose queries are fed by nobody. An
@@ -356,11 +360,12 @@ class AerospikeSourceScaleIT {
             // virtual scheduler's carriers and the JDK's NIO pollers, which are bounded pools.
             assertThat(added.getOrDefault("tend", 0L))
                     .as(
-                            "%d Aerospike-backed registrations started %d `tend` threads. As the engine stops "
-                                    + "paying a thread per query, this becomes the one that is left: the plugin "
-                                    + "gives every registration its own client. See SRC-2",
+                            "%d Aerospike-backed registrations started %d `tend` threads. One client per cluster "
+                                    + "per credential means one cluster thread for all of them, however many "
+                                    + "register -- the last platform thread that scaled with the query count. "
+                                    + "See SRC-2",
                             QUERIES, added.getOrDefault("tend", 0L))
-                    .isEqualTo(QUERIES);
+                    .isLessThanOrEqualTo(1L);
         }
     }
 

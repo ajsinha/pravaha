@@ -109,7 +109,7 @@ On the development machine, 24 cores, JDK 21, against the unbound baseline at th
 |---|---|
 | File descriptors | **1.00 per bound source** — one partition per binding, one reader per partition |
 | Platform threads, filesystem | **0 per source** — the feed loop is virtual since W9-2; the eight added across a hundred sources are the scheduler's carriers, bounded by `availableProcessors` |
-| Platform threads, Aerospike | **1 per source on top of the lane's** — `tend`, the client's cluster thread, one per client, one client per registration |
+| Platform threads, Aerospike | **1 per source on top of the lane's** — `tend`, the client's cluster thread, one per client, one client per registration. *Fixed since (SRC-2): one shared client per cluster per credential, so **0 per source**.* |
 | Heap | 60–380 KiB per source, and reported rather than asserted: heap after a GC is noisy enough that the two source counts disagree by a factor of two |
 | Idle CPU, followed file | **12.8 ms per second per source** at 100 sources, 16.9 at 50 |
 | Idle CPU, exhausted file | 3.0 ms per second per source — the feed loop's polling with no `stat` and no `read` |
@@ -130,12 +130,17 @@ The answer to the question this wave was scoped around, measured against a real 
 | Client connections | +1 | +8 |
 | `tend` threads in the engine | 1 | 4 |
 
+*The last two rows are what SRC-2 has since removed: registrations against one cluster and one
+credential now share a single client, so both follow the cluster count rather than the query count.
+The scan rows below stand — one client is not one reader, and SRC-3 is still open.*
+
 Two separate things, and the second is the surprise:
 
 **N queries are N scans.** Confirmed. The fingerprint shares a computation across *identical* SQL,
 and a second registration of identical SQL opens no reader at all — that part works. Different SQL
 over the same set shares nothing: different plan, different fingerprint, different execution,
-different feed, different plugin instance, different `AerospikeClient`, different scan. A thousand
+different feed, different plugin instance, different scan — though since SRC-2 no longer a
+different `AerospikeClient`. A thousand
 different questions about one set is a thousand scans of it. Sharing by fingerprint is sharing at the
 wrong level for this; what is needed is one reader per *binding*.
 

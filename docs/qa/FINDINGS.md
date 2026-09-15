@@ -5,7 +5,7 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **292 findings carrying a
-status — 132 FIXED, 145 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Counted by the same pattern
+status — 133 FIXED, 144 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -5693,7 +5693,7 @@ which is exactly where ADR-036 §3 says the owner does not want it.
 
 ### SRC-2 (HIGH) — an Aerospike-backed query costs two platform threads and a private client, not the one ADR-036 budgets
 
-> **Status:** OPEN — measured: `AerospikeSourceScaleIT` counts platform threads by name with multiplicity. Four registrations added `pravaha-query-0` ×4 (the lane) **and `tend` ×4** — the Aerospike client's cluster thread, one per client, one client per registration.
+> **Status:** FIXED — `AerospikeClients` now keys one shared `AerospikeClient` on cluster **and credential**, reference counted, released rather than closed by all three plugins. `AerospikeClientSharingTest` (5 tests, no docker) states the rule; `AerospikeSourceScaleIT`'s two assertions that demanded the old behaviour — `tend` threads `== QUERIES`, connections `>= QUERIES` — are inverted rather than deleted, so a regression fails the test that used to require it. Seed-tested: keying on the host list alone fails exactly the two credential tests.
 
 `AerospikeSourcePlugin.open()` constructs its own `AerospikeClient`, and `PluginSourceFeeds.discover`
 constructs a fresh plugin instance per binding per registration. So every Aerospike-backed query gets
@@ -5713,8 +5713,24 @@ which is why the IT asserts that one and merely reports the other.
 
 `ClientPolicy` is built fresh in `configure()` and sets only `timeout` and `failIfNotConnected`.
 `maxConnsPerNode` is left at the client's default of **100**, `tendInterval` at 1000 ms. A thousand
-queries is therefore a thousand tend threads, a thousand info requests a second to the cluster for
+queries was therefore a thousand tend threads, a thousand info requests a second to the cluster for
 tending alone, and a socket ceiling of a hundred thousand.
+
+**The fix, and the one thing it must not do.** The client is built to be shared: thread-safe,
+multiplexing every caller over one pool, one `tend` thread maintaining one cluster map. A per-query
+client bought no isolation — it bought a thousand copies of the same partition map. So the cache is
+keyed and reference counted, and the last holder closes it.
+
+The key carries **user and password, not just the host list**, and that is not a cache-tuning
+detail. An `AerospikeClient` authenticates once, at connect; every request afterwards runs as that
+identity. A cache keyed on hosts alone would hand one query a client authenticated as another user
+and execute its reads under that authorisation — straight through the boundary this system enforces
+at the Pravaha layer specifically so it is not delegated to the store. `Key` has no `toString`, is
+never logged and never appears in a message.
+
+**Still open below this:** SRC-3. One client is not one reader. A thousand queries over one set
+still run a thousand scans, because sharing by fingerprint is the wrong seam for different SQL over
+the same binding. This finding was the threads and the sockets; that one is the load on the cluster.
 
 ### SRC-3 (HIGH) — N queries over one source are N readers; nothing below the fingerprint is shared
 
@@ -6225,8 +6241,10 @@ MiB**, today, with no code change and no barrier question to answer first.
 That reorders the wave's own plan. The multiplexer stops being the thing between this node and the
 target and becomes an optimisation on a target already met; W9-10's barrier tension no longer blocks
 anything urgent. The honest next constraint at a thousand queries is not memory and not threads —
-neither is close — it is whatever SRC-2's per-source Aerospike `tend` thread and connection pool do
-at that count, which this test does not exercise because it feeds no real source.
+neither is close — it is whatever the Aerospike source does at that count, which this test does not
+exercise because it feeds no real source. *Answered since:* SRC-2 was the per-query client, `tend`
+thread and pool, and it is fixed. SRC-3 remains — the scans, which land on the cluster rather than
+on this node.
 
 *Also checked here for the first time:* the sizing advice in `OPERATIONS.md`. A recommendation nobody
 runs is how a default becomes folklore, and this project has already found two of those.

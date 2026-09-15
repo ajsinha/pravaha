@@ -257,11 +257,9 @@ public final class AerospikeSinkPlugin implements StreamSinkPlugin {
     @Override
     public void close() {
         if (client != null) {
-            try {
-                client.close();
-            } catch (AerospikeException e) {
-                // Already gone; not a shutdown failure.
-            }
+            // Released, not closed. The client is shared with every other plugin instance on the
+            // same cluster and credential, and the last release is what actually closes it.
+            AerospikeClients.release(client);
             client = null;
         }
     }

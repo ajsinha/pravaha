@@ -20,7 +20,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 
-import com.aerospike.client.AerospikeException;
 import com.aerospike.client.Host;
 import com.aerospike.client.IAerospikeClient;
 import com.aerospike.client.policy.ClientPolicy;
@@ -294,12 +293,9 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
     @Override
     public void close() {
         if (client != null) {
-            try {
-                client.close();
-            } catch (AerospikeException e) {
-                // Closing a client whose cluster has already gone is not a failure worth
-                // propagating out of a shutdown path.
-            }
+            // Released, not closed. The client is shared with every other plugin instance on the
+            // same cluster and credential, and the last release is what actually closes it.
+            AerospikeClients.release(client);
             client = null;
         }
     }
