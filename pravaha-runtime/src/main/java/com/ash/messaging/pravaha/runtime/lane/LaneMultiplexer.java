@@ -101,6 +101,16 @@ public final class LaneMultiplexer implements LaneProcessor {
 
     /** Adds a query's pipeline to this lane. Called from the control plane, not the lane thread. */
     public void register(Pipeline pipeline) {
+        if (pipeline.schemaId() == com.ash.messaging.pravaha.api.data.StreamSchema.UNASSIGNED_STREAM_ID) {
+            // Refused rather than accepted and mis-dispatched. Zero means no stream id was ever
+            // assigned, and every row whose writer had none carries zero too -- so accepting this
+            // would put one pipeline in a group with every stream that is equally anonymous, and
+            // hand it their rows. That is the failure W9-9 found before it could happen, and the
+            // whole reason this check is louder than a log line.
+            throw new IllegalArgumentException("query '" + pipeline.queryId()
+                    + "' has no stream id, so this lane cannot tell which rows are its own. A stream is "
+                    + "given an id when it joins a registry's catalogue; a schema built by hand has none.");
+        }
         synchronized (registrationLock) {
             Entry entry = new Entry(pipeline);
             byQuery.put(pipeline.queryId(), entry);

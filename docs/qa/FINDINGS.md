@@ -5945,7 +5945,7 @@ in-flight firing, bounded.
 
 ### W9-9 (HIGH) — the row header's "schema id" is a schema *version*, so it cannot identify a stream
 
-> **Status:** OPEN — `BinaryRowWriter.begin` writes `layout.schema().version()` into `RowLayout.OFFSET_SCHEMA_ID`; `StreamSchema.Builder` defaults `version` to 1 and only `evolve()` increments it. So every row of every stream carries the same id.
+> **Status:** FIXED — `StreamSchema` carries a `streamId` distinct from its evolution `version`; `QueryRegistry` assigns them sequentially as streams join its catalogue; `BinaryRowWriter` writes that rather than the version; and `LaneMultiplexer.register` **refuses** an unassigned id instead of accepting it and mis-dispatching. `StreamIdentityTest` proves two streams in one catalogue get different ids and that a row written through the real writer carries its own — seed-proven: restoring `version()` fails it.
 
 Found while wiring `LaneMultiplexer` (W9-8), and it is why that cannot be wired yet.
 
@@ -5979,4 +5979,14 @@ What it needs is a stable per-stream identity in the header. Two shapes, and the
   PF-10 and W8-8 were: two names sharing an id, silently, with one stream's rows delivered as
   another's. Rejected on that basis; it is the same mistake wearing a different hat.
 
-Until then `LaneMultiplexer` stays unwired, and the per-query inbox stays at 1,024 KiB.
+Fixed by the first shape. Ids are assigned by the registry, sequentially, as streams join its
+catalogue; zero is reserved for "nobody assigned one", and the multiplexer refuses it rather than
+treating it as a stream — because every anonymous schema carries zero too, so accepting it would
+group one pipeline with every other anonymous stream and hand it their rows. The failure this whole
+entry is about, made impossible rather than unlikely.
+
+Hashing the name was rejected in writing before it could be reached for. It needs no plumbing at all,
+which is its entire appeal, and it is how two streams come to share an id silently — the same defect
+as PF-10 and W8-8, which this codebase has now paid for twice.
+
+`LaneMultiplexer` is unblocked. Wiring it is W9-8.

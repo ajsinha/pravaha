@@ -144,7 +144,43 @@ public final class QueryRegistry implements AutoCloseable {
         this.views = views;
         this.policy = policy;
         this.audit = audit;
-        this.streams = streams.clone();
+        this.streams = identify(streams);
+    }
+
+    /**
+     * Gives every stream in this catalogue an identity, so a row can say which one it came from.
+     *
+     * <p>Sequential from one, in the order the registry was given them. Zero is reserved for "nobody
+     * assigned one" and is what a schema built by hand carries, which is why it is reserved rather
+     * than simply unused: the one consumer that dispatches by this value refuses zero instead of
+     * treating it as a stream (W9-9).
+     *
+     * <p>Assigned here rather than derived from the name, and the alternative is worth naming
+     * because it is the tempting one. Hashing a stream name needs no plumbing at all and is how two
+     * streams come to share an identity silently -- one stream's rows delivered to the other's
+     * queries, the same defect as PF-10 and W8-8. A counter cannot collide.
+     *
+     * <p>A schema that already carries an id keeps it: a registry that re-wraps a schema another
+     * registry identified must not renumber it underneath the rows already written.
+     */
+    /**
+     * The streams this registry knows, as it knows them -- identified.
+     *
+     * <p>A caller that built a schema and handed it here gets back the copy carrying an id, which is
+     * the one rows are written against. The two are not interchangeable and the difference is W9-9.
+     */
+    public StreamSchema[] streams() {
+        return streams.clone();
+    }
+
+    private static StreamSchema[] identify(StreamSchema[] given) {
+        StreamSchema[] identified = new StreamSchema[given.length];
+        int next = 1;
+        for (int i = 0; i < given.length; i++) {
+            identified[i] =
+                    given[i].streamId() == StreamSchema.UNASSIGNED_STREAM_ID ? given[i].withStreamId(next++) : given[i];
+        }
+        return identified;
     }
 
     /** Dimension tables registered queries may join against, by the name the SQL refers to. */

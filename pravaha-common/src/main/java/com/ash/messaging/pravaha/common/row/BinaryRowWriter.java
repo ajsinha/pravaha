@@ -107,7 +107,12 @@ public final class BinaryRowWriter implements RowWriter {
         // Clearing the header and null bitmap is what lets a caller reuse arena space safely;
         // a stale null bit from a previous row would read as a null field in this one.
         region.setMemory(offset, layout.fixedEnd(), (byte) 0);
-        region.putInt(offset + RowLayout.OFFSET_SCHEMA_ID, layout.schema().version());
+        // The stream's identity, not its evolution version. It was version() -- 1 for every stream
+        // that has never evolved, which is almost all of them -- so every row of every stream
+        // carried the same value in the field called "schema id", and the one consumer that reads
+        // it to learn which stream a row belongs to would have been handed every row of every
+        // stream (W9-9). Unassigned stays zero, which that consumer refuses rather than guesses at.
+        region.putInt(offset + RowLayout.OFFSET_SCHEMA_ID, layout.schema().streamId());
         return this;
     }
 

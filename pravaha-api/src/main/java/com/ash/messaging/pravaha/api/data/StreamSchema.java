@@ -36,6 +36,26 @@ public final class StreamSchema {
     private final List<Field> fields;
     private final Map<String, Field> byName;
     private final int version;
+
+    /**
+     * This stream's identity in a row header, or {@link #UNASSIGNED_STREAM_ID}.
+     *
+     * <p>Distinct from {@link #version}, and the distinction cost a wave. {@code version} says how
+     * many times a schema has evolved; it is 1 for every stream that has never evolved, which is
+     * almost all of them. `BinaryRowWriter` wrote it into the header field called "schema id" and
+     * `LaneMultiplexer` read it back expecting to learn which stream a row belonged to -- so every
+     * row of every stream looked alike, and dispatching by it would have handed one stream's rows to
+     * queries subscribed to another (W9-9).
+     *
+     * <p>Assigned by whoever owns the namespace the streams live in -- the registry -- rather than
+     * derived from the name. Hashing a name is how two streams come to share an id silently, which
+     * is the same defect as PF-10 and W8-8 and this codebase has paid for it twice.
+     *
+     * <p>Zero means nobody assigned one, and a consumer that needs identity must refuse it rather
+     * than treat it as a stream. Guessing here is exactly the failure being prevented.
+     */
+    private final int streamId;
+
     private final int eventTimeOrdinal;
     private final Duration outOfOrderness;
 
@@ -85,6 +105,9 @@ public final class StreamSchema {
      */
     public static final Duration DEFAULT_ALLOWED_LATENESS = Duration.ZERO;
 
+    /** No stream id has been assigned. A consumer needing identity must refuse this, not guess. */
+    public static final int UNASSIGNED_STREAM_ID = 0;
+
     private StreamSchema(
             String name,
             List<Field> fields,
@@ -93,6 +116,27 @@ public final class StreamSchema {
             List<String> primaryKey,
             Duration outOfOrderness,
             Duration allowedLateness) {
+        this(
+                name,
+                fields,
+                version,
+                eventTimeOrdinal,
+                primaryKey,
+                outOfOrderness,
+                allowedLateness,
+                UNASSIGNED_STREAM_ID);
+    }
+
+    private StreamSchema(
+            String name,
+            List<Field> fields,
+            int version,
+            int eventTimeOrdinal,
+            List<String> primaryKey,
+            Duration outOfOrderness,
+            Duration allowedLateness,
+            int streamId) {
+        this.streamId = streamId;
         this.outOfOrderness = outOfOrderness == null ? DEFAULT_OUT_OF_ORDERNESS : outOfOrderness;
         this.allowedLateness = allowedLateness == null ? DEFAULT_ALLOWED_LATENESS : allowedLateness;
         this.name = name;
@@ -126,6 +170,26 @@ public final class StreamSchema {
 
     public int version() {
         return version;
+    }
+
+    /** This stream's identity in a row header, or {@link #UNASSIGNED_STREAM_ID} if none was given. */
+    public int streamId() {
+        return streamId;
+    }
+
+    /**
+     * The same schema, identified as {@code id}.
+     *
+     * <p>Called by the registry when a stream joins its catalogue. A copy rather than a mutation,
+     * because a schema a running query was planned against must not change under it.
+     */
+    public StreamSchema withStreamId(int id) {
+        if (id == UNASSIGNED_STREAM_ID) {
+            throw new IllegalArgumentException(
+                    "stream id " + UNASSIGNED_STREAM_ID + " means unassigned and cannot be given to a stream");
+        }
+        return new StreamSchema(
+                name, fields, version, eventTimeOrdinal, primaryKey, outOfOrderness, allowedLateness, id);
     }
 
     /** Ordinal of the event-time field, or empty when the stream has no declared event time. */
