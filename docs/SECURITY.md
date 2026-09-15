@@ -186,18 +186,34 @@ and not "who read the payroll view", which is the question that actually gets as
 `AuditEvent` never carries the credential, and `Principal.toString()` never prints its claims — both
 have tests, because a secret reaching a log line reaches everything that reads logs.
 
+**One sink, both transports.** `pravaha.security.audit` takes `none` or `memory`, and the HTTP
+surface records into the *same object* the engine and Flight use. Until CFG-5 it did not: the Spring
+bean behind `HttpAuthorizer` returned `AuditSink.NONE` unconditionally, so a node set to `memory`
+recorded every Flight read and no HTTP read, no HTTP stream declaration and no HTTP refusal, and
+nothing at startup said so. `AuditSinkSharingTest` asserts object identity rather than matching
+configuration, because resolving the key twice would give the HTTP surface a second in-memory sink
+nothing can reach — invisible in exactly the same way, while looking correct.
+
+**What `memory` is, and is not.** It holds recent events in this process for tests and for support
+to read from a heap dump. **Nothing in the server exposes them** — there is no endpoint, no log
+appender and no file (CFG-23). Do not deploy `memory` believing it produces a retained audit trail;
+a durable sink is an `AuditSink` implementation you supply.
+
 ## Transport
 
 TLS is the client default; `grpc://` plaintext has to be spelled out. Both SDKs refuse to send a token
 over plaintext unless explicitly permitted.
 
-**"Unless explicitly permitted" is true of the raw SDK in isolation, but not of the shipped CLI.**
-`bin/pravaha`'s `ServerCommand.connect(args)` sets `allowInsecureToken(true)` unconditionally, on every
-one of its server-talking commands, on every invocation with `--token` — there is no flag to opt out,
-and nothing is printed. A token passed to any `pravaha` command over a plaintext `grpc://` URL is
-sent in the clear silently, not merely "if you permit it." Confirmed on a wire capture: the literal
-token appears in the clear on `queries`, `query`, `register`, `pause`, `resume`, `subscribe` and
-`drop` alike (P-3, reconfirmed under SECX-062).
+**True of the CLI too, since P-3.** `ClientOptions.Builder.build()` has always refused a token over a
+plaintext endpoint — but `bin/pravaha`'s `ServerCommand.connect(args)` set `allowInsecureToken(true)`
+unconditionally, on every server-talking command, on every invocation with `--token`, with no flag to
+opt out and nothing printed. The SDK's refusal was real and switched off for every CLI user, and a
+wire capture showed the literal token in the clear on `queries`, `query`, `register`, `pause`,
+`resume`, `subscribe` and `drop` alike.
+
+The escape hatch now has to be typed: `--insecure-token`. Without it a token over `grpc://` is
+refused before any connection is attempted. With `grpc+tls://` nothing extra is needed, which is the
+point — an escape hatch that everyone passes everywhere stops meaning anything.
 
 **This section describes Flight only.** The main HTTP API (`/api/v1/*`) carries the identical bearer
 token and has no TLS story of its own in Pravaha's configuration — HTTPS on the HTTP surface is

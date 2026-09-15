@@ -193,7 +193,10 @@ final class ServerCommand {
     private PravahaFlightClient connect(Args args) {
         String url = args.get("url", "grpc://localhost:9090");
         ClientOptions.Builder options = ClientOptions.builder(url);
-        args.get("token").ifPresent(token -> options.token(token).allowInsecureToken(true));
+        // P-3. This was `.allowInsecureToken(true)` unconditionally, on every command, on every
+        // invocation carrying --token, with no flag to opt out -- so the CLI answered the safety
+        // question on the operator's behalf and always answered "yes". It has to be typed now.
+        args.get("token").ifPresent(token -> options.token(token).allowInsecureToken(args.has("insecure-token")));
         return PravahaFlightClient.connect(options.build());
     }
 

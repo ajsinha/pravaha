@@ -137,6 +137,22 @@ public final class PravahaFlightServer implements AutoCloseable {
      */
     public PravahaFlightServer encryptedWith(java.io.File certificateChain, java.io.File privateKey) {
         requireNotStarted("TLS");
+        // CFG-6(b). Null-checked before either readability branch, because both of those
+        // dereference. A certificate with no key reached `privateKey.isFile()` and threw a
+        // NullPointerException whose helpful text names `privateKey` -- a field of this class --
+        // and never `pravaha.flight.tls.key`, which is the thing the operator has to set. The
+        // ordering meant that message only ever reached operators who had got the certificate
+        // right.
+        if (certificateChain == null || privateKey == null) {
+            throw new PravahaException(
+                    FlightErrors.TLS_UNREADABLE,
+                    "TLS needs both halves and got "
+                            + (certificateChain == null ? "only a private key" : "only a " + "certificate chain")
+                            + ". Set pravaha.flight.tls.certificate and pravaha.flight.tls.key together, or "
+                            + "neither -- a node given one of them cannot serve TLS, and starting in plaintext "
+                            + "because half a setting was missing is how a deployment that asked for encryption "
+                            + "ends up without it.");
+        }
         if (!certificateChain.isFile()) {
             throw new PravahaException(
                     FlightErrors.TLS_UNREADABLE,

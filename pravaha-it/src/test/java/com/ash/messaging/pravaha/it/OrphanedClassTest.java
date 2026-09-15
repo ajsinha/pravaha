@@ -71,6 +71,11 @@ class OrphanedClassTest {
             // orphan in the repository was masked while an agent was running.
             Map.entry("ZooKeeperProvider", "ServiceLoader / CoordinatorProvider"),
             // Spring instantiates these from annotations.
+            // The process entry point: @SpringBootApplication with a main method, started by the
+            // launcher rather than referenced from any other class. It became visible to this scan
+            // only when AuditSinkSharingTest became the first test to construct one -- which is the
+            // check working, not a false positive: until then nothing referenced it from either side.
+            Map.entry("PravahaServerApplication", "Spring @SpringBootApplication, main() entry point"),
             Map.entry("QueryController", "Spring @RestController"),
             Map.entry("StreamController", "Spring @RestController"),
             Map.entry("PravahaMetrics", "Spring @Component"),

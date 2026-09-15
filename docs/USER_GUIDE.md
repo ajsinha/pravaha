@@ -43,6 +43,11 @@ Both SDKs **refuse to send a token over a plaintext connection** unless told to
 (`allowInsecureToken(true)` / `allow_insecure_token=True`), which exists for loopback tests and
 sidecar-terminated TLS and is named so nobody enables it by accident.
 
+The CLI spells the same thing `--insecure-token`. Until P-3 it passed that flag for you on every
+invocation, so the refusal above was switched off for every CLI user without a word — if you have a
+script that sends a token to a `grpc://` URL, it will now be refused until you add the flag, and the
+right fix is usually `grpc+tls://` rather than the flag.
+
 ## 2. Register a continuous query
 
 ```java

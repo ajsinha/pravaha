@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **293 findings carrying a
-status — 134 FIXED, 144 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 144 open, **18 are
-GA-BLOCKER, 23 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **294 findings carrying a
+status — 137 FIXED, 142 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 142 open, **15 are
+GA-BLOCKER, 24 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -28,13 +28,15 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 18 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 23 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-BLOCKER** | 15 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-REQUIRED** | 24 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
-**The eighteen blockers, by what they break.** Data reaching the wrong principal: `SX-5`, `SX-1`,
-`P-3`, `CFG-6`. (`SX-11`, the worst of them, is **fixed** — see below.) A security control that reports itself on and is off: `CFG-5`, `SX-7`. Silently wrong
+**The fifteen blockers, by what they break.** Data reaching the wrong principal: `SX-5`, `SX-1`.
+A security control that reports itself on and is off: `SX-7`. (`SX-11`, `CFG-5`, `CFG-6` and `P-3`
+were in these two rows and are **fixed** — the security group is now down to the existence oracle
+and the audit that logs ALLOW for a refused read.) Silently wrong
 answers: `TY-21`, `TY-3`, `TY-13`, `I-3`, `TIME-2`, `STRM-11`. Silent loss: `TY-2`, `W-2`,
 `TIME-4`, `TIME-1`. Declared and does nothing: `I-6`, `S-3`.
 
@@ -861,11 +863,16 @@ does not exist.
 `drop` is the contrast that proves the mechanism is available: it authorizes first and leaks nothing.
 
 ## P-3 (HIGH) — `--token` over `grpc://` ships a bearer token in clear text, silently
-> **Status:** OPEN — `ServerCommand.connect()` still unconditionally calls `.allowInsecureToken(true)` whenever `--token` is supplied, with no warning printed, even though `ClientOptions.Builder.build()` now refuses a plaintext token by default
-> **Disposition:** GA-BLOCKER — a bearer token on the wire in clear, silently
+> **Status:** FIXED — `ServerCommand.connect` now passes `args.has("insecure-token")`, so the SDK's existing refusal in `ClientOptions.Builder.build()` reaches CLI users instead of being switched off for them. `InsecureTokenTest` (4): refused over plaintext, permitted with `--insecure-token`, untouched over TLS, and unaffected when no token is supplied. Seed-proven by restoring the unconditional `true`, which fails the first.
 
 
-`allowInsecureToken` is set by the CLI and enforced by nothing. No warning, no refusal.
+`allowInsecureToken` was set by the CLI and thereby enforced against nobody. No warning, no refusal.
+
+**Worth recording, because I got it wrong first.** Reading the CLI call site I concluded the SDK
+never read the flag at all and started writing a second check into `PravahaFlightClient.connect`.
+It does read it — `ClientOptions.Builder.build()` has refused a plaintext token all along, twenty
+lines below the getter I had stopped at. The extra check was reverted before it was committed. The
+finding is exactly what it said it was: one line, in the CLI, switching off a refusal that worked.
 
 ## P-4 — no command has help, and one of them makes a network call to say so
 > **Status:** OPEN — reproduced against the built CLI jar: `queries --help` still dials the network and fails with `PRV-1041`, `query --help`/`register --help` still report missing required options, and only the top-level `pravaha --help` is recognised by `PravahaCli.isHelp`
@@ -2795,6 +2802,26 @@ same commit is that the field is a `Long.toString` the CLI parses and prints. Re
 a lie and reporting `-1` is a convention that has to be agreed with the client and the CLI at once.
 The full `query.sql()` text is disclosed on the same path and has the same question against it.
 
+### CFG-23 (HIGH) — `audit: memory` records into a sink nothing in the server can read
+
+> **Status:** OPEN — nothing in any `src/main` calls `AuditSink.InMemory.events()`; there is no endpoint, no log appender and no file behind `pravaha.security.audit: memory`.
+> **Disposition:** GA-REQUIRED — the audit is correct and complete and unreachable; an operator cannot answer "who read payroll" from a running node
+
+Found while fixing CFG-5, and it changes what that fix is worth. CFG-5 was right that the HTTP
+surface discarded every decision it made — but the sink it should have been writing to is itself
+write-only. `grep -rn "\.events()" --include=*.java */src/main` returns nothing.
+
+So `pravaha.security.audit: memory` is a setting that accepts events and exposes them to no one.
+It is genuinely useful to tests, which hold the sink object, and to support reading a heap dump. It
+is not an audit trail, and a deployment that set it believing otherwise has no record at all —
+which is the same outcome CFG-5 produced, arrived at from the other end.
+
+**Not folded into CFG-5's fix, deliberately.** Exposing audit events is a design decision with a
+security dimension of its own: an endpoint listing who-read-what is itself a disclosure surface and
+needs its own authorization, and a file sink needs rotation, permissions and a format. Picking one
+in passing, inside a commit about bean wiring, is how a security feature gets designed by accident.
+`docs/SECURITY.md` now says plainly what `memory` is and is not.
+
 ## SX-12 (HIGH) — a legitimately secure configuration (`authentication=token` + `policy=permissive` + a real token table + `allow-anonymous=false`) refuses to start at all, and its refusal message misattributes the cause
 > **Status:** OPEN — `PravahaNode.refuseAccidentalOpenServer` still computes `open` from `!(securityPolicy() instanceof AuthenticatedOnlyPolicy)` alone, ignoring `authentication`/token config, and the refusal message still hardcodes `pravaha.security.authentication=none` regardless of the real configuration.
 > **Disposition:** GA-REQUIRED — assigned individually
@@ -3506,8 +3533,7 @@ See `docs/qa/logs/CFG.md` (CFG-010).
 
 ### CFG-5 (HIGH) — every HTTP authorization decision is recorded into a hard-coded `AuditSink.NONE`, whatever `pravaha.security.audit` says
 
-> **Status:** OPEN — reproduced by reading `PravahaServerApplication.pravahaAuditSink()` (`:118-121`, `return AuditSink.NONE;`, no parameters, no reference to `SecurityProperties`) against `HttpAuthorizer`'s constructor (`HttpAuthorizer.java:49`) and its two `audit.record(...)` calls at `:75` and `:85`.
-> **Disposition:** GA-BLOCKER — a security control that reports itself configured and is hard-wired off
+> **Status:** FIXED — `pravahaAuditSink(PravahaNode)` now returns `node.auditSink()`, so the HTTP surface records into the *same object* the engine and Flight use. `AuditSinkSharingTest` (3) asserts object identity, that an HTTP-recorded event is readable through the node's own sink, and that `none` still means none. Seed-proven against the *plausible wrong fix*: making the bean resolve `pravaha.security.audit` a second time fails all three, because `memory` would then hand HTTP a second `InMemory` sink nothing can reach — invisible in exactly the same way while looking correct.
 
 `PravahaNode.auditSink()` honours `pravaha.security.audit`, caches the `AuditSink.InMemory` it builds,
 and hands the same instance to both the `QueryRegistry` and the `PravahaFlightServer` — so the Flight
@@ -3526,8 +3552,7 @@ See `docs/qa/logs/CFG.md` (CFG-014, CFG-079).
 
 ### CFG-6 (HIGH) — the TLS certificate and key are never validated as a pair: one ordering gives a silent plaintext server, the other a raw `NullPointerException`
 
-> **Status:** OPEN — reproduced live over a full 3×3 matrix of nine node starts: certificate unset + key valid → node up, `flight transport=PLAINTEXT`, `grpc://` serves rows; certificate valid + key unset → `NullPointerException: Cannot invoke "java.io.File.isFile()" because "privateKey" is null` at `PravahaFlightServer.java:123`, called from `PravahaNode.java:463`.
-> **Disposition:** GA-BLOCKER — one ordering silently serves plaintext to a deployment that asked for TLS
+> **Status:** FIXED — TLS is validated as a pair on both sides. `PravahaNode` branches on `tlsCertificate != null || tlsKey != null`, so a key configured without a certificate no longer starts a plaintext node with the key silently ignored; `encryptedWith` null-checks both arguments before either readability branch, replacing the `NullPointerException` that named the private field `privateKey` with `PRV-6104` naming `pravaha.flight.tls.certificate` and `.key`. `TlsPairTest` (5) covers both half-pairs, the message's advice, and that the configured and unreadable cases still behave. Seed-proven: removing the guard fails 3 of the 5.
 
 `PravahaNode.start()` applies TLS through a single `if (tlsCertificate != null)` (`:462-464`), so the
 two halves of one setting are handled asymmetrically. **(a) Key without certificate** — the key is

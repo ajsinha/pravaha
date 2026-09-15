@@ -333,7 +333,21 @@ public class PravahaNode implements SmartLifecycle {
         return registry.policy();
     }
 
-    private AuditSink auditSink() {
+    /**
+     * The one audit sink for this node, built from {@code pravaha.security.audit}.
+     *
+     * <p>Package-private rather than private because the HTTP half of the node has to get the
+     * <em>same instance</em>. CFG-5: {@code HttpAuthorizer} took its sink from a Spring bean that
+     * returned {@code AuditSink.NONE} unconditionally, so a deployment configured with
+     * {@code audit: memory} recorded every Flight read and no HTTP read, no HTTP stream declaration
+     * and no HTTP refusal -- with nothing at startup saying so.
+     *
+     * <p>Resolving the key again in that bean would not have fixed it. {@code memory} builds an
+     * {@code InMemory} sink, and a second one is a sink nobody can reach: the HTTP events would
+     * still be invisible, and the configuration would now look right. Sharing the instance is the
+     * fix; the cache below is what makes sharing safe to ask for before {@link #start()}.
+     */
+    AuditSink auditSink() {
         String configured =
                 security.getAudit() == null ? "none" : security.getAudit().trim();
         return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
@@ -541,7 +555,14 @@ public class PravahaNode implements SmartLifecycle {
             if (verifier != null) {
                 server.authenticatedBy(verifier);
             }
-            if (tlsCertificate != null) {
+            // CFG-6(a). This was `if (tlsCertificate != null)`, which handled the two halves of one
+            // setting asymmetrically: a key configured without a certificate was read into a File,
+            // held in a field and never used. The node started in plaintext, grpc:// connected, rows
+            // were readable on the wire -- and under `authentication: token` it simultaneously
+            // advised the operator to "set pravaha.flight.tls.certificate and .key", advice they had
+            // already half-taken, with no acknowledgement of the half they took and nothing anywhere
+            // saying a private key had been configured and ignored.
+            if (tlsCertificate != null || tlsKey != null) {
                 server.encryptedWith(tlsCertificate, tlsKey);
             }
             flight = server.start(flightHost, flightPort);

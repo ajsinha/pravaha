@@ -31,6 +31,11 @@ import com.ash.messaging.pravaha.cli.PravahaCli;
 abstract class ErrcServerSupport {
 
     static CliResult cli(String... args) {
+        // P-3. These cases drive a loopback server over plaintext grpc:// by construction, which is
+        // exactly the situation --insecure-token exists for -- so the scaffolding says so once here
+        // rather than at forty call sites. It is added only when this invocation actually carries a
+        // token, so a case that means to exercise the refusal still gets it.
+        args = withInsecureTokenWhereATokenIsSent(args);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ByteArrayOutputStream err = new ByteArrayOutputStream();
         int code;
@@ -39,6 +44,21 @@ abstract class ErrcServerSupport {
             code = new PravahaCli(outStream, errStream).run(args);
         }
         return new CliResult(code, out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8));
+    }
+
+    private static String[] withInsecureTokenWhereATokenIsSent(String[] args) {
+        boolean sendsToken = false;
+        boolean alreadySaid = false;
+        for (String arg : args) {
+            sendsToken |= "--token".equals(arg);
+            alreadySaid |= "--insecure-token".equals(arg);
+        }
+        if (!sendsToken || alreadySaid) {
+            return args;
+        }
+        String[] extended = java.util.Arrays.copyOf(args, args.length + 1);
+        extended[args.length] = "--insecure-token";
+        return extended;
     }
 
     record CliResult(int code, String out, String err) {

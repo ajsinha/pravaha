@@ -115,9 +115,23 @@ public class PravahaServerApplication {
         };
     }
 
+    /**
+     * The sink the HTTP surface records into -- the same object the engine and Flight use.
+     *
+     * <p>CFG-5. This returned {@code AuditSink.NONE} unconditionally, so {@code HttpAuthorizer} --
+     * the only thing enforcing authorization on {@code /api/v1/**} -- discarded every decision it
+     * made, whatever {@code pravaha.security.audit} said, while the Flight half of the same node
+     * recorded correctly. Nothing at startup mentioned the difference and {@code docs/SECURITY.md}
+     * did not distinguish the two transports.
+     *
+     * <p>Taken from the node rather than resolved again from the same key, and that distinction is
+     * the whole fix: {@code memory} builds an {@code InMemory} sink, so resolving twice would give
+     * the HTTP surface a second one that nothing reads. The events would still be invisible and the
+     * configuration would now look correct, which is worse than the bug it replaced.
+     */
     @Bean
-    public com.ash.messaging.pravaha.security.AuditSink pravahaAuditSink() {
-        return com.ash.messaging.pravaha.security.AuditSink.NONE;
+    public com.ash.messaging.pravaha.security.AuditSink pravahaAuditSink(PravahaNode node) {
+        return node.auditSink();
     }
 
     @Bean
