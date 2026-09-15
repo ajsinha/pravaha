@@ -226,9 +226,10 @@ It blocks Gate P3's Profile B figure too, so it is overdue rather than upcoming.
 | `COUNT(DISTINCT …)` in a window | same |
 | Windowed `GROUP BY` end to end | `TABLE(TUMBLE(...))`, `HOP` |
 | Late data: correct by retraction, or the late output | `WindowedAggregate` |
-| Dead-letter queue and rate monitor | `FileDeadLetterQueue`, `DeadLetterRate` |
-| Changelog analysis, emit-mode negotiation | `ChangelogAnalysis` |
-| L0 off-heap state map | `L0StateMap` |
+| Dead-letter queue | `FileDeadLetterQueue` — reachable since Wave 8 as `pravaha run --dlq` (W8-11) |
+| Dead-letter rate monitor | `DeadLetterRate` — still reachable from nothing; there is no `DEGRADED` query state for it to set |
+| Changelog analysis, emit-mode negotiation | `ChangelogAnalysis` — reachable from nothing, and nothing can reach it until a query can be bound to a sink (W8-13) |
+| L0 off-heap state map | deleted in Wave 8 (W8-12) |
 
 Gate P3 evidence is in [`gates/wave-4`](gates/wave-4/). **All eight correctness invariants are now
 green** — the eighth went green with checkpointing, at the start of Wave 5.

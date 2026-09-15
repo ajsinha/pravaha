@@ -44,10 +44,18 @@ import com.ash.messaging.pravaha.runtime.window.SlicedWindows;
  * risk at a million groups is not worth reasoning about -- <em>provided</em> the two digests can
  * actually disagree. They could not, for strings: both read {@code String.hashCode()}, 32 bits and
  * trivially collidable, so a constructible pair like {@code "Aa"} and {@code "BB"} collided in both
- * at once. The digests now read every character. The honest fix remains carrying the key bytes
- * rather than a hash, which is what {@code L0StateMap} exists for and Wave 8 wires.
- * That belongs with the keyed state store in Wave 4's second half, and until then this is recorded
- * here rather than left for somebody to discover.
+ * at once. The digests now read every character.
+ *
+ * <p>The honest fix remains keying by the group's <em>values</em> rather than by a digest of them,
+ * which is what {@link KeyedAggregate} already does one operator over ({@code record Key(Object[]
+ * values)}). This used to say the fix was {@code L0StateMap} and that Wave 8 would wire it; that was
+ * wrong twice over. {@code L0StateMap} takes a fixed-width key and a group key containing a
+ * {@code STRING} has no fixed width, so it could never have held this state -- and it has been
+ * deleted (W8-12). What is left is a 128-bit digest in {@link SlicedAggregateState} and, narrower, a
+ * 64-bit fold of it in this class's {@code emitted} map, where a collision would suppress one
+ * group's retraction rather than merge two sums. Neither is constructible the way the string case
+ * was, so neither has a test that can prove a fix, and changing the key type changes the checkpoint
+ * format -- recorded as W8-14 rather than done blind.
  *
  * <p>Firing is driven by {@link #advanceWatermark}, and end of input fires everything still open.
  * A bounded source -- a file, a backfill -- would otherwise leave its last windows unemitted, which

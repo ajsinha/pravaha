@@ -1421,7 +1421,7 @@ that embeds both `pravaha-server` and the Flight client SDK on one classpath —
 test harness of its own — would hit the identical crash.
 
 ### E-10 (HIGH) — `PRV-2041 SQL_EMIT_MODE_MISMATCH` is unreachable: a tenth silent code, and the case file did not know about it
-> **Status:** OPEN — `ChangelogAnalysis.checkAgainst` (pravaha-sql) is still called from nowhere in any module's main sources; `ErrcSqlTest#changelogAnalysisCheckAgainstIsCalledFromNowhereInMainSources` passes, its exhaustive source-scan assertion of zero call sites still holding
+> **Status:** BY DESIGN — superseded by W8-3, which established that there is nothing to call it from: no `INSERT INTO`, no sink configuration, no `ServiceLoader` declaration for `StreamSinkPlugin`, and `ViewSink` (the only sink a continuous query reaches) applies retractions correctly. The false claim in `StreamSchema`'s javadoc is removed, and `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction` now asserts the precondition rather than the absence — it fails when a sink binding appears, which is the moment to wire the check
 
 
 `ChangelogAnalysis.checkAgainst` is `PRV-2041`'s sole throw site, and design section 15.5 explains at
@@ -4120,8 +4120,11 @@ user id or a product code is exactly the shape that hits it.
 The result was a wrong answer with no error: `GROUP BY user_id` reported the sum of two users under
 one of their names, in the view, in every subscription, and in every SDK.
 
-The comment now records what the two digests do and do not buy. Carrying the key bytes rather than a
-hash remains the honest fix, which is what `L0StateMap` is for and what [ADR-035](../adr/035-wave-8-is-survival-not-distribution.md) puts in Wave 8.
+The comment now records what the two digests do and do not buy. Keying by the group's **values**
+rather than by a digest of them remains the honest fix — which is what `KeyedAggregate` already does
+one operator over. It is *not* what `L0StateMap` was for: that class takes a fixed-width key and a
+group key containing a `STRING` has none, so it could never have held this state. See W8-2 (the
+class is deleted) and W8-4 (what is left of the collision surface, and why it was not changed here).
 ---
 
 ## Streaming results — the subscription path (STRM), 19 findings
@@ -4693,3 +4696,167 @@ knows better has to be able to say so.
 It also catches the case the owner was really asking about: two nodes where nobody set
 `pravaha.node.id`, both defaulting to `pravaha-node-01`. They now collide loudly at startup instead
 of quietly at prune time.
+---
+
+## Wave 8 item 4 — the three built-and-unreachable mechanisms (W8), 4 findings
+
+Numbered from 11 so that items 1, 2 and 3 can keep numbering sequentially from 1 without
+colliding with this block; item 1 already holds W8-1.
+
+[ADR-035](../adr/035-wave-8-is-survival-not-distribution.md) §4 ends the wave with each of
+`DeadLetterQueue`/`FileDeadLetterQueue`, `L0StateMap` and `ChangelogAnalysis` either reachable from a
+supported path or deleted. Three mechanisms, three different verdicts, and the difference between
+them is the point: one was never wired, one could never have been wired to what its own javadoc said
+it was for, and one has nothing in the product to wire it to.
+
+### W8-11 (HIGH) — one malformed line stops a source, and three production comments already said the dead-letter queue would handle it
+
+> **Status:** FIXED — `PravahaCliTest#aBadLineWithNoDeadLetterFileStillFailsTheRunAndNamesTheLineAndColumn`, `#withADeadLetterFileTheRunFinishesAndTheRejectedLineIsOnDiskWithItsBytes` and `#theLaneKeepsDrainingAfterARejection`. Seeded by restoring `FilesystemPartitionReader`'s `writer.abort(); throw e;`: all three fail, the first with `Expecting actual: "UnsupportedOperationException: a plugin aborted a row mid-write, which the ingest path cannot yet undo..." to contain: "line 2"`, the other two with `expected: 0 but was: 1`
+
+`DeadLetterQueue`, `FileDeadLetterQueue` and `DeadLetter` were built, tested, documented to operators
+(`OPERATIONS.md` lists the DLQ file among the three data-classified files) and referenced by no
+production file. That is not the interesting part. The interesting part is that **three separate
+production files already contained comments describing behaviour that did not exist**:
+
+- `FilesystemPartitionReader`: `// One malformed line must not cost the batch. The engine's DLQ
+  handles the record; the reader's job is to keep going.` — directly above `throw e`.
+- `Expression`: `throw new ArithmeticException("division by zero in a projection; the record is
+  routed to the DLQ rather than given a value that could be mistaken for an answer")` — the record is
+  not routed anywhere; the lane fails.
+- `FeedFilePartitionReader.quarantine`: `// the DLQ entry records where the file stopped` — no entry
+  is written.
+
+What the throw costs on a server: `PumpingFeed.run` catches, records the failure and `return`s, which
+ends the feed thread for the life of the process. The query goes on reporting `RUNNING` and serving
+a view that no longer advances. One letter where a number should be, in one line of a ten-million
+line file, and the only symptom is that the answer stops changing.
+
+**The fix, and the thing that made it non-trivial.** `PartitionReader.RecordSink` gains a default
+`reject(raw, sourceOffset, reason)` returning `false`. `false` means there is nowhere to put the
+record and the reader must fail as it always did — so a deployment that has not asked for a
+dead-letter queue is unchanged, and no record is discarded merely because nobody said where to put
+it. The engine answers `true` only when a queue is attached.
+
+A reader cannot simply abandon a row and carry on. On the fast path the plugin decodes *straight
+into a claimed inbox cell*; `RowInbox.drain` "stops at the first cell that is claimed but not yet
+published, rather than skipping it"; and there is no cancel path on the inbox. An abandoned row would
+therefore stall that lane permanently, which is why `DelegatingRowWriter.abort` refused outright.
+`IngestPump` now stages rows in a cell-sized buffer whenever a queue is attached, claiming a cell
+only on commit — so a record that fails to decode never reaches the inbox and there is nothing to
+give back. The cost is one extra copy per row, paid only by a deployment that asked for the queue,
+and it is what buys the second of the queue's two rules.
+
+Reachable as `pravaha run --dlq <file>`. The count of rejects is printed next to the row counts, and
+a non-zero `failures()` — the queue itself unable to write — goes to stderr, because a run that says
+`ok` while having quietly discarded input is precisely the failure the queue exists to prevent.
+
+**A second defect fell out of it.** The reader called `writer.abort()` *before* reporting the decode
+failure, and `abort()` threw — so its internal complaint ("a plugin aborted a row mid-write ...
+Report this") replaced the decode message on its way out. A bad CSV line reached the person as a
+report-a-bug notice about inbox cells instead of `PRV-5040 line 2, column 'amount' (INT64):
+'NOTANUMBER' is not a number`. Rejecting before abandoning fixes it, and the no-DLQ test asserts the
+message.
+
+**What is deliberately not done.** `pravaha.dlq.directory` on the server, so `PumpingFeed` survives
+a bad record too, is the larger half and belongs with [ADR-035](../adr/035-wave-8-is-survival-not-distribution.md)
+§1 — a per-query DLQ file is durable state a node owns, and adding one before the ownership rules
+exist inherits CFG-13's hole. `DeadLetterRate` stays unreachable: it reports `isDegraded()` and there
+is no `DEGRADED` value in `QueryState` for anything to do with it. The lane-level poison row
+(`Expression`'s division by zero) is a separate piece of work: the lane has neither the raw bytes nor
+a query identity at the point it fails.
+
+### W8-12 (MEDIUM) — `L0StateMap` could not hold the state its own javadoc said it was for, and is deleted
+
+> **Status:** FIXED — deleted, with `L0StateMapTest`; `OrphanedClassTest`'s `KNOWN` list loses the entry and its `orphans.size() <= KNOWN.size()` assertion still holds. The claims it supported are corrected in `README.md`, `docs/ARCHITECTURE.md`, `docs/HANDOVER.md`, ADR-006 and ADR-034, and in `WindowedAggregate`'s own javadoc
+
+`L0StateMap` is an off-heap open-addressed hash arena: 323 lines, tested against `java.util.HashMap`
+over a million random operations, referenced by no production file. Its javadoc names the state it
+exists for: "**Keys are bytes, not hashes.** The windowed aggregate currently keys its state by a
+64-bit hash of the grouping columns, which cannot distinguish two key combinations that collide."
+`WindowedAggregate`'s javadoc named it back, as the fix Wave 8 would wire.
+
+**It could not have been.** The class takes `keyBytes` as a **constructor argument** — a fixed width
+for every key, which is exactly what lets a slot be a contiguous `[key | value]` with no indirection,
+and its javadoc defends that choice explicitly. A `GROUP BY` key that contains a `STRING` has no
+fixed width. The value side is no better: a windowed accumulator is `long[] values`, `long count`,
+`long[] nonNull`, an `Object[]` of key values and a `Map<Object, Long>` per `COUNT(DISTINCT)` column
+— a variable-shaped object, not a fixed run of bytes. Wiring it would have meant an indirection into
+a row store for both halves, which is the indirection the class was written to avoid.
+
+The one structure in the engine whose shape it *does* fit is `JoinSide`'s bucket index — `Map<Long,
+Long>`, eight bytes to eight bytes, with a full key comparison already behind it (`JoinKeys.equal`,
+whose own comment says it "becomes load-bearing the moment the index moves off-heap to a masked
+table"). That is a real opportunity and it is not this one: `JoinSide` records its own decision that
+"moving it off-heap is a later change with a measurement behind it, not a guess", the reference
+hardware for that measurement does not exist (`docs/gates/wave-3/README.md`), and it is on the join
+hot path. Deleting the class does not delete that option — the shape needed is written down here and
+in ADR-006, and it is a day's work to rebuild against a measurement, which is less than the cost of
+a class that every document describes as the state layer and no state has ever been in.
+
+### W8-13 (MEDIUM, by design) — `ChangelogAnalysis` refuses a pair the product cannot form, because nothing binds a query to a sink
+
+> **Status:** BY DESIGN — `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction` replaces the assertion that encoded the absence of the wiring as the contract. Seeded by adding a `META-INF/services/…StreamSinkPlugin` file and, separately, a second `new FilesystemSinkPlugin()` call site in `src/main`: each fails the test with the message naming `ChangelogAnalysis.checkAgainst`
+
+`ChangelogAnalysis.checkAgainst` is `PRV-2041`'s sole throw site, and the failure it prevents is the
+sharpest in design §15.5: a retraction arrives at a sink with no concept of one, is written as
+another row, the totals downstream are double, and nothing has failed. E-10 recorded that nothing
+calls it. This is why nothing can.
+
+`checkAgainst` needs a `SinkCapabilities`, and a `SinkCapabilities` only reaches a query through a
+bound `StreamSinkPlugin`. Searching for the binding finds nothing: there is no `INSERT INTO` in the
+grammar, no `pravaha.sinks` block (the server binds `pravaha.streams` and `pravaha.sources` and
+stops), no `META-INF/services` declaration for `StreamSinkPlugin` anywhere in the build, and no code
+that resolves a sink by name. `SinkOperator` — the plan node that carries an `EmitMode` for this
+check — is constructed by one test and by no planner.
+
+Every continuous query writes to a `ViewSink`, and `ViewSink` takes the Z-set weight straight
+through: `rowKind(DELETE)` becomes weight `-1` becomes a removal from the view. A retraction is
+handled correctly, so there is no mismatch to catch on the only path that produces one.
+
+The one sink binding in the product is `QueryRunner`'s hard-coded `FilesystemSinkPlugin` on
+`pravaha run`, which declares `APPEND` only. Wiring the check there was tried on paper and is wrong:
+`pravaha run` is a bounded read over one file, `QueryRunner` never calls `generatingWatermarks` or
+`publishContinuousAggregates`, so every operator emits once at `finish()` and no retraction is ever
+produced. `ChangelogAnalysis` has no notion of boundedness — it classifies any `AggregateOperator` as
+revising — so checking there would refuse `examples/02-aggregate`, a documented command that runs
+today and prints the right answer (`3,700`, verified).
+
+So the verdict is *kept, unwired, with the reason pinned by a test rather than a comment*. The old
+assertion (`ErrcSqlTest`, zero call sites, `isZero()`) pointed the wrong way: it encoded the missing
+wiring as the contract and would have failed the first person to add it. The replacement asserts the
+precondition — no sink service declaration, and `QueryRunner` still the only file that binds one —
+so it fails at the moment a query can reach a sink that cannot take what it emits, which is the
+moment to call `checkAgainst`. The false claim in `StreamSchema`'s javadoc ("`ChangelogAnalysis`
+refuses an append-only sink for a revising query — correctly, and at registration") is removed; it
+was the one place a careful reader would have believed the guard was active.
+
+### W8-14 (LOW) — the windowed aggregate still keys state by a digest, and the narrowest of them is 64 bits
+
+> **Status:** OPEN — no test can prove a fix, which is the reason it is recorded rather than changed. Found while establishing W8-12
+
+W8-12 removed the class that was nominated as the fix for PF-10 but not the thing PF-10 half-fixed.
+Two digests remain in the windowed path:
+
+- `SlicedAggregateState` keys its accumulators by `SliceKey(keyHigh, keyLow, sliceStart)` — 128 bits
+  of hash with no comparison of the key values behind it, although the values are carried in the
+  accumulator for output. A collision merges two groups' sums.
+- `WindowedAggregate.emitted` — the map that remembers what each window published so a correction can
+  retract it exactly — folds those 128 bits back down to **64**: `keyHigh ^ (keyLow * 0x9E37...)`. A
+  collision there does not merge sums; it makes one group's retraction suppress another's, so a
+  stale row stands in the view for ever.
+
+`KeyedAggregate`, one operator over, already does the honest thing (`record Key(Object[] values)`,
+`Arrays.equals`) and its javadoc says why: "a hash alone would collide — rarely, silently, and by
+merging two groups". The fix is to do the same here.
+
+It is not done in this change for two reasons, and both are worth stating rather than leaving as a
+silence. Neither collision is *constructible* the way PF-10's was — PF-10 was two strings sharing a
+32-bit `String.hashCode()`, which is a pair anyone can type; these need a birthday search over 2^32
+groups for the 64-bit fold and 2^64 for the 128-bit key, so there is no test that fails before the
+fix and passes after it, and this project's rule is that a behaviour change carries one. And the key
+type is in the checkpoint format: changing it means bumping both `SlicedAggregateState.FORMAT_VERSION`
+and `InterpretedPipeline.SNAPSHOT_VERSION`, both of which refuse a mismatch outright rather than
+migrating, which is a wave-scoped decision rather than a side effect of a wiring change.
+
+The 64-bit fold is the half worth doing first: widening `emitted` to the full `(keyHigh, keyLow)` pair
+costs nothing, is confined to one class, and removes the narrowest key in the engine.

@@ -36,7 +36,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * FileCheckpointStore.prune} was called only by its own test. {@code PeriodicCheckpointer} was never
  * constructed. {@code RegisteredQuery.accept} -- the entry point for every row into a registered
  * continuous query -- is called by four test classes and nothing else. And {@code L0StateMap}, the
- * off-heap state map the architecture is written around, is referenced by no production file at all.
+ * off-heap state map the architecture was written around, was referenced by no production file at
+ * all -- and turned out to be the wrong shape for the state it was written for, so Wave 8 deleted it
+ * rather than wiring it (W8-12).
  *
  * <p>Each was found by accident, months apart, by someone reading for another reason. The test suite
  * could not find them because a test that constructs the class is exactly what makes it look used.
@@ -85,11 +87,18 @@ class OrphanedClassTest {
     /**
      * The debt that existed when this check was written.
      *
-     * <p>Twenty-one types, each built, tested, documented and unreachable. Four of them are load
-     * bearing in the documentation and not in the product: {@code L0StateMap} is the off-heap state
-     * map the architecture is written around; {@code WatermarkTracker} and {@code TimerWheel} are
-     * how event time is described as working; the four {@code pravaha-algebra} types are the DBSP
-     * correctness oracle ADR-013 rests on.
+     * <p>Twenty-one types when this was written, each built, tested, documented and unreachable.
+     * Three are load bearing in the documentation and not in the product: {@code WatermarkTracker}
+     * and {@code TimerWheel} are how event time is described as working, and the four {@code
+     * pravaha-algebra} types are the DBSP correctness oracle ADR-013 rests on.
+     *
+     * <p>Wave 8 took three off it, one by each of the three available verdicts.
+     * {@code FileDeadLetterQueue} is wired (W8-11: {@code pravaha run --dlq}). {@code L0StateMap} is
+     * deleted (W8-12: fixed-width keys, and the state it was written for has variable-width ones).
+     * {@code ChangelogAnalysis} stays, and is the one entry here that is deliberate rather than
+     * owed (W8-13): it refuses a plan a sink cannot take, and nothing in the product binds a query to
+     * a sink, so it has no trigger to be wired to. {@code ErrcSqlTest} holds the tripwire that fires
+     * when one appears.
      *
      * <p>This list is a record, not a permission. Every entry needs a verdict -- wire, delete, or
      * move to a module documented as a reference implementation -- and the assertion below stops it
@@ -101,7 +110,6 @@ class OrphanedClassTest {
             "Rebalancer",
             "ChangelogAnalysis",
             "FileCheckpointStore",
-            "L0StateMap",
             "Lift",
             "Frontier",
             "IncrementalJoin",
@@ -112,7 +120,6 @@ class OrphanedClassTest {
             "TimerWheel",
             "DeduplicatingSink",
             "DeadLetterRate",
-            "FileDeadLetterQueue",
             "PeriodicCheckpointer",
             "BatchingController",
             "PluginClassLoader",

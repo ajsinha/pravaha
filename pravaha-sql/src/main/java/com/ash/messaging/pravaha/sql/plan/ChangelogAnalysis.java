@@ -42,6 +42,24 @@ import com.ash.messaging.pravaha.sql.SqlErrors;
  *
  * <p>The message names the operator responsible, because "this query produces updates" is not
  * actionable when the query is forty lines long and only one of its clauses is the reason.
+ *
+ * <p><strong>Nothing calls {@link #checkAgainst}, and that is the answer rather than an omission.</strong>
+ * Wave 8 went looking for the registration it is supposed to happen at and there is none, because
+ * there is nothing to register against: no {@code INSERT INTO}, no {@code pravaha.sinks} block, no
+ * {@code ServiceLoader} declaration for {@code StreamSinkPlugin}, and no code that resolves a sink
+ * by name. Every continuous query in this product writes to a {@code ViewSink}, which reads the
+ * Z-set weight and applies a retraction as a removal -- so the mismatch this class exists to catch
+ * cannot occur on the only path that revises. The one sink binding anywhere is {@code QueryRunner}'s
+ * hard-coded append-only filesystem sink on {@code pravaha run}, and that is a bounded read where
+ * every operator emits once at the end of input and no retraction is produced; checking it there
+ * would refuse {@code examples/02-aggregate}, which is documented, runs today, and is correct.
+ *
+ * <p>So this is kept, unwired, and the reason is pinned by a test rather than a comment:
+ * {@code ErrcSqlTest} asserts that no sink service declaration exists and that {@code QueryRunner}
+ * is still the only file that binds one. The first binding that can carry a revising query fails
+ * that test, and this is what it should call (W8-13). The analysis itself is the part worth keeping
+ * -- which plan shapes revise is a fact about the algebra, not about the wiring -- but note it has
+ * no notion of boundedness, which is exactly why it is wrong for {@code pravaha run}.
  */
 public final class ChangelogAnalysis {
 

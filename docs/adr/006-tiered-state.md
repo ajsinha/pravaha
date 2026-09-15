@@ -33,9 +33,20 @@ behind a decision that was later reversed is usually the most useful thing in th
 
 ## Implementation status — as of 2026-09-11
 
-**Not built.** L0 exists (`L0StateMap`, an off-heap open-addressed hash arena) and L2 exists
-(checkpoint files). **The RocksDB L1 spill tier does not exist and RocksDB is not a dependency of
-this build** — the only mention of it in any POM is the SDK's banned-dependency list.
+**Not built.** Only L2 exists (checkpoint files). **The RocksDB L1 spill tier does not exist and
+RocksDB is not a dependency of this build** — the only mention of it in any POM is the SDK's
+banned-dependency list.
+
+L0 existed as a class and never as a tier. `L0StateMap` — an off-heap open-addressed hash arena —
+was written, tested against `HashMap` over a million random operations, referenced by no production
+file, and deleted in Wave 8 under [ADR-035](035-wave-8-is-survival-not-distribution.md) (W8-12). The
+reason it was never wired is worth keeping: its keys are a **fixed width, chosen at construction**,
+which is what lets a slot be `[key | value]` with no indirection. The state it was meant to hold is
+the windowed aggregate's, whose group key can contain a `STRING` and so has no fixed width, and
+whose accumulator is a variable-shaped object rather than a fixed run of bytes. The one structure in
+the engine whose shape it does fit is `JoinSide`'s bucket index (`Map<Long, Long>` — eight-byte key,
+eight-byte value, with a full key comparison already behind it), and that class records its own
+decision that moving it off-heap wants a measurement first.
 
 The consequence is not cosmetic. Without L1 there is no spill, so the defence against unbounded
 state is *refusal at plan time* (`PRV-2050` for an unwindowed keyed `GROUP BY`) rather than

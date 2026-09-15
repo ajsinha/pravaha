@@ -45,8 +45,9 @@ inside one process. Building it there first buys three things:
   with a debugger rather than a packet capture.
 - **The state layer is forced to become partition-aware.** Lanes would own key ranges, which is
   exactly the blocker §21 runs into: `PartitionOwner.snapshot(int partition)` demands a granularity
-  `L0StateMap`, `WindowedAggregate` and `JoinSide` cannot produce, because each stores every key in
-  one structure with no partition boundary in it.
+  `WindowedAggregate` and `JoinSide` cannot produce, because each stores every key in one structure
+  with no partition boundary in it. (`L0StateMap` was named here too and was deleted in Wave 8 —
+  W8-12 — having never held any state.)
 
 What it does not commit anyone to: a networked exchange, membership, handoff, or split-brain.
 

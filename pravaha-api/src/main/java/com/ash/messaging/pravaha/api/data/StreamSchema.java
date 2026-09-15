@@ -66,9 +66,15 @@ public final class StreamSchema {
      * <p>The default is zero, which means a window is final when it closes. That is the behaviour
      * every deployment has had, and it is kept deliberately rather than improved by default: a
      * non-zero lateness turns a windowed query from append-only into one that retracts and revises,
-     * which changes what sinks it may be written to. {@code ChangelogAnalysis} refuses an
-     * append-only sink for a revising query -- correctly, and at registration -- so raising this
-     * silently would break working deployments at their next restart.
+     * which changes what sinks it may be written to.
+     *
+     * <p>This paragraph used to end "{@code ChangelogAnalysis} refuses an append-only sink for a
+     * revising query -- correctly, and at registration", which was a claim about wiring that has
+     * never existed: {@code ChangelogAnalysis.checkAgainst} is called from no production code, and
+     * nothing checks a plan against a sink's declared modes anywhere (W8-13). Nothing would refuse
+     * such a pair; the reason to leave the default alone is that the only consumer of a revising
+     * query today is a served view, and a deployment that has never seen a retraction is not the
+     * place to start emitting them by default.
      *
      * <p>Declare it on the stream to accept corrections. That is the choice this used to deny: the
      * mechanism was complete in {@code WindowedAggregate} and reachable by no configuration at all.

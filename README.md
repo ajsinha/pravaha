@@ -54,8 +54,12 @@
   the clustering coordination code is carried unused.
 - **No Spring Boot starter** (ADR-020). The engine core contains no Spring and sits behind a plain
   `PravahaEngine` seam, so embedding it never dictates your Spring version.
-- **The dead-letter queue, changelog negotiation and the L0 state map** are built and wired into no
-  running path.
+- **Changelog negotiation is built and reachable from nothing**, because nothing binds a query to a
+  sink: every continuous query writes to a served view, which applies a retraction correctly. There
+  is nothing for it to refuse (W8-13).
+- **The L0 off-heap state map is gone** (W8-12). Operator indexes and accumulators are on-heap
+  `HashMap`s; the off-heap class that was meant to replace them could only hold fixed-width keys and
+  could not key a `GROUP BY` containing a string.
 - **The console is a functional admin console on purpose** — it manages queries, tails a view and
   renders the documentation. It is not the design-system product surface §23.20 describes.
 - **Projection and partial-aggregate pushdown**, and a Cassandra plugin, are designed and not built.

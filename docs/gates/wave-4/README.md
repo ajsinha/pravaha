@@ -33,6 +33,15 @@ Copyright © 2026 Ashutosh Sinha. Proprietary and confidential.
 | L0 off-heap state map | `L0StateMap` |
 | **The lane runtime joined to the SQL path** | `QueryExecution` |
 
+> **Amended by Wave 8.** Three rows above shipped as classes and never as capabilities: nothing in
+> production referenced them. [ADR-035](../../adr/035-wave-8-is-survival-not-distribution.md) §4 gave
+> each a verdict, recorded as W8-11..W8-13 in [`docs/qa/FINDINGS.md`](../../qa/FINDINGS.md). The
+> dead-letter queue is now reachable (`pravaha run --dlq`); `DeadLetterRate` still is not.
+> `L0StateMap` is deleted — its keys are a fixed width and the state it was written for has variable
+> ones. `ChangelogAnalysis` is kept and deliberately unwired: nothing in the product binds a query to
+> a sink, so it has no pair to refuse. This gate pack is left as the record of what was delivered at
+> the time; it is this note, not the table, that describes the build today.
+
 The last of those is the one that changed the shape of the project. Before it, the lane runtime and
 the SQL path were two halves that both worked and neither was the engine; `pravaha run` now goes
 plugin reader → ingest pump → lane inbox → lane thread → pipeline → sink.
