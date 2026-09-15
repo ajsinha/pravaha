@@ -535,6 +535,194 @@ class DocumentationFreshnessTest {
         assertThat(corpus().length()).isGreaterThan(50_000);
     }
 
+    // ------------------------------------------------------------------------------------------
+    // Settings, metrics and decisions: the three kinds of fact that go stale without a word.
+    //
+    // Added after the Wave 9 sweep, where every one of these was wrong in the tree at once and all
+    // three were found by reading rather than by the build:
+    //
+    //   - eleven error messages told an operator to raise `arena.slab.size`, a setting that did not
+    //     exist (PF-3), and when the real settings arrived nothing pointed the operator at them;
+    //   - `pravaha.lane.*` shipped, reached the registry, and was documented nowhere -- while a unit
+    //     test in the tree described its own fixture as "the configuration OPERATIONS.md
+    //     recommends", which OPERATIONS.md did not;
+    //   - three state gauges were published to Prometheus and named in no document, so the number
+    //     an operator most needs before `PRV-4001` was invisible unless they read the source.
+    // ------------------------------------------------------------------------------------------
+
+    @Test
+    void everySettingAnErrorMessageTellsYouToChangeExists() throws IOException {
+        // PF-3, as a test. A message saying "raise pravaha.x.y" against a key nothing reads sends
+        // an operator to edit a file, restart, see the same failure and have no way to learn why --
+        // and it is invisible to every other check, because the message is well-formed English.
+        Set<String> declared = settingsDeclaredInApplicationYaml();
+        Pattern advice = Pattern.compile(
+                "(?:raise|reduce|lower|set|increase)\\s+`?(pravaha\\.[a-z][a-z0-9.-]*[a-z0-9])",
+                Pattern.CASE_INSENSITIVE);
+
+        List<String> phantom = new ArrayList<>();
+        for (Path source : productionSources()) {
+            Matcher matcher = advice.matcher(Files.readString(source, StandardCharsets.UTF_8));
+            while (matcher.find()) {
+                if (!declared.contains(matcher.group(1))) {
+                    phantom.add(matcher.group(1) + " (" + source.getFileName() + ")");
+                }
+            }
+        }
+
+        assertThat(phantom).as("""
+                        These messages tell an operator to change a setting that application.yaml
+                        does not declare, so following the advice changes nothing and says nothing.
+                        Either add the key or stop naming it: %s""", phantom).isEmpty();
+    }
+
+    @Test
+    void everyLaneSettingAnOperatorCanTuneIsDocumented() throws IOException {
+        // The knobs that decide what a node holding many queries costs. They existed for a whole
+        // wave before any document named one, which is the same failure as not having them: an
+        // operator cannot turn a knob they cannot find.
+        String operations = Files.readString(repoRoot().resolve("docs/OPERATIONS.md"), StandardCharsets.UTF_8);
+        List<String> undocumented = settingsDeclaredInApplicationYaml().stream()
+                .filter(key -> key.startsWith("pravaha.lane."))
+                .filter(key -> !operations.contains(key))
+                .sorted()
+                .toList();
+
+        assertThat(undocumented)
+                .as(
+                        "every pravaha.lane.* key must be named in docs/OPERATIONS.md, where an operator "
+                                + "sizing a node for many queries will look for it: %s",
+                        undocumented)
+                .isEmpty();
+    }
+
+    @Test
+    void everyPerQueryGaugeIsDocumented() throws IOException {
+        // A gauge nobody documented is a gauge nobody alerts on. The three ADR-037 added are the
+        // ones an operator needs *before* PRV-4001, which is the whole point of having added them.
+        Path metrics =
+                repoRoot().resolve("pravaha-server/src/main/java/com/ash/messaging/pravaha/server/PravahaMetrics.java");
+        assertThat(metrics)
+                .as("the per-query metric publisher must exist for this check to mean anything")
+                .exists();
+
+        String operations = Files.readString(repoRoot().resolve("docs/OPERATIONS.md"), StandardCharsets.UTF_8);
+        Matcher gauge = Pattern.compile("\"(pravaha\\.query\\.[a-z.]+)\"")
+                .matcher(Files.readString(metrics, StandardCharsets.UTF_8));
+
+        List<String> undocumented = new ArrayList<>();
+        int found = 0;
+        while (gauge.find()) {
+            found++;
+            // Micrometer publishes dots as underscores, which is the form an operator greps for.
+            String prometheus = gauge.group(1).replace('.', '_');
+            if (!operations.contains(prometheus) && !undocumented.contains(prometheus)) {
+                undocumented.add(prometheus);
+            }
+        }
+
+        assertThat(found)
+                .as("the gauge names should be readable from the publisher")
+                .isGreaterThan(5);
+        assertThat(undocumented)
+                .as(
+                        "every gauge published per query must appear in OPERATIONS.md's metric table, "
+                                + "in the underscored form Prometheus exposes: %s",
+                        undocumented)
+                .isEmpty();
+    }
+
+    @Test
+    void theAdrSetIsCountedAndListedCorrectly() throws IOException {
+        // Two counts of one fact, in two files, and neither is derived from the directory. Both
+        // have been wrong: HANDOVER's total lagged by a wave more than once, and an ADR written
+        // without a row in the index is one nobody finds.
+        List<String> files;
+        try (Stream<Path> adrs = Files.list(repoRoot().resolve("docs/adr"))) {
+            files = adrs.map(path -> path.getFileName().toString())
+                    .filter(name -> name.matches("\\d{3}-.*\\.md"))
+                    .sorted()
+                    .toList();
+        }
+        assertThat(files).as("there should be ADRs to count").isNotEmpty();
+
+        String index = Files.readString(repoRoot().resolve("docs/adr/README.md"), StandardCharsets.UTF_8);
+        List<String> unlisted =
+                files.stream().filter(name -> !index.contains(name)).toList();
+        assertThat(unlisted)
+                .as("every ADR file needs a row in docs/adr/README.md, which is the only index there is: %s", unlisted)
+                .isEmpty();
+
+        String handover = Files.readString(repoRoot().resolve("docs/HANDOVER.md"), StandardCharsets.UTF_8);
+        Matcher counted = Pattern.compile("\\| ADRs \\| \\*\\*(\\d+)\\*\\* \\|").matcher(handover);
+        assertThat(counted.find())
+                .as("HANDOVER.md must carry a '| ADRs | **N** |' row for this check to have something to check")
+                .isTrue();
+        assertThat(Integer.parseInt(counted.group(1)))
+                .as("HANDOVER.md says %s ADRs and docs/adr holds %d", counted.group(1), files.size())
+                .isEqualTo(files.size());
+    }
+
+    /**
+     * Every setting {@code application.yaml} declares, dotted, including the commented ones.
+     *
+     * <p>A commented key is a documented key -- the shipped file is where an operator reads what
+     * exists -- so the comment marker is stripped and the line read as configuration. Indentation
+     * inside the comment is preserved, which is what keeps a commented block's nesting intact.
+     */
+    private static Set<String> settingsDeclaredInApplicationYaml() throws IOException {
+        Path yaml = repoRoot().resolve("pravaha-server/src/main/resources/application.yaml");
+        assertThat(yaml)
+                .as("the shipped configuration file is the declaration of what exists")
+                .exists();
+
+        Set<String> paths = new LinkedHashSet<>();
+        List<String> keys = new ArrayList<>();
+        List<Integer> indents = new ArrayList<>();
+        Pattern key = Pattern.compile("^([A-Za-z0-9_.-]+):(.*)$");
+
+        for (String raw : Files.readString(yaml, StandardCharsets.UTF_8).split("\n", -1)) {
+            String line = raw.stripTrailing();
+            if (line.isBlank()) {
+                continue;
+            }
+            String content = line.stripLeading();
+            int indent = line.length() - content.length();
+            if (content.startsWith("#")) {
+                String body = content.substring(1);
+                String trimmed = body.stripLeading();
+                if (trimmed.isBlank() || trimmed.startsWith("#")) {
+                    continue;
+                }
+                indent += 1 + (body.length() - trimmed.length());
+                content = trimmed;
+            }
+            Matcher matcher = key.matcher(content);
+            if (!matcher.matches()) {
+                continue;
+            }
+            while (!indents.isEmpty() && indents.get(indents.size() - 1) >= indent) {
+                indents.remove(indents.size() - 1);
+                keys.remove(keys.size() - 1);
+            }
+            indents.add(indent);
+            keys.add(matcher.group(1));
+            paths.add(String.join(".", keys));
+        }
+        return paths;
+    }
+
+    /** Every {@code src/main} Java file in the build, excluding nested agent worktrees. */
+    private static List<Path> productionSources() throws IOException {
+        try (Stream<Path> files = Files.walk(repoRoot())) {
+            return files.filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> path.toString().contains("/src/main/"))
+                    .filter(path -> !path.toString().contains("/target/"))
+                    .filter(path -> !path.startsWith(nestedCheckouts()))
+                    .toList();
+        }
+    }
+
     /** Modules that documents may name before they are built. Keep this list short and honest. */
     private static final Set<String> KNOWN_FUTURE = Set.of(
             "pravaha-state",

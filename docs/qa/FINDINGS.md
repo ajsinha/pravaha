@@ -1,7 +1,16 @@
 # QA findings — every defect, and what happened to it
 
-254 test cases, 254 executed, **75 FAIL**. This is the whole list, so that nothing is closed by
-being forgotten. Status is one of:
+**The three paragraphs below describe round 1 and nothing after it.** They were the whole file when
+they were written; the file has since grown by sixteen more rounds and two waves, and the sections
+are in the order they were run rather than in any order of importance. For what is open *now*, read
+the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
+only part that is kept current. Counting the register as it stands: **290 findings carrying a
+status — 128 FIXED, 147 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Counted by the same pattern
+`FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
+number.
+
+Round 1: 254 test cases, 254 executed, **75 FAIL**. This is the whole list, so that nothing is closed
+by being forgotten. Status is one of:
 
 | | |
 |---|---|
@@ -2810,7 +2819,7 @@ not merely unwired, it is provably inert.
 
 ### PF-3 (MED) — eleven error messages tell an operator to change a setting that does not exist
 
-> **Status:** OPEN — reproduced: no `pravaha.lane.*` or `pravaha.arena.*` key is read anywhere in `src/main`, and a node started with `--pravaha.lane.count=4 --pravaha.arena.slab.size=16MB` started normally and never mentioned either key. See `docs/qa/logs/PERF.md` PERF-004.
+> **Status:** OPEN — **but only the lane count now.** The eleven messages name real settings as of ADR-036: `pravaha.lane.batch-size`, `.wait-strategy`, `.inbox.cells`, `.inbox.cell-bytes`, `.arena.slab-bytes` and `.arena.max-slabs` are bound by `LaneProperties`, passed to the registry by `PravahaNode.executingWith`, logged at startup, and covered by `LanePropertiesTest`. **`pravaha.lane.count` is still not a key** and `QueryRegistry` still passes the literal `1`, so a node started with `--pravaha.lane.count=4` is still silently ignored — which is the variant that produces the wrong deployment without saying so. Original reproduction: `docs/qa/logs/PERF.md` PERF-004.
 
 Seven sites name `arena.slab.size` (`RowArena.java:87`, `InterpretedPipeline.java:692` and `:754`,
 `LookupJoin.java:308`, `SymmetricHashJoin.java:170` and `:205`, `WindowAssign.java:68`) and four name
@@ -5496,6 +5505,12 @@ reported "4,408 tests" is **2,207**. Nothing about pass or fail was affected —
 summed the same way and was zero either way — but every magnitude was wrong, and a doubled number
 quoted with confidence is worse than no number.
 
+## Wave 9 — one node, thousands of continuous queries (W9), 9 findings, 7 fixed
+
+[ADR-036](../adr/036-one-node-thousands-of-queries.md) scoped the wave; these are what it found and
+what it did about it. They were appended under the Wave 8 documentation-rot heading above, which is
+not where anybody would look for them.
+
 ### W9-1 (HIGH) — the data plane ran on platform threads, one per parked subscriber
 
 > **Status:** FIXED — `PravahaFlightServer` passes `Executors.newVirtualThreadPerTaskExecutor()` to `FlightServer.Builder.executor(...)` and shuts it down in `close()`. `SubscriptionThreadCostTest.platformThreadsDoNotGrowWithTheNumberOfSubscribers` measures it and is seed-proven: with the executor removed, **40 concurrent subscriptions add exactly 40 `flight-server-default-executor-*` threads**; with it, zero.
@@ -5647,7 +5662,7 @@ Left separate because it changes how every registered query is started, and the 
 on should be green in its own right first.
 ---
 
-## Source reading at scale — 7 findings, 1 fixed
+## Source reading at scale — 8 findings, 3 fixed
 
 ADR-036 states the target as a number: **one instance holding thousands of Aerospike-backed
 continuous queries**. `NodeScaleTest` measures what a registered *query* costs, against queries that
@@ -5660,7 +5675,7 @@ the code rather than measured, the finding says so.
 
 ### SRC-1 (BLOCKER) — one Aerospike-backed query scans its set as fast as the cluster will answer, for ever
 
-> **Status:** OPEN — measured: `AerospikeSourceScaleIT`, one query over a 200-record set produced 43–50 scans per second and took the cluster's own `process_cpu_pct` from 1% to 203%. Four queries: 79–131 scans/s and 388–579%.
+> **Status:** SUPERSEDED — by SRC-8, which is the fix: `scan.interval.ms`, one second by default, enforced in `LutScanReader.poll` and asserted by `AerospikeSourceScaleIT`. Measured before: one query over a 200-record set produced 43–50 scans per second and took the cluster's own `process_cpu_pct` from 1% to 203%; four queries, 79–131 scans/s and 388–579%. Measured after: **1.0 scans/s for one query and 3.8 for four.** The entry below is kept as the diagnosis, which is the half worth reading.
 
 `LutScanReader.scan()` runs whenever `poll()` finds its buffer empty, and `PumpingFeed` polls every
 millisecond (`IDLE_NAP_NANOS`). **There is no scan interval and no configuration option for one.**
@@ -6033,3 +6048,144 @@ resolve alone. The shapes worth weighing:
 Recorded rather than attempted. The wave's measured wins — threads bounded by cores, 5 MiB to 1,328
 KiB per query, one scan per second instead of a hundred and fifty — are on `main` and independent of
 this. Wiring the multiplexer badly would put all of them at risk for the remaining 1,024 KiB.
+
+---
+
+## Documentation rot after Wave 9 (DOCS), 11 findings, 9 fixed
+
+The sweep after the scale-and-hardening wave. A wave that changes what a query *costs* rots a
+different set of sentences from one that changes what a query *does*: every "one thread per query",
+every "~5 MiB", every roadmap row, and every error message that names a setting.
+
+The rule applied throughout: **where the document was right and the code was wrong, the code was left
+alone and recorded.** DOCS-9 is the one that happened.
+
+### DOCS-1 (HIGH) — the README said wave 8 of 10 after wave 9 had landed, in three places at once
+
+> **Status:** FIXED — badge, status line and roadmap all moved to "wave 9 of 11", with a wave-9 row naming ADR-036 and ADR-037 and the control-plane and GA waves moved down one. `DocumentationFreshnessTest.theReadmeStatusBadgeTheStatusLineAndTheRoadmapAgree` holds the three against each other and is green on the new numbering.
+
+The badge read `status-wave%208%20of%2010`, the status line read "Project status: Wave 8 of 10", and
+the roadmap marked waves 9–10 "not started" — while the wave that multiplexed lanes onto shared
+threads, shared the clock, sized the arenas, added a scan interval and published state against its
+ceiling had shipped. **The README is the first thing an evaluator reads and the last thing anybody
+updates.**
+
+The numbering needed a decision rather than an increment. ADR-036 says the scale wave is *not* Wave
+9's control-plane features and that "waves 9 and 10 follow it. They are not cancelled; they are
+behind it." Read literally that is an eleventh wave, so the inserted wave is Wave 9 and E8 and E9
+keep their content, their sprint estimates and their gates and move down one. The inserted wave's own
+length was never estimated, so its Weeks cell is a dash rather than a number somebody invented. The
+same renumbering is applied in `implementation_plan.md` §4.0, §7 and §11, `QUICKSTART.md`,
+`SECURITY.md` and `HANDOVER.md`.
+
+### DOCS-2 (HIGH) — `OPERATIONS.md` told operators a query costs a thread, which is the claim the wave existed to falsify
+
+> **Status:** FIXED — the paragraph now says what `NodeScaleTest` measures: 200 queries adding 24 platform threads, one per core, fixed. It also names what did *not* change — a lane still runs one query — so the correction cannot be read as more than it is.
+
+The sentence was *"**One lane per query, so one thread per query.** Fine at tens of queries … ADR-027's
+plan for a lane to multiplex several queries is what this wants before it reaches hundreds."* Every
+clause of that is now wrong in a different way: the thread is shared (`LaneRunner`, one per core),
+ADR-027's plan is half built, and "fine at tens" was the estimate the whole wave was scoped to
+replace.
+
+Also fixed in the same page: the two per-query schedulers, which are one `SharedClock` daemon thread
+for the process firing each tick on a virtual thread.
+
+### DOCS-3 (HIGH) — `pravaha.lane.*` shipped and no document named one of the six keys
+
+> **Status:** FIXED — `OPERATIONS.md` gains *Sizing a node for many queries*: the six keys with defaults, the off-heap arithmetic per query, the measured 1,024 KiB idle / 1,328 KiB active, a worked sizing-down example, and the two rules that make a smaller cell or slab fail loudly. New test `DocumentationFreshnessTest.everyLaneSettingAnOperatorCanTuneIsDocumented` fails the build if a `pravaha.lane.*` key in `application.yaml` is named nowhere in that page.
+
+The settings are the cheapest large win in ADR-036 and they were unreachable from the documentation
+an operator reads. The tell was in the tree: `LanePropertiesTest` describes its own fixture as *"the
+configuration OPERATIONS.md recommends for a node holding many narrow queries"*, and `OPERATIONS.md`
+recommended nothing, because it did not mention the settings at all. A test citing a document that
+does not say what it claims is worse than no citation — it reads as evidence.
+
+### DOCS-4 (MEDIUM) — the three state gauges were published to Prometheus and documented nowhere
+
+> **Status:** FIXED — `pravaha_query_state_held`, `_ceiling` and `_fraction` are in `OPERATIONS.md`'s metric table with their units (counts, not bytes) and the advice to alert on the fraction; `TROUBLESHOOTING.md`'s `PRV-4001` row points at them; `CONCEPTS.md` §7 says why they exist. New test `DocumentationFreshnessTest.everyPerQueryGaugeIsDocumented` fails the build when a gauge `PravahaMetrics` registers is missing from that table.
+
+ADR-037 B1 exists so that `PRV-4001` stops being the first news anybody has of a query's state. A
+gauge nobody documented is a gauge nobody alerts on, which leaves the instrument built and the
+problem unsolved. The same check caught `pravaha_query_view_removals`, which the table had folded
+into a `` `pravaha_query_view_updates` / `_removals` `` shorthand that no operator can grep for.
+
+### DOCS-5 (MEDIUM) — `ARCHITECTURE.md` described a lane as owning a dedicated platform thread
+
+> **Status:** FIXED — the lane's four owned things now read "one driver thread **at a time**", with the reason confinement survives sharing: a lane belongs to one runner thread from the moment it is hosted until it is removed. The thread table's lane row is `availableProcessors`, fixed at construction; two rows are added for the virtual and shared-clock tiers. The 10 000-query budget table separates *designed* from *as built*, and *What is not built yet* now separates the half that shipped (the thread) from the half that did not (the inbox and arena, blocked on the row header).
+
+The page's own governing rule — *"nothing whose cost is per-query may be a thread, a ring buffer, an
+arena, or a timer wheel"* — was half true for the first time, and the page said neither half.
+
+### DOCS-6 (MEDIUM) — `TROUBLESHOOTING.md`'s memory advice named no setting and no gauge
+
+> **Status:** FIXED — `PRV-3001` names `pravaha.lane.arena.slab-bytes`, `pravaha.lane.batch-size` and `pravaha.lane.inbox.cell-bytes` and states the rule (`batch-size × widest output row` must fit a slab); `PRV-4001` points at `pravaha_query_state_fraction` and says plainly that the query still stops, because B2 is not built. A descriptor-exhaustion row is added naming `ulimit -n` / `LimitNOFILE` and the two codes that misattribute it, and the Aerospike section gains `scan.interval.ms`.
+
+`PRV-3001` read "off-heap arena full — usually a batch far larger than expected", which tells the
+reader what happened and nothing about what to do. The engine's own messages have named the real
+settings since ADR-036; the page a reader is sent to did not.
+
+### DOCS-7 (MEDIUM) — `HANDOVER.md` contradicted two other pages about checkpoint pruning, and had three stale facts of its own
+
+> **Status:** FIXED — four corrections: `PeriodicCheckpointer` **does** call `store.prune(keep)` (`PeriodicCheckpointer.java:168`), so checkpoint files are no longer listed as unbounded; `PumpingFeed`'s thread is virtual (W9-2); the FastAPI console is built and in `console/`; and the commit count, wave status and gate-pack list are current. A Wave 9 section is added alongside the Wave 8 one.
+
+Three pages disagreed about disk growth: `OPERATIONS.md` and `TROUBLESHOOTING.md` both said pruning
+happens automatically and named the setting, while `HANDOVER.md` said *"`FileCheckpointStore.prune(keep)`
+exists and **nothing in production code calls it** — only tests do. Checkpoints accumulate
+indefinitely."* The handover is the page a fresh session trusts first, so it was the worst of the
+three to be wrong.
+
+*"Not yet built from those decisions: the FastAPI console"* had survived Waves 7, 8 and 9 under a
+heading reading "may not be reflected everywhere yet" — a sentence that excuses itself from ever
+expiring.
+
+### DOCS-8 (MEDIUM) — three `Status` rows said "not built" about work that had shipped
+
+> **Status:** FIXED — ADR-036 moves to "largely built", listing what shipped and what did not; ADR-027 moves to "partly built", separating the thread half from the memory half; `docs/adr/README.md`'s rows for both are rewritten to match. New test `DocumentationFreshnessTest.theAdrSetIsCountedAndListedCorrectly` holds `HANDOVER.md`'s ADR count and the index's row set against the directory.
+
+`docs/adr/README.md` opens by saying **"the `Status` row says whether the decision is in the tree"**,
+which is the sentence that makes the set usable as a description of the system. ADR-036 read
+"Accepted — scope decision, not yet built" for a wave that had by then shipped six of its seven
+items, and ADR-027 read "not built" while `LaneRunner` was in `QueryRegistry`.
+
+The measured tables inside ADR-036 are deliberately **not** rewritten. They are the *before* figures
+the wave was scoped against, an ADR is amended rather than rewritten, and the Status row now says so.
+
+### DOCS-9 (MEDIUM) — `LaneProperties.idleBytesPerQuery()` still counts the eager arena slab, so the node logs five times the memory it holds
+
+> **Status:** OPEN — code defect, **left alone deliberately**. `LaneProperties.java:105` returns `inbox.cells × inbox.cellBytes + arena.slabBytes`, which with the defaults is 5,120 KiB. `RowArena` has not allocated that slab in its constructor since W9-6 — `slabs.add(...)` happens in the first `allocate()` — and `NodeScaleTest` measures **1,024 KiB per idle query**, the inbox exactly, "with no arena at all". `PravahaNode` logs that number at startup as *"about N KiB held per idle query"*, so a node reports 5,120 KiB where it holds 1,024.
+
+Found by writing the arithmetic into `OPERATIONS.md` and checking it against the code that computes
+it. The document is right and the code is wrong, so the document says what is measured and this
+records the code.
+
+`LanePropertiesTest.theDefaultCostPerIdleQueryIsTheFiveMegabytesAdr036IsAbout` asserts the stale
+value, which is why nothing caught it: the test was written against ADR-036's *before* table and
+kept passing after the thing it described stopped being true. Its sibling,
+`sizingForManySmallQueriesCutsTheIdleCostByAnOrderOfMagnitude`, is a ratio between two values that
+are both wrong in the same direction, so it stays green either way.
+
+The fix is small — either drop the slab term, or rename the method to say it is a ceiling rather than
+what is held — but both change a logged number an operator may already be reading, and neither is a
+documentation change. Left for the owner.
+
+### DOCS-10 (LOW) — the findings register's own counts had drifted, in its header and in two sections
+
+> **Status:** FIXED — the file header now says which round its counts describe and gives the register-wide totals; the source-reading section says "8 findings, 3 fixed" where it said "7 findings, 1 fixed"; the nine Wave 9 findings get a heading of their own instead of sitting under *"DOCR — documentation rot after Wave 8"*; SRC-1's status becomes SUPERSEDED, naming SRC-8 as its fix; and PF-3's status line, which claimed no `pravaha.lane.*` key is read anywhere in `src/main`, now says what is true — the eleven messages name real settings and only `pravaha.lane.count` remains.
+
+A register whose own counts are wrong invites the reader to distrust the entries, which are the part
+that is maintained. Two of these were consequences of the wave rather than neglect: SRC-8 fixed
+SRC-1 and nobody closed it, and ADR-036's own §1 says "five error messages" where PF-3, which it
+cites, counted eleven — corrected in the ADR and in `application.yaml`'s comment.
+
+### DOCS-11 (LOW) — `QueryRegistry.executingWith`'s javadoc still says a query costs a thread, in the class that stopped it doing so
+
+> **Status:** OPEN — not edited, because `QueryRegistry` was being changed by the owner during this sweep. `QueryRegistry.java:162-165` reads *"a query per lane means a thread per query -- fine at tens, and the reason ADR-027 wants a lane to multiplex several queries before this reaches hundreds"*, twelve lines below the javadoc at `:100` that correctly describes the `LaneRunner` this same class now owns. One class, two accounts of its own cost.
+
+The stale half is the more quotable one: "fine at tens" is the sentence ADR-036 opens by quoting as
+the only number anybody could give for what a query costs, and it is still in the tree stating the
+thing the wave removed. `PumpingFeed.java:93` and `FeedThreadCostTest` both quote it too, but as
+history — "this was true, and this is one of the three reasons" — which reads correctly.
+
+The first sentence of that paragraph, *"one lane per query"*, is still true and should survive the
+edit. What should go is the clause after the dash.

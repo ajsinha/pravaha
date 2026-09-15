@@ -162,6 +162,41 @@ class FindingsRegisterTest {
                 .isEmpty();
     }
 
+    @Test
+    void theHeaderCountsMatchTheRegisterBeneathIt() throws IOException {
+        // The file opens with its own totals, and they had drifted: the header said 173 findings
+        // where the pattern this class uses finds 289, because a hand count saw only the "###"
+        // headings and the register also uses "##". A summary that disagrees with the detail is read
+        // instead of the detail, which is the whole reason the header is there.
+        //
+        // So the header states the numbers and this derives them. Update the sentence when the
+        // register changes; the build will say when it needs updating.
+        String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
+        Matcher header = Pattern.compile("\\*\\*(\\d+) findings carrying a\\s+status \u2014 (\\d+) FIXED, "
+                        + "(\\d+) OPEN, (\\d+) BY DESIGN, (\\d+) SUPERSEDED\\.\\*\\*")
+                .matcher(text);
+        assertThat(header.find())
+                .as("FINDINGS.md must state its own totals in the form this check reads, so that a "
+                        + "drifting summary fails the build instead of misleading a reader")
+                .isTrue();
+
+        List<Finding> findings = findings();
+        assertThat(Integer.parseInt(header.group(1)))
+                .as("the header's finding count against the register")
+                .isEqualTo(findings.size());
+
+        List<String> words = List.of("FIXED", "OPEN", "BY DESIGN", "SUPERSEDED");
+        for (String word : words) {
+            long actual = findings.stream()
+                    .filter(f -> f.status() != null)
+                    .filter(f -> f.status().split("\u2014|--|\\.")[0].trim().equalsIgnoreCase(word))
+                    .count();
+            assertThat((long) Integer.parseInt(header.group(words.indexOf(word) + 2)))
+                    .as("the header's %s count against the register", word)
+                    .isEqualTo(actual);
+        }
+    }
+
     private static Path repoRoot() {
         Path path = Path.of("").toAbsolutePath();
         while (path != null && !Files.exists(path.resolve("docs/adr"))) {
