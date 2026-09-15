@@ -5,7 +5,7 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **291 findings carrying a
-status — 129 FIXED, 147 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Counted by the same pattern
+status — 131 FIXED, 145 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
