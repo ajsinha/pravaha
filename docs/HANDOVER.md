@@ -245,6 +245,10 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 
 ### Wave 5 (E4) — where it is
 
+**Gate pack:** [`gates/wave-5`](gates/wave-5/). **Gate P4 partly passed** — exact recovery is proven
+in-process and has never been proven by killing an OS process; no chaos test exists; `W4 >= 5x` is
+unmeasured on this hardware.
+
 | Piece | State |
 |---|---|
 | Checkpoint storage, atomic publish, trailer | ✅ `FileCheckpointStore` |
@@ -275,6 +279,10 @@ test that "crashes" by closing gracefully will see every pre-checkpoint window t
 right numbers — which is how that distinction was discovered.
 
 ### Wave 6 (E5) — complete in scope
+
+**Gate pack:** [`gates/wave-6`](gates/wave-6/). **Gate M6 not passed** — it is an external demo and
+the demo has never been performed; "3 years backfilled" and "point queries in microseconds" are both
+undemonstrated.
 
 | Piece | State |
 |---|---|
@@ -370,8 +378,9 @@ Ratis, any multi-node execution: all still E7's and still deferred. The exchange
 a barrier. `DeduplicatingSink` is still not wired, so output is still effectively-once. The windowed
 aggregate still keys state by a 64-bit digest (W8-14, open, and no test can prove a fix).
 
-**No gate pack.** ADR-035 says "Wave 8 gets a gate pack, which waves 5 and 6 never got". It does not
-have one. Gate P7 is unrecorded, and `docs/gates/` still stops at wave-7.
+**Gate pack:** [`gates/wave-8`](gates/wave-8/). Written retrospectively on 2026-09-15. **Gate P7
+passes on mechanism and not on demonstration** — both criteria are built and unit-tested, and
+neither has been exercised against a real killed process.
 
 ### Wave 9 — one node, thousands of continuous queries; no gate pack
 
@@ -417,8 +426,11 @@ measurement demands it, not on the strength of the plan that predates the measur
 So: **the wave's goal is closed; two of its tasks are deliberately deferred.** That is not the same
 as "done", and the register says so rather than rounding it up.
 
-**No gate pack.** `docs/gates/` still stops at wave-7 — the retrospective for waves 5, 6, 8 and 9 is
-the owner's to write, and no agent should invent one.
+**Gate pack:** [`gates/wave-9`](gates/wave-9/). Waves 5, 6, 8 and 9 all have packs now, written
+retrospectively on 2026-09-15 from evidence in the repository. They record what the evidence
+supports; they are not records of decisions taken at the time, because no such decisions were
+written down. **The sign-off is still the owner's** — a pack states the verdict the evidence
+carries, not that anybody accepted it.
 
 ## 3b. The documentation, and which parts the build checks
 
