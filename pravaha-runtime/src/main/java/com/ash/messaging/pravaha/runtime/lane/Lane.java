@@ -920,6 +920,24 @@ public final class Lane implements AutoCloseable {
         }
     }
 
+    /**
+     * Off-heap this lane holds, by the part of it that holds them.
+     *
+     * <p>Attribution, because W9-7 measured 2,068 KiB per active query from the JVM's buffer pool and
+     * could not say what 1,044 of it was. A pool total is a sum with no names in it.
+     */
+    public java.util.Map<String, Long> offHeapBytes() {
+        java.util.Map<String, Long> byPart = new java.util.LinkedHashMap<>();
+        long inboxBytes = 0;
+        for (RowInbox each : inboxes) {
+            inboxBytes += each.bytesAllocated();
+        }
+        byPart.put("inbox", inboxBytes);
+        byPart.put("arena", arena.bytesAllocated());
+        byPart.put("exchange", exchange == null ? 0L : exchange.bytesAllocated());
+        return byPart;
+    }
+
     public LaneMetrics metrics() {
         return new LaneMetrics(
                 laneId,

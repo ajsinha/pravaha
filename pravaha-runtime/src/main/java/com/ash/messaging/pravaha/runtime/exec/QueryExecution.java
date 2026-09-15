@@ -792,6 +792,28 @@ public final class QueryExecution implements AutoCloseable {
         return lanes.failure();
     }
 
+    /**
+     * Off-heap this execution holds, named by the part holding it.
+     *
+     * <p>W9-7 measured 2,068 KiB per active query from the JVM's buffer pool and could not say what
+     * 1,044 of it was, because a pool total is a sum with no names in it. This is the same number
+     * with names.
+     */
+    public java.util.Map<String, Long> offHeapBytes() {
+        java.util.Map<String, Long> total = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < lanes.laneCount(); i++) {
+            lanes.lane(i).offHeapBytes().forEach((part, bytes) -> total.merge(part, bytes, Long::sum));
+        }
+        // The pipeline's own arena, which is not the lane's. Two arenas per query, and only one of
+        // them was ever visible to anything (W9-7).
+        long pipelineArenas = 0;
+        for (InterpretedPipeline pipeline : pipelines) {
+            pipelineArenas += pipeline.arenaBytes();
+        }
+        total.merge("pipeline-arena", pipelineArenas, Long::sum);
+        return total;
+    }
+
     public List<LaneMetrics> metrics() {
         return lanes.metrics();
     }

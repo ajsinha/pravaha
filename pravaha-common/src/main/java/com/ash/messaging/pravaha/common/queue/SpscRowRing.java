@@ -114,6 +114,11 @@ public final class SpscRowRing implements AutoCloseable {
         Arrays.fill(markers, -1L);
     }
 
+    /** Off-heap this ring holds: every cell, whether or not a row is in it. */
+    public long bytesAllocated() {
+        return (long) cellCount * cellBytes;
+    }
+
     public MemoryRegion region() {
         return cells;
     }

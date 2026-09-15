@@ -189,13 +189,14 @@ final class NodeScaleTest {
         // a row has an arena. W9-6's lazy slab does nothing for it; what it holds is decided by how
         // that slab is sized.
         //
-        // Measured at 2,068 KiB and **not yet attributed**. The inbox accounts for 1,024 of it. The
-        // other 1,044 is not the 4 MiB arena slab the configuration implies -- deriving a smaller
-        // arena from the plan changed this number not at all, which is why that change was reverted
-        // rather than shipped. Recorded as W9-7 instead of guessed at.
+        // 1,328 KiB, and fully attributed: 1,024 inbox, 284 pipeline arena, 20 the feeder this test
+        // uses. The lane's own arena is zero -- a projection never allocates one, because its output
+        // goes to the view rather than through the lane's scratch.
         //
-        // The assertion below is therefore a ratchet on the measured value, not a claim about what
-        // the value is made of.
+        // It was 2,068 until the attribution existed. Half of it was a *second* arena, the
+        // pipeline's own, hardcoded to a flat megabyte for every plan and invisible to the lane's
+        // accounting -- which is why the first attempt at sizing the lane's arena moved the number
+        // not at all, and why that attempt was reverted rather than shipped (W9-7).
         long directBefore = directMemory();
 
         ViewCatalog views = new ViewCatalog();
@@ -210,17 +211,36 @@ final class NodeScaleTest {
 
             long directAfter = directMemory();
             long eachKb = (directAfter - directBefore) / ACTIVE_QUERIES / 1024;
+
+            // The same number with names in it. A pool total says how much; only the engine can say
+            // which part of it holds what, and not being able to ask is what left W9-7 with a
+            // thousand unexplained kilobytes.
+            java.util.Map<String, Long> attributed = new java.util.LinkedHashMap<>();
+            for (int i = 0; i < ACTIVE_QUERIES; i++) {
+                registry.require("a" + i)
+                        .offHeapBytes()
+                        .forEach((part, bytes) -> attributed.merge(part, bytes, Long::sum));
+            }
+            long attributedTotal =
+                    attributed.values().stream().mapToLong(Long::longValue).sum();
+
             System.out.printf(
                     "ACTIVE SCALE: %d queries, one row each%n"
-                            + "  off-heap: %d KiB -> %d KiB (%d KiB per query, inbox + one arena slab)%n",
+                            + "  buffer pool: %d KiB -> %d KiB (%d KiB per query)%n"
+                            + "  the engine's own attribution, per query:%n",
                     ACTIVE_QUERIES, directBefore / 1024, directAfter / 1024, eachKb);
+            attributed.forEach(
+                    (part, bytes) -> System.out.printf("    %-10s %6d KiB%n", part, bytes / ACTIVE_QUERIES / 1024));
+            System.out.printf(
+                    "    %-10s %6d KiB   (pool total minus what the engine claims)%n",
+                    "unattributed", (directAfter - directBefore - attributedTotal) / ACTIVE_QUERIES / 1024);
 
             assertThat(eachKb)
                     .as(
                             "%d queries that have each received a row hold %d KiB each, so a thousand of them "
                                     + "is about %d GB -- the number ADR-036's target has to live within",
                             ACTIVE_QUERIES, eachKb, eachKb * 1000 / (1024 * 1024))
-                    .isLessThanOrEqualTo(2304);
+                    .isLessThanOrEqualTo(1400);
         }
     }
 

@@ -5855,7 +5855,7 @@ from the plan rather than from a constant.
 
 ### W9-7 (MEDIUM) — an active query holds about 2 MiB off-heap and half of it is unaccounted for
 
-> **Status:** OPEN — measured by `NodeScaleTest.whatOneQueryCostsOnceRowsArrive`: 50 queries, one row each, **2,068 KiB per query** from the JVM's direct buffer pool. The inbox is 1,024 of it. The other 1,044 is not explained.
+> **Status:** FIXED — attributed and then reduced. `RowInbox`, `SpscRowRing`, `LaneExchange`, `Lane`, `InterpretedPipeline`, `QueryExecution` and `RegisteredQuery` all report their off-heap bytes by name, and `NodeScaleTest` prints the breakdown. The missing 1,044 KiB was a **second arena** — `InterpretedPipeline`'s own, hardcoded to a flat megabyte for every plan and invisible to the lane's accounting. Sized from the plan it is 284 KiB for that schema, and an active query went **2,068 → 1,328 KiB**.
 
 W9-6 made the arena's first slab lazy, which takes a genuinely idle query to 1,024 KiB — the inbox
 and nothing else. That is the whole win for an idle query and none of it for an active one, and the
@@ -5872,10 +5872,43 @@ That change is reverted rather than shipped. It is plausible, it is probably eve
 no test that fails without it, which is this project's rule and a good one: a memory optimisation
 that cannot be shown to save memory is a guess with a commit message.
 
-What to do next, in the order that answers the most per hour: attribute the 1,044 KiB first —
-instrument `RowArena` and `RowInbox` with their own counters rather than reading a pool total, since
-a single number cannot say who allocated it. The plan-derived sizing can then be re-proposed against
-a measurement that would move.
+**Attribution first was the right call, and it is why the second attempt worked.** The 1,044 KiB was
+`InterpretedPipeline.compile`'s own `RowArena(access, 1 << 20, 64)` — a second arena per query,
+separate from the lane's, the same size for every plan, and reported by nothing. That is why sizing
+the *lane's* arena moved the measurement not at all: the lane's arena was already zero for a
+projection, because a projection's output goes to the view rather than through the lane's scratch.
+
+Sized from the plan's own rows it is 284 KiB rather than 1,024, and now the number moves when the
+code does — which is the difference between an optimisation and a guess.
+
+Every part reports itself now, so the next person asking where a node's memory went gets names rather
+than a pool total. The remaining 1,024 KiB is the inbox, and that is not a sizing problem: it is
+per-*query* only because each query has a lane of its own, which is what `LaneMultiplexer` exists to
+stop (W9-8).
 
 The inbox's own 1,024 KiB is separately worth questioning: 2048 cells of 512 bytes is burst capacity
 for a query fed by a source that scans once a second and will never produce one.
+
+
+### W9-8 (HIGH) — `LaneMultiplexer` is built, tested and wired to nothing, and it is the answer to the per-query inbox
+
+> **Status:** OPEN — `pravaha-runtime`'s `LaneMultiplexer` is 250 lines with `LaneMultiplexerTest` green at 8/8, and `grep` finds no reference to it from any `src/main` outside its own file.
+
+A fourth built-but-unreachable mechanism, after the three Wave 8 found (W8-11 … W8-13). Its own
+javadoc states the goal this wave is for: *"At the density design section 13.7 asks for — ten thousand
+queries on a node sized by cores — roughly three hundred query pipelines share each lane."*
+
+**It is a better answer than the one I built.** W9-4's `LaneRunner` shares a lane's *thread* between
+lanes, so a thousand queries cost 24 threads instead of 1,000 — but each still has its own `Lane`,
+and therefore its own inbox. That inbox is the 1,024 KiB that dominates what a query holds, and it is
+per-query only because the lane is.
+
+`LaneMultiplexer` is a `LaneProcessor`, so one lane — one inbox, one arena, one exchange slot —
+serves many queries. It dispatches by the schema id rows already carry rather than scanning
+pipelines, fans out zero-copy to every pipeline subscribed to a stream, and orders pipelines by lane
+time consumed so a heavy query yields its place rather than accumulating an advantage. Its javadoc is
+candid about what it cannot do: a hard per-query quota needs admission control at registration, and
+that belongs with the query lifecycle.
+
+The two compose. The runner decides which thread a lane runs on; the multiplexer decides how many
+queries a lane carries. Wiring it is what takes the per-query inbox from 1,024 KiB to a share of one.

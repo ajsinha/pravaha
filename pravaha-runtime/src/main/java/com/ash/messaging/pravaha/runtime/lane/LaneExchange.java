@@ -97,6 +97,19 @@ public final class LaneExchange implements AutoCloseable {
         return rings[from][to];
     }
 
+    /** Off-heap every ring in this exchange holds. There are {@code lanes * (lanes - 1)} of them. */
+    public long bytesAllocated() {
+        long total = 0;
+        for (SpscRowRing[] row : rings) {
+            for (SpscRowRing ring : row) {
+                if (ring != null) {
+                    total += ring.bytesAllocated();
+                }
+            }
+        }
+        return total;
+    }
+
     /** A sending view for one lane. */
     public Sender senderFor(int laneId) {
         return new LaneSender(laneId);

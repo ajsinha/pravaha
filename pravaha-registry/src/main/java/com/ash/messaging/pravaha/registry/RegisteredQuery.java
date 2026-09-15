@@ -126,6 +126,16 @@ public final class RegisteredQuery implements AutoCloseable {
         return state;
     }
 
+    /**
+     * Off-heap this computation holds, named by the part holding it.
+     *
+     * <p>What an operator asks when a node holding many queries is using more memory than expected,
+     * and what W9-7 could not answer: the JVM reports a pool total with no names in it.
+     */
+    public java.util.Map<String, Long> offHeapBytes() {
+        return execution.offHeapBytes();
+    }
+
     /** The view this computation keeps current. */
     public ServedView view() {
         return view;

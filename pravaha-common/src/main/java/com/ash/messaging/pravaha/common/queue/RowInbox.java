@@ -155,6 +155,17 @@ public final class RowInbox implements AutoCloseable {
         return result == value ? value : result << 1;
     }
 
+    /**
+     * Off-heap bytes this inbox holds: every cell, whether or not a row is in it.
+     *
+     * <p>Reserved at construction and never released, so this is what an inbox costs a node however
+     * quiet the query is. Exposed because a pool total cannot say who allocated it, and W9-7 is the
+     * consequence of not being able to ask.
+     */
+    public long bytesAllocated() {
+        return (long) cellCount * cellBytes;
+    }
+
     /** Where the rows live. Valid for the inbox's lifetime; the cells within it are not. */
     public MemoryRegion region() {
         return cells;

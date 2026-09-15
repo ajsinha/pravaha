@@ -108,6 +108,35 @@ public final class InterpretedPipeline implements AutoCloseable {
      * @param plan the physical plan, whose root must be a sink
      * @param sink where the terminal stage writes
      */
+    /**
+     * A slab sized for this plan's own rows rather than a flat megabyte.
+     *
+     * <p>It was {@code 1 << 20} with 64 slabs for every plan, which measured as 1,024 KiB per active
+     * query -- half of everything a query holds off-heap, and a gigabyte of it at a thousand queries
+     * (W9-7). A pipeline's arena holds rows it is building; what it needs is a batch of them, and a
+     * narrow projection's batch is a few hundred kilobytes.
+     *
+     * <p>Two floors, both about not turning a memory saving into a refusal. A row larger than a slab
+     * is refused at allocation whatever the total, so a slab must clear the widest plausible row --
+     * and a schema cannot say how wide a variable-width value will be, so each is allowed 512 bytes.
+     * Below 64 KiB the saving stops mattering and the risk starts to.
+     *
+     * <p>{@link #slabsFor} keeps the ceiling where it was, so this narrows what a query reserves and
+     * not what it may grow into.
+     */
+    private static int slabFor(PhysicalOperator plan) {
+        RowLayout layout = RowLayout.of(plan.outputSchema());
+        long perRow = layout.rowSize(layout.variableFieldCount() * 512);
+        long batch = perRow * com.ash.messaging.pravaha.runtime.lane.LaneConfig.DEFAULT_BATCH_SIZE;
+        return (int) Math.max(64L * 1024, Math.min(batch, 1L << 20));
+    }
+
+    /** Slabs enough to keep the 64 MiB ceiling the flat megabyte gave, in whatever step size. */
+    private static int slabsFor(PhysicalOperator plan) {
+        long ceiling = 64L * (1L << 20);
+        return (int) Math.max(4, Math.min(1024, ceiling / slabFor(plan)));
+    }
+
     public static InterpretedPipeline compile(PhysicalOperator plan, RowOutput sink) {
         return compile(plan, sink, Map.of());
     }
@@ -122,7 +151,7 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     public static InterpretedPipeline compile(
             PhysicalOperator plan, RowOutput sink, Map<String, LookupSourcePlugin> lookups) {
-        RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 64);
+        RowArena arena = new RowArena(MemoryAccess.best(), slabFor(plan), slabsFor(plan));
         Builder builder = new Builder(arena, sink, lookups);
         RowProcessor built = builder.build(plan);
         RowProcessor head = builder.joins.isEmpty() ? built : null;
@@ -480,6 +509,17 @@ public final class InterpretedPipeline implements AutoCloseable {
         } catch (java.io.IOException e) {
             throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot restore pipeline state: " + e, e);
         }
+    }
+
+    /**
+     * Off-heap this pipeline's own arena holds.
+     *
+     * <p>A pipeline has an arena of its own, separate from the lane's, and until W9-7 went looking
+     * nothing reported it: the lane's accounting does not see it, so a node's per-query memory had a
+     * megabyte in it that no component would claim.
+     */
+    public long arenaBytes() {
+        return arena.bytesAllocated();
     }
 
     /** Whether this pipeline holds any state worth checkpointing. */
