@@ -5990,3 +5990,46 @@ which is its entire appeal, and it is how two streams come to share an id silent
 as PF-10 and W8-8, which this codebase has now paid for twice.
 
 `LaneMultiplexer` is unblocked. Wiring it is W9-8.
+
+### W9-10 (HIGH) — wiring `LaneMultiplexer` is a wave, not a task, and the aligned barrier is why
+
+> **Status:** OPEN — W9-9 removed the blocker that made wiring *wrong*; this records what makes it *large*. Assessed against the code, not estimated.
+
+With streams identified (W9-9) the multiplexer would now dispatch correctly. Three things still stand
+between that and a node where three hundred queries share a lane, and the third is the one that
+decides the design.
+
+**1. A lane is owned by the execution that created it.** `QueryExecution.close()` calls
+`lanes.close()`, and closing a lane closes its processor on the lane thread — which is where a
+pipeline's end-of-input runs, so final windows are written by the thread that owns the arena. On a
+shared lane, one query going away would stop a lane serving the other two hundred and ninety-nine.
+Ownership has to move to the registry, and `close()` has to mean "drop my pipeline" rather than "stop
+this lane".
+
+**2. Checkpoint and restore are per lane.** `QueryExecution` submits a control task per lane for
+watermark advance, continuous-aggregate publication, snapshot and restore — four sites. Each closes
+over *its own* pipeline, so the task is right; what changes is that a lane now carries many queries'
+tasks, and a checkpoint for one query is a marker on a lane whose other queries are mid-batch.
+
+**3. And that is the expensive one.** The aligned barrier (W8-2…W8-5) works by clamping each batch at
+the nearest marker: a lane sizes its take against the head of its control queue so a task sees the
+stream exactly at the position it was submitted at. It is correct and it is what makes checkpoints
+mean anything. But the clamp costs a short batch, and with three hundred queries on a lane each
+advancing a watermark every second, the lane would cut its batches short several hundred times a
+second — spending its budget on barriers rather than rows.
+
+So multiplexing and the aligned barrier are in tension, and it is not a tension either side can
+resolve alone. The shapes worth weighing:
+
+- **Coalesce markers.** Watermark advances for many queries on one lane are submitted independently
+  and could be one marker carrying many tasks. Cheapest, and only helps where the ticks align.
+- **Per-pipeline markers.** A marker that clamps only the pipeline it belongs to rather than the
+  lane's whole batch. Correct in principle and a change to the barrier's core, which three defects
+  this week already came out of.
+- **Take the tick off the lane.** A watermark advance that does not need a control task at all,
+  because it reads a position rather than running at one. Largest change, and the only one that
+  removes the tension rather than managing it.
+
+Recorded rather than attempted. The wave's measured wins — threads bounded by cores, 5 MiB to 1,328
+KiB per query, one scan per second instead of a hundred and fifty — are on `main` and independent of
+this. Wiring the multiplexer badly would put all of them at risk for the remaining 1,024 KiB.
