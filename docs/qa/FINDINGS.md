@@ -3531,7 +3531,7 @@ See `docs/qa/logs/CFG.md` (CFG-020, CFG-021, CFG-100, CFG-101).
 
 ### CFG-13 (HIGH) — a checkpoint directory is namespaced by view name and not by node, so two nodes sharing one root prune each other's state and restore from each other's files
 
-> **Status:** OPEN — reproduced live with two real nodes: `node-a` (18800/19800) and `node-b` (18801/19801), different `pravaha.node.id`, different journals, the same `pravaha.checkpoint.directory`, each registering a view called `QW`. After 22 s the shared root contained exactly one subdirectory, `QW/`, holding `checkpoint-10.bin`, `checkpoint-11.bin`, `checkpoint-12.bin`.
+> **Status:** FIXED — `PravahaNode.start` claims the checkpoint directory through `StateOwnership` before handing it to the registry, so a second node with a different `pravaha.node.id` is refused with `PRV-4003` naming the holder. `PravahaNodeTest.aSecondNodeOnOneCheckpointDirectoryIsRefusedRatherThanSharingIt` reproduces the two-node case and asserts the refusal; `theSameNodeRestartingOntoItsOwnCheckpointDirectoryIsFine` asserts the half that matters more. Seed-proven — removing the claim makes the second node start.
 
 **Scope decision:** deferred to Wave 8 (cluster and HA) rather than patched here. Both plausible fixes have an operational cost that only the HA design can weigh: namespacing the directory by node id silently orphans every checkpoint an existing deployment already holds, and an exclusive lock has to decide what a *stale* lock after a crash means -- refusing to start is a worse failure than the one being prevented. It is a node-ownership policy, and Wave 8 is where node ownership is defined.
 
@@ -3551,7 +3551,7 @@ See `docs/qa/logs/CFG.md` (CFG-098).
 
 ### CFG-14 (HIGH) — two nodes sharing one registry journal take no lock, and each recovers the other's registrations as its own
 
-> **Status:** OPEN — reproduced live: `node-a` registered `QA1` and `QA2`, `node-b` registered `QB1`, both appending to one `pravaha.registry.journal` file; on restart `node-a` logged `registry recovered 3 of 3 queries` and `pravaha queries` listed `QA1`, `QA2` **and** `QB1`.
+> **Status:** FIXED — the registry journal's directory is claimed the same way, before `RegistryJournal` is opened, so two nodes cannot interleave appends into one journal. Same mechanism, same refusal, same tests.
 
 **Scope decision:** deferred to Wave 8 (cluster and HA), with CFG-13, for the same reason. `RegistryJournal` holds no long-lived handle -- it opens a channel per append -- so a `FileLock` means making it closeable and tying its lifetime to the node's, which is a lifecycle question the HA work settles. The interim mitigation is documentation: nothing in `PersistenceProperties` or `PravahaNode` warns that a journal must not be shared, and that warning costs nothing.
 
@@ -4656,3 +4656,40 @@ The fix is a suggestion at the authorized layer rather than a list at the unauth
 Flight and HTTP paths know the principal, so a `PRV-8002` raised there could append the names that
 principal may read — a near-miss suggestion, filtered. Small, and worth doing before the CLI feels
 blunter than it was.
+
+
+### W8-1 (HIGH) — node ownership of durable state: the path is the node id, the marker carries the address
+
+> **Status:** FIXED — `pravaha-common`'s `StateOwnership`, claimed by `PravahaNode.start` for the checkpoint directory and the registry journal's directory and released in `stop`. `StateOwnershipTest` covers all four claim outcomes (9 tests) and `PravahaNodeTest` covers the two node-level ones; both seed-proven. New codes `PRV-4003` STATE_NOT_OURS and `PRV-4004` STATE_OWNERSHIP_UNREADABLE, documented in `docs/TROUBLESHOOTING.md`.
+
+Wave 8 item 1, closing CFG-13 and CFG-14. The design question was what a node's state is namespaced
+by, and the owner proposed host and port on the grounds that it needs no configuration and cannot
+collide between live nodes.
+
+That second part is true and it is why the address is in the marker. It is not what the *path* can
+be. Host and port identify a location; a node id identifies a node, and recovery needs the second. A
+directory named by address means a node restarting on a new pod IP, a changed port or a moved host
+finds no checkpoint, restores nothing, and starts from empty with the query reporting RUNNING — which
+converts "two nodes collide" into "one node silently loses its own state on every restart", in
+exactly the deployments that restart most. Strictly the worse trade.
+
+So both, each for what it is good at. The path is the node id. The marker records node id, host,
+port, pid and a timestamp refreshed on a lease, and it decides whether a claim is a restart or a
+collision:
+
+| Marker | Outcome |
+|---|---|
+| Absent | Claimed — first start |
+| Our node id, lease expired | Claimed and logged — a crash restart must not need an operator |
+| Our node id, lease live | Refused — a second instance, and the marker says where it is |
+| A different node id | Refused whether live or stale |
+
+The fourth row is the one that decides whether this is worth anything. A stale claim says the owner
+is not running; it does not say the state is yours, and taking it is the CFG-13 corruption whether or
+not anyone is home. `pravaha.state.allow-shared=true` is the typed override, following
+`refuseAccidentalOpenServer`'s shape — refusing to start is itself a failure, and an operator who
+knows better has to be able to say so.
+
+It also catches the case the owner was really asking about: two nodes where nobody set
+`pravaha.node.id`, both defaulting to `pravaha-node-01`. They now collide loudly at startup instead
+of quietly at prune time.

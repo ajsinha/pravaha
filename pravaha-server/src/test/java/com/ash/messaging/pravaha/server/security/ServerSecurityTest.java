@@ -201,7 +201,8 @@ class ServerSecurityTest {
                 persistence(""),
                 "SINGLE",
                 "single",
-                "security-flight-node");
+                "security-flight-node",
+                true);
     }
 
     private static PravahaNode node(SecurityProperties security) {
@@ -220,7 +221,8 @@ class ServerSecurityTest {
                 persistence(""),
                 "SINGLE",
                 "single",
-                "security-test-node");
+                "security-test-node",
+                true);
     }
 
     /** Journal where the caller asked for one, and no checkpoint directory. */

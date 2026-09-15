@@ -60,7 +60,7 @@ class ErrcCrossCuttingTest {
     // ------------------------------------------------------------ ERRC-111
 
     @Test
-    void theInventoryIsOneHundredAndTenDistinctCodesTenUndocumentedZeroSpurious() throws Exception {
+    void everyDeclaredCodeIsDocumentedAndEveryDocumentedCodeIsDeclared() throws Exception {
         Path root = repoRoot();
         // QA executors run in git worktrees under .claude/, which are full copies of this
         // repository. Excluded relative to the root we found, never by matching "/.claude/" as a
@@ -81,12 +81,16 @@ class ErrcCrossCuttingTest {
                 }
             }
         }
-        // Fact 1 claims 110 -- stale as of this round: a concurrent STATE-round commit added an
-        // eleventh code, PRV-8008 REGISTRY_NAME_UNUSABLE (docs/qa/FINDINGS.md's ST-2 entry), between
-        // when ERRC.md was authored and when this case runs. Asserted as found (111), not forced to
-        // the case's own stale number -- the case file's count is itself now out of date, the same
-        // class of drift ST-2 documents for STATE.md.
-        assertThat(byCode).as("distinct PRV- numbers declared in main sources").hasSize(111);
+        // The count is a floor, not a fixture. ERRC.md's fact 1 said 110; a concurrent STATE round
+        // added PRV-8008 while this case was being written, and Wave 8's state-ownership work added
+        // PRV-4003 and PRV-4004 after that. Pinning an exact number means every legitimate addition
+        // arrives as a red build in a file that has nothing to do with the change, and the reflex
+        // is to edit the number rather than read the failure.
+        //
+        // What actually matters is the two-way check below: nothing declared without a row, nothing
+        // documented that does not exist. That is the property, and it does not care how many there
+        // are. The floor only catches a wholesale deletion.
+        assertThat(byCode).as("distinct PRV- numbers declared in main sources").hasSizeGreaterThanOrEqualTo(111);
         byCode.forEach((code, names) -> assertThat(names.stream().distinct().toList())
                 .as("PRV-" + code + " must mean one thing")
                 .hasSize(1));

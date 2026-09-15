@@ -157,6 +157,24 @@ pravaha:
   # discovered during a recovery. Each query checkpoints into its own directory beneath this one:
   # one shared store would make pruning global, so a busy query would evict a quiet one's only
   # fallback.
+  # Whether this node may write state into a directory another node already owns.
+  #
+  # A node claims its checkpoint directory and its registry journal's directory at startup, writing
+  # a .pravaha-owner marker naming itself, its host, its port and its pid, refreshed on a lease. Two
+  # nodes sharing one checkpoint root prune each other's checkpoints; two sharing one journal replay
+  # each other's registrations and each comes up running queries it never registered. Both were
+  # reachable from two lines of this file and neither reported anything (CFG-13, CFG-14).
+  #
+  # The directory is namespaced by node.id rather than by host and port on purpose: an address
+  # identifies a location, a node id identifies a node, and a node restarting on a new pod IP has to
+  # find its own checkpoints. The address lives in the marker instead, where it answers the question
+  # the node id cannot -- whether the other owner is still running.
+  #
+  # A node reclaiming its *own* state after a crash does not need this flag; an expired claim under
+  # the same node id is taken over automatically. Set it only to let two nodes share on purpose.
+  state:
+    allow-shared: false
+
   checkpoint:
     directory: ""
     interval: 1m

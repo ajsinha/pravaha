@@ -76,7 +76,8 @@ class PravahaMetricsTest {
                 persistence(""),
                 "SINGLE",
                 "single",
-                "metrics-node");
+                "metrics-node",
+                true);
         node.start();
         meters = new SimpleMeterRegistry();
         metrics = new PravahaMetrics(meters, node);

@@ -237,7 +237,8 @@ class StateClusterTest extends StateTestSupport {
                 persistence,
                 "PARTITIONED",
                 "socket",
-                "state-102-node");
+                "state-102-node",
+                true);
 
         assertThatThrownBy(node::start).isInstanceOf(PravahaException.class).hasMessageContaining("PRV-9002");
         assertThat(isListening("127.0.0.1", port))
@@ -388,7 +389,8 @@ class StateClusterTest extends StateTestSupport {
                 persistence,
                 mode,
                 "single",
-                "state-106-" + mode.toLowerCase(java.util.Locale.ROOT));
+                "state-106-" + mode.toLowerCase(java.util.Locale.ROOT),
+                true);
         node.start();
         return node;
     }

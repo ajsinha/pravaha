@@ -70,7 +70,8 @@ class PravahaNodeTest {
                 persistence(""),
                 "SINGLE",
                 "single",
-                "no-flight-node");
+                "no-flight-node",
+                true);
     }
 
     private static PravahaNode node(String journal) {
@@ -90,7 +91,8 @@ class PravahaNodeTest {
                 persistence(journal),
                 "SINGLE",
                 "single",
-                "test-node");
+                "test-node",
+                true);
     }
 
     @Test
@@ -170,7 +172,8 @@ class PravahaNodeTest {
                 persistence(""),
                 "PARTITIONED",
                 "socket",
-                "test-node");
+                "test-node",
+                true);
 
         // Two nodes each believing they own a partition write the same aggregate twice, and the
         // damage is silent, durable, and found later by whoever reconciles the numbers. Refusing to
@@ -196,7 +199,8 @@ class PravahaNodeTest {
                 persistence(""),
                 "SINGLE",
                 "single",
-                "test-node");
+                "test-node",
+                true);
         try {
             node.start();
 
@@ -238,6 +242,65 @@ class PravahaNodeTest {
     }
 
     /** Journal where the caller asked for one, and no checkpoint directory. */
+    /** A node with a named id, its own checkpoint directory, and the ownership rule in force. */
+    private static PravahaNode ownedNode(String nodeId, java.nio.file.Path checkpointDirectory, String journal) {
+        PersistenceProperties persistence = persistence(journal);
+        persistence.getCheckpoint().setDirectory(checkpointDirectory.toString());
+        return new PravahaNode(
+                catalog(),
+                new SourceBindingProperties(),
+                new StreamDeclarationProperties(),
+                openServer(),
+                null,
+                null,
+                java.time.Duration.ofSeconds(30),
+                java.time.Duration.ofSeconds(1),
+                true,
+                "127.0.0.1",
+                0,
+                persistence,
+                "SINGLE",
+                "single",
+                nodeId,
+                false);
+    }
+
+    @Test
+    void aSecondNodeOnOneCheckpointDirectoryIsRefusedRatherThanSharingIt(@TempDir java.nio.file.Path shared) {
+        // CFG-13, reproduced with two real nodes: different pravaha.node.id, the same
+        // pravaha.checkpoint.directory, each registering a view of the same name. They shared one
+        // subdirectory, and each prune(keep) deleted whatever was oldest across both -- so the
+        // survivors were an unpredictable mix and a restart restored from the other node's state.
+        // Two lines of YAML, and nothing reported anything.
+        PravahaNode first = ownedNode("node-a", shared, "");
+        first.start();
+        try {
+            PravahaNode second = ownedNode("node-b", shared, "");
+            assertThatThrownBy(second::start)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-4003")
+                    .hasMessageContaining("belongs to node 'node-a'")
+                    .hasMessageContaining("pravaha.state.allow-shared=true");
+        } finally {
+            first.stop();
+        }
+    }
+
+    @Test
+    void theSameNodeRestartingOntoItsOwnCheckpointDirectoryIsFine(@TempDir java.nio.file.Path own) {
+        // The half that matters more than the refusal. A node must be able to restart onto its own
+        // state without an operator, or the cure is worse than CFG-13 -- and this is also why the
+        // directory is namespaced by node id rather than by host and port: an address changes on a
+        // container restart and a node id does not.
+        PravahaNode first = ownedNode("node-a", own, "");
+        first.start();
+        first.stop();
+
+        PravahaNode restarted = ownedNode("node-a", own, "");
+        restarted.start();
+        restarted.stop();
+    }
+
     private static PersistenceProperties persistence(String journal) {
         PersistenceProperties persistence = new PersistenceProperties();
         persistence.getRegistry().setJournal(journal == null ? "" : journal);

@@ -90,9 +90,22 @@ public class PravahaNode implements SmartLifecycle {
     private final boolean flightEnabled;
     private final String flightHost;
     private final int flightPort;
+
+    /**
+     * Claims on the directories this node writes durable state into, held for its lifetime.
+     *
+     * <p>Two nodes on one checkpoint root prune each other's checkpoints; two on one registry
+     * journal replay each other's registrations and each comes up running queries it never
+     * registered (CFG-13, CFG-14). Both are reachable from two lines of YAML and neither reports
+     * anything, so the claim is taken before either path is handed to the registry.
+     */
+    private final java.util.List<com.ash.messaging.pravaha.common.io.StateOwnership> stateClaims =
+            new java.util.ArrayList<>();
+
     private final Optional<Path> journalPath;
     private final Configuration clusterConfiguration;
     private final String nodeId;
+    private final boolean allowSharedState;
 
     private volatile ViewCatalog views;
     private volatile QueryRegistry registry;
@@ -131,7 +144,8 @@ public class PravahaNode implements SmartLifecycle {
             PersistenceProperties persistence,
             @Value("${pravaha.cluster.mode:SINGLE}") String clusterMode,
             @Value("${pravaha.cluster.mechanism:single}") String clusterMechanism,
-            @Value("${pravaha.node.id:pravaha-node-01}") String nodeId) {
+            @Value("${pravaha.node.id:pravaha-node-01}") String nodeId,
+            @Value("${pravaha.state.allow-shared:false}") boolean allowSharedState) {
         this.streams = streams;
         this.sources = sources;
         this.declaredStreams = declaredStreams;
@@ -141,6 +155,7 @@ public class PravahaNode implements SmartLifecycle {
         this.watermarkIdleAfter = watermarkIdleAfter;
         this.watermarkTick = watermarkTick;
         this.nodeId = nodeId;
+        this.allowSharedState = allowSharedState;
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
         this.flightPort = flightPort;
@@ -367,6 +382,7 @@ public class PravahaNode implements SmartLifecycle {
         // from whenever the next interval happens to land.
         checkpointPath.ifPresentOrElse(
                 path -> {
+                    claimState(path, "checkpoint directory");
                     registry.checkpointingTo(path, checkpointConfiguration);
                     log.info("checkpointing registered queries under {}", path);
                 },
@@ -427,6 +443,12 @@ public class PravahaNode implements SmartLifecycle {
         }
 
         journalPath.ifPresent(path -> {
+            // The journal's directory, not the file: a claim is about the place a node writes state,
+            // and the marker has to live beside the journal rather than inside it.
+            java.nio.file.Path journalDirectory = path.toAbsolutePath().getParent();
+            if (journalDirectory != null) {
+                claimState(journalDirectory, "registry journal directory");
+            }
             registry.journalTo(new RegistryJournal(path));
             QueryRegistry.Recovery recovery = registry.recover(this::principalNamed);
             log.info(
@@ -479,6 +501,27 @@ public class PravahaNode implements SmartLifecycle {
         // After the registry, because a running query may still be looking rows up in one.
         closeQuietly("dimension tables", lookupSources);
         closeQuietly("cluster coordinator", coordinator);
+        // Last: a claim is released only once nothing is still writing under it, or the next start
+        // finds the directory free while this one is still finishing a checkpoint.
+        stateClaims.forEach(claim -> closeQuietly("state claim on " + claim.directory(), claim));
+        stateClaims.clear();
+    }
+
+    /**
+     * Claims {@code directory} for this node, or refuses to start and says who holds it.
+     *
+     * <p>The path is namespaced by node id rather than by host and port, and the reasoning is in
+     * {@code StateOwnership}: an address identifies a location, a node id identifies a node, and
+     * recovery needs the second. A node restarting on a new pod IP must still find its own
+     * checkpoints. The address goes in the marker, which is where it answers the question the node
+     * id cannot -- whether the other owner is still alive.
+     */
+    private void claimState(java.nio.file.Path directory, String what) {
+        com.ash.messaging.pravaha.common.io.StateOwnership.Owner owner =
+                com.ash.messaging.pravaha.common.io.StateOwnership.Owner.current(nodeId, flightHost, flightPort);
+        stateClaims.add(com.ash.messaging.pravaha.common.io.StateOwnership.claim(
+                directory, owner, com.ash.messaging.pravaha.common.io.StateOwnership.DEFAULT_LEASE, allowSharedState));
+        log.info("claimed the {} {} for node '{}'", what, directory, nodeId);
     }
 
     private void closeQuietly(String what, AutoCloseable closeable) {

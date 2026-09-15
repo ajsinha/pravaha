@@ -140,6 +140,8 @@ schema is where you stop yourself.
 |---|---|
 | `PRV-4022` view too large | Retention is applied *before* this check, so hitting it means either the view keeps everything and should not, or the window genuinely holds more rows than the ceiling. The message says which |
 | `PRV-4001` state too large | An operator's state passed its ceiling |
+| `PRV-4003` state not ours | Another node owns this checkpoint directory or registry journal, or a second instance of this node is running. The message names the holder's node id, host, port and how long ago it was last seen. Give this node its own directory, stop the other instance, or set `pravaha.state.allow-shared=true` if sharing really is intended. A node reclaiming *its own* state after a crash does **not** hit this: an expired claim under the same node id is taken over automatically |
+| `PRV-4004` ownership marker unreadable | The `.pravaha-owner` file in a state directory exists and cannot be read, written, or names no node. Refused rather than assumed free, because a truncated marker and an absent one mean different things. Delete it only if the directory is genuinely unowned |
 | `PRV-3001` arena exhausted | Off-heap arena full — usually a batch far larger than expected |
 | Disk growing | **Checkpoint files.** `FileCheckpointStore.prune(keep)` exists and nothing calls it automatically. This is the known disk-growth path; see [`OPERATIONS.md`](OPERATIONS.md) |
 
@@ -205,6 +207,8 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-3102` | CODEGEN_STAGE_TOO_LARGE | runtime |
 | `PRV-4001` | STATE_TOO_LARGE | state/serving |
 | `PRV-4002` | STATE_UNREADABLE | state/serving |
+| `PRV-4003` | STATE_NOT_OURS | state/serving |
+| `PRV-4004` | STATE_OWNERSHIP_UNREADABLE | state/serving |
 | `PRV-4010` | BACKFILL_BUFFER_FULL | state/serving |
 | `PRV-4011` | BACKFILL_MISSING_VERSION | state/serving |
 | `PRV-4012` | BACKFILL_UNSUPPORTED_KEY | state/serving |
