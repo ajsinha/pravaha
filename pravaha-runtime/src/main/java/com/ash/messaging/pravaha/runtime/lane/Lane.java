@@ -112,9 +112,10 @@ public final class Lane implements AutoCloseable {
      * A queued control task and the point in the inbox it must not run ahead of.
      *
      * <p>{@code barrier[i]} is input {@code i}'s claimed-cell count at the moment the task was
-     * submitted. The task runs once the lane has drained past every one of them, which is what
-     * makes "advance the watermark" mean "advance it over the rows I had already been handed"
-     * rather than "over whichever of them happen to have been applied by now".
+     * submitted -- a marker in the stream, addressed by position rather than occupying a cell. The
+     * task runs when the lane reaches it: not before, which is what makes "advance the watermark"
+     * mean "advance it over the rows I had already been handed"; and not after, which is what makes
+     * a checkpoint's snapshot cover exactly the rows its recorded source offset excludes.
      */
     private record ControlTask(Runnable task, long[] barrier, long id) {}
 
@@ -136,6 +137,21 @@ public final class Lane implements AutoCloseable {
             new java.util.concurrent.atomic.AtomicLong();
 
     private volatile long controlCompleted = -1L;
+
+    /**
+     * Odd while a submitter is choosing its marker, even the rest of the time.
+     *
+     * <p>The lane reads this either side of working out how far it may drain, and starts again if it
+     * changed. That is the whole of the ordering between a submit and a batch, and it is a seqlock
+     * rather than a mutual exclusion because of which side pays: the lane crosses it on every
+     * iteration of the hottest loop in the engine and a submitter crosses it on a watermark tick or
+     * a checkpoint. Two volatile reads for the one that goes round a million times a second; the
+     * monitor for the one that goes round once a second.
+     *
+     * <p>Written only inside {@code synchronized (control)}, so the increments cannot be lost even
+     * though {@code volatile} does not make {@code ++} atomic.
+     */
+    private volatile long submitSequence;
 
     private volatile boolean running;
     private volatile State state = State.NEW;
@@ -240,23 +256,70 @@ public final class Lane implements AutoCloseable {
     }
 
     /**
-     * Queues work to run on this lane's thread between batches.
+     * How many cells a producer has ever claimed on one input.
+     *
+     * <p>The coordinate a barrier is expressed in. Read by whoever is about to cut the stream --
+     * {@code QueryExecution.checkpoint} reads it with ingest frozen, so the number it gets names a
+     * point no row can be inserted before.
+     */
+    public long producerCursor(int input) {
+        return inboxes[input].producerCursor();
+    }
+
+    /**
+     * Queues work to run on this lane's thread, at the exact point in the stream it was submitted
+     * at.
      *
      * <p>Between batches, never during one: a task that ran mid-batch would see operator state
      * partly updated by a batch that has not finished, which is the difference between a checkpoint
      * and a photograph of a car crash.
      *
-     * @return a completion count to wait on; the task has run once {@link #controlTasksRun()}
-     *     exceeds the value returned here
+     * <p><strong>This is the barrier.</strong> The cursors read here are a marker placed in the
+     * inbox, at the position the producers had reached -- addressed by position rather than
+     * occupying a cell, because a cell would need a tag byte on every row to tell the two apart.
+     * The run loop cuts its batch at a marker that is queued when the batch begins, so the task
+     * sees the state at that position and not a batch's worth beyond it. "Not before the marker" is
+     * not enough on its own: a lane that overshoots and then snapshots puts rows into the
+     * checkpoint that the recorded source offset says will be replayed, and replaying them is a
+     * double count nothing downstream would catch.
+     *
+     * <p>That alone leaves one window -- a task submitted while a batch is already in flight was
+     * not there to be seen when the batch was sized, so the lane can pass it. {@code
+     * QueryExecution.checkpoint} closes it from the other end by freezing ingest before it submits
+     * anything: with the producers held between rows the marker sits at the end of the stream, so
+     * there is nothing past it to overshoot into. The two together are what make the cut exact.
+     *
+     * <p>The cut is this lane's own coordinate and means nothing to another lane. What makes a set
+     * of them <em>one</em> cut is again the freeze: no row reaches any lane between the first
+     * submission and the last, and the source offsets recorded under the same freeze name that same
+     * instant.
+     *
+     * @return a ticket naming this task, to pass to {@link #awaitControlTask}
      */
     public long submitControlTask(Runnable task) {
-        long ticket = controlSubmitted.getAndIncrement();
-        long[] barrier = new long[inboxes.length];
-        for (int input = 0; input < inboxes.length; input++) {
-            barrier[input] = inboxes[input].producerCursor();
+        // Reading the cursors, allocating the id and queueing under one lock, because all three
+        // have to agree. A ticket means "the last completed id is at least mine", which is only
+        // "mine has run" while queue order is id order -- and two threads doing getAndIncrement
+        // then add can interleave so that id 1 is queued ahead of id 0. Completion would then run
+        // backwards, and a waiter for id 1 arriving after both had run would read controlCompleted
+        // as 0 and wait out its timeout on a task that had finished. Holding the cursor reads here
+        // too keeps the queue's cuts non-decreasing, which is what lets the run loop honour them by
+        // looking only at the task at the head. Submits happen per tick and per checkpoint, never
+        // per row, so the lock costs nothing that matters.
+        synchronized (control) {
+            submitSequence++; // odd: a marker is being chosen
+            try {
+                long[] cut = new long[inboxes.length];
+                for (int input = 0; input < inboxes.length; input++) {
+                    cut[input] = inboxes[input].producerCursor();
+                }
+                long ticket = controlSubmitted.getAndIncrement();
+                control.add(new ControlTask(task, cut, ticket));
+                return ticket;
+            } finally {
+                submitSequence++; // even: chosen and queued
+            }
         }
-        control.add(new ControlTask(task, barrier, ticket));
-        return ticket;
     }
 
     /** How many control tasks this lane has run. */
@@ -418,6 +481,7 @@ public final class Lane implements AutoCloseable {
 
     private void run() {
         long[] batch = new long[config.batchSize()];
+        long[] room = new long[inboxes.length];
         long mark = arena.mark();
         int idle = 0;
         long localRowsIn = 0;
@@ -447,10 +511,17 @@ public final class Lane implements AutoCloseable {
                 // until it is empty: a join whose left side is faster would otherwise never reach
                 // its right side, and a join that stops reading one side stops producing entirely
                 // while still looking busy.
+                //
+                // How far this iteration may go, per input, worked out before a single row is
+                // taken. See the note on `room`.
+                takeableRows(room);
                 int count = 0;
                 for (int input = 0; input < inboxes.length; input++) {
                     RowInbox from = inboxes[input];
-                    int taken = from.drain(batch, batch.length);
+                    if (room[input] <= 0) {
+                        continue; // at a marker on this input, or nothing new on it
+                    }
+                    int taken = from.drain(batch, (int) Math.min(batch.length, room[input]));
                     if (taken == 0) {
                         continue;
                     }
@@ -471,8 +542,16 @@ public final class Lane implements AutoCloseable {
                 // -- a dense feed published a partial second as if it were final, non-deterministically
                 // and without anything failing. Running here, behind a barrier, is the ordering the
                 // rest of the engine already assumes.
-                runControlTasks(false);
+                int controlRan = runControlTasks(false);
                 if (count == 0 && exchanged == 0) {
+                    if (controlRan > 0) {
+                        // A marker was reached and its task has run, which is why this iteration
+                        // took no rows: the batch was cut short at it. Going round again rather
+                        // than parking, because the clamp has just been lifted and the rows behind
+                        // the marker are already sitting in the inbox. Parking here would put a
+                        // wait-strategy backoff between every barrier and the rows after it.
+                        continue;
+                    }
                     inBatch = false;
                     if (!running) {
                         // Drained, so nothing is still coming and every barrier is moot. Anything
@@ -554,6 +633,51 @@ public final class Lane implements AutoCloseable {
     }
 
     /**
+     * How many rows this iteration may take from each input, which is what makes a marker a barrier.
+     *
+     * <p>Two bounds, and both are needed.
+     *
+     * <p>The first is the marker already queued. A task must not run over rows that arrived after
+     * the position it names, so the batch is cut short at that position rather than finished and
+     * then followed by the task. Queue cuts are non-decreasing -- {@link #submitControlTask} reads
+     * the cursors under the same monitor that orders the queue -- so the task at the head is the
+     * only one that can bind.
+     *
+     * <p>The second is the producer frontier, and it is the subtler half: it bounds the batch
+     * against a marker that <em>does not exist yet</em>. A submitter reads the cursors after this
+     * method has read them, so whatever marker it chooses sits at or beyond this frontier, and a
+     * batch that stops at the frontier cannot have passed it. Without that, a task submitted while
+     * a batch was already in flight was overshot by however much of the batch remained -- 5 of 200
+     * markers on a loaded machine, each one a checkpoint holding rows its own source offset says
+     * will be replayed.
+     *
+     * <p>{@link #submitSequence} is read either side and the whole thing repeated if it moved,
+     * which is what excludes a submitter that is choosing its marker right now. The loop spins
+     * rather than blocking: the only thing it is waiting for is a handful of instructions under a
+     * monitor.
+     */
+    private void takeableRows(long[] into) {
+        while (true) {
+            long sequence = submitSequence;
+            if ((sequence & 1L) != 0L) {
+                Thread.onSpinWait(); // a marker is being chosen; it will be queued in a moment
+                continue;
+            }
+            ControlTask pending = control.peek();
+            for (int input = 0; input < inboxes.length; input++) {
+                long frontier = inboxes[input].producerCursor();
+                if (pending != null) {
+                    frontier = Math.min(frontier, pending.barrier()[input]);
+                }
+                into[input] = frontier - inboxes[input].drainCursor();
+            }
+            if (submitSequence == sequence) {
+                return;
+            }
+        }
+    }
+
+    /**
      * Runs whatever the control plane has queued whose rows have arrived. On this thread, between
      * batches, and never ahead of a row that was handed over before the task was.
      *
@@ -564,12 +688,14 @@ public final class Lane implements AutoCloseable {
      * @param force run every queued task regardless of its barrier. For shutdown, where the
      *     inboxes are drained and there is no producer left to wait for -- a task deferred forever
      *     is a coordinator waiting forever.
+     * @return how many tasks ran
      */
-    private void runControlTasks(boolean force) {
+    private int runControlTasks(boolean force) {
+        int ran = 0;
         ControlTask queued;
         while ((queued = control.peek()) != null) {
             if (!force && !barrierReached(queued.barrier())) {
-                return;
+                return ran;
             }
             control.poll();
             Runnable task = queued.task();
@@ -596,11 +722,13 @@ public final class Lane implements AutoCloseable {
                 // it can. It finds out by calling checkHealth() once the wait returns.
                 controlCompleted = queued.id();
                 controlRun.incrementAndGet();
+                ran++;
             }
         }
+        return ran;
     }
 
-    /** Whether every input has been drained past where it stood when the task was submitted. */
+    /** Whether every input has been drained to where it stood when the task was submitted. */
     private boolean barrierReached(long[] barrier) {
         for (int input = 0; input < inboxes.length; input++) {
             if (inboxes[input].drainCursor() < barrier[input]) {

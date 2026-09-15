@@ -4698,6 +4698,120 @@ It also catches the case the owner was really asking about: two nodes where nobo
 of quietly at prune time.
 ---
 
+---
+
+## Wave 8 item 2 — aligned checkpoint barriers (W8), 4 findings
+
+Four findings from building ADR-008's barrier for real. All four are fixed and seed-proven;
+the exchange remains uncut and is refused rather than silently dropping rows in flight.
+
+### W8-2 (HIGH) — a checkpoint's source offsets and its operator state described different moments, so a restore lost rows
+
+> **Status:** FIXED — `QueryExecution.checkpoint` now freezes every pump between rows, reads all offsets and hands every lane its marker inside that freeze, and only then waits. `AlignedCheckpointBarrierTest.aCheckpointTakenMidStreamAccountsForExactlyTheRowsItsOffsetExcludes` (`pravaha-it`) takes a checkpoint with the source still running and **fails against the previous code**: 38,144 of 40,000 rows survived the restore, 1,856 silently gone. 174 runtime + 738 `pravaha-it` tests green after.
+
+`checkpoint` snapshotted each lane and then, at the end, read `pumps.get(i).position()`. Nothing
+ordered the two. With the source still delivering — which is the only interesting case — the offset
+ran ahead of the state by however many rows the pump had moved in between.
+
+What that costs is the exact failure a checkpoint exists to prevent. `QueryRegistry.restoreFrom`
+returns `offsets()` to `register()`, which passes it to `PluginSourceFeeds.open` as `resumeFrom`, and
+the reader is seeked there. So the rows between the snapshot and the offset read are in no
+accumulator and will never be read again. They are gone, and the query reports RUNNING over the gap.
+
+Reading the two in the other order does not fix it, it only changes the sign: the state then runs
+ahead of the offset and every row between them is counted twice. There is no ordering of two reads
+from the coordinator's thread that makes them agree, because the pump is on a third thread and is
+moving rows the whole time. The pump has to be stopped instead.
+
+So `IngestPump.pumpOnce` and `PartitionedIngestPump.pumpOnce` now hold a lock for the length of their
+poll, and `freezeIngest(Duration)` is how a checkpoint takes it — between rows, never during one. One
+uncontended acquire per poll, which is per batch of up to a few hundred rows rather than per row. It
+is timed rather than unconditional because `reader.poll` runs plugin code: a checkpoint that cannot
+get in is abandoned, which is what this path already does with a lane that will not answer.
+
+This is single-lane-reachable, and single-lane is the common case (ADR-034). It is filed under
+Wave 8 item 2 because the freeze is also what makes a multi-lane cut one cut — see W8-3.
+
+### W8-3 (HIGH) — a multi-lane checkpoint was a set of unrelated snapshots, and recorded no offset for a shuffling source at all
+
+> **Status:** FIXED — `checkpoint` submits to every lane before waiting on any, inside one ingest freeze, and records `partitionedPumps`' offsets under `shuffled-partition-N`. `AlignedCheckpointBarrierTest.aMultiLaneCheckpointRecordsEverySourceAndCutsThemAtOnePoint` covers a two-lane join fed by a shuffling pump and **fails against the previous code** — `offsets()` came back `{}`, so nothing could be rewound. Passes after, with the restored state holding exactly the rows the recorded offset excludes.
+
+Two defects, one shape.
+
+The first: the loop submitted the snapshot to lane 0, **waited for it**, and only then submitted to
+lane 1. Lane 1's cut was therefore taken however long lane 0's snapshot had needed, and a whole
+query's worth of rows, later. Calling that a barrier was generous; it was two photographs taken from
+a moving train.
+
+The second is worse and was invisible: `offsets` was built by iterating `pumps`, and
+`partitionedPumps` — the shuffling pump, the only way to feed a multi-lane query — was never read.
+Every multi-lane checkpoint ever taken recorded zero source offsets. Restoring one loads the operator
+state and then has nothing to seek the reader with, so `PluginSourceFeeds` falls back to
+`SourceOffset.BEGINNING` and replays the entire source on top of state that had already counted it.
+A query with a checkpoint directory configured was strictly worse off than one without.
+
+Both are closed by the same structure: freeze every source, read every offset and mark every lane
+inside the freeze, thaw, and only then collect. The refusal is unchanged and now applies to the
+freeze too — a source that cannot be caught between rows abandons the checkpoint rather than
+producing one whose offsets and state disagree, because "a checkpoint that some lanes joined and
+others did not is worse than none" is the same argument.
+
+What is still not cut is the exchange. A row lane 0 has sent and lane 1 has not yet received belongs
+to neither snapshot and to no source offset, and forwarding the marker along the exchange rings is
+not built. No pipeline this engine compiles sends on the exchange — `LaneContext.exchange()` has no
+caller in `src/main` — so the case is unreachable today, and `refuseWhileRowsCrossTheExchange` makes
+sure the first pipeline that does send finds a refusal rather than a checkpoint that quietly drops
+rows in flight.
+
+### W8-4 (HIGH) — a control task ran a batch past the marker it was submitted at, so a snapshot held rows its own offset said would be replayed
+
+> **Status:** FIXED — `Lane`'s run loop now sizes each batch against the marker at the head of the control queue *and* against the producer frontier, both read under a seqlock that excludes a submitter mid-choice. `ControlTaskBarrierTest` (`pravaha-runtime`) **fails against the previous code**: 37 of 200 markers overshot on one input, 143 of 200 on a two-input join. Three consecutive green runs after.
+
+`submitControlTask` records where each input's producers had reached; `runControlTasks` ran the task
+once the lane had drained *past* that point. Past, not to. A batch is up to `batchSize` rows, so the
+task saw the marker's position plus however much of the next batch the lane happened to have taken.
+
+For a watermark advance that is imprecision. For a checkpoint it is a correctness bug pointing the
+opposite way from W8-2: the snapshot covers rows the recorded offset says will be replayed, and
+replaying them is a double count with nothing downstream to catch it.
+
+The fix has two bounds and both are needed. The queued marker is the obvious one. The second is the
+producer frontier, and it bounds the batch against a marker **that does not exist yet**: a submitter
+reads the cursors after the lane has read them, so whatever marker it chooses sits at or beyond that
+frontier, and a batch stopping at the frontier cannot have passed it. Without the second bound a task
+submitted while a batch was already in flight was still overshot — 5 of 200 on a loaded machine, with
+the first bound in place. That number is why this entry exists: the obvious half of the fix left a
+window three quarters closed, and an aligned checkpoint that is aligned 97.5 % of the time is an
+unaligned checkpoint with better odds.
+
+`submitSequence` is a seqlock rather than a mutex because of which side pays. The lane crosses it on
+every iteration of the hottest loop in the engine and reads two volatile longs; a submitter crosses
+it on a watermark tick or a checkpoint and takes the monitor.
+
+Same family as PF-5, PF-7 and PF-9 — a checkpoint and a watermark advance sharing a mechanism that
+did not distinguish them precisely enough. Those three were fixed by giving the ticket an identity;
+this one by giving the marker a position that is honoured exactly rather than approximately.
+
+### W8-5 (MED) — allocating a control task's id and queueing it as two steps let completion run backwards, and a waiter time out on a task that was long done
+
+> **Status:** FIXED — `Lane.submitControlTask` allocates the id, reads the cursors and enqueues inside one `synchronized (control)` block. `ControlTaskBarrierTest.twoThreadsSubmittingAtOnceBothGetTicketsTheyCanWaitOn` runs four concurrent submitters under CPU contention and **catches the old shape**: 5 waits reported a task that had already run as one that never ran. Green after.
+
+Found while rebuilding the mechanism PF-5 was fixed in, and it is the last corner of the same defect.
+A ticket means "the last completed id is at least mine", which is only "mine has run" while the
+queue's order is the ids' order. `controlSubmitted.getAndIncrement()` followed by `control.add(...)`
+is two steps, and two submitters can interleave so that id 1 is queued ahead of id 0.
+
+Completion then runs 1, then 0, and `controlCompleted` goes *backwards*. A waiter for id 1 that
+arrives after both have finished reads 0 and waits out its entire timeout on a task that is long
+done. `QueryExecution.checkpoint` turns that into "lane N did not take its snapshot within PT20S" and
+abandons a checkpoint that had actually been taken — the same wrong diagnosis of a correct outcome as
+PF-9, one level down.
+
+Reachable wherever two of the four submitters overlap, which is routine: the watermark clock ticks on
+its own thread and the checkpointer runs on another.
+
+---
+
 ## Wave 8 item 4 — the three built-and-unreachable mechanisms (W8), 4 findings
 
 Numbered from 11 so that items 1, 2 and 3 can keep numbering sequentially from 1 without

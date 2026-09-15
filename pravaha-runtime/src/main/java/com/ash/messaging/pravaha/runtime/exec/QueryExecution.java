@@ -781,12 +781,18 @@ public final class QueryExecution implements AutoCloseable {
      * a coherent thing to copy at all: mid-batch, an operator has seen some of a batch's rows and
      * not others, and the offset the pump would report has moved past all of them.
      *
-     * <p>Lanes snapshot independently and not simultaneously, which is the honest description of
-     * what this does. For a query whose lanes share no state and whose sources are partitioned per
-     * lane -- everything the engine currently runs -- that is sufficient, because each lane's state
-     * and its own offsets are consistent with each other. It stops being sufficient the moment rows
-     * cross the exchange, since a row in flight belongs to neither lane's snapshot; aligned barriers
-     * (ADR-008) are what makes that case correct and are not built.
+     * <p><strong>Aligned.</strong> The cut is one point in the query's input, not one point per
+     * lane. Every source is held between rows for the length of phase one; inside that, each
+     * source's offset is read and each lane is given a marker at the position its producers have
+     * reached. Only then is any lane waited on. A lane cuts its batch at the marker rather than
+     * finishing the batch it was in, so the state it snapshots covers exactly the rows the recorded
+     * offsets exclude -- which is what "exactly-once state" has to mean to be worth saying.
+     *
+     * <p>Sinks are a different matter and unchanged: a row emitted before the cut and re-emitted
+     * after a restore is a duplicate this cannot prevent, which is why the guarantee is
+     * effectively-once output (ADR-008, design section 14.4).
+     *
+     * <p>What is still not cut is the exchange. See {@link #refuseWhileRowsCrossTheExchange}.
      */
     /** The key a served view's contents travel under inside a checkpoint's operator state. */
     public static final String SERVED_VIEW_STATE = "served-view";
@@ -814,25 +820,68 @@ public final class QueryExecution implements AutoCloseable {
         return this;
     }
 
+    /** The key a shuffling pump's source offset travels under. Keeps "partition-N" for the plain ones. */
+    private static final String SHUFFLED_OFFSET_PREFIX = "shuffled-partition-";
+
     public com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint(long id, Duration timeout) {
+        refuseWhileRowsCrossTheExchange();
+
         java.util.Map<String, byte[]> state = new java.util.HashMap<>();
         java.util.Map<String, String> offsets = new java.util.HashMap<>();
+        java.util.List<long[]> tickets = new ArrayList<>();
+        Map<Integer, byte[][]> captures = new LinkedHashMap<>();
 
-        for (int index = 0; index < pipelines.size(); index++) {
-            InterpretedPipeline pipeline = pipelines.get(index);
-            if (!pipeline.isStateful()) {
-                continue;
+        // Phase one, with every source held between rows: read each source's offset and hand each
+        // lane its marker. Nothing is waited for in here. Waiting inside the freeze would hold the
+        // sources for as long as the slowest lane takes to reach its marker, which is a stall on
+        // ingest proportional to how busy the query is -- and worse, a lane that has to drain to
+        // its marker cannot do so while the coordinator is holding the thread that would refill it.
+        long frozen = freezeSources(timeout);
+        try {
+            for (int index = 0; index < pumps.size(); index++) {
+                offsets.put("partition-" + index, pumps.get(index).position().token());
             }
-            String operatorId = "lane-" + index;
-            byte[][] captured = new byte[1][];
+            for (int index = 0; index < partitionedPumps.size(); index++) {
+                // Recorded at all, which they were not: a shuffling pump's offset was left out of
+                // every checkpoint it appeared in, so a multi-lane query restored its operator
+                // state and then had nothing to rewind its source with. Every row since the
+                // checkpoint was replayed on top of state that had already counted it.
+                offsets.put(
+                        SHUFFLED_OFFSET_PREFIX + index,
+                        partitionedPumps.get(index).position().token());
+            }
+            for (int index = 0; index < pipelines.size(); index++) {
+                InterpretedPipeline pipeline = pipelines.get(index);
+                if (!pipeline.isStateful()) {
+                    continue;
+                }
+                byte[][] captured = new byte[1][];
+                // Every lane is given its marker before any lane is waited on. Submitting to lane 0,
+                // waiting for it, and only then submitting to lane 1 is what made a multi-lane
+                // checkpoint a set of unrelated snapshots: lane 1's cut was taken however long lane
+                // 0's snapshot took, and a whole query's worth of rows, later.
+                long ticket = lanes.lane(index).submitControlTask(() -> captured[0] = pipeline.snapshotState());
+                tickets.add(new long[] {index, ticket});
+                captures.put(index, captured);
+            }
+        } finally {
+            thawSources(frozen);
+        }
+
+        // Phase two: collect. The sources are running again, and each lane is holding its own input
+        // at its own marker until it has answered.
+        for (long[] each : tickets) {
+            int index = (int) each[0];
             Lane lane = lanes.lane(index);
-            long ticket = lane.submitControlTask(() -> captured[0] = pipeline.snapshotState());
-            if (!lane.awaitControlTask(ticket, timeout)) {
+            if (!lane.awaitControlTask(each[1], timeout)) {
+                lane.checkHealth();
                 throw new IllegalStateException("lane " + index + " did not take its snapshot within " + timeout
                         + "; a checkpoint that some lanes joined and others did not is worse than none, so "
                         + "this one is abandoned rather than stored partially complete.");
             }
-            if (captured[0] == null) {
+            lane.checkHealth();
+            byte[] captured = captures.remove(index)[0];
+            if (captured == null) {
                 // The wait said the task had run and it had not produced a snapshot. Storing the
                 // null is what made a ticket bug into a data-loss bug: restore found no state under
                 // this key, skipped the operator, and reported success over an empty one.
@@ -840,17 +889,97 @@ public final class QueryExecution implements AutoCloseable {
                         + "nothing. Storing that would be a checkpoint this operator is absent from, and a "
                         + "restore from it would resume with no history and no error.");
             }
-            state.put(operatorId, captured[0]);
+            state.put("lane-" + index, captured);
         }
 
         if (viewSnapshot != null) {
             state.put(SERVED_VIEW_STATE, viewSnapshot.get());
         }
 
-        for (int index = 0; index < pumps.size(); index++) {
-            offsets.put("partition-" + index, pumps.get(index).position().token());
-        }
         return new com.ash.messaging.pravaha.state.checkpoint.Checkpoint(id, System.nanoTime(), offsets, state);
+    }
+
+    /**
+     * Holds every source between rows, so the cut is one point rather than one point per lane.
+     *
+     * <p>The offsets and the markers are read inside this. That is the whole of what makes the
+     * checkpoint aligned: with the producers stopped, a lane's marker sits at the end of everything
+     * it has been handed, the offset says exactly which rows those were, and no row can arrive at
+     * one lane while another lane is still being marked.
+     *
+     * <p>Fails the checkpoint rather than proceeding without a source, and unwinds what it has
+     * already taken. A checkpoint over some of the sources is the partial checkpoint this method
+     * exists to prevent, one level up.
+     *
+     * @return how many pumps were frozen, to pass to {@link #thawSources}
+     */
+    private long freezeSources(Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        int frozen = 0;
+        try {
+            for (IngestPump pump : pumps) {
+                if (!pump.freezeIngest(remaining(deadline))) {
+                    throw new IllegalStateException("source " + frozen + " was still inside a poll after " + timeout
+                            + ", so its offset cannot be read at a point between rows. A checkpoint taken "
+                            + "anyway would record an offset that does not match the state the lanes hold, "
+                            + "which is silent loss in one direction and a silent double count in the other; "
+                            + "this one is abandoned instead.");
+                }
+                frozen++;
+            }
+            for (PartitionedIngestPump pump : partitionedPumps) {
+                if (!pump.freezeIngest(remaining(deadline))) {
+                    throw new IllegalStateException("shuffling source " + (frozen - pumps.size())
+                            + " was still inside a poll after " + timeout + ", so its offset cannot be read at "
+                            + "a point between rows; this checkpoint is abandoned rather than stored with an "
+                            + "offset the lanes' state does not match.");
+                }
+                frozen++;
+            }
+            return frozen;
+        } catch (RuntimeException e) {
+            thawSources(frozen);
+            throw e;
+        }
+    }
+
+    private static Duration remaining(long deadline) {
+        long left = deadline - System.nanoTime();
+        return left > 0 ? Duration.ofNanos(left) : Duration.ZERO;
+    }
+
+    private void thawSources(long frozen) {
+        for (long i = frozen - 1; i >= 0; i--) {
+            if (i < pumps.size()) {
+                pumps.get((int) i).thawIngest();
+            } else {
+                partitionedPumps.get((int) (i - pumps.size())).thawIngest();
+            }
+        }
+    }
+
+    /**
+     * Refuses a checkpoint with a row sitting in the exchange.
+     *
+     * <p>A barrier across the inboxes cuts every stream entering the query. It does not cut the
+     * rings lanes send to each other: a row that lane 0 has sent and lane 1 has not yet drained is
+     * in neither lane's snapshot and in no source offset either, so it is simply lost. Cutting
+     * those too means forwarding the marker along each ring and aligning on it -- Chandy-Lamport
+     * proper -- and that is not built.
+     *
+     * <p>No pipeline this engine compiles sends on the exchange, so this never fires today. It is
+     * here because the first one that does must find a refusal rather than a checkpoint that
+     * quietly drops rows in flight, which is the failure the whole of ADR-008 exists to prevent.
+     */
+    private void refuseWhileRowsCrossTheExchange() {
+        var exchange = lanes.exchange();
+        if (exchange.isPresent() && exchange.get().inFlight() > 0) {
+            throw new IllegalStateException("this query has rows in flight between lanes, and a barrier across "
+                    + "the inboxes does not cut the exchange: a row already sent and not yet received belongs "
+                    + "to neither lane's snapshot and to no source offset, so a checkpoint taken now would "
+                    + "lose it silently. Forwarding the marker along the exchange rings is not built, so this "
+                    + "checkpoint is refused rather than stored incomplete.");
+        }
     }
 
     /**

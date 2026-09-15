@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted — barriers built for the inboxes; the exchange is refused rather than cut (2026-09-14) |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 
@@ -31,24 +31,44 @@ ADRs are amended, never rewritten. If this decision is superseded, the file keep
 and gains a `Superseded by ADR-NNN` line at the top rather than being deleted -- the reasoning
 behind a decision that was later reversed is usually the most useful thing in the directory.
 
-## Implementation status — as of 2026-09-11
+## Implementation status — as of 2026-09-14
 
-**Not built.** Checkpointing is **per-lane**: each lane snapshots its own state on its own thread,
-independently and not simultaneously. That is sound only while lanes share no state and each lane's
-sources are partitioned to it — which is true of every query the engine currently accepts, and stops
-being true the moment rows cross the exchange, because a row in flight belongs to neither lane's
-snapshot. The limitation is written into `QueryExecution.checkpoint`'s javadoc.
+**Built, for every input the query reads. Not built for the exchange.**
 
-Two further gaps follow from this:
+A checkpoint is one cut across the query's input rather than one snapshot per lane. Three things make
+it that, and each was a separate defect (`docs/qa/FINDINGS.md` W8-2, W8-3, W8-4):
 
-* ~~**Registered continuous queries are not checkpointed at all.**~~ **Fixed.** `QueryRegistry`
-  now constructs a `QueryExecution` and a `PeriodicCheckpointer` per registration, calls
-  `store.latest()`/`execution.restore(...)` before the feed opens, and prunes to
-  `pravaha.checkpoint.keep`. `PluginSourceFeedsTest` asserts that a restart over the same
-  checkpoint directory resumes rather than replaying the file or starting empty.
-* **`DeduplicatingSink` is not wired into the checkpoint path**, so effectively-once output is
-  available as a class and not as a guarantee.
+* **Every source is held between rows for the length of the cut.** `IngestPump.pumpOnce` and
+  `PartitionedIngestPump.pumpOnce` take a lock for the length of their poll, and
+  `QueryExecution.checkpoint` takes it through `freezeIngest`. Inside that freeze it reads every
+  source's offset and hands every lane its marker, and only then waits for any of them. The offsets
+  and the state therefore name the same rows — which is what exactly-once state has to mean to be
+  worth saying. Previously the offsets were read *after* the snapshots, so a restore resumed past
+  rows nothing had counted.
+* **A marker is honoured exactly, not approximately.** A lane cuts its batch at a queued marker and
+  at the producer frontier, so a task sees the state at the position it names and not a batch's
+  worth beyond it. Overshooting put rows into a snapshot that the recorded offset said would be
+  replayed.
+* **Every source's offset is recorded, including a shuffling one.** `partitionedPumps` — the only
+  way to feed a multi-lane query — was absent from the offsets map entirely, so a multi-lane
+  checkpoint could not be rewound to at all.
 
-**Until aligned barriers exist, do not claim exactly-once state.** The honest shipped guarantee is
-at-least-once, and ADR-029 independently caps anything sourced from Aerospike at at-least-once
-regardless of what the engine does.
+`AlignedCheckpointBarrierTest` (`pravaha-it`) and `ControlTaskBarrierTest` (`pravaha-runtime`) hold
+these, both taking their checkpoints with the sources still running; all four are seed-proven against
+the previous code.
+
+**The exchange is not cut.** A row one lane has sent to another and the second has not yet drained
+belongs to neither snapshot and to no source offset. Cutting it means forwarding the marker along
+each ring and aligning on it, which is not built. No pipeline this engine compiles sends on the
+exchange, so the case is unreachable today, and `QueryExecution.refuseWhileRowsCrossTheExchange`
+refuses rather than storing a checkpoint that silently drops rows in flight — so the first pipeline
+that does send finds an error and not a wrong answer.
+
+**Output is still effectively-once, and that is the ceiling here.** `DeduplicatingSink` exists as a
+class and is not wired into the checkpoint path, so a row emitted before the cut and re-emitted after
+a restore is a duplicate the engine does not suppress. ADR-029 independently caps anything sourced
+from Aerospike at at-least-once end to end, regardless of what the engine does.
+
+Earlier gap, since closed: registered continuous queries were not checkpointed at all. `QueryRegistry`
+now constructs a `QueryExecution` and a `PeriodicCheckpointer` per registration, restores before the
+feed opens, and prunes to `pravaha.checkpoint.keep`.

@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.runtime.ingest;
 
+import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongConsumer;
@@ -77,6 +78,14 @@ public final class IngestPump implements AutoCloseable {
     private final AtomicLong pausedNanos = new AtomicLong();
 
     private final int input;
+
+    /**
+     * Serialises a poll against a checkpoint's reading of the offset. See {@link #freezeIngest}.
+     *
+     * <p>Not fair: fairness would cost an acquire's worth of handoff on every poll to give priority
+     * to a caller that arrives a few times a minute.
+     */
+    private final java.util.concurrent.locks.ReentrantLock ingest = new java.util.concurrent.locks.ReentrantLock();
 
     private volatile boolean paused;
     private long pausedSince;
@@ -157,17 +166,70 @@ public final class IngestPump implements AutoCloseable {
      * @return how many rows were moved; zero when paused or when the source had nothing
      */
     public int pumpOnce(int maxRecords) {
-        updateBackpressure();
-        if (paused) {
-            return 0;
+        // Held for the whole poll, so that a checkpoint taking this pump's offset sees it between
+        // rows and never during one. See freezeIngest.
+        ingest.lock();
+        try {
+            updateBackpressure();
+            if (paused) {
+                return 0;
+            }
+            int room = freeCells();
+            if (room == 0) {
+                return 0;
+            }
+            int moved = reader.poll(sink, Math.min(maxRecords, room));
+            rowsPumped.addAndGet(moved);
+            return moved;
+        } finally {
+            ingest.unlock();
         }
-        int room = freeCells();
-        if (room == 0) {
-            return 0;
+    }
+
+    /**
+     * Holds this pump between rows, so a barrier can be taken across it.
+     *
+     * <p>A checkpoint has to record two things that must agree: where the source is, and which rows
+     * the lane has been handed. Reading them one after the other from the coordinator's thread
+     * cannot make them agree in either order -- read the lane's cursor first and the offset runs
+     * ahead of the state, so a restore resumes past rows nothing counted; read the offset first and
+     * the state runs ahead of the offset, so a restore replays rows already counted. One is silent
+     * loss and the other is a silent double count, and the gap between them is however many rows a
+     * poll moved.
+     *
+     * <p>So the pump is stopped instead, at a point where it is holding no row: {@code pumpOnce}
+     * takes the same lock for the length of its poll. One uncontended acquire per poll -- per batch
+     * of up to a few hundred rows, not per row -- against the alternative of a guarantee that
+     * cannot be stated.
+     *
+     * <p>Timed rather than unconditional, because {@code reader.poll} runs plugin code. A checkpoint
+     * that cannot get in says so and is abandoned, which is what the rest of the checkpoint path
+     * already does with a lane that will not answer.
+     *
+     * @return false if the deadline passed while the pump was mid-poll; nothing is held in that case
+     */
+    public boolean freezeIngest(Duration timeout) {
+        try {
+            return ingest.tryLock(timeout.toNanos(), java.util.concurrent.TimeUnit.NANOSECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
-        int moved = reader.poll(sink, Math.min(maxRecords, room));
-        rowsPumped.addAndGet(moved);
-        return moved;
+    }
+
+    /** Releases {@link #freezeIngest}. */
+    public void thawIngest() {
+        ingest.unlock();
+    }
+
+    /** The lane this pump feeds, so a caller freezing it knows whose cursors to read. */
+    public Lane lane() {
+        return lane;
+    }
+
+    /** The lane input this pump feeds: 0 for anything but a join. */
+    public int input() {
+        return input;
     }
 
     /** Applies the hysteresis. Pausing and resuming are edge-triggered, never repeated per poll. */

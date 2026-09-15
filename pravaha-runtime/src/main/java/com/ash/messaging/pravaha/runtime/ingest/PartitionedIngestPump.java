@@ -71,6 +71,9 @@ public final class PartitionedIngestPump implements AutoCloseable {
     private final AtomicLong rejected = new AtomicLong();
     private final long[] rowsPerLane;
 
+    /** Serialises a poll against a checkpoint's reading of the offset. See {@link #freezeIngest}. */
+    private final java.util.concurrent.locks.ReentrantLock ingest = new java.util.concurrent.locks.ReentrantLock();
+
     private volatile boolean paused;
     private java.util.function.LongConsumer eventTimeObserver = nanos -> {};
 
@@ -118,17 +121,51 @@ public final class PartitionedIngestPump implements AutoCloseable {
      * @return how many rows were delivered
      */
     public int pumpOnce(int maxRecords) {
-        updateBackpressure();
-        if (paused) {
-            return 0;
+        // Held for the whole poll, so a checkpoint sees this pump between rows. The reason is the
+        // same as IngestPump.freezeIngest's and matters more here: one poll fans rows out to every
+        // lane, so an offset read while a poll was in flight would be ahead of some lanes' state
+        // and behind others'.
+        ingest.lock();
+        try {
+            updateBackpressure();
+            if (paused) {
+                return 0;
+            }
+            int room = freeCells();
+            if (room == 0) {
+                return 0;
+            }
+            int moved = reader.poll(this::beginRow, Math.min(maxRecords, room));
+            rowsPumped.addAndGet(moved);
+            return moved;
+        } finally {
+            ingest.unlock();
         }
-        int room = freeCells();
-        if (room == 0) {
-            return 0;
+    }
+
+    /**
+     * Holds this pump between rows, so a barrier can be taken across it. See
+     * {@link IngestPump#freezeIngest}.
+     *
+     * @return false if the deadline passed while the pump was mid-poll; nothing is held in that case
+     */
+    public boolean freezeIngest(java.time.Duration timeout) {
+        try {
+            return ingest.tryLock(timeout.toNanos(), java.util.concurrent.TimeUnit.NANOSECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
-        int moved = reader.poll(this::beginRow, Math.min(maxRecords, room));
-        rowsPumped.addAndGet(moved);
-        return moved;
+    }
+
+    /** Releases {@link #freezeIngest}. */
+    public void thawIngest() {
+        ingest.unlock();
+    }
+
+    /** The lane input this pump feeds on every lane. */
+    public int input() {
+        return input;
     }
 
     private RowWriter beginRow() {
