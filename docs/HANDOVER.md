@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `01f7733`, tags `M1` `M2` `M7` — Waves 1–7 complete |
 | `develop` | **208 commits ahead** of `main`, **pushed to origin**. Wave 8 is here and not yet merged or tagged |
 | Modules | **30** Maven modules, plus `sdk/python` and `console`, which are not Maven |
-| Java tests | **1101** — 14 of them against real Aerospike and PostgreSQL servers in Docker |
+| Java tests | **2114** across 24 modules, 3 skipped — `tools/verify-clean.sh` with no arguments, i.e. the default `verify`, on 2026-09-14; `pravaha-it` alone is 743. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there |
 | Python tests | **67** in `sdk/python` (collected 2026-09-14), including the client driving a real Java Flight SQL server, plus **34** for the console |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **35** |

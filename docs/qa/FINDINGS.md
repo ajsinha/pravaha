@@ -5307,13 +5307,14 @@ plan — works, and now appears in the document rather than only in a source com
 
 ### DOCR-11 (LOW) — `HANDOVER.md`'s first table was three months of drift in five rows, and contradicted itself two hundred lines later
 
-> **Status:** FIXED — every figure re-measured: `main` is `01f7733` with tags `M1` `M2` `M7`, `develop` is 208 commits ahead, `pom.xml` declares 30 modules, and `sdk/python` collects 67 tests with 34 more for the console
+> **Status:** FIXED — every figure re-measured: `main` is `01f7733` with tags `M1` `M2` `M7`, `develop` is 208 commits ahead, `pom.xml` declares 30 modules, a full `tools/verify-clean.sh` reports 2114 Java tests across 24 modules (743 of them in `pravaha-it`), and `sdk/python` collects 67 tests with 34 more for the console
 
 | Said | Is |
 |---|---|
 | `main` at `fe2717e`, tags `M1` `M2`, "Waves 1 and 2 complete" | `01f7733`, tags `M1` `M2` `M7`, Waves 1–7 complete |
 | `develop` **68 commits ahead** | 208 |
 | Modules **27** | 30 Maven modules, plus `sdk/python` and `console`, which are not Maven |
+| Java tests **1101** | 2114, measured by a full verify on 2026-09-14 |
 | Python tests **39** | 67 in `sdk/python`, and the same document says "All 46 Python tests" 250 lines further down |
 
 The wave paragraph said waves 3–7 were complete and stopped there; Wave 6's heading still read
@@ -5398,7 +5399,7 @@ shape of rot this round kept finding: DOCR-2, DOCR-7, DOCR-12 and this are all t
 
 ### DOCR-18 (LOW) — every error message points at a host that does not exist, and no document said so
 
-> **Status:** FIXED for the reader — `docs/TROUBLESHOOTING.md` now opens by saying the URL does not resolve and that this file is what it was meant to reach. The URL itself is **left alone**: DOCX-21 stays open, and registering the domain or dropping the line from the message is the owner's decision
+> **Status:** FIXED — the reader is told where the reference is: `docs/TROUBLESHOOTING.md` now opens by saying the URL does not resolve and that this file is what it was meant to reach. The URL itself is **left alone**: DOCX-21 stays open, and registering the domain or dropping the line from the message is the owner's decision
 
 Every `PRV-` refusal ends with `https://docs.pravaha.io/errors/PRV-nnnn`. The host is not registered,
 so the link does not 404 — it fails to connect, which reads as a network problem rather than as a
