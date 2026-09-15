@@ -167,7 +167,8 @@ final class SymmetricHashJoin implements AutoCloseable {
         if (handle == ArenaHandle.NULL) {
             throw new PravahaException(
                     RuntimeErrors.ARENA_EXHAUSTED,
-                    "the join's output arena is full; " + "raise arena.slab.size, or reduce the fan-out of this join");
+                    "the join's output arena is full; "
+                            + "raise pravaha.lane.arena.slab-bytes, or reduce the fan-out of this join");
         }
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         int width = plan.leftWidth();
@@ -202,7 +203,7 @@ final class SymmetricHashJoin implements AutoCloseable {
         if (handle == ArenaHandle.NULL) {
             throw new PravahaException(
                     RuntimeErrors.ARENA_EXHAUSTED,
-                    "the join's output arena is full while emitting an unmatched row; raise arena.slab.size");
+                    "the join's output arena is full while emitting an unmatched row; raise pravaha.lane.arena.slab-bytes");
         }
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         int width = plan.leftWidth();

@@ -72,7 +72,8 @@ class PravahaNodeTest {
                 "single",
                 "no-flight-node",
                 true,
-                false);
+                false,
+                null);
     }
 
     private static PravahaNode node(String journal) {
@@ -94,7 +95,8 @@ class PravahaNodeTest {
                 "single",
                 "test-node",
                 true,
-                false);
+                false,
+                null);
     }
 
     @Test
@@ -176,7 +178,8 @@ class PravahaNodeTest {
                 "socket",
                 "test-node",
                 true,
-                false);
+                false,
+                null);
 
         // Two nodes each believing they own a partition write the same aggregate twice, and the
         // damage is silent, durable, and found later by whoever reconciles the numbers. Refusing to
@@ -204,7 +207,8 @@ class PravahaNodeTest {
                 "single",
                 "test-node",
                 true,
-                false);
+                false,
+                null);
         try {
             node.start();
 
@@ -267,7 +271,8 @@ class PravahaNodeTest {
                 "single",
                 nodeId,
                 false,
-                false);
+                false,
+                null);
     }
 
     /** A node that stands by for {@code nodeId} rather than claiming its state at startup. */
@@ -293,7 +298,8 @@ class PravahaNodeTest {
                 "single",
                 nodeId,
                 false,
-                true);
+                true,
+                null);
     }
 
     @Test

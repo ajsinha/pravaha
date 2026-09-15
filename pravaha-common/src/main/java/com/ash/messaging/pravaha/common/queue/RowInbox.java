@@ -215,12 +215,12 @@ public final class RowInbox implements AutoCloseable {
      *
      * @return {@code false} if the inbox is full, which the caller propagates as backpressure
      * @throws IllegalArgumentException if the row does not fit in a cell, which is a sizing mistake
-     *     rather than a runtime condition -- raise {@code lane.inbox.cell.size}
+     *     rather than a runtime condition -- raise {@code pravaha.lane.inbox.cell-bytes}
      */
     public boolean offer(MemoryRegion source, int offset, int length) {
         if (length > cellBytes) {
             throw new IllegalArgumentException("row of " + length + " bytes exceeds the cell size of " + cellBytes
-                    + "; raise lane.inbox.cell.size for this query");
+                    + "; raise pravaha.lane.inbox.cell-bytes for this node");
         }
         long sequence = claim();
         if (sequence == NO_SPACE) {

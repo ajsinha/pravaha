@@ -305,7 +305,8 @@ final class LookupJoin implements RowProcessor {
         long handle = arena.allocate(outputLayout.rowSize(1024));
         if (handle == ArenaHandle.NULL) {
             throw new PravahaException(
-                    RuntimeErrors.ARENA_EXHAUSTED, "the lookup join's arena is full; raise arena.slab.size");
+                    RuntimeErrors.ARENA_EXHAUSTED,
+                    "the lookup join's arena is full; raise pravaha.lane.arena.slab-bytes");
         }
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         int width = plan.streamWidth();

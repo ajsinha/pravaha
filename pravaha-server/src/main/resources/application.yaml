@@ -182,6 +182,35 @@ pravaha:
   #
   # A node reclaiming its *own* state after a crash does not need this flag; an expired claim under
   # the same node id is taken over automatically. Set it only to let two nodes share on purpose.
+  # What one registered query costs in memory, and how its lane waits.
+  #
+  # These existed in the engine and could not be reached from here, which is why five error messages
+  # told operators to raise "arena.slab.size" -- a setting that did not exist (PF-3). The defaults
+  # below are the engine's own, so a node that sets nothing behaves exactly as it did.
+  #
+  # They matter when a node holds many queries. The defaults were chosen for one query with a source
+  # that never stops: a 4 MiB arena slab allocated eagerly plus a 2048 x 512B inbox is about 5 MiB
+  # per idle query, so a thousand small continuous queries cost ~5 GB off-heap before a row moves.
+  #
+  # A query reading a narrow projection does not need that. Sized for the workload --
+  #
+  #   pravaha.lane.arena.slab-bytes: 262144    # 256 KiB
+  #   pravaha.lane.inbox.cells: 256
+  #   pravaha.lane.inbox.cell-bytes: 256
+  #
+  # -- the same thousand queries cost a few hundred megabytes. Two rules when sizing down: a cell
+  # must fit the widest row the query will see (a row that does not fit is refused at ingest, not
+  # buffered), and the arena must fit one batch of output rows (batch-size x widest output row).
+  lane:
+    batch-size: 512
+    wait-strategy: BACKOFF_PARK
+    inbox:
+      cells: 2048
+      cell-bytes: 512
+    arena:
+      slab-bytes: 4194304
+      max-slabs: 8
+
   state:
     allow-shared: false
 

@@ -697,7 +697,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                 if (handle == ArenaHandle.NULL) {
                     throw new PravahaException(
                             RuntimeErrors.ARENA_EXHAUSTED,
-                            "the compute stage's arena is full; raise arena.slab.size or reduce the batch size");
+                            "the compute stage's arena is full; raise pravaha.lane.arena.slab-bytes or reduce pravaha.lane.batch-size");
                 }
                 writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
                 for (int out = 0; out < expressions.size(); out++) {
@@ -759,7 +759,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                 if (handle == ArenaHandle.NULL) {
                     throw new PravahaException(
                             RuntimeErrors.ARENA_EXHAUSTED,
-                            "the projection's arena is full; raise arena.slab.size or reduce the batch size");
+                            "the projection's arena is full; raise pravaha.lane.arena.slab-bytes or reduce pravaha.lane.batch-size");
                 }
                 writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
                 for (int out = 0; out < ordinals.size(); out++) {

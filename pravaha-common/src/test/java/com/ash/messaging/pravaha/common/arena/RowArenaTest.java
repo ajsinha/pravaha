@@ -167,7 +167,7 @@ class RowArenaTest {
             assertThatThrownBy(() -> a.allocate(SLAB + 1))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("exceeds the slab size")
-                    .hasMessageContaining("arena.slab.size");
+                    .hasMessageContaining("pravaha.lane.arena.slab-bytes"); // a real setting since ADR-036
         }
     }
 

@@ -152,7 +152,7 @@ public final class IngestPump implements AutoCloseable {
                     "stream '" + schema.name() + "' needs at least " + layout.fixedEnd()
                             + " bytes a row but lane " + lane.laneId() + "'s inbox cells are "
                             + lane.inboxCellBytes()
-                            + ". Raise lane.inbox.cell.size; a row that cannot fit is not a runtime condition.");
+                            + ". Raise pravaha.lane.inbox.cell-bytes; a row that cannot fit is not a runtime condition.");
         }
     }
 

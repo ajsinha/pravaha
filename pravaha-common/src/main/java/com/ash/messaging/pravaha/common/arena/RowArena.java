@@ -84,7 +84,7 @@ public final class RowArena implements AutoCloseable {
         }
         if (bytes > slabBytes) {
             throw new IllegalArgumentException("row of " + bytes + " bytes exceeds the slab size of " + slabBytes
-                    + "; raise arena.slab.size for this query");
+                    + "; raise pravaha.lane.arena.slab-bytes for this node");
         }
         // Rows start 8-byte aligned so their header fields never straddle a word.
         int aligned = (cursor + 7) & ~7;

@@ -107,6 +107,7 @@ public class PravahaNode implements SmartLifecycle {
     private final String nodeId;
     private final boolean allowSharedState;
     private final boolean standby;
+    private final com.ash.messaging.pravaha.server.ingest.LaneProperties lanes;
     private com.ash.messaging.pravaha.server.state.StandbyWatch standbyWatch;
 
     private volatile ViewCatalog views;
@@ -148,7 +149,8 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.cluster.mechanism:single}") String clusterMechanism,
             @Value("${pravaha.node.id:pravaha-node-01}") String nodeId,
             @Value("${pravaha.state.allow-shared:false}") boolean allowSharedState,
-            @Value("${pravaha.standby.enabled:false}") boolean standby) {
+            @Value("${pravaha.standby.enabled:false}") boolean standby,
+            com.ash.messaging.pravaha.server.ingest.LaneProperties lanes) {
         this.streams = streams;
         this.sources = sources;
         this.declaredStreams = declaredStreams;
@@ -160,6 +162,9 @@ public class PravahaNode implements SmartLifecycle {
         this.nodeId = nodeId;
         this.allowSharedState = allowSharedState;
         this.standby = standby;
+        // Defaults to the library's if no bean is supplied, so the fourteen test call sites that
+        // construct a node directly keep working and keep meaning the same thing.
+        this.lanes = lanes == null ? new com.ash.messaging.pravaha.server.ingest.LaneProperties() : lanes;
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
         this.flightPort = flightPort;
@@ -399,6 +404,19 @@ public class PravahaNode implements SmartLifecycle {
         SecurityPolicy policy = securityPolicy();
         AuditSink audit = auditSink();
         registry = new QueryRegistry(views, policy, audit, streams.all().toArray(new StreamSchema[0]));
+        // The knobs five error messages have been telling operators to turn (PF-3). Nothing on this
+        // path ever called executingWith, so every query on every node ran with the library's sizes
+        // -- chosen for one high-throughput query, and paid for by each of a thousand small ones.
+        registry.executingWith(lanes.toLaneConfig(), com.ash.messaging.pravaha.common.memory.MemoryAccess.best());
+        log.info(
+                "lane sizing: batch={}, inbox={}x{}B, arena={}B x{}, wait={} -- about {} KiB held per idle query",
+                lanes.getBatchSize(),
+                lanes.getInbox().getCells(),
+                lanes.getInbox().getCellBytes(),
+                lanes.getArena().getSlabBytes(),
+                lanes.getArena().getMaxSlabs(),
+                lanes.getWaitStrategy(),
+                lanes.idleBytesPerQuery() / 1024);
         log.info(
                 "security: authentication={}, policy={}, audit={}, flight transport={}",
                 security.authenticates() ? "token" : "none",

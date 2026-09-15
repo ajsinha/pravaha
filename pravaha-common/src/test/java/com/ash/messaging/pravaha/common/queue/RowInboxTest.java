@@ -143,7 +143,7 @@ class RowInboxTest {
     void aRowTooLargeForACellSaysWhatToChange() {
         assertThatThrownBy(() -> inbox.offer(scratch, 0, inbox.cellBytes() + 1))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("lane.inbox.cell.size");
+                .hasMessageContaining("pravaha.lane.inbox.cell-bytes"); // a real setting since ADR-036
     }
 
     @Test

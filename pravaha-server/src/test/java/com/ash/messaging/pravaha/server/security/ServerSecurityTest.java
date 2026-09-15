@@ -203,7 +203,8 @@ class ServerSecurityTest {
                 "single",
                 "security-flight-node",
                 true,
-                false);
+                false,
+                null);
     }
 
     private static PravahaNode node(SecurityProperties security) {
@@ -224,7 +225,8 @@ class ServerSecurityTest {
                 "single",
                 "security-test-node",
                 true,
-                false);
+                false,
+                null);
     }
 
     /** Journal where the caller asked for one, and no checkpoint directory. */

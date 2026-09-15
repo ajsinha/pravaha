@@ -65,7 +65,8 @@ final class WindowAssign implements RowProcessor {
         long handle = arena.allocate(layout.rowSize(1024));
         if (handle == ArenaHandle.NULL) {
             throw new PravahaException(
-                    RuntimeErrors.ARENA_EXHAUSTED, "the window assigner's arena is full; raise arena.slab.size");
+                    RuntimeErrors.ARENA_EXHAUSTED,
+                    "the window assigner's arena is full; raise pravaha.lane.arena.slab-bytes");
         }
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         for (int i = 0; i < inputColumns; i++) {

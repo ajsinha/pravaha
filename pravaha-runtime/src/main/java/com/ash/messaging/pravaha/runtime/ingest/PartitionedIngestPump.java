@@ -107,7 +107,8 @@ public final class PartitionedIngestPump implements AutoCloseable {
             throw new PravahaException(
                     RuntimeErrors.BACKPRESSURED,
                     "stream '" + schema.name() + "' needs at least " + layout.fixedEnd()
-                            + " bytes a row but inbox cells are " + cellBytes + ". Raise lane.inbox.cell.size.");
+                            + " bytes a row but inbox cells are " + cellBytes
+                            + ". Raise pravaha.lane.inbox.cell-bytes.");
         }
         for (int ordinal : this.keyOrdinals) {
             JoinKeys.checkJoinable(schema, ordinal, schema.name());

@@ -737,7 +737,8 @@ class StateRestoreTest extends StateTestSupport {
                 "single",
                 "state-063-node",
                 true,
-                false);
+                false,
+                null);
         first.start();
         long checkpointA;
         try {
@@ -812,7 +813,8 @@ class StateRestoreTest extends StateTestSupport {
                 "single",
                 "state-063-node",
                 true,
-                false);
+                false,
+                null);
         second.start();
         try {
             com.ash.messaging.pravaha.registry.QueryRegistry registry =
