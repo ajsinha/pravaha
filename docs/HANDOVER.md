@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 Proprietary and confidential; see [`LICENSE`](../LICENSE).
 
-**Written 2026-09-09, updated 2026-09-10 after an overnight autonomous session.** Everything the design says lives in
+**Written 2026-09-09; last swept 2026-09-15, after Wave 9.** Everything the design says lives in
 [`system_design.md`](system_design.md) and the [ADRs](adr/) — this file deliberately does *not*
 repeat it. What is here is the state, the working practices, and the things a fresh session would
 otherwise have to rediscover the hard way.
@@ -15,7 +15,7 @@ otherwise have to rediscover the hard way.
 | | |
 |---|---|
 | `main` | `01f7733`, tags `M1` `M2` `M7` — Waves 1–7 complete |
-| `develop` | **208 commits ahead** of `main`, **pushed to origin**. Wave 8 is here and not yet merged or tagged |
+| `develop` | **234 commits ahead** of `main`, **pushed to origin**. Waves 8 and 9 are here and neither is merged or tagged |
 | Modules | **30** Maven modules, plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **2114** across 24 modules, 3 skipped — `tools/verify-clean.sh` with no arguments, i.e. the default `verify`, on 2026-09-14; `pravaha-it` alone is 743. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there |
 | Python tests | **67** in `sdk/python` (collected 2026-09-14), including the client driving a real Java Flight SQL server, plus **34** for the console |
@@ -23,13 +23,16 @@ otherwise have to rediscover the hard way.
 | ADRs | **37** |
 
 **Where the waves stand.** Waves 3, 4 and 5 (E4) are **complete** in scope, Wave 6 (E5) and Wave 7
-(E6) are complete in scope as well, and **Wave 8 is built** — rescoped by
-[ADR-035](adr/035-wave-8-is-survival-not-distribution.md) from E7's cluster to survival on one node;
-see its section below. Waves 9 and 10 have not started. Gates P2, P3 and P6 are unpassed for want of
+(E6) are complete in scope as well, **Wave 8 is built** — rescoped by
+[ADR-035](adr/035-wave-8-is-survival-not-distribution.md) from E7's cluster to survival on one node —
+and **Wave 9 is built**, a wave [ADR-036](adr/036-one-node-thousands-of-queries.md) inserted ahead of
+the control-plane and GA waves: one node holding thousands of continuous queries. Both have sections
+below. The control-plane and GA waves keep their content and move down one, so the roadmap is now
+eleven waves rather than ten. Gates P2, P3 and P6 are unpassed for want of
 reference hardware rather than code. This header said "Wave 6 has started" for two waves after it
 had finished, which is what a session note becomes when it is not dated out of the way; the
-wave-by-wave detail below is the part to trust. **No gate pack exists for waves 5, 6 or 8** —
-`docs/gates/` holds wave-1 through wave-4 and wave-7 — so the evidence for those three waves is this
+wave-by-wave detail below is the part to trust. **No gate pack exists for waves 5, 6, 8 or 9** —
+`docs/gates/` holds wave-1 through wave-4 and wave-7 — so the evidence for those four waves is this
 document and the tests, and nothing else. ADR-035 promises Wave 8 a gate pack; it is not written.
 
 **Session of 2026-09-09/10 — what changed at the time.**
@@ -344,7 +347,7 @@ for real, rather than reporting as skips.
 ### Deferred, on purpose
 
 `P1-11` Kafka plugin — still deferred, still for the same reason (ADR-028: breadth is not proof).
-Aerospike, Cassandra and Redis remain Wave 5 and Wave 10 as planned.
+Aerospike, Cassandra and Redis remain Wave 5 and the GA wave (now Wave 11) as planned.
 
 ### Wave 8 — survival on one node; Gate P7 has no pack
 
@@ -369,6 +372,38 @@ aggregate still keys state by a 64-bit digest (W8-14, open, and no test can prov
 
 **No gate pack.** ADR-035 says "Wave 8 gets a gate pack, which waves 5 and 6 never got". It does not
 have one. Gate P7 is unrecorded, and `docs/gates/` still stops at wave-7.
+
+### Wave 9 — one node, thousands of continuous queries; no gate pack
+
+Inserted by [ADR-036](adr/036-one-node-thousands-of-queries.md) ahead of the control-plane wave,
+because building a time-travel debugger on an unmeasured foundation puts a floor above a hole. The
+target is stated as a number so it can be missed: **one instance holding thousands of
+Aerospike-backed continuous queries, on the hardware that exists.** `NodeScaleTest` and
+`SourceScaleTest` are the instruments; `AerospikeSourceScaleIT` is the instrument for the cluster and
+takes its numbers from Aerospike's own counters rather than the plugin's.
+
+| Piece | State |
+|---|---|
+| Lanes share threads | ✅ `LaneRunner` (`pravaha-runtime`) drives many lanes from a fixed pool, one thread per core, assigned round-robin and never moved. `QueryRegistry` owns one. **200 queries add 24 platform threads, 0.12 each, down from 1.00** — and 24 is one per core, so ten times as many queries adds none. A step that throws is caught and drops that lane alone, which is what a dying thread used to do (W9-4, W9-5) |
+| One clock for the process | ✅ `SharedClock` keeps time on one daemon thread and fires each tick on a virtual thread, so a slow lane parks its own tick instead of stalling every query's. `QueryExecution`'s watermark clock and `PeriodicCheckpointer` both use it; each cancels its own `ScheduledFuture` on close. Two platform threads per registration before (W9-3) |
+| The data plane is virtual | ✅ Flight's call executor (`newVirtualThreadPerTaskExecutor`) and `PumpingFeed`'s loop. Seed-proven: 40 subscriptions added 40 platform threads before, zero after; 30 feeds added 30, zero after (W9-1, W9-2) |
+| Memory per query | ✅ `RowArena`'s first slab is allocated by the first `allocate()`, not the constructor, so an idle query holds **1,024 KiB — its inbox and no arena at all**, down from ~5 MiB. `InterpretedPipeline`'s own arena was a hardcoded flat megabyte invisible to the lane's accounting; sized from the plan it is 284 KiB, and an active query went **2,068 → 1,328 KiB**. Every component now reports its off-heap bytes by name (W9-6, W9-7) |
+| Lane sizing is reachable | ✅ `pravaha.lane.batch-size` / `.wait-strategy` / `.inbox.cells` / `.inbox.cell-bytes` / `.arena.slab-bytes` / `.arena.max-slabs`, bound by `LaneProperties` and passed to the registry by `PravahaNode`. Eleven error messages named `arena.slab.size` and `lane.inbox.cell.size`, neither of which existed; they name real keys now. **`pravaha.lane.count` is still not one** and `QueryRegistry` still passes the literal `1` (PF-3, the part that remains) |
+| Aerospike scan interval | ✅ `scan.interval.ms`, one second by default, enforced in `LutScanReader.poll`. One query used to run **43–153 scans/s** and take a real cluster to **203%** `process_cpu_pct`; it is **1.0 scans/s** now, and four queries are 3.8 — linear, where the rate previously fell per query because the cluster was saturated (SRC-8, closing SRC-1) |
+| File descriptors | ✅ `FileDescriptors` (`pravaha-common`) reads `/proc/self/fd` and `/proc/self/limits`; the node logs its ceiling at startup and `PluginSourceFeeds` appends an actionable sentence to a source-open failure raised near it. Verified under a real `ulimit -n 300` (SRC-4) |
+| State you can watch | ✅ `pravaha.query.state.held` / `.ceiling` / `.fraction`, reported by the operators that hold the state. ADR-037 B1: the instrument before the mechanism, because an operator who cannot see state growing cannot act on it whether or not the engine spills |
+| `LaneMultiplexer` | ⚠️ **built, tested, wired to nothing, and blocked.** It is the answer to the per-query inbox and arena, but a row's header carries `schema().version()` where it needs a stream identity — every row of every stream carries the same id — so wiring it as it stands would deliver one stream's rows to queries subscribed to another. A row-format change, not a wiring change (W9-8, W9-9) |
+| One Aerospike reader for many queries | ❌ not built. N queries over one set are still N readers, N clients and N `tend` threads — the only per-query platform thread left on the node. The seam is the *binding*, not the fingerprint, and `QueryRegistry` opens feeds per computation (SRC-2, SRC-3) |
+| ADR-037 B2, spill to disk | ❌ scoped, not started, and deliberately: the owner's queries hold a few thousand keys each, about 450 KiB of heap, so a thousand of them fit. B2 is insurance against a misjudged cardinality, not capacity work |
+
+**What Wave 9 did not do.** Any throughput claim. The PERF section that would measure one is 52 of 60
+cases unexecuted for want of homogeneous hardware, and this machine's heterogeneous cores cannot
+produce a per-lane number anybody should quote. What this wave reports is **resource cost per
+query** — a count, not a rate — and it should not be read as more than that. Also: a followed file
+still costs about 13 ms of CPU per second while completely idle, so a hundred of them is 1.8 cores
+(SRC-6, open).
+
+**No gate pack.** `docs/gates/` still stops at wave-7.
 
 ## 3b. The documentation, and which parts the build checks
 
@@ -435,8 +470,9 @@ Worth having in one place, because the obvious mental model ("state is in RocksD
 codebase today.
 
 **The server ingests.** `pravaha.sources` binds a stream to a plugin, `SourceBinding` opens it and
-`PumpingFeed` runs one thread per computation pushing rows into the registered query. Measured on a
-node with a `filesystem` source and `follow: true`: `pravaha queries` reports `ROWS IN 10`, windows
+`PumpingFeed` runs one **virtual** thread per computation pushing rows into the registered query.
+It was a platform thread until W9-2, which measured thirty feeds costing thirty of them. Measured on
+a node with a `filesystem` source and `follow: true`: `pravaha queries` reports `ROWS IN 10`, windows
 close on the derived watermark, and `pravaha subscribe` delivers each commit as it is applied.
 This paragraph said the opposite for a release after it stopped being true — "a query registered
 against a running server never sees a row" was accurate of the registry before it was joined to
@@ -456,7 +492,7 @@ by construction; outer joins between streams are refused for the same reason.
 
 | | |
 |---|---|
-| **Checkpoint files** | `FileCheckpointStore.prune(keep)` exists and **nothing in production code calls it** — only tests do. Checkpoints accumulate indefinitely. This is the real disk-growth path right now and wants an owner |
+| ~~Checkpoint files~~ | **Fixed, and this row said the opposite for a release.** `PeriodicCheckpointer` calls `store.prune(keep)` after every checkpoint, keeping the newest `pravaha.checkpoint.keep` (default 3) per query, and `QueryRegistry` constructs one for every registration when `pravaha.checkpoint.directory` is set. `OPERATIONS.md` and `TROUBLESHOOTING.md` have said so for some time; this page contradicted both |
 | ~~Stream-to-stream join state~~ | **Fixed.** A join has a match window — an hour of event time by default — and releases rows older than `watermark − matchWithin`. Correct by definition rather than by luck: such a row cannot be part of any match the join promises, because a watermark says nothing earlier is coming. The row ceiling stays as a backstop and still fails loudly, because evicting *to fit* would lose matches the query did ask for |
 | ~~Views from a pass-through query~~ | **Fixed.** `Retention` evicts by event-time age and row count, and a default applies (a day, or a million rows) unless a registration chooses otherwise. A view is bounded only if its key space is bounded, and nothing can tell in advance whether it is, so `forever()` has to be asked for by name |
 
@@ -543,13 +579,14 @@ Made late in the session, so they may not be reflected everywhere yet:
 - **Licensing is proprietary**, wholly owned. Not Apache 2.0 — an earlier revision proposed that and
   design §30.4 was rewritten rather than word-swapped.
 
-### Not yet built from those decisions
+### Built since those decisions
 
-The FastAPI console. The order agreed was **API first, then the console** — the API exists
-(`pravaha-server`, contract locked in `api/openapi.lock.json`), so the console is unblocked. It
-should be built on the Python SDK, which currently has only the connection contracts and will need
-the client calls added first. **That ordering is the point:** if the console can reach past the SDK,
-the dogfooding benefit evaporates.
+**The FastAPI console exists** and is in `console/` — a Python process on the published SDK, with 34
+tests of its own. This section read *"not yet built from those decisions: the FastAPI console"*
+through the whole of Waves 7, 8 and 9, which is what a note headed "may not be reflected everywhere
+yet" becomes when nothing makes it expire. What it is *not* is the §23.20 product surface: no
+Storybook, no visual-regression baseline, no WCAG 2.2 AA audit. The README's console section says
+what it does and does not do.
 
 ---
 
