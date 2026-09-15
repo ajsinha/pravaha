@@ -5578,7 +5578,10 @@ constraint on how many queries one node holds.
 
 ### W9-4 (HIGH) — lanes can share a thread, so a node's thread count follows its cores rather than its queries
 
-> **Status:** FIXED (the mechanism; wiring the registry to it is W9-5) — `LaneRunner` drives many lanes from a fixed set of threads, and `Lane.startOn(runner)` hosts a lane on one. `LaneRunnerTest` covers both properties: **64 lanes on 4 threads**, each seeing exactly the rows it was given; and one lane throwing on a single-threaded runner recording its own failure while the other lane sharing that thread processes all 25 of its rows. 2,089 runtime + registry + it tests green, including the aligned-barrier and control-task suites.
+> **Status:** FIXED — `LaneRunner` drives many lanes from a fixed set of threads, and `Lane.startOn(runner)` hosts a lane on one. `LaneRunnerTest` covers both properties: **64 lanes on 4 threads**, each seeing exactly the rows it was given; and one lane throwing on a single-threaded runner recording its own failure while the other lane sharing that thread processes all 25 of its rows. 2,089 runtime + registry + it tests green, including the aligned-barrier and control-task suites.
+
+This is the mechanism. Wiring the registry to use it is W9-5 and is separately open — a status has to
+be one of five words, and "fixed, mostly" is the shape of claim this register exists to refuse.
 
 ADR-027 wanted a lane to multiplex several queries and it was never built, which is why `NodeScaleTest`
 measures exactly 1.00 platform thread per registered query and why `QueryRegistry` says "fine at tens".
