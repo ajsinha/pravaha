@@ -118,6 +118,18 @@ git add mvnw mvnw.cmd .mvn/ && git commit -m "Add Maven wrapper"
 | `-Pffm` | explicit, JDK 22+ | Compiles and tests the FFM `MemoryAccess` implementation (§4.6 of the design) |
 | `-Pall` | explicit | Everything; what CI runs on `main` |
 
+**Run a substantial test batch through `tools/verify-clean.sh`, not `mvnw` directly.**
+`./mvnw -pl <module> test` resolves that module's dependencies from `~/.m2` rather than from the
+working tree, so a change in one module is invisible to a test in another until something reinstalls
+it. That does not fail loudly — it produces a test run reporting results for code that is not the
+code in front of you, and the reflex it triggers is to hunt for a defect in whatever was just
+changed. It has cost four separate debugging sessions.
+
+`tools/verify-clean.sh` deletes Pravaha's own artefacts from `~/.m2` before building, so there is no
+stale jar left to resolve. It takes any Maven arguments; with none it runs the full verify. Running
+Maven directly is fine for a single module with no cross-module change, and `-am` is the minimum
+otherwise.
+
 ### 2.4 IDE
 
 IntelliJ IDEA is the reference IDE. Committed config: `.editorconfig`, a shared code style matching `palantir-java-format`, and a run configuration for `pravaha dev`. **No IDE-specific build logic** — if it only works in IntelliJ, it is broken.

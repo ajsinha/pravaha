@@ -34,6 +34,32 @@ Path nested = repoRoot().resolve(".claude");
 
 and for a shell `grep`, `--exclude-dir=.claude --exclude-dir=target`.
 
+## The other trap, which has cost more than the first
+
+`./mvnw -pl <module> test` resolves that module's dependencies from `~/.m2`, **not from the working
+tree**. A change in `pravaha-runtime` is therefore invisible to a test in `pravaha-it` unless
+something reinstalled it in between.
+
+The failure is not a build error. It is a test run that reports results for code that is not the code
+in front of you — failures that are not real, or passes that are not real, and no indication which.
+It has cost four separate debugging sessions, twice in one day: an agent reported "`pravaha-it` is
+not green, 3 failures" against a tree that was green, and a findings-register check failed the same
+way an hour later. The reflex it produces is to go hunting for a defect in whatever was just changed,
+which is the most expensive possible wrong turn.
+
+Use **`tools/verify-clean.sh`** for any substantial test run. It deletes Pravaha's own artefacts from
+`~/.m2` first, so there is no stale jar left to resolve and the reactor is the only possible source.
+Third-party dependencies are left alone — the build runs offline and re-downloading them is neither
+possible nor the problem.
+
+```
+tools/verify-clean.sh                     # full verify
+tools/verify-clean.sh -pl pravaha-it -am  # any maven arguments
+```
+
+If you do run Maven directly, `-am` is the minimum: it builds the dependencies in the same reactor
+rather than resolving them.
+
 ## How to read a verdict
 
 | | |
