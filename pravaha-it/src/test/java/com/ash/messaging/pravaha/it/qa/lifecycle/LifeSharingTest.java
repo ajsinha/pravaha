@@ -188,61 +188,68 @@ class LifeSharingTest extends LifecycleTestSupport {
     }
 
     @Test
-    void life089_keys1And01ShareAFingerprintAndTheSecondCallerGetsTheWrongKeying() {
+    void life089_keys1And01AreTwoComputationsAndEachCallerGetsTheKeyingItAsked() {
+        // I-3, fixed. This is the case that showed the defect producing a *wrong answer* rather than
+        // a surprise: kb asked to key on (usr, amount), was handed ka's amount-only view, and read
+        // 2 rows where its own keying gives 3. Inverted rather than deleted.
         registry.register("ka", S1, List.of(1), Principal.ANONYMOUS); // keyed on amount
-        registry.register("kb", S1, List.of(0, 1), Principal.ANONYMOUS); // asks for the pair; ignored
+        registry.register("kb", S1, List.of(0, 1), Principal.ANONYMOUS); // asks for the pair, and gets it
 
         assertThat(registry.require("ka").fingerprint())
-                .isEqualTo(registry.require("kb").fingerprint());
-        assertThat(registry.size()).isEqualTo(1);
+                .as("different keying is a different computation")
+                .isNotEqualTo(registry.require("kb").fingerprint());
+        assertThat(registry.size()).isEqualTo(2);
 
         push("ka", 1, "u1", 100, 1);
         push("ka", 2, "u2", 100, 1); // same amount as u1: collides under the amount-only key
         push("ka", 3, "u3", 7, 1);
 
         assertThat(rows("SELECT usr, amount FROM ka"))
-                .as("keyed on amount alone (ka's request, which is what the shared view actually uses): 2 rows")
-                .hasSize(2);
-        assertThat(rows("SELECT usr, amount FROM kb"))
-                .as("kb reads the SAME view: also 2, not the 3 its own --keys 0,1 asked for")
+                .as("keyed on amount alone, which is what ka asked for: 2 rows")
                 .hasSize(2);
 
-        // Control: the keying kb actually wanted, on a fresh (unshared) computation.
-        registry.register("kc", S1 + " WHERE amount > 0", List.of(0, 1), Principal.ANONYMOUS);
-        push("kc", 1, "u1", 100, 1);
-        push("kc", 2, "u2", 100, 1);
-        push("kc", 3, "u3", 7, 1);
-        assertThat(rows("SELECT usr, amount FROM kc"))
-                .as("the answer kb asked for and did not get: 3 distinct (usr, amount) pairs")
+        push("kb", 1, "u1", 100, 1);
+        push("kb", 2, "u2", 100, 1);
+        push("kb", 3, "u3", 7, 1);
+        assertThat(rows("SELECT usr, amount FROM kb"))
+                .as("kb has its own view now, keyed the way it asked: 3 distinct (usr, amount) pairs, "
+                        + "which is the answer it was silently denied")
                 .hasSize(3);
     }
 
     @Test
-    void life090_theSharedPathSkipsTheKeyColumnBoundsCheckEntirely() {
+    void life090_theKeyColumnBoundsCheckAppliesOnEveryPath() {
+        // I-3's third consequence. The bounds check lives in start(), and sharing returned before
+        // it -- so --keys 99 was refused on a fresh registration and accepted silently on a shared
+        // one. With the keys in the fingerprint there is no longer a path that skips it: an
+        // out-of-range key cannot match an existing computation, so start() always runs.
         registry.register("a", S1, List.of(0), Principal.ANONYMOUS);
-        // Fresh-path control: --keys 99 is refused when start() actually runs.
+
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> registry.register("fresh", S1 + " WHERE id > 0", List.of(99), Principal.ANONYMOUS))
+                .as("the fresh path always refused this")
                 .isInstanceOf(IllegalArgumentException.class);
 
-        // Shared path: the same out-of-range key is accepted silently, because start() is never
-        // reached for the second registrant.
-        assertThat(registry.register("b", S1, List.of(99), Principal.ANONYMOUS))
-                .as("no exception: the shared path returns before the bounds check that would refuse this")
-                .isNotNull();
-        assertThat(registry.require("b").fingerprint())
-                .isEqualTo(registry.require("a").fingerprint());
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> registry.register("b", S1, List.of(99), Principal.ANONYMOUS))
+                .as("and so does what used to be the shared path: this registration was accepted "
+                        + "silently, leaving a name pointing at a view keyed nothing like it asked")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("key column 99");
     }
 
     @Test
-    void life091_theSharedPathIgnoresTheSecondRegistrationsRetention() {
+    void life091_eachRegistrationGetsTheRetentionItAsked() {
         registry.register("a", S1, List.of(0), Principal.ANONYMOUS, Retention.ofAge(Duration.ofHours(8)));
         registry.register("b", S1, List.of(0), Principal.ANONYMOUS, Retention.ofAge(Duration.ofMinutes(5)));
 
         assertThat(registry.require("b").view().retention())
-                .as("b asked for 5 minutes and silently received a's 8 hours -- the shared view's own retention")
-                .isEqualTo(registry.require("a").view().retention())
-                .isEqualTo(Retention.ofAge(Duration.ofHours(8)));
+                .as("b asked for 5 minutes and gets 5 minutes. It used to receive a's 8 hours silently, "
+                        + "because the shared path returns before the retention is applied (I-3)")
+                .isEqualTo(Retention.ofAge(Duration.ofMinutes(5)));
+        assertThat(registry.require("b").fingerprint())
+                .as("a different retention is a different computation, which is what makes that possible")
+                .isNotEqualTo(registry.require("a").fingerprint());
 
         registry.register(
                 "c", S1 + " WHERE id > 0", List.of(0), Principal.ANONYMOUS, Retention.ofAge(Duration.ofMinutes(5)));

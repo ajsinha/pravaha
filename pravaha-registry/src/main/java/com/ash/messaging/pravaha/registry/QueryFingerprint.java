@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
+import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 
 /**
@@ -55,10 +56,37 @@ public record QueryFingerprint(String value) {
      *     stop distinguishing two principals
      */
     public static QueryFingerprint of(PhysicalOperator plan, List<String> rowFilters) {
+        return of(plan, rowFilters, List.of(), null);
+    }
+
+    /**
+     * The identity of a computation: its plan, the row filters applied to it, its key columns and
+     * its retention.
+     *
+     * <p>I-3. The last two were missing, and a fingerprint that omits them says two registrations
+     * are the same question when they are not. {@code --keys 1} and {@code --keys 0,1} over
+     * identical SQL produced one fingerprint, so the second registrant was handed the first one's
+     * view -- <strong>keyed the way the first asked, with no error</strong>. A view keyed on a
+     * different column conflates different rows together, so the second caller's answers were wrong
+     * rather than merely surprising. The same path discarded the second registrant's retention and
+     * skipped the key-ordinal bounds check, because both live in {@code start(...)} and sharing
+     * returns before it.
+     *
+     * <p>Key columns are <em>not</em> sorted. {@code --keys 0,1} and {@code --keys 1,0} are
+     * different views: the ordinals are a tuple in the order given, and a subscriber conflates on
+     * that order.
+     *
+     * <p>A null retention is the caller saying it has none to declare, which is what the
+     * two-argument form means; it is distinct from an explicit {@link Retention#forever()}.
+     */
+    public static QueryFingerprint of(
+            PhysicalOperator plan, List<String> rowFilters, List<Integer> keyColumns, Retention retention) {
         StringBuilder canonical = new StringBuilder(PhysicalPlanBuilder.explain(plan));
         for (String filter : rowFilters) {
             canonical.append("\nsecurity:").append(filter);
         }
+        canonical.append("\nkeys:").append(keyColumns);
+        canonical.append("\nretention:").append(retention == null ? "unspecified" : retention.maxAge());
         return new QueryFingerprint(digest(canonical.toString()));
     }
 

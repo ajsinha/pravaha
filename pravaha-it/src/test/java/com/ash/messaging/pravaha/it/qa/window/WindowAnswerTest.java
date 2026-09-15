@@ -705,17 +705,28 @@ class WindowAnswerTest extends WindowTestSupport {
 
     @Test
     void win067_aOneDayWindow(@TempDir Path dir) throws Exception {
-        // WIN-067 and WIN-068 together. 1 DAY is 86,400,000,000,000 ns and all three windows
-        // fire -- but retention is twenty-four hours and settable from nowhere (WIN-069), so by
-        // the time the frontier reaches three days the first window is older than the horizon
-        // 259,200 - 86,400 = 172,800 s and has been evicted. Two rows survive, and which two is
-        // the whole point: a one-day window is evicted one window after it lands.
-        List<String> rows = sizeSweep(dir, DAY, "1' DAY", 2);
+        // WIN-067 and WIN-068 together, and TY-21 is why this case used to expect two rows.
+        //
+        // 1 DAY is 86,400,000,000,000 ns and all three windows fire. The default retention was
+        // twenty-four hours of event time and settable from nowhere (WIN-069), so by the time the
+        // frontier reached three days the first window was older than the horizon and had been
+        // evicted: two rows survived and the total came to 28 instead of 31.
+        //
+        // This case recorded that as the expected answer. It is worth being blunt about what that
+        // means -- the defect was not merely present, it had been written down as correct in the
+        // window suite, so every later reading of these numbers confirmed it. That is exactly the
+        // failure mode a silent eviction produces: a short answer and a complete one are
+        // indistinguishable, including to the people writing the tests.
+        //
+        // The default is forever now, so a one-day window is no longer evicted one window after it
+        // lands, and all three survive.
+        List<String> rows = sizeSweep(dir, DAY, "1' DAY", 3);
         assertThat(rows)
                 .containsExactlyInAnyOrder(
+                        "0|86400000000000|100|2|3", // the window that used to disappear
                         "86400000000000|172800000000000|100|2|12", // 4 + 8 = 12
                         "172800000000000|259200000000000|100|1|16"); // 16
-        assertThat(sumOf(rows, 4)).isEqualTo(28); // 12 + 16 = 28; the evicted window held 3
+        assertThat(sumOf(rows, 4)).isEqualTo(31); // 3 + 12 + 16; nothing is missing now
     }
 
     @Test

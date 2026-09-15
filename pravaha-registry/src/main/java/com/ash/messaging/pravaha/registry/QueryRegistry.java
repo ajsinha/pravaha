@@ -74,7 +74,27 @@ public final class QueryRegistry implements AutoCloseable {
     private final SecurityPolicy policy;
     private final AuditSink audit;
     private final StreamSchema[] streams;
-    private Retention defaultRetention = Retention.DEFAULT;
+    /**
+     * What a registration keeps when it does not say. Forever, since TY-21.
+     *
+     * <p>This was {@link Retention#DEFAULT} -- 24 hours of <em>event</em> time -- and nothing on the
+     * server ever called {@link #retaining}, so every query registered against a node got it without
+     * asking and without being told. A view's {@code appliedFrontier} tracks the highest event time
+     * ever applied, and {@code ServedView.commit} evicts any row more than that age behind it. Over
+     * data whose timestamps span years -- which is ordinary for a backfill, a replay, or a reference
+     * mirror -- one row near "now" silently evicts most of the view: measured at 2 of 5 rows
+     * surviving on a fixture used across many cases as "just some rows".
+     *
+     * <p>The view still answered. That is what makes it a blocker rather than a tuning default: a
+     * short answer and a complete answer are indistinguishable to the caller, so nobody finds out.
+     *
+     * <p>Forever is the safe direction and not an unbounded one. The view's capacity ceiling is
+     * still enforced and still <em>fails</em> -- {@code PRV-4001}, loudly -- so a query whose key
+     * space was misjudged is refused rather than quietly shortened. ADR-037 makes the same argument
+     * for spilling over shedding: losing rows silently is the outcome worth avoiding, and an error
+     * is better than a wrong answer.
+     */
+    private Retention defaultRetention = Retention.forever();
 
     // Insertion-ordered so that listing a registry is stable, which matters for a console that
     // renders the list and for a test that asserts on it.
@@ -291,15 +311,16 @@ public final class QueryRegistry implements AutoCloseable {
      * Sets the retention every subsequent registration gets unless it chooses its own.
      *
      * <p>Configurable because the right answer is a deployment's, not ours: an intraday trade feed
-     * wants a day, a fraud view wants an hour, a reference-data mirror may genuinely want forever.
-     * What is not configurable is that there <em>is</em> one -- see {@link Retention}.
+     * wants a day, a fraud view wants an hour, a reference-data mirror genuinely wants forever --
+     * which is now what a registration gets when it does not choose (TY-21).
      *
      * <p>Expressed in event time, because that is what a streaming answer is about. A row count
      * would make the view's meaning depend on throughput; the row bound that does exist is the
      * view's capacity ceiling, which is a different question with a different answer.
      */
     public QueryRegistry retaining(Retention retention) {
-        this.defaultRetention = retention == null ? Retention.DEFAULT : retention;
+        // Null means "back to the default", and TY-21 changed what that is: forever, not a day.
+        this.defaultRetention = retention == null ? Retention.forever() : retention;
         return this;
     }
 
@@ -419,7 +440,10 @@ public final class QueryRegistry implements AutoCloseable {
         // none produced the same fingerprint, shared one computation and one copy of the state --
         // and the read path was the only thing standing between that and the restricted principal
         // seeing everything.
-        QueryFingerprint fingerprint = QueryFingerprint.of(plan, rowFilters);
+        // I-3: the key columns and the retention are part of what makes a computation itself.
+        // Without them `--keys 1` and `--keys 0,1` over identical SQL shared one view, keyed as the
+        // first registrant asked and with the second one's retention dropped, silently.
+        QueryFingerprint fingerprint = QueryFingerprint.of(plan, rowFilters, keyColumns, retention);
 
         RegisteredQuery existing = byFingerprint.get(fingerprint);
         if (existing != null && !existing.state().isTerminal()) {

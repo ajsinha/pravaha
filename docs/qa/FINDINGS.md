@@ -5,7 +5,7 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **294 findings carrying a
-status — 137 FIXED, 142 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 142 open, **15 are
+status — 139 FIXED, 140 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 140 open, **13 are
 GA-BLOCKER, 24 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -28,7 +28,7 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 15 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-BLOCKER** | 13 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 24 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
@@ -37,7 +37,9 @@ argued against, and its length was hiding the nineteen entries below.
 A security control that reports itself on and is off: `SX-7`. (`SX-11`, `CFG-5`, `CFG-6` and `P-3`
 were in these two rows and are **fixed** — the security group is now down to the existence oracle
 and the audit that logs ALLOW for a refused read.) Silently wrong
-answers: `TY-21`, `TY-3`, `TY-13`, `I-3`, `TIME-2`, `STRM-11`. Silent loss: `TY-2`, `W-2`,
+answers: `TY-3`, `TY-13`, `TIME-2`, `STRM-11`. (`TY-21` and `I-3` are **fixed** — and both had
+been written down as correct somewhere: `win067` expected a total of 28 where the right answer is
+31, and three lifecycle cases asserted the sharing defect as intended behaviour.) Silent loss: `TY-2`, `W-2`,
 `TIME-4`, `TIME-1`. Declared and does nothing: `I-6`, `S-3`.
 
 **`SX-11`, the worst of them, is fixed.** Authorization was keyed on the *registered view name*,
@@ -499,12 +501,11 @@ implement them. Everything upstream can be right and the view still wrong.
 reporting `RUNNING`. Only the windowed path emits during a stream.
 
 ## I-3 (HIGH) — key columns are not in the fingerprint
-> **Status:** OPEN — `QueryFingerprint.of(plan, rowFilters)` still never receives `keyColumns`; reproduced live with two registrations differing only in `--keys`, which share one `RegisteredQuery` keyed by whichever registered first
-> **Disposition:** GA-BLOCKER — two differently-keyed registrations silently share one view keyed as the first asked
+> **Status:** FIXED — `QueryFingerprint.of` now takes the key columns and the retention as well as the plan and the row filters, so two registrations share a computation only when they are the same question. Key order is deliberately not sorted: `0,1` and `1,0` are different views and a subscriber conflates on that order. All three consequences go with it — the wrong keying, the discarded retention, and the skipped key-ordinal bounds check, which is no longer reachable because an out-of-range key cannot match an existing fingerprint. `SharingIdentityTest` (5), seed-proven by removing keys and retention from the digest, which fails 4 of the 5; the one that stays green is "identical questions still share", which is the feature.
 
 
-`QueryFingerprint.of(plan, rowFilters)` omits them and the sharing path returns before `start(...)`
-ever sees them. So `--keys 1` and `--keys 0,1` over identical SQL **share one view, keyed as the
+`QueryFingerprint.of(plan, rowFilters)` omitted them and the sharing path returned before
+`start(...)` ever saw them. So `--keys 1` and `--keys 0,1` over identical SQL **share one view, keyed as the
 first registrant asked**. The second caller gets a view keyed differently from what they requested,
 with no error. The same path also skips the key-ordinal bounds check and discards the second
 registrant's retention setting.
@@ -2466,8 +2467,7 @@ plan-shape-dependent rather than a reliable guarantee that `ORDER BY` never sile
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §7-9 (TYPE-065).
 
 ## TY-21 (HIGH) — silent 24-hour retention eviction against a view whose event-time column spans years
-> **Status:** OPEN — `QueryRegistry.register()` still defaults to `Retention.DEFAULT` (24h); no `retention` field exists in config, and `ServedView.evict()` is silently by design with only an `evicted()` counter.
-> **Disposition:** GA-BLOCKER — silent eviction; the view answers, and the answer is wrong
+> **Status:** FIXED — the registry's default retention is `Retention.forever()`. It was 24 hours of *event* time and nothing on the server ever called `retaining(...)`, so every query registered against a node got it without asking and without being told. Forever is the safe direction and not an unbounded one: the view's capacity ceiling still fails loudly with `PRV-4001`, so a misjudged key space is refused rather than quietly shortened — ADR-037's argument for spilling over shedding, applied to the default.
 
 
 `QueryRegistry.register()` always uses `Retention.DEFAULT` (24h) with no YAML-reachable override.

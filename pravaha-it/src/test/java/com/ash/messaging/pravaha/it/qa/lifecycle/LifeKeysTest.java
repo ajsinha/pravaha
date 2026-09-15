@@ -115,17 +115,22 @@ class LifeKeysTest extends LifecycleTestSupport {
     }
 
     @Test
-    void life035_theKeyColumnsDoNotReachTheFingerprint() {
+    void life035_theKeyColumnsReachTheFingerprint() {
+        // I-3, fixed. This case asserted the opposite and was right to: the key columns were not in
+        // the fingerprint, so identical SQL keyed two different ways was one computation and the
+        // second registrant silently got the first one's keying. Inverted rather than deleted, so
+        // the day that regresses this is what says so.
         registry.register("ka", S1, List.of(0), Principal.ANONYMOUS);
         registry.register("kb", S1, List.of(1), Principal.ANONYMOUS);
 
         assertThat(registry.require("ka").fingerprint())
-                .as("identical SQL, different --keys: one computation by the fingerprint's own rule")
-                .isEqualTo(registry.require("kb").fingerprint());
-        assertThat(registry.names()).as("but two names in the listing").containsExactly("ka", "kb");
+                .as("identical SQL, different --keys: two computations, because a different key "
+                        + "conflates different rows and therefore answers differently")
+                .isNotEqualTo(registry.require("kb").fingerprint());
+        assertThat(registry.names()).as("two names in the listing").containsExactly("ka", "kb");
         assertThat(registry.size())
-                .as("QueryRegistry.size() counts computations, not names")
-                .isEqualTo(1);
+                .as("and now two computations behind them, not one")
+                .isEqualTo(2);
 
         registry.register("kc", S1 + " WHERE id > 0", List.of(0), Principal.ANONYMOUS);
         assertThat(registry.require("kc").fingerprint())
