@@ -5,7 +5,7 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 140 FIXED, 140 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 140 open, **13 are
+status — 142 FIXED, 138 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 138 open, **11 are
 GA-BLOCKER, 24 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -28,7 +28,7 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 13 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-BLOCKER** | 11 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 24 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
@@ -37,7 +37,8 @@ argued against, and its length was hiding the nineteen entries below.
 A security control that reports itself on and is off: `SX-7`. (`SX-11`, `CFG-5`, `CFG-6` and `P-3`
 were in these two rows and are **fixed** — the security group is now down to the existence oracle
 and the audit that logs ALLOW for a refused read.) Silently wrong
-answers: `TY-3`, `TY-13`, `TIME-2`, `STRM-11`. (`TY-21` and `I-3` are **fixed** — and both had
+answers: `TIME-2`, `STRM-11`. (`TY-3` and `TY-13` are **fixed** — NaN outranking every value, and a
+literal that compiled to `Infinity`.) (`TY-21` and `I-3` are **fixed** — and both had
 been written down as correct somewhere: `win067` expected a total of 28 where the right answer is
 31, and three lifecycle cases asserted the sharing defect as intended behaviour.) Silent loss: `TY-2`, `W-2`,
 `TIME-4`, `TIME-1`. Declared and does nothing: `I-6`, `S-3`.
@@ -2085,8 +2086,7 @@ observation and root-caused by reading `QueryRunner`'s `Collector`, not by a fur
 docs/qa/logs/TYPE.md §13-15 (TYPE-113, TYPE-120).
 
 ## TY-3 (HIGH) — `NaN` sorts as greater than every value in `>` (and `<`, `>=`, `<=`) comparisons
-> **Status:** OPEN — reproduced live: `WHERE x/y > 0` over a NaN row still keeps it; `Predicate.CompareDouble.test`/`CompareExpressions.test` call `Double.compare` with no `isNaN` handling.
-> **Disposition:** GA-BLOCKER — silently wrong comparisons -- NaN outranks every value
+> **Status:** FIXED — both floating-point comparison sites now use IEEE 754 semantics via `Op.matchesDoubles` instead of `Double.compare`, whose total-ordering contract ranks `NaN` above every double and `-0.0` below `0.0`. `WHERE x/y > 0` no longer keeps a `0.0/0.0` row, `NaN = NaN` is false, `NaN <> NaN` is true, and `-0.0 = 0.0` is true — the last was the same root cause, quieter. `NanComparisonTest` (5), seed-proven by restoring `Double.compare`, which fails 4 of the 5; the survivor is the "ordinary comparisons unchanged" control. **Diverges from PostgreSQL deliberately** — Postgres defines NaN as equal to itself and above everything so its indexes have a total order; that constraint does not apply here, and `> 0` should mean what an operator reading the SQL thinks it means. Recorded on `Op.matchesDoubles`.
 
 
 `Predicate` (`pravaha-runtime/.../plan/Predicate.java`) implements ordering comparisons via
@@ -2299,8 +2299,7 @@ on what "BYTES" can hold in practice, worth documenting explicitly.
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3 (TYPE-017).
 
 ## TY-13 (MEDIUM-HIGH) — `WHERE f64 = <the column's exact Double.MAX_VALUE literal>` silently returns zero rows
-> **Status:** OPEN — reproduced live via `run`: `WHERE f64 = 1.7976931348623157E308` and `>=` both return 0 of 1 rows at exit 0; root cause traced to `PredicateCompiler.compare` → `Constant.asDouble()` → `Predicate.CompareDouble` but not further isolated.
-> **Disposition:** GA-BLOCKER — a legal equality predicate silently returns zero rows
+> **Status:** FIXED — and isolated, which the finding never was. `Constant.OfLiteral.asDouble` asked Calcite for a `BigDecimal` and converted: for `1.7976931348623157E308` the decimal Calcite holds is above `Double.MAX_VALUE`, so `BigDecimal.doubleValue()` correctly saturated to **`Infinity`** — and every comparison against infinity is false, which is why `=` and `>=` both returned zero rows under exit 0. Taking `getValueAs(Double.class)` first skips the decimal entirely. `DoubleLiteralTest` (4) asserts the *compiled literal* rather than a row count, because zero rows is the same observation for three different causes. Seed-proven by restoring the round-trip, which fails 2 of the 4.
 
 
 `WHERE f64 = 1.7976931348623157E308` and the equivalent `>=` form both return **zero rows** against a
@@ -2310,8 +2309,16 @@ other FLOAT64 comparison tested (including `=4.9E-324`, the subnormal minimum) i
 Double.MAX_VALUE extremum misbehaves, suggesting an exact-BigDecimal-literal-vs-IEEE754-double
 comparison disagreement specific to this boundary.
 
-**Status: OPEN.** Not seed-proven (out of required scope) — root cause not yet isolated to a specific
-source line, only reproduced directly and repeatedly. See docs/qa/logs/TYPE.md §1-3 (TYPE-027).
+**Root cause, since isolated.** `Constant.java`'s `OfLiteral.asDouble` — one line, and the reason
+only this one value misbehaved: `Double.MAX_VALUE` is the only place where losing the last digit of
+the mantissa crosses the edge of what a double can represent. Everything else in the FLOAT64 range,
+including the subnormal minimum `4.9E-324`, round-trips through `BigDecimal` unharmed.
+
+**What made it findable was refusing to assert on the row count.** Both `=` and `>=` returning
+nothing is the tell: if the literal were `Double.MAX_VALUE`, `>=` would match. Both failing says the
+literal is larger than any finite double. Asserting the compiled constant turned "zero rows" — which
+is the same observation for an engine-side comparison bug, a pushdown re-encoding bug, and this —
+into a number that named the cause on the first run. See docs/qa/logs/TYPE.md §1-3 (TYPE-027).
 
 ## TY-14 (LOW-MEDIUM) — a BYTES-vs-literal refusal names no column, unlike the equivalent ARRAY/MAP/ROW refusal
 > **Status:** OPEN — reproduced live: `WHERE bin = 'cafe'` still returns `PRV-2021 'CAST('cafe'):VARBINARY NOT NULL' has SQL type VARBINARY, which Pravaha cannot compute with yet`, naming no column.

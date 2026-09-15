@@ -113,6 +113,36 @@ public sealed interface Predicate {
                 case GE -> comparison >= 0;
             };
         }
+
+        /**
+         * Compares two doubles as IEEE 754 does, which {@link Double#compare} deliberately does not.
+         *
+         * <p>TY-3. Both floating-point comparison sites routed through {@code Double.compare}, whose
+         * contract is a <em>total order</em>: it places {@code NaN} above every other double and
+         * {@code -0.0} below {@code 0.0}. That is the right answer for sorting and the wrong one for
+         * a {@code WHERE} clause. {@code WHERE x/y > 0} kept a row whose {@code x/y} was
+         * {@code 0.0/0.0}, and {@code NaN = NaN} passed — silently wrong filter results rather than
+         * refusals.
+         *
+         * <p>Java's own operators are IEEE 754: every ordering comparison involving {@code NaN} is
+         * false, {@code NaN != NaN} is true, and {@code -0.0 == 0.0}. Using them fixes all three.
+         *
+         * <p><strong>This diverges from PostgreSQL on purpose.</strong> Postgres defines NaN as
+         * equal to itself and greater than everything precisely so that its indexes have a total
+         * order to work with. Pravaha has no such constraint here, and the reading that matters is
+         * the one an operator has when they write {@code > 0} in a filter: a value that is not a
+         * number is not greater than zero. Recorded as a decision rather than left to be discovered.
+         */
+        public boolean matchesDoubles(double left, double right) {
+            return switch (this) {
+                case EQ -> left == right;
+                case NE -> left != right;
+                case LT -> left < right;
+                case LE -> left <= right;
+                case GT -> left > right;
+                case GE -> left >= right;
+            };
+        }
     }
 
     /** {@code column op <long literal>}, covering the integer, date, time and timestamp types. */
@@ -145,7 +175,7 @@ public sealed interface Predicate {
     record CompareDouble(int ordinal, String columnName, Op op, double value) implements Predicate {
         @Override
         public boolean test(RowView row) {
-            return !row.isNull(ordinal) && op.matches(Double.compare(row.getDouble(ordinal), value));
+            return !row.isNull(ordinal) && op.matchesDoubles(row.getDouble(ordinal), value);
         }
 
         @Override
@@ -344,9 +374,10 @@ public sealed interface Predicate {
             if (left.isNull(row) || right.isNull(row)) {
                 return false;
             }
-            int comparison = left.isFloatingPoint() || right.isFloatingPoint()
-                    ? Double.compare(left.evaluateDouble(row), right.evaluateDouble(row))
-                    : Long.compare(left.evaluateLong(row), right.evaluateLong(row));
+            if (left.isFloatingPoint() || right.isFloatingPoint()) {
+                return op.matchesDoubles(left.evaluateDouble(row), right.evaluateDouble(row));
+            }
+            int comparison = Long.compare(left.evaluateLong(row), right.evaluateLong(row));
             return switch (op) {
                 case EQ -> comparison == 0;
                 case NE -> comparison != 0;

@@ -92,6 +92,21 @@ sealed interface Constant {
             if (temporal != null) {
                 return temporal;
             }
+            // TY-13. Asking for the BigDecimal and converting loses the largest finite double:
+            // `WHERE f64 = 1.7976931348623157E308` compiled to *Infinity*, so every comparison
+            // against it was false and the query returned zero rows under exit 0. Both `=` and
+            // `>=` failing is what gives it away -- if the literal were Double.MAX_VALUE, `>=`
+            // would match.
+            //
+            // Calcite holds a decimal whose value is above Double.MAX_VALUE, and BigDecimal's
+            // correctly-rounded doubleValue() then saturates to infinity. Asking for the Double
+            // directly skips the decimal entirely, which is what an IEEE-754 literal wanted in the
+            // first place. Only this one value is affected, because it is the only place where
+            // losing the last digit of the mantissa crosses the representable edge.
+            Double exact = literal.getValueAs(Double.class);
+            if (exact != null && !exact.isInfinite()) {
+                return exact;
+            }
             BigDecimal decimal = literal.getValueAs(BigDecimal.class);
             return decimal == null ? 0d : decimal.doubleValue();
         }
