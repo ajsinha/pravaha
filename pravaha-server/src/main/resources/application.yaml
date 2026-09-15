@@ -188,19 +188,29 @@ pravaha:
   # told operators to raise "arena.slab.size" -- a setting that did not exist (PF-3). The defaults
   # below are the engine's own, so a node that sets nothing behaves exactly as it did.
   #
-  # They matter when a node holds many queries. The defaults were chosen for one query with a source
-  # that never stops: a 4 MiB arena slab allocated eagerly plus a 2048 x 512B inbox is about 5 MiB
-  # per idle query, so a thousand small continuous queries cost ~5 GB off-heap before a row moves.
+  # They matter when a node holds many queries, and the measured numbers are worth having here
+  # because the obvious guess is wrong. As of W9-6/W9-7, per query (NodeScaleTest):
   #
-  # A query reading a narrow projection does not need that. Sized for the workload --
+  #   idle:   1,024 KiB -- the inbox, and nothing else
+  #   active: 1,328 KiB -- the inbox plus the pipeline's arena, sized from the plan
   #
-  #   pravaha.lane.arena.slab-bytes: 262144    # 256 KiB
+  # The arena settings below are NOT where that memory is. The lane's arena measures ZERO for both a
+  # projection and a windowed aggregate, because operator output goes to the view rather than
+  # through the lane's scratch -- it is allocated lazily and, for these shapes, never at all. It is
+  # kept settable because a plan that does write through it (joins, wide fan-out) will, and because
+  # the error messages that say "raise pravaha.lane.arena.slab-bytes" have to be able to mean it.
+  #
+  # What dominates is the inbox: 2048 cells x 512 bytes is a megabyte of burst capacity per query,
+  # and a query fed by an Aerospike scan running once a second will never use it. Sized down --
+  #
   #   pravaha.lane.inbox.cells: 256
   #   pravaha.lane.inbox.cell-bytes: 256
   #
-  # -- the same thousand queries cost a few hundred megabytes. Two rules when sizing down: a cell
-  # must fit the widest row the query will see (a row that does not fit is refused at ingest, not
-  # buffered), and the arena must fit one batch of output rows (batch-size x widest output row).
+  # -- that megabyte becomes 64 KiB. One rule when sizing down: a cell must fit the widest row the
+  # query will see, because a row that does not fit is refused at ingest rather than buffered.
+  #
+  # The inbox is per query only because each query has a lane of its own. LaneMultiplexer would make
+  # many queries share one; W9-8 and W9-10 record what that still needs.
   lane:
     batch-size: 512
     wait-strategy: BACKOFF_PARK

@@ -193,14 +193,21 @@ class StateFailureReportingTest extends StateTestSupport {
             RegisteredQuery q = registry.register("w", WIN_SQL, List.of(0), DANA);
             PeriodicCheckpointer checkpointer = checkpointerOf(q);
             sleepMillis(1000);
-            long a = checkpointer.stats().taken();
-            assertThat(a).isBetween(2L, 6L);
+            assertThat(checkpointer.stats().taken())
+                    .as("the schedule is running before anything is broken")
+                    .isBetween(2L, 6L);
 
             // Root, not root/w -- see STATE-044's harness note: chmod'ing the leaf directory is
             // silently self-healed by createOwnerOnly's unconditional narrow() on every store(). Read
             // stats() (in-memory) rather than the filesystem while root is unwritable: reading
             // root/w's own listing also needs to traverse root, which is exactly what is blocked.
             chmod(root, "r--------");
+            // The baseline is taken *after* the directory is locked, not before. Reading it first
+            // left a window in which a checkpoint already under way finished, so "no new checkpoint
+            // while unwritable" failed on a checkpoint that had started while it still was -- a
+            // race in the test, not in the engine, and one the shared clock made easier to hit.
+            sleepMillis(300);
+            long a = checkpointer.stats().taken();
             // Waited for, not timed. This asserted 12 failures after a 3000ms sleep and a loaded
             // machine produced 9 -- and the aligned checkpoint barrier now freezes ingest for the
             // length of each attempt, so the rate legitimately moved too. Neither is what the case
@@ -214,9 +221,16 @@ class StateFailureReportingTest extends StateTestSupport {
             sleepMillis(1000);
             long c = checkpointer.stats().taken();
             assertThat(c).as("recovers once writable again").isGreaterThan(b);
+            // The property is that nothing was lost while the directory was unwritable, and the
+            // line above has just asserted that new checkpoints are being stored again -- so the
+            // count cannot also still be three. It read `hasSize(3)` and passed only because prune
+            // usually ran between the store and this read; it saw four the moment it did not.
+            //
+            // `keep` is a floor on what survives, not a ceiling on what exists at an instant, so
+            // this asserts what the message always claimed: at least the three that were there.
             assertThat(new FileCheckpointStore(root.resolve("w")).availableIds())
-                    .as("the three pre-existing checkpoints were never lost, only not added to")
-                    .hasSize(3);
+                    .as("the pre-existing checkpoints were never lost while the directory was unwritable")
+                    .hasSizeGreaterThanOrEqualTo(3);
             assertThat(q.state().toString()).isEqualTo("RUNNING");
             assertThat(registry.find("w")).isPresent();
         }

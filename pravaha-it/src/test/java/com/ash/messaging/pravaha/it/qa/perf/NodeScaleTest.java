@@ -244,6 +244,51 @@ final class NodeScaleTest {
         }
     }
 
+    @Test
+    void whatAWindowedAggregateCostsOnceRowsArrive() {
+        // The shape the owner's workload actually is: GROUP BY over an Aerospike scan, not a
+        // projection. It matters here because the two use memory differently -- a projection's
+        // output goes straight to the view and never touches the lane's arena, which is why that
+        // arena measured zero and why sizing it moved nothing (W9-7).
+        long directBefore = directMemory();
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, TXN);
+                RowArena feeder = new RowArena(MemoryAccess.best(), 1 << 20, 4)) {
+            for (int i = 0; i < ACTIVE_QUERIES; i++) {
+                registry.register(
+                        "w" + i,
+                        "SELECT user_id, SUM(amount) AS total FROM txn WHERE amount > " + i
+                                + " GROUP BY user_id, TUMBLE(ts, INTERVAL '1' SECOND)",
+                        List.of(0),
+                        DANA);
+            }
+            for (int i = 0; i < ACTIVE_QUERIES; i++) {
+                feedOneRow(registry, feeder, "w" + i);
+            }
+
+            long eachKb = (directMemory() - directBefore) / ACTIVE_QUERIES / 1024;
+            java.util.Map<String, Long> attributed = new java.util.LinkedHashMap<>();
+            for (int i = 0; i < ACTIVE_QUERIES; i++) {
+                registry.require("w" + i)
+                        .offHeapBytes()
+                        .forEach((part, bytes) -> attributed.merge(part, bytes, Long::sum));
+            }
+
+            System.out.printf(
+                    "WINDOWED SCALE: %d aggregates, one row each -- %d KiB per query%n", ACTIVE_QUERIES, eachKb);
+            attributed.forEach(
+                    (part, bytes) -> System.out.printf("    %-16s %6d KiB%n", part, bytes / ACTIVE_QUERIES / 1024));
+
+            assertThat(eachKb)
+                    .as(
+                            "a windowed aggregate holds %d KiB once rows arrive, against a projection's 1,328. "
+                                    + "A thousand of them is about %d GB",
+                            eachKb, eachKb * 1000 / (1024 * 1024))
+                    .isLessThanOrEqualTo(2048);
+        }
+    }
+
     /** Pushes one row into {@code name} and waits for the lane to have applied it. */
     private static void feedOneRow(QueryRegistry registry, RowArena feeder, String name) {
         RowLayout layout = RowLayout.of(TXN);
