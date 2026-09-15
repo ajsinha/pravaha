@@ -1,5 +1,16 @@
 # QA summary — read this one first
 
+> **This page stopped being current on 2026-09-12 and is kept as the record of that round, not as a
+> description of the product.** Everything below it — the counts, the blockers, and especially *The
+> state of the product, in one paragraph* — describes the tree as it stood when the first four rounds
+> closed. Twelve rounds have run since (`logs/`: AGG, API, CFG, DOCX, ERRC, INCR, PERF, SDKX, SECX,
+> SQLX, STRM, TIME, TYPE, WIN), Waves 7 and 8 shipped, and several of the blockers named here are
+> fixed: state **is** restored after a restart (ST-5, `StateRestoreTest#state063`), a windowed
+> aggregate **does** emit continuously, and `ServedView` **does** sum weights (ADR-013). For what is
+> open now, read [`FINDINGS.md`](FINDINGS.md), which carries a
+> status line per finding and is enforced by `FindingsRegisterTest`. For what is built, read
+> [`../HANDOVER.md`](../HANDOVER.md). Recorded as DOCR-21.
+
 **2,385 test cases written across 24 areas. 428 executed. ~200 distinct defects recorded.**
 The remaining ~1,950 cases are authored, reviewed and not yet run.
 

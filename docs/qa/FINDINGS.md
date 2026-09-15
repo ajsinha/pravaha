@@ -5444,3 +5444,24 @@ more than one lane outright, because every lane would keep its own partial total
 The index is where a reader looks to find out what a decision was, and it turned an intention into a
 capability in one word. It now says the rung is the work ADR-034 names and is not built, which is
 what the ADR it indexes says.
+
+### DOCR-21 (MED) — `docs/qa/SUMMARY.md` says "read this one first" and describes a product from twelve rounds ago
+
+> **Status:** FIXED — a dated header on `SUMMARY.md` saying what it is the record of and where the current answers are; the round's own content is left intact, because it is a record. The three claims the header corrects were each checked: `StateRestoreTest#state063`'s own comment records that "as executed, the server *does* recover accumulated answers", a windowed `GROUP BY` runs end to end, and ADR-013's status row records `ServedView` as weight-correct
+
+> *"A Pravaha server can ingest a finite file of insertions and answer a windowed query about it. It
+> **cannot** receive a retraction from any shipped source, run a continuous aggregate that ever emits,
+> declare six of its sixteen data types, reach a lookup join, restore any state after a restart, or
+> serve results through a view that implements the engine's own algebra."*
+
+That paragraph is headed *The state of the product, in one paragraph*, on a page headed *read this
+one first*, in a document set whose index calls it "The single page to read if you read nothing
+else". It was true on 2026-09-12. Rounds AGG, API, CFG, DOCX, ERRC, INCR, PERF, SDKX, SECX, SQLX,
+STRM, TIME, TYPE and WIN have run since, Waves 7 and 8 shipped, and at least three of the six
+"cannot"s are now false.
+
+A summary is the most expensive thing in a document set to leave stale, because it is read instead
+of, not alongside, the detail — and an evaluator who reads this page and stops has been told the
+product cannot do things it demonstrably does. The counts (`428 executed`) are stale too, and are
+left alone rather than guessed: the execution logs record their totals in four different formats and
+several record none, so an accurate recount is real work rather than an edit.
