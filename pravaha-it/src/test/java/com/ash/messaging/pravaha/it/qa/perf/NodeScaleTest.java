@@ -26,6 +26,11 @@ import org.junit.jupiter.api.Timeout;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.common.arena.RowArena;
+import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.common.row.BinaryRowView;
+import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
+import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
@@ -69,6 +74,9 @@ final class NodeScaleTest {
      * enough to run in the normal suite.
      */
     private static final int QUERIES = 200;
+
+    /** Fewer, because each is fed a row and the point is the per-query cost, not the count. */
+    private static final int ACTIVE_QUERIES = 50;
 
     /**
      * Retained for the report line only; the assertion is an absolute bound on threads.
@@ -172,6 +180,63 @@ final class NodeScaleTest {
                     .as("each distinct question is its own computation")
                     .isEqualTo(QUERIES);
         }
+    }
+
+    @Test
+    void whatOneQueryCostsOnceRowsArrive() {
+        // The number that matters for the stated workload. An Aerospike-backed continuous query
+        // scans once a second, so it is not idle -- it receives rows, and a query that has received
+        // a row has an arena. W9-6's lazy slab does nothing for it; what it holds is decided by how
+        // that slab is sized.
+        //
+        // Measured at 2,068 KiB and **not yet attributed**. The inbox accounts for 1,024 of it. The
+        // other 1,044 is not the 4 MiB arena slab the configuration implies -- deriving a smaller
+        // arena from the plan changed this number not at all, which is why that change was reverted
+        // rather than shipped. Recorded as W9-7 instead of guessed at.
+        //
+        // The assertion below is therefore a ratchet on the measured value, not a claim about what
+        // the value is made of.
+        long directBefore = directMemory();
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry = new QueryRegistry(views, TXN);
+                RowArena feeder = new RowArena(MemoryAccess.best(), 1 << 20, 4)) {
+            for (int i = 0; i < ACTIVE_QUERIES; i++) {
+                registry.register("a" + i, "SELECT user_id, amount FROM txn WHERE amount > " + i, List.of(0), DANA);
+            }
+            for (int i = 0; i < ACTIVE_QUERIES; i++) {
+                feedOneRow(registry, feeder, "a" + i);
+            }
+
+            long directAfter = directMemory();
+            long eachKb = (directAfter - directBefore) / ACTIVE_QUERIES / 1024;
+            System.out.printf(
+                    "ACTIVE SCALE: %d queries, one row each%n"
+                            + "  off-heap: %d KiB -> %d KiB (%d KiB per query, inbox + one arena slab)%n",
+                    ACTIVE_QUERIES, directBefore / 1024, directAfter / 1024, eachKb);
+
+            assertThat(eachKb)
+                    .as(
+                            "%d queries that have each received a row hold %d KiB each, so a thousand of them "
+                                    + "is about %d GB -- the number ADR-036's target has to live within",
+                            ACTIVE_QUERIES, eachKb, eachKb * 1000 / (1024 * 1024))
+                    .isLessThanOrEqualTo(2304);
+        }
+    }
+
+    /** Pushes one row into {@code name} and waits for the lane to have applied it. */
+    private static void feedOneRow(QueryRegistry registry, RowArena feeder, String name) {
+        RowLayout layout = RowLayout.of(TXN);
+        BinaryRowWriter writer = new BinaryRowWriter(layout);
+        BinaryRowView view = new BinaryRowView(layout);
+        long handle = feeder.allocate(layout.rowSize(64));
+        writer.begin(feeder.regionOf(handle), feeder.offsetOf(handle));
+        writer.setString(0, "u1").setLong(1, 1_000_000L).setLong(2, 1_000L);
+        writer.weight(1L).eventTimestampNanos(1_000L).sequence(1L).commit();
+        feeder.trimTo(handle, writer.sizeSoFar());
+        registry.require(name).accept("txn", view.wrap(feeder.regionOf(handle), feeder.offsetOf(handle)));
+        registry.require(name).awaitApplied(Duration.ofSeconds(10));
+        feeder.resetTo(feeder.mark());
     }
 
     private static long platformThreads() {

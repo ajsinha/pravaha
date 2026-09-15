@@ -5852,3 +5852,30 @@ A thousand idle queries now hold about 1 GB rather than 5 GB, and what remains i
 cells of 512 bytes, reserved for a burst that a query fed by a one-scan-per-second Aerospike source
 will never see. That default is now settable (`pravaha.lane.inbox.*`) and is the next thing to size
 from the plan rather than from a constant.
+
+### W9-7 (MEDIUM) — an active query holds about 2 MiB off-heap and half of it is unaccounted for
+
+> **Status:** OPEN — measured by `NodeScaleTest.whatOneQueryCostsOnceRowsArrive`: 50 queries, one row each, **2,068 KiB per query** from the JVM's direct buffer pool. The inbox is 1,024 of it. The other 1,044 is not explained.
+
+W9-6 made the arena's first slab lazy, which takes a genuinely idle query to 1,024 KiB — the inbox
+and nothing else. That is the whole win for an idle query and none of it for an active one, and the
+target workload is active: an Aerospike-backed continuous query scans once a second, so it receives
+rows and therefore has an arena.
+
+**What the second megabyte is, I do not know, and the interesting part is what it is not.** The
+configured slab is 4 MiB, so a query holding one would measure over 5,000 KiB rather than 2,068. I
+wrote a change deriving the arena size from the plan's own rows — 284 KiB for this schema against
+4 MiB configured — and measured **exactly the same 2,068 KiB with it and without it**. So the number
+is not moved by the arena's configured size at all.
+
+That change is reverted rather than shipped. It is plausible, it is probably even right, and it has
+no test that fails without it, which is this project's rule and a good one: a memory optimisation
+that cannot be shown to save memory is a guess with a commit message.
+
+What to do next, in the order that answers the most per hour: attribute the 1,044 KiB first —
+instrument `RowArena` and `RowInbox` with their own counters rather than reading a pool total, since
+a single number cannot say who allocated it. The plan-derived sizing can then be re-proposed against
+a measurement that would move.
+
+The inbox's own 1,024 KiB is separately worth questioning: 2048 cells of 512 bytes is burst capacity
+for a query fed by a source that scans once a second and will never produce one.
