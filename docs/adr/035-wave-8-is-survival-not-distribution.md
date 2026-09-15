@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — scope decision, not yet built |
+| Status | Accepted; **built** — all four items shipped; see *Implementation status* below (2026-09-14) |
 | Date | 2026-09-14 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-034 (distribution deferred), ADR-008 (aligned checkpoints), ADR-009 (embedded Raft metadata), ADR-006 (tiered state) |
@@ -107,3 +107,27 @@ The P2 and P3 performance gates stay unmet and unaffected; they need homogeneous
 (`docs/gates/wave-3/README.md`), and nothing in this wave changes that.
 
 Wave 8 gets a gate pack, which waves 5 and 6 never got.
+
+## Implementation status — as of 2026-09-14
+
+**Built.** All four items, on `develop`. The consequence this ADR predicted came true and was
+repaired in the same sweep: `README.md`'s roadmap, `docs/QUICKSTART.md` and `docs/OPERATIONS.md` all
+still described Wave 8 as unstarted clustering after it had shipped as something else.
+
+| Item | Where | Finding |
+|---|---|---|
+| 1 — node ownership of durable state | `StateOwnership` (`pravaha-common`), claimed by `PravahaNode.claimState` for the checkpoint root and the registry journal's directory. A `.pravaha-owner` marker names node id, host, port and pid, refreshed on a 30s lease. `PRV-4003` refuses another node or a second live instance; `PRV-4004` refuses an unreadable marker; `pravaha.state.allow-shared` is the named override. An expired claim under the same node id is reclaimed automatically, which is what a crash restart is | W8-1 |
+| 2 — aligned checkpoint barriers | One cut across every input: sources frozen between rows, every lane handed a marker, offsets and state naming the same rows. `AlignedCheckpointBarrierTest`, `ControlTaskBarrierTest`. **The exchange is still not cut** and is refused rather than silently dropped — see [ADR-008](008-aligned-checkpoints.md)'s implementation status | W8-2, W8-3, W8-4, W8-5 |
+| 3 — standby and checkpoint failover | `StandbyWatch` (`pravaha-server`), `pravaha.standby.enabled`, configured with the *same* `pravaha.node.id` as the primary. Polls the marker, promotes on a stale claim, and its promotion line names what the takeover lost rather than reporting continuity | W8-6 |
+| 4 — the three unreachable mechanisms | `FileDeadLetterQueue` is reachable as `pravaha run --dlq <file>`; `L0StateMap` is **deleted**; `ChangelogAnalysis` is **kept and deliberately unwired** | W8-11, W8-12, W8-13 |
+
+Item 4 ends with one exception to its own "reachable or deleted" rule, and it is recorded rather
+than quietly taken: `ChangelogAnalysis` cannot be reached because nothing binds a query to a sink —
+no `INSERT INTO`, no `pravaha.sinks`, no `StreamSinkPlugin` service declaration — and every
+continuous query writes to a `ViewSink`, which applies a retraction correctly. There is nothing for
+it to refuse. `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction` now asserts
+that precondition, so it fails at the moment a sink binding appears, which is the moment to wire the
+check (W8-13).
+
+**The gate pack this ADR promises does not exist.** `docs/gates/` holds waves 1–4 and 7; there is no
+`wave-8`, as there is none for waves 5 or 6. Gate P7 is unrecorded.

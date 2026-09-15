@@ -79,13 +79,23 @@ pravaha:
   #
   # streams:
   #   txn:
-  #     schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"
+  #     schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+  #     # The column carrying each row's own time. Without it no watermark advances and no window
+  #     # ever closes: a windowed query plans, registers, reports RUNNING, ingests every row and
+  #     # emits nothing, for ever. The name:TYPE grammar has no syntax for marking a column, so
+  #     # this is the only way to say it from configuration.
+  #     event-time: event_time
+  #     # How late THIS stream's rows may be. Lateness belongs to the source, so it is set per
+  #     # stream. This is the key that is read; pravaha.watermark.out-of-orderness below is not.
+  #     out-of-orderness: 10s
 
   # Who may connect, and what they may see.
   #
   # Every mechanism below was built and tested long before it was reachable: mayRead on each view,
-  # row filters honoured on subscribe, per-source checks at registration, principals from verified
-  # tokens, re-authorization when the journal is replayed. The node used to construct PERMISSIVE
+  # row filters applied to a read, per-source checks at registration, principals from verified
+  # tokens, re-authorization when the journal is replayed. This list used to say "row filters
+  # honoured on subscribe"; subscribe is the one path that REFUSES a principal carrying a row
+  # filter, deliberately -- reading the view still works and still applies the filter (STRM-13). The node used to construct PERMISSIVE
   # and AuditSink.NONE in its own constructor and never call authenticatedBy at all -- the lock was
   # built and the door was propped open.
   #
@@ -209,13 +219,20 @@ pravaha:
   # watermark passes its end. A watermark that does not advance is not a quiet query, it is
   # unbounded state.
   watermark:
-    # How late a row may be before the engine stops waiting for it. This is the DEFAULT; a stream
-    # that knows better overrides it at creation with StreamSchema.outOfOrderness, because
-    # lateness belongs to the source and not to the engine.
+    # NOT READ BY ANYTHING (DOCX-6). This key was meant to be the engine-wide default for how late
+    # a row may be before the engine stops waiting for it, and no code binds it: proved by
+    # experiment, not by grep -- four nodes over the same out-of-order fixture give an identical
+    # view at 0s and at 10m here, and different views at 0s and 10m under
+    # pravaha.streams.<name>.out-of-orderness, which IS read.
     #
-    # Ten seconds is generous for a well-behaved source and mean for a bad one, which is the right
-    # way round: too small silently drops rows as late, too large only costs memory, and the
-    # second failure is visible while the first is not.
+    # Set it per stream instead. It is left here rather than deleted because removing a shipped key
+    # and giving it a reader are both decisions with consequences beyond this comment, and a key
+    # that silently does nothing is worse documented as absent than as broken.
+    #
+    # The 10s default itself is real and lives in StreamSchema.DEFAULT_OUT_OF_ORDERNESS: generous
+    # for a well-behaved source and mean for a bad one, which is the right way round -- too small
+    # silently drops rows as late, too large only costs memory, and the second failure is visible
+    # while the first is not.
     out-of-orderness: 10s
     # How long a partition may produce nothing before it stops holding the watermark back. Too
     # long and one quiet partition freezes every window in the query, which presents as a hang

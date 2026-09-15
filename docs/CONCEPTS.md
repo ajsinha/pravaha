@@ -62,12 +62,18 @@ this one idea.
 >
 > Lateness belongs to the **source**, not the engine: a topic fed by mobile clients over a flaky
 > network and a scan of data already at rest have nothing in common, and one engine-wide number has
-> to be wrong for one of them. A stream that says nothing gets **10 seconds**, which a deployment
-> moves with `pravaha.watermark.out-of-orderness`.
+> to be wrong for one of them. A stream that says nothing gets **10 seconds**, which a server
+> deployment moves per stream with `pravaha.streams.<name>.out-of-orderness`. (The engine-wide
+> `pravaha.watermark.out-of-orderness` key is in the shipped `application.yaml` and is read by
+> nothing — DOCX-6.)
 >
-> Note what this is *not*. It decides how long the engine waits before calling a window complete. A
-> row arriving after that is still applied — as a retraction and a correction — which is what the
-> weights are for.
+> Note what this is *not*. It decides how long the engine waits before calling a window complete.
+> **It is not allowed lateness**, which is what decides whether a row arriving after that is still
+> applied as a retraction and a correction. Allowed lateness defaults to zero and no server
+> configuration can raise it (TIME-7), so on a server-registered `TUMBLE` query a row arriving after
+> the window closed is counted as late and dropped. The correction path is real, and today it is
+> reachable only from an embedder that declares `allowedLateness`, or from an overlapping window
+> still inside its band.
 >
 > **Where watermarks come from.** Ask for them:
 >

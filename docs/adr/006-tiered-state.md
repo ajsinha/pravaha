@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; **not built** — only L2 (checkpoint files) exists; there is no RocksDB L1 and no off-heap L0 tier, and `L0StateMap` was deleted in Wave 8 (W8-12). See *Implementation status* below |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

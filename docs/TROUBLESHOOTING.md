@@ -11,6 +11,13 @@ ticket.
 This page is for when the message was not enough, or when you are searching for a code you found in
 a log.
 
+> **The URL in the message does not resolve.** Every refusal ends with
+> `https://docs.pravaha.io/errors/PRV-nnnn`, and `docs.pravaha.io` is not registered — the host does
+> not exist, so the link fails to connect rather than 404ing, which reads like a network problem at
+> exactly the wrong moment. **This file is the reference those links were meant to reach.** Recorded
+> as DOCX-21; whether to register the domain or drop the line from the message is the owner's call,
+> not a documentation edit.
+
 ## The ranges
 
 | | |
@@ -143,7 +150,7 @@ schema is where you stop yourself.
 | `PRV-4003` state not ours | Another node owns this checkpoint directory or registry journal, or a second instance of this node is running. The message names the holder's node id, host, port and how long ago it was last seen. Give this node its own directory, stop the other instance, or set `pravaha.state.allow-shared=true` if sharing really is intended. A node reclaiming *its own* state after a crash does **not** hit this: an expired claim under the same node id is taken over automatically |
 | `PRV-4004` ownership marker unreadable | The `.pravaha-owner` file in a state directory exists and cannot be read, written, or names no node. Refused rather than assumed free, because a truncated marker and an absent one mean different things. Delete it only if the directory is genuinely unowned |
 | `PRV-3001` arena exhausted | Off-heap arena full — usually a batch far larger than expected |
-| Disk growing | **Checkpoint files.** `FileCheckpointStore.prune(keep)` exists and nothing calls it automatically. This is the known disk-growth path; see [`OPERATIONS.md`](OPERATIONS.md) |
+| Disk growing | **Not checkpoints, unless you configured it that way.** `PeriodicCheckpointer` prunes after every checkpoint, keeping the newest `pravaha.checkpoint.keep` (default 3) per query; this row used to say nothing called `prune`, and something does. Check `pravaha.checkpoint.keep`, and then the registry journal, which grows until it is compacted. See [`OPERATIONS.md`](OPERATIONS.md) |
 
 ## Connection problems
 

@@ -32,8 +32,8 @@ import com.ash.messaging.pravaha.security.TokenVerifier;
  * {@code pravaha.security.*}: who may connect, and what they may see.
  *
  * <p>Every mechanism this configures was already built and tested -- {@code mayRead} on each view,
- * row filters honoured on subscribe, per-source checks at registration, principals from verified
- * tokens, re-authorization on recovery. None of it was reachable, because the node constructed
+ * row filters applied to a <em>read</em>, per-source checks at registration, principals from
+ * verified tokens, re-authorization on recovery. None of it was reachable, because the node constructed
  * {@code SecurityPolicy.PERMISSIVE} and {@code AuditSink.NONE} in the constructor and never called
  * {@code authenticatedBy} at all. The lock was built and the door was propped open.
  *
@@ -41,6 +41,13 @@ import com.ash.messaging.pravaha.security.TokenVerifier;
  * authenticated its caller should not have to configure authentication twice. What is new is that
  * running open is now a <em>decision</em>: {@link #isAllowAnonymous()} must be set, and the node
  * refuses to start without it rather than serving everything to everybody quietly.
+ *
+ * <p>One thing this list used to claim and does not do: row filters are <em>not</em> honoured on
+ * subscribe. A principal whose {@code AccessDecision} carries a row filter is refused by
+ * {@code PravahaFlightSqlProducer.streamSubscription}, which is the right behaviour -- it replaced a
+ * leak -- and means a policy returning row filters removes the ability to subscribe from every
+ * conditionally-entitled principal. Reading the view still works and still applies the filter
+ * (STRM-13).
  */
 @Component
 @ConfigurationProperties(prefix = "pravaha.security")

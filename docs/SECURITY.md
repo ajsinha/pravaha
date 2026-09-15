@@ -148,18 +148,21 @@ this; it is a defect, not a documented limitation. See `docs/qa/FINDINGS.md`'s S
 `getFlightInfo` is authorized as strictly as fetching rows. A schema is the list of columns an
 organisation keeps about its customers; the catalogue is a map of what a deployment does.
 
-**Correction (QA, SECX round, 2026-09-14).** `AccessDecision.deniedWithoutDetail()` exists in
-`pravaha-security` but is **not called from any production code path** — it is dead API, not a wired
-mechanism. In practice a denial for a view that exists and one for a view that does not read
-*differently*, and the difference discloses the deployment's catalogue to a denied caller:
-`subscribe`/`drop`/`pause`/`resume` against an existing-but-forbidden view answer `PRV-7002` naming
-just that view, while the same verb against a name nobody registered answers `PRV-8002` naming
-**every currently registered view on the node**. A caller who is denied one view can still enumerate
-every other view's name by asking for a name that doesn't exist. If a deployment needs the
-non-enumerable behavior this section used to promise, its policy has to call
-`deniedWithoutDetail()` itself and the call sites that answer "does this name exist" need to honour
-it — neither is true of the shipped code today. See `docs/qa/logs/SECX.md` (SECX-028) and
-`docs/qa/FINDINGS.md`'s SX-1.
+**How a denial reads, and what it no longer tells you.** `subscribe`, `drop`, `pause` and `resume`
+**authorize before they resolve the name**. A principal the policy denies gets `PRV-7002` naming only
+the view they asked for, and gets exactly that whether or not the view exists — so the two replies no
+longer distinguish "forbidden" from "not there". And the refusal for a name nobody registered is now
+`PRV-8002  no query named 'x' is registered`, which names the one name asked for; it used to append
+`this node has [...]` with every registered view on the node, unfiltered by any policy, so one denied
+principal could read the whole catalogue out of a single misspelling (STRM-9, closing the disclosure
+half of SX-1).
+
+What is still true: `AccessDecision.deniedWithoutDetail()` exists in `pravaha-security` and is called
+from **no production path** — it is API with tests and no caller. A policy that allows a principal
+broadly can still probe which names exist, because for them the allow/refuse distinction is
+legitimate; that is the residue, and under the default `permissive` policy it is everybody. A caller
+entitled to know what exists should use `LIST`, which is filtered by the policy rather than refused.
+See `docs/qa/logs/SECX.md` (SECX-028) and `docs/qa/FINDINGS.md`'s SX-1 and STRM-9.
 
 ## Telling failures apart
 
@@ -223,9 +226,24 @@ each individually valid but do not match each other lets the node start and repo
 - **Column masking and per-column policy** — deliberately out of ADR-031 until a deployment asks
   (ADR-028: a feature earns its place)
 - **OIDC / JWT verification out of the box** — `TokenVerifier` is the seam; no implementation ships
-- **mTLS between nodes**, certificate rotation — Wave 8, with clustering
+- **mTLS between nodes**, certificate rotation — deferred with multi-node execution
+  ([ADR-034](adr/034-distribution-deferred.md)). Wave 8 was survival on one node, not
+  clustering ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)), and a standby talks to
+  a directory rather than to its primary, so there is no node-to-node channel to secure yet
 - **Secret management integration** (`SecretProvider` SPI in the design) — not built
 - **Security review and SBOM** — Wave 10
+
+## A conditional entitlement cannot subscribe
+
+**A principal whose `AccessDecision` carries a row filter is refused on `subscribe`**, and is the one
+path that refuses it. Reading the same view works and applies the filter; a subscription does not,
+because the change stream is the shared computation and filtering it per principal at the tap is not
+the same thing as filtering a read.
+
+This is deliberate — it replaced a leak — but it is a migration hazard nobody was told about:
+switching a deployment to a policy that returns row filters silently removes the ability to subscribe
+from every conditionally-entitled principal. The remedy is to read the view rather than subscribe to
+it, which does honour the filter. Recorded as STRM-13.
 
 ## What a registration is allowed to read
 

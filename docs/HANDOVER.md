@@ -14,21 +14,23 @@ otherwise have to rediscover the hard way.
 
 | | |
 |---|---|
-| `main` | `fe2717e`, tags `M1` `M2` — Waves 1 and 2 complete |
-| `develop` | **68 commits ahead** of `main`, green, **pushed to origin** |
-| Modules | **27** |
+| `main` | `01f7733`, tags `M1` `M2` `M7` — Waves 1–7 complete |
+| `develop` | **208 commits ahead** of `main`, **pushed to origin**. Wave 8 is here and not yet merged or tagged |
+| Modules | **30** Maven modules, plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **1101** — 14 of them against real Aerospike and PostgreSQL servers in Docker |
-| Python tests | **39**, including the client driving a real Java Flight SQL server |
+| Python tests | **67** in `sdk/python` (collected 2026-09-14), including the client driving a real Java Flight SQL server, plus **34** for the console |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **35** |
 
 **Where the waves stand.** Waves 3, 4 and 5 (E4) are **complete** in scope, Wave 6 (E5) and Wave 7
-(E6) are complete in scope as well — see their sections below — and Gates P2, P3 and P6 are
-unpassed for want of reference hardware rather than code. This header said "Wave 6 has started"
-for two waves after it had finished, which is what a session note becomes when it is not dated out
-of the way; the wave-by-wave detail below is the part to trust. **No gate pack exists for waves 5
-or 6** — `docs/gates/` holds wave-1 through wave-4 and wave-7 — so the evidence for those two
-waves is this document and the tests, and nothing else.
+(E6) are complete in scope as well, and **Wave 8 is built** — rescoped by
+[ADR-035](adr/035-wave-8-is-survival-not-distribution.md) from E7's cluster to survival on one node;
+see its section below. Waves 9 and 10 have not started. Gates P2, P3 and P6 are unpassed for want of
+reference hardware rather than code. This header said "Wave 6 has started" for two waves after it
+had finished, which is what a session note becomes when it is not dated out of the way; the
+wave-by-wave detail below is the part to trust. **No gate pack exists for waves 5, 6 or 8** —
+`docs/gates/` holds wave-1 through wave-4 and wave-7 — so the evidence for those three waves is this
+document and the tests, and nothing else. ADR-035 promises Wave 8 a gate pack; it is not written.
 
 **Session of 2026-09-09/10 — what changed at the time.**
 
@@ -61,10 +63,14 @@ allowed at all — every one before this was refused for unbounded state.
 
 ### What actually works today
 
-SQL runs end to end. `docs/QUICKSTART.md` is **not** covered by a test: `ExamplesTest` never opens
-it. It reads `examples/01-*/README.md` and `examples/02-*/README.md`, and hard-codes two
-quickstart-shaped command lines of its own — so the quickstart can rot, and did, while the build
-stayed green (DOCX-047). Extracting its commands from the file is the cheapest fix available here.
+SQL runs end to end. `docs/QUICKSTART.md` **is** covered now: `QuickstartCommandsTest` reads the
+document, runs every fenced `bash` block that needs no server — four of them, `cd`, `printf`, `cat`
+and `pravaha run` — and checks what each prints against the fenced output block underneath it. The
+blocks that need a server (`pravaha-server`, `register`, `query`, `subscribe`, `drop`) and the
+console's `make` targets are **not** covered and are skipped rather than half-run. `ExamplesTest`
+still reads `examples/01-*/README.md` and `examples/02-*/README.md` and hard-codes two
+quickstart-shaped command lines of its own; that is why the quickstart could rot, and did, while the
+build stayed green (DOCX-047, DOCR-3).
 
 ```
 SQL → Calcite (parse, validate, optimise) → PhysicalPlanBuilder → Pravaha's operator tree
@@ -248,7 +254,7 @@ green** — the eighth went green with checkpointing, at the start of Wave 5.
 | Join on the lane runtime, two sources | ✅ lanes have one inbox per input; `JoinOnLanesTest` |
 | Join across lanes | ✅ `pumpPartitionedInto` hashes each row's join key and routes it to the lane that owns it, with the same hash the join looks it up with. A plain pump on a multi-lane join is refused, naming the right one |
 | Expressions in `WHERE` (`amount * 2 > 100`) | ✅ `Predicate.CompareExpressions` |
-| Aligned barriers across the exchange | ❌ — checkpointing is per-lane, which is sound only while lanes share no state; the limitation is written into `QueryExecution.checkpoint` |
+| Aligned barriers | ⚠️ **built for every input, not for the exchange** (Wave 8, W8-2/3/4). A checkpoint is one cut: `freezeIngest` holds every source between rows while each lane is handed a marker, so the offsets and the state name the same rows. A row in flight *between* lanes is not cut — `QueryExecution.refuseWhileRowsCrossTheExchange` refuses rather than dropping it, and no pipeline this engine compiles sends on the exchange. See [ADR-008](adr/008-aligned-checkpoints.md) |
 | Windowed / time-versioned joins | ⚠️ a default match window bounds join state in event time (`JoinOperator.DEFAULT_MATCH_WITHIN_NANOS`), which is what made the join survivable. A *stated* temporal predicate in SQL — `BETWEEN b.t - INTERVAL '1' HOUR AND b.t` — is still not parsed, so the window cannot yet be chosen per query. Previously: the unwindowed join was bounded only by a row ceiling, which fails the query rather than the node |
 | Outer joins | ✅ `LEFT` **with a time bound** — the null-padded row is emitted when the watermark passes the window, once, never retracted. Without a bound it is still refused, because there is no moment at which a row can be declared unmatched. `RIGHT`/`FULL` would need the same on the other side and are not built |
 | Self-joins | ❌ — both sides would read one stream and a stream name cannot say which side a row is for. Refused when the pipeline is built, and the one refusal reachable from SQL that carries no `PRV-` code |
@@ -265,7 +271,7 @@ shutdown and emits everything held, `abort()` is what a crash does and emits not
 test that "crashes" by closing gracefully will see every pre-checkpoint window twice, with all the
 right numbers — which is how that distinction was discovered.
 
-### Wave 6 (E5) — started
+### Wave 6 (E5) — complete in scope
 
 | Piece | State |
 |---|---|
@@ -328,8 +334,8 @@ ordinary query, and nothing but a support call would have surfaced it.
 **The Python SDK's transport tests were skipping silently.** They start the real Java server from
 `pravaha-flight/target/test-classpath.txt`, and nothing wrote that file — so sixteen cross-language
 tests reported as skips, which look identical to passes in a pytest summary line. `pravaha-flight`
-now writes it at `test-compile` via `maven-dependency-plugin:build-classpath`. All 46 Python tests
-now run for real.
+now writes it at `test-compile` via `maven-dependency-plugin:build-classpath`. Those sixteen now run
+for real, rather than reporting as skips.
 
 **Arrow needs JVM flags**: `--add-opens=java.base/java.nio=ALL-UNNAMED` and
 `--add-opens=java.base/java.lang=ALL-UNNAMED`, plus `--sun-misc-unsafe-memory-access=allow` on Java
@@ -339,6 +345,30 @@ now run for real.
 
 `P1-11` Kafka plugin — still deferred, still for the same reason (ADR-028: breadth is not proof).
 Aerospike, Cassandra and Redis remain Wave 5 and Wave 10 as planned.
+
+### Wave 8 — survival on one node; Gate P7 has no pack
+
+Rescoped by [ADR-035](adr/035-wave-8-is-survival-not-distribution.md): E7's cluster is still
+deferred with [ADR-034](adr/034-distribution-deferred.md), and this wave was about one node
+surviving its own restart, its own operator's mistakes, and its own half-finished mechanisms.
+
+| Piece | State |
+|---|---|
+| A node owns the state it writes | ✅ `StateOwnership` (`pravaha-common`). `PravahaNode.claimState` claims the checkpoint root and the registry journal's directory, writing a `.pravaha-owner` marker naming node id, host, Flight port and pid, refreshed on a 30s lease by a daemon thread. `PRV-4003` refuses another node or a second live instance of this one; `PRV-4004` refuses an unreadable marker rather than assuming the directory free. `pravaha.state.allow-shared` is the named override. An *expired* claim under the same node id is reclaimed automatically — that is what a crash restart looks like (W8-1, closing CFG-13 and CFG-14) |
+| Aligned checkpoint barriers | ✅ for every input, ❌ for the exchange. `freezeIngest` holds every source between rows while every lane is handed a marker, so the recorded offsets and the stored state name the same rows; a lane cuts its batch *at* the marker rather than a batch beyond it; and `partitionedPumps` — the only way to feed a multi-lane query — is in the offsets map at last, so a multi-lane checkpoint can be rewound to at all. `AlignedCheckpointBarrierTest`, `ControlTaskBarrierTest`, all four seed-proven (W8-2, W8-3, W8-4, W8-5) |
+| Standby and checkpoint failover | ✅ `StandbyWatch` (`pravaha-server`), `pravaha.standby.enabled`, configured with the **same** `pravaha.node.id` as the primary on purpose — `StateOwnership` already tells "our id, claim expired" from "our id, claim live", so there is one mechanism deciding ownership rather than two that can disagree. Refused at startup without `pravaha.checkpoint.directory`. A standby watching another node's directory never promotes and says so. The promotion line names what the takeover lost: **recovery time, not continuity** (W8-6) |
+| Dead-letter queue, wired | ✅ `pravaha run --dlq <file>`. A server still has no `pravaha.dlq.*` key (W8-11) |
+| `L0StateMap` | 🗑️ **deleted**. Its keys are a fixed width chosen at construction; the state it was written for is the windowed aggregate's, whose group key can contain a `STRING`. It had never been referenced from any `src/main` (W8-12) |
+| `ChangelogAnalysis` | ⚠️ **kept, unwired, on purpose.** Nothing binds a query to a sink — no `INSERT INTO`, no `pravaha.sinks`, no `StreamSinkPlugin` service declaration — and every continuous query writes to a `ViewSink`, which applies a retraction correctly, so there is nothing to refuse. `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction` asserts that precondition and fails the moment a sink binding appears (W8-13) |
+| The findings register could not see a Wave 8 finding | ✅ fixed — `FindingsRegisterTest` did not recognise the `W8-` prefix, and a duplicate identifier went unnoticed (W8-7) |
+
+**What Wave 8 did not do.** Membership, assignment, rebalance, elastic rescale, multi-tenancy,
+Ratis, any multi-node execution: all still E7's and still deferred. The exchange is still not cut by
+a barrier. `DeduplicatingSink` is still not wired, so output is still effectively-once. The windowed
+aggregate still keys state by a 64-bit digest (W8-14, open, and no test can prove a fix).
+
+**No gate pack.** ADR-035 says "Wave 8 gets a gate pack, which waves 5 and 6 never got". It does not
+have one. Gate P7 is unrecorded, and `docs/gates/` still stops at wave-7.
 
 ## 3b. The documentation, and which parts the build checks
 
@@ -352,14 +382,17 @@ Rewritten and extended in Wave 7. What exists now:
 | [`USER_GUIDE.md`](USER_GUIDE.md) | The whole surface, task by task, three clients |
 | [`OPERATIONS.md`](OPERATIONS.md) | Bounds, what to watch, and what is not solved |
 | [`SECURITY.md`](SECURITY.md) | The three seams, row filters, the soundness rule |
-| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | Every `PRV-` code; table generated from the source |
+| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | Every `PRV-` code. The table is **hand-maintained**; `ErrcCrossCuttingTest` fails the build if it and the `ErrorCode` declarations disagree in either direction |
 | [`SQL_SUPPORT.md`](SQL_SUPPORT.md) | Every construct, planned and compiled by a test |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Restructured around the life of a query |
 
 **Checked by the build, not by memory:** every SQL statement in `SQL_SUPPORT.md` and in the case
-studies is planned, built and compiled against the real engine; the error-code table is generated
-from `ErrorCode` declarations; `DocumentationFreshnessTest` verifies every module is described, every
-internal link resolves, and every decision a document cites has an ADR.
+studies is planned, built and compiled against the real engine; `ErrcCrossCuttingTest` holds the
+error-code table against the `ErrorCode` declarations in both directions;
+`DocumentationFreshnessTest` verifies every module is described and every decision a document cites
+has an ADR. Its link check is **narrower than it sounds** — thirteen files, and only targets carrying
+a file extension, so roughly a third of the repository's internal links; `docs/adr/`, `examples/`,
+`console/` and `sdk/` are outside it and anchors are checked by nothing (DOCX-034, DOCX-050).
 
 **All of it is readable in the console**, with contextual help cards on each page and the five case
 studies alongside the guides. Rendered from `docs/` rather than copied, so it cannot drift.

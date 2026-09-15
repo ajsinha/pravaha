@@ -73,20 +73,37 @@ That is the whole engine — parse, plan, off-heap execution — with no process
 embedded mode works, and how the tests run.
 
 **A line the file cannot decode.** By default one bad line ends the run, naming the line, the column
-and the value — no output is written. Add `--dlq <file>` to finish the run anyway and get the
-rejected lines on disk, one JSON object each, with their original bytes:
+and the value, and no rows are written. `transactions.csv` is clean, so make one that is not:
+
+```bash
+printf '1,alice,500,COMPLETED\n2,bob,not-a-number,COMPLETED\n3,carol,900,COMPLETED\n' > mixed.csv
+pravaha run --sql "SELECT user_id, amount FROM txn" \
+            --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
+            --out-schema "user_id:STRING,amount:INT64" \
+            --stream txn --in mixed.csv --out mixed-out.csv
+```
+
+```
+PRV-5040  line 2, column 'amount' (INT64): 'not-a-number' is not a number
+```
+
+Add `--dlq <file>` to finish the run anyway and get the rejected lines on disk, one JSON object
+each, carrying the original bytes base64-encoded:
 
 ```bash
 pravaha run --sql "SELECT user_id, amount FROM txn" \
             --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
             --out-schema "user_id:STRING,amount:INT64" \
-            --in transactions.csv --out out.csv --dlq rejects.jsonl
+            --stream txn --in mixed.csv --out mixed-out.csv --dlq rejects.jsonl
 ```
 
 ```
-ok  3 in, 2 out
+ok  2 in, 2 out
   1 rejected -> rejects.jsonl
 ```
+
+The counts are of rows the engine saw, so a rejected line is *not* counted in — two in, two out,
+one rejected, from a three-line file.
 
 ## 3. See a query the engine refuses
 
@@ -257,7 +274,7 @@ pravaha subscribe --view user_volume --filter user_id=u1
 The console is a **separate process** that talks to the engine over the published Python SDK
 (ADR-024), and ships as its own artefact (ADR-033). So it needs the engine running first.
 
-**Prerequisites:** Python 3.11+, and an engine listening on `9090` (step 2 above).
+**Prerequisites:** Python 3.11+, and an engine listening on `9090` (step 4 above).
 
 **Set a console password first**, or nobody can sign in — which is the safe failure, because the
 console can drop queries and a default password is a public one:
@@ -370,11 +387,12 @@ with connect("grpc://localhost:9090") as client:
 
 ## What is not built
 
-Stated so you do not go looking. Roughly wave 7 of 10:
+Stated so you do not go looking. Roughly wave 8 of 10:
 
 | | |
 |---|---|
-| Clustering, HA, failover | Wave 8 — **single node today** |
+| Clustering, rebalance, multi-node execution | Deferred ([ADR-034](adr/034-distribution-deferred.md)) — **one node, scaled to its cores**. Wave 8 bought survival on that node, not distribution across several ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)) |
+| Continuous failover | A standby (`pravaha.standby.enabled`) takes over from the newest checkpoint and says what that cost. It buys **recovery time, not continuity** |
 | Time-travel debugging | Wave 9. Prometheus metrics are live now — `/actuator/prometheus`, see [Operations](OPERATIONS.md#watching-a-running-node) |
 | Kafka, Cassandra, Redis plugins | Wave 10. Filesystem, JDBC and Aerospike work now |
 | Spring Boot starter | ADR-020 planned it; not built |

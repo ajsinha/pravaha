@@ -45,9 +45,13 @@ Several of them are **checked by the build** rather than maintained by memory:
 - `TROUBLESHOOTING.md` — the code table is hand-maintained and `ErrcCrossCuttingTest` fails the build
   if it and the `ErrorCode` declarations disagree in either direction
 - The case studies — every `.sql` file is planned and run, and each README must quote the checked file
-- `DocumentationFreshnessTest` — every module is described and every ADR a document cites exists.
-  Its link check is narrower than it sounds: thirteen files, and only targets carrying a file
-  extension, so about a third of the repository's internal links. Anchors are checked by nothing
+- `QUICKSTART.md` — `QuickstartCommandsTest` runs the four command blocks that need no server,
+  straight out of the document, and checks what they print against what the document says they
+  print. The blocks that need a running server are skipped, not covered
+- `DocumentationFreshnessTest` — every module is described, every ADR a document cites exists, and
+  the README's status badge, status line and roadmap table agree about which wave this is. Its link
+  check is narrower than it sounds: thirteen files, and only targets carrying a file extension, so
+  about a third of the repository's internal links. Anchors are checked by nothing
 
 That is deliberate. Documentation that drifts is worse than none, because a reader has no way to tell
 which half is true.

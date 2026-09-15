@@ -176,6 +176,12 @@ that blocked would apply backpressure to the *query*, slowing it for everyone ke
 | `DROP_OLDEST` | Recency over completeness, where keys are not meaningful |
 | `FAIL` | A ledger, settlement, an audit feed. Being told beats carrying on with a gap |
 
+`FAIL` **ends your subscription, not the query.** It is your answer to falling behind, not a
+statement about the computation everyone else is reading — the subscription records the failure and
+closes, and you find out from `failure()` and `isClosed()`. It used to throw from the commit loop and
+fail the whole query, so the same three subscribers on the same input got a different answer
+depending on the order they attached (STRM-2). Reconnect and re-read the view to catch up.
+
 Whatever is lost is **counted** (`dropped()`, `conflated()`), because a subscriber silently missing
 data is the failure the mechanism exists to make visible.
 

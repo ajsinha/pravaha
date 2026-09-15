@@ -408,8 +408,13 @@ bounded. A window bounds an aggregate because the window closes. Nothing yet bou
 stream-to-stream join, and retention on its output view would not help — the join's liability is the
 unmatched rows it is holding *upstream*, waiting for partners that may never arrive.
 
-It is also not durability. A view is not checkpointed at all; it is rebuilt from the query. Retention
-decides what is kept hot, never what survives a restart.
+It is also not durability. Retention decides what is kept hot, never what survives a restart. What
+survives is the checkpoint, and **the view is in it** — `QueryRegistry` snapshots and restores it
+through `checkpointingViewWith`, alongside the operator state and the source offsets. It has to be:
+a filter or a projection has no accumulators, so the view *is* the whole answer, and a restore that
+rewound the offsets without it served an empty view under a query reporting `RUNNING`. With no
+checkpoint directory configured there is no checkpoint, and then a restart is a warm-up: the journal
+brings back the questions and the view fills again as data arrives.
 
 ## Why a join has a clock
 
@@ -550,7 +555,7 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 | [`plugins/pravaha-cluster-zookeeper`](../plugins/pravaha-cluster-zookeeper) | A ZooKeeper-backed coordinator. Its own artefact, so a deployment using sockets or a single node carries no ZooKeeper client. |
 | [`sdk/python`](../sdk/python) | Python client. The console is built on it. |
 | [`console`](../console) | The operator console: a separate Python process, its own artefact (ADR-033). `core/` holds configuration, the engine adapter and the services; `routes/` defines the pages and `/api/v1`; `web/` holds the Jinja templates and the vendored assets; `content/` holds help topics that **include** this documentation rather than copying it. |
-| `pravaha-state` | Off-heap state: the L0 map, the block store joins hold rows in, and checkpoints. |
+| `pravaha-state` | Durable and off-heap state: the block store joins hold rows in, and checkpoints. The L0 off-heap map that was meant to be the first tier is **gone** — deleted in Wave 8 (W8-12), because its keys are a fixed width and a `GROUP BY` key containing a string is not. |
 | `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
 | `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
 | `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |

@@ -16,7 +16,7 @@
 
 *Pravaha* (Sanskrit: *continuous, uninterrupted flow*) · pronounced *pruh-VAA-huh*
 
-[![Status](https://img.shields.io/badge/status-wave%207%20of%2010-blue)](docs/HANDOVER.md)
+[![Status](https://img.shields.io/badge/status-wave%208%20of%2010-blue)](docs/HANDOVER.md)
 [![Java](https://img.shields.io/badge/Java-21%20LTS-orange)](docs/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/implementation_plan.md)
 [![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
@@ -25,7 +25,8 @@
 
 ---
 
-> **Project status: Wave 7 of 10 — an engine, a client protocol, an operator console. No clustering.**
+> **Project status: Wave 8 of 10 — an engine, a client protocol, an operator console, and a node that
+> survives its own restart. No clustering.**
 >
 > Written as *what is true now* rather than as a history of waves. The wave-by-wave version of this
 > section said "no UI" nine lines above a paragraph describing the console, and listed watermark
@@ -45,7 +46,8 @@
 | **Sources** | Filesystem (bounded, or `tail -f` with `follow: true`), feedfile, JDBC, Delta and Aerospike. Filters are pushed into the store on every path a deployment uses. |
 | **Joins** | Stream-to-stream, and temporal lookup joins against a dimension table, reachable from a registered query. |
 | **Serving** | The maintained view is read back by key in microseconds, or subscribed to for changes per commit. |
-| **Recovery** | Checkpoints carry operator state, source offsets and the served view; a restart resumes rather than replaying or starting empty. |
+| **Recovery** | Checkpoints carry operator state, source offsets and the served view, cut at one point across every input (ADR-008); a restart resumes rather than replaying or starting empty. |
+| **Survival** | A node claims the checkpoint root and the registry journal it writes, so two nodes cannot silently prune and replay each other's state (`PRV-4003`, override with `pravaha.state.allow-shared`). A standby (`pravaha.standby.enabled`) takes over when the claim goes stale and reports what the takeover lost rather than implying continuity. A bad input line goes to a dead-letter queue (`pravaha run --dlq <file>`) instead of ending the run. |
 | **Clients** | Flight SQL, a Java SDK, a Python SDK, a CLI, and a console. Authentication, authorisation, row filters and prepared statements. |
 
 ### What is not built, stated plainly
@@ -302,10 +304,12 @@ are not audited.
 Several of these are **verified by the build** rather than maintained by memory: every SQL statement
 in `SQL_SUPPORT.md` and in the case studies is planned against the real engine (and 26 of its 42
 supported constructs have their answer asserted), `ErrcCrossCuttingTest` fails the build if
-`TROUBLESHOOTING.md`'s code table and the `ErrorCode` declarations disagree in either direction, and
-a freshness test checks that every module is described and every decision a document cites has an
-ADR. Its link check reaches only thirteen files and only links with a file extension — roughly a
-third of the repository's internal links; `docs/adr/`, `examples/`, `console/` and `sdk/` are
+`TROUBLESHOOTING.md`'s code table and the `ErrorCode` declarations disagree in either direction,
+`QuickstartCommandsTest` runs the quickstart's serverless commands out of the document and checks
+what they print, and a freshness test checks that every module is described, that every decision a
+document cites has an ADR, and that this file's status badge, status line and roadmap table agree
+about which wave it is. Its link check reaches only thirteen files and only links with a file
+extension — roughly a third of the repository's internal links; `docs/adr/`, `examples/`, `console/` and `sdk/` are
 outside it, and anchors are not checked at all (DOCX-034, DOCX-050).
 
 All of them are also readable **inside the console**, with contextual help cards on each page.
@@ -360,11 +364,12 @@ operator console is its own artefact in [`console`](console).
 | 5 | 19–25 | Joins, Aerospike, checkpointing and recovery | ✅ built |
 | 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built |
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built · console included |
-| 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ▫️ not started |
+| 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ✅ built · gate P7 pack not written |
 | 9–10 | 46–62 | Time-travel debugger, Nexmark published head-to-head, **GA** | ▫️ not started |
 
-Waves 1–7 are merged to `main` at tag `M7`. "Built" means the code is there and tested; it does not
-mean a performance gate passed, and [`docs/gates`](docs/gates/) says which ones did not and why.
+Waves 1–7 are merged to `main` at tag `M7`; Wave 8 is on `develop` and not yet merged or tagged.
+"Built" means the code is there and tested; it does not mean a performance gate passed, and
+[`docs/gates`](docs/gates/) says which ones did not and why — it holds no pack for waves 5, 6 or 8.
 
 [Full roadmap with acceptance gates →](docs/system_design.md#31-delivery-roadmap)
 

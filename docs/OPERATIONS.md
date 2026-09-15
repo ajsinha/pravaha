@@ -231,21 +231,36 @@ execution.generatingWatermarks();   // each stream uses the lateness it declared
 
 ```yaml
 pravaha:
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time    # without this no watermark advances and no window closes
+      out-of-orderness: 10s     # how late this stream's rows may be
   watermark:
-    out-of-orderness: 10s   # the default; a stream overrides it at creation
     idle-after: 30s
     tick: 1s
 ```
 
-**Two settings, and both bound memory rather than taste.**
+**Three settings, and every one of them decides whether memory is bounded at all** — not one of
+them is a matter of taste.
 
 *Out-of-orderness* is how late a row may be and still be waited for. Larger tolerates messier
 sources and holds every window open longer, so state is larger. Smaller closes sooner and treats
 more rows as late corrections.
 
-Set it **per stream**, at creation, with `StreamSchema.outOfOrderness` — lateness is a property of
-the source, and a query reading three streams should get three tolerances rather than the worst of
-them. The configuration key is the default for streams that do not say.
+Set it **per stream** — lateness is a property of the source, and a query reading three streams
+should get three tolerances rather than the worst of them. Configuration does that with
+`pravaha.streams.<name>.out-of-orderness`; an embedder does it with `StreamSchema.outOfOrderness`.
+
+> **`pravaha.watermark.out-of-orderness` is not that key.** It is present in the shipped
+> `application.yaml` and described there as the engine-wide default, and **nothing reads it**
+> (DOCX-6). Setting it changes no answer. The per-stream key above is the only one that does. This
+> is recorded as an open defect rather than repaired here, because the fix is to give the key a
+> reader or to remove it, and both are code decisions.
+
+*Event time* is `pravaha.streams.<name>.event-time`, naming the column that carries each row's own
+time. Without it every row carries the time it was read, the watermark runs at wall-clock, and a
+windowed query reports `RUNNING` over an empty view for ever.
 
 ### Idle timeout: how long a partition may say nothing
 
@@ -310,10 +325,11 @@ reflected in the view before it reads waits with `awaitApplied`.
 single-lane anyway (ADR-034), and ADR-027's plan for a lane to multiplex several queries is what
 this wants before it reaches hundreds.
 
-**What is still missing: nothing feeds it.** No source plugin is connected to a registered query, so
-rows arrive only from whatever calls `accept` — an embedder, or a test. Connecting a source to a
-registration is the remaining half of making the server a stream processor, and it is now a small
-job rather than a structural one, because the engine underneath is the same engine the CLI uses.
+**Sources feed it.** A binding under `pravaha.sources.<stream>` is opened per computation when the
+first query naming that stream registers, and its rows go into the lane. A query whose streams have
+no binding still registers and runs on rows an embedder or an SDK client pushes through `accept` —
+and the node logs `no sources are bound, ...` at startup, because "zero rows" otherwise has two
+causes that look identical.
 
 ## Starting a node
 
@@ -379,9 +395,10 @@ columns, owner, retention, bound values — is small, changes rarely, and *canno
 because it came from a client that may never connect again. State is large, changes constantly, and
 can be rebuilt by reading the stream.
 
-So a restart costs a **warm-up, not an outage**: views exist immediately and fill as data arrives. A
-windowed query's first window or two are partial. Plan restarts accordingly — this is the honest
-cost, and it is not hidden.
+So a restart of a node with **no checkpoint directory** costs a **warm-up, not an outage**: views
+exist immediately and fill as data arrives, and a windowed query's first window or two are partial.
+With a checkpoint directory the state comes back too — see *Checkpoints: what is actually true*
+below. Plan restarts accordingly; this is the honest cost, and it is not hidden.
 
 **Owners are re-checked on replay.** A registration is not a standing permission. If the principal
 who registered a query has since lost access, the query does not quietly come back — replay refuses
@@ -430,14 +447,68 @@ quiet night every checkpoint is old and a time rule removes them all. More than 
 the newest is the likeliest to be unreadable — it is the one that was being written when the process
 died.
 
-Retention here would be counted rather than timed, and the reasoning is worth keeping for when it is
-wired: a view holds data and streaming data is about what is true now, so age is the right unit
-there; a checkpoint holds a *fallback*, and an idle system takes no new ones — so an age rule would
-delete every checkpoint after a quiet night, precisely when recovery is most likely to be wanted.
+**What this means for you.** With a checkpoint directory, a restart is a resumption: operator state,
+source offsets and the view come back together, and the sources rewind to the point the state
+describes. **Without one it is a warm-up** — the journal restores the questions, the views start
+empty and fill as data arrives, and a windowed query's first window or two are partial. Either way
+there is no RocksDB tier and no disk-based state, so the failure mode under pressure is memory, and
+the defence is plan-time refusal (`PRV-2050`), not spill.
 
-**What this means for you.** Plan restarts as warm-ups, not as resumptions. A windowed query's first
-window or two after a restart are partial. There is no RocksDB tier and no disk-based state — the
-failure mode under pressure is memory, and the defence is plan-time refusal (`PRV-2050`), not spill.
+### Who owns the state, and the standby
+
+A node **claims** the directories it writes durable state into — the checkpoint root and the
+directory holding the registry journal — by writing a `.pravaha-owner` marker naming its node id,
+host, Flight port and pid, refreshed on a 30-second lease by a daemon thread.
+
+It exists because two nodes pointed at one root is two lines of YAML and used to be silent: they
+prune each other's checkpoints, and each replays the other's registrations and comes up running
+queries it never registered (CFG-13, CFG-14). Now the second one refuses to start:
+
+```
+PRV-4003  the state in /var/lib/pravaha/checkpoints belongs to node 'pravaha-node-01'
+          (pravaha-node-01 at 10.0.0.4:9090 (pid 8123)), and this node is 'pravaha-node-02'.
+          ... The other node refreshed its claim 3s ago, so it is running now.
+```
+
+| | |
+|---|---|
+| `pravaha.node.id` | Who the claim is made by. The directory is namespaced by **node id, not by address**, so a node restarting on a new pod IP still finds its own checkpoints; the address lives in the marker, where it answers the question the id cannot — whether the holder is still running |
+| `pravaha.state.allow-shared` | `false`. Skips every check, for an operator who has read the refusal and meant it |
+| `PRV-4003` | Held by another node, or by a second live instance of this one |
+| `PRV-4004` | A marker exists and cannot be read or written. Refused rather than assumed free, because a truncated marker and an absent one mean different things |
+
+**A crash restart is not this.** An expired claim under the *same* node id is taken over
+automatically, with a log line saying so. The lock refuses, explains, and offers a named override;
+it never breaks itself.
+
+**The standby** is the same mechanism asked from outside:
+
+```yaml
+pravaha:
+  node:
+    id: pravaha-node-01     # the SAME id as the primary, on purpose
+  checkpoint:
+    directory: /var/lib/pravaha/checkpoints
+  standby:
+    enabled: true
+```
+
+It holds no lanes and serves nothing. It polls the marker every two seconds and promotes itself when
+the claim has gone unrefreshed for the lease. `pravaha.standby.enabled=true` without
+`pravaha.checkpoint.directory` is refused at startup — there would be nothing to watch and nothing
+to resume from. A standby watching a directory owned by a *different* node id never promotes, and
+says so rather than waiting silently.
+
+**What a takeover buys is recovery time, not continuity**, and the promotion line says which:
+
+```
+promoted from standby: pravaha-node-01 at 10.0.0.4:9090 (pid 8123) last refreshed its claim 41s
+ago. Whatever the previous owner processed after its last checkpoint is not in the state this node
+resumes from; it is replayed from the source offsets that checkpoint carries, and anything the
+source can no longer supply is lost.
+```
+
+No consensus, no membership protocol, no Ratis (ADR-035, ADR-034). Two processes and a directory.
 
 ## Deployment shapes
 
@@ -478,9 +549,16 @@ Without them a Flight server fails *inside* `putNext` and cancels the stream; th
 Checkpoints are files; recovery restores from the newest complete one. A join's state survives a
 crash — there is a test that an interrupted run equals an uninterrupted one.
 
-**Views are not checkpointed.** They are rebuilt by the query, so a restart means a warm-up rather
-than a restore. For a view with a 24-hour retention over a source that can be replayed, that is a
-re-read of a day; for a pass-through feed it is whatever the source still holds.
+**The view is in the checkpoint**, alongside the operator state and the source offsets
+(`QueryRegistry` snapshots and restores it through `checkpointingViewWith`). It has to be: a filter
+or a projection has no operator accumulators, so the view *is* the entire answer, and a restore that
+took the offsets without it resumed the source past every row it had read and served an empty view
+under a query reporting `RUNNING`.
+
+**Without a checkpoint directory a restart is a warm-up, not a restore.** The journal brings back
+every question and none of the answers, and the view fills as data arrives. For a view with a
+24-hour retention over a source that can be replayed, that is a re-read of a day; for a pass-through
+feed it is whatever the source still holds.
 
 ## Upgrades
 
@@ -496,8 +574,15 @@ Listed because you will meet them, not to be thorough:
 
 - **No engine-internal metrics.** Per-query gauges are published (see *Watching a running node*);
   lane throughput and backpressure are not
-- **No clustering, no HA, no rebalance.** Single node (Wave 8)
-- **Aligned checkpoint barriers across the exchange** are not implemented; checkpointing is per-lane,
-  which is sound only while lanes share nothing
+- **No clustering, no rebalance, no multi-node execution.** Deferred under
+  [ADR-034](adr/034-distribution-deferred.md); Wave 8 bought survival on one node, not
+  distribution across several ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)). The
+  HA that exists is a standby that takes over from the newest checkpoint — recovery time, not
+  continuity
+- **Aligned checkpoint barriers stop at the exchange.** A checkpoint is one cut across every input a
+  query reads — the sources are frozen between rows, every lane is handed a marker, and the offsets
+  and the state name the same rows (ADR-008). A row *in flight between two lanes* is not cut; the
+  checkpoint is refused rather than silently dropping it, and no pipeline this engine compiles sends
+  on the exchange, so the case is unreachable today
 - **No performance evidence.** Gates P2, P3 and P6 are unmeasured for want of reference hardware, and
   no number from a developer laptop is quoted as if it were
