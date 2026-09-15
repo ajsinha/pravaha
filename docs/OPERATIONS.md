@@ -105,35 +105,39 @@ pravaha:
 | `pravaha.lane.arena.slab-bytes` | 4194304 | Off-heap slab size, and the largest single output row |
 | `pravaha.lane.arena.max-slabs` | 8 | The lane arena's ceiling, `slab-bytes × max-slabs` |
 
-**The arithmetic.** Off-heap per query, with no rows moving:
+**The arithmetic, measured rather than guessed** — and the obvious guess is wrong. `NodeScaleTest`
+reports off-heap per query:
 
-| | Bytes | Default |
+| | Bytes | Measured |
 |---|---|---|
 | Inbox | `inbox.cells × inbox.cell-bytes` | 2048 × 512 = **1,024 KiB** |
-| Lane arena | up to `arena.slab-bytes × arena.max-slabs`, **allocated on the first row, not at registration** | 0 idle, 4 MiB per slab once it writes |
-| Pipeline arena | sized from the plan's widest output row × `batch-size` | 284 KiB for a four-column schema |
+| Pipeline arena | sized from the plan, not a constant | **284 KiB** once rows move; 0 before |
+| Lane arena | up to `arena.slab-bytes × arena.max-slabs`, allocated on first use | **0** for a projection *and* for a windowed aggregate |
 
-So an **idle** query holds its inbox and nothing else — `NodeScaleTest` measures **1,024 KiB**, down
-from about 5 MiB before the first slab became lazy (W9-6) — and an **active** one measured
-**1,328 KiB** on the same schema (W9-7). A thousand idle queries is therefore about a gigabyte, not
-five.
+So an **idle** query holds **1,024 KiB** — its inbox and nothing else — and an **active** one
+**1,328 KiB**, the same for both shapes that were measured. Before this wave an idle query held about
+5 MiB, so a thousand of them is about a gigabyte rather than five.
 
-**Sizing down.** A query reading a narrow projection does not need a 4 MiB slab or a 512-byte cell:
+**The lane arena is not where the money is.** Its first slab is allocated by the first `allocate()`
+rather than at registration (W9-6), and for both a projection and a windowed aggregate it is never
+allocated at all, because operator output goes to the view rather than through the lane's scratch. It
+stays settable because a plan that *does* write through it — joins, wide fan-out — will, and because
+the messages that say "raise `pravaha.lane.arena.slab-bytes`" have to be able to mean it.
+
+**Sizing down means the inbox.** 2048 × 512 is a megabyte of burst capacity per query, and a query
+fed by an Aerospike scan running once a second will never use it:
 
 ```yaml
 pravaha:
   lane:
-    arena: { slab-bytes: 262144 }   # 256 KiB
     inbox: { cells: 256, cell-bytes: 256 }
 ```
 
-That is 64 KiB per idle query — about **64 MB** for the same thousand, and a few hundred megabytes
-once they are all active. Two rules when sizing down, and both fail loudly rather than quietly:
-
-- a **cell must fit the widest row the query will see** — a row that does not fit is refused at
-  ingest (`PRV-3001`, and the message names `pravaha.lane.inbox.cell-bytes`);
-- the **arena must fit one batch of output rows** — `batch-size × widest output row` — or the batch
-  exhausts it (`PRV-3001`, naming `pravaha.lane.arena.slab-bytes` or `pravaha.lane.batch-size`).
+That megabyte becomes **64 KiB** — about 64 MB for a thousand queries rather than a gigabyte. One
+rule, and it fails loudly rather than quietly: a **cell must fit the widest row the query will see**,
+because a row that does not fit is refused at ingest rather than buffered (`PRV-3001`, and the
+message names `pravaha.lane.inbox.cell-bytes`). The equivalent rule on the arena, where a plan uses
+one, is that `batch-size × widest output row` must fit a slab.
 
 The node logs its lane sizing at startup, so what it is actually running with is in the log rather
 than inferred from the file.
