@@ -172,6 +172,16 @@ public final class PeriodicCheckpointer implements AutoCloseable {
         return checkpoint;
     }
 
+    /**
+     * Set while a firing is inside {@link #checkpointQuietly}, so {@link #close()} can wait for it.
+     *
+     * <p>The {@code running} guard alone is not enough and the difference is a race the schedule
+     * tests catch: a firing already handed to a virtual thread can pass that guard before close()
+     * clears it, and then take its checkpoint afterwards. {@code shutdownNow()} on a scheduler of
+     * this query's own used to interrupt exactly that; a shared clock cannot, so close() waits.
+     */
+    private final AtomicBoolean checkpointing = new AtomicBoolean();
+
     private void checkpointQuietly() {
         if (!running.get()) {
             // close() cancels the schedule, which stops the timer firing again -- it does not reach
@@ -181,6 +191,7 @@ public final class PeriodicCheckpointer implements AutoCloseable {
             // checkpoint (STATE-007).
             return;
         }
+        checkpointing.set(true);
         try {
             Checkpoint checkpoint = checkpointNow();
             log.accept("checkpoint " + checkpoint.id() + " stored, " + checkpoint.sizeBytes() + " bytes");
@@ -192,6 +203,8 @@ public final class PeriodicCheckpointer implements AutoCloseable {
                     + ". Recovery will fall back to the newest stored checkpoint, which is getting older";
             log.accept(message);
             onFailure.accept(message);
+        } finally {
+            checkpointing.set(false);
         }
     }
 
@@ -210,6 +223,13 @@ public final class PeriodicCheckpointer implements AutoCloseable {
         java.util.concurrent.ScheduledFuture<?> current = schedule;
         if (current != null) {
             current.cancel(true);
+        }
+        // Then wait out a firing that was already in flight when running was cleared. Bounded: a
+        // checkpoint that will not finish must not make close() hang, and the schedule is cancelled
+        // either way so nothing further can start.
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (checkpointing.get() && System.nanoTime() < deadline) {
+            java.util.concurrent.locks.LockSupport.parkNanos(200_000L);
         }
     }
 }

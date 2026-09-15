@@ -136,6 +136,17 @@ public final class RegisteredQuery implements AutoCloseable {
         return execution.offHeapBytes();
     }
 
+    /**
+     * How much bounded state this query holds, against what it may.
+     *
+     * <p>The number an operator needs before `PRV-4001` rather than in it. A query at nine tenths of
+     * its ceiling is the one worth knowing about, and until ADR-037 nothing could see it -- the
+     * operators counted it and nothing carried the count anywhere.
+     */
+    public com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.StateUsage stateUsage() {
+        return execution.stateUsage();
+    }
+
     /** The view this computation keeps current. */
     public ServedView view() {
         return view;

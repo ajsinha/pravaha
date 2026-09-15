@@ -227,6 +227,11 @@ final class SymmetricHashJoin implements AutoCloseable {
         return unmatchedEmitted;
     }
 
+    /** What either side may hold before it is refused, so the ceiling can be seen before it is hit. */
+    long rowCeilingPerSide() {
+        return plan.maxRowsPerSide();
+    }
+
     private void checkCeiling(JoinSide side, String which) {
         if (side.distinctRows() > plan.maxRowsPerSide()) {
             throw new PravahaException(

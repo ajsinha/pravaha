@@ -814,6 +814,23 @@ public final class QueryExecution implements AutoCloseable {
         return total;
     }
 
+    /**
+     * State this execution holds, against the ceiling it would be refused at.
+     *
+     * <p>Summed across lanes. What an operator watches so that {@code PRV-4001} stops being the
+     * first they hear of it (ADR-037).
+     */
+    public InterpretedPipeline.StateUsage stateUsage() {
+        long held = 0;
+        long ceiling = 0;
+        for (InterpretedPipeline pipeline : pipelines) {
+            InterpretedPipeline.StateUsage usage = pipeline.stateUsage();
+            held += usage.held();
+            ceiling += usage.ceiling();
+        }
+        return new InterpretedPipeline.StateUsage(held, ceiling);
+    }
+
     public List<LaneMetrics> metrics() {
         return lanes.metrics();
     }

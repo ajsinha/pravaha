@@ -507,6 +507,11 @@ final class WindowedAggregate implements RowProcessor {
         state.readFrom(in);
     }
 
+    /** Live accumulators this aggregate holds, and the ceiling it is refused at. */
+    com.ash.messaging.pravaha.runtime.window.SlicedAggregateState state() {
+        return state;
+    }
+
     /** Records too late to correct anything. The number that says whether the lateness is set right. */
     long lateRecords() {
         return lateRecords;

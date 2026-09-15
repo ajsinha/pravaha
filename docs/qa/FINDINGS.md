@@ -5912,3 +5912,32 @@ that belongs with the query lifecycle.
 
 The two compose. The runner decides which thread a lane runs on; the multiplexer decides how many
 queries a lane carries. Wiring it is what takes the per-query inbox from 1,024 KiB to a share of one.
+
+### B1-1 (HIGH) — a query's state was invisible until the message saying it had died
+
+> **Status:** FIXED — `pravaha.query.state.held`, `.ceiling` and `.fraction` are gauges per query; `RegisteredQuery.stateUsage()` and `QueryExecution.stateUsage()` carry them up from `SlicedAggregateState` and `SymmetricHashJoin`. `StateVisibilityTest.stateIsReportedAsItGrowsRatherThanOnlyWhenItIsRefused` asserts the ceiling is knowable before anything approaches it and that fifty distinct keys are visible as fifty accumulators; seed-proven.
+
+ADR-037's first half. A query that outgrows its bounded state is refused with `PRV-4001
+STATE_TOO_LARGE` from inside the lane, the lane dies and the query is FAILED. That message contained
+the only report of a query's state that this system produced.
+
+**The operators had the numbers the whole time.** `SlicedAggregateState.liveSlices()` and
+`maxSlices()` have always existed; `SymmetricHashJoin` has always known its rows per side. Nothing
+carried either anywhere — not to the registry, not to the metrics endpoint, not to a log line. So the
+query at nine tenths of its ceiling, which is the one still worth acting on, could not be seen at
+all, and the one at ten tenths announced itself by dying.
+
+For the failure mode that arrives as a surprise — a `GROUP BY` on a column whose cardinality was
+misjudged, a join nobody bounded — that is exactly the wrong way round.
+
+This is deliberately the instrument and not the mechanism. ADR-037 records why: the owner's queries
+hold a few thousand keys each, about 450 KiB of heap apiece, so a disk tier is not what stands
+between this node and a thousand queries. Building the spill first would also have built it blind —
+nothing measured how much state a real query holds, so there was nothing to size a cache against and
+no way to tell afterwards whether it helped.
+
+*Also fixed here, found by the schedule tests:* `close()` on a `PeriodicCheckpointer` could be
+followed by one more checkpoint. The `running` guard W9-3 added is not enough on a shared clock —
+a firing already handed to a virtual thread can pass it before `close()` clears it. `shutdownNow()`
+on a scheduler of the query's own used to interrupt exactly that, so `close()` now waits out an
+in-flight firing, bounded.

@@ -20,7 +20,7 @@ otherwise have to rediscover the hard way.
 | Java tests | **2114** across 24 modules, 3 skipped — `tools/verify-clean.sh` with no arguments, i.e. the default `verify`, on 2026-09-14; `pravaha-it` alone is 743. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there |
 | Python tests | **67** in `sdk/python` (collected 2026-09-14), including the client driving a real Java Flight SQL server, plus **34** for the console |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **36** |
+| ADRs | **37** |
 
 **Where the waves stand.** Waves 3, 4 and 5 (E4) are **complete** in scope, Wave 6 (E5) and Wave 7
 (E6) are complete in scope as well, and **Wave 8 is built** — rescoped by

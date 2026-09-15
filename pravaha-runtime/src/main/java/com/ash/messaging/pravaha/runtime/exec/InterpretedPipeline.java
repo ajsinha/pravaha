@@ -512,6 +512,43 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /**
+     * How much state this pipeline holds, against what it is allowed.
+     *
+     * <p>The operators knew these numbers all along -- {@code SlicedAggregateState.liveSlices()} and
+     * {@code maxSlices()} have always been there -- and nothing carried them anywhere. So an
+     * operator met the number for the first time in the message saying their query was dead, and a
+     * query sitting at nine tenths of its ceiling was invisible. For the one failure that arrives as
+     * a surprise, that is exactly the wrong way round (ADR-037).
+     */
+    public StateUsage stateUsage() {
+        long held = 0;
+        long ceiling = 0;
+        for (WindowedAggregate aggregate : windowed) {
+            held += aggregate.state().liveSlices();
+            ceiling += aggregate.state().maxSlices();
+        }
+        for (SymmetricHashJoin join : joins) {
+            held += join.rowsHeldLeft() + join.rowsHeldRight();
+            ceiling += 2L * join.rowCeilingPerSide();
+        }
+        return new StateUsage(held, ceiling);
+    }
+
+    /**
+     * What a query holds and what it may hold, in the units the ceiling is expressed in.
+     *
+     * @param held accumulators and join rows currently live
+     * @param ceiling what those would be refused at; zero where a plan has no bounded state at all
+     */
+    public record StateUsage(long held, long ceiling) {
+
+        /** How full, from 0 to 1. Zero where there is no ceiling, which is not the same as empty. */
+        public double fraction() {
+            return ceiling == 0 ? 0 : (double) held / ceiling;
+        }
+    }
+
+    /**
      * Off-heap this pipeline's own arena holds.
      *
      * <p>A pipeline has an arena of its own, separate from the lane's, and until W9-7 went looking

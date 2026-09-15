@@ -121,6 +121,15 @@ public class PravahaMetrics implements AutoCloseable {
         List<Meter.Id> ids = new ArrayList<>();
 
         ids.add(gauge("pravaha.query.rows.in", tags, query, RegisteredQuery::rowsIn));
+        // The three that make a ceiling visible before it is reached. A query refused with PRV-4001
+        // used to be the first anyone heard of its state, and the query at nine tenths of the way
+        // there -- the one still worth acting on -- could not be seen at all (ADR-037).
+        ids.add(gauge(
+                "pravaha.query.state.held", tags, query, q -> q.stateUsage().held()));
+        ids.add(gauge(
+                "pravaha.query.state.ceiling", tags, query, q -> q.stateUsage().ceiling()));
+        ids.add(gauge(
+                "pravaha.query.state.fraction", tags, query, q -> q.stateUsage().fraction()));
         ids.add(gauge("pravaha.query.view.size", tags, query, q -> q.view().size()));
         // Rising steadily is retention doing its job. Flat at zero on a long-running query means
         // either nothing is old enough yet or the retention is longer than anyone intended.
