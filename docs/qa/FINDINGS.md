@@ -5701,7 +5701,7 @@ reader.
 
 ### SRC-4 (HIGH) — the file-descriptor ceiling is unset, unchecked, and reported as something else entirely
 
-> **Status:** OPEN — measured by running the real plugins under `ulimit -n 300`. Filesystem: the **276th** bound source failed with `PRV-5040 (FILESYSTEM_DECODE_FAILED) cannot open <path>`, cause `java.nio.file.FileSystemException: ... Too many open files`. Aerospike: the **224th** failed with `PRV-5080 (AEROSPIKE_CONNECT_FAILED) plugin 's223' cannot reach Aerospike at 127.0.0.1:3000 ... Check the host list, that the cluster is up, and that this process can reach the service port`.
+> **Status:** FIXED — `pravaha-common`'s `FileDescriptors` reads `/proc/self/fd` and `/proc/self/limits`; `PravahaNode` reports the ceiling at startup, and `PluginSourceFeeds` appends an actionable sentence to any source-open failure raised near it. Verified under a real `ulimit -n 300`: silent at 6 of 300, and at 280 of 300 it says so and names `ulimit -n` / `LimitNOFILE`. `FileDescriptorsTest` covers the probe and both sides of the threshold, including the measured 240-of-300 case.
 
 Nothing in `src/main` anywhere in this repository reads, checks, reports or documents `ulimit -n`.
 One bound source is one descriptor (`SourceScaleTest`, measured at exactly 1.00 per source); an
@@ -5717,8 +5717,19 @@ detect this case even if it wanted to, and the only way to diagnose it is to che
 count before connecting.
 
 The filesystem message named a file whose permissions, encoding and schema are all correct, under a
-*decode* error code. That half is fixed (SRC-5); the Aerospike half and the missing ceiling check are
-not.
+*decode* error code. That half was fixed by SRC-5.
+
+**The fix for the rest is a sentence, not a refusal**, and that is the judgement in it. This cannot
+know that descriptors were the cause — the Aerospike client threw the evidence away — so it says what
+it does know: how close the process is to its limit, and that one bound source costs about one
+descriptor. Appended to the plugin's own message rather than replacing it, because the plugin may
+well be right. A node that refused to bind on a guess would be worse than one that binds and explains.
+
+It is silent when there is headroom, which matters as much: a hint that always fires sends a reader
+to the wrong place on every unrelated failure, which is this same defect pointed the other way.
+
+The error code stays `PRV-5040`/`PRV-5080`. Both are published, and a resource failure wearing a
+decode code is a real wrong that is a separate decision from this one.
 
 ### SRC-5 (MED) — a failure to open a file threw away the operating system's own diagnosis
 

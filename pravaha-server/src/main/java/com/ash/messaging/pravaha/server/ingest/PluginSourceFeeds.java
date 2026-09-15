@@ -161,16 +161,36 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             throw new PravahaException(
                     IngestErrors.BINDING_FAILED,
                     "the '" + binding.plugin() + "' plugin could not be opened for stream '" + binding.streamName()
-                            + "': " + e,
+                            + "': " + e + descriptorHint(),
                     e);
         } catch (Exception e) {
             closeQuietly(List.of(plugin));
             throw new PravahaException(
                     IngestErrors.BINDING_FAILED,
                     "the '" + binding.plugin() + "' plugin refused its configuration for stream '"
-                            + binding.streamName() + "': " + e,
+                            + binding.streamName() + "': " + e + descriptorHint(),
                     e);
         }
+    }
+
+    /**
+     * What to add to an open failure when descriptor exhaustion is the likelier explanation.
+     *
+     * <p>Appended rather than substituted, because the plugin's own message may well be right. It is
+     * a sentence and not a refusal for the same reason: this cannot know, and a node that refused to
+     * bind on a guess would be worse than one that binds and explains.
+     *
+     * <p>The case it exists for is the Aerospike one. Under a low {@code ulimit -n} the client
+     * reports "cannot reach Aerospike ... check the host list, that the cluster is up, and that this
+     * process can reach the service port" -- where the cluster is up, the host list is right, the
+     * port is reachable, and all three remedies are wrong. It cannot be fixed by reading the cause,
+     * because the client throws that away. Looking at the descriptor count is the only way to tell
+     * the two apart (SRC-4).
+     */
+    private static String descriptorHint() {
+        return com.ash.messaging.pravaha.common.io.FileDescriptors.exhaustionHint()
+                .map(hint -> " " + hint)
+                .orElse("");
     }
 
     /**

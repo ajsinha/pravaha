@@ -408,6 +408,13 @@ public class PravahaNode implements SmartLifecycle {
         // path ever called executingWith, so every query on every node ran with the library's sizes
         // -- chosen for one high-throughput query, and paid for by each of a thousand small ones.
         registry.executingWith(lanes.toLaneConfig(), com.ash.messaging.pravaha.common.memory.MemoryAccess.best());
+        // Said once at startup, because the ceiling it names is the one a node holding many sources
+        // reaches first -- and reaches with an error that blames the network (SRC-4).
+        com.ash.messaging.pravaha.common.io.FileDescriptors.usage()
+                .ifPresent(fds -> log.info(
+                        "file descriptors: {} -- one bound source costs about one, so this is roughly the "
+                                + "ceiling on how many sources this node can hold",
+                        fds));
         log.info(
                 "lane sizing: batch={}, inbox={}x{}B, arena={}B x{}, wait={} -- about {} KiB held per idle query",
                 lanes.getBatchSize(),
