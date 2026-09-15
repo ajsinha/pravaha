@@ -6159,7 +6159,7 @@ the wave was scoped against, an ADR is amended rather than rewritten, and the St
 
 ### DOCS-9 (MEDIUM) — `LaneProperties.idleBytesPerQuery()` still counts the eager arena slab, so the node logs five times the memory it holds
 
-> **Status:** OPEN — code defect, **left alone deliberately**. `LaneProperties.java:105` returns `inbox.cells × inbox.cellBytes + arena.slabBytes`, which with the defaults is 5,120 KiB. `RowArena` has not allocated that slab in its constructor since W9-6 — `slabs.add(...)` happens in the first `allocate()` — and `NodeScaleTest` measures **1,024 KiB per idle query**, the inbox exactly, "with no arena at all". `PravahaNode` logs that number at startup as *"about N KiB held per idle query"*, so a node reports 5,120 KiB where it holds 1,024.
+> **Status:** FIXED — `LaneProperties.idleBytesPerQuery()` counts the inbox and only the inbox, so `PravahaNode` logs 1,024 KiB per idle query, which is what `NodeScaleTest` measures. `LanePropertiesTest.theDefaultCostPerIdleQueryIsTheInboxAndNothingElse` asserts it, and says in its comment why the old version of it could not have caught this.
 
 Found by writing the arithmetic into `OPERATIONS.md` and checking it against the code that computes
 it. The document is right and the code is wrong, so the document says what is measured and this
@@ -6186,7 +6186,7 @@ cites, counted eleven — corrected in the ADR and in `application.yaml`'s comme
 
 ### DOCS-11 (LOW) — `QueryRegistry.executingWith`'s javadoc still says a query costs a thread, in the class that stopped it doing so
 
-> **Status:** OPEN — not edited, because `QueryRegistry` was being changed by the owner during this sweep. `QueryRegistry.java:162-165` reads *"a query per lane means a thread per query -- fine at tens, and the reason ADR-027 wants a lane to multiplex several queries before this reaches hundreds"*, twelve lines below the javadoc at `:100` that correctly describes the `LaneRunner` this same class now owns. One class, two accounts of its own cost.
+> **Status:** FIXED — `QueryRegistry.executingWith`'s javadoc says what the class does now: one lane per query, not one thread per query, every lane on the shared runner. It also names what is left — the inbox, per query only because the lane is — rather than leaving the reader with a claim that was corrected twelve lines above it.
 
 The stale half is the more quotable one: "fine at tens" is the sentence ADR-036 opens by quoting as
 the only number anybody could give for what a query costs, and it is still in the tree stating the

@@ -41,12 +41,17 @@ final class LanePropertiesTest {
     }
 
     @Test
-    void theDefaultCostPerIdleQueryIsTheFiveMegabytesAdr036IsAbout() {
-        // The number the target multiplies by. A thousand of these is ~5 GB before a row moves, and
-        // it is the wall the stated target hits before the thread-per-query one.
+    void theDefaultCostPerIdleQueryIsTheInboxAndNothingElse() {
+        // This asserted the inbox plus a 4 MiB arena slab, which was true while RowArena allocated
+        // its first slab in the constructor and false the moment W9-6 made it lazy. Because the
+        // test agreed with the code, nothing caught that PravahaNode had begun logging 5,120 KiB
+        // per idle query where NodeScaleTest measures 1,024 -- an operator sizing from that line
+        // would have budgeted five times what they needed (DOCS-9).
+        //
+        // An idle query has never written a row, so it has no slab at all.
         assertThat(new LaneProperties().idleBytesPerQuery())
-                .as("2048 x 512B inbox plus one eager 4 MiB arena slab")
-                .isEqualTo(2048L * 512 + 4 * 1024 * 1024);
+                .as("a 2048 x 512B inbox, and nothing else, which is what NodeScaleTest measures")
+                .isEqualTo(2048L * 512);
     }
 
     @Test
@@ -59,10 +64,17 @@ final class LanePropertiesTest {
         many.getInbox().setCells(256);
         many.getInbox().setCellBytes(256);
 
-        assertThat(many.idleBytesPerQuery()).isEqualTo(256L * 256 + 256 * 1024);
+        assertThat(many.idleBytesPerQuery())
+                .as("the inbox alone, since an idle query allocates no slab")
+                .isEqualTo(256L * 256);
         assertThat(new LaneProperties().idleBytesPerQuery() / many.idleBytesPerQuery())
                 .as("the default costs this many times more per idle query")
                 .isGreaterThanOrEqualTo(15L);
+        assertThat(many.idleBytesPerQuery())
+                .as(
+                        "and a thousand sized like this hold %d MiB between them, not gigabytes",
+                        many.idleBytesPerQuery() * 1000 / (1024 * 1024))
+                .isLessThan(128L * 1024);
         assertThat(many.toLaneConfig().arenaSlabBytes()).isEqualTo(256 * 1024);
     }
 }

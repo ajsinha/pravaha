@@ -148,6 +148,16 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /**
+     * The streams this registry knows, as it knows them -- identified.
+     *
+     * <p>A caller that built a schema and handed it here gets back the copy carrying an id, which is
+     * the one rows are written against. The two are not interchangeable and the difference is W9-9.
+     */
+    public StreamSchema[] streams() {
+        return streams.clone();
+    }
+
+    /**
      * Gives every stream in this catalogue an identity, so a row can say which one it came from.
      *
      * <p>Sequential from one, in the order the registry was given them. Zero is reserved for "nobody
@@ -163,16 +173,6 @@ public final class QueryRegistry implements AutoCloseable {
      * <p>A schema that already carries an id keeps it: a registry that re-wraps a schema another
      * registry identified must not renumber it underneath the rows already written.
      */
-    /**
-     * The streams this registry knows, as it knows them -- identified.
-     *
-     * <p>A caller that built a schema and handed it here gets back the copy carrying an id, which is
-     * the one rows are written against. The two are not interchangeable and the difference is W9-9.
-     */
-    public StreamSchema[] streams() {
-        return streams.clone();
-    }
-
     private static StreamSchema[] identify(StreamSchema[] given) {
         StreamSchema[] identified = new StreamSchema[given.length];
         int next = 1;
@@ -195,10 +195,17 @@ public final class QueryRegistry implements AutoCloseable {
      * a registry holding forty queries and one holding four want different arena sizes, and only the
      * deployment knows which it is.
      *
-     * <p>One lane per query. Keyed aggregates are refused on more than one lane (ADR-034) because
-     * nothing routes a row to the lane that owns its group, and a query per lane means a thread per
-     * query -- fine at tens, and the reason ADR-027 wants a lane to multiplex several queries before
-     * this reaches hundreds.
+     * <p>One lane per query, and no longer one thread per query: every lane runs on the shared
+     * {@code LaneRunner} this registry owns, so a node's thread count follows its cores rather than
+     * its registrations (W9-5). Measured at 200 queries for 24 threads, where it was 200.
+     *
+     * <p>Keyed aggregates are still refused on more than one lane (ADR-034), because nothing routes
+     * a row to the lane that owns its group.
+     *
+     * <p>What "fine at tens" used to mean was the thread, and that is fixed. What is left is the
+     * lane's own inbox -- about a megabyte a query -- which is per query only because each query has
+     * a lane. `LaneMultiplexer` is what makes many share one; W9-8 and W9-10 record what it still
+     * needs.
      */
     public QueryRegistry executingWith(LaneConfig laneConfig, MemoryAccess access) {
         this.laneConfig = laneConfig;

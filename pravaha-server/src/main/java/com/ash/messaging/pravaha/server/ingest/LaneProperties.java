@@ -101,9 +101,21 @@ public class LaneProperties {
                 .withThreads("pravaha-query", true);
     }
 
-    /** Bytes one idle query holds before it has read anything, which is what multiplies by a thousand. */
+    /**
+     * Bytes one idle query holds before it has read anything, which is what multiplies by a thousand.
+     *
+     * <p>The inbox, and only the inbox. It added the arena slab too, which was right when the slab
+     * was allocated in `RowArena`'s constructor and wrong the moment W9-6 made it lazy -- so the
+     * node logged 5,120 KiB per idle query where `NodeScaleTest` measures 1,024. An operator sizing
+     * a node from that line would have budgeted five times what they needed (DOCS-9).
+     *
+     * <p>An idle query has never written a row, so it has no slab. An active one does, and what it
+     * holds is `InterpretedPipeline`'s arena rather than the lane's -- measured at zero for both a
+     * projection and a windowed aggregate, because operator output goes to the view rather than
+     * through the lane's scratch.
+     */
     public long idleBytesPerQuery() {
-        return (long) inbox.cells * inbox.cellBytes + arena.slabBytes;
+        return (long) inbox.cells * inbox.cellBytes;
     }
 
     /** The ring a lane reads rows from. One cell holds one row, so a cell must fit the widest one. */
