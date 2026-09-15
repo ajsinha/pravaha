@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **294 findings carrying a
-status — 139 FIXED, 140 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 140 open, **13 are
+only part that is kept current. Counting the register as it stands: **295 findings carrying a
+status — 140 FIXED, 140 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 140 open, **13 are
 GA-BLOCKER, 24 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -2801,6 +2801,27 @@ What is needed is to stop reporting a number he is not entitled to, and the reas
 same commit is that the field is a `Long.toString` the CLI parses and prints. Reporting `0` would be
 a lie and reporting `-1` is a convention that has to be agreed with the client and the CLI at once.
 The full `query.sql()` text is disclosed on the same path and has the same question against it.
+
+### W8-15 (HIGH) — a node killed with SIGKILL is locked out of its own state for the length of the lease, and told a second instance is running
+
+> **Status:** FIXED — `StateOwnership` now checks the pid it already records. A claim whose host matches ours and whose pid is not alive is reclaimed regardless of the lease. `NodeCrashRestartTest` (3): a killed node reclaims immediately, another node id is still refused, and a second *live* instance is still refused. Seed-proven by restoring the lease-only decision, which fails exactly the first.
+
+Found by building the crash harness both gate packs named as their missing evidence, and it is the
+reason that harness was worth writing: **every ownership test until now interrupted a run in-process,
+and `SIGKILL` is defined by running none of the code a graceful stop runs.** A clean stop deletes the
+marker. A kill leaves it, with a lease that still has most of its thirty seconds to run.
+
+So the restart hit "our own node id, lease live" and was refused `PRV-4003` — *"another instance of
+node 'x' holds the state ... Stop the other one"* — naming a remedy for a process that no longer
+existed. A crashed node could not restart onto its own state for thirty seconds, which is precisely
+what Gate P7's criterion says it must be able to do.
+
+**The fix is the pid, which the marker was already recording and nothing was reading.** A lease
+cannot tell a crash from a busy node; the operating system can. Three things keep it safe: it is
+reached only after the node ids match, so it can never take another node's directory; it requires
+the same host, so a pid from another machine is never interpreted; and pid reuse fails in the safe
+direction — a recycled pid reads as alive and the claim is refused, which is the behaviour that was
+already there.
 
 ### CFG-23 (HIGH) — `audit: memory` records into a sink nothing in the server can read
 

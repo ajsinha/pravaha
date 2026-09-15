@@ -95,10 +95,26 @@ echo "installing from the working tree"
 # reason.
 exec 9>&-
 
+# Module-level parallelism, which the install above already used and this did not.
+# The reactor is ~30 modules and this machine has 24 cores; running them one at a
+# time was most of the wall clock outside pravaha-it.
+#
+# PRAVAHA_FORKS controls surefire's fork count. Empty means surefire's default of
+# one JVM, which is the conservative setting and what a release build should use.
+# Set it (e.g. PRAVAHA_FORKS=0.5C) to run test classes across several JVMs --
+# measured on this machine before being offered, and kept opt-in because a shared
+# port or a shared directory between two test classes fails only under it, and
+# fails confusingly.
+FORKS=""
+if [[ -n "${PRAVAHA_FORKS:-}" ]]; then
+    FORKS="-DforkCount=${PRAVAHA_FORKS} -DreuseForks=true"
+    echo "surefire forks: ${PRAVAHA_FORKS}"
+fi
+
 if [[ $# -eq 0 ]]; then
     echo "running the full verify"
-    ./mvnw -o verify
+    ./mvnw -o -T1C $FORKS verify
 else
-    echo "running: ./mvnw -o $*"
-    ./mvnw -o "$@"
+    echo "running: ./mvnw -o -T1C $FORKS $*"
+    ./mvnw -o -T1C $FORKS "$@"
 fi

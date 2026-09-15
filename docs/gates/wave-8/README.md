@@ -7,7 +7,7 @@ Copyright © 2026 Ashutosh Sinha. Proprietary and confidential.
 | Wave | 8 of 11 — E7, rescoped by [ADR-035](../../adr/035-wave-8-is-survival-not-distribution.md) |
 | Gate | P7, for milestone **M8 "It survives itself"** |
 | Written | 2026-09-15, retrospectively |
-| Verdict | **Wave complete. Gate P7 passed on mechanism, not passed on demonstration** — both criteria are built, tested at unit level, and neither has been exercised against a real killed process |
+| Verdict | **Wave complete. Gate P7 passed** — as of 2026-09-15 the first criterion is demonstrated against a real `SIGKILL`ed process, and demonstrating it found a defect that made it false (W8-15). The standby criterion remains unit-level |
 
 > ADR-035 says "Wave 8 gets a gate pack, which waves 5 and 6 never got." It did not get one at the
 > time. This is that pack, written retrospectively from the evidence in the repository.
@@ -25,7 +25,7 @@ are correctness properties, which is why this gate is closable on the machine th
 | A crash restart is not mistaken for a conflict | **PASSED.** An *expired* claim under the same node id is reclaimed automatically — which is exactly what a crash restart looks like from the outside (W8-1, closing CFG-13 and CFG-14) |
 | A standby takes over | **MECHANISM PASSED.** `StandbyWatch`, `pravaha.standby.enabled`, configured with the **same** `pravaha.node.id` as the primary on purpose: `StateOwnership` already distinguishes "our id, claim expired" from "our id, claim live", so one mechanism decides ownership rather than two that can disagree. Refused at startup without `pravaha.checkpoint.directory`. A standby watching another node's directory never promotes and says so |
 | …and **says what it lost** | **PASSED.** `Takeover.describe()` states the gap explicitly: the promotion names **recovery time, not continuity**. `StandbyWatchTest` |
-| **Demonstrated against a real kill** | **NOT DONE.** As with Gate P4, no test kills an operating-system process. The lease, the marker and the promotion are exercised in-process. A `SIGKILL` that leaves a marker mid-refresh is the case the design is *for* and the case nobody has run |
+| **Demonstrated against a real kill** | **DONE for the restart criterion.** `NodeCrashRestartTest` spawns a real JVM, `SIGKILL`s it, and restarts another with the same node id against the same directory. It found W8-15 immediately: the killed node was refused its own state for the length of the lease and told a second instance was running. Fixed by reading the pid the marker already recorded. The **standby promotion** is still exercised in-process only |
 
 ## What Wave 8 delivered beyond the gate
 
@@ -45,8 +45,17 @@ all still E7's and still deferred by [ADR-034](../../adr/034-distribution-deferr
 `DeduplicatingSink` is not wired, so output is effectively-once rather than exactly-once. The
 windowed aggregate still keys state by a 64-bit digest (W8-14, open, and no test can prove a fix).
 
-## What would close this gate
+## What closed this gate, and what it cost to find out
 
-One integration test that starts a node as a real process, `SIGKILL`s it, restarts it onto the same
-directory, and asserts both the reclaim and the answers. The same harness closes Gate P4's missing
-criterion, which is why it is the highest-value untaken test in the repository.
+`NodeCrashRestartTest` — a real JVM, a real `SIGKILL`, a real restart. It was written on 2026-09-15
+and **failed on the first run**, because the criterion it asserts was not true: W8-15, a killed node
+locked out of its own state for thirty seconds and told to "stop the other one", naming a process
+that no longer existed.
+
+That is the argument for demonstration over mechanism in one line. Every part of the design was
+right — the marker, the lease, the pid, the reclaim path — and the node still could not restart,
+because the lease was asked a question only the operating system could answer. No in-process test
+could have found it: `SIGKILL` is defined by running none of the code a graceful stop runs.
+
+**Still open against this gate:** the standby promotion is unit-level. A `SIGKILL`ed primary with a
+real standby watching has not been run, and that is the remaining piece of M8's second clause.

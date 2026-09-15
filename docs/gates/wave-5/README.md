@@ -23,7 +23,7 @@ in the plan adds **"exactly-once state proven by chaos test; W4 ≥ 5×"**.
 |---|---|
 | Exact recovery after interruption | **PASSED, with a caveat about scope.** `CheckpointRecoveryTest.aRunInterruptedAndRecoveredProducesTheSameAnswersAsAnUninterruptedOne` asserts equality against an uninterrupted control run rather than against expected output, which is the stronger form. `JoinRecoveryTest` does the same for a join, crash-not-shutdown, with a duplicate row's weight crossing the interruption |
 | Negative control | **PASSED.** `restoringWithoutTheStateWouldLoseTheEarlyWindows` proves the test can fail — recovery that restored offsets without state is caught |
-| **Kill a *node* mid-checkpoint** | **NOT PROVEN.** The interruption is in-process: the harness aborts a run and restarts the pipeline. No test kills an OS process, and a `SIGKILL` between the write and the atomic publish is a different failure from an aborted run. `FileCheckpointStore` publishes atomically and writes a trailer, which is the mechanism that would make it survive — the mechanism is built and the scenario is untested |
+| **Kill a *node* mid-checkpoint** | **PARTLY PROVEN since 2026-09-15.** `NodeCrashRestartTest` now kills a real JVM with `SIGKILL` and restarts it onto the same directory, which closes the *ownership* half and found W8-15 doing it. The **mid-checkpoint** half is still untested: the killed child holds state but writes no checkpoint, so a `SIGKILL` between the write and the atomic publish remains unexercised. `FileCheckpointStore` publishes atomically and writes a trailer — the mechanism is built, that scenario is not run |
 | Chaos test | **DOES NOT EXIST.** No test in the repository injects randomised faults. The recovery tests are deterministic and single-scenario |
 | `W4 ≥ 5×` | **NOT MEASURED** — the same three confounds as Gates P2 and P3: heterogeneous cores on this machine, no isolated runner, no reference hardware |
 
@@ -49,6 +49,10 @@ between lanes causes a refusal rather than a loss, which is correct and is not t
 
 ## What would close this gate
 
-One test that starts a node as a real process, kills it with `SIGKILL` during a checkpoint write, and
-restarts it onto the same directory — and one randomised fault-injection harness. Both are buildable
-on this hardware; neither is blocked on procurement, unlike `W4 ≥ 5×`.
+The process-kill harness now exists (`NodeCrashRestartTest`), so what remains is smaller than it was:
+extend its child to register a query, feed rows and checkpoint continuously, then kill it *during* a
+checkpoint write and assert the recovered answers equal an uninterrupted control run. Plus a
+randomised fault-injection harness, which still does not exist at all.
+
+Both are buildable on this hardware. `W4 >= 5x` is not, and remains the only part of this gate
+blocked on procurement.

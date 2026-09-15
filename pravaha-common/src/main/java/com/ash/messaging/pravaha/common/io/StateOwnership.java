@@ -186,7 +186,7 @@ public final class StateOwnership implements AutoCloseable {
         if (held.owner().isSameProcessAs(owner)) {
             return; // our own claim, being re-made
         }
-        if (!expired) {
+        if (!expired && !claimantIsGone(held.owner(), owner)) {
             throw new PravahaException(
                     StateOwnershipErrors.STATE_NOT_OURS,
                     "another instance of node '" + owner.nodeId() + "' holds the state in " + directory + ": "
@@ -197,8 +197,38 @@ public final class StateOwnership implements AutoCloseable {
         LOG.log(
                 System.Logger.Level.INFO,
                 "reclaiming " + directory + " for node '" + owner.nodeId() + "': the previous claim by "
-                        + held.owner() + " expired " + (held.ageMillis() - lease.toMillis()) / 1000
-                        + "s ago, which is what a restart after a crash looks like");
+                        + held.owner()
+                        + (expired
+                                ? " expired " + (held.ageMillis() - lease.toMillis()) / 1000 + "s ago"
+                                : " is live by the lease but that process is gone")
+                        + ", which is what a restart after a crash looks like");
+    }
+
+    /**
+     * Whether the process that wrote this claim is provably gone.
+     *
+     * <p>A lease cannot tell a crash from a busy node: the marker stops being refreshed either way,
+     * and until it expires the honest reading is "might still be running". So a node killed with
+     * {@code SIGKILL} was locked out of <em>its own</em> state for the length of the lease, and told
+     * that a second instance of itself was running — which was false, and named a remedy ("stop the
+     * other one") for a process that no longer existed. Gate P7 asks for "a killed node restarts
+     * onto its own state", and {@code NodeCrashRestartTest} is what showed it could not, promptly.
+     *
+     * <p>The marker already records the pid. On the same host that is not a guess: ask the operating
+     * system. This is what the pid was recorded for.
+     *
+     * <p><strong>Three ways this stays safe.</strong> It is reached only after the node ids have
+     * been compared, so it can never take another node's directory. It requires the same host, so a
+     * pid from another machine is never interpreted here. And pid reuse fails in the safe direction:
+     * a recycled pid belonging to some unrelated process reads as <em>alive</em> and the claim is
+     * refused, which is the outcome that was already happening.
+     */
+    private static boolean claimantIsGone(Owner held, Owner owner) {
+        if (!held.host().equals(owner.host()) || "unknown".equals(held.host())) {
+            // A pid is only meaningful on the host that issued it.
+            return false;
+        }
+        return ProcessHandle.of(held.pid()).map(ProcessHandle::isAlive).orElse(false) == Boolean.FALSE;
     }
 
     /** What a marker says, and how long ago it said it. */
