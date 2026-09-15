@@ -202,10 +202,30 @@ public final class StateOwnership implements AutoCloseable {
     }
 
     /** What a marker says, and how long ago it said it. */
-    private record Held(Owner owner, long claimedAtMillis) {
-        long ageMillis() {
+    public record Held(Owner owner, long claimedAtMillis) {
+
+        public long ageMillis() {
             return Math.max(0L, System.currentTimeMillis() - claimedAtMillis);
         }
+
+        /** Whether the claim has gone stale, which says the holder is not running. */
+        public boolean hasExpired(Duration lease) {
+            return ageMillis() > lease.toMillis();
+        }
+    }
+
+    /**
+     * Who holds {@code directory} right now, without claiming it.
+     *
+     * <p>What a standby watches. It asks repeatedly and takes over when the answer becomes "nobody",
+     * which is the same condition {@link #claim} treats as a crash restart -- so a standby is not a
+     * second mechanism, it is the same one asked from outside.
+     *
+     * @return empty when the directory is unowned; a refusal only if a marker exists and cannot be
+     *     read, because guessing there is what this class exists to prevent
+     */
+    public static java.util.Optional<Held> heldBy(Path directory) {
+        return readMarker(directory.resolve(MARKER));
     }
 
     private static java.util.Optional<Held> readMarker(Path marker) {

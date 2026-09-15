@@ -71,7 +71,8 @@ class PravahaNodeTest {
                 "SINGLE",
                 "single",
                 "no-flight-node",
-                true);
+                true,
+                false);
     }
 
     private static PravahaNode node(String journal) {
@@ -92,7 +93,8 @@ class PravahaNodeTest {
                 "SINGLE",
                 "single",
                 "test-node",
-                true);
+                true,
+                false);
     }
 
     @Test
@@ -173,7 +175,8 @@ class PravahaNodeTest {
                 "PARTITIONED",
                 "socket",
                 "test-node",
-                true);
+                true,
+                false);
 
         // Two nodes each believing they own a partition write the same aggregate twice, and the
         // damage is silent, durable, and found later by whoever reconciles the numbers. Refusing to
@@ -200,7 +203,8 @@ class PravahaNodeTest {
                 "SINGLE",
                 "single",
                 "test-node",
-                true);
+                true,
+                false);
         try {
             node.start();
 
@@ -262,7 +266,78 @@ class PravahaNodeTest {
                 "SINGLE",
                 "single",
                 nodeId,
+                false,
                 false);
+    }
+
+    /** A node that stands by for {@code nodeId} rather than claiming its state at startup. */
+    private static PravahaNode standbyNode(String nodeId, java.nio.file.Path checkpointDirectory) {
+        PersistenceProperties persistence = persistence("");
+        if (checkpointDirectory != null) {
+            persistence.getCheckpoint().setDirectory(checkpointDirectory.toString());
+        }
+        return new PravahaNode(
+                catalog(),
+                new SourceBindingProperties(),
+                new StreamDeclarationProperties(),
+                openServer(),
+                null,
+                null,
+                java.time.Duration.ofSeconds(30),
+                java.time.Duration.ofSeconds(1),
+                true,
+                "127.0.0.1",
+                0,
+                persistence,
+                "SINGLE",
+                "single",
+                nodeId,
+                false,
+                true);
+    }
+
+    @Test
+    void aStandbyNodeHoldsNothingUntilThePrimaryIsGoneAndThenTakesOver(@TempDir java.nio.file.Path shared)
+            throws Exception {
+        // Wave 8 item 3. A standby is the same node id as the primary, waiting -- so it reuses the
+        // ownership rule rather than adding a second mechanism to decide the same question. While
+        // the primary refreshes its claim the standby holds no lanes and reports itself not running,
+        // which is what keeps an orchestrator from routing to it.
+        PravahaNode primary = ownedNode("node-a", shared, "");
+        primary.start();
+
+        PravahaNode standby = standbyNode("node-a", shared);
+        standby.start();
+        assertThat(standby.isRunning())
+                .as("a standby serves nothing while the primary is alive")
+                .isFalse();
+
+        try {
+            // The primary stops cleanly, which releases the claim. A crash would leave the marker to
+            // expire instead; both end with the directory free, and the clean case is the one that
+            // can be tested without waiting out a lease.
+            primary.stop();
+
+            long deadline = System.nanoTime() + java.time.Duration.ofSeconds(30).toNanos();
+            while (!standby.isRunning() && System.nanoTime() < deadline) {
+                Thread.sleep(50L);
+            }
+            assertThat(standby.isRunning())
+                    .as("with the state free, the standby promotes itself and starts serving")
+                    .isTrue();
+        } finally {
+            standby.stop();
+        }
+    }
+
+    @Test
+    void aStandbyWithNoCheckpointDirectoryIsRefusedRatherThanWaitingForever() {
+        // There would be nothing to wait on and nothing to resume from, so the node would stand by
+        // for ever reporting not-ready and an operator would be looking for the wrong fault.
+        PravahaNode standby = standbyNode("node-a", null);
+        assertThatThrownBy(standby::start)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("pravaha.standby.enabled=true needs pravaha.checkpoint.directory");
     }
 
     @Test

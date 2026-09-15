@@ -106,6 +106,8 @@ public class PravahaNode implements SmartLifecycle {
     private final Configuration clusterConfiguration;
     private final String nodeId;
     private final boolean allowSharedState;
+    private final boolean standby;
+    private com.ash.messaging.pravaha.server.state.StandbyWatch standbyWatch;
 
     private volatile ViewCatalog views;
     private volatile QueryRegistry registry;
@@ -145,7 +147,8 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.cluster.mode:SINGLE}") String clusterMode,
             @Value("${pravaha.cluster.mechanism:single}") String clusterMechanism,
             @Value("${pravaha.node.id:pravaha-node-01}") String nodeId,
-            @Value("${pravaha.state.allow-shared:false}") boolean allowSharedState) {
+            @Value("${pravaha.state.allow-shared:false}") boolean allowSharedState,
+            @Value("${pravaha.standby.enabled:false}") boolean standby) {
         this.streams = streams;
         this.sources = sources;
         this.declaredStreams = declaredStreams;
@@ -156,6 +159,7 @@ public class PravahaNode implements SmartLifecycle {
         this.watermarkTick = watermarkTick;
         this.nodeId = nodeId;
         this.allowSharedState = allowSharedState;
+        this.standby = standby;
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
         this.flightPort = flightPort;
@@ -350,6 +354,37 @@ public class PravahaNode implements SmartLifecycle {
         if (running) {
             return;
         }
+        if (standby && standbyWatch == null) {
+            java.util.Optional<java.nio.file.Path> watched = checkpointPath;
+            if (watched.isEmpty()) {
+                throw new PravahaException(
+                        SqlErrors.VALIDATION_FAILED,
+                        "pravaha.standby.enabled=true needs pravaha.checkpoint.directory set: a standby waits on "
+                                + "the ownership marker in the directory it would take over, and with no such "
+                                + "directory there is nothing to wait on and nothing to resume from.");
+            }
+            // Returns immediately. The node holds no lanes, serves nothing and reports itself not
+            // running until the primary's claim goes unrefreshed -- so an orchestrator's readiness
+            // check keeps it out of rotation, which is what a standby is for.
+            standbyWatch = new com.ash.messaging.pravaha.server.state.StandbyWatch(
+                    watched.get(),
+                    nodeId,
+                    com.ash.messaging.pravaha.common.io.StateOwnership.DEFAULT_LEASE,
+                    com.ash.messaging.pravaha.server.state.StandbyWatch.DEFAULT_POLL,
+                    takeover -> {
+                        log.warn("{}", takeover.describe());
+                        startNow();
+                    });
+            standbyWatch.start();
+            return;
+        }
+        startNow();
+    }
+
+    private void startNow() {
+        if (running) {
+            return;
+        }
         coordinator = CoordinatorFactory.create(clusterConfiguration);
         // Advertised on the Flight port: that is the address other nodes would have to reach this
         // one on, and advertising an address nobody can connect to is a cluster that forms and
@@ -495,6 +530,10 @@ public class PravahaNode implements SmartLifecycle {
     @Override
     public void stop() {
         running = false;
+        // First: a standby promoting itself while the rest of this method runs would start a node
+        // that is being shut down.
+        closeQuietly("standby watch", standbyWatch);
+        standbyWatch = null;
         // Reverse of startup: stop accepting, then let go of the queries, then leave the cluster.
         closeQuietly("Flight server", flight);
         closeQuietly("registry", registry);

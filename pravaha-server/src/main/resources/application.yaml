@@ -175,6 +175,25 @@ pravaha:
   state:
     allow-shared: false
 
+  # A standby holds no lanes and serves nothing until the node it stands by for stops refreshing
+  # its ownership claim, then takes over from the newest checkpoint.
+  #
+  # It is configured with the SAME pravaha.node.id as the primary, on purpose. StateOwnership
+  # already distinguishes "our node id, claim expired" -- a crash restart, taken over automatically
+  # -- from "our node id, claim live", which is refused. A standby is the first case waited for
+  # rather than discovered, so there is one mechanism deciding who owns the state instead of two
+  # that can disagree. No consensus, no membership protocol, no Ratis (ADR-035, ADR-034).
+  #
+  # What a takeover buys is RECOVERY TIME, NOT CONTINUITY. The standby resumes from the newest
+  # checkpoint, so everything the primary processed after it is replayed from the source offsets
+  # that checkpoint carries -- and anything the source can no longer supply is gone. The promotion
+  # log line says so every time, rather than reporting "failover complete" and letting the reader
+  # assume otherwise.
+  #
+  # Needs pravaha.checkpoint.directory: that is what is watched and what is resumed from.
+  standby:
+    enabled: false
+
   checkpoint:
     directory: ""
     interval: 1m

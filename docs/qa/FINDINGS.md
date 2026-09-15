@@ -4860,3 +4860,37 @@ migrating, which is a wave-scoped decision rather than a side effect of a wiring
 
 The 64-bit fold is the half worth doing first: widening `emitted` to the full `(keyHigh, keyLow)` pair
 costs nothing, is confined to one class, and removes the narrowest key in the engine.
+
+### W8-2 (HIGH) — a standby node, and a takeover that says what it lost
+
+> **Status:** FIXED — `pravaha-server`'s `StandbyWatch` plus `pravaha.standby.enabled`. `StandbyWatchTest` covers all five outcomes (waits while the primary refreshes, promotes once it stops, never takes another node's state, waits out an unreadable marker, takes an unowned directory immediately); `PravahaNodeTest.aStandbyNodeHoldsNothingUntilThePrimaryIsGoneAndThenTakesOver` and `aStandbyWithNoCheckpointDirectoryIsRefusedRatherThanWaitingForever` cover it at node level. Seed-proven — disabling standby mode fails both node tests.
+
+Wave 8 item 3: HA without distribution. A standby is a second process configured with the **same**
+`pravaha.node.id` as the primary, watching the ownership marker the primary refreshes on a lease.
+
+Reusing `StateOwnership` rather than adding an election is the design decision. That class already
+distinguishes "our node id, claim expired" — a crash restart, taken over automatically — from "our
+node id, claim live", which is refused. A standby is exactly the first case, waited for from outside
+instead of discovered at startup. Two mechanisms deciding who owns a node's state is how they come
+to disagree.
+
+**A takeover buys recovery time, not continuity, and the code says so at the moment it happens.** The
+standby resumes from the newest checkpoint, so everything the primary processed after it is replayed
+from the source offsets that checkpoint carries, and anything the source can no longer supply is
+gone. `Takeover.describe()` is written to be pasted into an incident channel; a line reading
+"failover complete" would invite exactly the wrong inference.
+
+Three refusals are deliberate and each has a test:
+
+- **another node's state is never taken**, however long its claim has been expired. That is CFG-13's
+  corruption reached from the failover side, and it would be the more dangerous direction because
+  nobody typed anything to cause it.
+- **an unreadable marker is waited out, not treated as free.** It may be a live primary with a
+  transient disk problem, and promoting into that is the split brain the lease exists to prevent.
+- **standby with no checkpoint directory is refused at startup.** There would be nothing to watch
+  and nothing to resume from, so the node would stand by for ever reporting not-ready while an
+  operator looked for the wrong fault.
+
+The window in which both processes could believe they own the state is the lease, which is why the
+lease is generous and the refresh frequent. This is not a consensus protocol and does not claim to
+be one.
