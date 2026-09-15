@@ -5575,3 +5575,49 @@ pool sized so a slow disk cannot starve the rest.
 
 Until then a node still pays two platform threads per registered query, which is the binding
 constraint on how many queries one node holds.
+
+### W9-4 (HIGH) — lanes can share a thread, so a node's thread count follows its cores rather than its queries
+
+> **Status:** FIXED (the mechanism; wiring the registry to it is W9-5) — `LaneRunner` drives many lanes from a fixed set of threads, and `Lane.startOn(runner)` hosts a lane on one. `LaneRunnerTest` covers both properties: **64 lanes on 4 threads**, each seeing exactly the rows it was given; and one lane throwing on a single-threaded runner recording its own failure while the other lane sharing that thread processes all 25 of its rows. 2,089 runtime + registry + it tests green, including the aligned-barrier and control-task suites.
+
+ADR-027 wanted a lane to multiplex several queries and it was never built, which is why `NodeScaleTest`
+measures exactly 1.00 platform thread per registered query and why `QueryRegistry` says "fine at tens".
+
+What made a thread per lane look unavoidable is that confinement is this engine's correctness model:
+a lane's arena, operator state and inbox cursors have no locks because exactly one thread touches
+them. **But confinement does not require a thread per lane — it requires one thread per lane at a
+time.** A runner steps each of its lanes in turn on its own thread, so every lane still has a single
+driver and every ordering rule inside `Lane` still holds. That is the event-loop shape, and it is the
+same reason Netty carries thousands of sockets on a handful of threads.
+
+Done in two commits on purpose. The first extracted `pumpOnce()` from `run()` with no behaviour
+change, because the loop is where every ordering rule lives — the exchange before the inbox, control
+tasks after the drain, release after the processor — and rewriting it while also sharing a thread
+would have put all of that in one diff with the thing most likely to break it. That extraction had a
+real bug: three of the loop's five `continue` statements belong to the `while` and two to the inner
+`for` over inputs, and converting all five made a lane bail out at the first input with no room.
+
+Three things this had to get right, each with a test:
+
+- **One lane's failure is one query's failure.** When a lane owned its thread, a throw killed that
+  thread and that query. On a shared thread an escaping throw would kill every query the runner
+  carries — one bad row becoming an outage. A step that throws is caught, recorded on the lane that
+  threw it, and that lane alone is dropped.
+- **A hosted lane must not park.** It would wake a thousand times to discover a thousand lanes are
+  each still idle. The runner parks once, for all of them.
+- **A hosted lane can only be finished by its runner**, because its last step is what releases the
+  arena and inbox. A runner that stopped leaving lanes un-stepped left them permanently unable to
+  close, and `Lane.close()` timed out blaming a stall that had already happened. The runner now
+  finishes its remaining lanes as it shuts down. Found by a test that closed the runner first, which
+  is the order a caller reaches for.
+
+### W9-5 (HIGH) — the registry still gives every query its own lane thread
+
+> **Status:** OPEN — `LaneRunner` exists and nothing uses it. `QueryRegistry` calls `QueryExecution.start(plan, 1, ...)`, which builds a `LaneGroup` that starts each lane on a thread of its own.
+
+The mechanism is built and proven (W9-4); what remains is for the registry to own one runner and host
+every query's lane on it. That is where `NodeScaleTest`'s ratchet falls from 1.00 platform threads per
+query to nearly zero, and it is the measurement that decides whether the ADR-036 target is met.
+
+Left separate because it changes how every registered query is started, and the mechanism it depends
+on should be green in its own right first.

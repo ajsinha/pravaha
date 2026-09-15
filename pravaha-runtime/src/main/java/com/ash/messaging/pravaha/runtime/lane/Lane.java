@@ -158,6 +158,21 @@ public final class Lane implements AutoCloseable {
     private volatile Throwable failure;
     private volatile boolean inBatch;
 
+    /** Whether a thread of this lane's own runs the loop, or a shared runner steps it. */
+    private volatile boolean hosted;
+
+    /** Set by each step so a runner can tell an idle round from a busy one. */
+    private volatile boolean workedLastStep;
+
+    /**
+     * Set once a hosted lane's final step has run and released what it owned.
+     *
+     * <p>What {@link #close()} waits on where there is no thread to join. Releasing the arena and
+     * the inbox while a runner is still inside a step for this lane is a use-after-free, and that
+     * the runner thread is alive says nothing -- it is alive for every other lane it carries.
+     */
+    private volatile boolean drained;
+
     // Loop state. Fields rather than locals of run(), so one iteration can be a method call and a
     // lane can be stepped by a thread it does not own. Touched only by the thread currently pumping
     // this lane, which is the confinement the whole class rests on; the volatile counters above are
@@ -369,6 +384,60 @@ public final class Lane implements AutoCloseable {
         running = true;
         state = State.RUNNING;
         thread.start();
+    }
+
+    /**
+     * Starts this lane on a thread it does not own, driven by {@code runner}.
+     *
+     * <p>ADR-027's multiplexing. Confinement is unchanged: one thread still steps this lane and
+     * nothing else steps it, which is all {@link #pumpOnce()} and everything under it require. What
+     * changes is that the thread is shared, so a node's thread count follows its cores rather than
+     * its queries.
+     */
+    public void startOn(LaneRunner runner) {
+        if (state != State.NEW) {
+            throw new IllegalStateException("lane " + laneId + " has already been started; it is " + state);
+        }
+        hosted = true;
+        running = true;
+        state = State.RUNNING;
+        batch = new long[config.batchSize()];
+        room = new long[inboxes.length];
+        mark = arena.mark();
+        runner.host(this);
+    }
+
+    /**
+     * Tells a hosted lane to finish, called by its runner as that runner shuts down.
+     *
+     * <p>Not {@link #close()}: this does not wait and does not release anything. It asks the loop to
+     * reach its shutdown branch, which is where a hosted lane lets go of its arena and inbox -- on
+     * the runner's thread, which is the only thread allowed to.
+     */
+    void stopForRunnerShutdown() {
+        running = false;
+        if (state == State.RUNNING) {
+            state = State.STOPPING;
+        }
+    }
+
+    /** Whether the last {@link #pumpOnce()} moved anything, so a runner knows whether to park. */
+    boolean didWorkLastStep() {
+        return workedLastStep;
+    }
+
+    /**
+     * Records a failure raised by a step, for a runner that caught it on this lane's behalf.
+     *
+     * <p>Same two fields, same order as {@code run()}'s own catch, because everything that asks
+     * whether a query is alive reads them and must not be able to tell which path set them.
+     */
+    void recordFailure(Throwable t) {
+        failure = t;
+        state = State.FAILED;
+        inBatch = false;
+        running = false;
+        closeQuietly();
     }
 
     // ---------------------------------------------------------------- producer side
@@ -592,11 +661,22 @@ public final class Lane implements AutoCloseable {
                 return true;
             }
             inBatch = false;
+            workedLastStep = false;
             if (!running) {
                 // Drained, so nothing is still coming and every barrier is moot. Anything
                 // still queued runs now rather than leaving its submitter waiting out a
                 // timeout on a lane that has stopped.
                 runControlTasks(true);
+                if (hosted) {
+                    // No run() around this step to do it. A hosted lane finishes here, and close()
+                    // waits on `drained` before releasing anything this step still had in hand.
+                    if (state != State.FAILED) {
+                        state = State.STOPPED;
+                    }
+                    publishCounters();
+                    closeQuietly();
+                    drained = true;
+                }
                 return false; // stop only once the inboxes are drained, so shutdown loses nothing
             }
             localIdle++;
@@ -604,7 +684,12 @@ public final class Lane implements AutoCloseable {
             // Before parking, not after: an operator holding a finished result should
             // release it now rather than after the wait it is about to take.
             processor.onIdle();
-            waitStrategy.idle(++idle);
+            if (!hosted) {
+                // A hosted lane does not park: its runner parks once for every lane it carries. A
+                // thousand idle lanes parking individually would wake a thousand times to each
+                // discover that it is still idle.
+                waitStrategy.idle(++idle);
+            }
             return true;
         }
         if (count == 0) {
@@ -621,6 +706,7 @@ public final class Lane implements AutoCloseable {
         rowsIn = localRowsIn;
         rowsOut = localRowsOut;
         batches = localBatches;
+        workedLastStep = true;
         return true;
     }
 
@@ -861,6 +947,25 @@ public final class Lane implements AutoCloseable {
         running = false;
         if (state == State.RUNNING) {
             state = State.STOPPING;
+        }
+        if (hosted) {
+            // No thread of our own to join. The runner is alive either way -- it is alive for every
+            // other lane it carries -- so what has to be waited for is this lane's own last step
+            // having finished and let go of the arena and the inbox.
+            long deadline =
+                    System.nanoTime() + Math.max(1L, config.shutdownTimeout().toMillis()) * 1_000_000L;
+            while (!drained && System.nanoTime() < deadline) {
+                java.util.concurrent.locks.LockSupport.parkNanos(100_000L);
+            }
+            if (!drained) {
+                throw new PravahaException(
+                        RuntimeErrors.LANE_FAILED,
+                        "lane " + laneId + " did not finish its last step within " + config.shutdownTimeout()
+                                + " on the runner driving it, so the inbox and arena it owns cannot be released. "
+                                + "Another lane on that runner is most likely stuck in its processor -- which is "
+                                + "the cost of a shared thread, and the place to look.");
+            }
+            return;
         }
         try {
             thread.join(Math.max(1L, config.shutdownTimeout().toMillis()));
