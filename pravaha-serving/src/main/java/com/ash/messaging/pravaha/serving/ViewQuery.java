@@ -186,6 +186,7 @@ public final class ViewQuery {
         if (decision.rowFilter().isPresent()) {
             plan = withRowFilter(plan, view, decision.rowFilter().get(), source);
         }
+        plan = authorizeProvenance(plan, view, principal, "query", sql);
 
         // Taken *after* the policy check, so a refused read never occupies a permit somebody
         // authorized could have used, and before any planning work that would otherwise be done on
@@ -353,6 +354,53 @@ public final class ViewQuery {
         return prepared;
     }
 
+    /**
+     * Authorizes a read against what the view actually <em>reads</em>, not only what it is called.
+     *
+     * <p>SX-11, and the reason it is not a bug inside a check. {@code policy.mayRead(principal,
+     * source)} above decides on the name in the {@code FROM} clause -- but that name is chosen by
+     * whoever registered the view, and nothing tied it to the data underneath. A view registered as
+     * {@code secret_pay} over the {@code payroll} stream was authorized as {@code secret_pay}, so a
+     * principal denied everything matching "payroll" read payroll rows: 6 of 8 such views visible
+     * to them, 2 readable, real salary figures returned.
+     *
+     * <p>So every base stream the view's query reads is decided on as well, and a denial anywhere
+     * behind the view denies the view. This keeps the decision at the Pravaha layer -- the store is
+     * never asked and never told -- while making the thing decided about the data rather than the
+     * label.
+     *
+     * <p>A row filter attached to a <em>source</em> decision is applied to the view's plan, and
+     * {@link #withRowFilter} is what makes that safe: a filter naming a column the view projected
+     * away fails with {@code PRV-7003 FILTER_NOT_ENFORCEABLE} rather than being dropped. Refusing to
+     * answer is the only correct outcome there -- serving the rows unfiltered is the breach itself.
+     *
+     * <p>Each provenance decision is audited under its own stream name. An audit of the view name
+     * alone cannot answer "who read payroll", which is the question actually asked.
+     */
+    private PhysicalOperator authorizeProvenance(
+            PhysicalOperator plan, ServedView view, Principal principal, String action, String sql) {
+        for (String stream : view.derivedFrom()) {
+            if (stream.equals(view.name())) {
+                // A view over a stream of its own name is already decided; deciding twice would
+                // double every audit event for the ordinary case.
+                continue;
+            }
+            AccessDecision decision = policy.mayRead(principal, stream);
+            audit.record(AuditEvent.of(principal, action, stream, decision, sql));
+            if (!decision.allowed()) {
+                throw new PravahaException(
+                        SecurityErrors.FORBIDDEN,
+                        principal.id() + " may not read '" + view.name() + "': it reads '" + stream + "', which "
+                                + principal.id() + " may not read (" + decision.reason() + "). Authorization "
+                                + "follows the data a view reads, not the name it was registered under.");
+            }
+            if (decision.rowFilter().isPresent()) {
+                plan = withRowFilter(plan, view, decision.rowFilter().get(), view.name());
+            }
+        }
+        return plan;
+    }
+
     /** Re-runs the policy for a plan that came from the cache, and records the decision. */
     private Prepared authorized(Prepared prepared, String sql, Principal principal) {
         AccessDecision decision = policy.mayRead(principal, prepared.view());
@@ -437,6 +485,7 @@ public final class ViewQuery {
         if (decision.rowFilter().isPresent()) {
             plan = withRowFilter(plan, view, decision.rowFilter().get(), prepared.view());
         }
+        plan = authorizeProvenance(plan, view, principal, "query", prepared.sql());
         try (ReadAdmission.Lease lease = admission.acquire(principal)) {
             return run(plan, view);
         }

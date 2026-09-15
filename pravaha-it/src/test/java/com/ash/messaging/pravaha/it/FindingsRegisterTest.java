@@ -334,7 +334,7 @@ class FindingsRegisterTest {
         // register is worse than none, because it is the part a release argument would quote.
         String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
         Matcher header = Pattern.compile(
-                        "\\*\\*19 are\\s+GA-BLOCKER, (\\d+) GA-REQUIRED, (\\d+) POST-GA and (\\d+) are not defects")
+                        "\\*\\*(\\d+) are\\s+GA-BLOCKER, (\\d+) GA-REQUIRED, (\\d+) POST-GA and (\\d+) are not defects")
                 .matcher(text);
         assertThat(header.find())
                 .as("the header's triage sentence must still be there and still be machine-readable")
@@ -343,12 +343,13 @@ class FindingsRegisterTest {
         List<Finding> open = findings().stream()
                 .filter(finding -> finding.status() != null && finding.status().startsWith("OPEN"))
                 .toList();
-        assertThat(count(open, "GA-BLOCKER"))
-                .as("GA-BLOCKER count in the header")
-                .isEqualTo(19);
-        assertThat(count(open, "GA-REQUIRED")).isEqualTo(Integer.parseInt(header.group(1)));
-        assertThat(count(open, "POST-GA")).isEqualTo(Integer.parseInt(header.group(2)));
-        assertThat(count(open, "NOTE")).isEqualTo(Integer.parseInt(header.group(3)));
+        // Read from the header rather than hard-coded: the blocker count is the number this project
+        // most wants to see fall, and a test that pinned it would need editing every time one is
+        // fixed -- which is how a ratchet turns into a rubber stamp.
+        assertThat(count(open, "GA-BLOCKER")).isEqualTo(Integer.parseInt(header.group(1)));
+        assertThat(count(open, "GA-REQUIRED")).isEqualTo(Integer.parseInt(header.group(2)));
+        assertThat(count(open, "POST-GA")).isEqualTo(Integer.parseInt(header.group(3)));
+        assertThat(count(open, "NOTE")).isEqualTo(Integer.parseInt(header.group(4)));
     }
 
     private static long count(List<Finding> open, String disposition) {

@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **292 findings carrying a
-status — 133 FIXED, 144 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 144 open, **19 are
-GA-BLOCKER, 22 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **293 findings carrying a
+status — 134 FIXED, 144 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 144 open, **18 are
+GA-BLOCKER, 23 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -28,22 +28,22 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 19 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 22 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-BLOCKER** | 18 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-REQUIRED** | 23 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
-**The nineteen blockers, by what they break.** Data reaching the wrong principal: `SX-11` (a denied
-principal reads real payroll rows — owner constraint 3, broken outright), `SX-5`, `SX-1`, `P-3`,
-`CFG-6`. A security control that reports itself on and is off: `CFG-5`, `SX-7`. Silently wrong
+**The eighteen blockers, by what they break.** Data reaching the wrong principal: `SX-5`, `SX-1`,
+`P-3`, `CFG-6`. (`SX-11`, the worst of them, is **fixed** — see below.) A security control that reports itself on and is off: `CFG-5`, `SX-7`. Silently wrong
 answers: `TY-21`, `TY-3`, `TY-13`, `I-3`, `TIME-2`, `STRM-11`. Silent loss: `TY-2`, `W-2`,
 `TIME-4`, `TIME-1`. Declared and does nothing: `I-6`, `S-3`.
 
-**`SX-11` is the one to read first.** Authorization is keyed on the *registered view name*, never on
-what the query actually reads, so a principal denied everything named "payroll" sees 6 of 8
-payroll-reading views and can read two of them — real rows. That is not a bug in a check; it is the
-check being applied to the wrong thing, and it is the seam where "authorisation is enforced at the
-Pravaha layer" stops being true in practice.
+**`SX-11`, the worst of them, is fixed.** Authorization was keyed on the *registered view name*,
+never on what the query actually reads, so a principal denied everything named "payroll" saw 6 of 8
+payroll-reading views and read two of them — real rows. That was not a bug in a check; it was the
+check being applied to the wrong thing. A view now carries the base streams its query reads, and a
+read is refused unless the principal may read every one of them. The residual disclosure of an
+unfiltered row *count* to a principal entitled to a slice is split out as `SX-18`.
 
 **How the dispositions were assigned, stated so it can be disputed.** The GA-BLOCKER and
 GA-REQUIRED sets, the three POST-GA exceptions among the HIGH findings, and the NOTE set were each
@@ -2762,8 +2762,7 @@ data actually escapes through this specific path — this is the already-documen
 docs/qa/logs/SECX.md (SECX-094).
 
 ## SX-11 (HIGH) — `LIST` and read-by-name-mismatch disclose the majority of payroll-derived views and their unfiltered cardinality to a denied or filtered principal (quantified)
-> **Status:** OPEN — the same LIST block still returns full `query.sql()` text and unconditional `query.rowsIn()` (unfiltered cardinality) for every view `policy.mayRead` allows, with no suppression when the decision carries a row filter.
-> **Disposition:** GA-BLOCKER — a denied principal reads real payroll rows; owner constraint 3 broken outright
+> **Status:** FIXED — authorization now follows the data. `ServedView` carries the base streams its query reads, `QueryRegistry` records them on every view it builds, and a read is refused unless the principal may read every one of them. Both data paths in `ViewQuery` and the `LIST` block in `PravahaFlightSqlProducer` enforce it, and a row filter attached to a source decision travels into the derived view. `ViewProvenanceTest` (6) and `RegisteredViewProvenanceTest` (2); seed-proven by removing the check, which fails 4 of the 6. **The residual cardinality disclosure to a row-filtered principal is split out as SX-18** — it needs a wire-format change and is not this fix.
 
 
 Round 1's SEC-043/SEC-057 already established the mechanism (authorization is keyed on the
@@ -2780,6 +2779,21 @@ being decided by a name a first-come registrant chose, not by what the underlyin
 
 **Status: OPEN** (known mechanism, newly quantified — not seed-proven, per this file's own rule
 against modifying production code). See docs/qa/logs/SECX.md (SECX-016, 017, 020, 024).
+
+## SX-18 (MEDIUM) — `LIST` reports a view's unfiltered row count to a principal entitled only to a slice of it
+
+> **Status:** OPEN — the `LIST` block sends `Long.toString(query.rowsIn())` unconditionally; nothing consults `decision.rowFilter()`.
+> **Disposition:** GA-REQUIRED — cardinality is data, but the disclosure is a count rather than rows, and closing it changes a wire field the CLI parses
+
+Split from SX-11, which is otherwise fixed. `bob`, entitled to a `region = 'EU'` slice, sees
+`sales_view` report **4 rows** in a `LIST` while his own read of it returns **2** — true cardinality
+beyond his entitlement. The provenance fix does not touch this: bob is legitimately allowed to see
+that the view exists and to read part of it, so filtering him out of the listing would be wrong.
+
+What is needed is to stop reporting a number he is not entitled to, and the reason it is not in the
+same commit is that the field is a `Long.toString` the CLI parses and prints. Reporting `0` would be
+a lie and reporting `-1` is a convention that has to be agreed with the client and the CLI at once.
+The full `query.sql()` text is disclosed on the same path and has the same question against it.
 
 ## SX-12 (HIGH) — a legitimately secure configuration (`authentication=token` + `policy=permissive` + a real token table + `allow-anonymous=false`) refuses to start at all, and its refusal message misattributes the cause
 > **Status:** OPEN — `PravahaNode.refuseAccidentalOpenServer` still computes `open` from `!(securityPolicy() instanceof AuthenticatedOnlyPolicy)` alone, ignoring `authentication`/token config, and the refusal message still hardcodes `pravaha.security.authentication=none` regardless of the real configuration.

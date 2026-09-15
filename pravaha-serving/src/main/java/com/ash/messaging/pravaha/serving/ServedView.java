@@ -133,6 +133,34 @@ public final class ServedView {
         return java.util.Arrays.stream(keyOrdinals).boxed().toList();
     }
 
+    /**
+     * The base streams this view's query actually reads.
+     *
+     * <p>SX-11. Authorization was keyed on the name a view was <em>registered under</em>, and a
+     * registrant chooses that name. A view called {@code secret_pay} reading the {@code payroll}
+     * stream was authorized as {@code secret_pay}, so a principal denied everything named
+     * "payroll" read payroll rows -- measured at 6 of 8 such views visible and 2 readable. The name
+     * is a label; this is the provenance, and it is what a read must actually be judged against.
+     *
+     * <p>Empty means <strong>this view is its own source</strong> -- nothing derived it, so there is
+     * nothing behind it to check. That is true of a view constructed directly, which is what tests
+     * and the embedded API do. It is not a way to opt out: {@code QueryRegistry} sets provenance on
+     * every view it builds, and {@code ViewProvenanceTest} asserts it, because a registered query is
+     * exactly the case where the name and the data can disagree.
+     */
+    private volatile java.util.Set<String> derivedFrom = java.util.Set.of();
+
+    /** Records what this view reads. Called once, by whoever planned the query. */
+    public ServedView derivedFrom(java.util.Collection<String> streams) {
+        this.derivedFrom = java.util.Set.copyOf(streams);
+        return this;
+    }
+
+    /** The base streams behind this view; empty when the view is its own source. */
+    public java.util.Set<String> derivedFrom() {
+        return derivedFrom;
+    }
+
     public ServedView(String name, StreamSchema schema, List<Integer> keyOrdinals, int maxKeys) {
         this(name, schema, keyOrdinals, maxKeys, Retention.forever());
     }

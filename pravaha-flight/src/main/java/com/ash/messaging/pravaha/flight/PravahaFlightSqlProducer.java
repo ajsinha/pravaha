@@ -418,6 +418,14 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                             continue;
                         }
                         RegisteredQuery query = required.require(name);
+                        // SX-11. The name a query was registered under is chosen by whoever
+                        // registered it, so deciding on the name alone listed 6 of 8 payroll-reading
+                        // views to a principal denied "payroll" -- with their full SQL text, which
+                        // carries the account numbers that made this a disclosure rather than an
+                        // inconvenience. What the query actually reads decides too.
+                        if (!mayReadEverythingBehind(principal, query)) {
+                            continue;
+                        }
                         listener.onNext(new Result(ControlWire.encode(
                                 name,
                                 query.state().name(),
@@ -449,6 +457,27 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      * denied principal dropped another principal's payroll query -- destroying its accumulated state
      * and taking the view away from everyone holding a name for it.
      */
+    /**
+     * Whether this principal may read every base stream the query actually reads.
+     *
+     * <p>SX-11, on the listing path. {@code ViewQuery} enforces the same rule on the read itself;
+     * this is what stops a denied principal learning that the view exists and reading its SQL text,
+     * which is the disclosure half of the same finding. Both are needed: closing only the read
+     * leaves the account numbers in the listing.
+     *
+     * <p>A view with no recorded provenance is its own source and is decided by its name alone,
+     * exactly as before.
+     */
+    private boolean mayReadEverythingBehind(Principal principal, RegisteredQuery query) {
+        for (String stream : query.view().derivedFrom()) {
+            if (!stream.equals(query.view().name())
+                    && !policy.mayRead(principal, stream).allowed()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void requireAdministrable(Principal principal, String view, String verb) {
         AccessDecision decision = policy.mayAdminister(principal, view);
         audit.record(AuditEvent.of(principal, verb, view, decision, ""));

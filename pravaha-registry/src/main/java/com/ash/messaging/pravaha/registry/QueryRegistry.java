@@ -658,7 +658,10 @@ public final class QueryRegistry implements AutoCloseable {
         }
         // The view carries the registration's name, because that is what a reader will write in a
         // FROM clause. The fingerprint names the computation; the name names the answer.
-        ServedView view = new ServedView(name, schema, keyColumns, DEFAULT_MAX_KEYS, retention);
+        ServedView view = new ServedView(name, schema, keyColumns, DEFAULT_MAX_KEYS, retention)
+                // SX-11. What the query reads, recorded on the view, so a reader is judged against
+                // the data and not against the name a registrant happened to choose for it.
+                .derivedFrom(sourceStreams(plan));
         ViewSink sink = new ViewSink(view, schema);
 
         // The engine, not a pipeline of our own. Until now the registry compiled an
