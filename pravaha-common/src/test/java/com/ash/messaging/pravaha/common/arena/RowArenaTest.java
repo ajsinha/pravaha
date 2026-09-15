@@ -86,7 +86,9 @@ class RowArenaTest {
     @Test
     void growsIntoANewSlabWhenTheCurrentOneIsFull() {
         try (RowArena a = arena()) {
-            assertThat(a.slabCount()).isOne();
+            assertThat(a.slabCount())
+                    .as("nothing allocated yet, so no slab yet -- see anArenaThatIsNeverUsedHoldsNoMemory")
+                    .isZero();
             long first = a.allocate(SLAB - 8);
             long second = a.allocate(64);
 
@@ -246,6 +248,31 @@ class RowArenaTest {
                         .isTrue();
             }
             assertThat(new MutableSlice().isEmpty()).isTrue();
+        }
+    }
+
+    @Test
+    void anArenaThatIsNeverUsedHoldsNoMemory() {
+        // The largest part of what an idle continuous query cost. A slab was allocated in the
+        // constructor -- 4 MiB by default -- so a thousand registered queries reserved about 4 GB
+        // off-heap before a row arrived, and at a thousand queries most are idle most of the time.
+        // Reserved, untouched, and the wall ADR-036 says the target hits first.
+        try (RowArena a = arena()) {
+            assertThat(a.slabCount()).as("no rows, no slabs").isZero();
+            assertThat(a.bytesAllocated()).as("and nothing reserved off-heap").isZero();
+
+            // mark() is what a lane calls before it has seen anything, and it must not be what
+            // triggers the allocation this test is about.
+            long mark = a.mark();
+            assertThat(a.slabCount())
+                    .as("marking is a cursor pair, not an allocation")
+                    .isZero();
+
+            a.allocate(64);
+            assertThat(a.slabCount())
+                    .as("the first row is what pays for the first slab")
+                    .isOne();
+            a.resetTo(mark);
         }
     }
 }

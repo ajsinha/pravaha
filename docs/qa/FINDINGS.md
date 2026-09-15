@@ -5828,3 +5828,27 @@ was a hot loop against their database. `scan.interval.ms: 0` restores it deliber
 Scans still scale with registrations rather than with sets — a thousand queries over one set is a
 thousand scans of it, at one a second each rather than a hundred. That is ADR-036 section 3's shared
 scan, still open, and now worth doing for throughput rather than to stop a fire.
+
+### W9-6 (HIGH) — an idle query reserved a 4 MiB arena slab it had never written to
+
+> **Status:** FIXED — `RowArena` allocates its first slab on the first `allocate()` rather than in its constructor. `NodeScaleTest` now measures off-heap from the JVM's direct buffer pool and reports **1,024 KiB per query, down from about 5 MiB** — the inbox exactly, with no arena at all. `RowArenaTest.anArenaThatIsNeverUsedHoldsNoMemory` asserts it, including that `mark()` does not trigger the allocation.
+
+ADR-036 measured about 5 MiB per idle query and called it the wall the target hits before the
+thread-per-query one. Four of those five were an arena slab allocated in the constructor.
+
+**It is buffer capacity, not data**, which is what decides the shape of the fix. The arena is
+per-batch scratch: `mark()` once, `resetTo(mark)` at the end of every batch, holding one batch's
+output rows and nothing across them. So a query that has received no rows has written nothing into
+its arena, and at a thousand continuous queries most are idle most of the time.
+
+That also settles the owner's question about disk spillage, which was the natural next thought:
+**spilling this would be writing out empty buffers.** Paging reserved-and-untouched memory to disk
+costs I/O to store nothing. The fix for capacity nobody used is to stop reserving it; spillage is for
+state that grows with data, which is a different problem and still open (ADR-006's tiering is
+accepted and not built, so a large join or a high-cardinality aggregate is refused with
+`PRV-4001 STATE_TOO_LARGE` rather than spilled).
+
+A thousand idle queries now hold about 1 GB rather than 5 GB, and what remains is the inbox — 2048
+cells of 512 bytes, reserved for a burst that a query fed by a one-scan-per-second Aerospike source
+will never see. That default is now settable (`pravaha.lane.inbox.*`) and is the next thing to size
+from the plan rather than from a constant.

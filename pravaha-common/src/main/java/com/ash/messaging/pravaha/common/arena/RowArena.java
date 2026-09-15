@@ -61,7 +61,14 @@ public final class RowArena implements AutoCloseable {
         this.access = access;
         this.slabBytes = slabBytes;
         this.maxSlabs = maxSlabs;
-        slabs.add(access.allocate(slabBytes));
+        // No slab yet. The first one is allocated by the first allocate(), which for a great many
+        // queries never comes: at a thousand continuous queries most are idle most of the time, and
+        // an idle query held a whole eager slab -- 4 MiB by default, reserved and empty. That is the
+        // largest part of the ~5 MiB per idle query that ADR-036 identifies as the wall the target
+        // hits first, and it is a wall made of memory nobody has written to.
+        //
+        // mark() and the other accessors are safe with no slabs because none of them touches one:
+        // mark is a cursor pair, and regionOf is only ever called with a handle allocate() returned.
     }
 
     /** An arena with default sizing, capped at {@code maxBytes} total. */
@@ -85,6 +92,10 @@ public final class RowArena implements AutoCloseable {
         if (bytes > slabBytes) {
             throw new IllegalArgumentException("row of " + bytes + " bytes exceeds the slab size of " + slabBytes
                     + "; raise pravaha.lane.arena.slab-bytes for this node");
+        }
+        if (slabs.isEmpty()) {
+            // First row this arena has been asked for. A query that never receives one never pays.
+            slabs.add(access.allocate(slabBytes));
         }
         // Rows start 8-byte aligned so their header fields never straddle a word.
         int aligned = (cursor + 7) & ~7;

@@ -89,6 +89,7 @@ final class NodeScaleTest {
     void whatOneRegisteredQueryCosts() {
         long threadsBefore = platformThreads();
         long heapBefore = usedHeapAfterGc();
+        long directBefore = directMemory();
 
         ViewCatalog views = new ViewCatalog();
         List<String> names = new ArrayList<>();
@@ -113,6 +114,8 @@ final class NodeScaleTest {
 
             long threadsDuring = platformThreads();
             long heapDuring = usedHeapAfterGc();
+            long directDuring = directMemory();
+            long directEachKb = (directDuring - directBefore) / QUERIES / 1024;
             double threadsEach = (threadsDuring - threadsBefore) / (double) QUERIES;
             long heapEachKb = (heapDuring - heapBefore) / QUERIES / 1024;
 
@@ -123,8 +126,9 @@ final class NodeScaleTest {
                     "NODE SCALE: %d distinct continuous queries registered in %d ms%n"
                             + "  platform threads: %d -> %d (%.2f per query)%n"
                             + "  heap after gc:    %d KiB -> %d KiB (%d KiB per query)%n"
-                            + "  off-heap per query is not measured here: one 4 MiB arena slab eager,%n"
-                            + "  growing to 8, plus a 2048 x 512B inbox -- about 5 MiB idle, by configuration%n",
+                            + "  off-heap:         %d KiB -> %d KiB (%d KiB per query)%n"
+                            + "  the arena's first slab is allocated by the first row, not at registration,%n"
+                            + "  so an idle query holds its inbox and no arena at all%n",
                     QUERIES,
                     registerMillis,
                     threadsBefore,
@@ -132,7 +136,20 @@ final class NodeScaleTest {
                     threadsEach,
                     heapBefore / 1024,
                     heapDuring / 1024,
-                    heapEachKb);
+                    heapEachKb,
+                    directBefore / 1024,
+                    directDuring / 1024,
+                    directEachKb);
+
+            // The wall ADR-036 names. Measured rather than computed from configuration, because the
+            // configuration says 5 MiB a query and what a query actually holds is the question.
+            assertThat(directEachKb)
+                    .as(
+                            "%d queries hold %d KiB off-heap each. The arena's first slab is allocated by "
+                                    + "the first row now, so an idle query should hold its inbox and nothing else "
+                                    + "-- a 4 MiB eager slab each is what put a thousand queries at ~5 GB",
+                            QUERIES, directEachKb)
+                    .isLessThan(4 * 1024);
 
             // Bounded by cores, not by queries -- which is the whole of ADR-027 and the difference
             // between holding tens and holding thousands. Asserted as an absolute rather than a
@@ -159,6 +176,15 @@ final class NodeScaleTest {
 
     private static long platformThreads() {
         return Thread.getAllStackTraces().keySet().size();
+    }
+
+    /** Off-heap this JVM holds, from the buffer pool the arena and the inbox allocate from. */
+    private static long directMemory() {
+        return java.lang.management.ManagementFactory.getPlatformMXBeans(java.lang.management.BufferPoolMXBean.class)
+                .stream()
+                .filter(pool -> "direct".equals(pool.getName()))
+                .mapToLong(java.lang.management.BufferPoolMXBean::getMemoryUsed)
+                .sum();
     }
 
     private static long usedHeapAfterGc() {
