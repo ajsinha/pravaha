@@ -405,7 +405,20 @@ query** — a count, not a rate — and it should not be read as more than that.
 still costs about 13 ms of CPU per second while completely idle, so a hundred of them is 1.8 cores
 (SRC-6, open).
 
-**No gate pack.** `docs/gates/` still stops at wave-7.
+**Is Wave 9 complete?** Its *target* is met and measured rather than argued: a thousand distinct
+continuous queries register on one node in 3.7 ms each, add 24 platform threads on 24 cores, and hold
+61 MiB off-heap when the inbox is sized as this document already advises (W9-11). Nine of its eleven
+items are FIXED. **Two are open by decision, not by omission:** W9-8 and W9-10 are both "wire the
+`LaneMultiplexer`", and W9-11 is what demoted them — with the target met at default sizing plus one
+config change, the multiplexer is an optimisation on a number already reached, and the aligned
+checkpoint barrier it collides with is a wave's worth of design to get right. Reopen it when a
+measurement demands it, not on the strength of the plan that predates the measurement.
+
+So: **the wave's goal is closed; two of its tasks are deliberately deferred.** That is not the same
+as "done", and the register says so rather than rounding it up.
+
+**No gate pack.** `docs/gates/` still stops at wave-7 — the retrospective for waves 5, 6, 8 and 9 is
+the owner's to write, and no agent should invent one.
 
 ## 3b. The documentation, and which parts the build checks
 

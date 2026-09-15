@@ -5693,7 +5693,7 @@ which is exactly where ADR-036 §3 says the owner does not want it.
 
 ### SRC-2 (HIGH) — an Aerospike-backed query costs two platform threads and a private client, not the one ADR-036 budgets
 
-> **Status:** FIXED — `AerospikeClients` now keys one shared `AerospikeClient` on cluster **and credential**, reference counted, released rather than closed by all three plugins. `AerospikeClientSharingTest` (5 tests, no docker) states the rule; `AerospikeSourceScaleIT`'s two assertions that demanded the old behaviour — `tend` threads `== QUERIES`, connections `>= QUERIES` — are inverted rather than deleted, so a regression fails the test that used to require it. Seed-tested: keying on the host list alone fails exactly the two credential tests.
+> **Status:** FIXED — `AerospikeClients` now keys one shared `AerospikeClient` on cluster **and credential**, reference counted, released rather than closed by all three plugins. `AerospikeClientSharingTest` (5 tests, no docker) states the rule; `AerospikeSourceScaleIT`'s two assertions that demanded the old behaviour — `tend` threads `== QUERIES`, connections `>= QUERIES` — are inverted rather than deleted, so a regression fails the test that used to require it. Seed-tested: keying on the host list alone fails exactly the two credential tests. **Measured against a real Aerospike node after the fix: `tend` ×1 for four registrations (was ×4), client connections +3 for four queries (was +8).**
 
 `AerospikeSourcePlugin.open()` constructs its own `AerospikeClient`, and `PluginSourceFeeds.discover`
 constructs a fresh plugin instance per binding per registration. So every Aerospike-backed query gets
