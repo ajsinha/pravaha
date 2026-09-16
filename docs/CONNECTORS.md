@@ -295,6 +295,77 @@ change when it happens — lower latency, and no scan load on the table.
 
 One connector reaches MySQL, Postgres, SQL Server, Oracle, MongoDB, Db2 and Cassandra.
 
+#### Worked: one `UPDATE` becomes two rows
+
+A customer moves from the silver tier to gold:
+
+```sql
+UPDATE customers SET tier = 'gold' WHERE id = 42;
+```
+
+Debezium emits one event carrying both images:
+
+```json
+{
+  "op": "u",
+  "before": { "id": 42, "tier": "silver", "region": "EU" },
+  "after":  { "id": 42, "tier": "gold",   "region": "EU" },
+  "source": { "ts_ms": 1789000000000, "lsn": 48219374 }
+}
+```
+
+The connector emits **two** rows, and the weights are the whole translation:
+
+```
+(42, "silver", "EU")   weight -1      ← from before
+(42, "gold",   "EU")   weight +1      ← from after
+```
+
+A continuous query counting customers per tier sees both, and both matter:
+
+```sql
+SELECT tier, COUNT(*) AS customers FROM customers GROUP BY tier
+```
+
+| | `silver` | `gold` |
+|---|---|---|
+| before the update | 900 | 100 |
+| after the `-1` | 899 | 100 |
+| after the `+1` | 899 | 101 |
+
+**A source that dropped the `before` image would leave `silver` at 900 for ever.** Nothing would look
+wrong — no error, no lag, no gap in a metric — the number would simply be too high by one, and by
+one more with every future update. That is why `emitsBeforeImage` is a capability a connector
+declares rather than a detail of its implementation, and why a connector that cannot produce a
+before-image must say so (§6) instead of emitting the `after` row alone.
+
+#### What a CDC binding would look like
+
+**Not built.** No Debezium plugin ships today, and this is the design rather than configuration you
+can paste — the shipped source types and their real options are in
+[`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1.
+
+```yaml
+pravaha:
+  sources:
+    customers:
+      plugin: debezium              # does not exist yet
+      options:
+        connector: postgres
+        hostname: db-1
+        port: "5432"
+        database: crm
+        table: public.customers
+        slot.name: pravaha_customers
+        snapshot: initial           # initial | never — the splice in the next section
+        event.time: updated_at
+```
+
+`slot.name` is the part that is not cosmetic: a Postgres replication slot is server-side state that
+retains WAL until it is consumed, so a connector that creates one and stops being read will fill the
+database's disk. A CDC connector's operational story is mostly about that slot, not about Pravaha.
+
+
 ### Snapshot, and splicing it to the stream
 
 A changelog starts from *now*. A query over "all orders" needs the rows that already existed, and
@@ -316,7 +387,59 @@ feed would make the query fall behind the present in order to protect the store 
 
 A Debezium connector plugs into that seam rather than inventing one.
 
----
+### Retractions you can have today, without CDC
+
+A connector is not the only way into the retraction model. The **filesystem** source reads an
+optional `op.column` naming a column whose value says whether a row inserts or retracts — so any
+producer that can write a changelog as a file can feed Z-sets now, with no database and no log
+reader.
+
+```csv
+user_id,tier,op
+ann,silver,I
+bob,gold,I
+cat,silver,I
+bob,gold,D
+```
+
+```yaml
+pravaha:
+  streams:
+    customers:
+      schema: "user_id:STRING,tier:STRING,op:STRING"
+  sources:
+    customers:
+      plugin: filesystem
+      options:
+        path: /var/lib/pravaha/incoming/customers.csv
+        schema: "user_id:STRING,tier:STRING,op:STRING"
+        skip.header: "true"
+        op.column: op
+        op.delete.values: "D,DELETE,-,-1"
+```
+
+```sql
+SELECT user_id, tier FROM customers
+```
+
+Three inserted, one retracted, so two survive — `ann` and `cat`. That is the engine's whole premise
+proved through a configured deployment rather than a test harness, and it is
+`IncrementalTest.incr003_aConfiguredSourceCanDeliverARetraction` run against exactly this shape.
+
+**The operation column is an ordinary column, and it must be declared.** It appears in the schema
+like any other field, it is matched by *name* so its position does not matter, and the file must
+carry a value for it on every line — a row with one fewer field than the schema is a decode failure,
+not a defaulted insert. What `op.column` adds is a second meaning on top of the value: it also
+decides the row's weight. It stays selectable afterwards, so `SELECT *` will show it; the query above
+simply does not ask for it.
+
+`op.delete.values` is the set of values meaning *retract* — `D,DELETE,-,-1` by default. Anything
+else, `I` included, is an insertion. There is no value meaning "update": an update is a retraction
+and an insertion, which is the same two rows Debezium's `u` event produces above.
+
+**Four of the five shipped plugins hard-code `weight(+1)`.** This is the one route a retraction has
+into a configured deployment today, which is why the Z-set model went so long without one — and why
+a CDC connector matters beyond the convenience of not writing the file yourself.
 
 ## 6. What a connector should refuse to claim
 
