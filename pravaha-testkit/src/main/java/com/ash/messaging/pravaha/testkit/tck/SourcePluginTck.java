@@ -217,9 +217,32 @@ public abstract class SourcePluginTck {
                 while (resumed.poll(collector, 64) > 0) {
                     // drain the remainder
                 }
+                // What "replayable" has to mean, and what it must not be confused with.
+                //
+                // The load-bearing property is that resuming LOSES NOTHING: every record the first
+                // reader did not take must come back. Whether records it DID take come back as well
+                // is the delivery guarantee's business, not this one's -- AT_LEAST_ONCE says
+                // plainly that they may, and the engine's weights absorb a duplicate where nothing
+                // absorbs a loss.
+                //
+                // Asserting an exact size conflated the two and held an at-least-once source to an
+                // exactly-once contract. A source whose offset is a timestamp rather than a
+                // position -- Aerospike's last-update-time watermark is one -- cannot express
+                // "records three to five of this scan" at all, and would have had to declare
+                // replayableOffsets false to pass. That declaration is read by SharedSourceGroup to
+                // mean "a late-joining query can be given the records it missed", which is exactly
+                // the no-loss reading, so saying false there to satisfy this line would have cost
+                // reader sharing (SRC-3) to answer a question this case was asking wrongly.
+                int unread = expectedRecordCount() - firstPass.size();
                 assertThat(collector.rows())
-                        .as("resuming from a recorded offset must yield exactly the unread remainder")
-                        .hasSize(expectedRecordCount() - firstPass.size());
+                        .as("resuming from a recorded offset must yield at least the unread remainder; "
+                                + "a source may re-deliver what was already read, but may never skip it")
+                        .hasSizeGreaterThanOrEqualTo(unread);
+                if (caps.guarantee() == DeliveryGuarantee.EXACTLY_ONCE) {
+                    assertThat(collector.rows())
+                            .as("an exactly-once source must resume with no duplicates either")
+                            .hasSize(unread);
+                }
             }
         }
     }

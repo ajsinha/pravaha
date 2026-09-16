@@ -196,6 +196,14 @@ final class LutScanReader implements PartitionReader {
                     .commit();
             emitted++;
         }
+        // Drained: only now may the offset move past this scan. While anything remains buffered,
+        // position() keeps reporting the previous watermark, so a checkpoint taken mid-drain resumes
+        // by re-scanning this window -- re-delivering the records already handed over, which is what
+        // AT_LEAST_ONCE means and what the engine's weights absorb, instead of stepping over the
+        // ones it never handed over at all.
+        if (buffered.isEmpty()) {
+            watermarkNanos = scanStartedNanos;
+        }
         return emitted;
     }
 
@@ -262,8 +270,16 @@ final class LutScanReader implements PartitionReader {
         // during the scan may or may not have been seen depending on which partition it landed in
         // and when the scan reached it; taking the start time re-reads that window next time, which
         // is a duplicate rather than a loss. Duplicates the engine survives; losses it cannot.
+        //
+        // But it moves only once the buffer is DRAINED, not here. Advancing it at the end of the
+        // scan made position() report "everything up to this scan" while records from that scan
+        // were still sitting unread in the buffer -- so a checkpoint taken mid-drain recorded an
+        // offset past rows nobody had been given, and a reader resumed from it filtered on a time
+        // strictly after them. They were not late and not duplicated: they were gone. Found by
+        // AerospikeSourceTckIT, which polls two of five records and then resumes; the three
+        // remaining came back as zero. AerospikePluginIT never saw it because it only ever takes
+        // position() after a full drain.
         scanStartedNanos = startedNanos;
-        watermarkNanos = startedNanos;
         scans++;
     }
 

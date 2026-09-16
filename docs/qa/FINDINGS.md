@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 177 FIXED, 103 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **1 is
+only part that is kept current. Counting the register as it stands: **296 findings carrying a
+status — 178 FIXED, 103 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **1 is
 GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6555,3 +6555,12 @@ on this node.
 
 *Also checked here for the first time:* the sizing advice in `OPERATIONS.md`. A recommendation nobody
 runs is how a default becomes folklore, and this project has already found two of those.
+
+
+### SRC-9 (HIGH) — Aerospike's offset advanced before its buffer drained, so a mid-drain checkpoint stepped over rows nobody had been given
+
+> **Status:** FIXED — `LutScanReader.scan()` set `watermarkNanos` to the scan's start time as soon as the scan returned, *before* `poll()` had handed over a single record. So `position()` reported "everything up to this scan" while records from it were still buffered, a checkpoint taken there recorded an offset past rows the engine had never seen, and a reader resumed from it filtered on `lastUpdate >= watermark` — strictly after those rows. They were not late and not duplicated: they were **gone**. The watermark now advances only when the buffer is empty, so a mid-drain resume re-scans the window and re-delivers what was already read, which is what `AT_LEAST_ONCE` means and what the engine's weights absorb.
+> **Found by running the TCK against the connector the documentation holds up as the model.** `AerospikeSourcePlugin` had never been run against `SourcePluginTck` at all; `AerospikePluginIT` only ever takes `position()` after a *full* drain, so it tests "resume to see what changed since" and never "resume mid-drain to get the rest". Five records, poll two, resume: the remaining three came back as zero.
+> **A second defect, in the TCK itself, and this one is mine to own rather than the plugin's.** `replayableOffsetsActuallyReplay` asserted the resumed reader yields *exactly* the unread remainder, which holds an at-least-once source to an exactly-once contract. The load-bearing property is that resuming **loses nothing**; whether it re-delivers what was already read is the delivery guarantee's business, and `AT_LEAST_ONCE` says plainly that it may. A source whose offset is a *timestamp* rather than a *position* cannot express "records three to five of this scan" at all, and would have had to declare `replayableOffsets false` to pass — a declaration `SharedSourceGroup` reads as "a late-joining query cannot be given the records it missed", which would have cost reader sharing (`SRC-3`) to satisfy an assertion that was asking the wrong question. The case now requires no-loss of every source and exactness only of an `EXACTLY_ONCE` one.
+> **Disposition:** was a silent-loss defect on a shipped connector; both halves fixed and the TCK now passes 10/10 against a real Community Edition container, with `AerospikePluginIT` 12/12 beside it.
+
