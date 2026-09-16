@@ -352,6 +352,49 @@ one more with every future update. That is why `emitsBeforeImage` is a capabilit
 declares rather than a detail of its implementation, and why a connector that cannot produce a
 before-image must say so (§6) instead of emitting the `after` row alone.
 
+#### Not every store has a log you can subscribe to
+
+CDC is not one mechanism. What a store offers differs enough to decide whether a connector is worth
+writing at all, and the differences are licensing and architecture rather than effort.
+
+| Store | Mechanism | Who initiates | Deletes | Catch |
+|---|---|---|---|---|
+| **Postgres** | logical replication of the WAL | client pulls | yes, with `REPLICA IDENTITY FULL` | needs `wal_level = logical` and a restart |
+| **MySQL** | binlog; the client registers as a replica | client pulls | yes | needs `binlog_format = ROW` |
+| **MongoDB** | oplog / change streams | client pulls | yes | needs a replica set, even of one |
+| **SQL Server** | CDC change tables | client pulls (ordinary queries) | yes | Standard edition or better |
+| **Aerospike** | **XDR** | **the store pushes** | durable deletes only | **Enterprise only — Community has no change feed** |
+| **Cassandra** | commitlog segments in `cdc_raw/` | **read from local disk, per node** | tombstones | the exception that proves the rule — see below |
+
+**Aerospike is the interesting one, and this repository already decided it.** `AerospikeStrategy`
+names four ways to get changes out and implements one:
+
+- `lut-scan` — a partition-parallel scan filtered on each record's last-update time. **The only
+  strategy that works on Community Edition**, and honest about its cost: at-least-once, no
+  before-image, and **deletes are invisible**. A deleted record is simply absent from the next scan,
+  which is indistinguishable from one that never existed. It also misses intra-interval overwrites:
+  two writes between scans are seen as one. Those are properties of *scanning*, not of the
+  implementation, and no amount of care removes them.
+- `xdr-kafka`, `xdr-http` — Enterprise, not built.
+- `write-intercept` — every writer goes through a Pravaha wrapper. Intrusive, not built.
+
+Asking for an unimplemented one is refused at configuration rather than silently downgraded to
+`lut-scan`, because the strategies have *different delivery guarantees* and a query whose source
+cannot see deletes should be told at registration rather than discover it from a total that never
+goes down.
+
+**And notice the shape of `xdr-http`.** XDR *pushes* — Aerospike connects out to a destination
+rather than being read by a client. That is not the Postgres shape at all; it is
+[ADR-040](adr/040-the-remote-connector.md)'s shape with Aerospike as the sender. Whoever builds the
+remote connector's inbound endpoint gets most of an Aerospike XDR source with it, which is an
+argument for building that endpoint before writing a second store-specific reader.
+
+**Cassandra is the one case where the log really is a file.** Its CDC writes commitlog segments to a
+`cdc_raw` directory **on every node**, to be read locally — so it needs an agent per node and gives
+no ordering across them. That is why a Cassandra *table scan* source ([ADR-039](adr/039-ga-includes-the-known-gaps-and-clustering.md)
+item 6) is tractable and Cassandra *CDC* is a different project. It is also the exception behind the
+rule above: for the stores worth capturing first, change capture is a network conversation.
+
 #### Where does it run? The database is on another machine
 
 **Nowhere near the database.** This is the first question anyone asks and the answer is better than
