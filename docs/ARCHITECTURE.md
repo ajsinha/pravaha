@@ -85,6 +85,8 @@ them.
 
 ## What a lane is
 
+> **Connectors: [`CONNECTORS.md`](CONNECTORS.md).** The SPI, a worked example and the TCK.
+
 > **Full treatment: [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md).** This section is the summary a
 > reader of the architecture needs; that document is the one kept next to the code, and it wins if
 > the two ever disagree.

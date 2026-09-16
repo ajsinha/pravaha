@@ -2,6 +2,8 @@
 
 > **How any of this actually runs — lanes, inboxes, arenas, and what bounds a node:**
 > [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md).
+>
+> **Where the data comes from, and how to add a source:** [`CONNECTORS.md`](CONNECTORS.md).
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
