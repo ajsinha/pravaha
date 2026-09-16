@@ -186,6 +186,61 @@ public final class SqlPlanner {
         }
     }
 
+    /**
+     * The one table a query names, taken from the parse tree and nothing else.
+     *
+     * <p>SX-5, and the channel its first fix left open. {@link #plan} resolves a name against the
+     * catalogue while validating, so a query naming a view that does not exist fails there --
+     * {@code PRV-2002}, raised before any caller has been authorized for anything. A view that
+     * exists but is forbidden gets as far as the policy and is refused with {@code PRV-7002}. Two
+     * codes, and the difference between them is an existence oracle: a caller entitled to nothing
+     * can confirm a name by reading which refusal comes back.
+     *
+     * <p>Closing it means authorizing the name <em>before</em> the catalogue is consulted, which
+     * means obtaining the name without consulting it. Parsing alone does that. The parser builds a
+     * tree out of the text and never asks what exists, so it answers identically for a real name
+     * and an invented one -- which is the whole point.
+     *
+     * <p>Only the single-table shape is recognised, and that is the shape a request/response query
+     * is allowed to have: {@code ViewQuery} refuses anything reading more than one view. A join, a
+     * subquery or a {@code VALUES} returns empty and its caller keeps the behaviour it had, which is
+     * correct rather than merely convenient -- those queries are refused on other grounds and never
+     * reach a view.
+     *
+     * @throws PravahaException {@code PRV-2001} when the text will not parse. A syntax error says
+     *     nothing about what exists, so reporting it before authorizing discloses nothing.
+     */
+    public java.util.Optional<String> referencedTable(String sql) {
+        try (Planner planner = Frameworks.getPlanner(frameworkConfig())) {
+            SqlNode parsed;
+            try {
+                parsed = planner.parse(sql);
+            } catch (SqlParseException e) {
+                throw new PravahaException(SqlErrors.PARSE_FAILED, e.getMessage(), e);
+            }
+            return tableOf(dropStreamKeyword(parsed));
+        }
+    }
+
+    /** The identifier in {@code FROM}, when there is exactly one and it is a plain name. */
+    private static java.util.Optional<String> tableOf(SqlNode node) {
+        SqlNode query = node instanceof org.apache.calcite.sql.SqlOrderBy ordered ? ordered.query : node;
+        if (!(query instanceof org.apache.calcite.sql.SqlSelect select)) {
+            return java.util.Optional.empty();
+        }
+        SqlNode from = select.getFrom();
+        // "FROM v AS x" and "FROM v x" both arrive as an AS call wrapping the identifier.
+        if (from instanceof org.apache.calcite.sql.SqlBasicCall call
+                && call.getOperator().getKind() == org.apache.calcite.sql.SqlKind.AS
+                && call.operandCount() > 0) {
+            from = call.operand(0);
+        }
+        if (from instanceof org.apache.calcite.sql.SqlIdentifier identifier && !identifier.names.isEmpty()) {
+            return java.util.Optional.of(identifier.names.get(identifier.names.size() - 1));
+        }
+        return java.util.Optional.empty();
+    }
+
     /** The text Calcite puts in front of the expression it was converting when it failed. */
     private static final String CONVERTING_PREFIX = "while converting ";
 

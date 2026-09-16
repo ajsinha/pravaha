@@ -171,22 +171,33 @@ public final class ViewQuery {
      * syntax for the caller to reach (section 25).
      */
     public Result execute(String sql, Principal principal) {
+        // SX-5. Authorize the name the query *text* gives, before anything resolves it.
+        //
+        // The previous fix authorized before `catalog.find`, which was not early enough: planning
+        // resolves the name against the schema while validating, so a view that does not exist was
+        // refused there with PRV-2002 -- a different code from the PRV-7002 a real-but-forbidden
+        // view gets, and thrown before the policy had been consulted at all. The two codes are an
+        // existence oracle: a caller entitled to nothing can confirm a name by reading which refusal
+        // comes back.
+        //
+        // `referencedTable` reads the parse tree only. The parser never asks what exists, so it
+        // answers identically for a real name and an invented one, and authorizing on its answer
+        // makes both refusals the same. Planning still refuses an unknown name afterwards -- but by
+        // then the caller is authorized for that name, and telling someone entitled to a view that
+        // it is not there discloses nothing.
+        java.util.Optional<String> named = plannerForParsing().referencedTable(sql);
+        AccessDecision authorized = named.isPresent() ? authorizeRead(principal, named.get(), sql) : null;
+
         PhysicalOperator plan = planFor(sql);
         String source = sourceViewOf(plan);
 
-        // SX-5/SX-1: authorize before looking the view up, not after. Requiring existence first made
-        // "denied" and "does not exist" answer differently -- different code, different gRPC status,
-        // and a not-found message that enumerated every registered name -- so a caller who was never
-        // authorized for anything could map the node's whole catalogue by asking for names and
-        // reading which refusal came back.
-        AccessDecision decision = policy.mayRead(principal, source);
-        // Recorded whether allowed or denied: an audit log holding only refusals answers "who was
-        // stopped" and not "who read the salary view", which is the question that gets asked.
-        audit.record(AuditEvent.of(principal, "query", source, decision, sql));
-        if (!decision.allowed()) {
-            throw new PravahaException(
-                    SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + source + "': " + decision.reason());
-        }
+        // Normally the parsed name and the planned source are the same string, and the decision
+        // above stands. They differ only for a shape `referencedTable` declines to read -- a join or
+        // a subquery, both refused on other grounds before they reach a view -- and then this is
+        // exactly the old path: authorize whatever the plan actually reads.
+        AccessDecision decision =
+                authorized != null && named.get().equals(source) ? authorized : authorizeRead(principal, source, sql);
+
         ServedView view = catalog.find(source).orElseThrow(() -> unknownView(source));
         refuseIfProducerDied(view);
         // SX-7. The ALLOW above is true -- the policy did allow -- but the read can still be refused
@@ -307,6 +318,34 @@ public final class ViewQuery {
         try (ReadAdmission.Lease lease = admission.acquire(principal)) {
             return plan.outputSchema();
         }
+    }
+
+    /**
+     * Authorizes one read, records the decision either way, and refuses if it was denied.
+     *
+     * <p>Recorded whether allowed or denied: an audit log holding only refusals answers "who was
+     * stopped" and not "who read the salary view", which is the question that gets asked.
+     */
+    private AccessDecision authorizeRead(Principal principal, String view, String sql) {
+        AccessDecision decision = policy.mayRead(principal, view);
+        audit.record(AuditEvent.of(principal, "query", view, decision, sql));
+        if (!decision.allowed()) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + view + "': " + decision.reason());
+        }
+        return decision;
+    }
+
+    /**
+     * A planner used only to parse.
+     *
+     * <p>It is handed the catalogue's schemas like any other, but {@code referencedTable} never
+     * consults them -- which is what makes it safe to call before authorizing. An empty catalogue is
+     * fine here for the same reason, and means a denied caller is refused as denied rather than
+     * being told this node holds no views.
+     */
+    private SqlPlanner plannerForParsing() {
+        return SqlPlanner.withStreams(catalog.schemas().values().toArray(new StreamSchema[0]));
     }
 
     private PhysicalOperator planFor(String sql) {

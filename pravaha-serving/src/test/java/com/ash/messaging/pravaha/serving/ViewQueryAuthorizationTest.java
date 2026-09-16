@@ -219,4 +219,53 @@ class ViewQueryAuthorizationTest {
                         .size())
                 .isEqualTo(4);
     }
+
+    @Test
+    void sx5_aDeniedCallerCannotTellARealViewFromAnAbsentOneByTheCode() {
+        // SX-5's remaining channel, and why the first fix did not close it. Authorization moved
+        // ahead of catalog.find, but planning happens before both -- and the planner resolves the
+        // name against the schema while validating, so an absent view was refused there with
+        // PRV-2002 before the policy was ever consulted, while a real-but-forbidden one reached the
+        // policy and got PRV-7002. Two codes is an oracle: a caller entitled to nothing confirms a
+        // name by reading which refusal comes back.
+        ViewQuery queries = queryWith((principal, view) -> AccessDecision.deny("interns read nothing"));
+
+        Throwable real = org.assertj.core.api.Assertions.catchThrowable(
+                () -> queries.execute("SELECT user_id FROM user_volume", INTERN));
+        Throwable absent = org.assertj.core.api.Assertions.catchThrowable(
+                () -> queries.execute("SELECT user_id FROM zzz_no_such_view", INTERN));
+
+        assertThat(real)
+                .as("a denied caller must be refused the view that exists")
+                .isNotNull();
+        assertThat(absent).as("and refused the one that does not").isNotNull();
+        assertThat(codeIn(absent))
+                .as(
+                        "the two refusals must carry the same code. Real gave '%s', absent gave '%s'",
+                        real.getMessage(), absent.getMessage())
+                .isEqualTo(codeIn(real));
+        assertThat(absent.getMessage())
+                .as("and the refusal for an absent name must not disclose a view the caller may not read")
+                .doesNotContain("user_volume");
+    }
+
+    @Test
+    void sx5_anAuthorizedCallerStillGetsAStraightAnswerAboutATypo() {
+        // The other half, and the reason this is not simply "refuse everything identically". Closing
+        // an oracle must not cost a legitimate user their diagnosis: somebody allowed to read the
+        // view has nothing disclosed to them by being told the name they typed is not there.
+        ViewQuery queries = queryWith((principal, view) -> AccessDecision.allow());
+
+        assertThatThrownBy(() -> queries.execute("SELECT user_id FROM user_volumme", ANALYST))
+                .as("a typo by someone entitled to the data should say the object was not found")
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2002");
+    }
+
+    /** The {@code PRV-} code a refusal carries -- the part a caller can branch on. */
+    private static String codeIn(Throwable refusal) {
+        java.util.regex.Matcher found =
+                java.util.regex.Pattern.compile("PRV-\\d{4}").matcher(String.valueOf(refusal.getMessage()));
+        return found.find() ? found.group() : "no code";
+    }
 }
