@@ -53,7 +53,13 @@ that removing S-3's refusal restores the more specific diagnosis rather than lea
 
 ## What has not changed
 
-The blocker list is still not being waived, the gate packs still say what is unproven — P4 partly,
-M6 not passed because its demo has never been performed — and the findings register still counts
-`SX-5` and `SX-1` as open blockers rather than as narrowed ones. A longer road to GA is not a reason
-to start rounding those up.
+The blocker list is still not being waived and the gate packs still say what is unproven — P4 partly,
+M6 not passed because its demo has never been performed. A longer road to GA is not a reason to start
+rounding anything up.
+
+**Progress against that rule, recorded 2026-09-16.** `SX-1` is **fixed** — it was already fixed in
+code when this ADR was written and its status line said otherwise; what it lacked was a test pinning
+the order of the authorization and the lookup. `SX-5` has lost two of its three channels, enumeration
+and now the refusal codes, and **stays a GA-BLOCKER on the latency channel alone** rather than being
+counted as narrowed. Item 1 (`SRC-3`) is closed, and GA-REQUIRED is empty. That leaves items 2
+through 8 and one blocker on one channel.
