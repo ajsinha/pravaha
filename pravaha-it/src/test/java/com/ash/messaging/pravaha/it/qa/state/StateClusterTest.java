@@ -234,7 +234,10 @@ class StateClusterTest extends StateTestSupport {
                 "state-102-node",
                 true,
                 false,
-                null);
+                null,
+                false,
+                "127.0.0.1",
+                0);
 
         assertThatThrownBy(node::start).isInstanceOf(PravahaException.class).hasMessageContaining("PRV-9002");
         assertThat(isListening("127.0.0.1", port))
@@ -385,7 +388,10 @@ class StateClusterTest extends StateTestSupport {
                 "state-106-" + mode.toLowerCase(java.util.Locale.ROOT),
                 true,
                 false,
-                null);
+                null,
+                false,
+                "127.0.0.1",
+                0);
         node.start();
         return node;
     }
