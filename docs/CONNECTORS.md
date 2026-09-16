@@ -352,6 +352,86 @@ one more with every future update. That is why `emitsBeforeImage` is a capabilit
 declares rather than a detail of its implementation, and why a connector that cannot produce a
 before-image must say so (§6) instead of emitting the `after` row alone.
 
+#### The fine print: what actually goes wrong with CDC
+
+Every item here has cost somebody a production incident, and most of them fail **silently** — which
+is the reason they are written down. They apply to Debezium and to a hand-written reader equally;
+they are properties of the database, not of the connector.
+
+**`REPLICA IDENTITY` decides whether corrections are possible at all.** Postgres defaults a table to
+`REPLICA IDENTITY DEFAULT`, which puts only the **primary key** in the before-image of an update or
+delete. Work the §5 example with that setting: the before-image is `(42)` and nothing else, so there
+is no `(42, "silver")` to retract, and silver stays at 900 for ever. No error, no lag, no gap in any
+metric — just a number that is wrong and stays wrong.
+
+So a CDC source must **refuse a table that is not `ALTER TABLE ... REPLICA IDENTITY FULL`**, at
+configuration time, and name the statement that fixes it. And the setting is not free: `FULL` writes
+the entire old row into the WAL on every update and delete, so WAL volume grows and wide tables pay
+for it on every write. That is a real cost an operator agrees to, not a box to tick.
+
+**Unchanged TOAST values arrive as a placeholder, not as data.** This is the subtlest one. Postgres
+stores large values out of line, and if a wide `text` or `jsonb` column is *not modified* by an
+update, its new value is **not in the stream** — a marker says "unchanged" instead. A consumer that
+takes the after-image at face value writes a placeholder or a null into a column that in truth still
+holds the old value, and the view is quietly corrupted in exactly the column nobody is watching.
+
+The fix is that the connector must carry the old value forward for any column marked unchanged, which
+it can only do if it has the old row — which is `REPLICA IDENTITY FULL` again, from a second
+direction.
+
+**A row must reach the engine on a transaction boundary, never before.** The stream carries `Begin`
+and `Commit`. Emitting rows as they arrive publishes uncommitted state, and a rolled-back transaction
+then needs retracting rows that were never true. This engine already promises a subscriber whole
+commits and never half a batch (`STRM-11`), so a CDC source buffers to `Commit` and hands over the
+transaction entire.
+
+Which creates the opposite problem: **one enormous transaction**. A ten-million-row `UPDATE` is one
+transaction, and buffering it whole is a memory bound nothing here spills past — inboxes are fixed
+and off-heap, and nothing spills. Postgres 14 and later can stream an in-progress transaction, which
+moves the problem rather than removing it: the connector then knows about changes that may still roll
+back. Whichever is chosen, it is a decision to record, not a default to inherit.
+
+**An idle table fills the database's disk.** The replication slot advances only when the client
+confirms an LSN, and the client only sees messages for *captured* tables. So a quiet table on a busy
+database means the slot's position stands still while WAL piles up behind it — and the first symptom
+is the database running out of disk, not anything visible in Pravaha. The remedy is a heartbeat:
+periodically confirm the current LSN even with nothing to report. Debezium calls this
+`heartbeat.interval.ms`; a hand-written reader needs its own, and it is not optional on any database
+that has tables Pravaha does not capture.
+
+**A slot is not automatically safe across a failover.** A replication slot lives on one server, and
+historically did not follow a promotion to a standby — after failover the slot is simply gone, and
+recovery means a fresh snapshot of everything. Recent Postgres versions add support for
+synchronising slots to standbys; **check what your version actually does before relying on it**,
+because the recovery path differs enormously between "resume from the slot" and "re-snapshot the
+table".
+
+**A dropped slot cannot be resumed, only re-snapshotted.** `max_slot_wal_keep_size` caps how much WAL
+a slot may retain, which protects the disk by *invalidating* the slot when the cap is passed. That is
+the right trade, and it means a connector must detect an invalidated slot and say plainly that a new
+snapshot is required rather than resuming from an LSN the server no longer has.
+
+**`pgoutput` needs a publication, and adding a table later is its own event.** The stream carries
+what a `PUBLICATION` names. `FOR ALL TABLES` is convenient and captures things nobody meant to
+capture; a named list is explicit and means `ALTER PUBLICATION` when a table is added — at which
+point that table has no snapshot, and the splice question in the next section applies again to it
+alone.
+
+**A table with no primary key and no replica identity is not replicated at all.** Postgres will
+refuse the update or skip it depending on version and settings, so the rows simply never appear. A
+connector should check at configuration rather than let a table be silently absent.
+
+**MySQL has the same two settings under different names.** `binlog_format = ROW` and
+`binlog_row_image = FULL` are the binlog equivalents of logical decoding and `REPLICA IDENTITY FULL`;
+`MINIMAL` reproduces the key-only before-image problem exactly. And binlogs expire — a consumer down
+longer than `binlog_expire_logs_seconds` cannot resume and needs a new snapshot, which is the same
+shape as an invalidated slot.
+
+**The offset is the LSN, and it belongs in the checkpoint.** Resuming means telling the server the
+last LSN durably applied. Confirm too early and a crash loses changes the server will never resend;
+confirm only at a Pravaha checkpoint and the two recover to the same point. This is why a CDC source
+plugs into `SplicedReader`'s phase-explicit offsets rather than keeping its own position.
+
 #### Not every store has a log you can subscribe to
 
 CDC is not one mechanism. What a store offers differs enough to decide whether a connector is worth
