@@ -71,6 +71,18 @@ public final class PgWireErrors {
     public static final ErrorCode UNSUPPORTED_CATALOG_QUERY = new ErrorCode(6205, "PGWIRE_UNSUPPORTED_CATALOG_QUERY");
 
     /**
+     * A configured TLS certificate or private key this server cannot use.
+     *
+     * <p>Refused at configuration time rather than warned about and silently served in plaintext --
+     * the same rule {@code FlightErrors.TLS_UNREADABLE} exists for, and the same failure mode CFG-6
+     * recorded on the Flight side: a key configured without a certificate (or the reverse) must not
+     * be read, held, and quietly never used while the node serves plaintext and tells the operator
+     * their TLS settings look fine. See {@link PgTls} for exactly which half was missing or
+     * unreadable, or which PEM shape (PKCS#1 versus PKCS#8) this server cannot parse.
+     */
+    public static final ErrorCode TLS_UNREADABLE = new ErrorCode(6206, "PGWIRE_TLS_UNREADABLE");
+
+    /**
      * The five-character SQLSTATE a Pravaha failure should arrive as.
      *
      * <p>The message always carries the engine's own PRV code -- {@link PravahaException} puts it
@@ -111,6 +123,11 @@ public final class PgWireErrors {
             case "PRV-4023" -> "42P01";
             // 0A000 feature_not_supported, for the things this gateway and this engine decline.
             case "PRV-6200", "PRV-6201", "PRV-6203", "PRV-6204", "PRV-6205", "PRV-4025" -> "0A000";
+            // 08000 connection_exception: this is a startup-time configuration failure, not a
+            // per-query one, but it is thrown from PravahaPgWireServer.encryptedWith rather than
+            // ever reaching a connected client -- the code exists for the operator reading logs,
+            // and 08000 is the nearest honest class if it ever did reach a client.
+            case "PRV-6206" -> "08000";
             case "PRV-6202" -> "08P01"; // protocol_violation
             // 54000 program_limit_exceeded: the result was larger than one response may carry.
             case "PRV-4024" -> "54000";

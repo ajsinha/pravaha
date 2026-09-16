@@ -87,6 +87,20 @@ final class PgBackend {
         out.flush();
     }
 
+    /**
+     * Accepts an {@code SSLRequest} with the protocol's single byte {@code 'S'}.
+     *
+     * <p>The counterpart to {@link #declineEncryption()}, sent only when this server has a
+     * certificate configured. {@code 'S'} is the client's signal to stop speaking plaintext on this
+     * socket and start a TLS handshake instead -- {@code PgWireConnection} layers an {@link
+     * javax.net.ssl.SSLSocket} over the connection immediately after this byte is flushed, before
+     * reading anything else.
+     */
+    void acceptEncryption() throws IOException {
+        out.write('S');
+        out.flush();
+    }
+
     void authenticationOk() throws IOException {
         send(AUTHENTICATION, body -> body.writeInt(AUTH_OK));
     }

@@ -33,7 +33,7 @@
  * expose, so there is none here, and a client that tries gets the planner's own refusal rather than
  * a second opinion written in this package.
  *
- * <h2>What is still deliberately not implemented, after slice 2</h2>
+ * <h2>What is still deliberately not implemented, after slice 3</h2>
  *
  * <p>Each of these is <em>refused with a message naming itself</em> rather than half-built. A
  * half-built extended query protocol is worse than none: a driver that negotiates Parse/Bind and
@@ -55,12 +55,6 @@
  *       by {@code ViewQuery} and bounded by {@code ViewQuery.MAX_RESULT_ROWS}; a cursor would
  *       promise streaming that the layer underneath does not do.
  *   <li><strong>{@code COPY}</strong>, in either direction. Refused as unsupported.
- *   <li><strong>SSL/TLS.</strong> An {@code SSLRequest} is <em>declined</em> with a single {@code
- *       'N'}, which is the protocol's own way of saying "not offered" and makes a client fall back
- *       to plaintext rather than hang. <strong>Consequence worth stating plainly: with password
- *       authentication configured, the credential crosses the wire in the clear.</strong> Run this
- *       on a loopback interface or behind a TLS terminator until a later slice adds it -- slice 2
- *       did not touch this.
  *   <li><strong>{@code CancelRequest}.</strong> {@code BackendKeyData} is sent because clients
  *       expect it, and a cancel arriving on a second connection is read and ignored. A query is
  *       bounded by the read deadline instead.
@@ -99,12 +93,38 @@
  * </ul>
  *
  * <p><strong>The extended query protocol is still not implemented</strong>, and staying refused is
- * the deliberate choice this slice made rather than an oversight: the catalog shim and {@code SET}
+ * the deliberate choice slice 2 made rather than an oversight: the catalog shim and {@code SET}
  * are what stood between this gateway and "a real client connects and lists tables" (Gate P6's
  * actual ask), and starting Parse/Bind/Describe/Execute/Sync before both of those were solid would
  * have spent the slice on the wrong thing. {@code psql} and a JDBC driver told {@code
- * preferQueryMode=simple} both run everything in this slice -- connection, catalog browsing, and
+ * preferQueryMode=simple} both run everything through slice 2 -- connection, catalog browsing, and
  * ordinary reads -- over the simple protocol alone.
+ *
+ * <h2>Slice 3: TLS, so the gateway can stop being off by default</h2>
+ *
+ * <p>{@code pravaha.pgwire.enabled} defaults to {@code false}, and the reason written into {@code
+ * PravahaNode} and {@code application.yaml} was exact: this gateway had no TLS, so a configured
+ * password crossed the wire in the clear, and a server that ships that by default is not one this
+ * codebase is willing to turn on for anybody. The extended query protocol was never what stood
+ * between this gateway and being deployable outside loopback -- pgjdbc already works today with
+ * {@code preferQueryMode=simple} -- TLS was.
+ *
+ * <p>{@link com.ash.messaging.pravaha.pgwire.PgTls} is what closes it: a PEM certificate chain and
+ * an unencrypted PKCS#8 private key, loaded and validated by {@link
+ * com.ash.messaging.pravaha.pgwire.PravahaPgWireServer#encryptedWith}, and layered onto a plaintext
+ * socket in place exactly where the protocol expects it -- an {@code SSLRequest} answered {@code
+ * 'S'} instead of {@code 'N'}, with the upgrade happening in {@code PgWireConnection} before
+ * authentication runs, so a cleartext {@code PasswordMessage} never leaves this process
+ * unencrypted. Built the same way {@code PravahaFlightServer.encryptedWith} was, and mirroring its
+ * hard-won lesson deliberately: CFG-6(b) found a private key configured without a certificate read
+ * into a field and silently never used, serving plaintext while the node's own settings suggested
+ * otherwise, and {@code PgTls.load} refuses that same half-configured pair loudly, before either
+ * file is even opened, rather than repeat it.
+ *
+ * <p>A server with no certificate configured behaves exactly as slice 1 and slice 2 left it:
+ * {@code 'N'}, plaintext, unchanged. This is additive, not a replacement of the old behaviour --
+ * see {@code PsqlSessionTest} and {@code JdbcClientTest} for proof that both paths still work on
+ * the same, TLS-configured server.
  *
  * <h2>Where authorization lives</h2>
  *

@@ -41,7 +41,9 @@ import com.ash.messaging.pravaha.serving.ViewQuery;
  * <h2>The shape of a session</h2>
  *
  * <ol>
- *   <li>Startup, possibly preceded by an {@code SSLRequest} this server declines.
+ *   <li>Startup, possibly preceded by an {@code SSLRequest} -- declined with {@code 'N'} if this
+ *       server has no certificate configured, exactly as before; accepted with {@code 'S'} and
+ *       upgraded to TLS in place if it does. See {@link PgTls}.
  *   <li>Authentication -- cleartext password verified by the configured {@link TokenVerifier}, or
  *       {@code AuthenticationOk} when no verifier is configured at all.
  *   <li>{@code ParameterStatus} x n, {@code BackendKeyData}, {@code ReadyForQuery}.
@@ -80,90 +82,160 @@ final class PgWireConnection implements Runnable {
     private final ViewQuery queries;
     private final PgCatalogShim catalog;
     private final TokenVerifier verifier;
+    private final PgTls tls;
     private final String serverVersion;
 
     PgWireConnection(
-            Socket socket, ViewQuery queries, PgCatalogShim catalog, TokenVerifier verifier, String serverVersion) {
+            Socket socket,
+            ViewQuery queries,
+            PgCatalogShim catalog,
+            TokenVerifier verifier,
+            PgTls tls,
+            String serverVersion) {
         this.socket = socket;
         this.queries = queries;
         this.catalog = catalog;
         this.verifier = verifier;
+        this.tls = tls;
         this.serverVersion = serverVersion;
     }
 
     @Override
     public void run() {
-        try (Socket open = socket;
-                BufferedInputStream in = new BufferedInputStream(open.getInputStream());
-                BufferedOutputStream out = new BufferedOutputStream(open.getOutputStream())) {
-            PgFrontend frontend = new PgFrontend(in);
-            PgBackend backend = new PgBackend(out);
-            try {
-                open.setSoTimeout(HANDSHAKE_TIMEOUT_MILLIS);
-                PgFrontend.Startup startup = handshake(frontend, backend);
-                if (startup == null) {
-                    return; // A CancelRequest, or a client that gave up mid-handshake.
-                }
-                Principal principal = authenticate(startup, frontend, backend);
+        Socket active = socket;
+        PgBackend backend = null;
+        try {
+            active.setSoTimeout(HANDSHAKE_TIMEOUT_MILLIS);
+            Prelude prelude = handshake(active);
+            if (prelude == null) {
+                return; // A CancelRequest, or a client that gave up mid-handshake.
+            }
+            // handshake() may have layered TLS onto the connection, in which case every one of
+            // these is the encrypted socket and its streams, not the plaintext one `active` still
+            // named on entry -- see PgTls.serverSocket and the loop below.
+            active = prelude.socket();
+
+            try (BufferedInputStream in = new BufferedInputStream(active.getInputStream());
+                    BufferedOutputStream out = new BufferedOutputStream(active.getOutputStream())) {
+                PgFrontend frontend = new PgFrontend(in);
+                backend = new PgBackend(out);
+                Principal principal = authenticate(prelude.startup(), frontend, backend);
                 if (principal == null) {
                     return; // Refused; the client has been told and the socket is closing.
                 }
-                open.setSoTimeout(0);
-                ready(backend, principal, startup.parameters());
+                active.setSoTimeout(0);
+                ready(backend, principal, prelude.startup().parameters());
                 serve(frontend, backend, principal);
-            } catch (PravahaException refused) {
-                // A protocol-level failure: the connection does not survive it, because after a
-                // framing error this server no longer knows where the next message begins.
-                fatal(backend, refused);
-            } catch (SocketTimeoutException slow) {
-                // The handshake deadline. Nothing is sent: a peer that has not spoken has not
-                // necessarily got as far as being a PostgreSQL client, and an ErrorResponse to
-                // something that is not one is noise on a port scan.
-                return;
             }
+        } catch (PravahaException refused) {
+            // A protocol-level failure: the connection does not survive it, because after a
+            // framing error this server no longer knows where the next message begins.
+            fatal(backend, refused);
+        } catch (SocketTimeoutException slow) {
+            // The handshake deadline. Nothing is sent: a peer that has not spoken has not
+            // necessarily got as far as being a PostgreSQL client, and an ErrorResponse to
+            // something that is not one is noise on a port scan.
         } catch (IOException disconnected) {
-            // The client went away. Every one of these is a normal end to a session -- a closed
-            // laptop, a killed psql, a load balancer's idle timeout -- and none is worth a stack
-            // trace in an operator's log.
-            return;
+            // The client went away, or -- on a TLS-configured server -- opened an SSLRequest and
+            // then failed the handshake that followed (this server asks for no client certificate,
+            // so in practice this is a client that does not trust ours, or a port scanner that was
+            // never TLS at all). Both look identical from here, and every one of these is a normal
+            // end to a session: none is worth a stack trace in an operator's log.
+        } finally {
+            closeQuietly(active);
         }
     }
 
     // -------------------------------------------------------------------------------------
     // Handshake.
 
-    /** Reads past any {@code SSLRequest} to the real startup packet, or {@code null} to give up. */
-    private PgFrontend.Startup handshake(PgFrontend frontend, PgBackend backend) throws IOException {
-        for (int prelude = 0; prelude <= MAX_PRELUDE_PACKETS; prelude++) {
-            PgFrontend.Startup startup = frontend.readStartup();
-            if (startup.isSslRequest() || startup.isGssEncRequest()) {
-                // Declined, not refused. See PgBackend.declineEncryption: 'N' is the protocol's own
-                // "not offered", and it is what makes a default `psql` fall back to plaintext and
-                // connect rather than fail with something about SSL.
-                backend.declineEncryption();
-                continue;
+    /** What survives the prelude: the socket to serve on (upgraded or not) and the real startup. */
+    private record Prelude(Socket socket, PgFrontend.Startup startup) {}
+
+    /**
+     * Reads past any {@code SSLRequest} to the real startup packet, or {@code null} to give up.
+     *
+     * <p>Builds its own {@link PgFrontend}/{@link PgBackend} directly over {@code initial}'s raw
+     * streams, unbuffered -- a prelude packet is one small fixed-size read, buffering would only
+     * cost a read-ahead this method would then have to account for at the one point that matters:
+     * the moment {@code SSLRequest} is accepted and {@link PgTls#serverSocket} layers TLS onto the
+     * same connection. Reading exactly as many bytes as asked and never more is what lets that
+     * layering happen with nothing left over to replay.
+     */
+    private Prelude handshake(Socket initial) throws IOException {
+        Socket active = initial;
+        PgFrontend frontend = new PgFrontend(active.getInputStream());
+        PgBackend backend = new PgBackend(active.getOutputStream());
+        try {
+            for (int prelude = 0; prelude <= MAX_PRELUDE_PACKETS; prelude++) {
+                PgFrontend.Startup startup = frontend.readStartup();
+                if (startup.isSslRequest()) {
+                    if (tls == null) {
+                        // Declined, not refused. See PgBackend.declineEncryption: 'N' is the
+                        // protocol's own "not offered", and it is what makes a default `psql` fall
+                        // back to plaintext and connect rather than fail with something about SSL.
+                        // Exactly slice 1's behaviour, unchanged, for a server with no certificate
+                        // configured.
+                        backend.declineEncryption();
+                        continue;
+                    }
+                    // Accepted: 'S' says so, and every byte from here on is TLS. The socket,
+                    // frontend and backend all move to the encrypted layer together -- reading the
+                    // real startup packet through the old, plaintext frontend after this point
+                    // would read raw TLS handshake bytes as though they were PostgreSQL protocol.
+                    backend.acceptEncryption();
+                    active = tls.serverSocket(active);
+                    active.setSoTimeout(HANDSHAKE_TIMEOUT_MILLIS);
+                    frontend = new PgFrontend(active.getInputStream());
+                    backend = new PgBackend(active.getOutputStream());
+                    continue;
+                }
+                if (startup.isGssEncRequest()) {
+                    // GSSAPI encryption is a different mechanism from TLS, and this server
+                    // implements neither the negotiation nor the Kerberos machinery behind it --
+                    // declined unconditionally, independent of whether a certificate is configured.
+                    backend.declineEncryption();
+                    continue;
+                }
+                if (startup.isCancelRequest()) {
+                    // Slice 1 does not implement cancellation. The protocol's own rule is that a
+                    // backend answers a CancelRequest with nothing at all -- no acknowledgement
+                    // either way, because a reply would tell an unauthenticated peer whether it
+                    // guessed a valid key. Closing silently is both correct and what a real backend
+                    // does.
+                    return null;
+                }
+                int major = startup.code() >>> 16;
+                if (major != 3) {
+                    throw new PravahaException(
+                            PgWireErrors.UNSUPPORTED_PROTOCOL_VERSION,
+                            "this server speaks PostgreSQL protocol 3.0; the client asked for " + major + "."
+                                    + (startup.code() & 0xffff)
+                                    + ". Protocol 2 clients predate PostgreSQL 7.4 and are not supported.");
+                }
+                return new Prelude(active, startup);
             }
-            if (startup.isCancelRequest()) {
-                // Slice 1 does not implement cancellation. The protocol's own rule is that a
-                // backend answers a CancelRequest with nothing at all -- no acknowledgement either
-                // way, because a reply would tell an unauthenticated peer whether it guessed a
-                // valid key. Closing silently is both correct and what a real backend does.
-                return null;
-            }
-            int major = startup.code() >>> 16;
-            if (major != 3) {
-                throw new PravahaException(
-                        PgWireErrors.UNSUPPORTED_PROTOCOL_VERSION,
-                        "this server speaks PostgreSQL protocol 3.0; the client asked for " + major + "."
-                                + (startup.code() & 0xffff)
-                                + ". Protocol 2 clients predate PostgreSQL 7.4 and are not supported.");
-            }
-            return startup;
+            throw new PravahaException(
+                    PgWireErrors.PROTOCOL_VIOLATION,
+                    "the client sent more than " + MAX_PRELUDE_PACKETS
+                            + " encryption requests without ever sending a startup packet");
+        } catch (PravahaException refused) {
+            // Reported here, against whichever backend was current at the moment of failure --
+            // plaintext, or already upgraded to TLS -- rather than left to propagate to `run`,
+            // which by this point in the connection's life has no backend of its own to report
+            // through yet (authenticate/ready/serve have not started; `run`'s own PravahaException
+            // handler exists for failures from those, after this method has already returned one).
+            fatal(backend, refused);
+            return null;
         }
-        throw new PravahaException(
-                PgWireErrors.PROTOCOL_VIOLATION,
-                "the client sent more than " + MAX_PRELUDE_PACKETS
-                        + " encryption requests without ever sending a startup packet");
+    }
+
+    private static void closeQuietly(Socket socket) {
+        try {
+            socket.close();
+        } catch (IOException ignored) {
+            // Closing a socket that is already broken is the normal case, not an event.
+        }
     }
 
     /**
@@ -185,11 +257,13 @@ final class PgWireConnection implements Runnable {
      * Cleartext is the only PostgreSQL authentication method whose shape is "the client sends the
      * secret and the server asks somebody else about it", which is exactly {@code TokenVerifier}.
      *
-     * <p><strong>The cost, stated rather than buried: slice 1 has no TLS, so the credential crosses
-     * the wire in the clear.</strong> That is acceptable on loopback or behind a terminator and is
-     * not acceptable across a network. It is the first thing slice 2 must fix, and it is recorded
-     * in this package's {@code package-info} as well as here so that neither a reader of the server
-     * nor a reader of the module can miss it.
+     * <p><strong>The cost, stated rather than buried: this cleartext {@code PasswordMessage} is
+     * genuinely in the clear on a server with no certificate configured.</strong> That is
+     * acceptable on loopback or behind a terminator and is not acceptable across a network. {@link
+     * PravahaPgWireServer#encryptedWith} closes it -- authentication runs after the TLS handshake
+     * in {@code PgWireConnection.run}, never before, so a configured certificate always covers the
+     * password. The remaining exposure is a deployment that chose not to configure one, and that
+     * remains an operator choice this server states rather than silently accepts.
      *
      * <p>A server built with no verifier at all sends {@code AuthenticationOk} and runs as {@link
      * Principal#ANONYMOUS}. That is the same deliberate two-state design {@code PrincipalMiddleware}

@@ -28,6 +28,7 @@ import java.util.Set;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
@@ -65,6 +66,9 @@ class JdbcClientTest {
     private static final Principal ANALYST = new Principal("dana", "acme", Set.of("analyst"), Map.of());
 
     private PravahaPgWireServer server;
+
+    @TempDir
+    private java.io.File tlsDir;
 
     @AfterEach
     void tearDown() {
@@ -147,6 +151,74 @@ class JdbcClientTest {
                 }
             }
             assertThat(tables).isEmpty();
+        }
+    }
+
+    /**
+     * A real pgjdbc connection actually negotiates TLS against this server -- not against a mock,
+     * and not against this module's own {@link PgTestClient}, which has no TLS support at all.
+     *
+     * <p>{@code sslfactory=NonValidatingFactory} is pgjdbc's own, built-in class for exactly this
+     * situation: a self-signed certificate this test minted five lines ago that nobody asked the
+     * JVM's trust store to trust. It is the JDBC-side equivalent of libpq's {@code sslmode=require}
+     * -- encrypted, unverified -- and not a weakening introduced by this test: a driver pointed at a
+     * production certificate signed by a real CA needs no such override.
+     */
+    @Test
+    void jdbcConnectsOverTlsAndReadsRows() throws Exception {
+        SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
+        server = new PravahaPgWireServer(populated())
+                .encryptedWith(cert.certificatePem, cert.privateKeyPem)
+                .start("127.0.0.1", 0);
+
+        Properties props = new Properties();
+        props.setProperty("user", "dana");
+        props.setProperty("preferQueryMode", "simple");
+        props.setProperty("ssl", "true");
+        props.setProperty("sslmode", "require");
+        props.setProperty("sslfactory", "org.postgresql.ssl.NonValidatingFactory");
+        try (Connection conn =
+                DriverManager.getConnection("jdbc:postgresql://127.0.0.1:" + server.port() + "/pravaha", props)) {
+            assertThat(conn.isValid(5)).isTrue();
+            try (Statement st = conn.createStatement();
+                    ResultSet rs = st.executeQuery("SELECT user_id, tier, total FROM user_volume")) {
+                int rows = 0;
+                while (rs.next()) {
+                    rows++;
+                }
+                assertThat(rows).isEqualTo(3);
+            }
+        }
+    }
+
+    /**
+     * The same proof {@code PsqlSessionTest} makes for {@code psql}: a TLS-configured server is not
+     * TLS-only. {@code sslmode=disable} tells pgjdbc never to send {@code SSLRequest} at all, so this
+     * exercises the identical plaintext path {@link #jdbcConnectsListsTablesAndColumnsAndReadsRows}
+     * does, on a server that happens to also hold a certificate.
+     */
+    @Test
+    void jdbcStillConnectsInPlaintextWhenTheServerHasACertificateButTheClientDisablesSsl() throws Exception {
+        SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
+        server = new PravahaPgWireServer(populated())
+                .encryptedWith(cert.certificatePem, cert.privateKeyPem)
+                .start("127.0.0.1", 0);
+
+        Properties props = new Properties();
+        props.setProperty("user", "dana");
+        props.setProperty("preferQueryMode", "simple");
+        props.setProperty("sslmode", "disable");
+        try (Connection conn =
+                DriverManager.getConnection("jdbc:postgresql://127.0.0.1:" + server.port() + "/pravaha", props)) {
+            assertThat(conn.isValid(5)).isTrue();
+            try (Statement st = conn.createStatement();
+                    ResultSet rs = st.executeQuery("SELECT user_id, tier, total FROM user_volume")) {
+                int rows = 0;
+                while (rs.next()) {
+                    rows++;
+                }
+                assertThat(rows).isEqualTo(3);
+            }
         }
     }
 

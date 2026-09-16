@@ -51,14 +51,16 @@ import com.ash.messaging.pravaha.serving.ViewQuery;
  *         .authenticatedBy(verifier)
  *         .authorizedBy(policy, audit)
  *         .admitting(admission, Duration.ofSeconds(30))
+ *         .encryptedWith(certificateChain, privateKey)
  *         .start("127.0.0.1", 5432)) {
- *     // psql -h 127.0.0.1 -p 5432 -U alice -c 'SELECT * FROM user_volume'
+ *     // psql "host=127.0.0.1 port=5432 user=alice sslmode=require" -c 'SELECT * FROM user_volume'
  * }
  * }</pre>
  *
  * <p>What this server does <em>not</em> do is listed in this package's {@code package-info}, in one
- * place, with a reason each. The short version: the simple query protocol and nothing else, no TLS,
- * and no write path -- there being no write path in the engine to expose.
+ * place, with a reason each. The short version: the simple query protocol and nothing else, and no
+ * write path -- there being no write path in the engine to expose. TLS is no longer one of the
+ * absences; see {@link #encryptedWith} and {@link PgTls}.
  */
 public final class PravahaPgWireServer implements AutoCloseable {
 
@@ -100,6 +102,7 @@ public final class PravahaPgWireServer implements AutoCloseable {
     private ReadAdmission admission = ReadAdmission.UNLIMITED;
     private Duration readDeadline = Duration.ZERO;
     private TokenVerifier verifier;
+    private volatile PgTls tls;
 
     /**
      * Stable object identifiers for {@code pg_catalog.pg_class}, minted once per view and never
@@ -124,10 +127,12 @@ public final class PravahaPgWireServer implements AutoCloseable {
     /**
      * Requires every connection to present a credential this verifier accepts.
      *
-     * <p>The credential arrives as the PostgreSQL password, in the clear, because this slice has no
-     * TLS. See {@code PgWireConnection.authenticate} for why cleartext is the only PostgreSQL
-     * authentication method whose shape matches {@link TokenVerifier}, and for the standing warning
-     * that goes with it.
+     * <p>The credential arrives as the PostgreSQL password -- in the clear unless {@link
+     * #encryptedWith} is also called, in which case it crosses the wire inside the TLS session this
+     * server negotiated before authentication ran. See {@code PgWireConnection.authenticate} for why
+     * cleartext is the only PostgreSQL authentication method whose shape matches {@link
+     * TokenVerifier}, and see {@link #encryptedWith} for the case where "in the clear" still applies:
+     * a deployment with password authentication configured and no certificate.
      *
      * <p>Without this call the server does not authenticate and every session runs as {@code
      * Principal.ANONYMOUS}. That is for an engine already behind its own boundary, and it is a
@@ -136,6 +141,34 @@ public final class PravahaPgWireServer implements AutoCloseable {
     public PravahaPgWireServer authenticatedBy(TokenVerifier verifier) {
         this.verifier = Objects.requireNonNull(verifier, "verifier");
         return this;
+    }
+
+    /**
+     * Serves over TLS, using a PEM certificate chain and its unencrypted PKCS#8 private key.
+     *
+     * <p>Without this call an {@code SSLRequest} is declined with {@code 'N'} exactly as slice 1
+     * did, and every credential and every row crosses the wire in clear text -- acceptable on
+     * loopback and nowhere else. With it, {@code PgWireConnection} answers {@code 'S'} instead and
+     * layers TLS onto the same socket before authentication runs, so a cleartext {@code
+     * PasswordMessage} never leaves this process unencrypted.
+     *
+     * <p>Loaded and validated immediately, not deferred to {@link #start}: a certificate this server
+     * cannot read is a configuration mistake worth finding at the call that names it, not three
+     * sentences later at whatever line calls {@code start}, and not at the first client connection
+     * either -- see {@link PgTls#load} and, for why half a pair is refused rather than silently
+     * ignored, this class's own package's CFG-6 note.
+     *
+     * @throws PravahaException {@link PgWireErrors#TLS_UNREADABLE} if either file is missing, only
+     *     one of the pair is given, or the key is not an unencrypted PKCS#8 PEM key
+     */
+    public PravahaPgWireServer encryptedWith(java.io.File certificateChain, java.io.File privateKey) {
+        this.tls = PgTls.load(certificateChain, privateKey);
+        return this;
+    }
+
+    /** Whether this server is serving over TLS. */
+    public boolean isEncrypted() {
+        return tls != null;
     }
 
     /**
@@ -219,7 +252,7 @@ public final class PravahaPgWireServer implements AutoCloseable {
                 // answer arrives 40ms after it was ready. That delay is indistinguishable from a
                 // slow engine to whoever is watching the prompt.
                 client.setTcpNoDelay(true);
-                sessions.execute(new PgWireConnection(client, queries, catalogShim, verifier, SERVER_VERSION));
+                sessions.execute(new PgWireConnection(client, queries, catalogShim, verifier, tls, SERVER_VERSION));
             } catch (IOException | RuntimeException rejected) {
                 closeQuietly(client);
             }

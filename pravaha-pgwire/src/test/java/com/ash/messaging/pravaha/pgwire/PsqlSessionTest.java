@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
@@ -64,6 +65,9 @@ class PsqlSessionTest {
     private static final Principal ANALYST = new Principal("dana", "acme", Set.of("analyst"), Map.of());
 
     private PravahaPgWireServer server;
+
+    @TempDir
+    private java.io.File tlsDir;
 
     @AfterEach
     void tearDown() {
@@ -171,6 +175,66 @@ class PsqlSessionTest {
         assertThat(output).doesNotContain("user_volume");
     }
 
+    /**
+     * The point of this whole slice: a real {@code psql}, told to require encryption, actually gets
+     * it against this server -- not against a mock, not against this module's own test client.
+     * {@code sslmode=require} is libpq's own "encrypt, do not verify the certificate", which is
+     * exactly right for a certificate this test minted five lines ago and asked nobody to trust.
+     */
+    @Test
+    void psqlConnectsOverTlsWhenTheServerHasACertificateAndSslmodeRequiresIt() throws Exception {
+        requirePsql();
+        SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
+        server = new PravahaPgWireServer(populated())
+                .encryptedWith(cert.certificatePem, cert.privateKeyPem)
+                .start("127.0.0.1", 0);
+
+        String output = psql(null, "SELECT user_id, tier, total FROM user_volume", "require");
+
+        assertThat(output).contains("u1").contains("gold").contains("300");
+        assertThat(output).contains("(3 rows)");
+    }
+
+    /**
+     * {@code \d} over the same TLS connection: the catalog shim and TLS are independent features
+     * and this is the test that they actually compose, rather than each merely working alone.
+     */
+    @Test
+    void psqlBackslashDWorksOverTls() throws Exception {
+        requirePsql();
+        SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
+        server = new PravahaPgWireServer(populated())
+                .encryptedWith(cert.certificatePem, cert.privateKeyPem)
+                .start("127.0.0.1", 0);
+
+        String output = psql(null, "\\d user_volume", "require");
+
+        assertThat(output)
+                .contains("Table \"public.user_volume\"")
+                .contains("user_id")
+                .contains("bigint");
+    }
+
+    /**
+     * A TLS-configured server must not become TLS-only: {@code sslmode=disable} never sends an
+     * {@code SSLRequest} at all, so this exercises the plaintext path exactly as {@link
+     * #psqlConnectsAndSelectsFromAView} does, on a server that happens to also hold a certificate.
+     * A client that opts out is not refused, and it is not silently upgraded behind its back either.
+     */
+    @Test
+    void psqlStillConnectsInPlaintextWhenTheServerHasACertificateButTheClientDisablesSsl() throws Exception {
+        requirePsql();
+        SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
+        server = new PravahaPgWireServer(populated())
+                .encryptedWith(cert.certificatePem, cert.privateKeyPem)
+                .start("127.0.0.1", 0);
+
+        String output = psql(null, "SELECT user_id, tier, total FROM user_volume", "disable");
+
+        assertThat(output).contains("u1").contains("gold").contains("300");
+        assertThat(output).contains("(3 rows)");
+    }
+
     @Test
     void psqlShowsTheEnginesOwnRefusalForAViewThatIsNotThere() throws Exception {
         requirePsql();
@@ -190,7 +254,16 @@ class PsqlSessionTest {
      * step most likely to be wrong.
      */
     private String psql(String password, String sql) throws IOException, InterruptedException {
-        List<String> command = new ArrayList<>(psqlCommand(password));
+        return psql(password, sql, null);
+    }
+
+    /**
+     * As {@link #psql(String, String)}, with an explicit {@code sslmode} -- {@code require} to
+     * prove a TLS-configured server actually negotiates TLS with a real client, {@code disable} to
+     * prove the same server still serves a client that opts out.
+     */
+    private String psql(String password, String sql, String sslmode) throws IOException, InterruptedException {
+        List<String> command = new ArrayList<>(psqlCommand(password, sslmode));
         command.addAll(List.of(
                 "-h", "127.0.0.1", "-p", String.valueOf(server.port()), "-U", "dana", "-d", "pravaha", "-c", sql));
         ProcessBuilder psql = new ProcessBuilder(command);
@@ -199,6 +272,9 @@ class PsqlSessionTest {
         // Non-interactive and never paged, or the process waits for a terminal that is not there.
         psql.environment().put("PGCONNECT_TIMEOUT", "10");
         psql.environment().put("PAGER", "cat");
+        if (sslmode != null) {
+            psql.environment().put("PGSSLMODE", sslmode);
+        }
         Process process = psql.start();
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertThat(process.waitFor(120, TimeUnit.SECONDS))
@@ -216,20 +292,29 @@ class PsqlSessionTest {
      * is a guarantee that the test can run anywhere: {@code --network host} is a Linux behaviour,
      * and nothing here pulls an image. Both of those are why {@link #requirePsql()} can still skip.
      */
-    private static List<String> psqlCommand(String password) {
+    private static List<String> psqlCommand(String password, String sslmode) {
         if (onPath("psql")) {
             return List.of("psql");
         }
-        return List.of(
+        // The docker fallback's environment is the container's, not this JVM's -- ProcessBuilder's
+        // own environment() only reaches the `docker` CLI itself, so PGSSLMODE has to travel in as
+        // an -e flag here exactly as PGPASSWORD already does, or a TLS test would pass against a
+        // real local psql and silently stop proving anything the moment it fell back to the image.
+        List<String> command = new ArrayList<>(List.of(
                 "docker",
                 "run",
                 "--rm",
                 "--network",
                 "host",
                 "-e",
-                "PGPASSWORD=" + (password == null ? "" : password),
-                PSQL_IMAGE,
-                "psql");
+                "PGPASSWORD=" + (password == null ? "" : password)));
+        if (sslmode != null) {
+            command.add("-e");
+            command.add("PGSSLMODE=" + sslmode);
+        }
+        command.add(PSQL_IMAGE);
+        command.add("psql");
+        return command;
     }
 
     /** A PostgreSQL image carrying a real {@code psql}. Used only if it is already pulled. */
