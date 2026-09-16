@@ -352,6 +352,42 @@ one more with every future update. That is why `emitsBeforeImage` is a capabilit
 declares rather than a detail of its implementation, and why a connector that cannot produce a
 before-image must say so (§6) instead of emitting the `after` row alone.
 
+#### Where does it run? The database is on another machine
+
+**Nowhere near the database.** This is the first question anyone asks and the answer is better than
+expected: a CDC connector does **not** read log files, does **not** need a mounted volume, and does
+**not** put an agent on the database host.
+
+Logical replication is a **network protocol**. The client opens an ordinary connection to the
+database — same host, same port, same TLS as any other client — and asks for a replication stream.
+*The database server* reads its own write-ahead log, decodes it through an output plugin, and streams
+the changes back over that socket. Pravaha is a client, exactly as the `jdbc` source is a client.
+
+| | Where the data lives | How Pravaha reaches it |
+|---|---|---|
+| `jdbc` source | a database on another host | polls with `SELECT`, over the network |
+| **CDC source** | that same database's write-ahead log | **streams over the same network port; the server does the decoding** |
+| Remote connector ([ADR-040](adr/040-the-remote-connector.md)) | inside somebody else's application, never in a database | that application pushes rows to Pravaha |
+
+The same holds for the others, which is worth knowing before choosing one: **MySQL** streams binlog
+events to a client that registers as a *replica*; **MongoDB**'s oplog is a collection read through
+the normal driver; **SQL Server** exposes CDC as ordinary tables. None of them needs disk access to
+the database host. A connector that asked you to mount a log directory would be doing it wrong.
+
+**What the database side does need**, and it is a real prerequisite rather than a formality:
+
+- `wal_level = logical` in `postgresql.conf` — **a server restart**, so it is a change somebody has to
+  schedule rather than apply during an incident.
+- A role carrying the `REPLICATION` attribute, and `max_replication_slots` with room for one more.
+- `REPLICA IDENTITY FULL` on each captured table — see below, because without it corrections are
+  silently impossible.
+
+**And one risk that distance makes worse.** The replication slot lives *on the database server* and
+retains WAL until a client consumes it. A Pravaha node that dies, or a network partition that lasts,
+means the slot stops advancing and the database's disk fills — a Pravaha outage becoming a Postgres
+outage, which is a much worse failure than the one that started it. Anyone running this monitors slot
+lag on the database, not only on Pravaha.
+
 #### What a CDC binding would look like
 
 **Not built.** No Debezium plugin ships today, and this is the design rather than configuration you
