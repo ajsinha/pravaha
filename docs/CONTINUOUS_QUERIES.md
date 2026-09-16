@@ -88,13 +88,13 @@ current as its laggiest input, which is correct and surprises people.
 
 ### 2.1 Every source type, configured
 
-Five stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
+Six stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
 without the engine changing — [`CONNECTORS.md`](CONNECTORS.md) is how you add one.
 
-**Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta` and `aerospike` are
-separate modules, and adding one to a deployment means dropping a jar on the classpath rather than
-rebuilding the server — which is why a server that only reads a directory does not carry Hadoop and
-Parquet.
+**Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta`, `aerospike` and
+`cassandra` are separate modules, and adding one to a deployment means dropping a jar on the
+classpath rather than rebuilding the server — which is why a server that only reads a directory does
+not carry Hadoop and Parquet.
 
 Discovery happens when a query is first registered against the stream, **not at startup**, so a
 binding naming a plugin that is not on the classpath starts a server cleanly and fails at the
@@ -350,6 +350,71 @@ to a strategy with different delivery properties.
 
 Several queries over the same Aerospike set share one scan rather than each opening their own —
 four queries over one set measured 3.8 → 1.0 scans per second (SRC-3).
+
+#### `cassandra` — a table, scanned by `token()` range
+
+```yaml
+pravaha:
+  sources:
+    orders:
+      plugin: cassandra
+      options:
+        contact.points: "cass-1:9042,cass-2:9042"
+        local.datacenter: dc1
+        keyspace: prod
+        table: orders
+        schema: "id:INT64,status:STRING,amount:INT64,updated_at:TIMESTAMP"
+        partition.key: id
+        event.time: updated_at
+        strategy: token-range-scan   # the only implemented strategy
+        partitions: "8"
+        scan.interval.ms: "60000"
+        fetch.size: "5000"
+        consistency.level: LOCAL_ONE
+```
+
+| Option | Required | Default |
+|---|---|---|
+| `contact.points` | yes | — |
+| `keyspace` | yes | — |
+| `table` | yes | — |
+| `schema` | yes | — |
+| `partition.key` | yes | — |
+| `stream` | no | the table name |
+| `local.datacenter` | no | auto-detected — name it if the cluster has more than one datacenter |
+| `event.time` | no | none |
+| `strategy` | no | `token-range-scan` |
+| `partitions` | no | `1` |
+| `scan.interval.ms` | no | `60000` — ten times the Aerospike plugin's default, because this scan is not incremental |
+| `fetch.size` | no | `5000` |
+| `consistency.level` | no | `LOCAL_ONE` |
+| `request.timeout.ms` | no | `30000` |
+| `user` / `password` | no | empty |
+
+**This is a full scan, not an incremental one, and that is a deliberate choice rather than a
+shortcut.** Cassandra's CDC writes commitlog segments to `cdc_raw` on every node, meant to be read
+locally — a per-node agent with no ordering across nodes, which is a different project from a
+connector ([`CONNECTORS.md`](CONNECTORS.md) section 5). And unlike Aerospike's `record.last_update_time()`,
+CQL's `writetime()` cannot filter server-side without `ALLOW FILTERING` — which reads every partition
+anyway — and is tracked per *column* rather than per row, so a key-only write moves no watermark at
+all. `strategy` therefore declares `writetime-incremental` and `commitlog-cdc` and implements
+neither, refusing both at configuration rather than silently downgrading: **a full periodic scan that
+says what it is beats an incremental one that quietly misses rows.**
+
+`partition.key` names the table's partition-key columns, in CQL's own order, so this plugin can page
+by `token()` instead of reading through `ALLOW FILTERING`. Every pass reads the whole range assigned
+to each of the `partitions` readers, then waits out `scan.interval.ms` before reading it again — so a
+short interval on a large table is a scan that never stops running.
+
+##### What a table scan cannot do
+
+The same limits [`CONNECTORS.md`](CONNECTORS.md) documents for the Aerospike `lut-scan`, for the same
+reason: scanning a store with no change feed. **Deletes are invisible** — a tombstoned row is simply
+absent from the next scan, indistinguishable from one that never existed. **Intra-interval overwrites
+collapse** — two writes between passes are seen as one, with only the final value. **There is no
+before-image**, so an update arrives as an insert of the new value with nothing to retract.
+`capabilities()` declares `emitsDeletes = false`, `emitsBeforeImage = false`, and
+`DeliveryGuarantee.AT_LEAST_ONCE` — a scan cannot honestly promise more.
 
 ### 2.2 Lookup sources, for temporal joins
 

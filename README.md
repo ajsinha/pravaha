@@ -406,7 +406,8 @@ module's `package-info.java`.
 
 Plugins: [`filesystem`](plugins/pravaha-plugin-filesystem), [`delta`](plugins/pravaha-plugin-delta),
 [`feedfile`](plugins/pravaha-plugin-feedfile), [`jdbc`](plugins/pravaha-plugin-jdbc),
-[`aerospike`](plugins/pravaha-plugin-aerospike), [`cluster-zookeeper`](plugins/pravaha-cluster-zookeeper).
+[`aerospike`](plugins/pravaha-plugin-aerospike), [`cassandra`](plugins/pravaha-plugin-cassandra),
+[`cluster-zookeeper`](plugins/pravaha-cluster-zookeeper).
 
 SDKs: [`sdk/pravaha-sdk-java`](sdk/pravaha-sdk-java),
 [`sdk/pravaha-sdk-java-flight`](sdk/pravaha-sdk-java-flight), [`sdk/python`](sdk/python). The

@@ -347,6 +347,11 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-5082` | AEROSPIKE_UNSUPPORTED_TYPE | plugins |
 | `PRV-5083` | AEROSPIKE_BAD_CONFIGURATION | plugins |
 | `PRV-5084` | AEROSPIKE_MALFORMED_OFFSET | plugins |
+| `PRV-5085` | CASSANDRA_CONNECT_FAILED | plugins |
+| `PRV-5086` | CASSANDRA_OPERATION_FAILED | plugins |
+| `PRV-5087` | CASSANDRA_UNSUPPORTED_TYPE | plugins |
+| `PRV-5088` | CASSANDRA_BAD_CONFIGURATION | plugins |
+| `PRV-5089` | CASSANDRA_MALFORMED_OFFSET | plugins |
 | `PRV-5090` | INGEST_NO_SUCH_PLUGIN | plugins |
 | `PRV-5091` | INGEST_BINDING_FAILED | plugins |
 | `PRV-5092` | INGEST_FEED_FAILED | plugins |

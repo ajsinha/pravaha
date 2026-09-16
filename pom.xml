@@ -45,6 +45,7 @@
     <module>plugins/pravaha-plugin-feedfile</module>
     <module>plugins/pravaha-plugin-jdbc</module>
     <module>plugins/pravaha-plugin-aerospike</module>
+    <module>plugins/pravaha-plugin-cassandra</module>
     <module>plugins/pravaha-cluster-zookeeper</module>
     <module>pravaha-embedded</module>
     <module>pravaha-cli</module>
@@ -81,6 +82,7 @@
     <archunit.version>1.5.0</archunit.version>
     <testcontainers.version>1.21.3</testcontainers.version>
     <aerospike.client.version>10.4.0</aerospike.client.version>
+    <cassandra.driver.version>4.19.3</cassandra.driver.version>
     <arrow.version>19.0.0</arrow.version>
     <jmh.version>1.37</jmh.version>
 
@@ -255,6 +257,17 @@
         <groupId>com.aerospike</groupId>
         <artifactId>aerospike-client-jdk21</artifactId>
         <version>${aerospike.client.version}</version>
+      </dependency>
+      <!--
+        Apache donated the DataStax driver to the Cassandra project; the artifact moved from
+        com.datastax.oss to org.apache.cassandra at 4.18. Only java-driver-core is pulled in;
+        the query-builder module is not, because this plugin builds its one CQL shape (a
+        token-range predicate) as a literal string rather than depending on a builder for it.
+      -->
+      <dependency>
+        <groupId>org.apache.cassandra</groupId>
+        <artifactId>java-driver-core</artifactId>
+        <version>${cassandra.driver.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.arrow</groupId>

@@ -503,8 +503,16 @@ argument for building that endpoint before writing a second store-specific reade
 **Cassandra is the one case where the log really is a file.** Its CDC writes commitlog segments to a
 `cdc_raw` directory **on every node**, to be read locally — so it needs an agent per node and gives
 no ordering across them. That is why a Cassandra *table scan* source ([ADR-039](adr/039-ga-includes-the-known-gaps-and-clustering.md)
-item 6) is tractable and Cassandra *CDC* is a different project. It is also the exception behind the
-rule above: for the stores worth capturing first, change capture is a network conversation.
+item 6) is tractable and Cassandra *CDC* is a different, unbuilt project. It is also the exception
+behind the rule above: for the stores worth capturing first, change capture is a network conversation.
+
+**The table scan is built.** `plugins/pravaha-plugin-cassandra` pages a table by `token()` range
+rather than `ALLOW FILTERING`, on the same honest terms as the Aerospike `lut-scan`: at-least-once,
+no before-image, deletes invisible. It is not even incremental the way `lut-scan` is — CQL's
+`writetime()` cannot be filtered server-side without `ALLOW FILTERING`, and is tracked per column
+rather than per row, so `CassandraStrategy` refuses `writetime-incremental` for the same reason it
+refuses `commitlog-cdc`: a full scan that says what it is beats an incremental one that quietly
+misses rows. See `docs/CONTINUOUS_QUERIES.md` §2.1 for the configuration.
 
 #### Where does it run? The database is on another machine
 
@@ -666,7 +674,8 @@ The TCK does not yet verify these claims, and it should. Until then they are tru
 |---|---|---|
 | **Kafka** | streaming | replayable offsets and real exactly-once resumption |
 | **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model |
-| **Cassandra / ScyllaDB** | table scan | the scan path generalises beyond Aerospike |
+| **Cassandra** | table scan | the scan path generalises beyond Aerospike — **built**, ADR-039 item 6: a full `token()`-range scan, `plugins/pravaha-plugin-cassandra` |
+| **ScyllaDB** | table scan | speaks the same CQL wire protocol as Cassandra; not built or tested against — the `cassandra` plugin has not been run against it |
 | **MySQL / Postgres** | table or CDC | direct; CDC is the better form |
 | **RabbitMQ / ActiveMQ / SQS / NATS** | queue | **at-least-once only** — acknowledgement is not an offset, so there is nothing to rewind to |
 | **Pulsar / Kinesis / Redpanda** | streaming | as Kafka |
