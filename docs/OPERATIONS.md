@@ -480,6 +480,30 @@ no binding still registers and runs on rows an embedder or an SDK client pushes 
 and the node logs `no sources are bound, ...` at startup, because "zero rows" otherwise has two
 causes that look identical.
 
+**Sinks are nameable, not yet reachable (W8-13, ADR-039 item 5).** A binding under
+`pravaha.sinks.<name>` names a `StreamSinkPlugin` the same way `pravaha.sources.<stream>` names a
+`StreamSourcePlugin` — `plugin:` and `options:`, resolved by `ServiceLoader` against the plugin's
+own `name()`:
+
+```yaml
+pravaha:
+  sinks:
+    audit_trail:
+      plugin: filesystem
+      options:
+        path: /var/lib/pravaha/outgoing/audit_trail.csv
+        schema: "id:INT64,user:STRING,amount:INT64"
+```
+
+`PluginSinks` (`pravaha-server`) resolves a binding to an opened, ready-to-write plugin instance, and
+`SinkCapabilities` says honestly what it can take — a `filesystem` sink is append-only and neither
+transactional nor idempotent, so it cannot claim more than at-least-once. What does not exist yet is
+the other half: nothing resolves a registered query's output against a `sinkName`, so no query writes
+to one and `ChangelogAnalysis.checkAgainst` — the check that refuses a revising query at registration
+rather than letting it corrupt a sink that cannot take a retraction — has no call site. That
+attachment is a `QueryRegistry` change and is tracked separately from the binding surface documented
+here.
+
 ## Starting a node
 
 `pravaha-server` is the process. It brings up three things beyond the engine, in this order:

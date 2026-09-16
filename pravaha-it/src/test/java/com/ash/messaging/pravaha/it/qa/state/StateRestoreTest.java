@@ -739,6 +739,7 @@ class StateRestoreTest extends StateTestSupport {
                 true,
                 false,
                 null,
+                null,
                 false,
                 "127.0.0.1",
                 0);
@@ -817,6 +818,7 @@ class StateRestoreTest extends StateTestSupport {
                 "state-063-node",
                 true,
                 false,
+                null,
                 null,
                 false,
                 "127.0.0.1",

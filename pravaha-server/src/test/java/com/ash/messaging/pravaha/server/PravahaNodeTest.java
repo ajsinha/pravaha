@@ -74,6 +74,7 @@ class PravahaNodeTest {
                 true,
                 false,
                 null,
+                null,
                 false,
                 "127.0.0.1",
                 0);
@@ -99,6 +100,7 @@ class PravahaNodeTest {
                 "test-node",
                 true,
                 false,
+                null,
                 null,
                 false,
                 "127.0.0.1",
@@ -186,6 +188,7 @@ class PravahaNodeTest {
                 true,
                 false,
                 null,
+                null,
                 false,
                 "127.0.0.1",
                 0);
@@ -217,6 +220,7 @@ class PravahaNodeTest {
                 "test-node",
                 true,
                 false,
+                null,
                 null,
                 false,
                 "127.0.0.1",
@@ -285,6 +289,7 @@ class PravahaNodeTest {
                 false,
                 false,
                 null,
+                null,
                 false,
                 "127.0.0.1",
                 0);
@@ -314,6 +319,7 @@ class PravahaNodeTest {
                 nodeId,
                 false,
                 true,
+                null,
                 null,
                 false,
                 "127.0.0.1",

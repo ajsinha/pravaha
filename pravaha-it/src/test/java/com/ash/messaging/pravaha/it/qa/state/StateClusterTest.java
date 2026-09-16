@@ -235,6 +235,7 @@ class StateClusterTest extends StateTestSupport {
                 true,
                 false,
                 null,
+                null,
                 false,
                 "127.0.0.1",
                 0);
@@ -388,6 +389,7 @@ class StateClusterTest extends StateTestSupport {
                 "state-106-" + mode.toLowerCase(java.util.Locale.ROOT),
                 true,
                 false,
+                null,
                 null,
                 false,
                 "127.0.0.1",

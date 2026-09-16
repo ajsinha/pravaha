@@ -71,6 +71,7 @@ class AuditSinkSharingTest {
                 true,
                 false,
                 null,
+                null,
                 false,
                 "127.0.0.1",
                 0);

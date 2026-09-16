@@ -44,6 +44,7 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
+import com.ash.messaging.pravaha.server.egress.SinkBindingProperties;
 import com.ash.messaging.pravaha.server.ingest.PluginLookupSources;
 import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.server.ingest.SourceBinding;
@@ -121,6 +122,8 @@ public class PravahaNode implements SmartLifecycle {
 
     private volatile com.ash.messaging.pravaha.pgwire.PravahaPgWireServer pgwire;
     private final SourceBindingProperties sources;
+    private final SinkBindingProperties sinks;
+    private volatile com.ash.messaging.pravaha.server.egress.PluginSinks pluginSinks;
 
     private PluginLookupSources lookupSources;
 
@@ -158,11 +161,16 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.state.allow-shared:false}") boolean allowSharedState,
             @Value("${pravaha.standby.enabled:false}") boolean standby,
             com.ash.messaging.pravaha.server.ingest.LaneProperties lanes,
+            SinkBindingProperties sinks,
             @Value("${pravaha.pgwire.enabled:false}") boolean pgwireEnabled,
             @Value("${pravaha.pgwire.host:0.0.0.0}") String pgwireHost,
             @Value("${pravaha.pgwire.port:5432}") int pgwirePort) {
         this.streams = streams;
         this.sources = sources;
+        // Defaults to empty if no bean is supplied, so the existing test call sites that construct
+        // a node directly -- none of which cares about sinks -- keep working, exactly as `lanes`
+        // does above.
+        this.sinks = sinks == null ? new SinkBindingProperties() : sinks;
         this.declaredStreams = declaredStreams;
         this.security = security;
         this.tlsCertificate = tlsCertificate == null || tlsCertificate.isBlank() ? null : new File(tlsCertificate);
@@ -592,6 +600,24 @@ public class PravahaNode implements SmartLifecycle {
             log.info("sources bound: {}", feeds.bindings().values());
         }
 
+        // W8-13 (ADR-039 item 5). Recorded here so a sink is discoverable and its configuration is
+        // validated at startup rather than the first time something tries to use it -- exactly the
+        // reasoning `refuseAccidentalOpenServer` gives for failing early elsewhere in this method.
+        // Deliberately not opened: nothing yet resolves a registered query's output against one of
+        // these names (that is a QueryRegistry change, tracked separately), so opening a connection
+        // or a file handle here would hold a resource for a use that cannot yet happen.
+        pluginSinks = new com.ash.messaging.pravaha.server.egress.PluginSinks();
+        sinks.toBindings().forEach(pluginSinks::bind);
+        if (pluginSinks.bindings().isEmpty()) {
+            log.info("no sinks are bound; bind one under pravaha.sinks.<name> once a query needs to write "
+                    + "somewhere other than its own view");
+        } else {
+            // Configuration is validated now rather than left to be discovered when a query first
+            // resolves this name -- the same reason sources are opened at start-up rather than lazily.
+            pluginSinks.bindings().keySet().forEach(pluginSinks::capabilitiesOf);
+            log.info("sinks bound: {}", pluginSinks.bindings().values());
+        }
+
         journalPath.ifPresent(path -> {
             // The journal's directory, not the file: a claim is about the place a node writes state,
             // and the marker has to live beside the journal rather than inside it.
@@ -696,6 +722,10 @@ public class PravahaNode implements SmartLifecycle {
         closeQuietly("registry", registry);
         // After the registry, because a running query may still be looking rows up in one.
         closeQuietly("dimension tables", lookupSources);
+        // Nothing opens a sink today (W8-13 -- see where pluginSinks is built at start-up), so this
+        // has nothing to release yet. Kept for the day something does: PluginSinks.close() must
+        // still run before the coordinator gives up its partitions.
+        closeQuietly("sinks", pluginSinks);
         closeQuietly("cluster coordinator", coordinator);
         // Last: a claim is released only once nothing is still writing under it, or the next start
         // finds the directory free while this one is still finishing a checkpoint.

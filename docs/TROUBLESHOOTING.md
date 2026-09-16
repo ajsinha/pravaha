@@ -350,6 +350,8 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-5090` | INGEST_NO_SUCH_PLUGIN | plugins |
 | `PRV-5091` | INGEST_BINDING_FAILED | plugins |
 | `PRV-5092` | INGEST_FEED_FAILED | plugins |
+| `PRV-5093` | EGRESS_NO_SUCH_SINK_PLUGIN | plugins |
+| `PRV-5094` | EGRESS_SINK_BINDING_FAILED | plugins |
 | `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |

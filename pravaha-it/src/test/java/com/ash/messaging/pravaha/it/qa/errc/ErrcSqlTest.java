@@ -220,60 +220,42 @@ class ErrcSqlTest extends ErrcTestSupport {
     // ------------------------------------------------------------ ERRC-024 -- PRV-2041 (UNREACHABLE)
 
     @Test
-    void noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction() throws Exception {
+    void noProductionPathAttachesARegisteredQueryToASinkThatCouldReceiveARetraction() throws Exception {
         // ERRC-024 found that ChangelogAnalysis.checkAgainst -- the sole throw site for PRV-2041 --
         // is invoked from no main source, and asserted exactly that: zero call sites. That
-        // assertion was pointed the wrong way. It encoded the absence of the wiring as the
-        // contract, so the first person to wire it correctly would have been failed by the test
-        // that exists to complain the wiring is missing.
+        // assertion was pointed the wrong way once already: it encoded the absence of *all* sink
+        // wiring as the contract, so the first person to wire any part of it correctly would have
+        // been failed by the test that exists to complain the wiring is missing.
         //
-        // W8-13 establishes why there is nothing to wire it to. checkAgainst needs a
-        // SinkCapabilities, and a SinkCapabilities only reaches a query through a bound
-        // StreamSinkPlugin. There is exactly one such binding in the product -- QueryRunner's
-        // hard-coded FilesystemSinkPlugin, on `pravaha run`, which is a bounded read over one file
-        // where every operator emits once at finish and no retraction is produced. Every
-        // continuous query writes to a ViewSink instead, which reads the Z-set weight and applies
-        // a retraction as a removal, so there is no mismatch for checkAgainst to catch.
+        // W8-13 (ADR-039 item 5) built the first half: pravaha.sinks.* now names a StreamSinkPlugin,
+        // ServiceLoader finds one by the name it reports for itself, and PluginSinks
+        // (pravaha-server) resolves a binding to an opened, writable instance -- proven directly by
+        // PluginSinksTest, with no query involved. So the two checks this test used to make -- "no
+        // ServiceLoader declaration for sinks anywhere" and "QueryRunner is the only file that binds
+        // one" -- are no longer the right proxy for the thing that actually matters: both are now
+        // true by design, not by omission.
         //
-        // So this asserts the precondition rather than the absence: no ServiceLoader surface for
-        // sinks, no configuration that names one, and QueryRunner the only file that binds one.
-        // When any of those three changes, a query can reach a sink whose declared modes are not
-        // the ones it emits -- and the failure is silent, per design section 15.5. That is the
-        // moment to wire ChangelogAnalysis.checkAgainst, and this test is what says so.
+        // What must still be true, because the QueryRegistry half of W8-13 has not been built:
+        //
+        //   1. pravaha-registry does not reference StreamSinkPlugin at all. A registered query's
+        //      output today only ever reaches a ViewSink, which applies a Z-set weight as a removal
+        //      and so has no mismatch for checkAgainst to catch; the moment the registry references
+        //      the sink SPI, that stops being true.
+        //   2. ChangelogAnalysis.checkAgainst is called from no production code anywhere. The first
+        //      file that resolves which registered query's output goes to which sink must call it
+        //      before a single row reaches the sink, or a revising query can silently corrupt one
+        //      that cannot take a revision (design section 15.5) -- and that first file is what
+        //      should make this assertion fail.
         Path root = repoRoot();
 
-        try (Stream<Path> files = Files.walk(root)) {
-            List<Path> sinkServices = files.filter(p -> !p.startsWith(nestedCheckouts()))
-                    .filter(p -> !p.toString().contains("/target/"))
-                    .filter(p -> p.toString().contains("/META-INF/services/"))
-                    .filter(p -> p.getFileName().toString().endsWith("StreamSinkPlugin"))
-                    .toList();
-            assertThat(sinkServices)
-                    .as("a ServiceLoader declaration for StreamSinkPlugin means sinks can now be named in "
-                            + "configuration; wire ChangelogAnalysis.checkAgainst into whatever binds them")
-                    .isEmpty();
-        }
-
-        try (Stream<Path> files = Files.walk(root)) {
-            List<String> binders = files.filter(p -> p.toString().endsWith(".java"))
+        try (Stream<Path> files = Files.walk(root.resolve("pravaha-registry"))) {
+            List<String> referencesTheSinkSpi = files.filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> p.toString().contains("/src/main/"))
                     .filter(p -> !p.toString().contains("/target/"))
                     .filter(p -> !p.startsWith(nestedCheckouts()))
-                    // The interface, the record it returns, and the decorator that wraps a
-                    // delegate are the type's own definition, not a binding of one to a query.
-                    .filter(p -> !p.toString().endsWith("StreamSinkPlugin.java"))
-                    .filter(p -> !p.toString().endsWith("SinkCapabilities.java"))
-                    .filter(p -> !p.toString().endsWith("DeduplicatingSink.java"))
-                    // A plugin implementing the interface is not a binding either: something has
-                    // to construct it and point a query at it, and that is what this counts.
-                    .filter(p -> !p.toString().endsWith("FilesystemSinkPlugin.java"))
-                    .filter(p -> !p.toString().endsWith("AerospikeSinkPlugin.java"))
                     .filter(p -> {
                         try {
-                            String text = Files.readString(p);
-                            return text.contains("new FilesystemSinkPlugin(")
-                                    || text.contains("new AerospikeSinkPlugin(")
-                                    || text.contains("ServiceLoader.load(StreamSinkPlugin.class)");
+                            return Files.readString(p).contains("StreamSinkPlugin");
                         } catch (Exception e) {
                             return false;
                         }
@@ -281,13 +263,43 @@ class ErrcSqlTest extends ErrcTestSupport {
                     .map(p -> p.getFileName().toString())
                     .sorted()
                     .toList();
-            assertThat(binders)
-                    .as("QueryRunner is the only production code that binds a sink, and it binds an "
-                            + "append-only one to a bounded run that emits no retractions. A second binder "
-                            + "is a path where a revising query can reach a sink that cannot take the "
-                            + "revision -- check the plan with ChangelogAnalysis.checkAgainst before "
-                            + "running it (PRV-2041)")
-                    .containsExactly("QueryRunner.java");
+            assertThat(referencesTheSinkSpi)
+                    .as("pravaha-registry must not reference StreamSinkPlugin until a registered "
+                            + "query's plan is actually checked against a sink's declared modes before "
+                            + "being sent to it -- a bare reference here is the attachment this test "
+                            + "exists to catch the absence of; wire ChangelogAnalysis.checkAgainst in "
+                            + "alongside it (PRV-2041)")
+                    .isEmpty();
+        }
+
+        try (Stream<Path> files = Files.walk(root)) {
+            List<String> callers = files.filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> p.toString().contains("/src/main/"))
+                    .filter(p -> !p.toString().contains("/target/"))
+                    .filter(p -> !p.startsWith(nestedCheckouts()))
+                    // Its own declaration, not a call to it.
+                    .filter(p -> !p.toString().endsWith("ChangelogAnalysis.java"))
+                    .filter(p -> {
+                        try {
+                            // The paren distinguishes an actual call from prose that merely names
+                            // the method -- StreamSchema's javadoc says "ChangelogAnalysis.checkAgainst
+                            // is called from no production code", which contains the bare name and
+                            // must not itself trip this check.
+                            return Files.readString(p).contains("ChangelogAnalysis.checkAgainst(");
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .map(p -> p.getFileName().toString())
+                    .sorted()
+                    .toList();
+            assertThat(callers)
+                    .as("ChangelogAnalysis.checkAgainst must be called from no production code: sinks "
+                            + "can now be configured and opened (W8-13), but nothing yet resolves which "
+                            + "registered query's output goes to one, so there is still nothing for "
+                            + "checkAgainst to check. The first binder that wires a query's plan to a "
+                            + "sink must call it before writing a single row (PRV-2041)")
+                    .isEmpty();
         }
     }
 
