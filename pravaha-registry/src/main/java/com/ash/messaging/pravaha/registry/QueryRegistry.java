@@ -22,9 +22,11 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -771,12 +773,16 @@ public final class QueryRegistry implements AutoCloseable {
             return new Recovery(List.of(), List.of());
         }
         List<String> recovered = new ArrayList<>();
-        List<String> refused = new ArrayList<>();
+        List<Recovery.Refusal> refused = new ArrayList<>();
         for (RegistryJournal.Entry entry : journal.replay()) {
             Optional<Principal> owner = principals.apply(entry.owner());
             if (owner.isEmpty()) {
-                refused.add(entry.name() + ": its owner '" + entry.owner()
-                        + "' is not a principal this deployment knows, so there is nobody to authorize it as");
+                refused.add(new Recovery.Refusal(
+                        entry.name(),
+                        Optional.of(RegistryErrors.REPLAY_UNAUTHORIZED),
+                        "its owner '" + entry.owner()
+                                + "' is not a principal this deployment knows, so there is nobody to authorize it "
+                                + "as"));
                 continue;
             }
             try {
@@ -794,20 +800,42 @@ public final class QueryRegistry implements AutoCloseable {
             } catch (RuntimeException failure) {
                 // One bad entry must not stop the rest. A deployment recovering forty queries should
                 // not lose thirty-nine because the fortieth names a stream that has since been removed.
-                refused.add(entry.name() + ": " + failure.getMessage());
+                refused.add(new Recovery.Refusal(entry.name(), replayRefusalCode(failure), failure.getMessage()));
             }
         }
         return new Recovery(recovered, refused);
     }
 
     /**
+     * The code to record for a refusal raised while replaying one journalled entry.
+     *
+     * <p>{@code register} refuses a principal who no longer holds what the journal recorded by
+     * throwing {@link SecurityErrors#FORBIDDEN} -- the same code a live registration would raise for
+     * an unrelated caller. During replay that is not a caller being refused; it is the exact
+     * condition {@link RegistryErrors#REPLAY_UNAUTHORIZED} documents, so it is relabelled here rather
+     * than surfaced under the generic code. Any other coded failure (an unusable name, a stream the
+     * deployment no longer has) keeps its own code, and a bare {@link RuntimeException} carrying none
+     * is recorded without one rather than inventing a code it never raised.
+     */
+    private static Optional<ErrorCode> replayRefusalCode(RuntimeException failure) {
+        if (!(failure instanceof PravahaException coded)) {
+            return Optional.empty();
+        }
+        return Optional.of(
+                coded.errorCode().equals(SecurityErrors.FORBIDDEN)
+                        ? RegistryErrors.REPLAY_UNAUTHORIZED
+                        : coded.errorCode());
+    }
+
+    /**
      * What a {@link #recover} put back, and what it would not.
      *
      * @param recovered names that are registered again
-     * @param refused names that are not, each with the reason. These are views clients expect to
-     *     exist, so this belongs in a log an operator reads, not in a return value nobody looks at
+     * @param refused entries that are not, each carrying its code and reason. These are views
+     *     clients expect to exist, so this belongs in a log an operator reads, not in a return value
+     *     nobody looks at
      */
-    public record Recovery(List<String> recovered, List<String> refused) {
+    public record Recovery(List<String> recovered, List<Refusal> refused) {
 
         public Recovery {
             recovered = List.copyOf(recovered);
@@ -821,6 +849,36 @@ public final class QueryRegistry implements AutoCloseable {
         @Override
         public String toString() {
             return "Recovery[" + recovered.size() + " recovered, " + refused.size() + " refused]";
+        }
+
+        /**
+         * One journalled registration that did not come back.
+         *
+         * <p>A plain {@code String} could not carry a code, so a refused replay was reported as text
+         * an operator could read but nothing else could act on -- and {@code PRV-8007
+         * REGISTRY_REPLAY_UNAUTHORIZED} stayed declared and unreachable because there was nowhere for
+         * it to be raised. This is the structured form: the code, when the refusal has one, is
+         * available to a caller that wants to branch on it, while {@link #toString()} still reads
+         * exactly as the log line and the journal's own history of this refusal always have.
+         *
+         * @param query the name recorded in the journal
+         * @param code the coded failure behind the refusal, when there was one -- empty only for a
+         *     bare {@link RuntimeException} that {@link #recover} did not itself raise with a code
+         * @param reason what the failure said
+         */
+        public record Refusal(String query, Optional<ErrorCode> code, String reason) {
+
+            public Refusal {
+                Objects.requireNonNull(query, "query");
+                Objects.requireNonNull(code, "code");
+                Objects.requireNonNull(reason, "reason");
+            }
+
+            /** {@code "<query>: <reason>"} -- the plain-text form this has always logged as. */
+            @Override
+            public String toString() {
+                return query + ": " + reason;
+            }
         }
     }
 

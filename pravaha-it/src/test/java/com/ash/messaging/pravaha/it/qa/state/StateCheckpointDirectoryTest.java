@@ -31,6 +31,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
+import com.ash.messaging.pravaha.registry.RegistryErrors;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer;
 import com.ash.messaging.pravaha.serving.Retention;
@@ -357,7 +358,12 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
             QueryRegistry.Recovery r = registry.recover(id -> Optional.of(DANA));
             assertThat(r.recovered()).isEmpty();
             assertThat(r.refused()).hasSize(1);
-            assertThat(r.refused().get(0)).startsWith("../../etc: ").contains("cannot be used as a view name");
+            assertThat(r.refused().get(0).toString())
+                    .startsWith("../../etc: ")
+                    .contains("cannot be used as a view name");
+            // Not an authorization refusal -- the name itself is unusable, so the refusal keeps
+            // register()'s own code rather than being relabelled PRV-8007.
+            assertThat(r.refused().get(0).code()).contains(RegistryErrors.NAME_UNUSABLE);
             assertThat(r.complete()).isFalse();
 
             long count;

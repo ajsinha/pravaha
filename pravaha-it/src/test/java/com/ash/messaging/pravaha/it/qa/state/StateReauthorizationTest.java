@@ -34,6 +34,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
+import com.ash.messaging.pravaha.registry.RegistryErrors;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
@@ -168,10 +169,13 @@ class StateReauthorizationTest extends StateTestSupport {
             QueryRegistry.Recovery r = second.recover(id -> Optional.of(DANA));
             assertThat(r.recovered()).isEmpty();
             assertThat(r.refused()).hasSize(1);
-            assertThat(r.refused().get(0)).startsWith("q: ");
-            assertThat(r.refused().get(0))
+            assertThat(r.refused().get(0).toString()).startsWith("q: ");
+            assertThat(r.refused().get(0).toString())
                     .contains("may not register 'q' because it reads 'txn', which they may not read: "
                             + "region restriction");
+            // PRV-8007, not the generic PRV-7002 register() itself raised: replay recodes an
+            // authorization denial to the code that says specifically "this is a replay refusal".
+            assertThat(r.refused().get(0).code()).contains(RegistryErrors.REPLAY_UNAUTHORIZED);
             assertThat(second.names()).doesNotContain("q");
         }
 
@@ -260,14 +264,15 @@ class StateReauthorizationTest extends StateTestSupport {
         try (QueryRegistry registry = new QueryRegistry(new ViewCatalog(), TXN).journalTo(journal)) {
             QueryRegistry.Recovery r = registry.recover(principalNamed);
             assertThat(r.recovered()).isEmpty();
-            assertThat(r.refused())
-                    .containsExactly("q: its owner '' is not a principal this deployment knows, so there is "
+            assertThat(r.refused()).hasSize(1);
+            assertThat(r.refused().get(0).toString())
+                    .isEqualTo("q: its owner '' is not a principal this deployment knows, so there is "
                             + "nobody to authorize it as");
+            // PRV-8007 (REGISTRY_REPLAY_UNAUTHORIZED): this path (and STATE-080's) now raise it --
+            // both are the same replay-time authorization refusal, only reached a different way.
+            // (Grepping for the throw site is ERRC's exhaustive sweep; not repeated here.)
+            assertThat(r.refused().get(0).code()).contains(RegistryErrors.REPLAY_UNAUTHORIZED);
         }
-
-        // PRV-8007 (REGISTRY_REPLAY_UNAUTHORIZED) is declared and never thrown anywhere: this path
-        // (and STATE-080's) produce their refusal text without it, matching STATE-082's own note.
-        // (Grepping for the throw site is ERRC's exhaustive sweep; not repeated here.)
     }
 
     @Test

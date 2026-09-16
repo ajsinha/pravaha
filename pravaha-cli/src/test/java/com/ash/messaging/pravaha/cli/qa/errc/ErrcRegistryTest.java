@@ -36,6 +36,7 @@ import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.flight.PravahaFlightServer;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
+import com.ash.messaging.pravaha.registry.RegistryErrors;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
@@ -355,10 +356,10 @@ class ErrcRegistryTest extends ErrcServerSupport {
         }
     }
 
-    // ------------------------------------------------------------ ERRC-103 -- PRV-8007 (UNREACHABLE)
+    // ------------------------------------------------------------ ERRC-103 -- PRV-8007
 
     @Test
-    void aRefusedRecoveryIsPlainTextNeverPrv8007(@TempDir Path dir) throws Exception {
+    void aRefusedRecoveryCarriesPrv8007(@TempDir Path dir) throws Exception {
         Path journalFile = dir.resolve("orphaned.journal");
         ViewCatalog v = new ViewCatalog();
         try (QueryRegistry reg = new QueryRegistry(v, SecurityPolicy.PERMISSIVE, AuditSink.NONE, TXN)) {
@@ -373,13 +374,14 @@ class ErrcRegistryTest extends ErrcServerSupport {
             QueryRegistry.Recovery recovery = reg2.recover(id -> Optional.empty());
             assertThat(recovery.recovered()).isEmpty();
             assertThat(recovery.refused()).hasSize(1);
-            // Exactly OPERATIONS.md's documented refusal string, and no PRV- code anywhere in it --
-            // Recovery.refused() is a List<String>, not a list of exceptions, so PRV-8007 could not
-            // appear here even if a throw site existed.
-            assertThat(recovery.refused().get(0))
-                    .contains("not a principal this deployment knows")
-                    .doesNotContain("PRV-8007")
-                    .doesNotContain("PRV-");
+            // Recovery.refused() is now a List<Recovery.Refusal>, structured rather than plain text,
+            // and this is the throw site: an unauthorized replay carries its code where a caller --
+            // an operator's log line, or this assertion -- can see it, rather than only in prose.
+            assertThat(recovery.refused().get(0).code()).contains(RegistryErrors.REPLAY_UNAUTHORIZED);
+            assertThat(recovery.refused().get(0).reason()).contains("not a principal this deployment knows");
+            // The plain-text form recovery has always logged is still there for a reader who only
+            // wants the sentence, unchanged in wording.
+            assertThat(recovery.refused().get(0).toString()).contains("not a principal this deployment knows");
         }
 
         // Vacuity: the same query recovers cleanly when "ann" still resolves.
@@ -391,8 +393,9 @@ class ErrcRegistryTest extends ErrcServerSupport {
             assertThat(recovery.refused()).isEmpty();
         }
 
-        // grep confirmation, exhaustive: REPLAY_UNAUTHORIZED appears only in its own declaration.
-        assertThat(grepMainSourcesFor("REPLAY_UNAUTHORIZED")).isEqualTo(1);
+        // grep confirmation, exhaustive: REPLAY_UNAUTHORIZED now has a real throw site in
+        // QueryRegistry.recover(), in addition to its own declaration.
+        assertThat(grepMainSourcesFor("REPLAY_UNAUTHORIZED")).isGreaterThan(1);
     }
 
     private static long grepMainSourcesFor(String literal) throws Exception {

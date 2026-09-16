@@ -247,7 +247,10 @@ class RegistryJournalTest {
             // way to keep an entitlement after it was revoked, by having registered before it was.
             assertThat(recovery.recovered()).containsExactly("danas");
             assertThat(recovery.refused()).hasSize(1);
-            assertThat(recovery.refused().get(0)).contains("robs").contains("contract ended");
+            assertThat(recovery.refused().get(0).toString()).contains("robs").contains("contract ended");
+            // The registration was refused for authorization, replaying it -- PRV-8007, not the
+            // generic PRV-7002 a live registration would raise for the same policy denial.
+            assertThat(recovery.refused().get(0).code()).contains(RegistryErrors.REPLAY_UNAUTHORIZED);
             assertThat(second.find("robs")).isEmpty();
         }
     }
@@ -270,7 +273,8 @@ class RegistryJournalTest {
             // Recovering it as nobody, or as an administrator, would run a query under an authority
             // it was never granted.
             assertThat(recovery.recovered()).isEmpty();
-            assertThat(recovery.refused().get(0)).contains("is not a principal this deployment knows");
+            assertThat(recovery.refused().get(0).toString()).contains("is not a principal this deployment knows");
+            assertThat(recovery.refused().get(0).code()).contains(RegistryErrors.REPLAY_UNAUTHORIZED);
         }
     }
 

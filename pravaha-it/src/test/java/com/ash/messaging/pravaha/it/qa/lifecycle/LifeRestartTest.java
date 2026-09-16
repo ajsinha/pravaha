@@ -28,6 +28,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.QueryState;
+import com.ash.messaging.pravaha.registry.RegistryErrors;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.Principal;
@@ -187,10 +188,11 @@ class LifeRestartTest {
                     .as("bob's query recovers, proving the replay ran")
                     .containsExactly("v2");
             assertThat(recovery.refused()).hasSize(1);
-            assertThat(recovery.refused().get(0))
+            assertThat(recovery.refused().get(0).toString())
                     .contains("v1")
                     .contains("alice")
                     .contains("not a principal this deployment knows");
+            assertThat(recovery.refused().get(0).code()).contains(RegistryErrors.REPLAY_UNAUTHORIZED);
             assertThat(restarted.names()).doesNotContain("v1");
         } finally {
             restarted.close();
@@ -245,7 +247,8 @@ class LifeRestartTest {
                     .as("the still-permitted txn query recovers")
                     .containsExactly("v_txn");
             assertThat(recovery.refused()).hasSize(1);
-            assertThat(recovery.refused().get(0)).contains("v_pay").contains("payroll");
+            assertThat(recovery.refused().get(0).toString()).contains("v_pay").contains("payroll");
+            assertThat(recovery.refused().get(0).code()).contains(RegistryErrors.REPLAY_UNAUTHORIZED);
             assertThat(restarted.names()).doesNotContain("v_pay");
         } finally {
             restarted.close();

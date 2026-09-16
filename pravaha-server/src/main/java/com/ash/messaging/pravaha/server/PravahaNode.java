@@ -595,8 +595,14 @@ public class PravahaNode implements SmartLifecycle {
                     recovery.recovered().size() + recovery.refused().size(),
                     path);
             // The refused list is the one that matters: each entry is a view some client expects to
-            // find and will not, so it is logged per query rather than counted.
-            recovery.refused().forEach(refusal -> log.warn("registration not recovered -- {}", refusal));
+            // find and will not, so it is logged per query rather than counted. The code, when the
+            // refusal has one, is logged alongside the text rather than folded into it, so an
+            // operator can grep for PRV-8007 without parsing prose.
+            recovery.refused()
+                    .forEach(refusal -> log.warn(
+                            "registration not recovered -- {}{}",
+                            refusal,
+                            refusal.code().map(code -> " [" + code.code() + "]").orElse("")));
         });
         if (journalPath.isEmpty()) {
             log.warn("pravaha.registry.journal is not set, so registered queries live only in memory and "
