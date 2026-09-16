@@ -210,10 +210,28 @@ This works because a binding is per *stream name*, not per query:
 ```yaml
 pravaha:
   sources:
-    orders:    { plugin: kafka,     topic: orders }
-    customers: { plugin: postgres,  table: public.customers }
-    prices:    { plugin: aerospike, namespace: ref, set: prices }
+    orders:                              # a directory of files arriving over time
+      plugin: feedfile
+      options:
+        dir: /var/feeds/orders
+        schema: "id:INT64,customer_id:STRING,sku:STRING,qty:INT64,ts:TIMESTAMP"
+    customers:                           # Postgres, through the jdbc plugin
+      plugin: jdbc
+      options:
+        url: "jdbc:postgresql://db-1:5432/crm"
+        table: public.customers
+        watermark.column: updated_at
+    prices:                              # an Aerospike set
+      plugin: aerospike
+      options:
+        hosts: "as-1:3000"
+        namespace: ref
+        set: prices
+        schema: "sku:STRING,unit:INT64"
 ```
+
+Three shipped plugins, three unrelated stores, one query. Adding Kafka to that list changes nothing
+structural — it is another binding under another stream name.
 
 ```sql
 SELECT o.id, c.segment, o.qty * p.unit

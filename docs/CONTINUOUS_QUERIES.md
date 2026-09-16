@@ -45,8 +45,13 @@ repeatable, and not the query running again.
 
 ## 2. Declaring a stream
 
-A stream has three things: a name, a schema, and — if anything time-based will ever be asked of it —
-an event-time column.
+A node is described by three blocks, and they are separate on purpose.
+
+| Block | Says | Needed for |
+|---|---|---|
+| `pravaha.streams.<name>` | What the stream **is** — schema, event time, lateness | Planning. A query can be written and validated against a stream with nothing attached to it |
+| `pravaha.sources.<name>` | Where its rows **come from** — a plugin and its options | Running. The key is the stream name it feeds |
+| `pravaha.lookups.<name>` | A dimension table a query may **ask** | Temporal joins (§7). A source is consumed and advances event time; a lookup is only asked |
 
 ```yaml
 pravaha:
@@ -58,8 +63,19 @@ pravaha:
   sources:
     txn:
       plugin: filesystem
-      path: /var/feeds/txn.csv
+      options:
+        path: /var/lib/pravaha/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
 ```
+
+**Note the `options:` nesting.** Plugin options live under `options`, not directly under the source.
+A key written one level too high is not read, is not reported, and the node starts and ingests
+nothing.
+
+**And note the schema is written twice** — once under `streams` for the catalogue to plan against,
+once under the source's `options` for the plugin to parse rows with. That is a wart, not a design:
+the two are read by different components that do not share a parser today. They must agree.
 
 **`event-time` is the setting people most often omit, and its absence is silent.** Without it no
 watermark advances, so no window ever closes: a windowed query plans, registers, reports `RUNNING`,
@@ -69,6 +85,250 @@ column, so this key is the only way to say it.
 **`out-of-orderness` belongs to the stream, not to the node.** It says how late *this* source's rows
 may arrive. A join across two streams takes the minimum of their watermarks — so a query is only as
 current as its laggiest input, which is correct and surprises people.
+
+### 2.1 Every source type, configured
+
+Five stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
+without the engine changing — [`CONNECTORS.md`](CONNECTORS.md) is how you add one.
+
+**Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta` and `aerospike` are
+separate modules, and adding one to a deployment means dropping a jar on the classpath rather than
+rebuilding the server — which is why a server that only reads a directory does not carry Hadoop and
+Parquet.
+
+Discovery happens when a query is first registered against the stream, **not at startup**, so a
+binding naming a plugin that is not on the classpath starts a server cleanly and fails at the
+registration that needs it — with a message listing the plugin names that *are* available. A stream
+with no binding at all is not an error either: it registers, runs, and reports that nothing is
+attached, because an embedder pushing rows in directly is a legitimate way to feed a query.
+
+#### `filesystem` — one file, optionally followed
+
+A single delimited file. The simplest source, and the one the examples use.
+
+```yaml
+pravaha:
+  sources:
+    txn:
+      plugin: filesystem
+      options:
+        path: /var/lib/pravaha/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"          # keep reading as the file grows
+        op.column: op           # optional: a column saying insert or retract
+        op.delete.values: "D,DELETE,-,-1"
+```
+
+| Option | Required | Default |
+|---|---|---|
+| `path` | yes | — |
+| `schema` | yes | — |
+| `event.time` | no | none — and then no window ever closes |
+| `delimiter` | no | `,` |
+| `skip.header` | no | `false` |
+| `null.literal` | no | `""` |
+| `follow` | no | `false` — read once and stop |
+| `op.column` | no | none, so every row is an insertion |
+| `op.delete.values` | no | `D,DELETE,-,-1` |
+
+`op.column` is the one worth knowing about: without it a file is an append-only log of insertions,
+and the engine's whole retraction model has no way in from a configured source. With it, a file can
+carry deletes — which is what makes a CSV a legitimate Z-set source (§6).
+
+#### `feedfile` — a directory of files arriving over time
+
+The batch-feed shape: files land in a directory, each is read once, then archived. Handles partial
+writes, which is what separates it from pointing `filesystem` at a directory.
+
+```yaml
+pravaha:
+  sources:
+    eod_positions:
+      plugin: feedfile
+      options:
+        dir: /var/feeds/positions
+        glob: "positions-*.csv"
+        format: csv                       # or parquet
+        schema: "account:STRING,symbol:STRING,qty:INT64,as_of:TIMESTAMP"
+        completion: stable                # or marker
+        completion.quiet.ms: "5000"
+        order: name                       # or mtime
+        archive.dir: /var/feeds/done
+        quarantine.dir: /var/feeds/bad
+        skip.header: "true"
+```
+
+| Option | Required | Default |
+|---|---|---|
+| `dir` | yes | — |
+| `schema` | yes | — |
+| `glob` | no | `*.csv` |
+| `format` | no | inferred from the glob (`parquet` if it ends `.parquet`, else `csv`) |
+| `stream` | no | the binding's name |
+| `completion` | no | `stable` — a file is ready when it stops changing for `completion.quiet.ms` |
+| `completion.marker.suffix` | no | `.done` — used when `completion: marker` |
+| `completion.quiet.ms` | no | `5000` |
+| `order` | no | `name` |
+| `archive.dir` / `quarantine.dir` | no | none — files stay put |
+
+**`completion` is the setting that matters.** A producer writing a 200 MB file is a producer whose
+file is incomplete for several seconds, and reading it early yields a truncated row rather than an
+error. `stable` waits for quiet; `marker` waits for a sentinel file the producer writes last, which
+is the only one of the two that is actually safe if the producer can stall mid-write.
+
+#### `delta` — a Delta Lake table
+
+Reads a Delta table and follows its commits. Schema comes from the table, so there is no `schema`
+option to keep in step.
+
+```yaml
+pravaha:
+  sources:
+    trades:
+      plugin: delta
+      options:
+        path: /warehouse/trades
+        start.version: "142"    # optional; default is the latest snapshot
+```
+
+| Option | Required | Default |
+|---|---|---|
+| `path` | yes | — |
+| `stream` | no | the table directory's name |
+| `start.version` | no | the latest snapshot — so history before it is not replayed |
+
+#### `jdbc` — a relational table or an arbitrary `SELECT`
+
+Polls a database, advancing on a monotonic column.
+
+```yaml
+pravaha:
+  sources:
+    orders:
+      plugin: jdbc
+      options:
+        url: "jdbc:postgresql://db-1:5432/sales"
+        user: pravaha
+        password: "${PRAVAHA_DB_PASSWORD}"
+        table: orders                  # exactly one of table or query
+        watermark.column: updated_at
+        key.column: order_id
+        fetch.size: "500"
+        page.clause: "LIMIT ?"         # dialect-specific
+```
+
+| Option | Required | Default |
+|---|---|---|
+| `url` | yes | — |
+| `watermark.column` | yes | — |
+| `table` **or** `query` | exactly one | — |
+| `key.column` | no | none |
+| `user` / `password` | no | empty |
+| `fetch.size` | no | `500` |
+| `page.clause` | no | `LIMIT ?` — change it for a dialect that spells paging differently |
+| `stream` | no | the table name, or the binding's name when `query` is used |
+
+Giving both `table` and `query`, or neither, is refused at configuration with a message saying which
+does what. Use `query` when a cast or a join has to happen in the database rather than here.
+
+**A polled table is not a changelog.** It sees a row's current value at poll time, so a row that
+changes twice between polls yields one row, and a deleted row is simply never seen again — no
+retraction is produced. Where deletes matter, CDC is the right shape
+([`CONNECTORS.md`](CONNECTORS.md) §5).
+
+#### `aerospike` — a set, scanned by last-update time
+
+```yaml
+pravaha:
+  sources:
+    txn:
+      plugin: aerospike
+      options:
+        hosts: "as-1:3000,as-2:3000"
+        namespace: prod
+        set: transactions
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        strategy: lut-scan            # the only implemented strategy
+        partitions: "8"
+        scan.interval.ms: "1000"
+        records.per.second: "0"       # 0 = unthrottled
+```
+
+| Option | Required | Default |
+|---|---|---|
+| `hosts` | yes | — |
+| `namespace` | yes | — |
+| `set` | yes | — |
+| `schema` | yes | — |
+| `stream` | no | the set name |
+| `event.time` | no | none |
+| `strategy` | no | `lut-scan` |
+| `partitions` | no | `1` |
+| `records.per.second` | no | `0`, meaning unthrottled |
+| `scan.interval.ms` | no | `1000` |
+| `scan.socket.timeout.ms` / `scan.total.timeout.ms` | no | `30000` / `120000` |
+| `user` / `password` | no | empty |
+
+`strategy` declares four values and **implements one**. `lut-scan` is a partition-parallel scan
+filtered on each record's last-update time; `xdr-kafka`, `xdr-http` and `write-intercept` are named
+in the enum and refused at configuration if you ask for them, which is better than a silent fallback
+to a strategy with different delivery properties.
+
+Several queries over the same Aerospike set share one scan rather than each opening their own —
+four queries over one set measured 3.8 → 1.0 scans per second (SRC-3).
+
+### 2.2 Lookup sources, for temporal joins
+
+A lookup is asked, not consumed: it never advances event time and holds no state to checkpoint (§7).
+Two ship today, and they live under `pravaha.lookups`, keyed by the name a query joins against.
+
+```yaml
+pravaha:
+  lookups:
+    user_profile:
+      plugin: aerospike-lookup
+      options:
+        hosts: "as-1:3000"
+        namespace: prod
+        set: users
+        schema: "user_id:STRING,tier:STRING,region:STRING"
+        key.bin: user_id
+        cache.seconds: "60"
+        concurrency: "16"
+
+    account_ref:
+      plugin: jdbc-lookup
+      options:
+        url: "jdbc:postgresql://db-1:5432/ref"
+        table: accounts
+        key.columns: "account_id"      # comma-separated for a composite key
+        pool.size: "8"
+        cache.seconds: "300"
+```
+
+| `aerospike-lookup` | Required | Default |
+|---|---|---|
+| `hosts`, `namespace`, `set`, `schema`, `key.bin` | yes | — |
+| `stream` | no | the set name |
+| `cache.seconds` | no | `0`, meaning no caching |
+| `concurrency` | no | `16` |
+
+| `jdbc-lookup` | Required | Default |
+|---|---|---|
+| `url`, `table`, `key.columns` | yes | — |
+| `pool.size` | no | `8` |
+| `cache.seconds` | no | `0` |
+
+`pool.size` is not a tuning knob to leave alone: the engine asks a lookup from several threads at
+once to hide the round trip, and one shared JDBC `Connection` used from two threads interleaves
+result sets and returns rows attached to the wrong query. The pool is what makes concurrent lookups
+correct, not merely faster.
+
+A cache costs staleness, never correctness — a lookup holds no checkpointed state, so a cache lost
+on restart costs latency and nothing else.
 
 Where the rows come from, and how to add a source of your own, is
 [`CONNECTORS.md`](CONNECTORS.md).
