@@ -303,20 +303,28 @@ class StateDurabilityTest extends StateTestSupport {
             raf.writeInt(2);
         }
 
+        // E-1. This refusal was an uncoded IllegalStateException until PRV-4002 STATE_UNREADABLE was
+        // given a throw site -- the code had been declared and unreachable, so the one failure it
+        // existed to describe was reported as a bare runtime exception. The diagnosis itself was
+        // always good and is unchanged; what is new is that it now carries the code a caller can
+        // branch on and an operator can look up.
         assertThatThrownBy(() -> store.load(2))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-4002")
                 .hasMessageContaining(
                         "checkpoint 2 is format version 2 and this engine reads 1. Refusing to guess at the "
                                 + "difference.");
         assertThat(store.load(1)).isPresent();
         assertThatThrownBy(store::latest)
                 .as("latest() walks highest-id-first and never reaches the readable id 1")
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-4002");
 
         int removed = store.prune(1);
         assertThat(removed).isEqualTo(1);
         assertThatThrownBy(store::latest)
                 .as("id 2's file (still format-2) is now the only one left, and still throws")
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-4002");
     }
 }
