@@ -18,8 +18,6 @@ package com.ash.messaging.pravaha.it.qa.state;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -92,7 +90,10 @@ class StateFailureReportingTest extends StateTestSupport {
 
     @Test
     void state043_aStoreFailureDoesNotStopTheScheduleAndIsCountedEveryTime() {
-        List<String> log = Collections.synchronizedList(new ArrayList<>());
+        // Copy-on-write, not a synchronized list: a synchronized list guards each call and not an
+        // iteration, so streaming it while the checkpointer thread appends is a ConcurrentModification
+        // waiting for a loaded machine.
+        List<String> log = new java.util.concurrent.CopyOnWriteArrayList<>();
         PeriodicCheckpointer.Stats stats;
         try (RawExecution win = rawWindowed();
                 PeriodicCheckpointer checkpointer = new PeriodicCheckpointer(
@@ -243,7 +244,10 @@ class StateFailureReportingTest extends StateTestSupport {
 
     @Test
     void state047_theFailureMessageSaysTheFallbackIsGettingOlder() {
-        List<String> log = Collections.synchronizedList(new ArrayList<>());
+        // Copy-on-write, not a synchronized list: a synchronized list guards each call and not an
+        // iteration, so streaming it while the checkpointer thread appends is a ConcurrentModification
+        // waiting for a loaded machine.
+        List<String> log = new java.util.concurrent.CopyOnWriteArrayList<>();
         try (RawExecution win = rawWindowed();
                 PeriodicCheckpointer checkpointer = new PeriodicCheckpointer(
                         win.execution,

@@ -94,6 +94,18 @@ public final class Lane implements AutoCloseable {
     private final RowArena arena;
     private final WaitStrategy waitStrategy;
     private final LaneProcessor processor;
+
+    /**
+     * The processor this lane drives.
+     *
+     * <p>Exposed for W9-8: a query hosted on a shared lane closes by dropping its pipeline from the
+     * lane's {@link LaneMultiplexer}, which means the caller has to be able to reach it. Read-only
+     * and reference-only — nothing outside the lane thread may call into the processor.
+     */
+    public LaneProcessor processor() {
+        return processor;
+    }
+
     private final LaneContext context;
     private final LaneExchange exchange;
     private final Thread thread;

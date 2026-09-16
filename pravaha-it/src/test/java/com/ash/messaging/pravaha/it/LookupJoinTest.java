@@ -313,14 +313,21 @@ class LookupJoinTest {
             users.rows.put(id, "seg-" + id);
         }
 
-        long start = System.nanoTime();
         List<String> out = run(INNER, users, List.of(0L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L));
-        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
 
         assertThat(out).hasSize(10);
-        assertThat(elapsed)
-                .as("ten 50 ms lookups took %s, which is one at a time", elapsed)
-                .isLessThan(Duration.ofMillis(400));
+        // Asserted on observed overlap rather than on elapsed time, and the reason is worth keeping.
+        // The stopwatch version required ten 50 ms lookups to finish inside 400 ms, which measures
+        // the machine as much as the operator: on a box running three builds it recorded 554 ms --
+        // slower than fully sequential -- and failed a gate for scheduling starvation that had
+        // nothing to do with lookups queueing.
+        //
+        // The property this case is actually about is that lookups are in flight together. Counting
+        // them says so directly, and says it the same way on a busy machine as on an idle one.
+        assertThat(users.peakInFlight())
+                .as("lookups ran one at a time; the whole point of the virtual-thread fan-out is that "
+                        + "an operator is not capped at the inverse of the store's latency")
+                .isGreaterThan(1);
     }
 
     @Test
@@ -367,13 +374,31 @@ class LookupJoinTest {
         private Duration slowBy = Duration.ZERO;
         private final Duration everyLookup;
 
+        private final java.util.concurrent.atomic.AtomicInteger inFlight =
+                new java.util.concurrent.atomic.AtomicInteger();
+        private final java.util.concurrent.atomic.AtomicInteger peak = new java.util.concurrent.atomic.AtomicInteger();
+
         SlowLookup(Duration everyLookup) {
             super(Duration.ZERO);
             this.everyLookup = everyLookup;
         }
 
+        /** The most lookups this store ever had open at once. Load-independent, unlike a stopwatch. */
+        int peakInFlight() {
+            return peak.get();
+        }
+
         @Override
         public int lookup(Object[] key, PartitionReader.RecordSink sink) {
+            peak.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
+            try {
+                return lookupCounted(key, sink);
+            } finally {
+                inFlight.decrementAndGet();
+            }
+        }
+
+        private int lookupCounted(Object[] key, PartitionReader.RecordSink sink) {
             long id = ((Number) key[0]).longValue();
             Duration delay = slowKey != null && slowKey == id ? slowBy : everyLookup;
             if (!delay.isZero()) {

@@ -35,6 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
  * The API surface is locked.
@@ -103,6 +104,44 @@ class OpenApiContractTest {
                                 -Dpravaha.openapi.update=true
 
                         and include the diff in the same commit.""").isEqualTo(recorded);
+    }
+
+    /**
+     * The document has to state the status the endpoint actually returns (P-5).
+     *
+     * <p>The lock file is generated from the published document, so a document that under-states a
+     * status locks the wrong number and the lock reports agreement where there is none -- which is
+     * exactly what happened: {@code register} returns 201 and the document, and therefore the lock,
+     * said 200. Comparing the lock against the document could never catch that, because both came
+     * from the same wrong source. This compares the document against a real call.
+     *
+     * <p>Only the write is checked, because it is the only operation whose status is not the default
+     * the framework would document anyway.
+     */
+    @Test
+    void theDocumentedStatusForTheOneWriteIsTheStatusItReturns() throws Exception {
+        int actual = mvc.perform(post("/api/v1/streams")
+                        .contentType("application/json")
+                        .content("{\"name\":\"contract_check\",\"schema\":\"id:INT64,label:STRING\"}"))
+                .andReturn()
+                .getResponse()
+                .getStatus();
+
+        JsonNode documented = json.readTree(mvc.perform(get("/api/v1/openapi.json"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString())
+                .path("paths")
+                .path("/api/v1/streams")
+                .path("post")
+                .path("responses");
+
+        assertThat(names(documented))
+                .as(
+                        "POST /api/v1/streams answered %d; the OpenAPI document must say so, "
+                                + "because api/openapi.lock.json and every generated client are built from it",
+                        actual)
+                .contains(String.valueOf(actual));
     }
 
     @Test

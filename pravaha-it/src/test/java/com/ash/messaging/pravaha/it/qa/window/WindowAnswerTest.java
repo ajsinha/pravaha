@@ -18,7 +18,6 @@ package com.ash.messaging.pravaha.it.qa.window;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -424,12 +423,23 @@ class WindowAnswerTest extends WindowTestSupport {
             // a subscriber before any row is committed on a dataset small enough to finish before a
             // subscribe() call issued right after register() would otherwise be guaranteed to win.
             registry.pause("v_h10_20");
+            // Copy-on-write: the assertions below stream this while the subscriber's own thread may
+            // still be delivering, which a synchronized list does not make safe.
             List<com.ash.messaging.pravaha.serving.ViewChange> changes =
-                    java.util.Collections.synchronizedList(new ArrayList<>());
+                    new java.util.concurrent.CopyOnWriteArrayList<>();
             query.subscribe(batch -> changes.addAll(batch));
             registry.resume("v_h10_20");
             awaitRowsIn(query, 4);
             awaitView(views, "SELECT * FROM v_h10_20", 4);
+            // Waited for, then settled. This was a flat 250ms sleep, which assumes the subscriber's
+            // callback has run by then -- true on an idle machine and false on one running three
+            // parallel builds, where it measured zero changes and reported it as a windowing defect.
+            // The settle afterwards is what still catches a fifth change, which is the duplicate
+            // this case exists to rule out.
+            long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+            while (System.nanoTime() < deadline && changes.size() < 4) {
+                Thread.sleep(10);
+            }
             Thread.sleep(250);
             assertThat(changes).as("one change per (window, key) of WIN-013").hasSize(4);
             assertThat(changes).as("no retraction: no late record arrived").allMatch(c -> c.weight() == 1);

@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 167 FIXED, 113 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 113 open, **2 are
-GA-BLOCKER, 9 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 174 FIXED, 106 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 106 open, **2 are
+GA-BLOCKER, 2 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 9 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 2 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -912,8 +912,7 @@ finding is exactly what it said it was: one line, in the CLI, switching off a re
 command's flags from the binary.
 
 ## P-5 — the API contract has drifted from its own lock file
-> **Status:** OPEN — `openapi.lock.json` still records 200 for `POST /api/v1/streams` against a 201 `HttpStatus.CREATED`, an unknown stream still throws a 400 that enumerates every registered stream, and `ApiExceptionHandler` still has no handler for framework failures (404/405/415, malformed JSON); the 401-body sub-part (`BearerTokenFilter.refuse`) is now fixed as part of E-4 but the rest of the finding stands
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — and **the lock file could never have caught this.** `openapi.lock.json` is generated *from* the published OpenAPI document, and springdoc infers the status from the declared return type: for a `ResponseEntity` that is 200, which says nothing about the entity. So the document understated the status and the lock faithfully recorded the understatement — lock and document came from the same wrong source. The code was right: 201 is what a creation answers, and `POST /api/v1/streams` is the API's only creation. `@ApiResponse(responseCode = "201")` on `StreamController.register`, lock regenerated, one line changed. The new test POSTs for real and asserts the *document* names the status actually returned, which is the invariant a lock cannot express.
 
 
 `POST /api/v1/streams` returns **201** where `openapi.lock.json` records 200. An unknown stream is
@@ -926,8 +925,11 @@ failures (404/405/415, malformed JSON), which are not `ApiError` at all. The cod
 times that it will not have two error shapes.
 
 ## P-6 — Flight is unusable from a SQL client
-> **Status:** OPEN — no `getSchema` override exists in `PravahaFlightSqlProducer` (still Arrow's default `UNIMPLEMENTED`), `ArrowSchemas.toArrow`/`parametersToArrow` still call `FieldType.nullable(...)` unconditionally, and `doAction`'s `DROP`/`PAUSE`/`RESUME` still do an unchecked `fields.get(0)`
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — the metadata surface, and **not** Gate P6, which is still not passed and deliberately recorded as such. `PravahaFlightSqlProducer` overrode *none* of the Flight SQL metadata calls. `BasicFlightSqlProducer` answers every metadata `getFlightInfo`, so each looked supported and the follow-up `getStream` fell through to `UNIMPLEMENTED "Not implemented."` — **a driver enumerating tables on connect could never reach the SQL that did work.** New `FlightSqlMetadata` implements catalogs, schemas, tables (with filters and `include_schema`), table types, primary keys, exported/imported keys and cross-reference (empty result sets, not UNIMPLEMENTED), type info and SQL info, plus `getSchemaStatement`/`getSchemaPreparedStatement`. `ArrowSchemas.toArrow` now reports the column's own nullability — REST said `nullable:false` and Flight said nullable for the same column, and the Arrow answer was the wrong one. `FlightSqlMetadataTest` (15) over a real socket; seed-proven, reverting fails all 15 with `Not implemented.`
+
+**What is proven and what is not, because the difference is the gate.** `FlightSqlClient` — the library the JDBC driver, ADBC, Python and Go clients are built on — was driven over gRPC against a real server, and every listed call returns well-formed results with correct contents. **No SQL client was driven**: the Flight SQL JDBC driver and ADBC are not in the offline repository, and nobody has pointed DBeaver at this. The last mile, a driver turning these answers into a `DatabaseMetaData` a tool accepts, is untested. Necessary, not demonstrated to be sufficient.
+
+Three decisions worth disputing, all recorded in the code: views report `table_type = TABLE` because many tools request only that and would otherwise show an empty database; **zero catalogs and schemas**, because the planner resolves bare names and inventing `pravaha.public.x` would make a tool generate a qualified name the planner refuses; and listings are filtered by `mayRead` **and** by view lineage, so a table list cannot disclose that `payroll` exists.
 
 
 `getSchema` is `UNIMPLEMENTED` while `getFlightInfo` returns a schema. Every Flight SQL metadata
@@ -1176,8 +1178,7 @@ in `requireLive`), but changing what a terminal-state check reads is exactly the
 audit was asked to record rather than make.
 
 ### L-5 (LOW, doc) — `CONCEPTS.md`'s claim about `AND` operand order does not hold
-> **Status:** OPEN — `docs/CONCEPTS.md` §5 is unchanged; `LifeSharingTest#life084_differentTextSamePlanIsTheSameComputation` passes today while explicitly asserting `WHERE id > 0 AND amount > 5` and its operand-swapped form get different fingerprints
-> **Disposition:** GA-REQUIRED — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — **the document was wrong, not the engine**, and that was verified before anything was changed: `life084` passes while asserting that `WHERE id > 0 AND amount > 5` and its swapped form get *different* fingerprints. Sharing conservatively costs a duplicated computation and never a wrong answer, so the engine's behaviour is the safe direction. `CONCEPTS.md` §5 drops the "and reordered `AND` operands" claim and gains a worked example naming the boundary and how to get sharing. The new test is bidirectional on purpose: if the planner ever normalises operand order, it fails and says to restore the stronger claim.
 
 
 `CONCEPTS.md` §5's worked example says "reordered `AND` operands all land on the same computation."
@@ -2773,8 +2774,7 @@ than under the HIGH owner-constraint override.
 docs/qa/logs/SECX.md (SECX-089, row 4).
 
 ## SX-8 — `LIST`'s per-view authorization filtering produces zero audit events
-> **Status:** OPEN — the `ControlWire.LIST` case in `PravahaFlightSqlProducer.doAction` filters per-view via `policy.mayRead` but contains no `audit.record` call anywhere in that block, confirmed by grepping every `audit.record` call site in the file.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — every per-view decision in the `LIST` block is recorded under action `list`: a name-level refusal against the view name, a provenance refusal against **the stream that hid it** with the view in the detail, and an ALLOW for each view actually listed. The provenance refusal deliberately uses the same noun `ViewQuery.authorizeProvenance` does, so "who tried to reach payroll" stays one grep over one field. Per view rather than one line per call, because that is the granularity the decision is made at. Seed-proven by removing the three `audit.record` calls, which fails 3 cases.
 
 
 `pravaha queries` (Flight `ListFlightsAction`/the CLI `queries` verb) decides, per view, whether the
@@ -2800,8 +2800,7 @@ under the load that generates the most events to audit.
 docs/qa/logs/SECX.md (SECX-090).
 
 ## SX-10 (LOW) — `acceptPutPreparedStatementQuery` (the `doPut` leg of a prepared statement) applies no policy check
-> **Status:** OPEN — `acceptPutPreparedStatementQuery` still decodes/binds parameters with no `policy.mayRead`/audit call anywhere in the method, unlike `getStreamPreparedStatement` which re-authorizes via `queries.prepare`.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — the `doPut` leg calls `queries.prepare(handle.sql(), principalOf(context))` before decoding parameters, re-authorizing through **the same path the other two legs use** rather than a check written locally, so the three cannot drift; the plan is cached, so the cost is a policy call the other legs already pay. Seed-proven, and the test is driven at the protocol level on purpose: `FlightSqlClient.PreparedStatement.execute()` does put and fetch in one call, so a test through the client cannot tell which leg refused and **would have passed against the defect**.
 
 
 Confirmed live: a different principal's `doPut` against another principal's already-prepared
@@ -2834,8 +2833,9 @@ against modifying production code). See docs/qa/logs/SECX.md (SECX-016, 017, 020
 
 ## SX-18 (MEDIUM) — `LIST` reports a view's unfiltered row count to a principal entitled only to a slice of it
 
-> **Status:** OPEN — the `LIST` block sends `Long.toString(query.rowsIn())` unconditionally; nothing consults `decision.rowFilter()`.
-> **Disposition:** GA-REQUIRED — cardinality is data, but the disclosure is a count rather than rows, and closing it changes a wire field the CLI parses
+> **Status:** FIXED — field 5 stays a decimal `long` and **`-1` means "not disclosed"**, withheld when the name-level decision carries a row filter or any provenance decision behind the view does. The view is still listed, because a row-filtered principal may legitimately read part of it. Three reasons for `-1`, all recorded in the code: `rowsIn` is monotonic so no true count can collide with it; **both shipped SDKs parse it unchanged**, so no SDK change was needed or made; and an *empty* field — the other candidate — is turned into `0` by both clients, which is precisely the lie this finding says not to tell. An old client prints `-1`, which degrades to visibly-odd rather than plausibly-wrong. The CLI renders it as `-` with a line saying why.
+
+**Not changed, deliberately:** the full `query.sql()` text on the same path. A row-filtered principal is entitled to read the view, so suppressing the SQL of a view they may read is a different decision from suppressing a count they may not have — flagged rather than decided in passing.
 
 Split from SX-11, which is otherwise fixed. `bob`, entitled to a `region = 'EU'` slice, sees
 `sales_view` report **4 rows** in a `LIST` while his own read of it returns **2** — true cardinality
@@ -2870,8 +2870,9 @@ already there.
 
 ### CFG-23 (HIGH) — `audit: memory` records into a sink nothing in the server can read
 
-> **Status:** OPEN — nothing in any `src/main` calls `AuditSink.InMemory.events()`; there is no endpoint, no log appender and no file behind `pravaha.security.audit: memory`.
-> **Disposition:** GA-REQUIRED — the audit is correct and complete and unreachable; an operator cannot answer "who read payroll" from a running node
+> **Status:** FIXED — `pravaha.security.audit: file` writes append-only JSON Lines through a new `FileAuditSink`: created `rw-------`, size-rotated, one daemon writer behind a bounded queue so it can never fail the query it audits, and a full queue drops and then writes an `audit.dropped` marker with the count — because a gap nothing records is a trail that lies. `memory` now warns at startup that it exposes events to nothing.
+
+**A file, not a read endpoint, and the reasoning is the important part.** `SecurityPolicy` answers three questions — may this principal read *this view*, administer *this view*, register a query — and none of them means "may read the audit trail". Authorizing an endpoint would have meant passing a pseudo-view name such as `__audit` to `mayRead`: **a check applied to the wrong noun, which is the commonest defect in this register**, and under the default `permissive` policy it would answer ALLOW to everybody and publish every principal id and every SQL text on the node. A file needs no invented authorization; the operating system already decides who may read it. Unwritable path is refused at startup with `PRV-7004` rather than discovered at the first decision nobody sees.
 
 Found while fixing CFG-5, and it changes what that fix is worth. CFG-5 was right that the HTTP
 surface discarded every decision it made — but the sink it should have been writing to is itself

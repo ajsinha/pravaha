@@ -62,11 +62,23 @@ final class ArrowSchemas {
 
     private ArrowSchemas() {}
 
-    /** The Arrow schema a client will see for these rows. */
+    /**
+     * The Arrow schema a client will see for these rows.
+     *
+     * <p><strong>Nullability is the column's, not a constant.</strong> Every field went out
+     * nullable regardless of what the schema said, so REST reported {@code nullable: false} for a
+     * column and Flight reported it nullable -- the same column, two surfaces, two answers (P-6,
+     * API-150). A client that lays out storage or generates a NOT NULL DDL from the wire schema
+     * acts on the difference, and the Arrow answer was the wrong one: it made every column look as
+     * though it could be absent.
+     */
     static Schema toArrow(StreamSchema schema) {
         List<Field> fields = new ArrayList<>(schema.fields().size());
         for (com.ash.messaging.pravaha.api.data.Field field : schema.fields()) {
-            fields.add(new Field(field.name(), FieldType.nullable(arrowTypeOf(field)), null));
+            FieldType type = field.type().nullable()
+                    ? FieldType.nullable(arrowTypeOf(field))
+                    : FieldType.notNullable(arrowTypeOf(field));
+            fields.add(new Field(field.name(), type, null));
         }
         return new Schema(fields);
     }

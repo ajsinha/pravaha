@@ -114,8 +114,20 @@ pravaha:
     authentication: none
     # permissive (everyone sees everything) | authenticated (only verified callers see anything)
     policy: permissive
-    # none | memory
+    # none | memory | file
+    #
+    # memory keeps recent decisions in this process and exposes them to nothing -- no endpoint, no
+    # log, no file. It is for tests and heap dumps, and a node set to it says so at startup.
+    # file is the setting that leaves a record an operator can read (CFG-23).
     audit: none
+    # Where audit: file writes, as JSON Lines. Created rw------- : it holds every principal id that
+    # asked for anything and the SQL they asked with, which is why this is a file and not an
+    # endpoint -- the operating system already decides who may read it.
+    audit-file: pravaha-audit.jsonl
+    # Rotate past this size, keeping this many generations. An audit trail that fills the disk
+    # stops the node it was auditing.
+    audit-rotate-bytes: 67108864
+    audit-keep: 5
     # Acknowledges an open server. Deliberately awkward to set by accident.
     allow-anonymous: false
     # Static credentials, for a development server and a test -- the type is named

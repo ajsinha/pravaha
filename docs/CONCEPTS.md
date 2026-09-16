@@ -126,9 +126,24 @@ SELECT user_id FROM txn WHERE amount > 10          -- these two are
 SELECT t.user_id FROM txn AS t WHERE t.amount > 10 -- one computation
 ```
 
-The fingerprint is the normalised *plan*, so different whitespace, different aliases and reordered
-`AND` operands all land on the same computation. Hashing the text instead would give each of them
-separate state, which is exactly the duplication the architecture exists to remove.
+The fingerprint is the normalised *plan*, so different whitespace and different aliases land on the
+same computation. Hashing the text instead would give each of them separate state, which is exactly
+the duplication the architecture exists to remove.
+
+**Sharing is conservative, and the boundary is worth knowing.** Normalisation goes as far as the
+planner's own canonical form and no further, so two queries that a person would call identical can
+still get separate computations. Reordered `AND` operands are the case you will meet first:
+
+```sql
+SELECT usr FROM txn WHERE id > 0 AND amount > 5   -- these two are
+SELECT usr FROM txn WHERE amount > 5 AND id > 0   -- two computations, not one
+```
+
+The planner keeps predicates in the order the text gives them, so these fingerprint differently.
+That costs a second copy of the state; it never costs a wrong answer. Sharing too little is a missed
+efficiency, and sharing too much would be two queries reading each other's rows — so where the two
+risks meet, this design takes the first. If you want two registrations shared, write the predicate
+the same way in both.
 
 The fingerprint includes the **security predicates** applied to the plan, which is what makes
 implicit sharing safe rather than merely cheap: two principals with different entitlements produce

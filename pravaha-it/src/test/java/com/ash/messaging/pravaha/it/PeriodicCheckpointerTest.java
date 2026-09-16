@@ -104,7 +104,12 @@ class PeriodicCheckpointerTest {
     /** Wraps a real store so stores and prunes can be counted, and a store made to fail once. */
     private static final class RecordingStore implements CheckpointStore {
         private final CheckpointStore delegate;
-        private final List<Integer> pruneCalls = Collections.synchronizedList(new ArrayList<>());
+        // Copy-on-write rather than a synchronized list. A synchronized list guards each *call*, not
+        // an iteration: AssertJ's allMatch streams over it while the checkpointer thread is still
+        // appending, and that threw ConcurrentModificationException out of a passing assertion
+        // under a loaded parallel build. The failure names the test, not the race, so it reads as a
+        // product defect for as long as it takes somebody to open the file.
+        private final List<Integer> pruneCalls = new java.util.concurrent.CopyOnWriteArrayList<>();
         private final AtomicInteger stored = new AtomicInteger();
         private volatile RuntimeException failNextStore;
 

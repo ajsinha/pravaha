@@ -69,6 +69,22 @@ public final class QueryExecution implements AutoCloseable {
     private static final System.Logger LOG = System.getLogger(QueryExecution.class.getName());
 
     private final LaneGroup lanes;
+
+    /**
+     * The query's own id on a shared lane, or null when this execution owns its lanes.
+     *
+     * <p>W9-8. A lane is owned by the execution that created it, so {@code close()} closes it — and
+     * on a lane shared by three hundred queries that would stop the lane serving the other two
+     * hundred and ninety-nine. Ownership has to move, and {@code close()} has to mean <em>drop my
+     * pipeline</em> rather than <em>stop this lane</em>.
+     *
+     * <p>Non-null is the hosted case: the group was built by somebody else (the registry), its
+     * processor is a {@link com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer} per lane, and
+     * this execution contributed one pipeline to each. Closing removes those pipelines and leaves
+     * every lane running.
+     */
+    private final String hostedQueryId;
+
     private final List<InterpretedPipeline> pipelines;
     private final StreamSchema inputSchema;
     private final List<String> streams;
@@ -114,6 +130,18 @@ public final class QueryExecution implements AutoCloseable {
             List<String> streams,
             PhysicalOperator plan,
             MemoryAccess access) {
+        this(lanes, pipelines, inputSchema, streams, plan, access, null);
+    }
+
+    private QueryExecution(
+            LaneGroup lanes,
+            List<InterpretedPipeline> pipelines,
+            StreamSchema inputSchema,
+            List<String> streams,
+            PhysicalOperator plan,
+            MemoryAccess access,
+            String hostedQueryId) {
+        this.hostedQueryId = hostedQueryId;
         this.streams = List.copyOf(streams);
         this.plan = plan;
         this.access = access;
@@ -202,6 +230,60 @@ public final class QueryExecution implements AutoCloseable {
             group.startOn(runner);
         }
         return new QueryExecution(group, pipelines, inputSchema[0], streams, plan, access);
+    }
+
+    /**
+     * Starts a query onto lanes somebody else owns, sharing them with other queries.
+     *
+     * <p>W9-8. The other {@code start} builds a {@link LaneGroup} per query, so a lane runs one
+     * query and closing the query closes the lane. This one contributes a pipeline to each lane of
+     * an existing group whose processor is a {@link com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer},
+     * and {@link #close()} removes those pipelines and leaves every lane running for the queries
+     * still on it.
+     *
+     * <p>The group must already be started and every lane's processor must be a multiplexer;
+     * neither is checked lazily, because a query that registered into the wrong kind of processor
+     * would fail at the first row rather than at the call that was wrong.
+     *
+     * <p><strong>Not yet used by the registry.</strong> `LaneMultiplexer` was built, tested and
+     * wired to nothing (W9-8); this is the seam it was missing, and the remaining halves — a
+     * watermark advance that does not clamp the lane's batch (W9-10), and deciding which lane a
+     * registration lands on — are recorded there. Wiring the registry before those are settled
+     * would put the wave's measured wins at risk for the 1,024 KiB still on the table.
+     */
+    public static QueryExecution startOn(
+            LaneGroup group,
+            String queryId,
+            PhysicalOperator plan,
+            Supplier<RowOutput> sinkPerLane,
+            Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups,
+            MemoryAccess access) {
+        java.util.Objects.requireNonNull(queryId, "queryId");
+        List<String> streams = streamsOf(plan);
+        List<InterpretedPipeline> pipelines = new ArrayList<>(group.laneCount());
+        StreamSchema inputSchema = null;
+
+        for (com.ash.messaging.pravaha.runtime.lane.Lane lane : group.lanes()) {
+            if (!(lane.processor() instanceof com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer multiplexer)) {
+                throw new IllegalArgumentException("lane " + lane.laneId() + " is not multiplexed, so query '"
+                        + queryId + "' cannot be hosted on it: startOn needs a group whose processor is a "
+                        + "LaneMultiplexer, and this one runs "
+                        + lane.processor().getClass().getSimpleName());
+            }
+            InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups);
+            pipelines.add(pipeline);
+            inputSchema = pipeline.inputSchema(streams.get(0));
+
+            // One view per input: the two sides of a join have different layouts, and a shared view
+            // would decode the right side's bytes against the left's schema.
+            BinaryRowView[] views = new BinaryRowView[streams.size()];
+            for (int i = 0; i < views.length; i++) {
+                views[i] = new BinaryRowView(RowLayout.of(pipeline.inputSchema(streams.get(i))));
+            }
+            multiplexer.register(new com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer.Pipeline(
+                    queryId, inputSchema.streamId(), new LanePipeline(pipeline, views, streams)));
+        }
+        return new QueryExecution(group, pipelines, inputSchema, streams, plan, access, queryId);
     }
 
     /**
@@ -1136,6 +1218,24 @@ public final class QueryExecution implements AutoCloseable {
         }
         pumps.forEach(IngestPump::close);
         partitionedPumps.forEach(PartitionedIngestPump::close);
+        if (hostedQueryId != null) {
+            // W9-8. Hosted: the lanes belong to whoever built the group, and other queries are
+            // still running on them. Dropping this query's pipelines is the whole of what closing
+            // means here.
+            //
+            // The end-of-input that a lane's close would have run is deliberately not run: finish()
+            // fires a stateful query's final windows, and on a shared lane there is no moment at
+            // which the *lane* is ending. That is W9-8's remaining half and is recorded there
+            // rather than approximated here -- emitting final windows from the dropping thread
+            // would write into an arena owned by the lane thread, which is the one thing
+            // confinement forbids.
+            for (com.ash.messaging.pravaha.runtime.lane.Lane lane : lanes.lanes()) {
+                if (lane.processor() instanceof com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer mux) {
+                    mux.drop(hostedQueryId);
+                }
+            }
+            return;
+        }
         // Closing the group stops each lane, and each lane closes its processor on its own thread --
         // which is where the pipeline's end-of-input runs, so final windows are written into the
         // arena by the thread that owns it.

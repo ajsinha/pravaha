@@ -367,15 +367,56 @@ public class PravahaNode implements SmartLifecycle {
                 security.getAudit() == null ? "none" : security.getAudit().trim();
         return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
             case "none" -> AuditSink.NONE;
-            case "memory" -> audit == null ? (audit = new AuditSink.InMemory()) : audit;
+            case "memory" -> audit == null ? (audit = memorySink()) : audit;
+            // CFG-23. The setting that produces a trail an operator can read after the fact, and
+            // the reason it is a file: an endpoint listing who-read-what is a disclosure surface
+            // needing an authorization this codebase's policy SPI cannot express, while a file's
+            // readers are already decided by the operating system. See FileAuditSink.
+            case "file" -> audit == null ? (audit = fileSink()) : audit;
             default ->
                 throw new PravahaException(
                         SecurityErrors.MISCONFIGURED,
-                        "pravaha.security.audit is '" + configured + "'; use 'none' or 'memory'.");
+                        "pravaha.security.audit is '" + configured + "'; use 'none', 'memory' or 'file'. "
+                                + "'file' writes JSON Lines to pravaha.security.audit-file and is the only "
+                                + "one of the three that leaves a record anybody can read.");
         };
     }
 
-    private AuditSink.InMemory audit;
+    /**
+     * The in-process sink, and the warning that it is not an audit trail.
+     *
+     * <p>CFG-23: {@code memory} accepts every decision and exposes them to nobody -- nothing in any
+     * {@code src/main} reads {@code events()}. It is genuinely useful to tests, which hold the sink
+     * object, and to support reading a heap dump. A deployment that set it believing otherwise has
+     * no record at all, which is the same outcome as {@code none} arrived at from the other end, so
+     * the node says so once rather than letting the configuration file look reassuring.
+     */
+    private AuditSink.InMemory memorySink() {
+        log.warn("pravaha.security.audit=memory keeps recent decisions in this process and exposes them to "
+                + "nothing: no endpoint, no log, no file. It is for tests and for support reading a heap "
+                + "dump. Use audit=file for a trail that outlives the process and that an operator can read.");
+        return new AuditSink.InMemory();
+    }
+
+    private com.ash.messaging.pravaha.security.FileAuditSink fileSink() {
+        com.ash.messaging.pravaha.security.FileAuditSink sink = new com.ash.messaging.pravaha.security.FileAuditSink(
+                java.nio.file.Path.of(security.getAuditFile()),
+                security.getAuditRotateBytes(),
+                security.getAuditKeep(),
+                // Through the node's log rather than standard error: a write failure here
+                // means decisions are being made and not recorded, which is exactly the
+                // state CFG-23 is about, and it belongs where the operator is already
+                // looking.
+                message -> log.error("audit: {}", message));
+        log.info(
+                "audit trail: {} (owner-readable only, JSON Lines, rotating at {} bytes, keeping {})",
+                sink.path(),
+                security.getAuditRotateBytes(),
+                security.getAuditKeep());
+        return sink;
+    }
+
+    private AuditSink audit;
 
     @Override
     public int getPhase() {
@@ -613,6 +654,12 @@ public class PravahaNode implements SmartLifecycle {
         // finds the directory free while this one is still finishing a checkpoint.
         stateClaims.forEach(claim -> closeQuietly("state claim on " + claim.directory(), claim));
         stateClaims.clear();
+        // After everything that could still record a decision, so the last refusal a node made is
+        // in the file rather than in a queue nobody drains.
+        if (audit instanceof AutoCloseable closeable) {
+            closeQuietly("audit sink", closeable);
+            audit = null;
+        }
     }
 
     /**

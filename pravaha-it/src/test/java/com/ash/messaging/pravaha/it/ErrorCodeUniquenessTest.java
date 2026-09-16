@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 
@@ -92,14 +91,48 @@ class ErrorCodeUniquenessTest {
     private static Map<Integer, List<String>> declarations() throws IOException {
         Map<Integer, List<String>> byCode = new LinkedHashMap<>();
         Path root = repoRoot();
-        try (Stream<Path> files = Files.walk(root)) {
-            for (Path file : files.filter(p -> p.toString().endsWith(".java"))
-                    .filter(p -> p.toString().contains("/src/main/"))
-                    .filter(p -> !p.toString().contains("/target/"))
-                    // Not a nested checkout: QA agents work in git worktrees under .claude/,
-                    // so walking the repository root sees a copy of every source per agent.
-                    .filter(p -> !p.startsWith(nestedCheckouts()))
-                    .toList()) {
+        // Pruned during the walk, not filtered after it. Files.walk stats every entry it reaches and
+        // *then* offers it to the filters, so a `target/` full of surefire reports being written by
+        // parallel forks could kill the traversal with NoSuchFileException -- which is exactly what
+        // it did, on a report file for a test class in another module. Skipping the subtree means
+        // those files are never looked at, and it is dramatically faster besides.
+        //
+        // The nested-checkout skip is the same reasoning it always was: agents work in git worktrees
+        // under .claude/, so walking the root sees a copy of every source per running agent.
+        List<Path> sources = new ArrayList<>();
+        Files.walkFileTree(root, new java.nio.file.SimpleFileVisitor<Path>() {
+            @Override
+            public java.nio.file.FileVisitResult preVisitDirectory(
+                    Path dir, java.nio.file.attribute.BasicFileAttributes attrs) {
+                String name = dir.getFileName() == null ? "" : dir.getFileName().toString();
+                if (name.equals("target")
+                        || name.equals(".git")
+                        || name.equals(".claude")
+                        || name.equals("node_modules")) {
+                    return java.nio.file.FileVisitResult.SKIP_SUBTREE;
+                }
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public java.nio.file.FileVisitResult visitFile(
+                    Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                String path = file.toString();
+                if (path.endsWith(".java") && path.contains("/src/main/")) {
+                    sources.add(file);
+                }
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public java.nio.file.FileVisitResult visitFileFailed(Path file, IOException failure) {
+                // A file that vanished between listing and reading is a build writing underneath
+                // us, not a declaration we are missing.
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
+        {
+            for (Path file : sources) {
                 Matcher matcher = DECLARATION.matcher(Files.readString(file));
                 while (matcher.find()) {
                     byCode.computeIfAbsent(Integer.parseInt(matcher.group(1)), ignored -> new ArrayList<>())

@@ -111,13 +111,38 @@ final class ServerCommand {
                 return PravahaCli.EXIT_OK;
             }
             out.println(Ansi.bold("NAME\tSTATE\tFINGERPRINT\tROWS IN"));
+            boolean anyWithheld = false;
             for (RegisteredQueryInfo query : queries) {
-                out.println(query.name() + "\t" + query.state() + "\t" + query.fingerprint() + "\t" + query.rowsIn());
+                anyWithheld = anyWithheld || query.rowsIn() < 0;
+                out.println(query.name() + "\t" + query.state() + "\t" + query.fingerprint() + "\t"
+                        + rowsInText(query.rowsIn()));
+            }
+            if (anyWithheld) {
+                out.println(Ansi.dim("a '-' under ROWS IN means the server did not disclose the count: your "
+                        + "access to that view is a filtered subset of its rows, and its total is not "
+                        + "part of what you may see"));
             }
             return PravahaCli.EXIT_OK;
         } catch (RuntimeException e) {
             return fail(e);
         }
+    }
+
+    /**
+     * The {@code ROWS IN} cell: a count, or a dash when the server withheld it.
+     *
+     * <p>SX-18. A principal entitled to a row-filtered slice of a view was told the view's
+     * <em>unfiltered</em> row count -- {@code sales_view} reported 4 rows to a caller whose own read
+     * of it returns 2. The server now sends {@code -1} for exactly that case: the field stays a
+     * decimal long, which both SDKs already parse, and {@code rowsIn} is a counter that is never
+     * negative, so no real count can be mistaken for it.
+     *
+     * <p>Printed as {@code -} rather than as {@code -1}, because {@code -1} in a column of counts
+     * reads as a count. The client is the right place to make that legible; the wire is the right
+     * place to make it unambiguous, and they are not the same job.
+     */
+    static String rowsInText(long rowsIn) {
+        return rowsIn < 0 ? "-" : Long.toString(rowsIn);
     }
 
     int lifecycle(String action, List<String> arguments) {

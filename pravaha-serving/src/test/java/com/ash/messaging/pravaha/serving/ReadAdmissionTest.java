@@ -42,7 +42,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * continuous query is the thing with a service level; the read is the thing that can be told to
  * come back.
  */
-@Timeout(30)
+// 120s, not 30. These cases hold real permits and wait on real threads, so the deadline is a
+// wall-clock one -- and a wall-clock deadline measures the machine as much as the code. At 30s this
+// failed a full gate while three builds shared the box (14 JVMs), then passed alone in seconds. The
+// point of the timeout is to stop a deadlock hanging the suite for ever, and 120s does that just as
+// well without turning a busy machine into a red build.
+@Timeout(120)
 class ReadAdmissionTest {
 
     private static final Principal ACME = new Principal("dana", "acme", Set.of("analyst"), Map.of());

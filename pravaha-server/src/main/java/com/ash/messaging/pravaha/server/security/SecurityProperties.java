@@ -59,8 +59,36 @@ public class SecurityProperties {
     /** {@code permissive} (everyone sees everything) or {@code authenticated} (only verified callers see anything). Anything else is refused at startup with PRV-7002. */
     private String policy = "permissive";
 
-    /** {@code none} or {@code memory}. Anything else is refused at startup with PRV-7002. */
+    /**
+     * {@code none}, {@code memory} or {@code file}. Anything else is refused at startup with
+     * PRV-7004.
+     *
+     * <p>CFG-23. {@code memory} is for tests and for support reading a heap dump: it holds recent
+     * events in this process and <em>nothing in the server exposes them</em>, so an operator asked
+     * "who read payroll" cannot answer it from a running node. {@code file} is the setting that
+     * produces a trail somebody can read -- see {@link #getAuditFile()}.
+     */
     private String audit = "none";
+
+    /**
+     * Where {@code audit: file} writes, as JSON Lines.
+     *
+     * <p>Defaulted rather than required, because an audit setting whose only effect is a startup
+     * failure is one that gets turned off again. {@code ./pravaha-audit.jsonl} is relative to the
+     * working directory; a deployment should set this to somewhere it keeps records.
+     *
+     * <p>The file is created owner-only. It holds every principal id that asked for anything and
+     * the SQL they asked with, which is the reason this is a file and not an endpoint: the
+     * operating system already answers who may read it, and Pravaha's policy SPI has no question
+     * that means "may read the audit trail".
+     */
+    private String auditFile = "pravaha-audit.jsonl";
+
+    /** Rotate the audit file once it passes this many bytes. */
+    private long auditRotateBytes = com.ash.messaging.pravaha.security.FileAuditSink.DEFAULT_ROTATE_BYTES;
+
+    /** How many rotated audit files to keep; the oldest is deleted. */
+    private int auditKeep = com.ash.messaging.pravaha.security.FileAuditSink.DEFAULT_KEEP;
 
     /**
      * Acknowledges that this server serves everything to unauthenticated callers.
@@ -95,6 +123,30 @@ public class SecurityProperties {
 
     public void setAudit(String audit) {
         this.audit = audit;
+    }
+
+    public String getAuditFile() {
+        return auditFile;
+    }
+
+    public void setAuditFile(String auditFile) {
+        this.auditFile = auditFile == null || auditFile.isBlank() ? "pravaha-audit.jsonl" : auditFile.trim();
+    }
+
+    public long getAuditRotateBytes() {
+        return auditRotateBytes;
+    }
+
+    public void setAuditRotateBytes(long auditRotateBytes) {
+        this.auditRotateBytes = auditRotateBytes;
+    }
+
+    public int getAuditKeep() {
+        return auditKeep;
+    }
+
+    public void setAuditKeep(int auditKeep) {
+        this.auditKeep = auditKeep;
     }
 
     public boolean isAllowAnonymous() {

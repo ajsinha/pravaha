@@ -19,7 +19,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -90,7 +89,11 @@ class StateCheckpointScheduleTest extends StateTestSupport {
 
     @Test
     void state002_checkpointsKeepBeingTakenAtRoughlyTheConfiguredInterval() throws Exception {
-        List<String> log = Collections.synchronizedList(new ArrayList<>());
+        // Copy-on-write, not a synchronized list. A synchronized list guards each call and not an
+        // iteration, so streaming it while the checkpointer thread is still appending threw
+        // ConcurrentModificationException out of a passing assertion under a loaded parallel build
+        // -- a failure that names this test rather than the race inside it.
+        List<String> log = new java.util.concurrent.CopyOnWriteArrayList<>();
         try (RawExecution win = rawWindowed()) {
             win.feedAt("u1", 100, 1_000_000_000L);
             win.feedAt("u1", 102, 2_000_000_000L);

@@ -139,45 +139,48 @@ class ErrcFlightTest extends ErrcServerSupport {
     // ------------------------------------------------------------ ERRC-090 -- PRV-6101
 
     @Test
-    void unimplementedFlightSqlMetadataCallsReturnArrowsOwnUnimplementedStatusNotAPravahaCode() throws Exception {
-        // Correction to the case: PravahaFlightSqlProducer's only two PRV-6101 throw sites are an
-        // unrecognised *custom* Pravaha Action (not a Flight SQL metadata call at all) and a
-        // registry action against a server with none hosted -- neither is
-        // getSqlInfo/getCrossReference/getPrimaryKeys/beginTransaction, which the class does not
-        // override at all. Confirmed empirically: they fall through to Arrow's own
-        // FlightSqlProducer base class, which answers UNIMPLEMENTED -- a gRPC/Flight status, not a
-        // PRV- code. The case's own falsifier is arguably realised here in a different way: not
-        // "returns an empty result" (its named risk) but "returns a framework status with no PRV
-        // code and no pointer to what this server does support."
+    void flightSqlMetadataCallsNowAnswerRatherThanFallingThroughToArrowsUnimplemented() throws Exception {
+        // INVERTED (P-6). This case recorded the gap rather than asserting it was right: the Flight
+        // SQL metadata calls -- getPrimaryKeys, getTables, getSqlInfo and the rest -- were not
+        // overridden at all, so they fell through to Arrow's own base class and answered
+        // UNIMPLEMENTED with no PRV code and no hint that getFlightInfo would have succeeded. It
+        // asserted that, and passed, for as long as a SQL client could not connect.
+        //
+        // They are implemented now, so the assertion is turned round: the call returns a result set,
+        // and for a keyed view the result is the view's key columns. Only the direction changed --
+        // the question the case asks (what does a Flight SQL metadata call do here?) is the same
+        // one, and its answer is no longer a framework status.
+        //
+        // The conclusion this case's own comment reached is untouched and still right: PRV-6101's
+        // real throw sites are an unrecognised custom Pravaha action and a registry action against a
+        // server hosting no registry. Neither was ever a Flight SQL metadata call, and both are
+        // asserted by the next test.
+        registry.register("txn_v", "SELECT id, usr FROM txn", List.of(0), Principal.ANONYMOUS);
+
         try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
                 FlightClient transport = FlightClient.builder(
                                 allocator, Location.forGrpcInsecure("localhost", server.port()))
                         .build()) {
             FlightSqlClient sql = new FlightSqlClient(transport);
-            // getPrimaryKeys itself only issues getFlightInfo, which for most Flight SQL metadata
-            // calls just returns an empty-result descriptor lazily -- the actual RPC, and any
-            // failure, only happens once the returned ticket is fetched via getStream, exactly like
-            // PravahaFlightClient.query's own two-step protocol elsewhere in this file.
-            var info = sql.getPrimaryKeys(org.apache.arrow.flight.sql.util.TableRef.of(null, null, "txn"));
-            assertThatThrownBy(() -> {
-                        try (var stream =
-                                sql.getStream(info.getEndpoints().get(0).getTicket())) {
-                            while (stream.next()) {
-                                // drain
-                            }
-                        }
-                    })
-                    .isInstanceOfSatisfying(FlightRuntimeException.class, e -> {
-                        System.out.println(
-                                "ERRC-090 getPrimaryKeys: status=" + e.status().code() + " description="
-                                        + e.status().description());
-                        assertThat(
-                                        e.status().description() == null
-                                                ? ""
-                                                : e.status().description())
-                                .as("no PRV- code in an unimplemented Flight SQL metadata call's status")
-                                .doesNotContain("PRV-");
-                    });
+            // getPrimaryKeys itself only issues getFlightInfo; the rows -- and, before this fix, the
+            // failure -- arrive only when the returned ticket is fetched, which is the same two-step
+            // protocol PravahaFlightClient.query uses elsewhere in this file.
+            var info = sql.getPrimaryKeys(org.apache.arrow.flight.sql.util.TableRef.of(null, null, "txn_v"));
+
+            java.util.List<String> keyColumns = new java.util.ArrayList<>();
+            try (var stream = sql.getStream(info.getEndpoints().get(0).getTicket())) {
+                while (stream.next()) {
+                    var root = stream.getRoot();
+                    var column = (org.apache.arrow.vector.VarCharVector) root.getVector("column_name");
+                    for (int row = 0; row < root.getRowCount(); row++) {
+                        keyColumns.add(new String(column.get(row), java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                }
+            }
+
+            assertThat(keyColumns)
+                    .as("the view was registered with key ordinal 0, which is 'id'")
+                    .containsExactly("id");
         }
     }
 

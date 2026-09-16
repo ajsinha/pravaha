@@ -15,6 +15,10 @@
  */
 package com.ash.messaging.pravaha.it.qa.lifecycle;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
@@ -77,11 +81,12 @@ class LifeSharingTest extends LifecycleTestSupport {
         assertThat(registry.require("c").fingerprint())
                 .isEqualTo(registry.require("a").fingerprint());
 
-        // CONCEPTS.md claims "reordered AND operands all land on the same computation". Measured: they
-        // do not -- the planner keeps predicates in the order the SQL text gives them, so this is a
-        // documentation defect rather than an engine one (recorded in FINDINGS, not treated as a
-        // product FAIL, since sharing being *conservative* -- two computations instead of one -- is
-        // never a correctness problem, only a missed efficiency).
+        // Reordered AND operands do not share: the planner keeps predicates in the order the SQL
+        // text gives them. Not a product FAIL -- sharing being *conservative*, two computations
+        // instead of one, is never a correctness problem, only a missed efficiency.
+        //
+        // CONCEPTS.md used to promise the opposite (L-5) and now describes this. The document and
+        // this measurement are held together by life084b below, so neither can drift alone.
         registry.register("d", "SELECT usr FROM txn WHERE id > 0 AND amount > 5", List.of(0), Principal.ANONYMOUS);
         registry.register("e", "SELECT usr FROM txn WHERE amount > 5 AND id > 0", List.of(0), Principal.ANONYMOUS);
         assertThat(registry.require("d").fingerprint())
@@ -92,6 +97,57 @@ class LifeSharingTest extends LifecycleTestSupport {
         assertThat(registry.require("f").fingerprint())
                 .as("a genuinely different predicate must still get a different fingerprint")
                 .isNotEqualTo(registry.require("a").fingerprint());
+    }
+
+    /**
+     * L-5: the document's claim about `AND` operand order has to be the engine's behaviour.
+     *
+     * <p>{@code CONCEPTS.md} §5 promised that "reordered `AND` operands all land on the same
+     * computation". They do not, and {@link #life084_differentTextSamePlanIsTheSameComputation}
+     * above has measured that they do not since it was written -- the document and the test
+     * disagreed, in the file a new reader is pointed at first, and nothing failed.
+     *
+     * <p>Written to be wrong in both directions on purpose. If a later change makes the planner
+     * normalise predicate order, this fails and says to put the stronger claim back, rather than
+     * leaving the document understating what the engine now does. A one-way assertion would go
+     * quietly stale the other way, which is the same defect as the one it closes.
+     */
+    @Test
+    void life084b_conceptsStatesTheSharingBoundaryTheEngineActuallyHas() throws IOException {
+        registry.register(
+                "ordered", "SELECT usr FROM txn WHERE id > 0 AND amount > 5", List.of(0), Principal.ANONYMOUS);
+        registry.register(
+                "reordered", "SELECT usr FROM txn WHERE amount > 5 AND id > 0", List.of(0), Principal.ANONYMOUS);
+        boolean shares = registry.require("ordered")
+                .fingerprint()
+                .equals(registry.require("reordered").fingerprint());
+
+        String concepts = Files.readString(repoRoot().resolve("docs/CONCEPTS.md"), StandardCharsets.UTF_8)
+                .replaceAll("\\s+", " ");
+        boolean promised = concepts.contains("reordered `AND` operands all land on the same computation");
+
+        assertThat(promised)
+                .as(
+                        "CONCEPTS.md promises reordered AND operands share: %s. The engine shares them: %s. "
+                                + "Those have to be the same answer.",
+                        promised, shares)
+                .isEqualTo(shares);
+        if (!shares) {
+            assertThat(concepts)
+                    .as("and having removed the promise, the document has to say what does happen instead")
+                    .contains("two computations, not one");
+        }
+    }
+
+    private static Path repoRoot() {
+        Path p = Path.of("").toAbsolutePath();
+        while (p != null && !Files.exists(p.resolve(".git"))) {
+            p = p.getParent();
+        }
+        if (p == null) {
+            throw new IllegalStateException("cannot locate the repository root");
+        }
+        return p;
     }
 
     @Test

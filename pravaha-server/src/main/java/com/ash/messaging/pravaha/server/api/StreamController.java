@@ -87,6 +87,20 @@ public class StreamController {
      */
     @PostMapping
     @Operation(summary = "Register a stream")
+    // P-5. The code returns 201 and the published document said 200, so `openapi.lock.json` --
+    // which is generated from the document -- recorded 200 as well. The drift was not intended and
+    // the code is the half that is right: this is the one call in the API that creates a resource,
+    // and 201 is what a creation answers. What was wrong is that springdoc infers the status from
+    // the declared return type, which for a ResponseEntity is 200 and says nothing about the entity.
+    // So the document is corrected to state 201 and the lock regenerated from it, rather than the
+    // controller being downgraded to match a document that was only ever a default.
+    //
+    // It matters more than a number: a generated client that treats anything but the documented
+    // status as a failure breaks on the only write this API has, and the console is a separate
+    // process built from exactly this document.
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "201",
+            description = "The stream was registered")
     public ResponseEntity<ApiDtos.StreamSummary> register(
             @RequestBody RegisterStreamRequest request, jakarta.servlet.http.HttpServletRequest http) {
         // Changing what the node serves is an administrative act. This applied no check beyond "a

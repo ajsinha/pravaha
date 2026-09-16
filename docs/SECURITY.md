@@ -164,6 +164,28 @@ legitimate; that is the residue, and under the default `permissive` policy it is
 entitled to know what exists should use `LIST`, which is filtered by the policy rather than refused.
 See `docs/qa/logs/SECX.md` (SECX-028) and `docs/qa/FINDINGS.md`'s SX-1 and STRM-9.
 
+**What `LIST` says about a view you may only partly read (SX-18).** A principal whose access is
+conditional on a row filter still sees the view — hiding it would be wrong, since they may
+legitimately read part of it — but its `ROWS IN` count is **withheld**, sent as `-1`. A view's true
+cardinality is data about rows the caller is not entitled to: a filtered principal was being told
+`sales_view` holds 4 rows while their own read of it returns 2. `-1` rather than an empty field or
+`0`, deliberately: the field stays a decimal long that both SDKs already parse, no counter can ever
+equal it, and an empty field is turned into `0` by both — a lie rather than a refusal. The CLI prints
+it as `-` with a line saying why.
+
+**`LIST` is audited (SX-8).** Every per-view decision the listing makes is recorded, allows as well
+as refusals, under the action `list`. A view hidden because of what it *reads* is recorded against
+the stream that hid it, with the view named in the detail — the same noun the read path audits
+provenance under, so "who tried to reach payroll" stays one grep over one field. Until this, a
+principal could probe a node's whole catalogue and be refused every view in it without leaving a
+trace.
+
+**A prepared statement authorizes on every leg (SX-10).** `doPut` — the call that binds parameter
+values to a handle — re-authorizes through the same path `getFlightInfo` and the fetch use. It
+previously checked nothing: no rows escaped, because the fetch refuses, but a principal who may not
+read a statement's view could bind values into another principal's handle and be told it was
+accepted. A handle is a plan, never a permission.
+
 ## Telling failures apart
 
 | | | Client should |
@@ -186,7 +208,7 @@ and not "who read the payroll view", which is the question that actually gets as
 `AuditEvent` never carries the credential, and `Principal.toString()` never prints its claims — both
 have tests, because a secret reaching a log line reaches everything that reads logs.
 
-**One sink, both transports.** `pravaha.security.audit` takes `none` or `memory`, and the HTTP
+**One sink, both transports.** `pravaha.security.audit` takes `none`, `memory` or `file`, and the HTTP
 surface records into the *same object* the engine and Flight use. Until CFG-5 it did not: the Spring
 bean behind `HttpAuthorizer` returned `AuditSink.NONE` unconditionally, so a node set to `memory`
 recorded every Flight read and no HTTP read, no HTTP stream declaration and no HTTP refusal, and
@@ -195,9 +217,32 @@ configuration, because resolving the key twice would give the HTTP surface a sec
 nothing can reach — invisible in exactly the same way, while looking correct.
 
 **What `memory` is, and is not.** It holds recent events in this process for tests and for support
-to read from a heap dump. **Nothing in the server exposes them** — there is no endpoint, no log
-appender and no file (CFG-23). Do not deploy `memory` believing it produces a retained audit trail;
-a durable sink is an `AuditSink` implementation you supply.
+to read from a heap dump. **Nothing in the server exposes them** — there is no endpoint and no log
+appender. Do not deploy `memory` believing it produces a retained audit trail: a node set to it says
+so at startup now (a `WARN` naming what the setting does not do), and `audit: file` is the setting
+that leaves a record.
+
+**`audit: file` is the readable trail (CFG-23).** One JSON object per line, appended to
+`pravaha.security.audit-file` (default `pravaha-audit.jsonl`), rotating at
+`pravaha.security.audit-rotate-bytes` and keeping `pravaha.security.audit-keep` generations. Each
+line carries the timestamp, the principal's id, tenant and roles, the action, the target, `ALLOW` or
+`DENY`, the reason, and the SQL or filter as `detail`. The claims map is never written, for the same
+reason `Principal.toString()` does not print it.
+
+*Why a file and not an endpoint.* An endpoint listing who-read-what is itself a disclosure surface —
+it carries every principal id and the SQL text that made SX-11 a breach rather than an inconvenience
+— so it would need an authorization of its own, and `SecurityPolicy` has no question that means "may
+read the audit trail". Answering it by passing a pseudo-view name to `mayRead` would be a check
+applied to the wrong noun, and under the default `permissive` policy it would return ALLOW to
+everybody. A file needs no such invention: the operating system already decides who may read it, and
+the file is created `rw-------`. Set the permissions you want on the directory; Pravaha will not
+loosen the file's.
+
+*What it costs and what it refuses.* Writing happens on one daemon thread behind a bounded queue, so
+an audit sink can never fail the query it is auditing; a full queue drops and the next line written
+is an `audit.dropped` marker with the count, because a gap nothing records is a trail that lies. A
+path that cannot be written is `PRV-7004` at startup rather than a discovery at the first decision
+nobody sees. A durable sink of your own is still an `AuditSink` implementation you supply.
 
 ## Transport
 

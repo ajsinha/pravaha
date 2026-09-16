@@ -30,7 +30,7 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "201" ]
       }
     },
     "/api/v1/streams/{name}" : {
