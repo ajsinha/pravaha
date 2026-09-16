@@ -77,12 +77,18 @@
   could not key a `GROUP BY` containing a string.
 - **The console is a functional admin console on purpose** — it manages queries, tails a view and
   renders the documentation. It is not the design-system product surface §23.20 describes.
-- **A lane still runs one query.** `LaneRunner` shares a lane's *thread* between lanes, which is
-  what removed the thread-per-query cost; `LaneMultiplexer` — which would share one inbox and one
-  arena between many pipelines — is built, tested and wired to nothing (W9-8). It is no longer
-  *blocked*: a row now carries the identity of the stream it came from (W9-9). It is *large*, and
-  the aligned checkpoint barrier is why — three hundred queries on one lane each advancing a
-  watermark every second would cut the lane's batches short several hundred times a second (W9-10).
+- **A lane can run many queries, and does not by default** (W9-8, W9-9 and W9-10 all closed).
+  `LaneRunner` shares a lane's *thread* between lanes, which removed the thread-per-query cost;
+  `LaneMultiplexer` now shares one inbox and one arena between many pipelines, and the registry uses
+  it when `pravaha.lane.multiplex` is on. The aligned checkpoint barrier was the cost that made this
+  untenable — three hundred queries on one lane each advancing a watermark every second would cut
+  the lane's batches short hundreds of times a second — and it is gone: **a checkpoint is a cut and
+  clamps the batch; a watermark is a level and does not**, because applying a watermark further along
+  the stream is never wrong, only less prompt.
+  **It is off by default for want of admission control**: nothing decides which lane a registration
+  lands on, so every hosted query shares one lane's budget. The multiplexer stops any pipeline being
+  systematically served last by running them in ascending order of lane time consumed, but that is
+  fair ordering, not a ceiling.
 - **N queries over one Aerospike set are one scan.** Each scan is throttled to `scan.interval.ms`
   (one second by default), and since SRC-3 one reader per *source binding* feeds every query bound
   to it — four queries over one set measured at 1.0 scans/s between them, where it was 1.0 each
