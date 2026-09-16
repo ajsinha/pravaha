@@ -49,6 +49,28 @@ public final class PgWireErrors {
     public static final ErrorCode UNSUPPORTED_PROTOCOL_VERSION = new ErrorCode(6203, "PGWIRE_UNSUPPORTED_PROTOCOL");
 
     /**
+     * A {@code SET} naming a parameter this gateway does not accept.
+     *
+     * <p>Deliberately not the same refusal a Calcite parse failure would give: {@code SET} is valid
+     * PostgreSQL, understood and refused by name here, rather than run through a SQL planner that has
+     * never heard of it and would answer with a syntax error about the wrong thing. See {@link
+     * PgSessionSet} for the allow-list and, for every entry on it, why accepting and ignoring that
+     * one specific setting is safe -- this code is for everything not on that list.
+     */
+    public static final ErrorCode UNSUPPORTED_SET = new ErrorCode(6204, "PGWIRE_UNSUPPORTED_SET");
+
+    /**
+     * A {@code pg_catalog} query this shim recognises as catalog introspection and cannot answer.
+     *
+     * <p>{@link PgCatalogShim} answers a small, named set of query shapes -- the ones a {@code
+     * psql}, at the server version this gateway announces, or a JDBC driver actually sends -- and
+     * refuses anything else in this family by name rather than guessing at a join or a function this
+     * server has never modelled. A wrong catalog answer is worse than none: {@code psql} would print
+     * it as fact.
+     */
+    public static final ErrorCode UNSUPPORTED_CATALOG_QUERY = new ErrorCode(6205, "PGWIRE_UNSUPPORTED_CATALOG_QUERY");
+
+    /**
      * The five-character SQLSTATE a Pravaha failure should arrive as.
      *
      * <p>The message always carries the engine's own PRV code -- {@link PravahaException} puts it
@@ -88,7 +110,7 @@ public final class PgWireErrors {
             // does not exist" when the user mistyped a column name is a confident wrong answer.
             case "PRV-4023" -> "42P01";
             // 0A000 feature_not_supported, for the things this gateway and this engine decline.
-            case "PRV-6200", "PRV-6201", "PRV-6203", "PRV-4025" -> "0A000";
+            case "PRV-6200", "PRV-6201", "PRV-6203", "PRV-6204", "PRV-6205", "PRV-4025" -> "0A000";
             case "PRV-6202" -> "08P01"; // protocol_violation
             // 54000 program_limit_exceeded: the result was larger than one response may carry.
             case "PRV-4024" -> "54000";

@@ -9,10 +9,11 @@
   <artifactId>pravaha-pgwire</artifactId>
   <name>Pravaha :: pgwire</name>
   <!--
-    No third-party dependency, deliberately. The PostgreSQL v3 frontend/backend protocol is
+    No third-party dependency in main, deliberately. The PostgreSQL v3 frontend/backend protocol is
     length-prefixed big-endian bytes over a socket, and java.net plus java.io already do that; a
     protocol library here would be a licensing and portability question against a single bundled
-    deployment, bought for code that fits in two classes.
+    deployment, bought for code that fits in two classes. The one dependency below is test-scoped and
+    is the thing this server is proved against, not a thing it is built from; see its own comment.
   -->
   <dependencies>
     <dependency>
@@ -29,6 +30,20 @@
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-serving</artifactId>
       <version>${project.version}</version>
+    </dependency>
+    <!--
+      Test-only, and not a change to the rule above: the main jar still speaks the wire protocol with
+      nothing but java.net and java.io. This is the actual PostgreSQL JDBC driver, in the same
+      version plugins/pravaha-plugin-jdbc already carries as a test dependency, used the one way
+      slice 2 needs it: proving a real driver opens a connection, lists tables and reads rows over
+      this gateway. A test against this module's own encoder and decoder proves the two agree with
+      each other; a real driver proves this server speaks the protocol a real client understands.
+    -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.7.8</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 </project>

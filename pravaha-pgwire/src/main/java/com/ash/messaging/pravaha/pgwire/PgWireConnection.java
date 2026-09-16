@@ -78,12 +78,15 @@ final class PgWireConnection implements Runnable {
 
     private final Socket socket;
     private final ViewQuery queries;
+    private final PgCatalogShim catalog;
     private final TokenVerifier verifier;
     private final String serverVersion;
 
-    PgWireConnection(Socket socket, ViewQuery queries, TokenVerifier verifier, String serverVersion) {
+    PgWireConnection(
+            Socket socket, ViewQuery queries, PgCatalogShim catalog, TokenVerifier verifier, String serverVersion) {
         this.socket = socket;
         this.queries = queries;
+        this.catalog = catalog;
         this.verifier = verifier;
         this.serverVersion = serverVersion;
     }
@@ -311,11 +314,20 @@ final class PgWireConnection implements Runnable {
                 backend.emptyQueryResponse();
                 return;
             }
-            // The one call that matters. Same entry point as the Flight producer's
-            // `queries.execute(sql, principalOf(context))`, so the policy that decides what this
-            // principal may read, the row filter that gets ANDed into the plan, and the audit event
-            // that records the decision are all the same ones -- not a pgwire copy of them.
-            ViewQuery.Result result = queries.execute(statement, principal);
+            if (PgSessionSet.isSetStatement(statement)) {
+                PgSessionSet.handle(statement);
+                backend.commandComplete("SET");
+                return;
+            }
+            // The catalog shim answers first, and only queries it recognises as pg_catalog
+            // introspection (PgCatalogShim.looksLikeCatalogQuery) -- everything else, including
+            // every ordinary SELECT over a view, falls through to the one call that matters below.
+            // Same entry point as the Flight producer's `queries.execute(sql,
+            // principalOf(context))`, so the policy that decides what this principal may read, the
+            // row filter that gets ANDed into the plan, and the audit event that records the
+            // decision are all the same ones -- not a pgwire copy of them.
+            ViewQuery.Result result =
+                    catalog.tryAnswer(statement, principal).orElseGet(() -> queries.execute(statement, principal));
 
             // RowDescription first, and it is built whole before a byte is written: PgBackend
             // buffers a message body before framing it, so a column whose type this gateway refuses

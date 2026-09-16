@@ -109,6 +109,68 @@ class PsqlSessionTest {
         assertThat(psql("s3cret", "SELECT count(*) FROM user_volume")).contains("3");
     }
 
+    /**
+     * Gate P6's follow-up: {@code \d} and {@code \dt} are SQL against {@code pg_catalog}, and before
+     * {@link PgCatalogShim} they reached the planner and came back as parse errors naming syntax
+     * ({@code OPERATOR(pg_catalog.~)}, {@code ::regclass}) no Pravaha dialect ever understood. This
+     * drives the actual queries a real {@code psql} sends, over the real wire.
+     */
+    @Test
+    void psqlBackslashDListsTheViews() throws Exception {
+        requirePsql();
+        server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
+
+        String output = psql(null, "\\d");
+
+        assertThat(output).contains("user_volume").contains("table").contains("public");
+    }
+
+    @Test
+    void psqlBackslashDtListsTheViewsAsTables() throws Exception {
+        requirePsql();
+        server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
+
+        String output = psql(null, "\\dt");
+
+        assertThat(output).contains("List of relations").contains("user_volume").contains("table");
+    }
+
+    @Test
+    void psqlBackslashDNameDescribesTheViewsColumns() throws Exception {
+        requirePsql();
+        server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
+
+        String output = psql(null, "\\d user_volume");
+
+        assertThat(output)
+                .contains("Table \"public.user_volume\"")
+                .contains("user_id")
+                .contains("text")
+                .contains("tier")
+                .contains("total")
+                .contains("bigint");
+    }
+
+    /**
+     * SX-5, driven with a real client rather than in-process: a principal denied every view must not
+     * be able to enumerate the catalogue by running {@code \d} instead of {@code SELECT}.
+     */
+    @Test
+    void psqlBackslashDShowsNothingToAPrincipalDeniedEveryView() throws Exception {
+        requirePsql();
+        server = new PravahaPgWireServer(populated())
+                .authenticatedBy(StaticTokenVerifier.of("s3cret", ANALYST))
+                .authorizedBy(
+                        (principal, view) -> com.ash.messaging.pravaha.security.AccessDecision.deny(
+                                "no principal may read anything in this test"),
+                        com.ash.messaging.pravaha.security.AuditSink.NONE)
+                .start("127.0.0.1", 0);
+
+        String output = psql("s3cret", "\\d");
+
+        assertThat(output).doesNotContain("user_volume");
+    }
+
     @Test
     void psqlShowsTheEnginesOwnRefusalForAViewThatIsNotThere() throws Exception {
         requirePsql();

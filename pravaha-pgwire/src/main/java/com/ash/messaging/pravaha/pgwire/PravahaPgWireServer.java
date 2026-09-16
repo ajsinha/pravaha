@@ -71,11 +71,25 @@ public final class PravahaPgWireServer implements AutoCloseable {
      * {@code SHOW server_version} or a connection banner is not misled about what they are talking
      * to.
      *
-     * <p>14.0 rather than the newest: it is old enough that no client takes a path Pravaha cannot
-     * follow, and new enough to be past the protocol changes that matter (SCRAM, {@code Infinity}
-     * as a float text literal).
+     * <p><strong>9.4.26, not the newest, and lower than slice 1's 14.0 -- deliberately, for slice
+     * 2.</strong> {@code psql}'s {@code \d} and {@code \dt} do not send one fixed query: {@code
+     * libpq} reads this string back as {@code server_version} and {@code psql} builds its {@code
+     * pg_catalog} introspection SQL to match what a server of that version actually has -- a real
+     * {@code psql} pointed at a real PostgreSQL 9.4 asks a materially smaller question than the same
+     * {@code psql} pointed at a real PostgreSQL 16. Row-level security (9.5), declarative
+     * partitioning, statistics objects and logical replication publications (all 10) each add a join
+     * or a whole extra round-trip to {@code \d}'s query, none of which this engine's views have
+     * anything to say about -- a partition never exists, a publication never exists, so answering
+     * would mean inventing empty machinery for features Pravaha does not have, rather than reporting
+     * that a version old enough not to ask about them is the honest match. 9.4 is the newest version
+     * that still predates every one of those: {@link PgCatalogShim} implements exactly the {@code
+     * pg_catalog} query shapes a 9.4-era client sends, no more, and if a future slice teaches it the
+     * newer shapes too, this constant can move up to meet it. The SCRAM concern the slice 1 comment
+     * raised does not bind this choice either way: this server only ever offers cleartext or {@code
+     * AuthenticationOk} (see {@code PgWireConnection.authenticate}), so a client never attempts
+     * SCRAM regardless of the version announced here.
      */
-    private static final String SERVER_VERSION = "14.0 (Pravaha)";
+    private static final String SERVER_VERSION = "9.4.26 (Pravaha)";
 
     /** How long {@link #close()} waits for in-flight sessions before giving up on them. */
     private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
@@ -86,6 +100,17 @@ public final class PravahaPgWireServer implements AutoCloseable {
     private ReadAdmission admission = ReadAdmission.UNLIMITED;
     private Duration readDeadline = Duration.ZERO;
     private TokenVerifier verifier;
+
+    /**
+     * Stable object identifiers for {@code pg_catalog.pg_class}, minted once per view and never
+     * reused for the life of this server.
+     *
+     * <p>Held here, not per-connection: {@code psql}'s {@code \d} resolves a name to an oid in one
+     * query and looks the oid back up in the next, on whatever connection it happens to be. A
+     * registry that started over per session would hand back a different oid for the second query
+     * than the first returned, and {@code psql} would report "not found".
+     */
+    private final PgOidRegistry oids = new PgOidRegistry();
 
     private volatile ServerSocket listener;
     private ExecutorService sessions;
@@ -150,6 +175,7 @@ public final class PravahaPgWireServer implements AutoCloseable {
             throw new IllegalStateException("this server is already started on port " + port());
         }
         ViewQuery queries = new ViewQuery(catalog, policy, audit, admission, readDeadline);
+        PgCatalogShim catalogShim = new PgCatalogShim(catalog, policy, oids, SERVER_VERSION);
         try {
             ServerSocket bound = new ServerSocket();
             // Reuse, so that a restart does not have to wait out TIME_WAIT on a fixed port -- the
@@ -171,13 +197,13 @@ public final class PravahaPgWireServer implements AutoCloseable {
             thread.setDaemon(true);
             return thread;
         });
-        this.acceptor = new Thread(() -> accept(queries), "pravaha-pgwire-accept");
+        this.acceptor = new Thread(() -> accept(queries, catalogShim), "pravaha-pgwire-accept");
         this.acceptor.setDaemon(true);
         this.acceptor.start();
         return this;
     }
 
-    private void accept(ViewQuery queries) {
+    private void accept(ViewQuery queries, PgCatalogShim catalogShim) {
         while (!closing) {
             Socket client;
             try {
@@ -193,7 +219,7 @@ public final class PravahaPgWireServer implements AutoCloseable {
                 // answer arrives 40ms after it was ready. That delay is indistinguishable from a
                 // slow engine to whoever is watching the prompt.
                 client.setTcpNoDelay(true);
-                sessions.execute(new PgWireConnection(client, queries, verifier, SERVER_VERSION));
+                sessions.execute(new PgWireConnection(client, queries, catalogShim, verifier, SERVER_VERSION));
             } catch (IOException | RuntimeException rejected) {
                 closeQuietly(client);
             }
