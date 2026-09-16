@@ -72,9 +72,19 @@
   nothing for `ChangelogAnalysis.checkAgainst` to refuse, and `ErrcSqlTest` fails the moment anything
   attaches a query to a sink without calling it first, which is the silent-corruption case in design
   §15.5.
-- **The L0 off-heap state map is gone** (W8-12). Operator indexes and accumulators are on-heap
-  `HashMap`s; the off-heap class that was meant to replace them could only hold fixed-width keys and
-  could not key a `GROUP BY` containing a string.
+- **Half of operator state is off-heap** (W8-12, partly closed). `VariableKeyStateMap` replaces the
+  deleted `L0StateMap`: keys of any width, an off-heap open-addressed slot table of fingerprints and
+  handles indexing a byte store, so growing the index never moves the data and a fingerprint hit is
+  verified against the real key bytes rather than trusted. A **join's** per-side index uses it now.
+  A windowed **aggregate's** accumulators do not: `SlicedAggregateState` keys by a 128-bit digest and
+  carries an on-heap `Object[]` so a window can reconstruct its output, and moving it means changing
+  what `WindowedAggregate` hands in, the checkpoint format version, and `COUNT(DISTINCT)`'s per-group
+  on-heap accounting beside it — deliberately not rushed into the most correctness-critical class in
+  the engine.
+  Measured rather than claimed, and the number is not a triumph: about **106 bytes per entry against
+  roughly 109 for the `HashMap` it replaces**, because a small entry pays `RowStore`'s 64-byte
+  minimum block. The win that does not show in that number is that none of it is an object the
+  collector traces, so a million live groups cost the collector nothing.
 - **The console is a functional admin console on purpose** — it manages queries, tails a view and
   renders the documentation. It is not the design-system product surface §23.20 describes.
 - **A lane can run many queries, and does not by default** (W9-8, W9-9 and W9-10 all closed).
