@@ -186,4 +186,86 @@ class PgTypesTest {
                 .isEqualTo(((12 << 16) | 4) + 4);
         assertThat(PgTypes.typeModifierOf(Field.of("name", Types.string()))).isEqualTo(-1);
     }
+
+    // ------------------------------------------------------------------ decodeParameter: Bind's own direction
+
+    @Test
+    void aNullParameterIsNullRegardlessOfType() {
+        assertThat(PgTypes.decodeParameter(TypeName.STRING, PgBackend.FORMAT_TEXT, null))
+                .isNull();
+    }
+
+    @Test
+    void textParametersDecodeToTheJavaTypeBoundParametersAccepts() {
+        // Long for every integer width, Double for every float width: BoundParameters.checkAssignable
+        // accepts either across the whole family, so one Java type serves all of them and the
+        // planner's own inferred type is what actually governs meaning.
+        assertThat(PgTypes.decodeParameter(TypeName.INT32, PgBackend.FORMAT_TEXT, bytes("42")))
+                .isEqualTo(42L);
+        assertThat(PgTypes.decodeParameter(TypeName.INT64, PgBackend.FORMAT_TEXT, bytes("-7")))
+                .isEqualTo(-7L);
+        assertThat(PgTypes.decodeParameter(TypeName.FLOAT64, PgBackend.FORMAT_TEXT, bytes("3.5")))
+                .isEqualTo(3.5);
+        assertThat(PgTypes.decodeParameter(TypeName.STRING, PgBackend.FORMAT_TEXT, bytes("hello")))
+                .isEqualTo("hello");
+        assertThat(PgTypes.decodeParameter(TypeName.BOOLEAN, PgBackend.FORMAT_TEXT, bytes("t")))
+                .isEqualTo(Boolean.TRUE);
+        assertThat(PgTypes.decodeParameter(TypeName.BOOLEAN, PgBackend.FORMAT_TEXT, bytes("false")))
+                .isEqualTo(Boolean.FALSE);
+    }
+
+    @Test
+    void dateAndTimestampParametersDecodeToTheSameEpochEncodingEncodeWrites() {
+        // Round-tripped through encode(): what Bind decodes and what a DataRow later encodes must
+        // agree, or a client's own value would not read back as the value it sent.
+        assertThat(PgTypes.decodeParameter(TypeName.DATE, PgBackend.FORMAT_TEXT, bytes("2026-09-16")))
+                .isEqualTo(20_712L);
+        assertThat(PgTypes.encode(TypeName.DATE, 20_712L)).asString().isEqualTo("2026-09-16");
+
+        long nanos = (long)
+                PgTypes.decodeParameter(TypeName.TIMESTAMP_LTZ, PgBackend.FORMAT_TEXT, bytes("2026-09-16 12:34:56+00"));
+        assertThat(PgTypes.encode(TypeName.TIMESTAMP_LTZ, nanos)).asString().isEqualTo("2026-09-16 12:34:56+00");
+    }
+
+    @Test
+    void bytesAndTimeAreRefusedAsParametersTooForTheSameReasonAsOutput() {
+        assertThatThrownBy(() -> PgTypes.decodeParameter(TypeName.BYTES, PgBackend.FORMAT_TEXT, bytes("x")))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-6200");
+        assertThatThrownBy(() -> PgTypes.decodeParameter(TypeName.TIME, PgBackend.FORMAT_TEXT, bytes("x")))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-6200");
+    }
+
+    @Test
+    void binaryFormatDecodesTheFixedWidthPrimitivesPostgresWireFormat() {
+        // PostgreSQL's own binary encodings: big-endian two's complement, IEEE-754 big-endian, and
+        // (for date/timestamptz) counted from 2000-01-01 rather than 1970-01-01.
+        assertThat(PgTypes.decodeParameter(TypeName.INT32, (short) 1, new byte[] {0, 0, 0, 42}))
+                .isEqualTo(42L);
+        assertThat(PgTypes.decodeParameter(TypeName.BOOLEAN, (short) 1, new byte[] {1}))
+                .isEqualTo(Boolean.TRUE);
+        assertThat(PgTypes.decodeParameter(TypeName.FLOAT64, (short) 1, longBytes(Double.doubleToLongBits(2.5))))
+                .isEqualTo(2.5);
+    }
+
+    @Test
+    void binaryFormatForAnUnsupportedTypeIsRefusedByNameRatherThanMisread() {
+        assertThatThrownBy(() -> PgTypes.decodeParameter(TypeName.DECIMAL, (short) 1, new byte[] {1, 2, 3}))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-6209");
+    }
+
+    private static byte[] bytes(String text) {
+        return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] longBytes(long value) {
+        byte[] out = new byte[8];
+        for (int i = 7; i >= 0; i--) {
+            out[i] = (byte) (value & 0xff);
+            value >>= 8;
+        }
+        return out;
+    }
 }

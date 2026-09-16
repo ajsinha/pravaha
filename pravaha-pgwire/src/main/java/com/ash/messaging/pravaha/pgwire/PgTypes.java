@@ -275,4 +275,148 @@ final class PgTypes {
         }
         return text.append("+00").toString();
     }
+
+    // -------------------------------------------------------------------------------------
+    // Bind parameters: the read direction. Written from the same rule as encode: a type or a
+    // format this gateway cannot decode is refused by name, not guessed at.
+
+    /** Days between the Unix epoch and PostgreSQL's own (2000-01-01), for the binary date/time formats. */
+    private static final long POSTGRES_EPOCH_DAYS = 10_957L;
+
+    private static final long MICROS_PER_DAY = 86_400_000_000L;
+
+    /**
+     * A {@code Bind} parameter's bytes, as the Java value {@link
+     * com.ash.messaging.pravaha.sql.plan.BoundParameters} and {@code ViewQuery} expect for {@code
+     * typeName} -- {@code null} for SQL NULL, which is the protocol's {@code -1} length and is
+     * {@code bytes == null} by the time it reaches here (see {@code Bind}'s own parsing).
+     *
+     * <p>The type is the one {@code ParameterMetadata} inferred by planning the statement, not
+     * whatever OID a client's {@code Parse} declared -- Pravaha's own planner is authoritative about
+     * what a placeholder needs, the same way {@link #oidOf} is authoritative about what a column
+     * is. A client's declared parameter OID is read (see {@code PgExtendedSession}) and never
+     * trusted over this.
+     *
+     * @throws PravahaException {@link PgWireErrors#UNSUPPORTED_WIRE_FORMAT} for a binary-format
+     *     value this gateway does not decode, {@link PgWireErrors#UNSUPPORTED_TYPE} for a
+     *     placeholder type this gateway never puts on the wire in either direction
+     */
+    static Object decodeParameter(TypeName typeName, short format, byte[] bytes) {
+        if (bytes == null) {
+            return null;
+        }
+        if (typeName == TypeName.BYTES || typeName == TypeName.TIME) {
+            // The same refusal encode() gives on the output side, for the same reason (TY-17/TY-18):
+            // claiming to read a type this gateway has never once written correctly would be an
+            // untested path exercised only by whichever client tries it first.
+            throw new PravahaException(
+                    PgWireErrors.UNSUPPORTED_TYPE,
+                    typeName + " is not something Pravaha reads off a client wire yet; see PgTypes' own "
+                            + "documentation for why, on the write side, which is the same reason here.");
+        }
+        return format == PgBackend.FORMAT_TEXT
+                ? decodeText(typeName, new String(bytes, StandardCharsets.UTF_8))
+                : decodeBinary(typeName, bytes);
+    }
+
+    private static Object decodeText(TypeName typeName, String text) {
+        String trimmed = text.trim();
+        return switch (typeName) {
+            case BOOLEAN -> decodeBooleanText(trimmed);
+            // Long for every integer width: BoundParameters.checkAssignable accepts Byte, Short,
+            // Integer or Long for all of INT8/16/32/64, DATE, TIME and TIMESTAMP_LTZ alike, so one
+            // Java type serves every one of them and the planner's own type is what actually governs
+            // meaning.
+            case INT8, INT16, INT32, INT64 -> Long.parseLong(trimmed);
+            case FLOAT32, FLOAT64 -> Double.parseDouble(trimmed);
+            case DECIMAL -> new BigDecimal(trimmed);
+            case STRING -> text;
+            case DATE -> LocalDate.parse(trimmed).toEpochDay();
+            case TIMESTAMP_LTZ -> parseTimestamp(trimmed);
+            default ->
+                throw new PravahaException(
+                        PgWireErrors.UNSUPPORTED_TYPE, typeName + " has no PostgreSQL text decoding in this gateway.");
+        };
+    }
+
+    private static boolean decodeBooleanText(String text) {
+        return switch (text.toLowerCase(java.util.Locale.ROOT)) {
+            case "t", "true", "1", "y", "yes", "on" -> true;
+            case "f", "false", "0", "n", "no", "off" -> false;
+            default ->
+                throw new PravahaException(
+                        PgWireErrors.PROTOCOL_VIOLATION, "'" + text + "' is not a boolean this server recognises");
+        };
+    }
+
+    /**
+     * {@code yyyy-MM-dd[ |T]HH:mm:ss[.fraction][+HH[:mm]]}, the shape {@link #timestampText} writes
+     * and the shape every client this gateway has been driven by sends back for a bound {@code
+     * timestamptz} parameter. An offset is required, matching this server's own {@code
+     * standard_conforming_strings}/{@code DateStyle} promise that every timestamp it deals in carries
+     * one (ADR-012): a bare local timestamp would need a session time zone this server does not
+     * track to mean anything.
+     */
+    private static long parseTimestamp(String text) {
+        try {
+            java.time.OffsetDateTime parsed = java.time.OffsetDateTime.parse(text.replace(' ', 'T'), TIMESTAMP_PARSER);
+            java.time.Instant instant = parsed.toInstant();
+            return Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1_000_000_000L), instant.getNano());
+        } catch (java.time.format.DateTimeParseException malformed) {
+            throw new PravahaException(
+                    PgWireErrors.PROTOCOL_VIOLATION,
+                    "'" + text + "' is not a timestamp this server can parse; expected "
+                            + "yyyy-MM-dd HH:mm:ss[.fraction]+HH[:mm]",
+                    malformed);
+        }
+    }
+
+    private static final java.time.format.DateTimeFormatter TIMESTAMP_PARSER =
+            new java.time.format.DateTimeFormatterBuilder()
+                    .appendPattern("yyyy-MM-dd'T'HH:mm:ss")
+                    .appendFraction(java.time.temporal.ChronoField.NANO_OF_SECOND, 0, 9, true)
+                    .appendOffset("+HH:mm", "+00")
+                    .toFormatter();
+
+    /**
+     * The fixed-width binary formats a client may choose instead of text -- the primitive types
+     * only. PostgreSQL's binary {@code date}/{@code timestamptz} count from 2000-01-01 rather than
+     * 1970-01-01, which is the one translation here that is not simply "read the bytes".
+     */
+    private static Object decodeBinary(TypeName typeName, byte[] bytes) {
+        return switch (typeName) {
+            case BOOLEAN -> bytes.length > 0 && bytes[0] != 0;
+            case INT8, INT16 -> readInt(bytes, 2);
+            case INT32 -> readInt(bytes, 4);
+            case INT64 -> readInt(bytes, 8);
+            case FLOAT32 -> (double) Float.intBitsToFloat((int) readInt(bytes, 4));
+            case FLOAT64 -> Double.longBitsToDouble(readInt(bytes, 8));
+            // A PostgreSQL text/varchar value is the same UTF-8 bytes whichever format code the
+            // client declared; text has no separate binary encoding of its own.
+            case STRING -> new String(bytes, StandardCharsets.UTF_8);
+            case DATE -> readInt(bytes, 4) + POSTGRES_EPOCH_DAYS;
+            case TIMESTAMP_LTZ -> Math.multiplyExact(readInt(bytes, 8) + POSTGRES_EPOCH_DAYS * MICROS_PER_DAY, 1_000L);
+            default ->
+                throw new PravahaException(
+                        PgWireErrors.UNSUPPORTED_WIRE_FORMAT,
+                        "a binary-format " + typeName + " parameter was sent, and this gateway only decodes "
+                                + "binary for the fixed-width primitive types (booleans, integers, floats, "
+                                + "text, date, timestamptz). Bind it as text instead -- every client this "
+                                + "server has been driven by defaults to text unless told otherwise.");
+        };
+    }
+
+    /** A big-endian two's-complement integer of exactly {@code width} bytes, PostgreSQL's binary format. */
+    private static long readInt(byte[] bytes, int width) {
+        if (bytes.length != width) {
+            throw new PravahaException(
+                    PgWireErrors.PROTOCOL_VIOLATION,
+                    "a binary parameter declared " + bytes.length + " bytes; this server expected " + width);
+        }
+        long value = bytes[0]; // sign-extends the first byte, which is exactly right for two's complement
+        for (int i = 1; i < width; i++) {
+            value = (value << 8) | (bytes[i] & 0xffL);
+        }
+        return value;
+    }
 }

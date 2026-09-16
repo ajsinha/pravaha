@@ -132,15 +132,103 @@ final class PgTestClient implements AutoCloseable {
         sendTyped('Q', sql);
     }
 
-    /** Sends a Parse, which this slice is expected to refuse by name. */
+    /** Sends a Parse: a statement name (empty for the unnamed statement) and its SQL text. */
     void parse(String name, String sql) throws IOException {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         DataOutputStream data = new DataOutputStream(body);
         cstring(data, name);
         cstring(data, sql);
-        data.writeShort(0);
+        data.writeShort(0); // no declared parameter OIDs: let the server infer every one
         data.flush();
         sendTyped('P', body.toByteArray());
+    }
+
+    /** Sends a Bind: text-format parameters (a {@code null} element is SQL NULL), text-format results. */
+    void bind(String portal, String statement, List<byte[]> parameters) throws IOException {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        DataOutputStream data = new DataOutputStream(body);
+        cstring(data, portal);
+        cstring(data, statement);
+        data.writeShort(0); // 0 parameter format codes: every parameter is text
+        data.writeShort(parameters.size());
+        for (byte[] value : parameters) {
+            if (value == null) {
+                data.writeInt(-1);
+            } else {
+                data.writeInt(value.length);
+                data.write(value);
+            }
+        }
+        data.writeShort(0); // 0 result format codes: every column comes back as text
+        data.flush();
+        sendTyped('B', body.toByteArray());
+    }
+
+    /** Sends a Bind whose parameters are given as plain text, the common case in a test. */
+    void bindText(String portal, String statement, String... parameters) throws IOException {
+        List<byte[]> values = new ArrayList<>(parameters.length);
+        for (String parameter : parameters) {
+            values.add(parameter == null ? null : parameter.getBytes(StandardCharsets.UTF_8));
+        }
+        bind(portal, statement, values);
+    }
+
+    /** Sends a {@code Describe} for a prepared statement. */
+    void describeStatement(String name) throws IOException {
+        describe('S', name);
+    }
+
+    /** Sends a {@code Describe} for a portal. */
+    void describePortal(String name) throws IOException {
+        describe('P', name);
+    }
+
+    private void describe(char kind, String name) throws IOException {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        DataOutputStream data = new DataOutputStream(body);
+        data.writeByte(kind);
+        cstring(data, name);
+        data.flush();
+        sendTyped('D', body.toByteArray());
+    }
+
+    /** Sends an {@code Execute}: {@code maxRows} 0 means no limit, exactly as the protocol defines it. */
+    void execute(String portal, int maxRows) throws IOException {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        DataOutputStream data = new DataOutputStream(body);
+        cstring(data, portal);
+        data.writeInt(maxRows);
+        data.flush();
+        sendTyped('E', body.toByteArray());
+    }
+
+    /** Sends a {@code Close} for a prepared statement. */
+    void closeStatement(String name) throws IOException {
+        closeObject('S', name);
+    }
+
+    /** Sends a {@code Close} for a portal. */
+    void closePortal(String name) throws IOException {
+        closeObject('P', name);
+    }
+
+    private void closeObject(char kind, String name) throws IOException {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        DataOutputStream data = new DataOutputStream(body);
+        data.writeByte(kind);
+        cstring(data, name);
+        data.flush();
+        sendTyped('C', body.toByteArray());
+    }
+
+    /** Sends a {@code Sync}, ending an extended-query message sequence. */
+    void sync() throws IOException {
+        sendTyped('S', new byte[0]);
+    }
+
+    /** Sends a {@code Flush}. */
+    void flushMessage() throws IOException {
+        sendTyped('H', new byte[0]);
     }
 
     void terminate() throws IOException {

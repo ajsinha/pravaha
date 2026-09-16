@@ -58,9 +58,10 @@ import com.ash.messaging.pravaha.serving.ViewQuery;
  * }</pre>
  *
  * <p>What this server does <em>not</em> do is listed in this package's {@code package-info}, in one
- * place, with a reason each. The short version: the simple query protocol and nothing else, and no
- * write path -- there being no write path in the engine to expose. TLS is no longer one of the
- * absences; see {@link #encryptedWith} and {@link PgTls}.
+ * place, with a reason each. The short version: no write path -- there being no write path in the
+ * engine to expose -- and no cursors, {@code COPY} or binary wire format. Neither TLS nor the
+ * extended query protocol is one of the absences any more; see {@link #encryptedWith}/{@link PgTls}
+ * and {@link PgExtendedSession} respectively.
  */
 public final class PravahaPgWireServer implements AutoCloseable {
 

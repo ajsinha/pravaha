@@ -20,6 +20,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -52,6 +53,14 @@ final class PgBackend {
     private static final char EMPTY_QUERY_RESPONSE = 'I';
     private static final char ERROR_RESPONSE = 'E';
     private static final char NOTICE_RESPONSE = 'N';
+
+    // The extended query protocol's own replies, one per frontend message they answer.
+    private static final char PARSE_COMPLETE = '1';
+    private static final char BIND_COMPLETE = '2';
+    private static final char CLOSE_COMPLETE = '3';
+    private static final char PARAMETER_DESCRIPTION = 't';
+    private static final char NO_DATA = 'n';
+    private static final char PORTAL_SUSPENDED = 's';
 
     /** The authentication sub-codes this server uses. The rest of the family is not implemented. */
     private static final int AUTH_OK = 0;
@@ -157,6 +166,53 @@ final class PgBackend {
                 body.writeShort(FORMAT_TEXT);
             }
         });
+    }
+
+    /** No rows: what {@link #rowDescription} answers with for a statement that returns none. */
+    void noData() throws IOException {
+        send(NO_DATA, body -> {});
+    }
+
+    /**
+     * The type of each placeholder a prepared statement needs bound, in order -- {@code Describe}'s
+     * answer for a statement, always sent immediately before that same call's {@link
+     * #rowDescription}/{@link #noData}.
+     *
+     * <p>OIDs from {@link PgTypes#oidOf(TypeName)}, the same mapping {@link #rowDescription} uses
+     * for output columns: a placeholder's type and a column's type are the same question asked in
+     * the two directions, and answering it two different ways would be a way for them to disagree.
+     */
+    void parameterDescription(List<TypeName> types) throws IOException {
+        send(PARAMETER_DESCRIPTION, body -> {
+            body.writeShort(types.size());
+            for (TypeName type : types) {
+                body.writeInt(PgTypes.oidOf(type));
+            }
+        });
+    }
+
+    /** {@code Parse} succeeded: the statement is planned and named. */
+    void parseComplete() throws IOException {
+        send(PARSE_COMPLETE, body -> {});
+    }
+
+    /** {@code Bind} succeeded: the portal exists, planned and parameterised. */
+    void bindComplete() throws IOException {
+        send(BIND_COMPLETE, body -> {});
+    }
+
+    /** {@code Close} succeeded, whether or not the name it closed existed -- see {@code PgExtendedSession}. */
+    void closeComplete() throws IOException {
+        send(CLOSE_COMPLETE, body -> {});
+    }
+
+    /**
+     * {@code Execute}'s row limit was reached with more rows still to come. The client's own signal
+     * to send another {@code Execute} for the same portal rather than treat this as the whole
+     * answer -- {@link #commandComplete} is what says "that was all of it".
+     */
+    void portalSuspended() throws IOException {
+        send(PORTAL_SUSPENDED, body -> {});
     }
 
     /** One row, text format, {@code -1} for a NULL. */

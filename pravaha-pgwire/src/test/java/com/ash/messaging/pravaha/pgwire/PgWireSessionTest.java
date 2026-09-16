@@ -276,21 +276,23 @@ class PgWireSessionTest {
     }
 
     @Test
-    void theExtendedQueryProtocolIsRefusedByNameAndTheSessionCarriesOn() throws Exception {
+    void theExtendedQueryProtocolParsesBindsAndExecutesThenTheSessionCarriesOn() throws Exception {
+        // The extended query protocol is implemented -- see PgExtendedSessionTest for its own
+        // dedicated coverage (parameter binding, Describe, portal chunking, error recovery). This
+        // case's own point is narrower and belongs here, next to every other "the session survives
+        // and answers the next thing" case in this file: a full Parse/Bind/Execute/Sync round trip
+        // does not disturb a plain simple Query run on the same connection afterward.
         open();
         try (PgTestClient client = connected()) {
-            client.parse("s1", "SELECT * FROM user_volume");
+            client.parse("", "SELECT user_id FROM user_volume WHERE total > $1");
+            client.bindText("", "", "100");
+            client.describePortal("");
+            client.execute("", 0);
+            client.sync();
             List<PgTestClient.Message> reply = client.readUntilReady();
-            Map<Character, String> fields =
-                    PgTestClient.errorFields(PgTestClient.ofType(reply, 'E').get(0));
 
-            // Named, not "unknown message". A driver that negotiates Parse/Bind and gets silence
-            // fails hours later somewhere unrelated; one that gets this can be told to use the
-            // simple protocol by the person reading the message.
-            assertThat(fields.get('M')).contains("Parse");
-            assertThat(fields.get('M')).contains("preferQueryMode=simple");
-            assertThat(fields.get('M')).startsWith("PRV-6201");
-            assertThat(fields).containsEntry('C', "0A000");
+            assertThat(PgTestClient.shape(reply)).isEqualTo("12TDCZ");
+            assertThat(PgTestClient.ofType(reply, 'C').get(0).strings()).containsExactly("SELECT 1");
 
             client.query("SELECT user_id FROM user_volume");
             assertThat(PgTestClient.shape(client.readUntilReady())).isEqualTo("TDDDCZ");

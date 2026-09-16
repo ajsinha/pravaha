@@ -369,6 +369,10 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-6204` | PGWIRE_UNSUPPORTED_SET | gateway |
 | `PRV-6205` | PGWIRE_UNSUPPORTED_CATALOG_QUERY | gateway |
 | `PRV-6206` | PGWIRE_TLS_UNREADABLE | gateway |
+| `PRV-6207` | PGWIRE_UNKNOWN_STATEMENT | gateway |
+| `PRV-6208` | PGWIRE_UNKNOWN_PORTAL | gateway |
+| `PRV-6209` | PGWIRE_UNSUPPORTED_WIRE_FORMAT | gateway |
+| `PRV-6210` | PGWIRE_UNSUPPORTED_PARAMETER_SYNTAX | gateway |
 | `PRV-7001` | SECURITY_UNAUTHENTICATED | security |
 | `PRV-7002` | SECURITY_FORBIDDEN | security |
 | `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |

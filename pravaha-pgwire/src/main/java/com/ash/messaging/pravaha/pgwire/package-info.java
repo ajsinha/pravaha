@@ -33,31 +33,27 @@
  * expose, so there is none here, and a client that tries gets the planner's own refusal rather than
  * a second opinion written in this package.
  *
- * <h2>What is still deliberately not implemented, after slice 3</h2>
+ * <h2>What is still deliberately not implemented, after slice 4</h2>
  *
- * <p>Each of these is <em>refused with a message naming itself</em> rather than half-built. A
- * half-built extended query protocol is worse than none: a driver that negotiates Parse/Bind and
- * then gets nonsense fails somewhere unrelated, hours later.
+ * <p>Each of these is <em>refused with a message naming itself</em> rather than half-built.
  *
  * <ul>
- *   <li><strong>The extended query protocol</strong> ({@code Parse}, {@code Bind}, {@code Describe},
- *       {@code Execute}, {@code Close}, {@code Flush}, {@code Sync}). Refused with {@link
- *       com.ash.messaging.pravaha.pgwire.PgWireErrors#UNSUPPORTED_REQUEST}. Slice 1 called this the
- *       one that matters most for slice 2; slice 2 spent itself on the catalog and {@code SET}
- *       instead, because a driver that cannot list tables never gets far enough to prepare a
- *       statement, and starting the extended protocol before that was solid would have been exactly
- *       the half-built thing this list exists to avoid. {@code ViewQuery.prepare} still exists and
- *       still backs the Flight gateway's prepared statements, so this remains wiring rather than a
- *       missing capability -- for whichever slice takes it next.
- *   <li><strong>Prepared statements and portals.</strong> Same refusal, same reason -- they are the
- *       extended protocol's nouns.
- *   <li><strong>Cursors</strong> ({@code DECLARE} / {@code FETCH}). A result is materialised whole
- *       by {@code ViewQuery} and bounded by {@code ViewQuery.MAX_RESULT_ROWS}; a cursor would
+ *   <li><strong>Cursors</strong> ({@code DECLARE} / {@code FETCH}, the SQL statements -- not to be
+ *       confused with {@code Execute}'s row limit, which {@link
+ *       com.ash.messaging.pravaha.pgwire.PgPortal} answers honestly over an already-materialised
+ *       result rather than a real cursor; see that class's own note). A result is materialised whole
+ *       by {@code ViewQuery} and bounded by {@code ViewQuery.MAX_RESULT_ROWS}; {@code DECLARE} would
  *       promise streaming that the layer underneath does not do.
  *   <li><strong>{@code COPY}</strong>, in either direction. Refused as unsupported.
  *   <li><strong>{@code CancelRequest}.</strong> {@code BackendKeyData} is sent because clients
  *       expect it, and a cancel arriving on a second connection is read and ignored. A query is
  *       bounded by the read deadline instead.
+ *   <li><strong>Binary parameter and result formats.</strong> {@code Bind} and {@code Describe}
+ *       both refuse a request for binary with {@link
+ *       com.ash.messaging.pravaha.pgwire.PgWireErrors#UNSUPPORTED_WIRE_FORMAT} -- see {@link
+ *       com.ash.messaging.pravaha.pgwire.PgTypes#decodeParameter}, which reads the same primitive
+ *       binary encodings {@code encode} could in principle write, kept for a driver that sends one
+ *       anyway rather than as a promise this server requests binary of anyone.
  *   <li><strong>Anything that writes.</strong> Not refused here at all -- it is refused by the
  *       planner, one layer down, so that pgwire and Flight give the same answer.
  * </ul>
@@ -92,13 +88,13 @@
  *       at all: pgjdbc sends {@code SET extra_float_digits = 3} before it sends anything else.
  * </ul>
  *
- * <p><strong>The extended query protocol is still not implemented</strong>, and staying refused is
- * the deliberate choice slice 2 made rather than an oversight: the catalog shim and {@code SET}
- * are what stood between this gateway and "a real client connects and lists tables" (Gate P6's
- * actual ask), and starting Parse/Bind/Describe/Execute/Sync before both of those were solid would
- * have spent the slice on the wrong thing. {@code psql} and a JDBC driver told {@code
- * preferQueryMode=simple} both run everything through slice 2 -- connection, catalog browsing, and
- * ordinary reads -- over the simple protocol alone.
+ * <p>Slice 2 itself left the extended query protocol refused, deliberately: the catalog shim and
+ * {@code SET} are what stood between this gateway and "a real client connects and lists tables"
+ * (Gate P6's actual ask), and starting Parse/Bind/Describe/Execute/Sync before both of those were
+ * solid would have spent the slice on the wrong thing. {@code psql} and a JDBC driver told {@code
+ * preferQueryMode=simple} ran everything through slice 2 -- connection, catalog browsing, and
+ * ordinary reads -- over the simple protocol alone. Slice 4 is what removes that qualifier; see
+ * below.
  *
  * <h2>Slice 3: TLS, so the gateway can stop being off by default</h2>
  *
@@ -125,6 +121,55 @@
  * {@code 'N'}, plaintext, unchanged. This is additive, not a replacement of the old behaviour --
  * see {@code PsqlSessionTest} and {@code JdbcClientTest} for proof that both paths still work on
  * the same, TLS-configured server.
+ *
+ * <h2>Slice 4: the extended query protocol, so {@code preferQueryMode=simple} stops being needed</h2>
+ *
+ * <p>{@code Parse}, {@code Bind}, {@code Describe}, {@code Execute}, {@code Close}, {@code Flush}
+ * and {@code Sync} are implemented -- see {@link
+ * com.ash.messaging.pravaha.pgwire.PgExtendedSession}, which owns the session state ({@code
+ * PgWireConnection} carries none between messages otherwise: named statements and portals that
+ * outlive one message) this needed and did not have before. {@code ViewQuery.prepare} was, exactly
+ * as slice 2 anticipated, wiring rather than new capability: it already split planning a statement
+ * once from executing it many times with different bound values, which is the same split as {@code
+ * Parse} versus {@code Bind}/{@code Execute}.
+ *
+ * <p>Two things this protocol needed that were genuinely new, not wiring:
+ *
+ * <ul>
+ *   <li><strong>{@code $1}, {@code $2}, ...</strong> PostgreSQL's own placeholder syntax, which
+ *       {@code SqlPlanner} has never seen -- Pravaha's dialect uses a positional {@code ?}
+ *       (ADR-032). {@link com.ash.messaging.pravaha.pgwire.PgParameterSyntax} rewrites one into the
+ *       other as text, before the SQL ever reaches the planner, and refuses -- naming {@link
+ *       com.ash.messaging.pravaha.pgwire.PgWireErrors#UNSUPPORTED_PARAMETER_SYNTAX} -- the one shape
+ *       that rewrite cannot mean the same thing twice: a {@code $n} reused, or out of order. A
+ *       parameter in a position ADR-032 does not allow is refused with the code that already exists
+ *       for it, {@code SQL_PARAMETER_NOT_A_VALUE} (PRV-2063), not a new pgwire-specific one beside
+ *       it -- and the same is true of arity and type mismatches, {@code SQL_PARAMETER_ARITY} and
+ *       {@code SQL_PARAMETER_TYPE} (PRV-2061/2062), both reused rather than duplicated.
+ *   <li><strong>Error recovery.</strong> After a failure inside an extended-query message sequence,
+ *       a real backend discards every message up to the client's own {@code Sync} rather than
+ *       answering or re-refusing them, because the client's own recovery path expects exactly that
+ *       and a driver that does not get it hangs rather than fails -- worse than either. {@code
+ *       PgWireConnection.serve} owns this (it is a property of the whole sequence, not of one
+ *       message); {@code PgExtendedSession} only reports that it happened.
+ * </ul>
+ *
+ * <p>{@link com.ash.messaging.pravaha.pgwire.PgCatalogShim}'s queries run through the extended
+ * protocol too, not only the simple one: a driver's own {@code DatabaseMetaData} calls are prepared
+ * statements like any other once {@code preferQueryMode=simple} is not forced, and a real one binds
+ * its table/column name filter as an actual parameter rather than inlining it as literal text the
+ * way it does under the simple protocol -- which is why the catalog shim's own statements carry
+ * placeholders too, substituted back into the matched text at {@code Bind}/{@code Execute} time
+ * (see {@link com.ash.messaging.pravaha.pgwire.PgParameterSyntax#substituteLiterals}) rather than
+ * rewritten to {@code ?}, since {@code PgCatalogShim} is a text recognizer with no placeholder
+ * syntax of its own to bind against.
+ *
+ * <p><strong>{@code preferQueryMode=simple} is no longer required</strong> for the shapes {@code
+ * JdbcClientTest} drives without it: a plain connection, {@code getTables()}/{@code getColumns()},
+ * and a {@code PreparedStatement} with a bound parameter. It remains true, and untested by this
+ * slice, that this is one gateway's worth of protocol coverage rather than a claim about every
+ * shape every driver or ORM might send -- see this module's own test suite for exactly what was
+ * driven, through a real driver, and what was not.
  *
  * <h2>Where authorization lives</h2>
  *

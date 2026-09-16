@@ -350,6 +350,10 @@ final class PgWireConnection implements Runnable {
     // The message loop.
 
     private void serve(PgFrontend frontend, PgBackend backend, Principal principal) throws IOException {
+        // One extended-query session per connection: Parse/Bind name statements and portals that
+        // live until Close or the connection ends, so this state cannot be local to the message
+        // loop the way everything before slice 4 was.
+        PgExtendedSession extended = new PgExtendedSession(queries, catalog, principal);
         while (true) {
             PgFrontend.Message message;
             try {
@@ -361,8 +365,27 @@ final class PgWireConnection implements Runnable {
             if (message == null) {
                 return; // Socket closed without a Terminate; the same end, less politely.
             }
+            if (extended.inErrorRecovery() && message.type() != 'S' && message.type() != 'X') {
+                // The protocol's own recovery rule: after an error inside an extended-query
+                // sequence, every message is discarded until Sync, which is what stops a driver
+                // hanging rather than failing. Silently dropped, not answered -- answering would be
+                // one more message the client did not ask for on top of the one it is still waiting
+                // to see fail.
+                continue;
+            }
             switch (message.type()) {
                 case 'Q' -> simpleQuery(backend, principal, message.asString());
+                case 'P' -> extended.parse(backend, message);
+                case 'B' -> extended.bind(backend, message);
+                case 'D' -> extended.describe(backend, message);
+                case 'E' -> extended.execute(backend, message);
+                case 'C' -> extended.close(backend, message);
+                case 'H' ->
+                    // Flush: push whatever is already written without ending the sequence. Every
+                    // response this class writes goes through PgBackend's own buffered stream and is
+                    // otherwise only guaranteed to reach the wire at the next ReadyForQuery.
+                    backend.flush();
+                case 'S' -> extended.sync(backend);
                 case 'X' -> {
                     // Terminate. No reply: the protocol says the server closes, and a reply to a
                     // client that has already stopped reading is a write to a half-closed socket.
@@ -431,44 +454,30 @@ final class PgWireConnection implements Runnable {
     }
 
     /**
-     * Refuses a message type this slice does not implement, by name, and stays connected.
+     * Refuses a message type this server does not implement at all, by name, and stays connected.
      *
      * <p>{@code ErrorResponse} followed by {@code ReadyForQuery} is precisely what a real backend
      * does when an extended-protocol sequence fails: the client's own recovery path expects it and
      * will resynchronise. Silence, or closing the socket, would leave a driver blocked on a {@code
      * Sync} reply that never comes -- and it would fail somewhere that names neither this server
      * nor the message it could not handle.
+     *
+     * <p>Parse/Bind/Describe/Execute/Close/Flush/Sync are no longer refused here -- see {@link
+     * PgExtendedSession} and {@code serve}'s own dispatch. What remains is {@code FunctionCall}
+     * (PostgreSQL's own, unrelated to a SQL function call), {@code COPY} in either direction, and a
+     * stray {@code PasswordMessage} outside authentication.
      */
     private void unimplemented(PgBackend backend, char type) throws IOException {
         String what =
                 switch (type) {
-                    case 'P' -> "Parse";
-                    case 'B' -> "Bind";
-                    case 'E' -> "Execute";
-                    case 'D' -> "Describe";
-                    case 'C' -> "Close";
-                    case 'H' -> "Flush";
-                    case 'S' -> "Sync";
                     case 'F' -> "FunctionCall";
                     case 'c', 'd', 'f' -> "COPY";
                     case 'p' -> "PasswordMessage (outside authentication)";
                     default -> "message type '" + type + "'";
                 };
-        boolean extended = "Parse".equals(what)
-                || "Bind".equals(what)
-                || "Execute".equals(what)
-                || "Describe".equals(what)
-                || "Close".equals(what)
-                || "Flush".equals(what)
-                || "Sync".equals(what);
-        String detail = extended
-                ? "The extended query protocol is not implemented in this slice. Use the simple "
-                        + "query protocol: psql does by default, and a JDBC client can be told to with "
-                        + "preferQueryMode=simple. ViewQuery.prepare already backs the Flight gateway's "
-                        + "prepared statements, so this is a wiring job and not a missing capability."
-                : "Not implemented in this slice. This gateway serves SELECT over the simple query "
-                        + "protocol and nothing else; see the pravaha-pgwire package documentation for "
-                        + "the full list of what is deliberately absent.";
+        String detail = "Not implemented by this server. This gateway serves SELECT, over the simple or the "
+                + "extended query protocol; see the pravaha-pgwire package documentation for the full list "
+                + "of what is deliberately absent.";
         PravahaException refusal = new PravahaException(
                 PgWireErrors.UNSUPPORTED_REQUEST, what + " is not supported by this server. " + detail);
         backend.errorResponse("ERROR", PgWireErrors.sqlStateFor(refusal), refusal.getMessage(), null);

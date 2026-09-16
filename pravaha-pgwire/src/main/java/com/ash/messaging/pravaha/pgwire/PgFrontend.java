@@ -68,6 +68,100 @@ final class PgFrontend {
         String asString() {
             return cstring(payload, 0);
         }
+
+        /**
+         * A cursor over this message's payload, for the extended query protocol's structured
+         * bodies -- {@code Parse}, {@code Bind}, {@code Describe}, {@code Execute}, {@code Close} --
+         * which are more than the one {@code cstring} {@link #asString} answers for.
+         */
+        MessageReader reader() {
+            return new MessageReader(payload);
+        }
+    }
+
+    /**
+     * Reads the fields of one message's payload in order, advancing as it goes.
+     *
+     * <p>The protocol's own field types only: null-terminated strings, {@code int16}, {@code int32},
+     * and a length-prefixed byte string with {@code -1} meaning SQL NULL (a {@code Bind} parameter's
+     * own encoding). Nothing here interprets a value -- that is {@link PgTypes#decodeParameter}'s
+     * job, kept separate for the same reason {@link PgFrontend} itself is dumb: parsing the shape of
+     * hostile input and deciding what a value means are different kinds of mistake to make.
+     */
+    static final class MessageReader {
+
+        private final byte[] payload;
+        private int at;
+
+        private MessageReader(byte[] payload) {
+            this.payload = payload;
+        }
+
+        String cstring() {
+            String value = PgFrontend.cstring(payload, at);
+            at += value.getBytes(StandardCharsets.UTF_8).length + 1;
+            return value;
+        }
+
+        /** One raw byte, as a char -- {@code Describe}/{@code Close}'s {@code 'S'}/{@code 'P'} kind tag. */
+        char char8() {
+            requireBytes(1);
+            char value = (char) (payload[at] & 0xff);
+            at += 1;
+            return value;
+        }
+
+        short int16() {
+            requireBytes(2);
+            short value = (short) (((payload[at] & 0xff) << 8) | (payload[at + 1] & 0xff));
+            at += 2;
+            return value;
+        }
+
+        int int32() {
+            requireBytes(4);
+            int value = ((payload[at] & 0xff) << 24)
+                    | ((payload[at + 1] & 0xff) << 16)
+                    | ((payload[at + 2] & 0xff) << 8)
+                    | (payload[at + 3] & 0xff);
+            at += 4;
+            return value;
+        }
+
+        /**
+         * One {@code Bind} parameter value: an {@code int32} length, {@code -1} for SQL NULL,
+         * followed by that many bytes for anything else -- the protocol's own encoding, so this is
+         * the one composite field {@link MessageReader} knows the shape of rather than leaving to
+         * the caller.
+         */
+        byte[] lengthPrefixedValueOrNull() {
+            int length = int32();
+            if (length == -1) {
+                return null;
+            }
+            if (length < 0) {
+                throw new PravahaException(
+                        PgWireErrors.PROTOCOL_VIOLATION,
+                        "a parameter declared a negative length (" + length + ") that is not -1; -1 is the "
+                                + "protocol's only meaning for a negative length, which is SQL NULL");
+            }
+            requireBytes(length);
+            byte[] value = java.util.Arrays.copyOfRange(payload, at, at + length);
+            at += length;
+            return value;
+        }
+
+        /** Whether this message has more fields, for a repeated-field loop at the tail of a body. */
+        boolean hasMore() {
+            return at < payload.length;
+        }
+
+        private void requireBytes(int n) {
+            if (at + n > payload.length || n < 0) {
+                throw new PravahaException(
+                        PgWireErrors.PROTOCOL_VIOLATION, "a message ended before an expected field did");
+            }
+        }
     }
 
     /**

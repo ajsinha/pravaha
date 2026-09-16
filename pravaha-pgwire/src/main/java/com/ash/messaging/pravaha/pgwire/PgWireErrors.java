@@ -83,6 +83,52 @@ public final class PgWireErrors {
     public static final ErrorCode TLS_UNREADABLE = new ErrorCode(6206, "PGWIRE_TLS_UNREADABLE");
 
     /**
+     * {@code Describe} or {@code Execute} named a prepared statement this connection never {@code
+     * Parse}d, or already {@code Close}d.
+     *
+     * <p>PostgreSQL's own SQLSTATE for this is {@code 26000 invalid_sql_statement_name}, which is
+     * what a driver's recovery path is written against -- distinct from {@code 34000} below because
+     * a statement and a portal are different objects with different lifetimes, and a driver that
+     * gets the wrong one of the two codes is debugging the wrong half of its own state machine.
+     */
+    public static final ErrorCode UNKNOWN_STATEMENT = new ErrorCode(6207, "PGWIRE_UNKNOWN_STATEMENT");
+
+    /**
+     * {@code Describe} or {@code Execute} named a portal this connection never {@code Bind}, or
+     * already {@code Close}d, or that {@code Execute} has already run to completion.
+     *
+     * <p>{@code 34000 invalid_cursor_name} -- see {@link #UNKNOWN_STATEMENT}, the code it is kept
+     * separate from.
+     */
+    public static final ErrorCode UNKNOWN_PORTAL = new ErrorCode(6208, "PGWIRE_UNKNOWN_PORTAL");
+
+    /**
+     * A {@code Bind} parameter, or a requested result column, in binary format.
+     *
+     * <p>{@code PgBackend} is text-format only (see its own documentation): every {@code DataRow}
+     * this server has ever sent is text, and {@link PgTypes#decodeParameter} is written to the same
+     * rule for the read direction. A driver that asks for binary is refused by name rather than
+     * handed bytes decoded as though they were text, which is how a number becomes garbage instead
+     * of an error.
+     */
+    public static final ErrorCode UNSUPPORTED_WIRE_FORMAT = new ErrorCode(6209, "PGWIRE_UNSUPPORTED_WIRE_FORMAT");
+
+    /**
+     * A parameterised statement whose {@code $n} placeholders this gateway will not risk rewriting.
+     *
+     * <p>PostgreSQL's own SQL uses {@code $1}, {@code $2}, ... where Pravaha's dialect (ADR-032)
+     * uses a positional {@code ?} -- see {@link PgParameterSyntax}, which rewrites one into the
+     * other. That rewrite is text substitution, not a parser, and it is sound only when every {@code
+     * $n} in the statement is used exactly once and the numbers appear in order starting at {@code
+     * $1}: a driver-generated statement always has this shape, because the JDBC {@code ?} API it
+     * translates from has no way to ask for the same bound value twice. A statement that reuses a
+     * {@code $n} or skips one is refused rather than silently rewritten into a different statement
+     * that happens to parse.
+     */
+    public static final ErrorCode UNSUPPORTED_PARAMETER_SYNTAX =
+            new ErrorCode(6210, "PGWIRE_UNSUPPORTED_PARAMETER_SYNTAX");
+
+    /**
      * The five-character SQLSTATE a Pravaha failure should arrive as.
      *
      * <p>The message always carries the engine's own PRV code -- {@link PravahaException} puts it
@@ -122,13 +168,16 @@ public final class PgWireErrors {
             // does not exist" when the user mistyped a column name is a confident wrong answer.
             case "PRV-4023" -> "42P01";
             // 0A000 feature_not_supported, for the things this gateway and this engine decline.
-            case "PRV-6200", "PRV-6201", "PRV-6203", "PRV-6204", "PRV-6205", "PRV-4025" -> "0A000";
+            case "PRV-6200", "PRV-6201", "PRV-6203", "PRV-6204", "PRV-6205", "PRV-6209", "PRV-6210", "PRV-4025" ->
+                "0A000";
             // 08000 connection_exception: this is a startup-time configuration failure, not a
             // per-query one, but it is thrown from PravahaPgWireServer.encryptedWith rather than
             // ever reaching a connected client -- the code exists for the operator reading logs,
             // and 08000 is the nearest honest class if it ever did reach a client.
             case "PRV-6206" -> "08000";
             case "PRV-6202" -> "08P01"; // protocol_violation
+            case "PRV-6207" -> "26000"; // invalid_sql_statement_name
+            case "PRV-6208" -> "34000"; // invalid_cursor_name
             // 54000 program_limit_exceeded: the result was larger than one response may carry.
             case "PRV-4024" -> "54000";
             // Everything else is the query's fault as far as the client can tell: a name that does
