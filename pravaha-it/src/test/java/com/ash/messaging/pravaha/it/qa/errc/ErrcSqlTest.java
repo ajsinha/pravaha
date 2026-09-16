@@ -135,9 +135,13 @@ class ErrcSqlTest extends ErrcTestSupport {
             // site, not part of any thrown message. The case's own instruction ("confirm the pointer
             // exists in the message, not only in the document") does not hold for the single most
             // common refusal code in the product.
+            // E-11, fixed: this asserted the absence and was right to. Not one of the twenty-four
+            // refusals named the document listing what this engine executes, so a user holding the
+            // error had nowhere to go. Every site now routes through `unsupported`, which appends
+            // the pointer once.
             assertThat(r.stderr())
-                    .as("finding: PRV-2020 messages do not point at SQL_SUPPORT.md despite the case's E3 requirement")
-                    .doesNotContain("SQL_SUPPORT.md");
+                    .as("the refusal now names the document that answers the question it raises")
+                    .contains("SQL_SUPPORT.md");
         }
     }
 
@@ -146,8 +150,12 @@ class ErrcSqlTest extends ErrcTestSupport {
         Path file = repoRoot()
                 .resolve("pravaha-sql/src/main/java/com/ash/messaging/pravaha/sql/plan/PhysicalPlanBuilder.java");
         String source = Files.readString(file);
+        // Counted by call to `unsupported(`, not by mention of the code. E-11 routed all of them
+        // through one helper so the pointer to SQL_SUPPORT.md is added once rather than remembered
+        // twenty-five times -- which means the code name now appears exactly once in the file, and
+        // counting *that* would report one site where there are twenty-five.
         long throwSites = source.lines()
-                .filter(l -> l.contains("SqlErrors.UNSUPPORTED_OPERATOR"))
+                .filter(l -> l.contains("unsupported(") && !l.contains("private static"))
                 .count();
         // Twenty-four when this case was written, twenty-five since TIME-2 added the descriptor
         // check. Recorded as a floor rather than pinned exactly: the subject of this test is the
@@ -159,10 +167,26 @@ class ErrcSqlTest extends ErrcTestSupport {
                 .isGreaterThanOrEqualTo(24);
         // The one mention of the string in the whole file is a comment, not inside any throw
         // statement's message text. This is the assertion the case is actually about.
-        long messagesNamingIt = source.lines()
-                .filter(l -> l.contains("SQL_SUPPORT.md") && !l.trim().startsWith("//"))
-                .count();
-        assertThat(messagesNamingIt).isZero();
+        // E-11, inverted. This asserted zero -- correctly, when written: not one of the twenty-four
+        // refusals named the document that lists what this engine executes, so a user holding the
+        // error had no idea where to look. TROUBLESHOOTING.md said the surface lives in
+        // SQL_SUPPORT.md, which is true of the document and no use at all to somebody holding the
+        // error.
+        //
+        // The pointer is added once, in the `unsupported` helper every site now goes through,
+        // rather than twenty-five times -- because the twenty-sixth site is written by somebody who
+        // has not read any of this. So the assertion is that exactly one place names it, and that
+        // no site bypasses the helper.
+        assertThat(source.lines()
+                        .filter(l -> l.contains("SQL_SUPPORT.md"))
+                        .filter(l -> !l.trim().startsWith("*") && !l.trim().startsWith("//"))
+                        .filter(l -> l.contains("\""))
+                        .count())
+                .as("the pointer is centralised in unsupported(), so exactly one *message* carries it")
+                .isEqualTo(1);
+        assertThat(source.contains("new PravahaException(SqlErrors.UNSUPPORTED_OPERATOR"))
+                .as("a site that builds the exception directly would skip the pointer")
+                .isFalse();
     }
 
     // ------------------------------------------------------------ ERRC-023 -- PRV-2021

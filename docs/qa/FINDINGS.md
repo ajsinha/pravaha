@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 154 FIXED, 126 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 126 open, **2 are
-GA-BLOCKER, 21 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 155 FIXED, 125 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 125 open, **2 are
+GA-BLOCKER, 20 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 21 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 20 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -1554,8 +1554,7 @@ code `ErrorCodeTest` uses as its example throughout" per the case file's own wor
 number in the codebase, silently disconnected from anything that could throw it.
 
 ### E-11 (HIGH) — `PRV-2020`'s twenty-four messages never point at the document that explains them
-> **Status:** OPEN — `PhysicalPlanBuilder.java` still has exactly 24 `SqlErrors.UNSUPPORTED_OPERATOR` throw sites, and the only occurrence of the string `SQL_SUPPORT.md` in the file is a source comment near the unrelated `UNBOUNDED_STATE` throw, not inside any thrown message
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — all 25 throw sites route through one `unsupported(...)` helper that appends *"See docs/SQL_SUPPORT.md for what this engine executes and what it refuses."* **Centralised rather than appended 25 times, deliberately: the 26th site is written by somebody who has never read the finding**, so going through one helper makes the pointer a property of the code rather than a thing each author remembers. `ErrcSqlTest` now asserts the inverse of what it asserted before — that exactly one *message* carries the pointer, and that no site builds the exception directly and bypasses it.
 
 
 `TROUBLESHOOTING.md` states plainly that the supported/unsupported SQL surface is `SQL_SUPPORT.md`,

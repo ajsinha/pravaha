@@ -110,13 +110,11 @@ public final class PhysicalPlanBuilder {
             case org.apache.calcite.rel.core.Join join -> buildJoin(join);
             case org.apache.calcite.rel.core.Correlate correlate -> buildLookupJoin(correlate);
             default ->
-                throw new PravahaException(
-                        SqlErrors.UNSUPPORTED_OPERATOR,
-                        "the planner produced a " + rel.getRelTypeName()
-                                + ", which Pravaha cannot execute yet. Supported: scan, filter, project, "
-                                + "compute, aggregate, windowing (both the TABLE(TUMBLE(...)) and GROUP BY "
-                                + "TUMBLE(...) forms), inner equi-joins between streams, and lookup joins "
-                                + "against a dimension table.");
+                throw unsupported("the planner produced a " + rel.getRelTypeName()
+                        + ", which Pravaha cannot execute yet. Supported: scan, filter, project, "
+                        + "compute, aggregate, windowing (both the TABLE(TUMBLE(...)) and GROUP BY "
+                        + "TUMBLE(...) forms), inner equi-joins between streams, and lookup joins "
+                        + "against a dimension table.");
         };
     }
 
@@ -137,11 +135,9 @@ public final class PhysicalPlanBuilder {
         org.apache.calcite.rel.core.JoinRelType joinType = join.getJoinType();
         if (joinType != org.apache.calcite.rel.core.JoinRelType.INNER
                 && joinType != org.apache.calcite.rel.core.JoinRelType.LEFT) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "a " + joinType + " join between streams is not supported. A LEFT join is, when the "
-                            + "condition states a time bound; RIGHT and FULL would need the same treatment on "
-                            + "the other side and are not built. Swap the inputs and use LEFT.");
+            throw unsupported("a " + joinType + " join between streams is not supported. A LEFT join is, when the "
+                    + "condition states a time bound; RIGHT and FULL would need the same treatment on "
+                    + "the other side and are not built. Swap the inputs and use LEFT.");
         }
 
         PhysicalOperator left = build(join.getLeft());
@@ -160,25 +156,21 @@ public final class PhysicalPlanBuilder {
             // one without a window. An outer join has to decide when to give up on an unmatched left
             // row, and with no time bound the honest answer is never: the row is held for the life
             // of the process in case a match arrives.
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "a LEFT join between streams needs a time bound in its ON condition. Without one there "
-                            + "is no moment at which an unmatched left row can be declared unmatched, so every "
-                            + "one is held for as long as the process lives. Add a bound such as "
-                            + "AND l.event_time BETWEEN r.event_time - INTERVAL '5' MINUTE AND r.event_time, "
-                            + "which is also the point at which the null-padded row is emitted.");
+            throw unsupported("a LEFT join between streams needs a time bound in its ON condition. Without one there "
+                    + "is no moment at which an unmatched left row can be declared unmatched, so every "
+                    + "one is held for as long as the process lives. Add a bound such as "
+                    + "AND l.event_time BETWEEN r.event_time - INTERVAL '5' MINUTE AND r.event_time, "
+                    + "which is also the point at which the null-padded row is emitted.");
         }
         if (leftKeys.isEmpty()) {
             // A time bound narrows which pairs count; it does not give the join anything to index by.
             // Without an equality every row of one side is still a candidate for every row of the
             // other within the window, which is a cross product with a filter on it.
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "the join condition states a time bound but no equality, so there is no join key to "
-                            + "index either side by. A window narrows which pairs count; it does not stop every "
-                            + "row being a candidate for every other inside it, which is a cross product with a "
-                            + "filter and has no incremental execution. Add the equality the two streams "
-                            + "correlate on.");
+            throw unsupported("the join condition states a time bound but no equality, so there is no join key to "
+                    + "index either side by. A window narrows which pairs count; it does not stop every "
+                    + "row being a candidate for every other inside it, which is a cross product with a "
+                    + "filter and has no incremental execution. Add the equality the two streams "
+                    + "correlate on.");
         }
         if (!bounds.stated()) {
             return new JoinOperator(left, right, leftKeys, rightKeys, output, MAX_JOIN_ROWS_PER_SIDE);
@@ -229,8 +221,7 @@ public final class PhysicalPlanBuilder {
                 return;
             }
         }
-        throw new PravahaException(
-                SqlErrors.UNSUPPORTED_OPERATOR,
+        throw unsupported(
                 "the join condition '" + condition + "' is neither an equality between one column of each side "
                         + "nor a time bound between them. Pravaha indexes both sides by the join key; a condition "
                         + "with no such key makes every row a candidate for every other, which is a cross product "
@@ -399,9 +390,7 @@ public final class PhysicalPlanBuilder {
     private PhysicalOperator buildLookupJoin(org.apache.calcite.rel.core.Correlate correlate) {
         JoinRelType type = correlate.getJoinType();
         if (type != JoinRelType.INNER && type != JoinRelType.LEFT) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "a " + type + " join against a lookup table is not supported; use an inner or left join");
+            throw unsupported("a " + type + " join against a lookup table is not supported; use an inner or left join");
         }
 
         PhysicalOperator left = build(correlate.getLeft());
@@ -413,26 +402,21 @@ public final class PhysicalPlanBuilder {
             right = filter.getInput();
         }
         if (!(right instanceof org.apache.calcite.rel.core.Snapshot snapshot)) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
+            throw unsupported(
                     "correlated subqueries are not supported; the only correlated form Pravaha runs is a join "
                             + "against a lookup table, written as 'JOIN dim FOR SYSTEM_TIME AS OF <time>'");
         }
         if (!(snapshot.getInput() instanceof TableScan scan)) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "a lookup join must read a registered dimension table directly, not "
-                            + snapshot.getInput().getRelTypeName());
+            throw unsupported("a lookup join must read a registered dimension table directly, not "
+                    + snapshot.getInput().getRelTypeName());
         }
 
         PravahaTable table = scan.getTable().unwrap(PravahaTable.class);
         if (table == null || !table.isLookup()) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "stream '" + scan.getTable().getQualifiedName() + "' is registered as a stream, not as a "
-                            + "lookup table. A stream is consumed and its rows are held in join state; a lookup "
-                            + "table is asked one key at a time and holds nothing. Register it with "
-                            + "registerLookup to join against it this way.");
+            throw unsupported("stream '" + scan.getTable().getQualifiedName() + "' is registered as a stream, not as a "
+                    + "lookup table. A stream is consumed and its rows are held in join state; a lookup "
+                    + "table is asked one key at a time and holds nothing. Register it with "
+                    + "registerLookup to join against it this way.");
         }
 
         List<Integer> streamKeys = new ArrayList<>();
@@ -456,10 +440,8 @@ public final class PhysicalPlanBuilder {
     private void collectLookupKeys(
             RexNode condition, int leftWidth, List<Integer> streamKeys, org.apache.calcite.rel.core.Correlate node) {
         if (condition == null) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "a lookup join needs an equality on the dimension table's key; without one every record "
-                            + "would ask the store for its whole contents");
+            throw unsupported("a lookup join needs an equality on the dimension table's key; without one every record "
+                    + "would ask the store for its whole contents");
         }
         if (condition.getKind() == SqlKind.AND) {
             ((RexCall) condition).getOperands().forEach(part -> collectLookupKeys(part, leftWidth, streamKeys, node));
@@ -476,11 +458,9 @@ public final class PhysicalPlanBuilder {
                 return;
             }
         }
-        throw new PravahaException(
-                SqlErrors.UNSUPPORTED_OPERATOR,
-                "'" + condition + "' is not an equality between a column of the stream and one of the lookup "
-                        + "table. A lookup is a key-value read; a condition it cannot be a key for would mean "
-                        + "scanning the dimension table once per record.");
+        throw unsupported("'" + condition + "' is not an equality between a column of the stream and one of the lookup "
+                + "table. A lookup is a key-value read; a condition it cannot be a key for would mean "
+                + "scanning the dimension table once per record.");
     }
 
     /** The stream-side ordinal behind {@code $cor0.column}, or null if this is not one. */
@@ -495,9 +475,7 @@ public final class PhysicalPlanBuilder {
     private PhysicalOperator buildScan(TableScan scan) {
         PravahaTable table = scan.getTable().unwrap(PravahaTable.class);
         if (table == null) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "scan of " + scan.getTable().getQualifiedName() + " is not backed by a Pravaha stream");
+            throw unsupported("scan of " + scan.getTable().getQualifiedName() + " is not backed by a Pravaha stream");
         }
         return ScanOperator.of(table.streamSchema().name(), table.streamSchema());
     }
@@ -591,10 +569,8 @@ public final class PhysicalPlanBuilder {
             }
         }
         if (eventTimeOrdinal < 0) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "GROUP BY " + function + " names no time column; it needs one, as in "
-                            + "TUMBLE(event_time, INTERVAL '10' SECOND)");
+            throw unsupported("GROUP BY " + function + " names no time column; it needs one, as in "
+                    + "TUMBLE(event_time, INTERVAL '10' SECOND)");
         }
         WindowSpec spec =
                 switch (function) {
@@ -606,10 +582,7 @@ public final class PhysicalPlanBuilder {
                         requireIntervals(function, intervals, 2);
                         yield WindowSpec.hopping(intervals.get(1), intervals.get(0));
                     }
-                    default ->
-                        throw new PravahaException(
-                                SqlErrors.UNSUPPORTED_OPERATOR,
-                                "GROUP BY " + function + " is not supported; use TUMBLE or HOP");
+                    default -> throw unsupported("GROUP BY " + function + " is not supported; use TUMBLE or HOP");
                 };
 
         // The assigner appends window_start and window_end to whatever it is given.
@@ -633,10 +606,8 @@ public final class PhysicalPlanBuilder {
                 ordinals.add(ref.getIndex());
                 schema.field(names.get(i), assigned.field(ref.getIndex()).type());
             } else {
-                throw new PravahaException(
-                        SqlErrors.UNSUPPORTED_OPERATOR,
-                        "'" + expression + "' sits beside a windowing function in the same projection, which "
-                                + "Pravaha cannot rewrite yet. Move the expression outside the GROUP BY.");
+                throw unsupported("'" + expression + "' sits beside a windowing function in the same projection, which "
+                        + "Pravaha cannot rewrite yet. Move the expression outside the GROUP BY.");
             }
         }
         ordinals.add(endOrdinal);
@@ -671,15 +642,12 @@ public final class PhysicalPlanBuilder {
      */
     private PhysicalOperator buildWindowAssign(TableFunctionScan windowing) {
         if (windowing.getInputs().size() != 1) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "a windowing table function takes exactly one input; this one has "
-                            + windowing.getInputs().size());
+            throw unsupported("a windowing table function takes exactly one input; this one has "
+                    + windowing.getInputs().size());
         }
         PhysicalOperator input = build(windowing.getInput(0));
         if (!(windowing.getCall() instanceof RexCall call)) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR, "cannot read the windowing call " + windowing.getCall());
+            throw unsupported("cannot read the windowing call " + windowing.getCall());
         }
 
         String function = call.getOperator().getName().toUpperCase(java.util.Locale.ROOT);
@@ -696,9 +664,7 @@ public final class PhysicalPlanBuilder {
             }
         }
         if (eventTimeOrdinal < 0) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    "the windowing function names no time column. Pass one with DESCRIPTOR(event_time).");
+            throw unsupported("the windowing function names no time column. Pass one with DESCRIPTOR(event_time).");
         }
         requireDeclaredEventTime(function, eventTimeOrdinal, input.outputSchema());
 
@@ -716,14 +682,11 @@ public final class PhysicalPlanBuilder {
                         yield WindowSpec.hopping(intervals.get(1), intervals.get(0));
                     }
                     case "SESSION" ->
-                        throw new PravahaException(
-                                SqlErrors.UNSUPPORTED_OPERATOR,
+                        throw unsupported(
                                 "SESSION windows exist in the runtime but are not wired to SQL yet: their state is a "
                                         + "per-key interval set rather than a slice grid, so they need the keyed state "
                                         + "store. Use TUMBLE or HOP.");
-                    default ->
-                        throw new PravahaException(
-                                SqlErrors.UNSUPPORTED_OPERATOR, "unsupported windowing function " + function);
+                    default -> throw unsupported("unsupported windowing function " + function);
                 };
 
         StreamSchema output = schemaOf(windowing, input.outputSchema().name() + "_windowed", input.outputSchema());
@@ -753,26 +716,22 @@ public final class PhysicalPlanBuilder {
         if (declared.isEmpty() || declared.getAsInt() == descriptorOrdinal) {
             return;
         }
-        throw new PravahaException(
-                SqlErrors.UNSUPPORTED_OPERATOR,
-                function + " is given DESCRIPTOR("
-                        + schema.field(descriptorOrdinal).name() + "), but '"
-                        + schema.name() + "' declares '"
-                        + schema.field(declared.getAsInt()).name()
-                        + "' as its event time. Windows are assigned in event time and closed by a watermark, "
-                        + "and the watermark only advances on the declared column -- so windows cut from '"
-                        + schema.field(descriptorOrdinal).name() + "' would be closed by a clock that knows "
-                        + "nothing about them, and the answer would be wrong rather than late. Use "
-                        + "DESCRIPTOR(" + schema.field(declared.getAsInt()).name() + "), or declare '"
-                        + schema.field(descriptorOrdinal).name() + "' as the stream's event time if that is "
-                        + "what it is.");
+        throw unsupported(function + " is given DESCRIPTOR("
+                + schema.field(descriptorOrdinal).name() + "), but '"
+                + schema.name() + "' declares '"
+                + schema.field(declared.getAsInt()).name()
+                + "' as its event time. Windows are assigned in event time and closed by a watermark, "
+                + "and the watermark only advances on the declared column -- so windows cut from '"
+                + schema.field(descriptorOrdinal).name() + "' would be closed by a clock that knows "
+                + "nothing about them, and the answer would be wrong rather than late. Use "
+                + "DESCRIPTOR(" + schema.field(declared.getAsInt()).name() + "), or declare '"
+                + schema.field(descriptorOrdinal).name() + "' as the stream's event time if that is "
+                + "what it is.");
     }
 
     private static void requireIntervals(String function, List<Long> intervals, int expected) {
         if (intervals.size() < expected) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR,
-                    function + " needs " + expected + " interval argument(s); got " + intervals.size());
+            throw unsupported(function + " needs " + expected + " interval argument(s); got " + intervals.size());
         }
     }
 
@@ -795,8 +754,7 @@ public final class PhysicalPlanBuilder {
         PhysicalOperator input = build(aggregate.getInput());
         ImmutableBitSet groupSet = aggregate.getGroupSet();
         if (aggregate.getGroupSets().size() > 1) {
-            throw new PravahaException(
-                    SqlErrors.UNSUPPORTED_OPERATOR, "GROUPING SETS, CUBE and ROLLUP are not supported yet");
+            throw unsupported("GROUPING SETS, CUBE and ROLLUP are not supported yet");
         }
         List<Integer> groupKeys = new ArrayList<>(groupSet.asList());
 
@@ -1068,13 +1026,11 @@ public final class PhysicalPlanBuilder {
                 || kind == AggregateOperator.AggregateCall.Kind.COUNT_DISTINCT) {
             return;
         }
-        throw new PravahaException(
-                SqlErrors.UNSUPPORTED_OPERATOR,
-                kind + "(" + inputSchema.field(argument).name() + ") is over a " + type
-                        + " column, and this engine's aggregates accumulate in 64-bit integers only. It is "
-                        + "refused rather than answered, because the alternative was no rows and a "
-                        + "successful status. Cast the column to an integer if the rounding is acceptable "
-                        + "-- SUM(CAST(price AS BIGINT)) -- or aggregate it outside the engine.");
+        throw unsupported(kind + "(" + inputSchema.field(argument).name() + ") is over a " + type
+                + " column, and this engine's aggregates accumulate in 64-bit integers only. It is "
+                + "refused rather than answered, because the alternative was no rows and a "
+                + "successful status. Cast the column to an integer if the rounding is acceptable "
+                + "-- SUM(CAST(price AS BIGINT)) -- or aggregate it outside the engine.");
     }
 
     private static AggregateOperator.AggregateCall.Kind kindOf(AggregateCall call) {
@@ -1089,10 +1045,8 @@ public final class PhysicalPlanBuilder {
             case "MAX" -> AggregateOperator.AggregateCall.Kind.MAX;
             case "AVG" -> AggregateOperator.AggregateCall.Kind.AVG;
             default ->
-                throw new PravahaException(
-                        SqlErrors.UNSUPPORTED_OPERATOR,
-                        "aggregate function " + name + " is not supported yet. "
-                                + "Supported: COUNT, SUM, MIN, MAX, AVG.");
+                throw unsupported("aggregate function " + name + " is not supported yet. "
+                        + "Supported: COUNT, SUM, MIN, MAX, AVG.");
         };
     }
 
@@ -1139,6 +1093,25 @@ public final class PhysicalPlanBuilder {
             builder.eventTime(eventTimeColumn);
         }
         return builder.build();
+    }
+
+    /**
+     * A refusal of SQL this engine does not execute, pointing at the document that lists what it
+     * does.
+     *
+     * <p>E-11. There are twenty-five of these throw sites and not one of them named
+     * {@code SQL_SUPPORT.md}. {@code TROUBLESHOOTING.md} says plainly that the supported surface
+     * lives there and is checked by a test -- which is true of the *document*, and no use at all to
+     * somebody holding the error. They had the refusal and no idea where the list was.
+     *
+     * <p>Centralised rather than appended twenty-five times, because the twenty-sixth site is
+     * written by somebody who has never read this comment. Going through one helper is what makes
+     * the pointer a property of the code rather than a thing each author remembers.
+     */
+    private static PravahaException unsupported(String detail) {
+        return new PravahaException(
+                SqlErrors.UNSUPPORTED_OPERATOR,
+                detail + " See docs/SQL_SUPPORT.md for what this engine executes and what it refuses.");
     }
 
     /** Renders a plan as an indented tree, for EXPLAIN and for golden-plan tests. */
