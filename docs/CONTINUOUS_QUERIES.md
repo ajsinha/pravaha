@@ -475,9 +475,11 @@ A `LEFT` join is supported **with a time bound**: the null-padded row is emitted
 passes the window, once, and never retracted — because without a bound there is no moment at which a
 row can be declared unmatched.
 
-**The two sides may come from entirely different connectors** — one from Kafka, one from Postgres.
-See [`CONNECTORS.md`](CONNECTORS.md) §4, which also records that this is supported by construction
-and not yet demonstrated by a test.
+**The two sides may come from entirely different connectors.** A join across a `filesystem` source
+and a `feedfile` source — two independently discovered plugins with different decoders — is
+demonstrated end to end by `CrossConnectorJoinTest`, which feeds an unmatched row to each side so
+that a cross product or a pass-through would fail it. Joins touching `jdbc`, `delta` or `aerospike`
+remain supported by construction and undemonstrated. See [`CONNECTORS.md`](CONNECTORS.md) §4.
 
 §14 is the full matrix of which join shapes run and which are refused.
 

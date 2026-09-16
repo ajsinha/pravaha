@@ -117,11 +117,11 @@ ViewFromAnAbsentOne now drives a real Flight server and proves a denied
 principal gets the same PRV code for a view that exists and one that
 does not.
 
-Register is now: 295 findings -- 176 FIXED, 104 OPEN, 8 BY DESIGN,
-7 SUPERSEDED. Of the 104 open: 1 GA-BLOCKER (SX-5), 1 GA-REQUIRED
-(PRV-8007, the remainder of E-1), 95 POST-GA, 7 NOTE.
+Register is now: 295 findings -- 177 FIXED, 103 OPEN, 8 BY DESIGN,
+7 SUPERSEDED. Of the 103 open: 1 GA-BLOCKER (SX-5, latency channel
+only), 0 GA-REQUIRED, 95 POST-GA, 7 NOTE.
 
-THAT IS ONE BLOCKER AND ONE REQUIRED ITEM BETWEEN HERE AND THE GAPS.
+THAT IS ONE BLOCKER, ON ONE CHANNEL, BETWEEN HERE AND THE GAPS.
 
 LESSON WORTH KEEPING: a status line in FINDINGS.md can be stale. Read
 the code before believing a finding is open. There may be more of these.
@@ -130,26 +130,28 @@ the code before believing a finding is open. There may be more of these.
 5. WHAT I WAS DOING WHEN YOU REBOOTED — PICK UP HERE
 ====================================================================
 
-NEXT TASK: SX-5, now the only GA-BLOCKER.
+NEXT TASK: SX-5's LATENCY CHANNEL. It is the only thing left before the
+gaps.
 
-Two channels remain open (the enumeration channel is already closed):
+Two of its three channels are closed. Enumeration went first; the CODE
+channel was closed on 2026-09-16 -- SqlPlanner.referencedTable reads the
+parse tree, which never consults the catalogue, and ViewQuery authorizes
+that name before anything resolves it. Seed-proven: revert the reordering
+and ViewQueryAuthorizationTest.sx5_aDeniedCallerCannotTellARealViewFrom-
+AnAbsentOneByTheCode fails with PRV-7002 against PRV-2002, which is the
+oracle itself.
 
-  (a) THE CODE CHANNEL. A denied name gives PRV-7002; a name that does
-      not exist gives PRV-2002. They differ because an unknown name
-      fails inside Calcite's validator during planning, BEFORE
-      authorization can run. Closing it means resolving and authorizing
-      the referenced name BEFORE the SQL is validated. This is the
-      larger change and it is the real work.
-
-  (b) THE LATENCY CHANNEL. Denied median 23.8ms, absent median 13.4ms,
-      measured over 100 iterations. Untouched. I am not sure this one
-      can be fully closed -- say so honestly rather than claiming it.
-
-Read: docs/qa/FINDINGS.md, search for "## SX-5".
+WHAT IS LEFT: denied median 23.8ms vs absent median 13.4ms, measured over
+100 iterations. Authorizing before planning makes both paths do more of
+the same work and SHOULD have narrowed that gap -- but nobody has
+re-measured it since the change. SO MEASURE IT FIRST. The honest
+possibilities are (a) the gap is now small enough to argue it is not a
+channel, (b) it is not, and closing it needs a constant-time refusal,
+which is real work. Do not claim (a) without numbers.
 
 AFTER THAT, in ADR-039's order:
-  - PRV-8007 (E-1's last code, structural -- see section 2) is the ONLY
-    GA-REQUIRED item left
+  - GA-REQUIRED is EMPTY. E-1 is closed; PRV-8007 was wired on
+    2026-09-16 by restructuring Recovery.refused() into records
   - Gaps 3-7: off-heap variable-width keys, sink bindings, pushdown/
     Cassandra, console 23.20, B2 disk spill
   - Then cluster mode, then GA
