@@ -252,10 +252,15 @@ By the time rows reach a lane they are binary rows carrying a stream id; nothing
 cares where they came from. A join gets **one inbox per input**, so a burst on one side cannot starve
 the other.
 
-> **Status, stated plainly: this is supported by construction and has never been demonstrated.**
-> Every test in this repository binds exactly one plugin type. The mechanism is sound and the
-> capability is untested, which on this project's evidence is not the same as working. A test joining
-> two *existing* connectors would close that, and needs no new code.
+> **Status, stated plainly: this is now demonstrated for two shipped connectors, and still
+> construction-only beyond that.** `pravaha-it`'s `CrossConnectorJoinTest` binds one stream to
+> `filesystem` and another to `feedfile` — two independently-discovered `StreamSourcePlugin`
+> implementations — and registers a real `JOIN` across them: rows land in a file the `filesystem`
+> plugin reads and in a directory the `feedfile` plugin reads, and the join keeps exactly the pairs
+> that share a key, with an unmatched row on each side proving it is not a cross product or a
+> pass-through. The mechanism holds for that pair. The three-way `feedfile` + `jdbc` + `aerospike`
+> shape above, and any join touching `jdbc`, `delta` or `aerospike`, remain what the earlier wording
+> called them — supported by construction and not yet demonstrated by a test.
 
 **What differs across sources is time, not plumbing.** Each source declares its own out-of-orderness,
 and the watermark is the minimum across inputs — so a join is only as current as its laggiest side.

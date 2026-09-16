@@ -112,6 +112,16 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <!-- CrossConnectorJoinTest binds one side of a join to filesystem and the other to
+           feedfile, two distinct plugin implementations, so both must be on the classpath.
+           No container needed: feedfile's own completion:immediate mode reads a directory once,
+           same as filesystem reads a file once. -->
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-feedfile</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-embedded</artifactId>
       <version>${project.version}</version>
