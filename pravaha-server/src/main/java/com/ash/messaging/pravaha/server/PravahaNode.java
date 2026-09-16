@@ -211,7 +211,7 @@ public class PravahaNode implements SmartLifecycle {
         boolean open = unauthenticatedCallersGetIn && policyServesThemEverything;
         if (open && !security.isAllowAnonymous()) {
             throw new PravahaException(
-                    SecurityErrors.FORBIDDEN,
+                    SecurityErrors.MISCONFIGURED,
                     "this node is configured to accept unauthenticated callers and serve them every view "
                             + "(pravaha.security.authentication=" + security.getAuthentication() + ", policy="
                             + security.getPolicy() + "). That is a reasonable way to run an engine behind a "
@@ -229,7 +229,7 @@ public class PravahaNode implements SmartLifecycle {
             // schemas and accepting stream registrations from anyone who can reach the port. The
             // configuration reads as locked down and leaves a door open.
             throw new PravahaException(
-                    SecurityErrors.FORBIDDEN,
+                    SecurityErrors.MISCONFIGURED,
                     "pravaha.security.policy=authenticated with pravaha.security.authentication=none is a "
                             + "node nobody can use: the policy serves only verified callers and nothing here "
                             + "can verify one. Set pravaha.security.authentication=token and configure "
@@ -336,7 +336,7 @@ public class PravahaNode implements SmartLifecycle {
             case "authenticated", "authenticated-only" -> new AuthenticatedOnlyPolicy();
             default ->
                 throw new PravahaException(
-                        SecurityErrors.FORBIDDEN,
+                        SecurityErrors.MISCONFIGURED,
                         "pravaha.security.policy is '" + configured + "', which is not a policy this node "
                                 + "knows. Use 'permissive' or 'authenticated', or implement SecurityPolicy "
                                 + "for rules of your own.");
@@ -370,7 +370,7 @@ public class PravahaNode implements SmartLifecycle {
             case "memory" -> audit == null ? (audit = new AuditSink.InMemory()) : audit;
             default ->
                 throw new PravahaException(
-                        SecurityErrors.FORBIDDEN,
+                        SecurityErrors.MISCONFIGURED,
                         "pravaha.security.audit is '" + configured + "'; use 'none' or 'memory'.");
         };
     }

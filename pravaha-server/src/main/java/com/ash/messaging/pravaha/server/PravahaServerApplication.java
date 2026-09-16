@@ -108,7 +108,7 @@ public class PravahaServerApplication {
                 new com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy();
             default ->
                 throw new com.ash.messaging.pravaha.api.PravahaException(
-                        com.ash.messaging.pravaha.security.SecurityErrors.FORBIDDEN,
+                        com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
                         "pravaha.security.policy is '" + configured + "', which is not a policy this node "
                                 + "knows. Use 'permissive' or 'authenticated', or implement SecurityPolicy "
                                 + "for rules of your own.");

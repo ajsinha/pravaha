@@ -52,7 +52,7 @@ class ServerSecurityTest {
         // whoever was watching the log that day; an open server outlives their attention.
         assertThatThrownBy(() -> node(new SecurityProperties()).start())
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-7002")
+                .hasMessageContaining("PRV-7004")
                 // The message has to carry the fix, because whoever meets it is starting a server
                 // and has no reason to know which of three properties is the one they want.
                 .hasMessageContaining("pravaha.security.authentication=token")
@@ -302,7 +302,7 @@ class ServerSecurityTest {
 
         assertThatThrownBy(() -> nodeWithFlight(security).start())
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-7002")
+                .hasMessageContaining("PRV-7004")
                 .hasMessageContaining("unauthenticated");
     }
 

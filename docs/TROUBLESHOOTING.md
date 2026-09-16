@@ -84,6 +84,7 @@ pravaha queries --url grpc://localhost:9090
 |---|---|---|
 | `PRV-7001` | Not authenticated | Present a credential, or a fresh one |
 | `PRV-7002` | Authenticated, not authorized | Ask for access — a new credential will not help |
+| `PRV-7004` security misconfigured | A **security setting** this node refuses to start with — not a caller being denied. The message names the key and the value. Split from `PRV-7002` by E-3, which had accumulated four unrelated meanings across twenty sites: an authorization denial, the open-server refusal, the policy/authentication contradiction, and a bad configuration value. The advice for `7002` ("ask for access; a new credential will not help") is right for a denial and useless for a typo — an operator who wrote `policy: permisive` was being told to go and ask somebody for permission. One is about a caller and is answered by a grant; this one is about a file and is answered by an edit |
 
 `7001`'s message says only that the credential was not accepted, never *why*: "expired" versus
 "unknown" versus "wrong signature" is three bits of an oracle for whoever is working through guesses.
@@ -284,6 +285,7 @@ it opened when you close it; a hand-rolled client must do the same.
 | `PRV-7001` | SECURITY_UNAUTHENTICATED | security |
 | `PRV-7002` | SECURITY_FORBIDDEN | security |
 | `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |
+| `PRV-7004` | SECURITY_MISCONFIGURED | security |
 | `PRV-8001` | REGISTRY_NAME_IN_USE | registry |
 | `PRV-8002` | REGISTRY_NO_SUCH_QUERY | registry |
 | `PRV-8003` | REGISTRY_ILLEGAL_TRANSITION | registry |

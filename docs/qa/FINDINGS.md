@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 155 FIXED, 125 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 125 open, **2 are
-GA-BLOCKER, 20 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 156 FIXED, 124 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 124 open, **2 are
+GA-BLOCKER, 19 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 20 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 19 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -980,8 +980,9 @@ surfaces instead as a generic read failure, and `PRV-5064` (a rotated feed file)
 `PRV-9xxx` is absent from the ranges table entirely while all seven appear below it.
 
 ## E-3 (HIGH) — one code, fifteen throw sites, four unrelated meanings
-> **Status:** OPEN — `SecurityErrors.FORBIDDEN` (`PRV-7002`) is now thrown from 19 sites across `PravahaNode`, `HttpAuthorizer`, `ViewQuery`, `PravahaFlightSqlProducer`, `PravahaFlightServer` and `QueryRegistry` — more unrelated meanings sharing one code than the finding originally described, with no split into distinct codes
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — `PRV-7004 SECURITY_MISCONFIGURED` now carries the five configuration refusals (the open-server guard, the policy/authentication contradiction, and three bad-value refusals across `PravahaNode` and `PravahaServerApplication`). `PRV-7002` is left meaning one thing: a caller was denied. Fifteen sites remain on it, all authorization. **The split is by what the reader must do about it** — one is about a caller and is answered by a grant, the other is about a file and is answered by an edit — which is why `TROUBLESHOOTING.md`'s "ask for access; a new credential will not help" was actively misleading on five of the twenty sites: an operator who wrote `policy: permisive` was being told to go and ask somebody for permission.
+
+**`PRV-2002` has the same shape and is not fixed here.** Three of its five sites are startup configuration refusals wearing an SQL code. Recorded rather than swept in, because it is a different code with different readers and deserves its own change.
 
 
 `PRV-7002` now means: an authorization denial; the startup refusal of an open server; the

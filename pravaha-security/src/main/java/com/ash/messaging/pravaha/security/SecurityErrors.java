@@ -35,5 +35,22 @@ public final class SecurityErrors {
      */
     public static final ErrorCode FILTER_NOT_ENFORCEABLE = new ErrorCode(7003, "SECURITY_FILTER_NOT_ENFORCEABLE");
 
+    /**
+     * A security setting this node refuses to start with.
+     *
+     * <p>E-3. {@code PRV-7002 FORBIDDEN} had grown four unrelated meanings across twenty sites: an
+     * authorization denial, the startup refusal of an open server, the policy/authentication
+     * contradiction, and a bad configuration <em>value</em>. {@code TROUBLESHOOTING.md}'s advice for
+     * it -- "ask for access; a new credential will not help" -- is right for the first and wrong for
+     * the rest. An operator who wrote {@code policy: permisive} was told to go and ask somebody for
+     * permission.
+     *
+     * <p>The two are different in the way that matters most to whoever is reading: one is about a
+     * caller and is answered by a grant, the other is about a file and is answered by an edit. They
+     * do not belong to the same code however similar they look from inside the engine -- which is
+     * how they ended up sharing one, a reasonable reuse at a time.
+     */
+    public static final ErrorCode MISCONFIGURED = new ErrorCode(7004, "SECURITY_MISCONFIGURED");
+
     private SecurityErrors() {}
 }
