@@ -158,7 +158,7 @@ public final class SqlPlanner {
                 RelRoot root = planner.rel(validated);
                 return root.project();
             } catch (RelConversionException e) {
-                throw new PravahaException(SqlErrors.PLANNING_FAILED, rootMessage(e), e);
+                throw planningFailure(e);
             }
         } catch (PravahaException e) {
             throw e;
@@ -182,8 +182,65 @@ public final class SqlPlanner {
                             + "chose, so it moves with -Xss.",
                     e);
         } catch (Exception e) {
-            throw new PravahaException(SqlErrors.PLANNING_FAILED, rootMessage(e), e);
+            throw planningFailure(e);
         }
+    }
+
+    /** The text Calcite puts in front of the expression it was converting when it failed. */
+    private static final String CONVERTING_PREFIX = "while converting ";
+
+    // Past this many characters a message is not a diagnosis any more, it is a dump: unreadable in a
+    // terminal, a log line or a UI, and for a predicate that is exactly what rootMessage() below can
+    // return verbatim (X-11 part B).
+    private static final int MESSAGE_SUMMARY_THRESHOLD = 2_000;
+
+    /**
+     * Wraps a planning failure, replacing the message with a bounded summary when the original
+     * threatens to interpolate an entire expression into the error.
+     *
+     * <p>Calcite's conversion failures carry the offending expression's full text in their message
+     * ({@code "while converting <expr>: ..."}), and for a long {@code AND}/{@code OR} chain that
+     * expression is the whole predicate. When the message is this large <em>and</em> has that shape,
+     * it is summarised -- the operator and the number of terms, not the text -- and raised as
+     * {@link SqlErrors#PREDICATE_TOO_LARGE} rather than the generic {@link SqlErrors#PLANNING_FAILED}.
+     * Anything smaller, or shaped differently, keeps today's behaviour untouched.
+     */
+    private static PravahaException planningFailure(Throwable e) {
+        String message = rootMessage(e);
+        if (message.length() > MESSAGE_SUMMARY_THRESHOLD && message.contains(CONVERTING_PREFIX)) {
+            return new PravahaException(SqlErrors.PREDICATE_TOO_LARGE, summarizeConversionFailure(message), e);
+        }
+        return new PravahaException(SqlErrors.PLANNING_FAILED, message, e);
+    }
+
+    /** Turns {@code "... while converting <thousands of characters> ..."} into a term count. */
+    private static String summarizeConversionFailure(String message) {
+        String expression = message.substring(message.indexOf(CONVERTING_PREFIX) + CONVERTING_PREFIX.length());
+        int andCount = countOccurrences(expression, " AND ");
+        int orCount = countOccurrences(expression, " OR ");
+        String shape;
+        if (andCount == 0 && orCount == 0) {
+            // No AND/OR found -- still too large to include, but not identifiably a boolean chain, so
+            // the summary says only what is true: its size.
+            shape = "a single expression";
+        } else {
+            boolean isOr = orCount >= andCount;
+            int terms = (isOr ? orCount : andCount) + 1;
+            shape = terms + "-term " + (isOr ? "OR" : "AND") + " chain";
+        }
+        return "the query planner failed while converting a predicate, and the predicate itself is "
+                + "omitted from this message because it is " + shape + " (" + expression.length()
+                + " characters) -- too large to be useful here. This shape is usually a client library "
+                + "rewriting a wide IN (...) list into AND/OR, or a generated query; write it as "
+                + "IN (...) instead, or split it into several queries.";
+    }
+
+    private static int countOccurrences(String haystack, String needle) {
+        int count = 0;
+        for (int from = haystack.indexOf(needle); from >= 0; from = haystack.indexOf(needle, from + needle.length())) {
+            count++;
+        }
+        return count;
     }
 
     /**

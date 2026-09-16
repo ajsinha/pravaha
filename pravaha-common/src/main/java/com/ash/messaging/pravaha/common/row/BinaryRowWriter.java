@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.common.row;
 
 import java.nio.charset.StandardCharsets;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
@@ -54,7 +55,8 @@ public final class BinaryRowWriter implements RowWriter {
 
     public BinaryRowWriter(RowLayout layout) {
         if (layout.fieldCount() > Long.SIZE) {
-            throw new IllegalArgumentException(
+            throw new PravahaException(
+                    RowErrors.FIELD_LIMIT_EXCEEDED,
                     "BinaryRowWriter tracks written fields in a long bitmask and so supports at most "
                             + Long.SIZE + " fields; " + layout.schema().name() + " has "
                             + layout.fieldCount());

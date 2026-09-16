@@ -630,6 +630,16 @@ name if not — and for an unaliased aggregate there is no name to take, so `COU
 `EXPR$2`. Write `COUNT(*) AS txn_count` unless you enjoy reading `EXPR$2` in a dashboard. A qualified
 column keeps its bare name: `SELECT t.amount` produces a column called `amount`, not `t.amount`.
 
+**A row cannot have more than 64 output columns — `PRV-3030`.** `SELECT *` over a table with more
+than 64 columns, `SELECT a, b, c, …` naming that many, or a join or aggregate whose *output* is that
+wide, all hit the same ceiling: every row is built by `BinaryRowWriter`, which tracks which fields
+have been written in a single 64-bit `long` — one bit per field — and cannot represent a 65th. It is
+architectural, not a setting to raise, and it binds the width of the answer regardless of which
+clause made it wide. `pravaha validate` accepts a 1,000-column projection without complaint, because
+nothing writes a row during validation; the ceiling is only met once rows start moving, which is the
+worst time to meet it. If a query is this wide, split it into several narrower ones. See
+[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) for the exact refusal.
+
 ---
 
 ## 12. Filtering — `WHERE` and `HAVING`
@@ -652,6 +662,12 @@ column keeps its bare name: `SELECT t.amount` produces a column called `amount`,
 
 Three-valued logic is honoured throughout: a comparison with NULL is UNKNOWN, and a filter keeps
 only rows where the predicate is TRUE.
+
+**A predicate can be too large to compile — `PRV-2011`.** An `AND` or `OR` chain of a few thousand
+terms — the shape a generated query or an `IN`-list rewrite produces — can be too large for the
+planner to convert. The refusal says which operator and how many terms, not the predicate itself.
+Shorter chains are fine; the threshold depends on the shape of the terms, not just their count.
+Rewrite the filter as a range comparison, or join against a table of values instead of a long `IN`.
 
 ---
 
@@ -842,10 +858,12 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2001` | Syntax error, with Calcite's line and column preserved |
 | `PRV-2002` | Validation failed — an unknown column, a type mismatch |
 | `PRV-2003` | The query names a stream that is not registered |
+| `PRV-2011` | A predicate (a long `AND`/`OR` chain, usually) is too large for the planner to convert — §12 |
 | `PRV-2020` | A relational operator Pravaha cannot execute |
 | `PRV-2021` | An expression or function Pravaha cannot compile |
 | `PRV-2050` | The query's state would grow without bound |
 | `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](adr/032-parameters-are-values-not-queries.md) |
+| `PRV-3030` | A row's output is wider than 64 columns — §11 |
 
 ---
 

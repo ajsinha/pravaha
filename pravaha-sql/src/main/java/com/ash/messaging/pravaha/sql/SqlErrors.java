@@ -24,6 +24,20 @@ public final class SqlErrors {
     public static final ErrorCode VALIDATION_FAILED = new ErrorCode(2002, "SQL_VALIDATION_FAILED");
     public static final ErrorCode UNKNOWN_STREAM = new ErrorCode(2003, "SQL_UNKNOWN_STREAM");
     public static final ErrorCode PLANNING_FAILED = new ErrorCode(2010, "SQL_PLANNING_FAILED");
+
+    /**
+     * A predicate (or other expression) is too large or too deeply nested for the planner to convert.
+     *
+     * <p>Split out of {@link #PLANNING_FAILED} (X-11 part B) because Calcite's own conversion
+     * failure embeds the offending expression's full text in its message -- for a several-thousand
+     * term {@code AND}/{@code OR} chain, that is the entire predicate, tens or hundreds of kilobytes,
+     * interpolated verbatim into an error. "This predicate is too large to compile" is a specific,
+     * actionable diagnosis in its own right, not just another way for planning to fail, so it gets a
+     * code of its own rather than sharing the catch-all -- and the message that comes with this code
+     * is a summary (the operator and the term count) rather than the predicate itself.
+     */
+    public static final ErrorCode PREDICATE_TOO_LARGE = new ErrorCode(2011, "SQL_PREDICATE_TOO_LARGE");
+
     public static final ErrorCode UNSUPPORTED_OPERATOR = new ErrorCode(2020, "SQL_UNSUPPORTED_OPERATOR");
     public static final ErrorCode UNSUPPORTED_EXPRESSION = new ErrorCode(2021, "SQL_UNSUPPORTED_EXPRESSION");
     /** The mismatch design section 15.5 exists to catch at registration rather than in production. */

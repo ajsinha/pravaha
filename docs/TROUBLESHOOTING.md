@@ -201,47 +201,57 @@ it opened when you close it; a hand-rolled client must do the same.
 
 ---
 
-## Limits that have no code of their own
+## Two ceilings that used to have no code of their own
 
-Three ceilings a query can reach that are real, reproducible, and **not** reported as a `PRV-` code.
-They are written down here because the first thing anyone does with an unfamiliar failure is search
-this file for it, and until each of them has a code that is the only way to find them.
+Two ceilings a query can reach that are real, reproducible, and — as of X-11 — carry a `PRV-` code
+and a documented shape. They are written down here because the first thing anyone does with an
+unfamiliar failure is search this file for it.
 
-**A row cannot have more than 64 columns.** Any row — a wide projection, a wide join, a wide
-aggregate — is capped at 64 fields, because `BinaryRowWriter` (in `pravaha-common`) tracks which
-fields have been written in a single `long` bitmask. Past that it refuses at construction with a
-plain `IllegalArgumentException`:
+**A row cannot have more than 64 columns — `PRV-3030`.** Any row — a wide projection, a wide join, a
+wide aggregate — is capped at 64 fields, because `BinaryRowWriter` (in `pravaha-common`) tracks which
+fields have been written in a single `long` bitmask, and a `long` has 64 bits. Past that it refuses
+at construction:
 
 ```
-BinaryRowWriter tracks written fields in a long bitmask and so supports at most 64 fields;
+PRV-3030  BinaryRowWriter tracks written fields in a long bitmask and so supports at most 64 fields;
 <stream> has 65
 ```
 
-The diagnosis is exact and the architectural reason is real; what is missing is a code and a
-category, so the refusal cannot be classified, mapped to an HTTP or Flight status, or looked up.
-Note also *when* it fires: `pravaha validate` plans a 1,000-column projection without complaint,
-because nothing writes a row during validation. The ceiling is met later, when rows start moving —
-which is the worst time to meet it. Split the query, or project fewer columns.
+Used to be a plain `IllegalArgumentException` with no code and no category, so the refusal could not
+be classified, mapped to an HTTP or Flight status, or looked up. Note also *when* it fires:
+`pravaha validate` plans a 1,000-column projection without complaint, because nothing writes a row
+during validation. The ceiling is met later, when rows start moving — which is the worst time to meet
+it. Split the query, or project fewer columns. See also [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md)
+§11.
 
-**A long chain of `AND` or `OR` terms fails, and the whole predicate is echoed back.** Past roughly
-a couple of thousand terms — the shape a generated query or an `IN`-list rewrite produces — planning
-fails with `PRV-2010` carrying Calcite's own text:
+**A long chain of `AND` or `OR` terms fails, and used to echo the whole predicate back —
+`PRV-2011`.** Past roughly a couple of thousand terms — the shape a generated query or an `IN`-list
+rewrite produces — the planner's conversion step fails, and used to carry Calcite's own text
+verbatim: a 3,000-term chain produced about 125 KB of stderr, the entire predicate interpolated into
+the message, which for a CLI user meant the reason scrolled away and for a log meant one refusal
+filled a page. The message is now a summary instead — the operator and the term count, not the text
+— and the failure carries its own code rather than sharing `PRV-2010 SQL_PLANNING_FAILED`, the
+planner's catch-all for everything else that can go wrong converting a query:
 
 ```
-PRV-2010  java.lang.RuntimeException: while converting `txn`.`amount` > CAST(0 AS BIGINT) AND ... 
+PRV-2011  the query planner failed while converting a predicate, and the predicate itself is omitted
+from this message because it is a 3000-term AND chain (124807 characters) -- too large to be useful
+here. This shape is usually a client library rewriting a wide IN (...) list into AND/OR, or a
+generated query; write it as IN (...) instead, or split it into several queries.
 ```
 
-`...` there is the entire predicate, interpolated verbatim: a 3,000-term chain produces about 125 KB
-of stderr, which for a CLI user means the reason scrolls away and for a log means one refusal fills
-a page. The failure is genuine, but `PRV-2010 SQL_PLANNING_FAILED` is the planner's catch-all and
-says nothing about term count, and the message summarises nothing. Shorter chains are fine; the
-threshold depends on the shape of the terms, not just their number. Rewrite the filter (a range
-comparison instead of a chain of them, or a join against a table of values instead of a long `IN`).
+Shorter chains are fine; the threshold depends on the shape of the terms, not just their number.
+Rewrite the filter (a range comparison instead of a chain of them, or a join against a table of
+values instead of a long `IN`).
 
-This is the third distinct thing a large boolean expression does, and they are worth telling apart
-because the same input can produce any of them depending on width and shape: a `StackOverflowError`
-during validation is now caught and refused with a code, `PRV-2001 null` was the older form of that
-on the execution path, and this is the conversion failure above both.
+This is one of three distinct things a large boolean expression can do, worth telling apart because
+the same input can produce any of them depending on width and shape. A `StackOverflowError` during
+planning is caught separately, before it reaches this code path, and is already refused as
+`PRV-2010` with a message naming the cause (unrelated to this round's fix — see `SqlPlanner.plan`'s
+own `catch (StackOverflowError e)`). A `StackOverflowError` reaching the *execution* path can still
+surface as `PRV-2001` with no message at all — a separate, open defect (X-10), not addressed here.
+And this — Calcite's own conversion failure, distinct from either `StackOverflowError` — is
+`PRV-2011`.
 
 ## Every code
 
@@ -269,6 +279,7 @@ on the execution path, and this is the conversion failure above both.
 | `PRV-2002` | SQL_VALIDATION_FAILED | sql |
 | `PRV-2003` | SQL_UNKNOWN_STREAM | sql |
 | `PRV-2010` | SQL_PLANNING_FAILED | sql |
+| `PRV-2011` | SQL_PREDICATE_TOO_LARGE | sql |
 | `PRV-2020` | SQL_UNSUPPORTED_OPERATOR | sql |
 | `PRV-2021` | SQL_UNSUPPORTED_EXPRESSION | sql |
 | `PRV-2041` | SQL_EMIT_MODE_MISMATCH | sql |
@@ -286,6 +297,7 @@ on the execution path, and this is the conversion failure above both.
 | `PRV-3100` | CODEGEN_COMPILATION_FAILED | runtime |
 | `PRV-3101` | CODEGEN_UNSUPPORTED_OPERATOR | runtime |
 | `PRV-3102` | CODEGEN_STAGE_TOO_LARGE | runtime |
+| `PRV-3030` | ROW_FIELD_LIMIT_EXCEEDED | runtime |
 | `PRV-4001` | STATE_TOO_LARGE | state/serving |
 | `PRV-4002` | STATE_UNREADABLE | state/serving |
 | `PRV-4003` | STATE_NOT_OURS | state/serving |
