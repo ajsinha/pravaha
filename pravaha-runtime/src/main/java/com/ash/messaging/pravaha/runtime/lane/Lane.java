@@ -129,7 +129,19 @@ public final class Lane implements AutoCloseable {
      * mean "advance it over the rows I had already been handed"; and not after, which is what makes
      * a checkpoint's snapshot cover exactly the rows its recorded source offset excludes.
      */
-    private record ControlTask(Runnable task, long[] barrier, long id) {}
+    private record ControlTask(Runnable task, long[] barrier, long id, boolean cut) {}
+
+    /**
+     * How many queued tasks are cuts, so the hot path can skip scanning for one when there are none.
+     *
+     * <p>W9-10. Clamping the batch is what makes a marker a barrier, and it costs a batch boundary
+     * every time. A checkpoint needs that; a watermark does not, and the difference is the whole of
+     * this counter. Under {@code LaneMultiplexer} a lane carries hundreds of pipelines, each
+     * advancing a watermark about once a second -- so paying a boundary per advance would cut the
+     * lane's batches short hundreds of times a second, which is the reason multiplexing was blocked.
+     */
+    private final java.util.concurrent.atomic.AtomicInteger pendingCuts =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     private final java.util.concurrent.ConcurrentLinkedQueue<ControlTask> control =
             new java.util.concurrent.ConcurrentLinkedQueue<>();
@@ -338,6 +350,32 @@ public final class Lane implements AutoCloseable {
      * @return a ticket naming this task, to pass to {@link #awaitControlTask}
      */
     public long submitControlTask(Runnable task) {
+        return submitControlTask(task, true);
+    }
+
+    /**
+     * Submits a task that must run no earlier than this point in the stream, but need not stop the
+     * batch here.
+     *
+     * <p>W9-10, and the distinction the lane was missing. <strong>A checkpoint is a cut; a watermark
+     * is a level.</strong> A checkpoint that runs late photographs rows its own recorded source
+     * offset says will be replayed, so its batch must stop exactly at the marker. A watermark that
+     * is applied late merely closes a window one batch later than it could have — it is a monotonic
+     * level, and applying it further along the stream is never wrong, only less prompt.
+     *
+     * <p>So a level keeps the half of the barrier that is load-bearing — queue order, which still
+     * puts it after every row handed over before it — and drops the half that costs a batch
+     * boundary. That matters only under {@link LaneMultiplexer}, where one lane carries hundreds of
+     * pipelines: at a tick a second each, clamping per advance would cut the lane's batches short
+     * hundreds of times a second, and that cost is why multiplexing has never been switched on.
+     *
+     * @return a ticket naming this task, to pass to {@link #awaitControlTask}
+     */
+    public long submitLevelTask(Runnable task) {
+        return submitControlTask(task, false);
+    }
+
+    private long submitControlTask(Runnable task, boolean cutsTheBatch) {
         // Reading the cursors, allocating the id and queueing under one lock, because all three
         // have to agree. A ticket means "the last completed id is at least mine", which is only
         // "mine has run" while queue order is id order -- and two threads doing getAndIncrement
@@ -355,7 +393,12 @@ public final class Lane implements AutoCloseable {
                     cut[input] = inboxes[input].producerCursor();
                 }
                 long ticket = controlSubmitted.getAndIncrement();
-                control.add(new ControlTask(task, cut, ticket));
+                if (cutsTheBatch) {
+                    // Incremented before the task is visible to the run loop, so the loop never sees
+                    // a queued cut while the counter still says there are none.
+                    pendingCuts.incrementAndGet();
+                }
+                control.add(new ControlTask(task, cut, ticket, cutsTheBatch));
                 return ticket;
             } finally {
                 submitSequence++; // even: chosen and queued
@@ -801,11 +844,27 @@ public final class Lane implements AutoCloseable {
                 Thread.onSpinWait(); // a marker is being chosen; it will be queued in a moment
                 continue;
             }
-            ControlTask pending = control.peek();
+            // Only a CUT binds the batch. Scanning for it is skipped entirely when none is queued,
+            // which is the normal state: checkpoints are periodic and watermarks are constant.
+            //
+            // It is the FIRST cut in the queue, not the head of the queue. A level at the head
+            // imposes no clamp, but a cut behind it still does -- and taking only the head would let
+            // the batch run past that cut's marker, which is exactly the double count the marker
+            // exists to prevent. Tasks still RUN in queue order, so the level ahead of it is applied
+            // first either way.
+            ControlTask binding = null;
+            if (pendingCuts.get() > 0) {
+                for (ControlTask queued : control) {
+                    if (queued.cut()) {
+                        binding = queued;
+                        break;
+                    }
+                }
+            }
             for (int input = 0; input < inboxes.length; input++) {
                 long frontier = inboxes[input].producerCursor();
-                if (pending != null) {
-                    frontier = Math.min(frontier, pending.barrier()[input]);
+                if (binding != null) {
+                    frontier = Math.min(frontier, binding.barrier()[input]);
                 }
                 into[input] = frontier - inboxes[input].drainCursor();
             }
@@ -836,6 +895,11 @@ public final class Lane implements AutoCloseable {
                 return ran;
             }
             control.poll();
+            if (queued.cut()) {
+                // Decremented after the poll, so the counter never says "no cuts" while one is still
+                // reachable from the queue -- which would let a batch overshoot the marker it names.
+                pendingCuts.decrementAndGet();
+            }
             Runnable task = queued.task();
             try {
                 task.run();

@@ -64,6 +64,77 @@ final class ControlTaskBarrierTest {
 
     @Test
     @Timeout(180)
+    void aCutQueuedBehindALevelStillBindsTheBatch() throws Exception {
+        // W9-10. A level task deliberately does NOT clamp the batch -- applying a watermark a batch
+        // further along closes a window slightly later and is never wrong, where clamping per
+        // advance would cut a multiplexed lane's batches short hundreds of times a second.
+        //
+        // The trap that creates, and the reason this test exists: the clamp must bind to the first
+        // CUT in the queue, not to the task at its head. With a level at the head and a checkpoint
+        // behind it, looking only at the head would leave the batch unclamped and let it run past
+        // the CHECKPOINT's marker -- which is the double count the marker exists to prevent, now
+        // reachable through a change made for throughput. Tasks still run in queue order, so the
+        // level is applied first either way.
+        AtomicBoolean stop = new AtomicBoolean();
+        Thread[] load = ControlTaskBarrierTest.startContention(stop);
+        int cutRanPastItsMarker = 0;
+        int attemptsMeasured = 0;
+
+        Counting[] processor = new Counting[1];
+        try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 16, 2);
+                Lane lane = new Lane(0, config(), MemoryAccess.best(), context -> processor[0] = new Counting())) {
+            long handle = arena.allocate(32);
+            lane.start();
+
+            AtomicBoolean producerStop = new AtomicBoolean();
+            Thread producer = Thread.ofPlatform().daemon().start(() -> {
+                while (!producerStop.get()) {
+                    lane.offer(arena.regionOf(handle), arena.offsetOf(handle), 32);
+                }
+            });
+
+            try {
+                for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
+                    long[] seenByCut = new long[1];
+                    // A level first, so it sits at the head of the queue and imposes no clamp.
+                    lane.submitLevelTask(() -> {});
+                    // Then the cut, whose marker must still bind the batch.
+                    long cutTicket = lane.submitControlTask(() -> seenByCut[0] = processor[0].rowsSeen);
+                    long after = lane.producerCursor(0);
+                    if (!lane.awaitControlTask(cutTicket, Duration.ofSeconds(10))) {
+                        continue;
+                    }
+                    lane.checkHealth();
+                    attemptsMeasured++;
+                    if (seenByCut[0] > after) {
+                        cutRanPastItsMarker++;
+                    }
+                }
+            } finally {
+                producerStop.set(true);
+                producer.join(Duration.ofSeconds(5).toMillis());
+            }
+        } finally {
+            stop.set(true);
+            for (Thread thread : load) {
+                thread.join(Duration.ofSeconds(5).toMillis());
+            }
+        }
+
+        assertThat(attemptsMeasured)
+                .as("the lane has to have answered often enough for the count below to mean anything")
+                .isGreaterThan(ATTEMPTS / 2);
+        assertThat(cutRanPastItsMarker)
+                .as(
+                        "%d of %d checkpoints queued behind a watermark ran over rows that arrived after their "
+                                + "own marker. A level imposes no clamp; a cut behind one still must, or the "
+                                + "throughput change has reintroduced the double count the barrier prevents",
+                        cutRanPastItsMarker, attemptsMeasured)
+                .isZero();
+    }
+
+    @Test
+    @Timeout(180)
     void aTaskSeesTheStreamAtItsMarkerAndNotABatchBeyondIt() throws Exception {
         AtomicBoolean stop = new AtomicBoolean();
         Thread[] load = ControlTaskBarrierTest.startContention(stop);

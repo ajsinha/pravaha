@@ -806,7 +806,12 @@ public final class QueryExecution implements AutoCloseable {
         long[] tickets = new long[pipelines.size()];
         for (int index = 0; index < pipelines.size(); index++) {
             InterpretedPipeline pipeline = pipelines.get(index);
-            tickets[index] = lanes.lane(index).submitControlTask(() -> pipeline.advanceWatermark(watermarkNanos));
+            // A level, not a cut (W9-10). Queue order still guarantees this runs after every row
+            // handed over before it, which is what "advance it over the rows I had already been
+            // given" means; what it no longer does is stop the lane's batch at that exact point.
+            // Applying a watermark one batch further along closes a window a little later and is
+            // never wrong -- where a checkpoint applied one batch later is a double count.
+            tickets[index] = lanes.lane(index).submitLevelTask(() -> pipeline.advanceWatermark(watermarkNanos));
         }
         // Waited for, not fired and forgotten. Moving this onto the lane made it asynchronous, and a
         // caller that advances event time and then reads the result is entitled to see the windows
