@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>pravaha-pgwire</artifactId>
+  <name>Pravaha :: pgwire</name>
+  <!--
+    No third-party dependency, deliberately. The PostgreSQL v3 frontend/backend protocol is
+    length-prefixed big-endian bytes over a socket, and java.net plus java.io already do that; a
+    protocol library here would be a licensing and portability question against a single bundled
+    deployment, bought for code that fits in two classes.
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-security</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-serving</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+</project>

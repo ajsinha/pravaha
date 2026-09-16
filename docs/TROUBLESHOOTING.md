@@ -355,6 +355,10 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |
 | `PRV-6103` | FLIGHT_PARAMETERS_TOO_LARGE | gateway |
 | `PRV-6104` | FLIGHT_TLS_UNREADABLE | gateway |
+| `PRV-6200` | PGWIRE_UNSUPPORTED_TYPE | gateway |
+| `PRV-6201` | PGWIRE_UNSUPPORTED_REQUEST | gateway |
+| `PRV-6202` | PGWIRE_PROTOCOL_VIOLATION | gateway |
+| `PRV-6203` | PGWIRE_UNSUPPORTED_PROTOCOL | gateway |
 | `PRV-7001` | SECURITY_UNAUTHENTICATED | security |
 | `PRV-7002` | SECURITY_FORBIDDEN | security |
 | `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |

@@ -372,8 +372,18 @@ thirty:
 `pravaha-bom`, `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pravaha-catalog`,
 `pravaha-sql`, `pravaha-runtime`, `pravaha-codegen`, `pravaha-state`, `pravaha-backfill`,
 `pravaha-security`, `pravaha-serving`, `pravaha-cluster`, `pravaha-registry`, `pravaha-flight`,
-`pravaha-connect`, `pravaha-testkit`, `pravaha-benchmarks`, `pravaha-it`, `pravaha-embedded`,
-`pravaha-cli`, `pravaha-server`.
+`pravaha-pgwire`, `pravaha-connect`, `pravaha-testkit`, `pravaha-benchmarks`, `pravaha-it`,
+`pravaha-embedded`, `pravaha-cli`, `pravaha-server`.
+
+`pravaha-pgwire` is the newest of those and the one most likely to be looked for by name. It serves
+the **PostgreSQL wire protocol, read half only**: a view is a table, `SELECT` over one is answered
+by the same `ViewQuery` the Arrow Flight gateway calls, and there is no write path to expose because
+the planner already refuses one. It exists so that `psql`, DBeaver, Grafana and every ORM can reach
+the engine without installing an Arrow Flight SQL client, which almost nobody has. Slice 1 is the
+simple query protocol and nothing else — no extended query protocol, no prepared statements, no
+cursors, no `COPY`, and **no TLS, so a password configured on it crosses the wire in the clear**.
+Each of those is refused by name rather than half-built; the full list, with a reason each, is in the
+module's `package-info.java`.
 
 Plugins: [`filesystem`](plugins/pravaha-plugin-filesystem), [`delta`](plugins/pravaha-plugin-delta),
 [`feedfile`](plugins/pravaha-plugin-feedfile), [`jdbc`](plugins/pravaha-plugin-jdbc),

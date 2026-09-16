@@ -1,0 +1,405 @@
+/*
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL.
+ *
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
+ *
+ * See the LICENSE file in the root of this repository for the full terms.
+ */
+package com.ash.messaging.pravaha.pgwire;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.security.SecureRandom;
+import java.util.Map;
+
+import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.SecurityErrors;
+import com.ash.messaging.pravaha.security.TokenVerifier;
+import com.ash.messaging.pravaha.serving.ViewQuery;
+
+/**
+ * One PostgreSQL client connection, from its startup packet to its last message.
+ *
+ * <p>Thread per connection. That is the wrong shape for ten thousand idle subscribers and exactly
+ * right for what this is: a handful of analysts and dashboards running one query at a time each, on
+ * a server whose read concurrency is already bounded by {@code ReadAdmission} one layer down. An
+ * event loop here would add a state machine to a state machine and bound nothing that is not
+ * already bounded.
+ *
+ * <h2>The shape of a session</h2>
+ *
+ * <ol>
+ *   <li>Startup, possibly preceded by an {@code SSLRequest} this server declines.
+ *   <li>Authentication -- cleartext password verified by the configured {@link TokenVerifier}, or
+ *       {@code AuthenticationOk} when no verifier is configured at all.
+ *   <li>{@code ParameterStatus} x n, {@code BackendKeyData}, {@code ReadyForQuery}.
+ *   <li>{@code Query} / {@code Terminate}, until the client stops.
+ * </ol>
+ *
+ * <p>Step 2 is the whole of what this class decides about access. <strong>What the principal may
+ * then read is not decided here</strong>: every query goes through {@code ViewQuery.execute(sql,
+ * principal)}, which is where the policy is enforced and the audit written, and which is the same
+ * call the Flight producer makes. A check written in this file would be a second opinion, and two
+ * opinions about who may read what is one opinion too many.
+ */
+final class PgWireConnection implements Runnable {
+
+    /**
+     * How long a client has to complete the handshake.
+     *
+     * <p>Applied to the handshake only and cleared afterwards. An unauthenticated peer that opens a
+     * socket and says nothing would otherwise hold a thread for as long as it likes, which is a
+     * denial of service that costs the attacker one packet. An <em>authenticated</em> session, by
+     * contrast, is allowed to sit idle: that is what a psql window does all afternoon.
+     */
+    private static final int HANDSHAKE_TIMEOUT_MILLIS = 10_000;
+
+    /**
+     * How many magic packets ({@code SSLRequest}, {@code GSSENCRequest}) precede a real startup.
+     *
+     * <p>A client may legitimately send one of each. A client that sends them forever is a loop,
+     * and answering it forever is this server's half of that loop.
+     */
+    private static final int MAX_PRELUDE_PACKETS = 4;
+
+    private static final SecureRandom CANCEL_KEYS = new SecureRandom();
+
+    private final Socket socket;
+    private final ViewQuery queries;
+    private final TokenVerifier verifier;
+    private final String serverVersion;
+
+    PgWireConnection(Socket socket, ViewQuery queries, TokenVerifier verifier, String serverVersion) {
+        this.socket = socket;
+        this.queries = queries;
+        this.verifier = verifier;
+        this.serverVersion = serverVersion;
+    }
+
+    @Override
+    public void run() {
+        try (Socket open = socket;
+                BufferedInputStream in = new BufferedInputStream(open.getInputStream());
+                BufferedOutputStream out = new BufferedOutputStream(open.getOutputStream())) {
+            PgFrontend frontend = new PgFrontend(in);
+            PgBackend backend = new PgBackend(out);
+            try {
+                open.setSoTimeout(HANDSHAKE_TIMEOUT_MILLIS);
+                PgFrontend.Startup startup = handshake(frontend, backend);
+                if (startup == null) {
+                    return; // A CancelRequest, or a client that gave up mid-handshake.
+                }
+                Principal principal = authenticate(startup, frontend, backend);
+                if (principal == null) {
+                    return; // Refused; the client has been told and the socket is closing.
+                }
+                open.setSoTimeout(0);
+                ready(backend, principal, startup.parameters());
+                serve(frontend, backend, principal);
+            } catch (PravahaException refused) {
+                // A protocol-level failure: the connection does not survive it, because after a
+                // framing error this server no longer knows where the next message begins.
+                fatal(backend, refused);
+            } catch (SocketTimeoutException slow) {
+                // The handshake deadline. Nothing is sent: a peer that has not spoken has not
+                // necessarily got as far as being a PostgreSQL client, and an ErrorResponse to
+                // something that is not one is noise on a port scan.
+                return;
+            }
+        } catch (IOException disconnected) {
+            // The client went away. Every one of these is a normal end to a session -- a closed
+            // laptop, a killed psql, a load balancer's idle timeout -- and none is worth a stack
+            // trace in an operator's log.
+            return;
+        }
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Handshake.
+
+    /** Reads past any {@code SSLRequest} to the real startup packet, or {@code null} to give up. */
+    private PgFrontend.Startup handshake(PgFrontend frontend, PgBackend backend) throws IOException {
+        for (int prelude = 0; prelude <= MAX_PRELUDE_PACKETS; prelude++) {
+            PgFrontend.Startup startup = frontend.readStartup();
+            if (startup.isSslRequest() || startup.isGssEncRequest()) {
+                // Declined, not refused. See PgBackend.declineEncryption: 'N' is the protocol's own
+                // "not offered", and it is what makes a default `psql` fall back to plaintext and
+                // connect rather than fail with something about SSL.
+                backend.declineEncryption();
+                continue;
+            }
+            if (startup.isCancelRequest()) {
+                // Slice 1 does not implement cancellation. The protocol's own rule is that a
+                // backend answers a CancelRequest with nothing at all -- no acknowledgement either
+                // way, because a reply would tell an unauthenticated peer whether it guessed a
+                // valid key. Closing silently is both correct and what a real backend does.
+                return null;
+            }
+            int major = startup.code() >>> 16;
+            if (major != 3) {
+                throw new PravahaException(
+                        PgWireErrors.UNSUPPORTED_PROTOCOL_VERSION,
+                        "this server speaks PostgreSQL protocol 3.0; the client asked for " + major + "."
+                                + (startup.code() & 0xffff)
+                                + ". Protocol 2 clients predate PostgreSQL 7.4 and are not supported.");
+            }
+            return startup;
+        }
+        throw new PravahaException(
+                PgWireErrors.PROTOCOL_VIOLATION,
+                "the client sent more than " + MAX_PRELUDE_PACKETS
+                        + " encryption requests without ever sending a startup packet");
+    }
+
+    /**
+     * Authenticates the connection, or refuses it.
+     *
+     * <h2>Why cleartext password, and not {@code AuthenticationOk} for everyone</h2>
+     *
+     * <p>Because {@code AuthenticationOk} unconditionally would be a second, weaker door onto the
+     * same data: Flight refuses every call without a credential, and a pgwire port beside it that
+     * refuses nothing makes the Flight check decorative. The owner's standing constraint is that
+     * only authenticated users reach data, and it has to hold on whichever port a client picks.
+     *
+     * <p>Cleartext specifically, rather than MD5 or SCRAM, because of what {@link TokenVerifier}
+     * is. Its contract is an <em>opaque bearer credential in, principal out</em> -- it verifies a
+     * JWT against an issuer, or calls an introspection endpoint. MD5 and SCRAM both require the
+     * server to hold either the password or a verifier derived from it, so that it can run the
+     * challenge-response arithmetic. Pravaha deliberately holds neither, and pretending otherwise
+     * would mean a second credential store beside the identity provider the deployment already has.
+     * Cleartext is the only PostgreSQL authentication method whose shape is "the client sends the
+     * secret and the server asks somebody else about it", which is exactly {@code TokenVerifier}.
+     *
+     * <p><strong>The cost, stated rather than buried: slice 1 has no TLS, so the credential crosses
+     * the wire in the clear.</strong> That is acceptable on loopback or behind a terminator and is
+     * not acceptable across a network. It is the first thing slice 2 must fix, and it is recorded
+     * in this package's {@code package-info} as well as here so that neither a reader of the server
+     * nor a reader of the module can miss it.
+     *
+     * <p>A server built with no verifier at all sends {@code AuthenticationOk} and runs as {@link
+     * Principal#ANONYMOUS}. That is the same deliberate two-state design {@code PrincipalMiddleware}
+     * uses on the Flight side -- an embedded engine already behind its own wall -- rather than a
+     * default that silently downgrades a configured one.
+     *
+     * @return the authenticated principal, or {@code null} if the connection was refused
+     */
+    private Principal authenticate(PgFrontend.Startup startup, PgFrontend frontend, PgBackend backend)
+            throws IOException {
+        if (verifier == null) {
+            backend.authenticationOk();
+            return Principal.ANONYMOUS;
+        }
+        backend.authenticationCleartextPassword();
+        backend.flush();
+        PgFrontend.Message message = frontend.readMessage();
+        if (message == null) {
+            return null; // The client hung up rather than answer.
+        }
+        if (message.type() != 'p') {
+            throw new PravahaException(
+                    PgWireErrors.PROTOCOL_VIOLATION,
+                    "expected a PasswordMessage after the password request, got '" + message.type() + "'");
+        }
+        String password = message.asString();
+        try {
+            Principal principal = verifier.verify(password);
+            if (principal == null || principal.isAnonymous()) {
+                // A verifier that returns anonymous has failed to authenticate, whatever it meant
+                // to do; treating that as success is how an audit log fills with rows attributed to
+                // nobody. The same rule PrincipalMiddleware applies on the Flight side.
+                throw new PravahaException(SecurityErrors.UNAUTHENTICATED, "the credential presented was not accepted");
+            }
+            backend.authenticationOk();
+            return principal;
+        } catch (PravahaException refused) {
+            // 28P01 invalid_password specifically, rather than the generic mapping: it is what every
+            // client's "wrong password, prompt again" path is written against. The message is the
+            // verifier's own, which by TokenVerifier's contract says the credential was rejected and
+            // nothing about why -- "expired" versus "unknown" is an oracle for whoever is guessing.
+            backend.errorResponse("FATAL", "28P01", refused.getMessage(), null);
+            return null;
+        }
+    }
+
+    /** {@code ParameterStatus}, {@code BackendKeyData}, {@code ReadyForQuery}. */
+    private void ready(PgBackend backend, Principal principal, Map<String, String> startupParameters)
+            throws IOException {
+        // What a client is entitled to assume about this server. Each of these is a promise the
+        // encoder in PgTypes actually keeps -- in particular DateStyle, which is what makes
+        // "2026-09-16 12:00:00+00" the right thing to send rather than a guess.
+        backend.parameterStatus("server_version", serverVersion);
+        backend.parameterStatus("server_encoding", "UTF8");
+        backend.parameterStatus("client_encoding", "UTF8");
+        backend.parameterStatus("DateStyle", "ISO, MDY");
+        backend.parameterStatus("TimeZone", "UTC");
+        backend.parameterStatus("integer_datetimes", "on");
+        backend.parameterStatus("standard_conforming_strings", "on");
+        backend.parameterStatus("application_name", startupParameters.getOrDefault("application_name", ""));
+        backend.backendKeyData(
+                ProcessHandle.current().pid() > Integer.MAX_VALUE
+                        ? 0
+                        : (int) ProcessHandle.current().pid(),
+                CANCEL_KEYS.nextInt());
+
+        String requested = startupParameters.get("user");
+        // Only where a credential actually decided something. A server with no verifier runs every
+        // session as ANONYMOUS by design, and telling `psql -U dana` that it is "connected as
+        // 'anonymous', not 'dana'" is a warning about the configuration the operator chose --
+        // printed at the top of every single session. A real psql found this on its first run.
+        if (!principal.isAnonymous() && requested != null && !requested.equals(principal.id())) {
+            // The credential decides who you are; the `user` field of a startup packet is whatever
+            // the client typed. Saying so out loud costs nothing -- the person already holds the
+            // credential, so this discloses nothing they do not have -- and it prevents the quiet
+            // surprise of `psql -U alice` running an afternoon's queries as somebody else.
+            backend.noticeResponse("connected as '" + principal.id() + "', not '" + requested
+                    + "': the credential determines the principal, not the user name in the startup packet");
+        }
+        backend.readyForQuery(PgBackend.STATUS_IDLE);
+    }
+
+    // -------------------------------------------------------------------------------------
+    // The message loop.
+
+    private void serve(PgFrontend frontend, PgBackend backend, Principal principal) throws IOException {
+        while (true) {
+            PgFrontend.Message message;
+            try {
+                message = frontend.readMessage();
+            } catch (PravahaException malformed) {
+                fatal(backend, malformed);
+                return;
+            }
+            if (message == null) {
+                return; // Socket closed without a Terminate; the same end, less politely.
+            }
+            switch (message.type()) {
+                case 'Q' -> simpleQuery(backend, principal, message.asString());
+                case 'X' -> {
+                    // Terminate. No reply: the protocol says the server closes, and a reply to a
+                    // client that has already stopped reading is a write to a half-closed socket.
+                    return;
+                }
+                default -> unimplemented(backend, message.type());
+            }
+        }
+    }
+
+    /**
+     * The simple query protocol: {@code RowDescription}, {@code DataRow}*, {@code CommandComplete},
+     * {@code ReadyForQuery}.
+     *
+     * <p>{@code ReadyForQuery} is sent on every path out of this method, including every failure.
+     * A client that does not get one waits for ever, which is the difference between a query that
+     * failed and a session that hung.
+     */
+    private void simpleQuery(PgBackend backend, Principal principal, String sql) throws IOException {
+        try {
+            String statement = SimpleQueryText.singleStatement(sql);
+            if (statement.isEmpty()) {
+                backend.emptyQueryResponse();
+                return;
+            }
+            // The one call that matters. Same entry point as the Flight producer's
+            // `queries.execute(sql, principalOf(context))`, so the policy that decides what this
+            // principal may read, the row filter that gets ANDed into the plan, and the audit event
+            // that records the decision are all the same ones -- not a pgwire copy of them.
+            ViewQuery.Result result = queries.execute(statement, principal);
+
+            // RowDescription first, and it is built whole before a byte is written: PgBackend
+            // buffers a message body before framing it, so a column whose type this gateway refuses
+            // throws here, with nothing yet sent, and the client gets a clean ErrorResponse instead
+            // of a truncated result set.
+            backend.rowDescription(result.schema());
+            for (Object[] row : result.rows()) {
+                backend.dataRow(row, result.schema());
+            }
+            backend.commandComplete("SELECT " + result.size());
+        } catch (PravahaException e) {
+            // The engine's own diagnosis, with its PRV code, rather than a generic internal error.
+            // A client that gets "PRV-4023 ... this server serves [user_volume]" can act on it.
+            backend.errorResponse(
+                    "ERROR",
+                    PgWireErrors.sqlStateFor(e),
+                    e.getMessage(),
+                    e.errorCode().name());
+        } catch (RuntimeException e) {
+            // XX000 internal_error, and the message rather than the class name: anything reaching
+            // here is a bug in this server, and the person who has to find it is reading a psql
+            // window, not a heap dump.
+            backend.errorResponse("ERROR", "XX000", String.valueOf(e.getMessage()), null);
+        } finally {
+            backend.readyForQuery(PgBackend.STATUS_IDLE);
+        }
+    }
+
+    /**
+     * Refuses a message type this slice does not implement, by name, and stays connected.
+     *
+     * <p>{@code ErrorResponse} followed by {@code ReadyForQuery} is precisely what a real backend
+     * does when an extended-protocol sequence fails: the client's own recovery path expects it and
+     * will resynchronise. Silence, or closing the socket, would leave a driver blocked on a {@code
+     * Sync} reply that never comes -- and it would fail somewhere that names neither this server
+     * nor the message it could not handle.
+     */
+    private void unimplemented(PgBackend backend, char type) throws IOException {
+        String what =
+                switch (type) {
+                    case 'P' -> "Parse";
+                    case 'B' -> "Bind";
+                    case 'E' -> "Execute";
+                    case 'D' -> "Describe";
+                    case 'C' -> "Close";
+                    case 'H' -> "Flush";
+                    case 'S' -> "Sync";
+                    case 'F' -> "FunctionCall";
+                    case 'c', 'd', 'f' -> "COPY";
+                    case 'p' -> "PasswordMessage (outside authentication)";
+                    default -> "message type '" + type + "'";
+                };
+        boolean extended = "Parse".equals(what)
+                || "Bind".equals(what)
+                || "Execute".equals(what)
+                || "Describe".equals(what)
+                || "Close".equals(what)
+                || "Flush".equals(what)
+                || "Sync".equals(what);
+        String detail = extended
+                ? "The extended query protocol is not implemented in this slice. Use the simple "
+                        + "query protocol: psql does by default, and a JDBC client can be told to with "
+                        + "preferQueryMode=simple. ViewQuery.prepare already backs the Flight gateway's "
+                        + "prepared statements, so this is a wiring job and not a missing capability."
+                : "Not implemented in this slice. This gateway serves SELECT over the simple query "
+                        + "protocol and nothing else; see the pravaha-pgwire package documentation for "
+                        + "the full list of what is deliberately absent.";
+        PravahaException refusal = new PravahaException(
+                PgWireErrors.UNSUPPORTED_REQUEST, what + " is not supported by this server. " + detail);
+        backend.errorResponse("ERROR", PgWireErrors.sqlStateFor(refusal), refusal.getMessage(), null);
+        backend.readyForQuery(PgBackend.STATUS_IDLE);
+    }
+
+    /** A failure the connection cannot survive: say so, then let the socket close. */
+    private void fatal(PgBackend backend, PravahaException e) {
+        try {
+            backend.errorResponse(
+                    "FATAL",
+                    PgWireErrors.sqlStateFor(e),
+                    e.getMessage(),
+                    e.errorCode().name());
+        } catch (IOException gone) {
+            // The peer that sent us something unframeable has stopped reading. Nothing to do and
+            // nothing lost: the diagnosis was for them.
+        }
+    }
+}

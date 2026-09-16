@@ -35,6 +35,7 @@
     <module>pravaha-cluster</module>
     <module>pravaha-registry</module>
     <module>pravaha-flight</module>
+    <module>pravaha-pgwire</module>
     <module>pravaha-connect</module>
     <module>pravaha-testkit</module>
     <module>pravaha-benchmarks</module>
