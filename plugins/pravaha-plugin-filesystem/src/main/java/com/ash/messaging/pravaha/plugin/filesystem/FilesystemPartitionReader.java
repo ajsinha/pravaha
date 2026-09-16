@@ -94,7 +94,7 @@ final class FilesystemPartitionReader implements PartitionReader {
         this.path = path;
         this.skipHeader = skipHeader;
         try {
-            this.reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
+            this.reader = lenientUtf8Reader(path);
         } catch (IOException e) {
             throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot open " + path + ": " + why(e), e);
         }
@@ -192,7 +192,7 @@ final class FilesystemPartitionReader implements PartitionReader {
             // Closing the handle to a file that is already gone is not a failure worth reporting.
         }
         try {
-            reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
+            reader = lenientUtf8Reader(path);
         } catch (IOException e) {
             throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "cannot reopen " + path + ": " + why(e), e);
         }
@@ -322,6 +322,28 @@ final class FilesystemPartitionReader implements PartitionReader {
             throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "read failed at line " + lineNumber, e);
         }
         return produced;
+    }
+
+    /**
+     * A reader that replaces undecodable bytes instead of refusing the file.
+     *
+     * <p>TY-12. {@code Files.newBufferedReader} uses a decoder whose malformed-input action is
+     * {@code REPORT}, so one invalid UTF-8 byte anywhere in a file threw from the *reader* rather
+     * than from a record — which aborts the whole read, not the row. The reported symptom was
+     * {@code read failed at line 0}: not the line with the bad byte, because the failure happens
+     * before any line is produced.
+     *
+     * <p>Replacing is the right behaviour for a byte-oriented column: a {@code BYTES} field holds
+     * arbitrary bytes by definition, and refusing an entire feed because one of them is not text is
+     * a text assumption imposed on data that never made it. The replacement character is visible in
+     * the value, so a row that was mangled says so; a file that was never read says nothing.
+     */
+    private static BufferedReader lenientUtf8Reader(Path file) throws IOException {
+        java.nio.charset.CharsetDecoder decoder = StandardCharsets.UTF_8
+                .newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPLACE)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPLACE);
+        return new BufferedReader(new java.io.InputStreamReader(Files.newInputStream(file), decoder));
     }
 
     /**

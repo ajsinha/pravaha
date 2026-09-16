@@ -17,8 +17,10 @@ package com.ash.messaging.pravaha.serving;
 
 import java.util.function.Consumer;
 
+import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.common.row.Decimals;
 
 /**
  * A {@link RowWriter} that collects a result row as plain values.
@@ -95,9 +97,22 @@ final class ValueCollectingWriter implements RowWriter {
         return this;
     }
 
+    /**
+     * A {@code BigDecimal}, not the two raw limbs.
+     *
+     * <p>Finding TY-19. This handed back {@code new long[]{high, low}} -- the storage form, with the
+     * scale left behind in the schema. Nothing outside this engine can read that: it reached a
+     * caller as {@code [J@301434fb}, an answer in the shape of an answer. Until TY-19 was fixed the
+     * question never arose, because a DECIMAL column failed the scan before any row was produced.
+     *
+     * <p>The allocation is the one this class exists to make. A result leaves the engine and
+     * outlives every arena in it; the row path still adds decimals as two-limb integers and this
+     * never runs there (see {@code Decimals}).
+     */
     @Override
     public RowWriter setDecimal(int ordinal, long high, long low) {
-        values[ordinal] = new long[] {high, low};
+        values[ordinal] = Decimals.toBigDecimal(
+                high, low, ((DecimalType) schema.field(ordinal).type()).scale());
         return this;
     }
 

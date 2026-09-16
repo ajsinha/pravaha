@@ -140,10 +140,46 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
      * query to a filesystem stream needs the same schema the plugin will decode with, and deriving
      * it twice is how the two drift apart.
      */
+    /**
+     * Splits a schema string on the commas that separate columns, not the ones inside a type.
+     *
+     * <p>TY-7. {@code spec.split(",")} cut {@code amt:DECIMAL(10,2)} in half and reported
+     * {@code unknown type 'DECIMAL(10'} — so {@code DECIMAL(p,s)} was unreachable through every
+     * schema-string surface, while {@code typeFor}'s own refusal message went on listing it as
+     * supported. The message was right about the engine and wrong about this door, which is the
+     * worst combination: it sends the reader to check the type name, which is fine.
+     */
+    private static List<String> splitColumns(String spec) {
+        List<String> columns = new ArrayList<>();
+        int depth = 0;
+        StringBuilder current = new StringBuilder();
+        for (int i = 0; i < spec.length(); i++) {
+            char c = spec.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth = Math.max(0, depth - 1);
+            }
+            if (c == ',' && depth == 0) {
+                columns.add(current.toString());
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+        if (!current.isEmpty()) {
+            columns.add(current.toString());
+        }
+        return columns;
+    }
+
     public static StreamSchema parseSchema(String streamName, String spec) {
         StreamSchema.Builder builder = StreamSchema.builder(streamName);
-        for (String column : spec.split(",")) {
-            String[] parts = column.strip().split(":");
+        for (String column : splitColumns(spec)) {
+            // Limit 2: a type may contain no colon today, but splitting greedily would break the
+            // moment one does, and the failure would look like a malformed column rather than a
+            // parser that ran out of road.
+            String[] parts = column.strip().split(":", 2);
             if (parts.length != 2) {
                 throw new ConfigurationException(
                         DelimitedCodec.DECODE_FAILED,

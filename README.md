@@ -29,11 +29,10 @@
 > operator console, a node that survives its own restart, and a node whose thread and memory cost
 > stops following its query count. No clustering.**
 >
-> [ADR-038](docs/adr/038-one-node-ga.md) cuts waves 10 and 11 to what a single deployable node
-> requires: the findings dispositioned GA-REQUIRED, and the two gate proofs that are missing rather
-> than failed. The time-travel debugger, the control plane, self-tuning, Nexmark and all of
-> distribution are roadmap, and named there so nobody has to guess whether they were decided or
-> forgotten.
+> [ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) sets the road to GA: the seven
+> known gaps below, then cluster mode, then GA. It supersedes ADR-038, which cut GA to a single node
+> — kept, because its reasoning still holds if the scope is ever cut again, and marked superseded so
+> it cannot be read as current.
 >
 > Written as *what is true now* rather than as a history of waves. The wave-by-wave version of this
 > section said "no UI" nine lines above a paragraph describing the console, and listed watermark

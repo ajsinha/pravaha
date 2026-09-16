@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 156 FIXED, 124 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 124 open, **2 are
-GA-BLOCKER, 19 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 161 FIXED, 119 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 119 open, **2 are
+GA-BLOCKER, 14 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 19 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 14 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -2083,8 +2083,7 @@ correction, low priority).
 # TYPE — found executing `docs/qa/cases/TYPE.md`
 
 ## TY-1 (HIGH) — floating-point `%`/`MOD` is categorically refused as DECIMAL arithmetic
-> **Status:** OPEN — reproduced live: `validate --sql "SELECT id, x%y AS r FROM num"` exits 1 with `PRV-2021 'MOD(...)' is DECIMAL arithmetic`; `ExpressionCompiler.call`/`typeOf` has no MOD/% special case.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — Calcite casts both `MOD` operands to `DECIMAL` before the planner sees them, unlike `+ - * /`, so `price % 2` hit `refuseDecimalType`. `ExpressionCompiler.floatingModulo` strips the `CAST(x):DECIMAL` wrapper when the inner operand is approximate. **A second half the finding did not name:** without also fixing `PhysicalPlanBuilder.computedSchemaOf`, the output column would be *declared* DECIMAL while carrying a double. The refusal is not weakened — `amount % 1.5` with no floating operand stays `PRV-2021`, matching `amount * 1.5`. Seed-proven: 5 cases fail with the decimal refusal when `floatingModulo` returns null.
 
 
 `%`/`MOD` over `FLOAT32`/`FLOAT64` operands is refused outright with `PRV-2021`, e.g.
@@ -2250,8 +2249,7 @@ refusing is the better answer and is not built.
 Seed-proven by removing the check, which lets the oversized write through again.
 
 ## TY-7 (MEDIUM-HIGH) — `DECIMAL(p,s)` is advertised as supported in the refusal message but is unreachable through any surface
-> **Status:** OPEN — reproduced live: still gives `PRV-5040 unknown type 'DECIMAL(10'`; `FilesystemSourcePlugin.parseSchema` still splits the spec on `,` before per-column parsing.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — `FilesystemSourcePlugin.parseSchema` split the spec on every comma, so `amt:DECIMAL(10,2)` was cut in half and reported as `unknown type 'DECIMAL(10'`. A paren-aware splitter fixes it, and `name:TYPE` now splits on the first colon only. **What made this one expensive is that `typeFor`'s refusal went on listing `DECIMAL(p,s)` as supported** — right about the engine, wrong about this door, so it sent the reader to check the type name, and the type name was fine.
 
 
 The schema-string parser splits the whole `name:TYPE,name:TYPE` spec on `,` before any per-column
@@ -2309,8 +2307,7 @@ uses for the equivalent wire-serialization refusal (`PRV-6100`).
 docs/qa/logs/TYPE.md §1-3 (TYPE-005, TYPE-020).
 
 ## TY-11 (HIGH) — a boolean-valued `CASE WHEN ... THEN TRUE ELSE FALSE END` cannot be projected at all
-> **Status:** OPEN — reproduced live: `CASE WHEN ... THEN TRUE ELSE FALSE END` still gives `PRV-2021 function 'IS TRUE' ... is not supported in a projection`; `ExpressionCompiler.call()` has no `SqlKind.IS_TRUE` case.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — and the finding named only half the problem. It cites `IS TRUE`, which is what Calcite emits for a *nullable* condition; for a NOT-NULL one it emits the bare comparison, and both were refused — so fixing only what the finding named would have left the headline query broken on a non-nullable column. `PredicateCompiler` gained `IS_TRUE`/`IS_FALSE`/`IS_NOT_TRUE`/`IS_NOT_FALSE` in both `compile` and `negate`; `ExpressionCompiler.booleanValued` compiles any boolean-typed call through it and wraps it as `Case(p, TRUE, FALSE)`, reusing the three-valued reasoning rather than duplicating it. **A nullable boolean projection stays refused on purpose** — projecting it would report `UNKNOWN` as `false`, a wrong answer under exit 0. Seed-proven: 5 cases fail.
 
 
 Calcite rewrites a `CASE` whose branches are boolean literals into `IS TRUE(cond)` before Pravaha's
@@ -2326,8 +2323,7 @@ flag FROM types" --schema "<types schema>"` → `PRV-2021`.
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3 (TYPE-009).
 
 ## TY-12 (HIGH) — a BYTES column carrying invalid UTF-8 aborts the whole read instead of decoding lossily
-> **Status:** OPEN — `FilesystemPartitionReader` still uses `Files.newBufferedReader(path, UTF_8)` (REPORT coding-error action), wrapped by `poll()` as `PRV-5040 read failed at line N`; unrelated to TY-17's wire fix and untouched.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — `Files.newBufferedReader` decodes with `CodingErrorAction.REPORT`, so one invalid UTF-8 byte threw from the *reader* rather than from a record, aborting the whole file. The reported symptom was `read failed at line 0` — not the line with the bad byte, because the failure happens before any line is produced. A `CharsetDecoder` with `REPLACE` on malformed input and unmappable characters reads the file; the replacement character is visible in the value, so a mangled row says so where an unread file says nothing. Replacing is right for a byte-oriented column in particular: a `BYTES` field holds arbitrary bytes by definition.
 
 
 The filesystem source plugin reads delimited files line-by-line as UTF-8 text before any per-column
@@ -2482,8 +2478,7 @@ control case still passes; TYPE-074 is the regression).
 **FIXED.** `TIME` is written through `TimeNanoVector`, matching the `Time(NANOSECOND, 64)` the schema already declared. It had been swept into `TIMESTAMP`'s case when the fix beside it corrected that type's vector, and the two had shared a branch since before either worked. Seed-proven by restoring the timestamp vector, which throws `ClassCastException` on the first non-null value.
 
 ## TY-19 (HIGH) — a DECIMAL column poisons every query against its view, even when the column is never selected
-> **Status:** OPEN — `ViewQuery.write()` iterates the full view schema rather than the projected `outputSchema`; with no DECIMAL case it falls to `setString`/`setBytes`, throwing regardless of the SELECT list.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — **and this finding's stated diagnosis was wrong.** It blames iterating the full view schema rather than `outputSchema`; the plan reads by ordinal and the projection sits above the materialiser, so the whole row must be written. The actual cause is that DECIMAL had no case in the switch and fell through to `setString`. **Three doors into a view had the same hole** and fixing one would have looked complete: `ViewQuery.write` (now `setDecimal` via `Decimals.high/low`, with a coded `PRV-4025` instead of a bare `ArithmeticException`), `ServedView.value` (the streaming half — a lane-fed view was poisoned before any query existed), and `ValueCollectingWriter`/`ViewSink`, which stored `new long[]{high, low}` so that once the scan stopped failing, `SELECT amt` returned `[J@301434fb`. New `DecimalViewTest` (5), deliberately asserting on the *non*-decimal columns, which is what the finding is. Seed-proven per site: 5, 1 and 3 failures respectively.
 
 
 `SELECT id FROM n` (a view whose schema includes `id, amt DECIMAL, d, t`, per TYPE-019's own

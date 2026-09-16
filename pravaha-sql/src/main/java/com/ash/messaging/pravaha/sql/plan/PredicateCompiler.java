@@ -71,6 +71,25 @@ public final class PredicateCompiler {
                 comparison((RexCall) node, false);
             case IS_NULL -> nullCheck((RexCall) node, true);
             case IS_NOT_NULL -> nullCheck((RexCall) node, false);
+            // The truth tests, which Calcite writes on the user's behalf: `CASE WHEN c THEN TRUE
+            // ELSE FALSE END` is rewritten to `c IS TRUE` before this sees it (finding TY-11), and
+            // a WHERE clause spelling one out arrives the same way. Each maps onto a primitive the
+            // two-valued IR already has, because `compile(x).test(row)` is by construction true
+            // exactly where SQL says x is TRUE:
+            //   x IS TRUE      -> that, unchanged
+            //   x IS FALSE     -> negate(x), which is TRUE only where x is present and false
+            //   x IS NOT TRUE  -> the *total* complement: FALSE or UNKNOWN
+            //   x IS NOT FALSE -> the total complement of IS FALSE: TRUE or UNKNOWN
+            // Predicate.Not is the total complement and its own javadoc warns against using it
+            // over something that can be UNKNOWN. That warning is about modelling SQL's NOT, whose
+            // result is UNKNOWN for an UNKNOWN operand. IS NOT TRUE is the other operator -- it is
+            // defined as the complement and is never UNKNOWN -- so Not is exactly right here.
+            case IS_TRUE -> compile(((RexCall) node).getOperands().get(0));
+            case IS_FALSE -> negate(((RexCall) node).getOperands().get(0));
+            case IS_NOT_TRUE ->
+                new Predicate.Not(compile(((RexCall) node).getOperands().get(0)));
+            case IS_NOT_FALSE ->
+                new Predicate.Not(negate(((RexCall) node).getOperands().get(0)));
             case LIKE -> like((RexCall) node, false);
             case LITERAL ->
                 Boolean.TRUE.equals(((RexLiteral) node).getValueAs(Boolean.class))
@@ -109,6 +128,14 @@ public final class PredicateCompiler {
             // A null check is total: it is never UNKNOWN, so its negation is the other one.
             case IS_NULL -> nullCheck((RexCall) node, false);
             case IS_NOT_NULL -> nullCheck((RexCall) node, true);
+            // The truth tests are total for the same reason, so each negates to its partner rather
+            // than needing the three-valued care a comparison does (finding TY-11).
+            case IS_TRUE ->
+                new Predicate.Not(compile(((RexCall) node).getOperands().get(0)));
+            case IS_NOT_TRUE -> compile(((RexCall) node).getOperands().get(0));
+            case IS_FALSE ->
+                new Predicate.Not(negate(((RexCall) node).getOperands().get(0)));
+            case IS_NOT_FALSE -> negate(((RexCall) node).getOperands().get(0));
             // NOT LIKE is TRUE only where the column is present and does not match. Compiled as a
             // flag rather than wrapped, so the null row is dropped by both forms.
             case LIKE -> like((RexCall) node, true);

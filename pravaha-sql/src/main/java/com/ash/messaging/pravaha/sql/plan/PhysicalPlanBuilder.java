@@ -519,7 +519,69 @@ public final class PhysicalPlanBuilder {
         for (RexNode expression : project.getProjects()) {
             expressions.add(compiler.compile(expression));
         }
-        return new ComputeOperator(input, output, expressions);
+        return new ComputeOperator(input, computedSchemaOf(output, expressions), expressions);
+    }
+
+    /**
+     * The schema a computed projection actually produces, where that differs from Calcite's.
+     *
+     * <p>Finding TY-1, and the half of it that is not in {@code ExpressionCompiler}. Calcite types
+     * {@code price % 2} as {@code DECIMAL(25, 15)} because it coerced both operands to DECIMAL to
+     * get there; the expression compiler undoes that coercion and evaluates in {@code double}. Taking
+     * the declared type from the row type alone would then hand a client a column marked DECIMAL
+     * carrying a double -- a mismatch between what the schema promises and what the rows hold, which
+     * is worse than the refusal it replaced.
+     *
+     * <p>The expression tree is the authority, because it is the thing that will run. Nullability
+     * stays Calcite's: it reasons about null-rejecting predicates and the expression tree does not.
+     *
+     * <p>Returns the declared schema untouched when every type already agrees, which is the
+     * overwhelmingly common case -- so this adds a comparison per column at plan time and nothing
+     * at all to the row path.
+     */
+    private static StreamSchema computedSchemaOf(StreamSchema declared, List<Expression> expressions) {
+        boolean agrees = true;
+        for (int i = 0; i < expressions.size(); i++) {
+            agrees &= expressions.get(i).type() == declared.field(i).type().typeName();
+        }
+        if (agrees) {
+            return declared;
+        }
+        StreamSchema.Builder builder = StreamSchema.builder(declared.name());
+        for (int i = 0; i < expressions.size(); i++) {
+            com.ash.messaging.pravaha.api.data.Field field = declared.field(i);
+            TypeName produced = expressions.get(i).type();
+            builder.field(
+                    field.name(),
+                    produced == field.type().typeName()
+                            ? field.type()
+                            : scalarType(produced, field.type().nullable()));
+        }
+        declared.eventTimeOrdinal()
+                .ifPresent(ordinal -> builder.eventTime(declared.field(ordinal).name()));
+        return builder.build();
+    }
+
+    /** A column type for what an expression produces. Only the scalar types a tree can yield. */
+    private static com.ash.messaging.pravaha.api.data.PravahaType scalarType(TypeName produced, boolean nullable) {
+        com.ash.messaging.pravaha.api.data.PravahaType type =
+                switch (produced) {
+                    case BOOLEAN -> com.ash.messaging.pravaha.api.data.Types.bool();
+                    case INT8 -> com.ash.messaging.pravaha.api.data.Types.int8();
+                    case INT16 -> com.ash.messaging.pravaha.api.data.Types.int16();
+                    case INT32 -> com.ash.messaging.pravaha.api.data.Types.int32();
+                    case INT64 -> com.ash.messaging.pravaha.api.data.Types.int64();
+                    case FLOAT32 -> com.ash.messaging.pravaha.api.data.Types.float32();
+                    case FLOAT64 -> com.ash.messaging.pravaha.api.data.Types.float64();
+                    case DATE -> com.ash.messaging.pravaha.api.data.Types.date();
+                    case TIME -> com.ash.messaging.pravaha.api.data.Types.time();
+                    case TIMESTAMP_LTZ -> com.ash.messaging.pravaha.api.data.Types.timestamp();
+                    case STRING -> com.ash.messaging.pravaha.api.data.Types.string();
+                    default ->
+                        throw unsupported("a computed column produces " + produced
+                                + ", which has no column type at the output of a projection.");
+                };
+        return nullable ? type.withNullable(true) : type;
     }
 
     /** The {@code $TUMBLE} or {@code $HOP} call in a projection, or null if there is none. */

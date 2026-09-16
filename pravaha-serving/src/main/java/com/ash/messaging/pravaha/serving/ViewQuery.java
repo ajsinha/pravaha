@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.serving;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,12 +23,14 @@ import java.util.List;
 import org.apache.calcite.rel.RelNode;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
+import com.ash.messaging.pravaha.common.row.Decimals;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
@@ -718,8 +721,46 @@ public final class ViewQuery {
                 case FLOAT32 -> writer.setFloat(ordinal, ((Number) value).floatValue());
                 case FLOAT64 -> writer.setDouble(ordinal, ((Number) value).doubleValue());
                 case BYTES -> writer.setBytes(ordinal, (byte[]) value);
+                case DECIMAL -> writeDecimal(writer, schema, ordinal, value);
                 default -> writer.setString(ordinal, String.valueOf(value));
             }
+        }
+    }
+
+    /**
+     * The 128-bit form of a DECIMAL column, written through its own setter.
+     *
+     * <p>Finding TY-19, and the reason it read as "a DECIMAL column poisons every query against its
+     * view". This loop materialises the <em>whole</em> view row before the plan runs, because the
+     * plan reads its input by ordinal and there is no projection to consult yet -- so a DECIMAL
+     * column reached this switch whether or not the query selected it, fell through to the string
+     * branch, and {@code BinaryRowWriter.setBytes} refused it as fixed-width. {@code SELECT id FROM
+     * n} therefore failed on a column named nowhere in the query, and a view was unqueryable the
+     * moment its schema contained a decimal.
+     *
+     * <p>Skipping the unselected column instead would have been the smaller change and the wrong
+     * one: which ordinals the plan reads is not knowable here, and a scan that leaves some of them
+     * unwritten is a row whose contents depend on the query.
+     *
+     * <p>Writing the value is all this does. Whether a decimal can be <em>computed</em> with, or
+     * serialized to a client, is refused elsewhere and stays refused -- the row layout has carried
+     * 128-bit decimals since before the arithmetic over them was written.
+     */
+    private static void writeDecimal(BinaryRowWriter writer, StreamSchema schema, int ordinal, Object value) {
+        int scale = ((DecimalType) schema.field(ordinal).type()).scale();
+        BigDecimal decimal = value instanceof BigDecimal exact ? exact : new BigDecimal(String.valueOf(value));
+        try {
+            writer.setDecimal(ordinal, Decimals.high(decimal, scale), Decimals.low(decimal, scale));
+        } catch (ArithmeticException doesNotFit) {
+            // Coded rather than left as the bare ArithmeticException Decimals throws: this is
+            // reachable from a client's request and an uncoded exception crossing the wire is the
+            // one thing every refusal in this engine is supposed to prevent.
+            throw new PravahaException(
+                    ServingErrors.UNSUPPORTED_QUERY,
+                    "view '" + schema.name() + "' holds " + decimal + " in its DECIMAL column ('"
+                            + schema.field(ordinal).name() + "'), which does not fit the declared scale of "
+                            + scale + ". The value was accepted into the view and cannot be read back out; "
+                            + "declare the column with the scale the source actually produces.");
         }
     }
 }

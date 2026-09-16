@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.plugin.filesystem;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -638,6 +639,67 @@ class FilesystemPluginTest {
         @Override
         public void close() {
             arena.close();
+        }
+    }
+
+    @Test
+    void aDecimalColumnCanActuallyBeDeclared() {
+        // TY-7. `spec.split(",")` cut `amt:DECIMAL(10,2)` in half and reported
+        // `unknown type 'DECIMAL(10'`, so DECIMAL(p,s) was unreachable through every schema-string
+        // surface -- while typeFor's own refusal went on listing it as supported. The message was
+        // right about the engine and wrong about this door, which is the worst combination: it sends
+        // the reader to check the type name, and the type name is fine.
+        StreamSchema schema = FilesystemSourcePlugin.parseSchema("txn", "id:INT64,amt:DECIMAL(10,2),note:STRING");
+
+        assertThat(schema.fieldCount()).as("three columns, not four").isEqualTo(3);
+        assertThat(schema.field(1).name()).isEqualTo("amt");
+        assertThat(schema.field(1).type().typeName().name()).contains("DECIMAL");
+        assertThat(schema.field(2).name())
+                .as("the column after the decimal survives")
+                .isEqualTo("note");
+    }
+
+    @Test
+    void anOrdinarySchemaIsUnaffectedByTheParenAwareSplit() {
+        StreamSchema schema = FilesystemSourcePlugin.parseSchema("txn", "id:INT64,name:STRING,ok:BOOLEAN");
+        assertThat(schema.fieldCount()).isEqualTo(3);
+        assertThat(schema.field(2).name()).isEqualTo("ok");
+    }
+
+    @Test
+    void invalidUtf8CostsTheBytesAndNotTheFile(@TempDir Path dir) throws IOException {
+        // TY-12. Files.newBufferedReader decodes with CodingErrorAction.REPORT, so one invalid byte
+        // threw from the *reader* rather than from a record -- aborting the whole read. The reported
+        // symptom was "read failed at line 0": not the line with the bad byte, because the failure
+        // happens before any line is produced.
+        Path input = dir.resolve("in.csv");
+        byte[] good = "1,alice,1.0,true,x\n".getBytes(StandardCharsets.UTF_8);
+        byte[] bad = new byte[] {
+            '2', ',', 'b', (byte) 0xC3, (byte) 0x28, ',', '2', '.', '0', ',', 't', 'r', 'u', 'e', ',', 'y', '\n'
+        };
+        byte[] alsoGood = "3,carol,3.0,true,z\n".getBytes(StandardCharsets.UTF_8);
+        try (java.io.OutputStream out = Files.newOutputStream(input)) {
+            out.write(good);
+            out.write(bad);
+            out.write(alsoGood);
+        }
+
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            source.open();
+            try (PartitionReader reader =
+                    source.createReader(source.partitions("txn").get(0), null)) {
+                Collector rows = new Collector(source.schema());
+                int read = reader.poll(rows, 10);
+
+                assertThat(read)
+                        .as("every row arrives; the undecodable bytes become replacement characters in "
+                                + "the value rather than costing the whole feed")
+                        .isEqualTo(3);
+                assertThat(rows.rows.get(0).getLong(0)).isEqualTo(1L);
+                assertThat(rows.rows.get(2).getLong(0)).isEqualTo(3L);
+                rows.close();
+            }
         }
     }
 }

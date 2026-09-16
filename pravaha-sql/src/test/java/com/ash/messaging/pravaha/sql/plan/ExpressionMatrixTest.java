@@ -295,6 +295,56 @@ class ExpressionMatrixTest {
             Case.answers(
                     "SQLX-037 the % spelling agrees with MOD",
                     "SELECT amount % 3 FROM txn", "1", "1", "-2", "0", "1", "1"),
+            // TY-1. Calcite casts both operands of MOD to DECIMAL before the planner sees them --
+            // unlike + - * /, which keep their floating type -- so every one of these was refused
+            // as "DECIMAL arithmetic ... a rounding error in a ledger" over columns that were never
+            // declared DECIMAL. Floating modulo was unreachable through SQL entirely. The values
+            // are IEEE 754 remainder, which takes the sign of the dividend, same as the integer
+            // form two rows above.
+            Case.answers(
+                    "TY-1 the % spelling over a FLOAT64 column",
+                    "SELECT price % 2 FROM txn", "0.5", "0.0", "1.0", "0.5", "1.5", "0.25"),
+            Case.answers(
+                    "TY-1 the MOD spelling agrees with %",
+                    "SELECT MOD(price, 2) FROM txn", "0.5", "0.0", "1.0", "0.5", "1.5", "0.25"),
+            Case.answers(
+                    "TY-1 both operands floating",
+                    "SELECT price % price FROM txn",
+                    "0.0",
+                    "0.0",
+                    "0.0",
+                    "0.0",
+                    "0.0",
+                    "0.0"),
+            Case.answers(
+                    "TY-1 an integer dividend and a floating divisor, r4 dividing by zero to NaN",
+                    "SELECT price % amount FROM txn",
+                    "2.5",
+                    "4.0",
+                    "1.0",
+                    "NaN",
+                    "1.5",
+                    "0.25"),
+            // -50 % 1.0 is -0.0, not 0.0: the remainder takes the sign of the dividend and IEEE 754
+            // has two zeroes. Pinned rather than smoothed over -- it is the same sign rule the
+            // integer MOD row above asserts, and a reader who sees -0.0 in a result should be able
+            // to find it stated somewhere.
+            Case.answers(
+                    "TY-1 a floating dividend and an integer divisor keeps the dividend's sign",
+                    "SELECT amount % price FROM txn",
+                    "0.0",
+                    "2.0",
+                    "-0.0",
+                    "0.0",
+                    "1.0",
+                    "0.0"),
+            // TY-1's boundary: the coercion is undone, the refusal is not weakened. `amount % 1.5`
+            // has no floating operand at all, so it is genuine decimal arithmetic and stays refused
+            // -- exactly as `amount * 1.5` (TYPE-110, below) is.
+            Case.refused(
+                    "TY-1 an integer column modulo a decimal literal is still refused",
+                    "SELECT amount % 1.5 FROM txn",
+                    "PRV-2021"),
             Case.answers(
                     "TYPE-111 integer division truncates towards zero, not towards -infinity",
                     "SELECT amount / 3 FROM txn",
@@ -783,6 +833,69 @@ class ExpressionMatrixTest {
                     "0",
                     "1",
                     "1"),
+
+            // TY-11. `CASE WHEN c THEN TRUE ELSE FALSE END` is the ordinary way to normalise a
+            // condition into a boolean column, and it could not be projected at all: Calcite
+            // rewrites it before the planner sees it -- to the bare condition when that cannot be
+            // UNKNOWN, to `IS TRUE(c)` when it can -- and neither shape had a compiled path. The
+            // same CASE returning 1/0 (SQLX-041, above) always worked, which is what said the CASE
+            // was never the problem. Both rewrites are covered here because they are different
+            // code, reached by changing nothing but the nullability of the column in the condition.
+            Case.answers(
+                    "TY-11 a boolean CASE over a NOT NULL condition, which Calcite reduces to the condition",
+                    "SELECT CASE WHEN amount > 50 THEN TRUE ELSE FALSE END FROM txn",
+                    "true",
+                    "true",
+                    "false",
+                    "false",
+                    "false",
+                    "false"),
+            Case.answers(
+                    "TY-11 a boolean CASE over a nullable condition, which Calcite rewrites to IS TRUE",
+                    "SELECT CASE WHEN status = 'ok' THEN TRUE ELSE FALSE END FROM txn",
+                    "true",
+                    "false",
+                    "true",
+                    "false",
+                    "true",
+                    "true"),
+            // r2's status is NULL, so `status = 'ok'` is UNKNOWN and the CASE takes the ELSE -- the
+            // same three-valued rule TYPE-123 asserts for the 1/0 form. Calcite spells this one
+            // IS NOT TRUE, which is the total complement rather than SQL's NOT.
+            Case.answers(
+                    "TY-11 the inverted boolean CASE, which Calcite rewrites to IS NOT TRUE",
+                    "SELECT CASE WHEN status = 'ok' THEN FALSE ELSE TRUE END FROM txn",
+                    "false",
+                    "true",
+                    "false",
+                    "true",
+                    "false",
+                    "false"),
+            Case.answers(
+                    "TY-11 a bare NOT NULL comparison projected directly",
+                    "SELECT amount > 50 FROM txn",
+                    "true",
+                    "true",
+                    "false",
+                    "false",
+                    "false",
+                    "false"),
+            Case.answers(
+                    "TY-11 IS NULL projected directly, which is total and so never UNKNOWN",
+                    "SELECT status IS NULL FROM txn",
+                    "false",
+                    "true",
+                    "false",
+                    "false",
+                    "false",
+                    "false"),
+            // TY-11's boundary. `status = 'ok'` is UNKNOWN for r2, and a projected column holds two
+            // values. Reporting UNKNOWN as false would be a wrong answer under exit 0, so it is
+            // refused -- and the refusal names the CASE form that says "collapse it" out loud.
+            Case.refused(
+                    "TY-11 a nullable comparison is refused rather than flattened to false",
+                    "SELECT status = 'ok' FROM txn",
+                    "PRV-2021"),
 
             // --- TYPE §19, CAST ----------------------------------------------------------------
             Case.answers(

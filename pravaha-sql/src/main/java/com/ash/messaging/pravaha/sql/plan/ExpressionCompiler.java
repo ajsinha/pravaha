@@ -140,6 +140,16 @@ final class ExpressionCompiler {
         if (call.getKind() == org.apache.calcite.sql.SqlKind.CASE) {
             return caseWhen(call, 0);
         }
+        if (call.getType().getSqlTypeName() == SqlTypeName.BOOLEAN) {
+            Expression truth = booleanValued(call);
+            if (truth != null) {
+                return truth;
+            }
+        }
+        Expression floatingModulo = floatingModulo(call);
+        if (floatingModulo != null) {
+            return floatingModulo;
+        }
         Expression.Function function = unaryFunction(call.getOperator().getName());
         if (function != null) {
             if (call.getOperands().size() != 1) {
@@ -208,6 +218,124 @@ final class ExpressionCompiler {
                 operator,
                 compile(call.getOperands().get(1)),
                 type);
+    }
+
+    /**
+     * A boolean-valued call in a projection: {@code IS TRUE(c)}, a bare comparison, an {@code AND}.
+     *
+     * <p>Finding TY-11. Nobody writes {@code IS TRUE} -- Calcite does. {@code CASE WHEN c THEN TRUE
+     * ELSE FALSE END} is rewritten before the planner sees it, into {@code IS TRUE(c)} when {@code
+     * c} can be UNKNOWN and into the bare condition when it cannot, and neither shape had a
+     * compiled path here. So the ordinary way to normalise a comparison into a boolean column was
+     * refused for every query that wrote it, while the same CASE returning {@code 1}/{@code 0}
+     * worked -- which is the tell that the CASE was never the problem.
+     *
+     * <p>Compiled by handing the whole call to {@link PredicateCompiler} and choosing between two
+     * boolean literals on the result. That reuses the three-valued reasoning that already exists
+     * rather than writing a second copy of it in the expression tree: a predicate's {@code test} is
+     * true exactly where SQL says the condition is TRUE, so {@code CASE WHEN p THEN true ELSE
+     * false} <em>is</em> {@code p IS TRUE}. {@code describe()} then prints the CASE the user wrote.
+     *
+     * <p><strong>A nullable boolean is refused rather than flattened.</strong> {@code SELECT status
+     * = 'ok'} over a nullable column must produce three values, and the predicate IR has two: every
+     * comparison returns false for a null operand. Projecting it would turn UNKNOWN into {@code
+     * false} silently, which is a wrong answer under exit 0 rather than a missing feature. Calcite
+     * marks exactly these calls nullable, so the check is one line and needs no analysis of its
+     * own. {@code IS TRUE}/{@code IS NOT TRUE} are NOT NULL by definition and so always pass it --
+     * which is why the CASE this finding is about works while the bare comparison under it does not.
+     *
+     * @return null if this call is not something {@link PredicateCompiler} understands, so that the
+     *     ordinary projection refusal names the function instead of a predicate-shaped message
+     */
+    private Expression booleanValued(RexCall call) {
+        Predicate predicate;
+        try {
+            predicate = new PredicateCompiler(inputSchema).compile(call);
+        } catch (PravahaException notAPredicate) {
+            // Swallowed on purpose, and only here. A boolean call this cannot compile as a
+            // predicate -- SEARCH over a Sarg, a subquery -- is better refused by the projection's
+            // own message, which lists what a projection supports, than by a predicate-shaped one
+            // about WHERE clauses. The caller re-raises with that message a few lines down; nothing
+            // is accepted as a result of this catch.
+            return null;
+        }
+        if (call.getType().isNullable()) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' is a boolean that can be UNKNOWN, and a projected column holds TRUE or "
+                            + "FALSE. Projecting it would report UNKNOWN as FALSE, which is a wrong answer "
+                            + "rather than a missing one. Write it as CASE WHEN " + call + " THEN TRUE ELSE "
+                            + "FALSE END if that collapse is what you mean, or add IS NOT NULL to the operand.");
+        }
+        return new Expression.Case(predicate, Expression.Literal.ofBoolean(true), Expression.Literal.ofBoolean(false));
+    }
+
+    /**
+     * {@code %}/{@code MOD} over floating point, which arrives dressed as DECIMAL arithmetic.
+     *
+     * <p>Finding TY-1. Calcite casts both operands of {@code MOD} to {@code DECIMAL} before the
+     * planner sees them -- unlike {@code + - * /}, which keep their native floating type -- so
+     * {@code x % y} over two FLOAT64 columns reached {@link #refuseDecimalType} and was told it was
+     * decimal arithmetic in a ledger. Neither operand was ever declared DECIMAL, and floating
+     * modulo was unreachable through SQL entirely: {@code x % y}, {@code MOD(x, y)} and every mixed
+     * floating pair produced the same sentence.
+     *
+     * <p>The coercion is undone rather than the refusal weakened. A {@code CAST(x):DECIMAL} wrapper
+     * over an approximate operand is Calcite's doing and carries no information, so it is stripped
+     * and the result type re-derived the way {@code *} derives it -- widest approximate operand
+     * wins. That makes {@code price % 1.5} behave like {@code price * 1.5}, which already planned,
+     * and leaves {@code amount % 1.5} refused, which {@code amount * 1.5} also is. The refusal
+     * still fires for everything that is genuinely decimal; what changed is that a query with no
+     * decimal in it stops being told otherwise.
+     *
+     * <p>Rejected: special-casing {@code refuseDecimalType} to let any MOD through. That would also
+     * let {@code MOD(decimal_column, 3)} through and evaluate it in a double -- exactly the
+     * rounding error the refusal exists to prevent.
+     *
+     * @return null if this call is not a floating modulo, leaving every other path unchanged
+     */
+    private Expression floatingModulo(RexCall call) {
+        String name = call.getOperator().getName().toUpperCase(java.util.Locale.ROOT);
+        if ((!name.equals("MOD") && !name.equals("%"))
+                || call.getOperands().size() != 2
+                || call.getType().getSqlTypeName() != SqlTypeName.DECIMAL) {
+            return null;
+        }
+        RexNode left = withoutDecimalCoercion(call.getOperands().get(0));
+        RexNode right = withoutDecimalCoercion(call.getOperands().get(1));
+        TypeName type = widestApproximate(left, right);
+        if (type == null) {
+            return null;
+        }
+        return new Expression.Arithmetic(compile(left), Expression.Operator.MODULO, compile(right), type);
+    }
+
+    /** Strips the DECIMAL cast Calcite wraps an approximate MOD operand in, and nothing else. */
+    private static RexNode withoutDecimalCoercion(RexNode operand) {
+        if (operand instanceof RexCall cast
+                && cast.getKind() == org.apache.calcite.sql.SqlKind.CAST
+                && cast.getType().getSqlTypeName() == SqlTypeName.DECIMAL
+                && isApproximate(cast.getOperands().get(0).getType().getSqlTypeName())) {
+            return cast.getOperands().get(0);
+        }
+        return operand;
+    }
+
+    /** FLOAT64 if either side is a DOUBLE, FLOAT32 if either is a REAL, null if neither floats. */
+    private static TypeName widestApproximate(RexNode left, RexNode right) {
+        SqlTypeName leftType = left.getType().getSqlTypeName();
+        SqlTypeName rightType = right.getType().getSqlTypeName();
+        if (leftType == SqlTypeName.DOUBLE || rightType == SqlTypeName.DOUBLE) {
+            return TypeName.FLOAT64;
+        }
+        if (isApproximate(leftType) || isApproximate(rightType)) {
+            return TypeName.FLOAT32;
+        }
+        return null;
+    }
+
+    private static boolean isApproximate(SqlTypeName sqlType) {
+        return sqlType == SqlTypeName.DOUBLE || sqlType == SqlTypeName.FLOAT || sqlType == SqlTypeName.REAL;
     }
 
     /**

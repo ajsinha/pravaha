@@ -641,6 +641,18 @@ public final class ServedView {
                 }
                 yield bytes;
             }
+            // Finding TY-19, the streaming half. Every ordinal is materialised when a row is
+            // applied, so a DECIMAL column landed on the refusal below whatever the query selected
+            // -- and a view fed by a lane was poisoned by a column nobody asked for, exactly as the
+            // ad-hoc scan path was. A BigDecimal, matching what applyValues accepts and what the
+            // result writer produces, so the column has one class wherever it is held.
+            case DECIMAL ->
+                com.ash.messaging.pravaha.common.row.Decimals.toBigDecimal(
+                        row.getDecimalHigh(ordinal),
+                        row.getDecimalLow(ordinal),
+                        ((com.ash.messaging.pravaha.api.data.DecimalType)
+                                        schema.field(ordinal).type())
+                                .scale());
             default ->
                 throw new PravahaException(
                         ServingErrors.UNSUPPORTED_QUERY,

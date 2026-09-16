@@ -258,9 +258,19 @@ public final class ViewSink {
             return this;
         }
 
+        // A BigDecimal, matching every other way a value enters a view (finding TY-19). This staged
+        // the two raw limbs as a long[], which nothing that reads a view back out understands: the
+        // value writer on the way out now produces a BigDecimal and the scan path materialises one,
+        // so a view fed through this sink and a view fed through applyValues held two different
+        // classes in the same column. The one that arrived through here failed on the way out.
         @Override
         public RowWriter setDecimal(int ordinal, long high, long low) {
-            values[ordinal] = new long[] {high, low};
+            values[ordinal] = com.ash.messaging.pravaha.common.row.Decimals.toBigDecimal(
+                    high,
+                    low,
+                    ((com.ash.messaging.pravaha.api.data.DecimalType)
+                                    schema.field(ordinal).type())
+                            .scale());
             return this;
         }
 

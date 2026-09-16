@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted |
+| Status | **Superseded by [ADR-039](039-ga-includes-the-known-gaps-and-clustering.md)** — GA now requires the seven known gaps and then clustering. Kept because its reasoning for a smaller GA is still sound if the scope is ever cut again |
 | Date | 2026-09-16 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-034 (distribution deferred), ADR-035 (wave 8 is survival), ADR-036 (one node, thousands of queries) |

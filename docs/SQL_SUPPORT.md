@@ -48,9 +48,11 @@ costs whatever was decided on the strength of it.
 | Table aliases — `FROM txn AS t`, or `FROM txn t` | ✅ | With or without `AS` |
 | Qualified columns — `t.amount`, `t.*` | ✅ | In `SELECT`, `WHERE`, `GROUP BY` and join conditions |
 | Integer and floating arithmetic — `amount * 2 + 1`, `price / 2` | ✅ | |
+| Modulo — `amount % 3`, `MOD(price, 2)` | ✅ | Over integers and over floating point alike. The remainder takes the sign of the dividend, so `-50 % 3` is `-2` and `-50.0 % 1.0` is `-0.0` |
 | `CAST(x AS DOUBLE)` | ✅ | Between numeric types |
 | Literals — `SELECT 1` | ✅ | |
 | `CASE WHEN … THEN … END` | ✅ | Any number of branches, with or without `ELSE`. Only the branch taken is evaluated, so `CASE WHEN n = 0 THEN 0 ELSE t / n END` does not divide by zero |
+| A boolean-valued expression — `CASE WHEN c THEN TRUE ELSE FALSE END`, `amount > 50`, `status IS NULL` | ✅ | Only where the result cannot be UNKNOWN. See below |
 | Scalar functions — `ABS`, `FLOOR`, `CEIL`, `ROUND` | ✅ | One argument. `ROUND(x, 2)` is refused: rounding to decimal places is not built |
 | Numeric functions beyond those four | ❌ | `PRV-2021` |
 | String literals — `SELECT 'flagged'` | ✅ | |
@@ -60,6 +62,15 @@ costs whatever was decided on the strength of it.
 | `SUBSTRING(s FROM start)`, `… FOR length` | ✅ | Positions are 1-based and counted in code points, so a substring never splits an emoji in half |
 | Other string functions — `REPLACE`, `POSITION`, `LPAD` | ❌ | `PRV-2021` |
 | `SELECT DISTINCT` | ❌ | `PRV-2050` — it is a `GROUP BY` over an unbounded key space; see below |
+
+**A projected boolean holds two values, and SQL comparisons have three.** `SELECT amount > 50`
+plans, because `amount` is `NOT NULL` and the comparison is therefore TRUE or FALSE. `SELECT status
+= 'ok'` over a nullable `status` is refused with `PRV-2021`: the answer for a row whose `status` is
+NULL is UNKNOWN, and writing it into a boolean column would report it as `false` — a wrong answer
+under a success exit code rather than a missing feature. Say which you mean and it plans: `CASE WHEN
+status = 'ok' THEN TRUE ELSE FALSE END` collapses UNKNOWN to `false` deliberately, and `status IS
+NOT NULL AND status = 'ok'` is never UNKNOWN in the first place. `IS NULL`, `IS NOT NULL`, `IS
+TRUE`, `IS FALSE`, `IS NOT TRUE` and `IS NOT FALSE` are total by definition and project freely.
 
 A `CASE` may produce text as readily as a number, but every branch must produce the *same* type —
 with one exception that surprises people: `CASE WHEN … THEN 'big' ELSE 0 END` is accepted, because
@@ -249,6 +260,14 @@ and TY-18 (TIME).
 belongs to whoever owns the ledger and not to a serialiser. Year–month intervals (`INTERVAL '1'
 MONTH`) are refused because a month is not a fixed length of time; day–time intervals work and are
 what windows use.
+
+**`DECIMAL(p,s)` cannot be declared at all through the schema string**, even though the refusal for
+an unknown type names it as supported. `--schema`, `--out-schema`, `pravaha.streams.*.schema` and
+`POST /api/v1/streams` share one grammar, `name:TYPE,name:TYPE`, which is split on commas before any
+type is parsed — so `amt:DECIMAL(10,2)` is cut at its own comma and fails as `unknown type
+'DECIMAL(10'`. A decimal column can only be declared programmatically, through
+`Types.decimal(p, s)`. A decimal that *is* declared that way is carried through scans, filters and
+projections correctly; what is not built is arithmetic over it. Recorded as TY-7.
 
 ## What to do when something here is refused
 

@@ -156,6 +156,25 @@ schema is where you stop yourself.
 | Too many open files | One bound source costs about one descriptor. The node logs its descriptor ceiling at startup, and a source that fails to open near that ceiling gets a sentence naming `ulimit -n` and `LimitNOFILE`. Two codes still name the wrong thing when descriptors are the real cause: `PRV-5040 FILESYSTEM_DECODE_FAILED` (a decode code for a resource exhaustion) and `PRV-5080 AEROSPIKE_CONNECT_FAILED`, whose every suggested remedy is wrong in that case — the Aerospike client's exception carries no cause, so it cannot be told apart by catching it (SRC-4) |
 | Disk growing | **Not checkpoints, unless you configured it that way.** `PeriodicCheckpointer` prunes after every checkpoint, keeping the newest `pravaha.checkpoint.keep` (default 3) per query; this row used to say nothing called `prune`, and something does. Check `pravaha.checkpoint.keep`, and then the registry journal, which grows until it is compacted. See [`OPERATIONS.md`](OPERATIONS.md) |
 
+## `PRV-5040` — reading a file, or declaring the schema for one
+
+**`unknown type 'DECIMAL(10'`, when you wrote `DECIMAL(10,2)`.** The schema-string grammar —
+`name:TYPE,name:TYPE`, used by `--schema`, `--out-schema`, `pravaha.streams.*.schema` and
+`POST /api/v1/streams` alike — is split on commas before any per-column type is parsed, so a
+parenthesised type is cut in half at its own comma. `DECIMAL(p,s)` is therefore **not declarable
+through any surface**, despite being named in this refusal's own list of supported types. There is
+no escaping or quoting that gets round it. A decimal column has to be declared programmatically
+(`Types.decimal(p, s)` through the embedded API) until the parser reads a column at a time. Recorded
+as TY-7; the message's claim is what to distrust here, not your spelling.
+
+**`read failed at line 0` on a file you know is there.** If any byte in the file is not valid UTF-8,
+this is the whole-file failure it produces. The delimited source reads lines as UTF-8 text before a
+single column is decoded, so one invalid sequence anywhere ends the read — including one inside a
+`BYTES` column, whose entire point is to carry bytes that are not text. A `BYTES` column can hold
+arbitrary binary only while every *other* byte on its line is valid UTF-8; `FF FE 00 41` in the
+field is enough to lose the file. Route genuinely binary payloads through a source that frames them
+(or base64 them into a `STRING` column) rather than through the delimited reader. Recorded as TY-12.
+
 ## Connection problems
 
 **The Aerospike cluster is at 200–300% CPU and nothing is changing in the set.** One continuous
