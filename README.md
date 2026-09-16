@@ -55,7 +55,7 @@
 | **Recovery** | Checkpoints carry operator state, source offsets and the served view, cut at one point across every input (ADR-008); a restart resumes rather than replaying or starting empty. |
 | **Survival** | A node claims the checkpoint root and the registry journal it writes, so two nodes cannot silently prune and replay each other's state (`PRV-4003`, override with `pravaha.state.allow-shared`). A standby (`pravaha.standby.enabled`) takes over when the claim goes stale and reports what the takeover lost rather than implying continuity. A bad input line goes to a dead-letter queue (`pravaha run --dlq <file>`) instead of ending the run. |
 | **Scale on one node** | A registered query no longer costs a platform thread. Lanes are driven by a fixed pool sized to the cores (`LaneRunner`, ADR-027), the watermark and checkpoint clocks are one shared timer for the process, and 200 queries cost **24 platform threads — one per core, fixed** — where they used to cost 400. Off-heap per query is **~1,024 KiB idle, ~1,328 KiB active**, down from ~5 MiB, and every component reports its own bytes by name (ADR-036). |
-| **Clients** | Flight SQL, a Java SDK, a Python SDK, a CLI, and a console. Authentication, authorisation, row filters and prepared statements. |
+| **Clients** | Flight SQL, a Java SDK, a Python SDK, a CLI, and a console. Authentication, authorisation, row filters and prepared statements. Also a **PostgreSQL wire protocol gateway** (`pravaha.pgwire.enabled`, read path only) so `psql` and any Postgres driver can read a maintained view without a Flight SQL client — **off by default, because this slice has no TLS**. |
 
 ### What is not built, stated plainly
 
@@ -63,9 +63,15 @@
   the clustering coordination code is carried unused.
 - **No Spring Boot starter** (ADR-020). The engine core contains no Spring and sits behind a plain
   `PravahaEngine` seam, so embedding it never dictates your Spring version.
-- **Changelog negotiation is built and reachable from nothing**, because nothing binds a query to a
-  sink: every continuous query writes to a served view, which applies a retraction correctly. There
-  is nothing for it to refuse (W8-13).
+- **A sink can be configured but no query writes to one** (W8-13, half built). `pravaha.sinks.<name>`
+  now names a `StreamSinkPlugin`, `ServiceLoader` finds it by the name it reports for itself, and a
+  binding resolves to an opened, writable instance — proven end to end with no query involved. What
+  is still missing is the attachment: nothing resolves *which registered query's output goes to which
+  sink*, so every continuous query still writes to a served view, which applies a retraction
+  correctly. **Changelog negotiation therefore remains reachable from nothing** — there is still
+  nothing for `ChangelogAnalysis.checkAgainst` to refuse, and `ErrcSqlTest` fails the moment anything
+  attaches a query to a sink without calling it first, which is the silent-corruption case in design
+  §15.5.
 - **The L0 off-heap state map is gone** (W8-12). Operator indexes and accumulators are on-heap
   `HashMap`s; the off-heap class that was meant to replace them could only hold fixed-width keys and
   could not key a `GROUP BY` containing a string.
