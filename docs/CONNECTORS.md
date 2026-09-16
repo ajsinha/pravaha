@@ -8,6 +8,14 @@ Copyright © 2026 Ashutosh Sinha. Proprietary and confidential; see [`../LICENSE
 
 Read this if you are adding a source, a sink or a lookup, or deciding whether a store can be one.
 
+> **Using a connector, or building one?** The line between this document and
+> [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) is not connectors-versus-queries; it is
+> **using versus building**. Configuring a source that already ships — its YAML, its required and
+> optional keys — is [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1, because you cannot run
+> your first query without it. Everything about writing a *new* one is here: the SPI, the TCK, what
+> a connector may honestly claim, and why change-data-capture is the shape the engine was built for.
+> Neither repeats the other.
+
 ---
 
 ## 1. The shape of it

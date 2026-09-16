@@ -330,8 +330,10 @@ correct, not merely faster.
 A cache costs staleness, never correctness — a lookup holds no checkpointed state, so a cache lost
 on restart costs latency and nothing else.
 
-Where the rows come from, and how to add a source of your own, is
-[`CONNECTORS.md`](CONNECTORS.md).
+**This section configures sources that already ship. Writing a new one** — the SPI, the TCK, what a
+connector may honestly claim, change-data-capture and Debezium — is
+[`CONNECTORS.md`](CONNECTORS.md). Using versus building is the line between the two documents, and
+neither repeats the other.
 
 ---
 
