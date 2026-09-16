@@ -245,11 +245,17 @@ public final class QueryExecution implements AutoCloseable {
      * neither is checked lazily, because a query that registered into the wrong kind of processor
      * would fail at the first row rather than at the call that was wrong.
      *
-     * <p><strong>Not yet used by the registry.</strong> `LaneMultiplexer` was built, tested and
-     * wired to nothing (W9-8); this is the seam it was missing, and the remaining halves — a
-     * watermark advance that does not clamp the lane's batch (W9-10), and deciding which lane a
-     * registration lands on — are recorded there. Wiring the registry before those are settled
-     * would put the wave's measured wins at risk for the 1,024 KiB still on the table.
+     * <p><strong>Used by the registry when {@code pravaha.lane.multiplex} is on.</strong> Both of
+     * the halves this paragraph used to name as unsettled are settled: a row carries the identity
+     * of the stream it came from (W9-9), and a watermark advance is a level rather than a cut, so
+     * it no longer clamps the lane's batch (W9-10) — which was the cost that made hundreds of
+     * pipelines on one lane untenable.
+     *
+     * <p>What is still missing, and why the registry's switch defaults to off, is <em>admission
+     * control</em>: nothing decides which lane a registration lands on, so every hosted query shares
+     * one lane's budget. {@code LaneMultiplexer} bounds a heavy query's effect on latency ordering
+     * by running pipelines in ascending order of lane time consumed, but that is fair ordering, not
+     * a ceiling.
      */
     public static QueryExecution startOn(
             LaneGroup group,

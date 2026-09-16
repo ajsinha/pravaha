@@ -141,6 +141,74 @@ public final class QueryRegistry implements AutoCloseable {
         return laneRunner;
     }
 
+    /**
+     * Whether registrations share multiplexed lanes rather than each taking one of their own.
+     *
+     * <p>W9-8, and off by default because it changes where every registered query runs. ADR-027
+     * already removed the thread per query — {@link com.ash.messaging.pravaha.runtime.lane.LaneRunner}
+     * drives many lanes from a pool sized to the cores — so what is left on the table is the
+     * <em>inbox and arena</em> a lane owns, about 1,024 KiB idle per query. Multiplexing shares one
+     * of each between every pipeline on the lane.
+     *
+     * <p>It was blocked on two things and both are now settled. A row carries the identity of the
+     * stream it came from, so the multiplexer dispatches by schema id instead of asking three
+     * hundred pipelines whether a batch is theirs (W9-9); and a watermark advance no longer clamps
+     * the lane's batch, so hundreds of pipelines ticking once a second no longer cut the lane's
+     * batches hundreds of times a second (W9-10).
+     *
+     * <p>Still opt-in, because the thing it has not got is admission control: nothing decides
+     * <em>which</em> lane a registration lands on, so every query on a node shares one lane's
+     * budget and a heavy query is bounded only by the multiplexer's fair-ordering, not by a
+     * ceiling. Turning it on is a deployment saying it would rather have the memory than the
+     * isolation.
+     */
+    private boolean multiplexing;
+
+    /** The lanes hosted queries share. Created on first use, like the runner, and for the same reason. */
+    private volatile com.ash.messaging.pravaha.runtime.lane.LaneGroup sharedLanes;
+
+    private synchronized com.ash.messaging.pravaha.runtime.lane.LaneGroup sharedLanes() {
+        if (sharedLanes == null) {
+            sharedLanes = new com.ash.messaging.pravaha.runtime.lane.LaneGroup(
+                    1, laneConfig, access, context -> new com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer());
+            sharedLanes.startOn(laneRunner());
+        }
+        return sharedLanes;
+    }
+
+    /**
+     * How many query pipelines are sharing each multiplexed lane, or empty when not multiplexing.
+     *
+     * <p>The number ADR-036's density argument is actually about: with a lane per query this is
+     * meaningless, and with multiplexing on it is how many queries a lane's single inbox and arena
+     * are serving. An operator watching a node approach its budget wants this beside the per-query
+     * byte counts, because those attribute the <em>shared</em> lane to every query on it — two
+     * queries on one lane each report that lane's inbox, so summing them overstates the node.
+     */
+    public synchronized java.util.List<Integer> pipelinesPerSharedLane() {
+        if (sharedLanes == null) {
+            return java.util.List.of();
+        }
+        java.util.List<Integer> counts = new ArrayList<>(sharedLanes.laneCount());
+        for (com.ash.messaging.pravaha.runtime.lane.Lane lane : sharedLanes.lanes()) {
+            counts.add(
+                    lane.processor() instanceof com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer mux
+                            ? mux.pipelineCount()
+                            : 0);
+        }
+        return List.copyOf(counts);
+    }
+
+    /**
+     * Registrations share multiplexed lanes instead of each owning one.
+     *
+     * <p>See {@link #multiplexing}. A node turns this on with {@code pravaha.lane.multiplex}.
+     */
+    public QueryRegistry multiplexingLanes(boolean on) {
+        this.multiplexing = on;
+        return this;
+    }
+
     private LaneConfig laneConfig = LaneConfig.defaults()
             .withWaitStrategy(com.ash.messaging.pravaha.common.queue.WaitStrategy.Kind.BACKOFF_PARK)
             .withThreads("pravaha-query", true);
@@ -694,8 +762,11 @@ public final class QueryRegistry implements AutoCloseable {
         // InterpretedPipeline and drove it on the caller's thread, which is why a registered query
         // had no lane, no arena, no checkpointing and no watermarks: everything the runtime offers
         // belonged to the other path, and the server ran this one.
-        QueryExecution execution = QueryExecution.start(
-                        plan, 1, laneConfig, access, () -> (RowOutput) sink::begin, lookups, laneRunner())
+        QueryExecution execution = (multiplexing
+                        ? QueryExecution.startOn(
+                                sharedLanes(), name, plan, () -> (RowOutput) sink::begin, lookups, access)
+                        : QueryExecution.start(
+                                plan, 1, laneConfig, access, () -> (RowOutput) sink::begin, lookups, laneRunner()))
                 // The view goes in the checkpoint too. A filter or a projection has no operator
                 // accumulators, so the view is the entire answer -- and a restart that restored
                 // offsets without it resumed the source past every row it had read and served an
@@ -982,6 +1053,15 @@ public final class QueryRegistry implements AutoCloseable {
         // After the queries, not before: a hosted lane's final step is what releases its arena and
         // inbox, and only its runner may take that step. Closing the runner first would leave every
         // lane unable to finish, and each close would time out blaming a stall that never happened.
+        // The shared lanes go before the runner and after the queries, for the same reason in both
+        // directions: a hosted query's close only removes its pipelines and deliberately leaves the
+        // lane running for the queries still on it, so somebody has to close the lane itself -- and
+        // it can only finish while its runner is still stepping it.
+        com.ash.messaging.pravaha.runtime.lane.LaneGroup shared = sharedLanes;
+        sharedLanes = null;
+        if (shared != null) {
+            shared.close();
+        }
         com.ash.messaging.pravaha.runtime.lane.LaneRunner runner = laneRunner;
         laneRunner = null;
         if (runner != null) {
