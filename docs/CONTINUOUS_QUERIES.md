@@ -233,10 +233,81 @@ pravaha:
 Giving both `table` and `query`, or neither, is refused at configuration with a message saying which
 does what. Use `query` when a cast or a join has to happen in the database rather than here.
 
+##### Polling an arbitrary `SELECT`
+
+`query` polls any statement, which is where a join or a cast belongs when it is cheaper in the
+database than here:
+
+```yaml
+pravaha:
+  streams:
+    enriched_orders:
+      schema: "order_id:INT64,customer_tier:STRING,amount_cents:INT64,updated_at:TIMESTAMP"
+      event-time: updated_at
+      out-of-orderness: 30s
+  sources:
+    enriched_orders:
+      plugin: jdbc
+      options:
+        url: "jdbc:postgresql://db-1:5432/sales"
+        user: pravaha
+        password: "${PRAVAHA_DB_PASSWORD}"
+        # Joined and cast server-side. The engine refuses DECIMAL arithmetic (§16), so the
+        # conversion to integer cents happens where the decimal already lives.
+        query: >
+          SELECT o.order_id,
+                 c.tier                          AS customer_tier,
+                 CAST(o.amount * 100 AS BIGINT)  AS amount_cents,
+                 o.updated_at
+          FROM orders o
+          JOIN customers c ON c.customer_id = o.customer_id
+        watermark.column: updated_at
+        key.column: order_id
+        page.clause: "LIMIT ?"
+```
+
+The statement is wrapped as a derived table, so the watermark predicate, the ordering and the paging
+clause are applied *around* it — which means `watermark.column` and `key.column` must name columns
+the statement actually projects, as `updated_at` and `order_id` do above.
+
+`page.clause` is the one dialect-specific option. `LIMIT ?` suits Postgres, MySQL and H2;
+`FETCH FIRST ? ROWS ONLY` suits Oracle and Db2; `OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY` suits SQL
+Server.
+
+##### Choosing the watermark column — the part that goes wrong
+
+Each poll asks for rows beyond the highest watermark value it has already seen. Three ways that
+misses rows, all of them silent:
+
+- **The column must never go backwards.** An `updated_at` written from an application clock moves
+  backwards on clock skew, and a backdated correction lands below the watermark. Those rows are not
+  late — they are **never seen**. A database-assigned `now()` or a monotonic sequence is safer than
+  anything the application supplies.
+- **Commits can become visible out of order.** A row written inside a long transaction takes its
+  timestamp when the statement runs and becomes visible when the transaction commits — which may be
+  after the poller has already moved past that value. This is the classic polling defect and no
+  amount of care inside the connector fixes it; the remedy is to poll only up to a little behind
+  now, trading latency for completeness, or to advance on a commit-ordered column rather than a
+  clock.
+- **Ties at the boundary.** Many rows can share one `updated_at`. `key.column` is what makes the
+  order total — it is appended to the `ORDER BY` after the watermark — so paging cannot cut a group
+  of equal timestamps in half. Set it to something unique whenever the watermark is not.
+
+And index the watermark column. Every poll orders by it, so without an index each poll is a full
+scan of the table.
+
+##### What a polled source cannot do
+
 **A polled table is not a changelog.** It sees a row's current value at poll time, so a row that
 changes twice between polls yields one row, and a deleted row is simply never seen again — no
-retraction is produced. Where deletes matter, CDC is the right shape
-([`CONNECTORS.md`](CONNECTORS.md) §5).
+retraction is produced.
+
+**And it cannot produce one even if you ask.** `JdbcPartitionReader` writes `weight(1)` on every
+row: the `jdbc` source has no equivalent of the `filesystem` source's `op.column`, so a table with a
+soft-delete flag cannot turn that flag into a `−1` today. The flag arrives as an ordinary column and
+a query can filter on it, but the already-counted row is not withdrawn. Where deletes must reduce a
+total, CDC is the right shape ([`CONNECTORS.md`](CONNECTORS.md) §5), and the choice between the two
+is set out there.
 
 #### `aerospike` — a set, scanned by last-update time
 

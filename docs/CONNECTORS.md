@@ -352,6 +352,37 @@ one more with every future update. That is why `emitsBeforeImage` is a capabilit
 declares rather than a detail of its implementation, and why a connector that cannot produce a
 before-image must say so (§6) instead of emitting the `after` row alone.
 
+#### Polling is not the legacy option — choose deliberately
+
+Nothing above deprecates the `jdbc` source. **Polling a `SELECT` is a first-class way to feed this
+engine and is frequently the only one available**, because CDC's prerequisites are granted by a DBA
+rather than by a config file: `wal_level = logical` needs a restart, a `REPLICATION` role is rarely
+handed out, `REPLICA IDENTITY FULL` changes write costs on production tables, and a managed instance
+or a read replica may not offer logical decoding at all.
+
+| | Polling (`jdbc`) | Change data capture |
+|---|---|---|
+| Sees deletes | **no** | yes, with a full before-image |
+| Sees every intermediate value | no — two writes between polls look like one | yes |
+| Latency | the poll interval | as fast as the log is read |
+| Load on the database | a query per interval, indexed | reads the log the database already writes |
+| **State on the database server** | **none** | a replication slot that retains WAL |
+| Can take the database down | no | yes — an abandoned slot fills the disk |
+| Permissions needed | `SELECT` | replication role, server settings, a restart |
+| Arbitrary joins and casts server-side | **yes, via `query`** | no — you get the table's own rows |
+
+**Prefer polling when** the question is "what is the current state" rather than "what changed";
+deletes do not reduce an answer; a poll interval of seconds is fast enough; or you simply cannot get
+the permissions. It has no server-side state, which makes its failure mode strictly better: a
+Pravaha node that dies inconveniences nobody else.
+
+**Prefer CDC when** deletes or updates must *retract* — that is the case polling cannot express at
+all, since `JdbcPartitionReader` writes `weight(1)` on every row — or when intermediate values
+matter, or when the poll load on a large table has become the problem.
+
+**They compose.** A stream is bound per name, so one continuous query can join a CDC-fed stream to a
+polled one to a file, and §4 is that mechanism. Nothing requires a deployment to pick one style.
+
 #### The fine print: what actually goes wrong with CDC
 
 Every item here has cost somebody a production incident, and most of them fail **silently** — which
