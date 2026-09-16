@@ -963,7 +963,8 @@ four-column file.
 - **There are 38 `pravaha.*` settings**, not 37 — 36 YAML keys plus two system properties.
 
 ## E-1 (HIGH) — the document describes eight failures the engine cannot report
-> **Status:** OPEN — **`PRV-5064` now has a throw site; the other eight do not.** The rotated-feed-file case was the one that mattered for a deployment and the one this finding singles out as surfacing *as silence*: `FeedFilePartitionReader` returned zero for ever, the query stayed `RUNNING`, and the rows left in the file were never read and never missed — a source that had stopped and a source with nothing to say were the same observation. It is raised now when the reader is about to move past an unfinished cursor to a later file.
+> **Status:** OPEN — **narrowed to one code (`PRV-8007`); seven of the nine are resolved.** `PRV-5064` was the first. Since then: `PRV-4002 STATE_UNREADABLE` wired at `FileCheckpointStore` (a checkpoint format-version mismatch was a bare `IllegalStateException`); `PRV-5012 PLUGIN_LOAD_FAILED` wired in both `PluginSourceFeeds.discover` and `PluginLookupSources.discover`, where `ServiceLoader` iteration was unguarded and a bad provider throws `ServiceConfigurationError` — an `Error`, so it passed through every handler uncoded; `PRV-5053 DELTA_FILE_VACUUMED` wired in `DeltaPartitionReader`, where Delta Kernel opens files lazily and reports a vacuumed file as an unchecked `KernelEngineException` from `hasNext()`/`next()`, outside the `catch (IOException)` that was assumed to cover it. `PRV-1043` needed nothing: it already had two throw sites in the Flight client and it was `TROUBLESHOOTING.md` that was stale, which is corrected. `PRV-4013` and `PRV-5020` are **deleted** — no resume path parses a backfill token and no circuit breaker exists, so wiring either would have been a manufactured throw site that looks like coverage. `PRV-9004 CLUSTER_NOT_LEADER` stays declared and unreachable by design, with a comment at the declaration citing ADR-034 and ADR-039 so it is not "fixed" by deletion.
+> **What remains is `PRV-8007 REGISTRY_REPLAY_UNAUTHORIZED`**, and it is not a one-line fix: the site is `QueryRegistry.recover`, where a refused replay is appended to `Recovery.refused()` as a plain string rather than raised. `Recovery.refused()` is a `List<String>`, so wiring the code needs a structural change, and `ErrcRegistryTest.aRefusedRecoveryIsPlainTextNeverPrv8007` currently pins the unreachable behaviour and asserts the string never contains `PRV-` — it has to change with the fix. The rotated-feed-file case was the one that mattered for a deployment and the one this finding singles out as surfacing *as silence*: `FeedFilePartitionReader` returned zero for ever, the query stayed `RUNNING`, and the rows left in the file were never read and never missed — a source that had stopped and a source with nothing to say were the same observation. It is raised now when the reader is about to move past an unfinished cursor to a later file.
 > **Disposition:** GA-REQUIRED — assigned individually
 
 **What could not be fixed without changing a persisted format, stated rather than glossed.**
@@ -978,8 +979,9 @@ to move on to. The remaining case needs an exhausted flag in the offset, which c
 is written to checkpoints and has its own error code for version drift (`PRV-5063`). That is its own
 change, not a rider on this one.
 
-**The other eight codes remain undeclared-and-unthrown**: 1043, 4002, 4013, 5012, 5020, 5053, 8007,
-9004. `PRV-9004 CLUSTER_NOT_LEADER` belongs to distribution and is roadmap by ADR-038. The rest are
+**That paragraph described the position before the sweep of 2026-09-16.** Of the eight it lists —
+1043, 4002, 4013, 5012, 5020, 5053, 8007, 9004 — only `8007` is still both declared and unthrown; see
+the status line above for what happened to each. `PRV-9004 CLUSTER_NOT_LEADER` belongs to distribution and is roadmap by ADR-038. The rest are
 either wire-it-or-delete-it decisions that want a pass of their own, and leaving them declared but
 unreachable is what this finding is about — so it stays open and honest rather than being closed on
 one ninth of the work.

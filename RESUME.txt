@@ -26,17 +26,28 @@ Two coding agents were working in their own git worktrees when the
 reboot happened. THE PROCESSES ARE GONE. The directories are still on
 disk and may contain uncommitted edits.
 
-  Agent 1 — finding E-1 (GA-REQUIRED)
-    worktree: .claude/worktrees/agent-a9bedc6276daf4544
-    branch:   worktree-agent-a9bedc6276daf4544
-    task: eight error codes are DECLARED but have NO THROW SITE --
-          PRV-1043, 4002, 4013, 5012, 5020, 5053, 8007, 9004.
-          For each: either wire it to a real failure that is currently
-          reported badly, or delete the declaration. PRV-9004
-          CLUSTER_NOT_LEADER stays declared (roadmap, ADR-038) with a
-          comment saying why, so nobody "fixes" it by deleting it.
+  Agent 1 — finding E-1 — *** FINISHED AND MERGED. NOTHING TO DO. ***
+    Its work is on develop as 1c165ff and is pushed. Seven of the nine
+    codes are resolved: 4002, 5012 and 5053 wired to real failures that
+    were being reported as bare Errors or uncoded exceptions; 4013 and
+    5020 DELETED (no resume path parses a backfill token, no circuit
+    breaker exists -- wiring either would be a fake throw site that
+    looks like coverage); 1043 needed nothing, it was already wired and
+    TROUBLESHOOTING.md was stale; 9004 stays declared and unreachable
+    by design with a comment citing ADR-034 and ADR-039.
+    Verified by me, not just reported: 223 module tests + 28 invariant
+    tests, BUILD SUCCESS 1 / BUILD FAILURE 0.
 
-  Agent 2 — finding X-11 (GA-REQUIRED)
+    WHAT IS LEFT OF E-1: just PRV-8007 REGISTRY_REPLAY_UNAUTHORIZED.
+    Site is QueryRegistry.recover, where a refused replay is appended
+    to Recovery.refused() as a plain String instead of raised.
+    Recovery.refused() is a List<String>, so this needs a structural
+    change, and ErrcRegistryTest.aRefusedRecoveryIsPlainTextNeverPrv8007
+    pins the CURRENT unreachable behaviour and asserts the string never
+    contains "PRV-" -- that test must change with the fix.
+
+  Agent 2 — finding X-11 (GA-REQUIRED) — STILL RUNNING AT REBOOT.
+              Relaunch with the brief below.
     worktree: .claude/worktrees/agent-a32b57d049ccf3171
     branch:   worktree-agent-a32b57d049ccf3171
     task: (a) BinaryRowWriter throws a bare IllegalArgumentException
@@ -55,13 +66,14 @@ TO CHECK WHETHER THEY LEFT ANYTHING:
     git -C .claude/worktrees/agent-a9bedc6276daf4544 status --short
     git -C .claude/worktrees/agent-a32b57d049ccf3171 status --short
 
-Empty output = they had not written anything yet; just relaunch them
-with the briefs above. Non-empty = review the diff and keep what is
-good. Neither had committed anything when the reboot came, so do not
-expect much.
+Empty output = nothing was written yet; relaunch with the brief above.
+Non-empty = review the diff and keep what is good.
 
-Both worktrees are based on 7e2dd0a, which is an ancestor of develop,
-so nothing there conflicts with what has landed since.
+Agent 1 is already merged, so ignore its worktree entirely. Only
+agent 2's matters. Its worktree is based on 7e2dd0a, an ancestor of
+develop, so nothing in it conflicts with what has landed since -- but
+cherry-pick rather than merge, to keep develop linear (that is what I
+did for agent 1: git cherry-pick <its commit>).
 
 ====================================================================
 3. WHAT LANDED THIS SESSION (all pushed)
@@ -85,7 +97,11 @@ so nothing there conflicts with what has landed since.
            USING a connector is CONTINUOUS_QUERIES 2.1, BUILDING one is
            CONNECTORS.md.
   8478ef8  Pinned SX-1 with a regression test.
-  (this)   SX-1 closed in the register; RESUME.txt; handover swept.
+  bf29d28  SX-1 closed in the register; RESUME.txt; handover swept.
+  1c165ff  E-1: seven of nine unreachable PRV codes resolved (agent 1,
+           reviewed and merged by me).
+  (this)   RESUME.txt corrected -- agent 1 finished after the first
+           version of this file said neither agent had committed.
 
 ====================================================================
 4. THE BIG NEWS: SX-1 IS CLOSED. ONE GA-BLOCKER LEFT.
@@ -133,7 +149,8 @@ Two channels remain open (the enumeration channel is already closed):
 Read: docs/qa/FINDINGS.md, search for "## SX-5".
 
 AFTER THAT, in ADR-039's order:
-  - E-1 and X-11 (the two agent tasks above) finish GA-REQUIRED
+  - E-1's last code (PRV-8007, structural -- see section 2) and X-11
+    finish GA-REQUIRED
   - Gaps 3-7: off-heap variable-width keys, sink bindings, pushdown/
     Cassandra, console 23.20, B2 disk spill
   - Then cluster mode, then GA
@@ -180,7 +197,10 @@ AFTER THAT, in ADR-039's order:
         -DfailIfNoSpecifiedTests=false
 
 LAST FULL GATE: BUILD SUCCESS, all 31 modules, 0 failures, 6:48,
-at 2026-09-16 14:28. Everything committed since then is documentation,
-one test class, and the findings register -- all individually verified,
-but the gate has not been re-run over the final state. RUN IT FIRST
-after the reboot.
+at 2026-09-16 14:28. Committed since then: documentation, one test
+class, the findings register, and agent 1's E-1 change (which touches
+SIX MAIN-SOURCE FILES across pravaha-state, pravaha-connect,
+pravaha-cluster, pravaha-server, pravaha-backfill and the delta
+plugin). Each was verified with targeted module tests -- 223 tests,
+BUILD SUCCESS 1 / BUILD FAILURE 0 -- but THE FULL GATE HAS NOT BEEN
+RE-RUN over the final state. RUN IT FIRST after the reboot.
