@@ -46,34 +46,27 @@ disk and may contain uncommitted edits.
     pins the CURRENT unreachable behaviour and asserts the string never
     contains "PRV-" -- that test must change with the fix.
 
-  Agent 2 — finding X-11 (GA-REQUIRED) — STILL RUNNING AT REBOOT.
-              Relaunch with the brief below.
+  Agent 2 — finding X-11 — *** FINISHED AND MERGED. NOTHING TO DO. ***
+    On develop as 86006fd, pushed. X-11 is CLOSED.
     worktree: .claude/worktrees/agent-a32b57d049ccf3171
     branch:   worktree-agent-a32b57d049ccf3171
-    task: (a) BinaryRowWriter throws a bare IllegalArgumentException
-              past 64 fields -- a real architectural ceiling on ANY row
-              -- with no PRV code and documented nowhere. Give it a
-              code; document it in TROUBLESHOOTING.md and in
-              CONTINUOUS_QUERIES.md section 19.
-          (b) A 1000-term AND/OR chain throws PRV-2010 wrapping a bare
-              RuntimeException and interpolates THE ENTIRE PREDICATE
-              into the message. Summarise it -- operator and term count
-              -- and decide whether it deserves its own code.
-              (Do NOT chase X-10, the StackOverflowError case. Separate.)
+    The 64-field ceiling is now PRV-3030 (new RowErrors beside
+    BinaryRowWriter). An oversized predicate is now PRV-2011: the
+    planner summarises the shape -- "a 3000-term OR chain (124807
+    characters)" -- instead of dumping it. Measured: 124,940 characters
+    of stderr became under 2,000.
 
-TO CHECK WHETHER THEY LEFT ANYTHING:
+    I added a third test myself. The agent pinned the AND chain; X-11
+    also names an OR chain, which the fix handles but nothing proved --
+    and an OR chain is the likelier of the two in the wild, because
+    rewriting a wide IN (...) list produces ORs. It passes.
 
-    git -C .claude/worktrees/agent-a9bedc6276daf4544 status --short
-    git -C .claude/worktrees/agent-a32b57d049ccf3171 status --short
+    Verified by me: 430 module tests across pravaha-common, pravaha-sql
+    and pravaha-cli, plus 17 invariant tests. BUILD SUCCESS 1 /
+    BUILD FAILURE 0.
 
-Empty output = nothing was written yet; relaunch with the brief above.
-Non-empty = review the diff and keep what is good.
-
-Agent 1 is already merged, so ignore its worktree entirely. Only
-agent 2's matters. Its worktree is based on 7e2dd0a, an ancestor of
-develop, so nothing in it conflicts with what has landed since -- but
-cherry-pick rather than merge, to keep develop linear (that is what I
-did for agent 1: git cherry-pick <its commit>).
+BOTH AGENTS ARE DONE, REVIEWED, MERGED AND PUSHED. Their worktrees
+under .claude/worktrees/ hold nothing you need. Ignore them.
 
 ====================================================================
 3. WHAT LANDED THIS SESSION (all pushed)
@@ -100,8 +93,12 @@ did for agent 1: git cherry-pick <its commit>).
   bf29d28  SX-1 closed in the register; RESUME.txt; handover swept.
   1c165ff  E-1: seven of nine unreachable PRV codes resolved (agent 1,
            reviewed and merged by me).
-  (this)   RESUME.txt corrected -- agent 1 finished after the first
+  2337834  RESUME.txt corrected -- agent 1 finished after the first
            version of this file said neither agent had committed.
+  86006fd  X-11: the 64-column ceiling and the oversized-predicate
+           message both coded and documented (agent 2, reviewed and
+           merged by me, plus an OR-chain test I added).
+  (this)   X-11 closed in the register; RESUME.txt corrected again.
 
 ====================================================================
 4. THE BIG NEWS: SX-1 IS CLOSED. ONE GA-BLOCKER LEFT.
@@ -120,9 +117,11 @@ ViewFromAnAbsentOne now drives a real Flight server and proves a denied
 principal gets the same PRV code for a view that exists and one that
 does not.
 
-Register is now: 295 findings -- 175 FIXED, 105 OPEN, 8 BY DESIGN,
-7 SUPERSEDED. Of the 105 open: 1 GA-BLOCKER, 2 GA-REQUIRED, 95 POST-GA,
-7 NOTE.
+Register is now: 295 findings -- 176 FIXED, 104 OPEN, 8 BY DESIGN,
+7 SUPERSEDED. Of the 104 open: 1 GA-BLOCKER (SX-5), 1 GA-REQUIRED
+(PRV-8007, the remainder of E-1), 95 POST-GA, 7 NOTE.
+
+THAT IS ONE BLOCKER AND ONE REQUIRED ITEM BETWEEN HERE AND THE GAPS.
 
 LESSON WORTH KEEPING: a status line in FINDINGS.md can be stale. Read
 the code before believing a finding is open. There may be more of these.
@@ -149,8 +148,8 @@ Two channels remain open (the enumeration channel is already closed):
 Read: docs/qa/FINDINGS.md, search for "## SX-5".
 
 AFTER THAT, in ADR-039's order:
-  - E-1's last code (PRV-8007, structural -- see section 2) and X-11
-    finish GA-REQUIRED
+  - PRV-8007 (E-1's last code, structural -- see section 2) is the ONLY
+    GA-REQUIRED item left
   - Gaps 3-7: off-heap variable-width keys, sink bindings, pushdown/
     Cassandra, console 23.20, B2 disk spill
   - Then cluster mode, then GA
@@ -197,10 +196,12 @@ AFTER THAT, in ADR-039's order:
         -DfailIfNoSpecifiedTests=false
 
 LAST FULL GATE: BUILD SUCCESS, all 31 modules, 0 failures, 6:48,
-at 2026-09-16 14:28. Committed since then: documentation, one test
-class, the findings register, and agent 1's E-1 change (which touches
-SIX MAIN-SOURCE FILES across pravaha-state, pravaha-connect,
-pravaha-cluster, pravaha-server, pravaha-backfill and the delta
-plugin). Each was verified with targeted module tests -- 223 tests,
-BUILD SUCCESS 1 / BUILD FAILURE 0 -- but THE FULL GATE HAS NOT BEEN
-RE-RUN over the final state. RUN IT FIRST after the reboot.
+at 2026-09-16 14:28. Committed since then: documentation, two test
+classes, the findings register, and BOTH agents' work -- which together
+touch roughly a dozen main-source files across pravaha-state,
+pravaha-connect, pravaha-cluster, pravaha-server, pravaha-backfill,
+pravaha-common, pravaha-sql and the delta plugin, and add two new error
+codes. Each change was verified with targeted module tests (223 + 430
+tests, BUILD SUCCESS 1 / BUILD FAILURE 0 each time), but THE FULL GATE
+HAS NOT BEEN RE-RUN over the final state. RUN IT FIRST after the
+reboot. This is the largest untested-as-a-whole delta of the session.

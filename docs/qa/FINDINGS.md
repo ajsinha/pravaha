@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 175 FIXED, 105 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 105 open, **1 is
-GA-BLOCKER, 2 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 176 FIXED, 104 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 104 open, **1 is
+GA-BLOCKER, 1 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 1 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 2 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -1368,7 +1368,9 @@ query it could have refused. Seed-proven by catching a different `Error` subclas
 test with "an Error escaped the planner instead of being turned into a refusal".
 
 ## X-11 (HIGH) — three more limits with no documented shape: 64 output columns, and a third failure mode for many boolean terms
-> **Status:** OPEN — `BinaryRowWriter`'s constructor still throws a plain `IllegalArgumentException` (no PRV code) past 64 fields, undocumented in `docs/TROUBLESHOOTING.md`/`docs/SQL_SUPPORT.md`; a reproduced 1000-conjunct AND chain still throws `PRV-2010  java.lang.RuntimeException: while converting ...` with the entire predicate interpolated verbatim.
+> **Status:** FIXED — both halves, each with its own code and each written down. The 64-field ceiling is `PRV-3030 ROW_FIELD_LIMIT_EXCEEDED`, declared in a new `RowErrors` beside `BinaryRowWriter` and categorised RUNTIME because the ceiling is met when a row is built rather than when a query is planned; the original diagnosis text is kept, since it was the good part. An oversized predicate is `PRV-2011 SQL_PREDICATE_TOO_LARGE`: `SqlPlanner.planningFailure` recognises a Calcite conversion failure over 2,000 characters and replaces the dump with the shape — "a 3000-term OR chain (124807 characters)" — plus the suggestion to write it as `IN (...)`. Measured before and after: **124,940 characters of stderr became under 2,000.** Anything smaller or differently shaped keeps `PRV-2010` untouched, as does the sibling `StackOverflowError` path, which is X-10 and a different failure.
+> **Pinned by three tests** in `DocumentedLimitsTest`, which previously pinned the *defect*: it asserted the message contained no `PRV-` and that stderr exceeded 50,000 characters, deliberately, so that a fix would fail it and force the document to be corrected in the same commit. That is exactly what happened. The third test is the **OR chain** this finding names alongside the AND one — handled by choosing whichever operator appears more often, implemented but unproven until the test was added, and the likelier of the two in the wild because rewriting a wide `IN (...)` list produces ORs.
+> **Note:** the documents named above have moved. `docs/SQL_SUPPORT.md` was merged into `docs/CONTINUOUS_QUERIES.md` on 2026-09-16, and both limits are documented there — §11 for the row ceiling, §12 for the predicate — as well as in `docs/TROUBLESHOOTING.md`.
 > **Disposition:** GA-REQUIRED — assigned individually
 
 

@@ -122,6 +122,33 @@ class DocumentedLimitsTest {
                 .contains("term");
     }
 
+    @Test
+    void aVeryLongOrChainIsSummarisedTooAndNamedAsAnOrChain() {
+        // X-11 names an OR chain alongside the AND one -- "same shape, same column, built the way a
+        // generated query or an IN-list rewrite would produce one" -- and reports that both failed
+        // identically. The summariser handles both, choosing the operator by which appears more
+        // often, and only the AND half was pinned. An OR chain is the likelier of the two in the
+        // wild, because rewriting a wide IN (...) list produces ORs.
+        StringBuilder sql = new StringBuilder("SELECT amount FROM txn WHERE ");
+        for (int i = 0; i < 3_000; i++) {
+            sql.append(i == 0 ? "" : " OR ").append("amount > ").append(i);
+        }
+        assertThat(run("validate", "--sql", sql.toString(), "--schema", "txn_id:INT64,amount:INT64"))
+                .as("a predicate too large to compile is refused, not accepted")
+                .isEqualTo(1);
+
+        String stderr = err.toString(StandardCharsets.UTF_8);
+        assertThat(stderr)
+                .as("an OR chain must be named as an OR chain, not reported as its opposite")
+                .contains("PRV-2011")
+                .contains("3000-term")
+                .contains("OR chain");
+        assertThat(stderr.length())
+                .as("the predicate must not be interpolated verbatim: %d characters of stderr", stderr.length())
+                .isLessThan(2_000);
+        assertThat(stderr).doesNotContain("CAST(2999 AS BIGINT)");
+    }
+
     private static BinaryRowWriter writerFor(int columns) {
         StreamSchema.Builder schema = StreamSchema.builder("wide");
         for (int i = 0; i < columns; i++) {
