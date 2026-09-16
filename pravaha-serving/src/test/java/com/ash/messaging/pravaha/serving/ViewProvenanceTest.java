@@ -215,4 +215,44 @@ class ViewProvenanceTest {
                 .as("an audit that records only the ALLOW says a refused read succeeded")
                 .anyMatch(event -> !event.allowed());
     }
+
+    @Test
+    void aViewWhoseQueryDiedRefusesRatherThanServingAFrozenSnapshot() {
+        // E-13. A view outlives the query that fills it. When a lane dies, RegisteredQuery moves to
+        // FAILED and the view keeps every row it had at that instant -- and a SELECT answered from
+        // that snapshot, indistinguishable from live data. A query that failed three hours ago
+        // served three-hour-old rows and nothing in the answer said so.
+        //
+        // PRV-8004 QUERY_FAILED existed for exactly this and fired nowhere near it: its throw sites
+        // are subscriber-side failures, which is a different event.
+        secretPay.failed(new PravahaException(ServingErrors.NO_SUCH_VIEW, "the lane died mid-batch"));
+        ViewQuery queries = new ViewQuery(catalog, (principal, view) -> AccessDecision.allow(), audit);
+
+        assertThatThrownBy(() -> queries.execute("SELECT employee FROM secret_pay", CAROL))
+                .as("stale presented as live is a wrong answer with a confident face")
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-8004")
+                .hasMessageContaining("the lane died mid-batch");
+    }
+
+    @Test
+    void theRefusalKeepsTheDiagnosisTheOperatorCameFor() {
+        // Refusing costs something real: SELECT access during an incident, which is when somebody
+        // most wants to look. So the message has to carry what they came for -- the rows still
+        // exist, they were correct at a knowable moment, and the cause is findable.
+        secretPay.failed(new PravahaException(ServingErrors.NO_SUCH_VIEW, "arena exhausted"));
+        ViewQuery queries = new ViewQuery(catalog, (principal, view) -> AccessDecision.allow(), audit);
+
+        assertThatThrownBy(() -> queries.execute("SELECT employee FROM secret_pay", CAROL))
+                .hasMessageContaining("still held")
+                .hasMessageContaining("registry");
+    }
+
+    @Test
+    void aLiveViewIsUnaffected() {
+        // The property the refusal must not cost.
+        ViewQuery queries = new ViewQuery(catalog, (principal, view) -> AccessDecision.allow(), audit);
+        assertThat(queries.execute("SELECT employee FROM secret_pay", CAROL).rows())
+                .hasSize(2);
+    }
 }

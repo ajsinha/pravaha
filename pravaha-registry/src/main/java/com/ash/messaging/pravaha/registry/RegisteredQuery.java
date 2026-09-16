@@ -460,6 +460,11 @@ public final class RegisteredQuery implements AutoCloseable {
     private void fail(PravahaException cause) {
         this.failure = cause;
         this.state = QueryState.FAILED;
+        // E-13. The view outlives the query, and until this line nothing downstream could tell that
+        // its producer had died: a SELECT answered from the snapshot frozen at the moment of
+        // failure, indistinguishable from live data. Marking the view is what lets ViewQuery refuse
+        // rather than serve three-hour-old rows with a confident face.
+        view.failed(cause);
     }
 
     @Override

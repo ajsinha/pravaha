@@ -244,15 +244,22 @@ class LifeDropTest extends LifecycleTestSupport {
     void life073_droppingAFailedQueryWorksAndReleasesIt() {
         driveToFailedByMinRetraction("v_min");
         assertThat(registry.require("v_min").state()).isEqualTo(QueryState.FAILED);
-        assertThat(rows("SELECT usr FROM v_min"))
-                .as("V-before: a failed query still answers")
-                .isNotNull();
+        // E-13 changed what "before" looks like: a failed query's view refuses rather than answering
+        // as though it were live. The subject of this case is DROP, not that refusal -- what it
+        // needs to establish is that the view is still *there* before the drop, and after the drop
+        // it is gone. Both are refusals now, so they are told apart by their codes: PRV-8004 says
+        // "this view exists and its producer died", PRV-4023 says "no such view".
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> rows("SELECT usr FROM v_min"))
+                .as("V-before: the view is present, and refuses because its query failed")
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("PRV-8004");
 
         registry.drop("v_min");
         assertThat(registry.names()).isEmpty();
         assertThatThrownBy(() -> rows("SELECT usr FROM v_min"))
-                .as("FAILED -> DROPPED: the view stops answering now")
-                .isInstanceOf(RuntimeException.class);
+                .as("FAILED -> DROPPED: the view is gone, which is a different refusal from the one above")
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("PRV-4023");
     }
 
     @Test

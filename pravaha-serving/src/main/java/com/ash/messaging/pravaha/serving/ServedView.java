@@ -150,6 +150,30 @@ public final class ServedView {
      */
     private volatile java.util.Set<String> derivedFrom = java.util.Set.of();
 
+    /**
+     * Why the query behind this view died, or null while it is alive.
+     *
+     * <p>E-13. A view outlives the query that fills it: when a lane dies, `RegisteredQuery` moves to
+     * `FAILED` and the view keeps every row it had at that moment — and a `SELECT` against it
+     * answered from that frozen snapshot, indistinguishable from live data. A query that failed
+     * three hours ago served three-hour-old rows to a reader with no way to tell.
+     *
+     * <p>That is the same shape as this project's other worst defects: not an error, a wrong answer
+     * with a confident face. `PRV-8004 QUERY_FAILED` existed for exactly this and fired nowhere near
+     * it — its throw sites were subscriber-side failures, which is a different event entirely.
+     */
+    private volatile com.ash.messaging.pravaha.api.PravahaException failure;
+
+    /** Marks this view's producer as dead. Called by the registry when a query fails. */
+    public void failed(com.ash.messaging.pravaha.api.PravahaException cause) {
+        this.failure = cause;
+    }
+
+    /** Why the query behind this view died, if it did. */
+    public java.util.Optional<com.ash.messaging.pravaha.api.PravahaException> failure() {
+        return java.util.Optional.ofNullable(failure);
+    }
+
     /** Records what this view reads. Called once, by whoever planned the query. */
     public ServedView derivedFrom(java.util.Collection<String> streams) {
         this.derivedFrom = java.util.Set.copyOf(streams);

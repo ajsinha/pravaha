@@ -188,6 +188,7 @@ public final class ViewQuery {
                     SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + source + "': " + decision.reason());
         }
         ServedView view = catalog.find(source).orElseThrow(() -> unknownView(source));
+        refuseIfProducerDied(view);
         // SX-7. The ALLOW above is true -- the policy did allow -- but the read can still be refused
         // a line later when the row filter cannot be enforced on this view (PRV-7003). That left an
         // audit log saying ALLOW for a read that returned nothing, and an investigator reading the
@@ -419,6 +420,35 @@ public final class ViewQuery {
             }
         }
         return plan;
+    }
+
+    /**
+     * Refuses a read of a view whose query has died.
+     *
+     * <p>E-13. The view holds every row it had at the moment its lane failed, and it answered from
+     * that snapshot as though nothing had happened — a query that failed three hours ago served
+     * three-hour-old rows, and no part of the answer said so. Stale presented as live is a wrong
+     * answer with a confident face, which is the failure mode this engine treats as worst.
+     *
+     * <p><strong>Refusing costs something real and it is the lesser cost.</strong> An operator loses
+     * `SELECT` access to that view during an incident, which is exactly when they want to look. So
+     * the message says the rows are still there, says when they stopped being current, and names
+     * where to see the cause — the reader keeps the diagnosis and loses only the false impression
+     * that the number in front of them is current.
+     *
+     * <p>`PRV-8004 QUERY_FAILED` is the code this is, and it fired nowhere near here: its throw
+     * sites are subscriber-side failures, which is a different event entirely (E-13).
+     */
+    private static void refuseIfProducerDied(ServedView view) {
+        view.failure().ifPresent(cause -> {
+            throw new PravahaException(
+                    ServingErrors.QUERY_FAILED,
+                    "the query behind '" + view.name() + "' has failed, so this view stopped being current "
+                            + "when it did: " + cause.getMessage() + ". Its rows are still held and are correct "
+                            + "as of that moment -- what cannot be offered is the impression that they are live. "
+                            + "Check the query's state and failure through the registry, fix the cause, and "
+                            + "re-register it.");
+        });
     }
 
     /**

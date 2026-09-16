@@ -32,6 +32,22 @@ public final class ServingErrors {
     /** A query named a view this server does not serve. */
     public static final ErrorCode NO_SUCH_VIEW = new ErrorCode(4023, "SERVING_NO_SUCH_VIEW");
 
+    /**
+     * The query behind a view has failed, so the view is no longer current.
+     *
+     * <p>E-13, and **declared twice on purpose**. This is `RegistryErrors.QUERY_FAILED`, and
+     * `pravaha-serving` cannot see it: the registry depends on serving, so depending back would be a
+     * cycle. The alternative -- a serving-specific code -- would mean one event answering under two
+     * numbers depending on which door the reader came through, which is worse than a duplicate
+     * declaration of one number.
+     *
+     * <p>Number and name are copied verbatim so that `ErrcCrossCuttingTest`'s "one code means one
+     * thing" check fails loudly if either copy is edited alone. The same boundary produced the same
+     * duplicate for `PRV-2061` in the Java SDK; moving both into `pravaha-api` is the right shape
+     * and is its own change.
+     */
+    public static final ErrorCode QUERY_FAILED = new ErrorCode(8004, "REGISTRY_QUERY_FAILED");
+
     /** A single request produced more rows than one response may carry. */
     public static final ErrorCode RESULT_TOO_LARGE = new ErrorCode(4024, "SERVING_RESULT_TOO_LARGE");
 

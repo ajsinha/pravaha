@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 166 FIXED, 114 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 114 open, **2 are
-GA-BLOCKER, 10 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 167 FIXED, 113 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 113 open, **2 are
+GA-BLOCKER, 9 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 10 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 9 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -1602,8 +1602,13 @@ servicing your request`, no `PRV-6100` anywhere. Not fixed here (a one-line try/
 plausible but touches a shared, non-ERRC-owned file in a module other agents may also be touching).
 
 ### E-13 (HIGH) — `PRV-8004`'s real throw sites do not match the scenario the case describes
-> **Status:** OPEN — traced all 4 throw sites for `RegistryErrors.QUERY_FAILED` (`Subscription.java:103,134`, `RegisteredQuery.java:189,238`); `RegisteredQuery.subscribe(...)` still throws `ILLEGAL_TRANSITION` (PRV-8003) for a terminal-state query, confirming subscribing to an already-failed query never reaches PRV-8004 as the case describes
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — **and the fix went the opposite way from what this finding implies.** It records that `PRV-8004`'s throw sites do not match the documented scenario, which invites rewriting the documentation to match the code. But the documented scenario — *"a query that fails at runtime; then read it"* — was the one path reaching **no code at all**: a view whose lane died kept answering from the snapshot frozen at that instant, indistinguishable from live data. A query that failed three hours ago served three-hour-old rows and nothing said so. So the code moved to match the documentation, because the documented behaviour was the correct one.
+
+`ServedView` carries its producer's failure, `RegisteredQuery.fail()` marks it, `ViewQuery` refuses. **Refusing costs a real thing** — an operator loses `SELECT` on that view during an incident, which is when they most want to look — so the message says the rows are still held, that they were correct as of a knowable moment, and where to find the cause. They lose only the false impression that the number is current.
+
+`PRV-8004` is declared verbatim in `ServingErrors` because `pravaha-serving` cannot depend on `pravaha-registry` (the registry depends on serving). That is the second such duplicate today, after `PRV-2061` in the Java SDK — **both are symptoms of error codes that belong in `pravaha-api` and are not there**, which is worth its own change.
+
+Two QA cases had this recorded as behaviour and one was named for it: `life127_aFailedQuerysViewKeepsAnsweringAndNothingSaysItIsDead`, asserting *"identical rows: frozen, not merely stable"*. Inverted. `life073` came out stronger — it now tells "this view exists and its producer died" (`PRV-8004`) from "no such view" (`PRV-4023`), which proves the drop removed the view rather than only that reading failed somehow.
 
 
 The case's Setup for `PRV-8004` is "a query that fails at runtime; then read it, and subscribe to it,"

@@ -46,7 +46,7 @@ class LifeFailureTest extends LifecycleTestSupport {
     }
 
     @Test
-    void life127_aFailedQuerysViewKeepsAnsweringAndNothingSaysItIsDead() {
+    void life127_aFailedQuerysViewRefusesRatherThanAnsweringAsIfItWereLive() {
         registry.register("ctrl", S1, List.of(0), Principal.ANONYMOUS);
         registry.register(
                 "v_min",
@@ -72,9 +72,20 @@ class LifeFailureTest extends LifecycleTestSupport {
         push("ctrl", 2, "bob", 5, 1); // V-control: something in the same server run is still moving
         assertThat(registry.require("ctrl").rowsIn()).isGreaterThan(0);
 
-        assertThat(readSorted("SELECT usr, lo FROM v_min"))
-                .as("identical rows: frozen, not merely stable")
-                .isEqualTo(before);
+        // E-13, inverted. This case recorded exactly what it found and its own name said so: the
+        // view kept answering, with identical rows, and nothing anywhere said the producer was dead.
+        // "Frozen, not merely stable" was the right observation -- and a frozen snapshot served as
+        // though it were live is a wrong answer with a confident face, which is the failure this
+        // engine treats as worst.
+        //
+        // The view still holds those rows. What it will no longer do is hand them over without
+        // saying that they stopped being current, and the refusal carries the original cause so the
+        // reader keeps the diagnosis they came for.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> readSorted("SELECT usr, lo FROM v_min"))
+                .as("the frozen snapshot is refused rather than served as live")
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-8004")
+                .hasMessageContaining("still held");
     }
 
     @Test
