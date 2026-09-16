@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Every SQL construct this engine does and does not support, asserted.
  *
- * <p>This is the executable half of {@code docs/SQL_SUPPORT.md}. That document exists because "what
+ * <p>This is the executable half of {@code docs/CONTINUOUS_QUERIES.md}. That document exists because "what
  * can I write?" is the first question anybody adopting a SQL engine asks, and the worst answer is a
  * list somebody wrote once. Here the list is run: if a construct starts working, or stops, this test
  * fails and names the document that needs the edit.
@@ -89,7 +89,7 @@ class SqlSupportMatrixTest {
          *
          * <p>The matrix had no such thing. It planned each statement, built a pipeline, and used a
          * {@code RowOutput} that threw if anything tried to write a row -- so "supported" meant
-         * "plans and compiles", and {@code SQL_SUPPORT.md}'s opening claim that every construct is
+         * "plans and compiles", and {@code CONTINUOUS_QUERIES.md}'s opening claim that every construct is
          * checked by a test was true only of the half that cannot produce a wrong number. None of
          * the wrong-answer defects in this engine would have failed this build.
          *
@@ -496,7 +496,7 @@ class SqlSupportMatrixTest {
         }
         assertThat(drifted.toString())
                 .as(
-                        "SQL support has changed. Update docs/SQL_SUPPORT.md to match, then this matrix. "
+                        "SQL support has changed. Update docs/CONTINUOUS_QUERIES.md to match, then this matrix. "
                                 + "A construct that quietly starts or stops working is how a user finds out by "
                                 + "trying it in production.%s",
                         drifted)

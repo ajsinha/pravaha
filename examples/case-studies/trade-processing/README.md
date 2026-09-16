@@ -459,7 +459,7 @@ view scans a finite set of rows and stops.
 
 ## Limits you will meet
 
-Full list: [`docs/SQL_SUPPORT.md`](../../../docs/SQL_SUPPORT.md).
+Full list: [`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
 
 - **No JSON functions.** `trade_json` is an opaque string. Promote anything you filter on into a
   column. This is the limit that shapes the design, so it is first.

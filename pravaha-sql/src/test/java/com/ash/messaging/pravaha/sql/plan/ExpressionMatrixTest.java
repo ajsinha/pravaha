@@ -1103,7 +1103,7 @@ class ExpressionMatrixTest {
 
     @Test
     void aQualifiedColumnProducesABareOutputName() {
-        // SQLX-006. SQL_SUPPORT.md states it in so many words: "SELECT t.amount produces a column
+        // SQLX-006. CONTINUOUS_QUERIES.md states it in so many words: "SELECT t.amount produces a column
         // called amount, not t.amount". A client keying on the name breaks if this drifts.
         assertThat(outputNamesOf("SELECT t.amount FROM txn AS t")).containsExactly("amount");
     }
@@ -1176,7 +1176,7 @@ class ExpressionMatrixTest {
     @Test
     void aBareNullInTheSelectList() {
         // SQLX-015. Six empty fields or a coded refusal; anything without a code is a FAIL, and
-        // the promise that every refusal carries a code is SQL_SUPPORT.md's own.
+        // the promise that every refusal carries a code is CONTINUOUS_QUERIES.md's own.
         String message = messageOf("SELECT NULL FROM txn");
         if (message != null) {
             assertThat(message).startsWith("PRV-");

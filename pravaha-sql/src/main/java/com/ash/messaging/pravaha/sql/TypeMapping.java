@@ -112,7 +112,7 @@ public final class TypeMapping {
                                 + "nothing you mean -- CAST(NULL AS BIGINT), CAST(NULL AS VARCHAR) -- and the "
                                 + "column gets a type a reader can decode.");
             default ->
-                // Coded, because SQL_SUPPORT.md promises every refusal carries one and an
+                // Coded, because CONTINUOUS_QUERIES.md promises every refusal carries one and an
                 // IllegalArgumentException reaching a client through Flight carries none.
                 throw new com.ash.messaging.pravaha.api.PravahaException(
                         com.ash.messaging.pravaha.sql.SqlErrors.UNSUPPORTED_EXPRESSION,

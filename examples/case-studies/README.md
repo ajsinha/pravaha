@@ -65,7 +65,7 @@ broken.
 ## What you will not find here
 
 Stated up front so you can decide before investing an afternoon. The complete list is
-[`docs/SQL_SUPPORT.md`](../../docs/SQL_SUPPORT.md).
+[`docs/CONTINUOUS_QUERIES.md`](../../docs/CONTINUOUS_QUERIES.md).
 
 - **No `CASE`**, so conditional aggregation is two registrations. The trading study needs exactly
   this and shows the shape.

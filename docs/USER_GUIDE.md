@@ -1,5 +1,8 @@
 # User guide
 
+> **What a continuous query is, how streams, queries and views relate, and which SQL runs:**
+> [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md).
+
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
 
@@ -220,7 +223,7 @@ The [console](../console/) shows all of this in a browser, including which compu
 
 ## 6. Write SQL Pravaha will run
 
-The complete, test-checked list is [`SQL_SUPPORT.md`](SQL_SUPPORT.md). The shape that works:
+The complete, test-checked list is [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md). The shape that works:
 
 ```sql
 SELECT STREAM

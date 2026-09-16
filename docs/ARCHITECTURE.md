@@ -635,6 +635,6 @@ Not conventions — tests. Each one exists because the failure it prevents is si
 | **What are the ideas?** — [`CONCEPTS.md`](CONCEPTS.md), the eight this is all built on |
 | **How do I use it?** — [`USER_GUIDE.md`](USER_GUIDE.md), task by task |
 | **How do I run it?** — [`OPERATIONS.md`](OPERATIONS.md) |
-| **What SQL can I write?** — [`SQL_SUPPORT.md`](SQL_SUPPORT.md), every construct with a test behind it |
+| **What SQL can I write?** — [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md), streams to views to every construct, with a test behind it |
 | **Why is it like this?** — [`adr/`](adr/), every decision with its alternatives |
 | **The whole specification** — [`system_design.md`](system_design.md) |

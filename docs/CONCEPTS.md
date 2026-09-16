@@ -3,6 +3,9 @@
 > **How any of this actually runs — lanes, inboxes, arenas, and what bounds a node:**
 > [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md).
 >
+> **These ideas applied end to end — declaring a stream, registering a query, reading the view,
+> and which SQL runs:** [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md).
+>
 > **Where the data comes from, and how to add a source:** [`CONNECTORS.md`](CONNECTORS.md).
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
@@ -219,6 +222,6 @@ subscriber silently missing data is the failure the mechanism exists to make vis
 |---|---|
 | [Quickstart](QUICKSTART.md) | Run a query in ten minutes |
 | [User guide](USER_GUIDE.md) | The whole surface, task by task |
-| [What SQL it runs](SQL_SUPPORT.md) | Every construct, checked by a test |
+| [Streams, queries and SQL](CONTINUOUS_QUERIES.md) | What you write, end to end, and every construct checked by a test |
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code and what to do |
 | [Case studies](../examples/case-studies/) | Five worked systems you can copy |

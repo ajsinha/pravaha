@@ -16,7 +16,6 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 
 | | |
 |---|---|
-| [What SQL it runs](SQL_SUPPORT.md) | Every construct that works and every one that does not — checked by a test, so it cannot rot |
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code, and the five you will actually meet |
 | [Operations](OPERATIONS.md) | Memory, disk, admission, what to watch, what is not solved |
 | [Security](SECURITY.md) | Authentication, authorization, row filters, audit |
@@ -27,6 +26,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 |---|---|
 | [Architecture](ARCHITECTURE.md) | The shape, in two pages |
 | [Execution model](EXECUTION_MODEL.md) | Lanes, inboxes, arenas, confinement, backpressure, and what actually bounds a node. The single source of truth for how the engine runs |
+| [Streams, queries and SQL](CONTINUOUS_QUERIES.md) | A stream becomes a query becomes a view, with worked examples — and every SQL construct that runs or is refused, checked by a test. The single source of truth for what you write |
 | [Connectors](CONNECTORS.md) | The plugin SPI, a worked example, the TCK, cross-source joins, and change-data-capture. The single source of truth for writing a connector |
 | [System design](system_design.md) | The full specification |
 | [Decisions (ADRs)](adr/) | Every architectural decision, with the reasoning and the alternatives rejected |
@@ -43,7 +43,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 
 Several of them are **checked by the build** rather than maintained by memory:
 
-- `SQL_SUPPORT.md` — every statement in it is planned, built and compiled against the real engine
+- `CONTINUOUS_QUERIES.md` — every statement in it is planned, built and compiled against the real engine
 - `TROUBLESHOOTING.md` — the code table is hand-maintained and `ErrcCrossCuttingTest` fails the build
   if it and the `ErrorCode` declarations disagree in either direction
 - The case studies — every `.sql` file is planned and run, and each README must quote the checked file

@@ -248,7 +248,7 @@ difference between a number you can defend and a number that changed under you.
 
 ## Limits you will meet
 
-The full list is [`docs/SQL_SUPPORT.md`](../../../docs/SQL_SUPPORT.md).
+The full list is [`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
 
 - **No `CASE`**, so no `SUM(CASE WHEN direction = 'PAY' THEN ... END)`. Two registrations instead.
 - **No `ORDER BY` / `LIMIT`.** Sort the largest exposures in your application.

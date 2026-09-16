@@ -170,7 +170,7 @@ class TypeMappingTest {
                 org.apache.calcite.avatica.util.TimeUnit.DAY,
                 org.apache.calcite.avatica.util.TimeUnit.SECOND,
                 org.apache.calcite.sql.parser.SqlParserPos.ZERO));
-        // Coded, not an IllegalArgumentException. SQL_SUPPORT.md promises every refusal carries a
+        // Coded, not an IllegalArgumentException. CONTINUOUS_QUERIES.md promises every refusal carries a
         // PRV code, and this one reached a client through Flight carrying none -- which is how
         // SELECT NULL surfaced as an untyped stack trace.
         assertThatThrownBy(() -> TypeMapping.fromCalcite(interval))

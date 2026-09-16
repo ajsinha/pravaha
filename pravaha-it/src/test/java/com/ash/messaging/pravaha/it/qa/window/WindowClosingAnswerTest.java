@@ -516,7 +516,7 @@ class WindowClosingAnswerTest extends WindowTestSupport {
         // WIN-182. The decision (§12's own heading) is defensible and undocumented, which makes it
         // indistinguishable from a bug to whoever needs a zero in a time series.
         String docs = java.nio.file.Files.readString(
-                repoRoot().resolve("docs/SQL_SUPPORT.md"), java.nio.charset.StandardCharsets.UTF_8);
+                repoRoot().resolve("docs/CONTINUOUS_QUERIES.md"), java.nio.charset.StandardCharsets.UTF_8);
         String concepts = java.nio.file.Files.readString(
                 repoRoot().resolve("docs/CONCEPTS.md"), java.nio.charset.StandardCharsets.UTF_8);
         assertThat((docs + concepts).toLowerCase(java.util.Locale.ROOT))

@@ -234,7 +234,7 @@ changed panel when somebody fixed a spreadsheet is not a record.
 
 ## Limits you will meet
 
-Full list: [`docs/SQL_SUPPORT.md`](../../../docs/SQL_SUPPORT.md).
+Full list: [`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
 
 - **`AVG` over an integer truncates.** Described above, and the most likely thing to surprise you.
 - **No `CASE`**, so no "percentage of bases over Q30" in one query. Register a second query filtered

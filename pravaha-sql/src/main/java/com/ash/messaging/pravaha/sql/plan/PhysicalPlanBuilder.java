@@ -868,7 +868,7 @@ public final class PhysicalPlanBuilder {
         // COUNT(DISTINCT) holds one entry per distinct value. Over a stream that is unbounded and
         // has to be refused; over a bounded read it is bounded by the scan, exactly as the group map
         // is. The refusal used to live in GlobalAggregate, which cannot tell the two apart -- so it
-        // refused the bounded read too, and a construct SQL_SUPPORT.md marks supported could not be
+        // refused the bounded read too, and a construct CONTINUOUS_QUERIES.md marks supported could not be
         // run on the only surface that was supposed to support it.
         if (!boundedInput) {
             for (AggregateOperator.AggregateCall call : calls) {
@@ -1162,7 +1162,7 @@ public final class PhysicalPlanBuilder {
      * does.
      *
      * <p>E-11. There are twenty-five of these throw sites and not one of them named
-     * {@code SQL_SUPPORT.md}. {@code TROUBLESHOOTING.md} says plainly that the supported surface
+     * {@code CONTINUOUS_QUERIES.md}. {@code TROUBLESHOOTING.md} says plainly that the supported surface
      * lives there and is checked by a test -- which is true of the *document*, and no use at all to
      * somebody holding the error. They had the refusal and no idea where the list was.
      *
@@ -1173,7 +1173,7 @@ public final class PhysicalPlanBuilder {
     private static PravahaException unsupported(String detail) {
         return new PravahaException(
                 SqlErrors.UNSUPPORTED_OPERATOR,
-                detail + " See docs/SQL_SUPPORT.md for what this engine executes and what it refuses.");
+                detail + " See docs/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
     }
 
     /** Renders a plan as an indented tree, for EXPLAIN and for golden-plan tests. */

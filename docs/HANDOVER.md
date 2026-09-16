@@ -119,7 +119,7 @@ Four things a fresh session should know about that work, because each cost a deb
 and nothing else, which is below the floor for production SQL. It now has `CASE WHEN`, the numeric
 functions (`ABS`, `FLOOR`, `CEIL`, `ROUND`), text — `UPPER`, `LOWER`, `TRIM`, `SUBSTRING`, `||`,
 string literals and `CASE` over strings — and `LIKE`/`NOT LIKE` in `WHERE`. What is still refused is
-listed in `docs/SQL_SUPPORT.md`, and that list is enforced by `SqlSupportMatrixTest` rather than
+listed in `docs/CONTINUOUS_QUERIES.md`, and that list is enforced by `SqlSupportMatrixTest` rather than
 maintained by hand.
 
 Two things about it a fresh session should not have to rediscover. Evaluating text allocates a
@@ -321,7 +321,7 @@ undemonstrated.
 | The console (ADR-024) | ✅ `console/` — a separate FastAPI process reaching the engine only through the published Python SDK. Server-rendered, no build step, ~400 lines. **Functional admin scope on purpose**, which the implementation plan names as a legitimate trade to make deliberately. Surfaces two things nothing else does: which computations are *shared*, and a live tail rather than a poll |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
-**`docs/SQL_SUPPORT.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
+**`docs/CONTINUOUS_QUERIES.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
 page against the real planner and asserts the outcome, so a construct that starts or stops working
 fails the build and names the file to edit. It also asserts that every refusal carries a `PRV-` code
 and more than a token of explanation. Adding SQL support means updating both, which is the point.
@@ -445,10 +445,10 @@ Rewritten and extended in Wave 7. What exists now:
 | [`OPERATIONS.md`](OPERATIONS.md) | Bounds, what to watch, and what is not solved |
 | [`SECURITY.md`](SECURITY.md) | The three seams, row filters, the soundness rule |
 | [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | Every `PRV-` code. The table is **hand-maintained**; `ErrcCrossCuttingTest` fails the build if it and the `ErrorCode` declarations disagree in either direction |
-| [`SQL_SUPPORT.md`](SQL_SUPPORT.md) | Every construct, planned and compiled by a test |
+| [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) | Every construct, planned and compiled by a test |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Restructured around the life of a query |
 
-**Checked by the build, not by memory:** every SQL statement in `SQL_SUPPORT.md` and in the case
+**Checked by the build, not by memory:** every SQL statement in `CONTINUOUS_QUERIES.md` and in the case
 studies is planned, built and compiled against the real engine; `ErrcCrossCuttingTest` holds the
 error-code table against the `ErrorCode` declarations in both directions;
 `DocumentationFreshnessTest` verifies every module is described and every decision a document cites

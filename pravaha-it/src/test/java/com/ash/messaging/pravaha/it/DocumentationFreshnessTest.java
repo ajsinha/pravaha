@@ -62,7 +62,7 @@ class DocumentationFreshnessTest {
             "docs/QUICKSTART.md",
             "docs/ARCHITECTURE.md",
             "docs/HANDOVER.md",
-            "docs/SQL_SUPPORT.md",
+            "docs/CONTINUOUS_QUERIES.md",
             "docs/README.md",
             "docs/CONCEPTS.md",
             "docs/USER_GUIDE.md",

@@ -1,11 +1,17 @@
-# What SQL Pravaha runs
+# Streams, continuous queries and SQL
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
 
-Every construct below is **checked by a test**, not by someone's memory:
+> **The single source of truth for what you write and what happens when you write it.** A stream
+> becomes a query becomes a view (§1–§9), and every SQL construct that runs or is refused is listed
+> with its reason (§10–§19). [`CONCEPTS.md`](CONCEPTS.md) holds the ideas underneath;
+> [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) holds how a query executes once registered. Neither is
+> repeated here.
+
+Every construct in the reference half is **checked by a test**, not by someone's memory:
 [`SqlSupportMatrixTest`](../pravaha-sql/src/test/java/com/ash/messaging/pravaha/sql/plan/SqlSupportMatrixTest.java)
-plans each statement in this page, builds it, **and compiles it into a runnable pipeline**. If a
+plans each statement on this page, builds it, **and compiles it into a runnable pipeline**. If a
 construct starts working, or stops, the build fails and names this file.
 
 That third step is there because the first version of this page got two rows wrong without it.
@@ -13,11 +19,279 @@ Planning a statement and being able to run it are different things — a self-jo
 is refused when the pipeline is built — so a matrix that stopped at the planner reported it as
 supported and this page repeated the claim.
 
-## Continuous queries and view reads run the same SQL
+---
+
+# Part I — a stream becomes a query becomes a view
+
+## 1. The three nouns
+
+| | What it is | Lives for |
+|---|---|---|
+| **Stream** | A named, typed, unbounded sequence of rows, bound to a source | The node's lifetime |
+| **Continuous query** | A registered computation over one or more streams | Until dropped |
+| **View** | The query's answer, maintained incrementally, readable by SQL | As long as its query |
+
+The relationship in one line:
+
+```
+source ──feeds──► stream ──read by──► continuous query ──maintains──► view ──read by──► SELECT
+```
+
+**A continuous query is not a request.** You do not ask it for an answer; you register it once and it
+keeps one. The answer is the view, and reading the view is a different operation entirely — cheap,
+repeatable, and not the query running again.
+
+---
+
+## 2. Declaring a stream
+
+A stream has three things: a name, a schema, and — if anything time-based will ever be asked of it —
+an event-time column.
+
+```yaml
+pravaha:
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 10s
+  sources:
+    txn:
+      plugin: filesystem
+      path: /var/feeds/txn.csv
+```
+
+**`event-time` is the setting people most often omit, and its absence is silent.** Without it no
+watermark advances, so no window ever closes: a windowed query plans, registers, reports `RUNNING`,
+ingests every row and emits nothing, for ever. The `name:TYPE` grammar has no syntax for marking a
+column, so this key is the only way to say it.
+
+**`out-of-orderness` belongs to the stream, not to the node.** It says how late *this* source's rows
+may arrive. A join across two streams takes the minimum of their watermarks — so a query is only as
+current as its laggiest input, which is correct and surprises people.
+
+Where the rows come from, and how to add a source of your own, is
+[`CONNECTORS.md`](CONNECTORS.md).
+
+---
+
+## 3. Registering a continuous query
+
+```bash
+pravaha register --name hourly_spend \
+  --sql "SELECT user_id,
+                TUMBLE_END(event_time, INTERVAL '1' HOUR) AS hour,
+                SUM(amount) AS spend
+         FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' HOUR))
+         GROUP BY user_id, window_start, window_end" \
+  --keys 0,1
+```
+
+**`--keys` is the view's key**, given as output-column ordinals. It decides what a row *replaces*: a
+second row with the same key supersedes the first. Get it wrong and the view conflates rows that
+should be distinct, or keeps rows that should have replaced each other.
+
+Two registrations differing only in `--keys` are **two different computations** — the key is part of
+the query's identity, because it changes the answer (I-3).
+
+### What happens at registration
+
+1. The SQL is parsed and validated against the declared streams
+2. A physical plan is built and **fingerprinted** — plan, row filters, key columns, retention
+3. If an identical fingerprint is already running, **the existing computation is shared** and the new name points at it
+4. Otherwise a lane is created, the plan compiled onto it, and a feed opened for each source stream
+5. The view is created and registered in the catalogue
+
+Step 3 is why a thousand dashboards asking the same question cost one computation. It matches on the
+*normalised plan*, not the text — whitespace and aliases do not matter, but operand order does
+(`CONCEPTS.md` §5).
+
+---
+
+## 4. Reading the answer
+
+```bash
+pravaha query --sql "SELECT * FROM hourly_spend WHERE spend > 1000"
+```
+
+This is ordinary SQL over the view, planned and executed by **the same planner and operators a
+continuous query uses** — so a `WHERE` means exactly what it means in a CQ rather than nearly. §10
+says what that shared surface is and where the one asymmetry lies.
+
+Or subscribe, and receive each committed change as it happens:
+
+```bash
+pravaha subscribe --name hourly_spend
+```
+
+**A subscription delivers whole commits.** Never half a batch, never a partly-closed window — a
+subscriber attaching midway through a commit receives the *next* one entire rather than the tail of
+that one (STRM-11).
+
+---
+
+## 5. Windows, worked
+
+A window turns an unbounded stream into a sequence of finite groups. Two forms:
+
+### Tumbling — fixed, non-overlapping
+
+```sql
+SELECT window_start, window_end, COUNT(*) AS trades
+FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND))
+GROUP BY window_start, window_end
+```
+
+Every row falls in exactly one window. `[0,10)`, `[10,20)`, `[20,30)`.
+
+### Hopping — fixed width, sliding
+
+```sql
+SELECT window_start, window_end, SUM(amount) AS spend
+FROM TABLE(HOP(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND, INTERVAL '60' SECOND))
+GROUP BY window_start, window_end
+```
+
+A minute of history, recomputed every ten seconds. Each row belongs to **six** windows.
+
+### The descriptor must name the stream's declared event time
+
+```sql
+-- refused: 'other_time' is a timestamp, but not the one the watermark tracks
+TUMBLE(TABLE ev, DESCRIPTOR(other_time), INTERVAL '10' SECOND)
+```
+
+Windows are cut in event time and closed by a watermark, and the watermark only advances on the
+declared column — so a grid keyed to any other column would be closed by a clock that knows nothing
+about it, and the answer would be **wrong rather than late** (TIME-2).
+
+### When a window emits
+
+When the watermark passes its end. The watermark is *"nothing earlier than this is coming"*, derived
+from the rows arriving minus the stream's `out-of-orderness`. Until it passes, the window is open and
+its result is not published.
+
+**This is why a query with no `event-time` emits nothing.** It is not slow; it is waiting for a clock
+that will never tick.
+
+---
+
+## 6. Corrections, and why the answer can go backwards
+
+A row arriving late for a window that already emitted does not produce a wrong answer and does not
+produce a second one. It produces a **correction**: the old result is retracted at `−1` and the new
+one inserted at `+1`.
+
+A subscriber sees both. A reader of the view sees only the current state, because the retraction and
+the insert are applied before the commit is visible.
+
+```
+window [10,20) COUNT=5      ← emitted when the watermark passed 20
+... a late row for t=15 arrives, within allowed lateness ...
+window [10,20) COUNT=5   -1 ← retracted
+window [10,20) COUNT=6   +1 ← corrected
+```
+
+This is what `weight` means, and it is why the engine can be incremental at all
+([`CONCEPTS.md`](CONCEPTS.md) §4).
+
+---
+
+## 7. Joining streams
+
+```sql
+SELECT o.order_id, c.segment, o.amount
+FROM orders o
+JOIN customers c ON c.customer_id = o.customer_id
+```
+
+Both sides are streams; the join keeps state for each side and emits when a pair matches. State is
+bounded by a **match window** in event time — without one, an unbounded join grows for ever, so the
+default exists to make the join survivable rather than to be correct in every case.
+
+A `LEFT` join is supported **with a time bound**: the null-padded row is emitted when the watermark
+passes the window, once, and never retracted — because without a bound there is no moment at which a
+row can be declared unmatched.
+
+**The two sides may come from entirely different connectors** — one from Kafka, one from Postgres.
+See [`CONNECTORS.md`](CONNECTORS.md) §4, which also records that this is supported by construction
+and not yet demonstrated by a test.
+
+§14 is the full matrix of which join shapes run and which are refused.
+
+### Temporal joins — enriching from a table
+
+```sql
+SELECT t.txn_id, t.amount, p.tier
+FROM txn t
+LEFT JOIN user_profile FOR SYSTEM_TIME AS OF t.event_time AS p
+  ON p.user_id = t.user_id
+```
+
+The right side is a **lookup**, not a stream: each row asks the store as of its own event time.
+Lookups are fanned out on virtual threads so an operator is not capped at the inverse of the store's
+latency, and they hold **no state to checkpoint** — a cache lost on restart costs latency, not
+correctness.
+
+---
+
+## 8. The life of a query
+
+```
+          register
+             │
+             ▼
+         RUNNING ──pause──► PAUSED ──resume──► RUNNING
+             │                 │
+             │ lane throws     │
+             ▼                 ▼
+          FAILED           (drop) ──► DROPPED
+```
+
+| State | Means |
+|---|---|
+| `RUNNING` | Ingesting and maintaining its view |
+| `PAUSED` | Feed stopped; state kept; resumable |
+| `FAILED` | A lane threw. **The view refuses reads** rather than serving a snapshot frozen at the failure (E-13) |
+| `DROPPED` | Gone. The view is removed from the catalogue |
+
+`FAILED` and `DROPPED` are terminal. A failed query's rows are still held and were correct as of the
+failure — what it will not do is hand them over as though they were current.
+
+---
+
+## 9. Parameters
+
+`?` placeholders are supported in `WHERE` and `HAVING`, and nowhere else. See
+[ADR-032](adr/032-parameters-are-values-not-queries.md) for the full position table and the reasoning.
+
+```java
+client.query("SELECT total FROM user_volume WHERE user_id = ?", "u1");
+```
+```python
+client.query("SELECT total FROM user_volume WHERE user_id = ?", ["u1"])
+```
+
+A registered query may also carry bound values:
+
+```bash
+pravaha register --name eu_spend --sql "SELECT ... WHERE region = ?" --param EU
+```
+
+**A bound value is part of the plan, so it is part of the fingerprint**: two bindings of the same SQL
+are two computations, not one shared. That is the truth rather than a policy — and it is precisely
+why a parameter the view *carries* is usually better than one baked in, because then a single
+computation answers every region and the filter happens at read time.
+
+---
+
+# Part II — the SQL reference
+
+## 10. Continuous queries and view reads run the same SQL
 
 There is one planner and one set of operators. A continuous query registered against a source and a
 request/response query against a maintained view both go through `SqlPlanner` → `PhysicalPlanBuilder`
-→ the same physical operators, so **everything on this page applies to both**. That is deliberate:
+→ the same physical operators, so **everything in this half applies to both**. That is deliberate:
 two implementations of `WHERE` agree until the day they do not, and that day is a support call about
 a number.
 
@@ -27,7 +301,7 @@ of a view the same argument does not hold, because the scan ends, so it is **sup
 SQL, different answer, and the difference is the input rather than the query. Covered
 [below](#should-a-continuous-query-aggregate-at-all).
 
-## The short version
+### The short version
 
 Pravaha runs **the shape of query people actually write against a stream**: pick columns, filter
 them, join on a key, aggregate over a window. It deliberately does not try to be a general analytics
@@ -39,7 +313,9 @@ It is never accepted and then approximated. That matters more than the size of t
 refusal costs a developer five minutes, and a query that runs and returns a plausible wrong number
 costs whatever was decided on the strength of it.
 
-## Projection — `SELECT`
+---
+
+## 11. Projection — `SELECT`
 
 | | | |
 |---|---|---|
@@ -61,7 +337,7 @@ costs whatever was decided on the strength of it.
 | String concatenation — `a \|\| b` | ✅ | Any length of chain. **Null concatenated with anything is null**, not an empty string |
 | `SUBSTRING(s FROM start)`, `… FOR length` | ✅ | Positions are 1-based and counted in code points, so a substring never splits an emoji in half |
 | Other string functions — `REPLACE`, `POSITION`, `LPAD` | ❌ | `PRV-2021` |
-| `SELECT DISTINCT` | ❌ | `PRV-2050` — it is a `GROUP BY` over an unbounded key space; see below |
+| `SELECT DISTINCT` | ❌ | `PRV-2050` — it is a `GROUP BY` over an unbounded key space; see §13 |
 
 **A projected boolean holds two values, and SQL comparisons have three.** `SELECT amount > 50`
 plans, because `amount` is `NOT NULL` and the comparison is therefore TRUE or FALSE. `SELECT status
@@ -92,7 +368,9 @@ name if not — and for an unaliased aggregate there is no name to take, so `COU
 `EXPR$2`. Write `COUNT(*) AS txn_count` unless you enjoy reading `EXPR$2` in a dashboard. A qualified
 column keeps its bare name: `SELECT t.amount` produces a column called `amount`, not `t.amount`.
 
-## Filtering — `WHERE` and `HAVING`
+---
+
+## 12. Filtering — `WHERE` and `HAVING`
 
 | | | |
 |---|---|---|
@@ -113,7 +391,9 @@ column keeps its bare name: `SELECT t.amount` produces a column called `amount`,
 Three-valued logic is honoured throughout: a comparison with NULL is UNKNOWN, and a filter keeps
 only rows where the predicate is TRUE.
 
-## Aggregation
+---
+
+## 13. Aggregation
 
 | | | |
 |---|---|---|
@@ -134,7 +414,8 @@ Yes — **windowed aggregation is the point of the engine**, not a feature bolte
 query that only filters and projects is a `grep` with extra steps, and nobody needs incremental
 computation for that. The value is in maintaining `SUM`, `COUNT` and `COUNT(DISTINCT)` over a window
 and keeping them correct as data arrives, late data included. The query on the front of the README is
-exactly that shape, and it is what the Z-set algebra in §4 exists to make incremental.
+exactly that shape, and it is what the Z-set algebra in [`CONCEPTS.md`](CONCEPTS.md) §4 exists to
+make incremental.
 
 So the answer splits, and the split is not a compromise:
 
@@ -177,7 +458,9 @@ unlike a comparison, where NULL is UNKNOWN — so rows with no `tier` gather und
 rather than growing. Row order is stable between identical reads: there is no `ORDER BY` to make it
 meaningful, but an answer that shuffles is one somebody wastes an afternoon on.
 
-## Joins
+---
+
+## 14. Joins — what runs
 
 | | | |
 |---|---|---|
@@ -189,7 +472,7 @@ meaningful, but an answer that shuffles is one somebody wastes an afternoon on.
 | Time bound in months or years | ❌ | A month has no fixed length; guessing 30 days is wrong twice a year |
 | Three-way and deeper | ✅ | Between *distinct* streams |
 | Self join — one stream on both sides | ❌ | Rows enter a join by stream name, which cannot say which side a row is for |
-| Lookup join against a dimension table | ✅ | Async, on virtual threads, ordered output |
+| Lookup join against a dimension table | ✅ | Async, on virtual threads, ordered output — §7 |
 | `LEFT JOIN` **with a time bound** | ✅ | The null-padded row is emitted when the watermark passes the window, once, never retracted |
 | `LEFT JOIN` without a time bound | ❌ | `PRV-2020` — there is no moment at which an unmatched row can be declared unmatched, so every one is held for the life of the process |
 | `RIGHT` / `FULL OUTER` | ❌ | `PRV-2020` — swap the inputs and use `LEFT` |
@@ -208,7 +491,9 @@ A self-join is refused later than the rest — when the pipeline is built rather
 planned — and it is the one refusal that arrives without a `PRV-` code. Both are worth fixing; until
 then, the message says plainly what is wrong.
 
-## Sorting, sets and subqueries
+---
+
+## 15. Sorting, sets and subqueries
 
 | | | |
 |---|---|---|
@@ -227,19 +512,9 @@ Note what `ORDER BY` means over a stream: a total order over rows that have not 
 meaningful over a *bounded* read of a maintained view, and that is where it would land if it is
 added — not over a continuous query.
 
-## Parameters
+---
 
-`?` placeholders are supported in `WHERE` and `HAVING`, and nowhere else. See
-[ADR-032](adr/032-parameters-are-values-not-queries.md) for the full position table and the reasoning.
-
-```java
-client.query("SELECT total FROM user_volume WHERE user_id = ?", "u1");
-```
-```python
-client.query("SELECT total FROM user_volume WHERE user_id = ?", ["u1"])
-```
-
-## Types
+## 16. Types
 
 Supported in expressions: `BOOLEAN`, `TINYINT`, `SMALLINT`, `INTEGER`, `BIGINT`, `REAL`, `DOUBLE`,
 `VARCHAR`, `VARBINARY`, `DATE`, `TIME`, `TIMESTAMP`.
@@ -269,7 +544,9 @@ type is parsed — so `amt:DECIMAL(10,2)` is cut at its own comma and fails as `
 `Types.decimal(p, s)`. A decimal that *is* declared that way is carried through scans, filters and
 projections correctly; what is not built is arithmetic over it. Recorded as TY-7.
 
-## What to do when something here is refused
+---
+
+## 17. What to do when something here is refused
 
 1. **Read the message.** Every `PRV-` refusal says what is unsupported and, where there is one, what
    to write instead.
@@ -280,7 +557,23 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
    the answer to a question asked in advance; a query engine answers questions asked just now, and
    trying to be both is how a system becomes bad at each.
 
-## Error codes
+---
+
+## 18. Common surprises, and what they actually are
+
+| Symptom | Cause |
+|---|---|
+| Query is `RUNNING`, view is empty, rows are arriving | No `event-time` declared, so no watermark, so no window ever closes (§2) |
+| Windows close but lag real time badly | `out-of-orderness` larger than the data needs, or a slow input dragging a join's watermark down |
+| Two queries that look identical are not shared | Different `--keys`, different retention, or `AND` operands written in a different order (§3) |
+| A count went down | A correction: a late row retracted a result and replaced it. Working as designed (§6) |
+| `SELECT` refuses with `PRV-8004` | The query behind the view failed; the rows are stale, and saying so is the point (§8) |
+| A view holds fewer rows than expected | Retention. It defaults to forever now, but an explicit one evicts by event time |
+| `GROUP BY` works on a view and is refused on a stream | Deliberate, and the reason is the input rather than the query (§13) |
+
+---
+
+## 19. Error codes
 
 | Code | Means |
 |---|---|
@@ -291,3 +584,16 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2021` | An expression or function Pravaha cannot compile |
 | `PRV-2050` | The query's state would grow without bound |
 | `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](adr/032-parameters-are-values-not-queries.md) |
+
+---
+
+## 20. Where to go next
+
+| You want | Read |
+|---|---|
+| The ideas underneath | [`CONCEPTS.md`](CONCEPTS.md) |
+| Getting a node running | [`QUICKSTART.md`](QUICKSTART.md) |
+| Operating one | [`OPERATIONS.md`](OPERATIONS.md) |
+| Adding a data source | [`CONNECTORS.md`](CONNECTORS.md) |
+| How a query executes | [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) |
+| What an error code means | [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) |

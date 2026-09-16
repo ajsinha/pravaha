@@ -130,7 +130,7 @@ class ErrcSqlTest extends ErrcTestSupport {
             assertThat(r.exitCode()).as(sql).isEqualTo(1);
             assertThat(r.stderr()).as(sql).contains("PRV-2020");
             // E3 FAILS here, confirmed across all three and by an exhaustive grep of the 24 throw
-            // sites in PhysicalPlanBuilder.java: none of them mention SQL_SUPPORT.md. The one
+            // sites in PhysicalPlanBuilder.java: none of them mention CONTINUOUS_QUERIES.md. The one
             // occurrence of that string in the file is a code *comment*, near the UNBOUNDED_STATE
             // site, not part of any thrown message. The case's own instruction ("confirm the pointer
             // exists in the message, not only in the document") does not hold for the single most
@@ -141,7 +141,7 @@ class ErrcSqlTest extends ErrcTestSupport {
             // the pointer once.
             assertThat(r.stderr())
                     .as("the refusal now names the document that answers the question it raises")
-                    .contains("SQL_SUPPORT.md");
+                    .contains("CONTINUOUS_QUERIES.md");
         }
     }
 
@@ -151,7 +151,7 @@ class ErrcSqlTest extends ErrcTestSupport {
                 .resolve("pravaha-sql/src/main/java/com/ash/messaging/pravaha/sql/plan/PhysicalPlanBuilder.java");
         String source = Files.readString(file);
         // Counted by call to `unsupported(`, not by mention of the code. E-11 routed all of them
-        // through one helper so the pointer to SQL_SUPPORT.md is added once rather than remembered
+        // through one helper so the pointer to CONTINUOUS_QUERIES.md is added once rather than remembered
         // twenty-five times -- which means the code name now appears exactly once in the file, and
         // counting *that* would report one site where there are twenty-five.
         long throwSites = source.lines()
@@ -159,7 +159,7 @@ class ErrcSqlTest extends ErrcTestSupport {
                 .count();
         // Twenty-four when this case was written, twenty-five since TIME-2 added the descriptor
         // check. Recorded as a floor rather than pinned exactly: the subject of this test is the
-        // assertion below -- that not one of these messages points at SQL_SUPPORT.md -- and pinning
+        // assertion below -- that not one of these messages points at CONTINUOUS_QUERIES.md -- and pinning
         // the count made every legitimate new refusal fail a test about documentation pointers,
         // which teaches the next person to edit the number rather than read the assertion.
         assertThat(throwSites)
@@ -170,7 +170,7 @@ class ErrcSqlTest extends ErrcTestSupport {
         // E-11, inverted. This asserted zero -- correctly, when written: not one of the twenty-four
         // refusals named the document that lists what this engine executes, so a user holding the
         // error had no idea where to look. TROUBLESHOOTING.md said the surface lives in
-        // SQL_SUPPORT.md, which is true of the document and no use at all to somebody holding the
+        // CONTINUOUS_QUERIES.md, which is true of the document and no use at all to somebody holding the
         // error.
         //
         // The pointer is added once, in the `unsupported` helper every site now goes through,
@@ -178,7 +178,7 @@ class ErrcSqlTest extends ErrcTestSupport {
         // has not read any of this. So the assertion is that exactly one place names it, and that
         // no site bypasses the helper.
         assertThat(source.lines()
-                        .filter(l -> l.contains("SQL_SUPPORT.md"))
+                        .filter(l -> l.contains("CONTINUOUS_QUERIES.md"))
                         .filter(l -> !l.trim().startsWith("*") && !l.trim().startsWith("//"))
                         .filter(l -> l.contains("\""))
                         .count())

@@ -66,7 +66,7 @@ The name in a `2021` message is the function the *planner* saw, which is not alw
 typed — Calcite rewrites `SQRT(x)` to `POWER(x, 0.5)` before the engine reads the query, so a
 refusal can name a function your SQL does not contain.
 
-The complete list, with what to do instead, is [`SQL_SUPPORT.md`](SQL_SUPPORT.md) — and it is checked
+The complete list, with what to do instead, is [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) — and it is checked
 by a test, so it is true rather than aspirational.
 
 ### `PRV-4023` — "is not a registered view"

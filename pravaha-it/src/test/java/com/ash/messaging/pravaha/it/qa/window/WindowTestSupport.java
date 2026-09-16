@@ -270,7 +270,7 @@ abstract class WindowTestSupport {
     /** The repository root, found by walking up from the working directory to a file it owns. */
     protected static java.nio.file.Path repoRoot() {
         java.nio.file.Path root = java.nio.file.Path.of("").toAbsolutePath();
-        while (!java.nio.file.Files.exists(root.resolve("docs/SQL_SUPPORT.md")) && root.getParent() != null) {
+        while (!java.nio.file.Files.exists(root.resolve("docs/CONTINUOUS_QUERIES.md")) && root.getParent() != null) {
             root = root.getParent();
         }
         return root;

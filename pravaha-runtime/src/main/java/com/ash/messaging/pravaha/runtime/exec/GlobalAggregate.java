@@ -122,7 +122,7 @@ final class GlobalAggregate implements RowProcessor {
                     // Bounded by the scan, exactly as KeyedAggregate's is. The refusal this used to
                     // throw belongs at planning time, where it can tell a continuous registration
                     // from a finite read; thrown here it also refused the bounded read, so a
-                    // construct SQL_SUPPORT.md marks supported could not be run on the only surface
+                    // construct CONTINUOUS_QUERIES.md marks supported could not be run on the only surface
                     // that was supposed to support it.
                     if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
                         if (distincts[i] == null) {

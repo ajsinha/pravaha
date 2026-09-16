@@ -309,7 +309,7 @@ are not audited.
 
 | | |
 |---|---|
-| [What SQL it runs](docs/SQL_SUPPORT.md) | Every construct that works and every one that does not — checked by a test, so it cannot rot |
+| [Streams, queries and SQL](docs/CONTINUOUS_QUERIES.md) | What you write, end to end — and every construct that works or is refused, checked by a test so it cannot rot |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Every `PRV-` code, and the five you will actually meet |
 | [Operations](docs/OPERATIONS.md) | Memory, disk, admission, what to watch, and what is honestly not solved |
 | [Security](docs/SECURITY.md) | Authentication, authorization, row filters, audit |
@@ -327,7 +327,7 @@ are not audited.
 | [Original SRS](docs/initial_req.md) | The 1.0-DRAFT this design supersedes. Kept for provenance |
 
 Several of these are **verified by the build** rather than maintained by memory: every SQL statement
-in `SQL_SUPPORT.md` and in the case studies is planned against the real engine (and 26 of its 42
+in `CONTINUOUS_QUERIES.md` and in the case studies is planned against the real engine (and 26 of its 42
 supported constructs have their answer asserted), `ErrcCrossCuttingTest` fails the build if
 `TROUBLESHOOTING.md`'s code table and the `ErrorCode` declarations disagree in either direction,
 `QuickstartCommandsTest` runs the quickstart's serverless commands out of the document and checks

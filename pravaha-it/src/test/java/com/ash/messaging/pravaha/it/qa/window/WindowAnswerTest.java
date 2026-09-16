@@ -503,10 +503,10 @@ class WindowAnswerTest extends WindowTestSupport {
         // WIN-045. The Aggregation table lists TUMBLE, HOP and SESSION; CUMULATE parses (WIN-043)
         // and has no row at all, so "not listed" and "refused" are not the same set.
         java.nio.file.Path root = java.nio.file.Path.of("").toAbsolutePath();
-        while (!java.nio.file.Files.exists(root.resolve("docs/SQL_SUPPORT.md")) && root.getParent() != null) {
+        while (!java.nio.file.Files.exists(root.resolve("docs/CONTINUOUS_QUERIES.md")) && root.getParent() != null) {
             root = root.getParent();
         }
-        String doc = java.nio.file.Files.readString(root.resolve("docs/SQL_SUPPORT.md"));
+        String doc = java.nio.file.Files.readString(root.resolve("docs/CONTINUOUS_QUERIES.md"));
         assertThat(doc.toLowerCase(java.util.Locale.ROOT)).doesNotContain("cumulate");
     }
 

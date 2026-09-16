@@ -277,7 +277,7 @@ final class KeyedAggregate implements RowProcessor {
                             // Read by the column's declared type, not as text. getString over an
                             // INT64 column read the slot's bits as a (offset, length) pair and died
                             // with a raw NegativeArraySizeException: -1 -- no code, no column named,
-                            // on the read path SQL_SUPPORT.md marks supported.
+                            // on the read path CONTINUOUS_QUERIES.md marks supported.
                             distincts.get(i).add(valueAt.apply(call.argumentOrdinal()));
                         }
                     }
