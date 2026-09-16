@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.plugin.feedfile;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -131,6 +132,72 @@ class ParquetFeedTest {
                 // drain
             }
             assertThat(collector.rows().stream().map(r -> r.getLong(0))).containsExactly(3L, 4L);
+        }
+    }
+
+    @Test
+    void aFeedFileTakenAwayMidReadIsReportedRatherThanBeingSilence(@TempDir Path dir) throws IOException {
+        // E-1/PRV-5064. FEEDFILE_FILE_GONE was declared, documented, and thrown from nowhere. So a
+        // feed file rotated or deleted while a reader still sat inside it produced **silence**: the
+        // reader returned zero for ever, the query stayed RUNNING, and the rows left in that file
+        // were never read and never missed. A source that had stopped and a source with nothing to
+        // say looked exactly the same from outside.
+        writeParquet(dir.resolve("orders-01.parquet"), 1L, 2L, 3L, 4L);
+        FeedFileSourcePlugin plugin = open(dir);
+
+        SourceOffset checkpoint;
+        try (FeedCollector collector = new FeedCollector(plugin.schema());
+                PartitionReader reader =
+                        plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
+            assertThat(reader.poll(collector, 2)).isEqualTo(2);
+            checkpoint = reader.position();
+        }
+
+        // Whatever rotates the feed takes the file away while the cursor is still two records in,
+        // and a later file arrives -- which is what makes the loss demonstrable: the reader is about
+        // to move past an unfinished cursor.
+        Files.delete(dir.resolve("orders-01.parquet"));
+        writeParquet(dir.resolve("orders-02.parquet"), 5L, 6L);
+
+        try (FeedCollector collector = new FeedCollector(plugin.schema());
+                PartitionReader resumed =
+                        plugin.createReader(plugin.partitions("orders").get(0), checkpoint)) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> resumed.poll(collector, 64))
+                    .as("returning zero here is the defect: it is the same answer as 'nothing new yet'")
+                    .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                    .hasMessageContaining("PRV-5064")
+                    .hasMessageContaining("orders-01.parquet")
+                    .hasMessageContaining("skip the rest of it")
+                    .hasMessageContaining("orders-02.parquet");
+        }
+    }
+
+    @Test
+    void afinishedFeedFileMayBeRotatedAwayWithoutComplaint(@TempDir Path dir) throws IOException {
+        // The property the fix must not cost, and the ordinary case: rotation exists precisely so
+        // that files read to the end can be taken away. Only a file the reader is still inside is a
+        // loss.
+        writeParquet(dir.resolve("orders-01.parquet"), 1L, 2L);
+        FeedFileSourcePlugin plugin = open(dir);
+
+        SourceOffset checkpoint;
+        try (FeedCollector collector = new FeedCollector(plugin.schema());
+                PartitionReader reader =
+                        plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
+            while (reader.poll(collector, 64) > 0) {
+                // drain the file completely
+            }
+            checkpoint = reader.position();
+        }
+
+        Files.delete(dir.resolve("orders-01.parquet"));
+
+        try (FeedCollector collector = new FeedCollector(plugin.schema());
+                PartitionReader resumed =
+                        plugin.createReader(plugin.partitions("orders").get(0), checkpoint)) {
+            org.assertj.core.api.Assertions.assertThatCode(() -> resumed.poll(collector, 64))
+                    .as("a file read to its end and then rotated is rotation working, not a failure")
+                    .doesNotThrowAnyException();
         }
     }
 }

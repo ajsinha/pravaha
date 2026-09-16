@@ -158,12 +158,43 @@ final class FeedFilePartitionReader implements PartitionReader {
                 }
             }
             if (comparison > 0 || offset.isBeginning()) {
+                if (!currentFileDone && !offset.isBeginning() && !feed.holds(current)) {
+                    // Moving on would skip whatever was left in the file the offset names. See
+                    // reportGone: the silent version of this is the defect (E-1/PRV-5064).
+                    throw gone(current, "the reader is moving on to '" + name + "'");
+                }
                 offset = offset.at(name);
                 open(candidate, 0);
                 return true;
             }
         }
+        // Nothing to open, and this returns quietly. That is right for the ordinary case -- the feed
+        // has produced nothing new -- and it is also what happens when the file the cursor names has
+        // been rotated away with nothing after it.
+        //
+        // E-1/PRV-5064, and the limit of what can be fixed without changing the offset format.
+        // `FeedFileOffset` records a file name and a record index; it does not record whether that
+        // file was read to its end. A reader resuming from a checkpoint therefore cannot tell "I
+        // finished this file and it was then rotated", which is routine and must stay silent, from
+        // "I was two records in and it was taken away", which is loss. Guessing either way is wrong:
+        // raising here made ordinary rotation fail, and staying silent is the defect.
+        //
+        // So the throw above covers the case where loss is *demonstrable* -- the cursor is unfinished
+        // and the reader is about to move past it to a later file. The remaining case needs the
+        // offset to carry an exhausted flag, which changes a persisted format and belongs in its own
+        // change. Recorded on E-1 rather than left as a comment nobody reads.
         return false;
+    }
+
+    /** The refusal for a file the cursor names and the directory no longer has. */
+    private PravahaException gone(String name, String what) {
+        return new PravahaException(
+                FeedFileErrors.FILE_GONE,
+                "the feed file '" + name + "' is no longer in " + feed + " and this reader was at record "
+                        + offset.recordIndex() + " of it, so " + what + " would skip the rest of it without "
+                        + "anybody noticing. Feed files must outlive the readers that are still in them: raise "
+                        + "the retention on whatever rotates them, or let this query finish the file before it "
+                        + "is moved. Restarting the query resumes from the next file and accepts the loss.");
     }
 
     private void open(Path file, long skip) {

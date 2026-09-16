@@ -961,8 +961,26 @@ four-column file.
 - **There are 38 `pravaha.*` settings**, not 37 — 36 YAML keys plus two system properties.
 
 ## E-1 (HIGH) — the document describes eight failures the engine cannot report
-> **Status:** OPEN — all nine codes (1043, 4002, 4013, 5012, 5020, 5053, 5064, 8007, 9004) still have zero throw sites anywhere in main sources; corroborated by E-10, which finds a tenth unreachable code, `PRV-2041`
+> **Status:** OPEN — **`PRV-5064` now has a throw site; the other eight do not.** The rotated-feed-file case was the one that mattered for a deployment and the one this finding singles out as surfacing *as silence*: `FeedFilePartitionReader` returned zero for ever, the query stayed `RUNNING`, and the rows left in the file were never read and never missed — a source that had stopped and a source with nothing to say were the same observation. It is raised now when the reader is about to move past an unfinished cursor to a later file.
 > **Disposition:** GA-REQUIRED — assigned individually
+
+**What could not be fixed without changing a persisted format, stated rather than glossed.**
+`FeedFileOffset` records a file name and a record index and *not* whether that file was read to its
+end. So a reader resuming from a checkpoint cannot distinguish "I finished this file and it was then
+rotated" — routine, and must stay silent — from "I was two records in and it was taken away", which
+is loss. My first version raised on both and broke ordinary rotation, which is a feed directory's
+normal operating mode; the test caught it.
+
+So the throw covers the case where loss is **demonstrable**: an unfinished cursor with a later file
+to move on to. The remaining case needs an exhausted flag in the offset, which changes a format that
+is written to checkpoints and has its own error code for version drift (`PRV-5063`). That is its own
+change, not a rider on this one.
+
+**The other eight codes remain undeclared-and-unthrown**: 1043, 4002, 4013, 5012, 5020, 5053, 8007,
+9004. `PRV-9004 CLUSTER_NOT_LEADER` belongs to distribution and is roadmap by ADR-038. The rest are
+either wire-it-or-delete-it decisions that want a pass of their own, and leaving them declared but
+unreachable is what this finding is about — so it stays open and honest rather than being closed on
+one ninth of the work.
 
 
 **Nine codes have no throw site at all**: 1043, 4002, 4013, 5012, 5020, 5053, 5064, 8007, 9004. Eight

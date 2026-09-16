@@ -92,6 +92,11 @@ final class FeedDirectory {
     }
 
     /** Every file that is ready to read, in the declared order. */
+    /** Whether {@code name} is still in this directory at all, ready or not. */
+    boolean holds(String name) {
+        return Files.exists(directory.resolve(name));
+    }
+
     List<Path> ready() {
         List<Path> files = new ArrayList<>();
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(directory)) {
