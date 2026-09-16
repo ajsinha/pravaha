@@ -5,7 +5,7 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 174 FIXED, 106 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 106 open, **2 are
+status — 175 FIXED, 105 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 105 open, **1 is
 GA-BLOCKER, 2 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -54,12 +54,12 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-BLOCKER** | 1 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 2 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
-**The fifteen blockers, by what they break.** Data reaching the wrong principal: `SX-5`, `SX-1`.
+**The fifteen blockers, by what they break.** Data reaching the wrong principal: `SX-5` alone — `SX-1` is **fixed**, and was already fixed in code when its status line still said otherwise; what it lacked was a test pinning the order, which it now has.
 A security control that reports itself on and is off: `SX-7`. (`SX-11`, `CFG-5`, `CFG-6` and `P-3`
 were in these two rows and are **fixed** — the security group is now down to the existence oracle
 and the audit that logs ALLOW for a refused read.) Silently wrong
@@ -2597,7 +2597,7 @@ a user receives only what they're authorized for) is HIGH regardless of what SEC
 predicts.
 
 ## SX-1 — `subscribe`'s denial is an existence oracle for every other view on the node (known extent, reconfirmed)
-> **Status:** OPEN — `PravahaFlightSqlProducer.streamSubscription` still calls `QueryRegistry.require(viewName)` before `policy.mayRead(...)`; `QueryRegistry.require` still throws "no query named '<name>' is registered; this node has [<all names>]" for a non-existent view, disclosing the full catalog before authorization is consulted.
+> **Status:** FIXED — and the status line above was stale on both counts, which is recorded here rather than quietly corrected. `PravahaFlightSqlProducer.streamSubscription` authorizes *before* it resolves: `policy.mayRead` runs, the decision is audited, a refusal throws, and only then is `required.require(viewName)` called — so a principal denied the name never reaches the registry at all. `QueryRegistry.require` refuses with "no query named '<name>' is registered" and enumerates nothing; its javadoc records why. **What was genuinely missing was a test over the order.** The non-enumeration is pinned at the registry by `LifeDropTest` and `LifePauseTest`, but nothing pinned the sequence in `streamSubscription`, so swapping those two statements back would have restored the oracle without failing anything. `FlightListingDisclosureTest.sx1_aDeniedSubscriberCannotTellAnExistingViewFromAnAbsentOne` now drives a real Flight server and asserts that an existing-but-forbidden view and an absent name refuse with the *same* `PRV-` code, and that the absent name's refusal discloses no other view — because different codes for "forbidden" and "absent" are the same oracle spelled in a number rather than a list.
 > **Disposition:** GA-BLOCKER — same oracle, reconfirmed; denial distinguishes "refused" from "absent"
 
 
@@ -2608,7 +2608,7 @@ one hands a denied caller the **full catalog of view names**, before `mayRead` i
 (`require()` runs first). This matches the pattern SECX.md's own preamble already documents as known
 (SEC-058) and `docs/SECURITY.md`'s "metadata is data" claim already contradicts (see doc rot below).
 
-**Status: OPEN**, consistent with the case file's own framing (measuring extent, not discovering).
+**Status: FIXED** — see the status line above. The paragraph below describes the defect as it was found.
 See docs/qa/logs/SECX.md (SECX-028).
 
 ## SX-2 (HIGH) — `mayAdminister` defaulting to `mayRead` turns a partial or conditional read entitlement into an unconditional power to destroy, freeze or unfreeze a computation

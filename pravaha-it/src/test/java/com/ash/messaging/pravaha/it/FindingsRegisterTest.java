@@ -334,7 +334,7 @@ class FindingsRegisterTest {
         // register is worse than none, because it is the part a release argument would quote.
         String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
         Matcher header = Pattern.compile(
-                        "\\*\\*(\\d+) are\\s+GA-BLOCKER, (\\d+) GA-REQUIRED, (\\d+) POST-GA and (\\d+) are not defects")
+                        "\\*\\*(\\d+) (?:are|is)\\s+GA-BLOCKER, (\\d+) GA-REQUIRED, (\\d+) POST-GA and (\\d+) are not defects")
                 .matcher(text);
         assertThat(header.find())
                 .as("the header's triage sentence must still be there and still be machine-readable")
@@ -343,6 +343,9 @@ class FindingsRegisterTest {
         List<Finding> open = findings().stream()
                 .filter(finding -> finding.status() != null && finding.status().startsWith("OPEN"))
                 .toList();
+        // Accepts "is" as well as "are": the blocker count reached one, and a ratchet that
+        // forced the summary into bad grammar to keep matching would be teaching the register
+        // to read worse the closer it gets to zero.
         // Read from the header rather than hard-coded: the blocker count is the number this project
         // most wants to see fall, and a test that pinned it would need editing every time one is
         // fixed -- which is how a ratchet turns into a rubber stamp.

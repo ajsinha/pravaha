@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 Proprietary and confidential; see [`LICENSE`](../LICENSE).
 
-**Written 2026-09-09; last swept 2026-09-15, after Wave 9.** Everything the design says lives in
+**Written 2026-09-09; last swept 2026-09-16.** Everything the design says lives in
 [`system_design.md`](system_design.md) and the [ADRs](adr/) — this file deliberately does *not*
 repeat it. What is here is the state, the working practices, and the things a fresh session would
 otherwise have to rediscover the hard way.
@@ -14,13 +14,27 @@ otherwise have to rediscover the hard way.
 
 | | |
 |---|---|
-| `main` | `01f7733`, tags `M1` `M2` `M7` — Waves 1–7 complete |
-| `develop` | **243 commits ahead** of `main`, **pushed to origin**. Waves 8 and 9 are here and neither is merged or tagged |
+| `main` | `8478ef8` — **fast-forwarded to `develop`**. The two branches are the same commit on origin; the drill after every piece of work is `git push origin develop && git push origin develop:main`, so `main` no longer lags by a wave the way it did through waves 8 and 9 |
+| `develop` | `8478ef8`, **pushed to origin, 0 ahead of `main`**. Waves 8 and 9 are here; neither is tagged |
 | Modules | **30** Maven modules, plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **2,214** across the 27 of 31 modules that have tests, 4 skipped, all green — `./mvnw -o -DskipITs -Dbenchmarks.skip=true verify` over the whole reactor on 2026-09-15; `pravaha-it` alone is 756. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there. Count the **per-module summary lines only** — summing those and the per-class `-- in Class` lines together is how a report came to quote 4,408 for a run of 2,207 (DOCR-22). A bare `test` phase is not the same run: three `ErrcClientTest` cases need a packaged CLI jar and error without one |
 | Python tests | **67** in `sdk/python` (collected 2026-09-14), including the client driving a real Java Flight SQL server, plus **34** for the console |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **40** |
+
+**Session of 2026-09-16 — where it stopped.** `SX-1` is **fixed**, leaving **one GA-BLOCKER**
+(`SX-5`, the existence oracle's code and latency channels). The register stands at 295 findings —
+175 FIXED, 105 OPEN, 8 BY DESIGN, 7 SUPERSEDED; of the 105 open, 1 GA-BLOCKER, 2 GA-REQUIRED, 95
+POST-GA, 7 NOTE. `docs/SQL_SUPPORT.md` no longer exists: it was merged into
+[`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md), which is now the single document for what you
+write and whether it will run. [`ADR-040`](adr/040-the-remote-connector.md) designs the remote
+connector and no code for it is started. **[`../RESUME.txt`](../RESUME.txt) holds the
+pick-up-here instructions**, including two agent briefs (`E-1`, `X-11`) that were in flight when the
+machine was rebooted and need relaunching.
+
+**Read the code before believing a finding is open.** `SX-1`'s status line described two mechanisms
+that had both already been fixed; what was actually missing was a test pinning the *order* of the
+authorization and the lookup. There may be more of these.
 
 **Where the waves stand.** Waves 3, 4 and 5 (E4) are **complete** in scope, Wave 6 (E5) and Wave 7
 (E6) are complete in scope as well, **Wave 8 is built** — rescoped by

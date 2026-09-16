@@ -1,0 +1,186 @@
+PRAVAHA — HOW TO RESUME AFTER THE REBOOT
+Written 2026-09-16 by the session that was running when you rebooted.
+
+====================================================================
+1. NOTHING IS LOST. START HERE.
+====================================================================
+
+Everything of mine is committed AND pushed. develop and main are the
+same commit on origin, so a fresh clone would lose nothing.
+
+    develop = main = 8478ef8  (plus the commit that adds this file)
+
+First thing to run after the reboot:
+
+    cd /home/ashutosh/IdeaProjects/pravaha
+    git status                 # expect: clean, on develop
+    git log --oneline -8       # expect the commits listed in section 3
+
+If git status is clean and the log matches, you have lost nothing.
+
+====================================================================
+2. TWO AGENTS WERE RUNNING. THEY DID NOT SURVIVE.
+====================================================================
+
+Two coding agents were working in their own git worktrees when the
+reboot happened. THE PROCESSES ARE GONE. The directories are still on
+disk and may contain uncommitted edits.
+
+  Agent 1 — finding E-1 (GA-REQUIRED)
+    worktree: .claude/worktrees/agent-a9bedc6276daf4544
+    branch:   worktree-agent-a9bedc6276daf4544
+    task: eight error codes are DECLARED but have NO THROW SITE --
+          PRV-1043, 4002, 4013, 5012, 5020, 5053, 8007, 9004.
+          For each: either wire it to a real failure that is currently
+          reported badly, or delete the declaration. PRV-9004
+          CLUSTER_NOT_LEADER stays declared (roadmap, ADR-038) with a
+          comment saying why, so nobody "fixes" it by deleting it.
+
+  Agent 2 — finding X-11 (GA-REQUIRED)
+    worktree: .claude/worktrees/agent-a32b57d049ccf3171
+    branch:   worktree-agent-a32b57d049ccf3171
+    task: (a) BinaryRowWriter throws a bare IllegalArgumentException
+              past 64 fields -- a real architectural ceiling on ANY row
+              -- with no PRV code and documented nowhere. Give it a
+              code; document it in TROUBLESHOOTING.md and in
+              CONTINUOUS_QUERIES.md section 19.
+          (b) A 1000-term AND/OR chain throws PRV-2010 wrapping a bare
+              RuntimeException and interpolates THE ENTIRE PREDICATE
+              into the message. Summarise it -- operator and term count
+              -- and decide whether it deserves its own code.
+              (Do NOT chase X-10, the StackOverflowError case. Separate.)
+
+TO CHECK WHETHER THEY LEFT ANYTHING:
+
+    git -C .claude/worktrees/agent-a9bedc6276daf4544 status --short
+    git -C .claude/worktrees/agent-a32b57d049ccf3171 status --short
+
+Empty output = they had not written anything yet; just relaunch them
+with the briefs above. Non-empty = review the diff and keep what is
+good. Neither had committed anything when the reboot came, so do not
+expect much.
+
+Both worktrees are based on 7e2dd0a, which is an ancestor of develop,
+so nothing there conflicts with what has landed since.
+
+====================================================================
+3. WHAT LANDED THIS SESSION (all pushed)
+====================================================================
+
+  948d19d  SQL_SUPPORT.md merged into CONTINUOUS_QUERIES.md -- one
+           document: streams->queries->views in sections 1-9, the full
+           SQL reference in 10-19. Old file deleted, every live
+           reference moved (8 docs, 5 case studies, console help page
+           and route, 4 source comments, 4 tests that read it by path).
+  632c7ca  ADR-040: the remote connector. Arrow Flight DoPut, at-least-
+           once with server-side dedup on (agent_id, sequence), built
+           after cluster mode. Design only, no code.
+  ef6b10d  Every shipped source type configured in CONTINUOUS_QUERIES
+           section 2.1 -- filesystem, feedfile, delta, jdbc, aerospike,
+           plus both lookup plugins. Fixed two examples that could not
+           run.
+  00ad4c9  Debezium worked end to end in CONNECTORS.md, plus the
+           retraction path that works TODAY (filesystem op.column).
+  7e2dd0a  Stated the boundary between the two documents in both:
+           USING a connector is CONTINUOUS_QUERIES 2.1, BUILDING one is
+           CONNECTORS.md.
+  8478ef8  Pinned SX-1 with a regression test.
+  (this)   SX-1 closed in the register; RESUME.txt; handover swept.
+
+====================================================================
+4. THE BIG NEWS: SX-1 IS CLOSED. ONE GA-BLOCKER LEFT.
+====================================================================
+
+SX-1 was a GA-BLOCKER. Its status line said streamSubscription still
+resolves a view name before authorizing it, and that
+QueryRegistry.require still answers "...this node has [every name]".
+
+BOTH WERE STALE. The code had already been fixed. What was missing was
+a TEST OVER THE ORDER -- swapping two statements back would have
+restored the oracle and failed nothing.
+
+FlightListingDisclosureTest.sx1_aDeniedSubscriberCannotTellAnExisting-
+ViewFromAnAbsentOne now drives a real Flight server and proves a denied
+principal gets the same PRV code for a view that exists and one that
+does not.
+
+Register is now: 295 findings -- 175 FIXED, 105 OPEN, 8 BY DESIGN,
+7 SUPERSEDED. Of the 105 open: 1 GA-BLOCKER, 2 GA-REQUIRED, 95 POST-GA,
+7 NOTE.
+
+LESSON WORTH KEEPING: a status line in FINDINGS.md can be stale. Read
+the code before believing a finding is open. There may be more of these.
+
+====================================================================
+5. WHAT I WAS DOING WHEN YOU REBOOTED — PICK UP HERE
+====================================================================
+
+NEXT TASK: SX-5, now the only GA-BLOCKER.
+
+Two channels remain open (the enumeration channel is already closed):
+
+  (a) THE CODE CHANNEL. A denied name gives PRV-7002; a name that does
+      not exist gives PRV-2002. They differ because an unknown name
+      fails inside Calcite's validator during planning, BEFORE
+      authorization can run. Closing it means resolving and authorizing
+      the referenced name BEFORE the SQL is validated. This is the
+      larger change and it is the real work.
+
+  (b) THE LATENCY CHANNEL. Denied median 23.8ms, absent median 13.4ms,
+      measured over 100 iterations. Untouched. I am not sure this one
+      can be fully closed -- say so honestly rather than claiming it.
+
+Read: docs/qa/FINDINGS.md, search for "## SX-5".
+
+AFTER THAT, in ADR-039's order:
+  - E-1 and X-11 (the two agent tasks above) finish GA-REQUIRED
+  - Gaps 3-7: off-heap variable-width keys, sink bindings, pushdown/
+    Cassandra, console 23.20, B2 disk spill
+  - Then cluster mode, then GA
+
+====================================================================
+6. HOUSE RULES THE NEXT SESSION MUST NOT BREAK
+====================================================================
+
+  * NO "Co-Authored-By: Claude" OR "Claude-Session:" TRAILERS in commit
+    messages. Ashutosh Sinha is the sole author. Absolute.
+  * git add with EXPLICIT PATHS. Never git add -A.
+  * The drill after every piece of work: verify, commit, push develop,
+    then fast-forward main:
+        git push origin develop && git push origin develop:main
+  * docs/qa/FINDINGS.md is owned by the lead. Agents must never edit it.
+  * Documentation rot is a build failure here. DocumentationFreshness-
+    Test and FindingsRegisterTest enforce it. Run them after doc edits:
+        ./mvnw -o -pl pravaha-it test \
+          -Dtest='DocumentationFreshnessTest,FindingsRegisterTest' \
+          -DfailIfNoSpecifiedTests=false
+  * Publish a status update roughly every 10 minutes during long runs.
+  * NEVER report a build as passing without checking. Grep for
+    BUILD SUCCESS and BUILD FAILURE separately and report both counts.
+    A zero exit code from a piped command is NOT proof -- this has
+    produced false "clean" reports more than once.
+  * Do NOT run two Maven builds in the same checkout at once; they
+    corrupt each other's target/. Concurrent agents need worktrees.
+
+====================================================================
+7. COMMANDS
+====================================================================
+
+  export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+
+  Full gate (~7 min, this is the one that counts):
+      tools/verify-clean.sh
+      # then CHECK: grep -c 'BUILD SUCCESS' and grep -c 'BUILD FAILURE'
+
+  Fast loop (NOT the gate):
+      tools/check.sh
+
+  One test class:
+      ./mvnw -o -pl <module> test -Dtest='ClassName' \
+        -DfailIfNoSpecifiedTests=false
+
+LAST FULL GATE: BUILD SUCCESS, all 31 modules, 0 failures, 6:48,
+at 2026-09-16 14:28. Everything committed since then is documentation,
+one test class, and the findings register -- all individually verified,
+but the gate has not been re-run over the final state. RUN IT FIRST
+after the reboot.
