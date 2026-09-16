@@ -76,6 +76,9 @@ final class DeltaPartitionReader implements PartitionReader {
     private List<DataType> columnTypes;
 
     private CloseableIterator<FilteredColumnarBatch> openFile;
+    /** The file {@link #openFile} reads, kept only so a failure on it can be reported by name. */
+    private DeltaScanFiles.ScanFile openFileHandle;
+
     private ColumnarBatch batch;
     private int batchCursor;
     private long rowInFile;
@@ -109,8 +112,8 @@ final class DeltaPartitionReader implements PartitionReader {
             if (batch != null && batchCursor < batch.getSize()) {
                 return true;
             }
-            if (openFile != null && openFile.hasNext()) {
-                batch = openFile.next().getData();
+            if (openFile != null && hasNextRow()) {
+                batch = nextRow().getData();
                 batchCursor = 0;
                 continue;
             }
@@ -236,13 +239,14 @@ final class DeltaPartitionReader implements PartitionReader {
     /** Opens the file the offset points at, skipping the rows it says are already emitted. */
     private void openCurrentFile() {
         DeltaScanFiles.ScanFile file = currentFiles.get(offset.fileIndex());
+        openFileHandle = file;
         openFile = DeltaScanFiles.readFile(engine, scanState, file);
         rowInFile = 0;
         batch = null;
         batchCursor = 0;
         long skip = offset.rowIndex();
-        while (skip > 0 && openFile.hasNext()) {
-            ColumnarBatch next = openFile.next().getData();
+        while (skip > 0 && hasNextRow()) {
+            ColumnarBatch next = nextRow().getData();
             if (skip >= next.getSize()) {
                 skip -= next.getSize();
                 rowInFile += next.getSize();
@@ -253,6 +257,47 @@ final class DeltaPartitionReader implements PartitionReader {
                 skip = 0;
             }
         }
+    }
+
+    /**
+     * {@code openFile.hasNext()}, with Kernel's own failure translated.
+     *
+     * <p>{@link DeltaScanFiles#readFile} returns its iterator lazily -- Kernel's default Parquet
+     * handler does not open a file until the first {@code hasNext()}/{@code next()} call reaches it
+     * -- so a file the log still references but that has been removed from disk is discovered here,
+     * not at {@code readFile}'s own {@code catch (IOException)}, which never runs for this case.
+     * Kernel reports it as an unchecked {@link io.delta.kernel.exceptions.KernelEngineException}
+     * wrapping the {@link java.io.FileNotFoundException}, which would otherwise pass straight
+     * through this reader with no PRV code at all.
+     */
+    private boolean hasNextRow() {
+        try {
+            return openFile.hasNext();
+        } catch (io.delta.kernel.exceptions.KernelEngineException e) {
+            throw vacuumOrReadFailure(e);
+        }
+    }
+
+    /** {@code openFile.next()}, with the same translation as {@link #hasNextRow()}. */
+    private FilteredColumnarBatch nextRow() {
+        try {
+            return openFile.next();
+        } catch (io.delta.kernel.exceptions.KernelEngineException e) {
+            throw vacuumOrReadFailure(e);
+        }
+    }
+
+    private PravahaException vacuumOrReadFailure(io.delta.kernel.exceptions.KernelEngineException e) {
+        String path = openFileHandle == null ? "<unknown>" : openFileHandle.path();
+        if (e.getCause() instanceof java.io.FileNotFoundException) {
+            return new PravahaException(
+                    DeltaErrors.FILE_VACUUMED,
+                    "data file " + path + " is still referenced by the Delta log but is no longer on disk "
+                            + "-- typically removed by VACUUM. Its retractions cannot be reconstructed, and "
+                            + "the rows it removed would otherwise keep being served as though still live.",
+                    e);
+        }
+        return new PravahaException(DeltaErrors.READ_FAILED, "cannot read data file " + path + ": " + e, e);
     }
 
     /** Copies rows out of the open batch, up to {@code limit}. */
@@ -296,6 +341,7 @@ final class DeltaPartitionReader implements PartitionReader {
                         DeltaErrors.READ_FAILED, "failed to close a data file of stream " + streamName + ": " + e, e);
             } finally {
                 openFile = null;
+                openFileHandle = null;
                 batch = null;
                 batchCursor = 0;
             }

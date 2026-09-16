@@ -30,7 +30,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.io.SensitiveFiles;
+import com.ash.messaging.pravaha.state.StateErrors;
 
 /**
  * Checkpoints in a directory, one file each, published by atomic rename.
@@ -144,8 +146,10 @@ public final class FileCheckpointStore implements CheckpointStore {
             }
             int version = in.readInt();
             if (version != FORMAT_VERSION) {
-                throw new IllegalStateException("checkpoint " + id + " is format version " + version
-                        + " and this engine reads " + FORMAT_VERSION + ". Refusing to guess at the difference.");
+                throw new PravahaException(
+                        StateErrors.STATE_UNREADABLE,
+                        "checkpoint " + id + " is format version " + version + " and this engine reads "
+                                + FORMAT_VERSION + ". Refusing to guess at the difference.");
             }
             long storedId = in.readLong();
             long timestamp = in.readLong();

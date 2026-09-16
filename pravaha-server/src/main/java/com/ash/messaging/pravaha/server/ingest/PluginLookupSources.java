@@ -23,6 +23,7 @@ import java.util.ServiceLoader;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin;
+import com.ash.messaging.pravaha.connect.PluginErrors;
 
 /**
  * Finds and opens the dimension tables a node's configuration names.
@@ -78,12 +79,24 @@ public final class PluginLookupSources implements AutoCloseable {
 
     private LookupSourcePlugin discover(SourceBinding binding) {
         List<String> available = new ArrayList<>();
-        for (LookupSourcePlugin candidate : ServiceLoader.load(LookupSourcePlugin.class)) {
-            if (candidate.name().equalsIgnoreCase(binding.plugin())) {
-                return candidate;
+        try {
+            for (LookupSourcePlugin candidate : ServiceLoader.load(LookupSourcePlugin.class)) {
+                if (candidate.name().equalsIgnoreCase(binding.plugin())) {
+                    return candidate;
+                }
+                available.add(candidate.name());
+                closeQuietly(List.of(candidate));
             }
-            available.add(candidate.name());
-            closeQuietly(List.of(candidate));
+        } catch (java.util.ServiceConfigurationError e) {
+            // ERRC-059's mirror for lookup plugins: ServiceLoader raises this from inside the
+            // iteration, not as a RuntimeException, so it would otherwise leave every
+            // PravahaException handler on the way out as a bare, uncoded Error instead of a
+            // diagnosable, documented failure.
+            throw new PravahaException(
+                    PluginErrors.LOAD_FAILED,
+                    "a lookup plugin on the classpath could not be loaded while looking for '" + binding.plugin()
+                            + "': " + e.getMessage(),
+                    e);
         }
         throw new PravahaException(
                 IngestErrors.NO_SUCH_PLUGIN,

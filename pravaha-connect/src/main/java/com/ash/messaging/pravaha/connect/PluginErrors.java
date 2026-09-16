@@ -31,7 +31,6 @@ public final class PluginErrors {
     public static final ErrorCode INCOMPATIBLE_API = new ErrorCode(5011, "PLUGIN_INCOMPATIBLE_API");
     public static final ErrorCode LOAD_FAILED = new ErrorCode(5012, "PLUGIN_LOAD_FAILED");
     public static final ErrorCode DUPLICATE_NAME = new ErrorCode(5013, "PLUGIN_DUPLICATE_NAME");
-    public static final ErrorCode CIRCUIT_OPEN = new ErrorCode(5020, "PLUGIN_CIRCUIT_OPEN");
     public static final ErrorCode CAPABILITY_MISMATCH = new ErrorCode(5030, "PLUGIN_CAPABILITY_MISMATCH");
 
     private PluginErrors() {}

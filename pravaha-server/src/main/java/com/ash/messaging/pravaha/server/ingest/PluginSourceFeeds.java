@@ -30,6 +30,7 @@ import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
 import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
+import com.ash.messaging.pravaha.connect.PluginErrors;
 import com.ash.messaging.pravaha.registry.SourceFeed;
 import com.ash.messaging.pravaha.registry.SourceFeedFactory;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
@@ -414,12 +415,25 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      */
     private StreamSourcePlugin discover(SourceBinding binding) {
         List<String> available = new ArrayList<>();
-        for (StreamSourcePlugin candidate : ServiceLoader.load(StreamSourcePlugin.class)) {
-            if (candidate.name().equalsIgnoreCase(binding.plugin())) {
-                return candidate;
+        try {
+            for (StreamSourcePlugin candidate : ServiceLoader.load(StreamSourcePlugin.class)) {
+                if (candidate.name().equalsIgnoreCase(binding.plugin())) {
+                    return candidate;
+                }
+                available.add(candidate.name());
+                closeQuietly(List.of(candidate));
             }
-            available.add(candidate.name());
-            closeQuietly(List.of(candidate));
+        } catch (java.util.ServiceConfigurationError e) {
+            // ERRC-059: ServiceLoader raises this, uncaught, from inside the iteration -- not a
+            // RuntimeException, so it would otherwise pass straight through every PravahaException
+            // handler on its way out as a bare, uncoded Error. A provider entry naming a class that
+            // is not on the classpath, or one whose constructor throws, ends the node's startup with
+            // a stack trace instead of a diagnosable, documented failure.
+            throw new PravahaException(
+                    PluginErrors.LOAD_FAILED,
+                    "a source plugin on the classpath could not be loaded while looking for '" + binding.plugin()
+                            + "': " + e.getMessage(),
+                    e);
         }
         throw new PravahaException(
                 IngestErrors.NO_SUCH_PLUGIN,

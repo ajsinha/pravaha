@@ -264,7 +264,7 @@ on the execution path, and this is the conversion failure above both.
 | `PRV-1040` | CLIENT_CONNECT_FAILED | client (SDK) |
 | `PRV-1041` | CLIENT_QUERY_REFUSED | client (SDK) |
 | `PRV-1042` | CLIENT_READ_FAILED | client (SDK) |
-| `PRV-1043` | CLIENT_CLOSED | client (SDK) — declared, never thrown; see ERRC-017 |
+| `PRV-1043` | CLIENT_CLOSED | client (SDK) |
 | `PRV-2001` | SQL_PARSE_FAILED | sql |
 | `PRV-2002` | SQL_VALIDATION_FAILED | sql |
 | `PRV-2003` | SQL_UNKNOWN_STREAM | sql |
@@ -293,7 +293,6 @@ on the execution path, and this is the conversion failure above both.
 | `PRV-4010` | BACKFILL_BUFFER_FULL | state/serving |
 | `PRV-4011` | BACKFILL_MISSING_VERSION | state/serving |
 | `PRV-4012` | BACKFILL_UNSUPPORTED_KEY | state/serving |
-| `PRV-4013` | BACKFILL_MALFORMED_OFFSET | state/serving |
 | `PRV-4014` | BACKFILL_NOT_CAUGHT_UP | state/serving |
 | `PRV-4015` | BACKFILL_SEAM_WENT_BACKWARDS | state/serving |
 | `PRV-4020` | SERVING_NO_HISTORY | state/serving |
@@ -312,7 +311,6 @@ on the execution path, and this is the conversion failure above both.
 | `PRV-5011` | PLUGIN_INCOMPATIBLE_API | plugins |
 | `PRV-5012` | PLUGIN_LOAD_FAILED | plugins |
 | `PRV-5013` | PLUGIN_DUPLICATE_NAME | plugins |
-| `PRV-5020` | PLUGIN_CIRCUIT_OPEN | plugins |
 | `PRV-5030` | PLUGIN_CAPABILITY_MISMATCH | plugins |
 | `PRV-5040` | FILESYSTEM_DECODE_FAILED | plugins |
 | `PRV-5050` | DELTA_TABLE_UNREADABLE | plugins |

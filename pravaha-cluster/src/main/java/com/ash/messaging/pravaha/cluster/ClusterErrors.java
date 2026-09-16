@@ -34,7 +34,17 @@ public final class ClusterErrors {
     /** The coordinator could not be reached or lost its session. */
     public static final ErrorCode COORDINATOR_UNAVAILABLE = new ErrorCode(9003, "CLUSTER_COORDINATOR_UNAVAILABLE");
 
-    /** This node is not the leader and the operation is the leader's. */
+    /**
+     * This node is not the leader and the operation is the leader's.
+     *
+     * <p><strong>Deliberately unreachable for now.</strong> {@code CoordinatorFactory} refuses
+     * {@code PARTITIONED} outright (ADR-034: distribution deferred), and {@code PartitionAssignment},
+     * {@code Rebalancer} and {@code PartitionHandoff} are wired to no running path, so there is no
+     * multi-node deployment in which a "not the leader" refusal could ever fire. This is not owed the
+     * "wire or delete" verdict E-1 applies elsewhere: ADR-039 (item 8) puts cluster mode itself back
+     * on the roadmap, and the code names the exact refusal that mode will need on day one. Remove
+     * this comment, not the declaration, when clustering lands.
+     */
     public static final ErrorCode NOT_LEADER = new ErrorCode(9004, "CLUSTER_NOT_LEADER");
 
     /** The configuration names peers that cannot form a cluster. */

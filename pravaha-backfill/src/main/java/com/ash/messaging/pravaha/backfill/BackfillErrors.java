@@ -29,9 +29,6 @@ public final class BackfillErrors {
     /** A key column of a type the splice cannot compare. */
     public static final ErrorCode UNSUPPORTED_KEY = new ErrorCode(4012, "BACKFILL_UNSUPPORTED_KEY");
 
-    /** A stored offset this reader did not write, or one from a different phase layout. */
-    public static final ErrorCode MALFORMED_OFFSET = new ErrorCode(4013, "BACKFILL_MALFORMED_OFFSET");
-
     /** A cutover was asked for before the new version had caught up. */
     public static final ErrorCode NOT_CAUGHT_UP = new ErrorCode(4014, "BACKFILL_NOT_CAUGHT_UP");
 
