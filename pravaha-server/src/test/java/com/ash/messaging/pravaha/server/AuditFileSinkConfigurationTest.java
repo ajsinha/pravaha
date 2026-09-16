@@ -74,7 +74,10 @@ class AuditFileSinkConfigurationTest {
                 "audit-file-node",
                 true,
                 false,
-                null);
+                null,
+                false,
+                "127.0.0.1",
+                0);
     }
 
     private static SecurityProperties fileAudit(Path trail) {

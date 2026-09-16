@@ -69,6 +69,11 @@
     </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-pgwire</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-registry</artifactId>
       <version>${project.version}</version>
     </dependency>

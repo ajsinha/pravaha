@@ -55,6 +55,23 @@ pravaha:
 
   # The wire protocol the SDKs and the CLI speak (ADR-030). The HTTP surface above is for humans
   # and operators; this is for clients.
+  # The PostgreSQL wire protocol, read path only. OFF by default.
+  #
+  # Turning this on lets psql, DBeaver, Grafana and any ORM read a maintained view with no Flight SQL
+  # driver, which almost nothing ships. It is a transport and nothing more: the principal reaches the
+  # same ViewQuery authorization path and the same audit sink as Flight, so it is not a second, weaker
+  # route to the data.
+  #
+  # IT IS OFF BECAUSE IT HAS NO TLS YET. The password crosses the wire in the clear, so run it on
+  # loopback or behind a terminator, and turn it on deliberately rather than inherit it.
+  #
+  # Port 5432 is what clients expect and is also what a PostgreSQL server on the same host is already
+  # using -- change it rather than fight over it.
+  # pgwire:
+  #   enabled: false
+  #   host: 0.0.0.0
+  #   port: 5432
+
   flight:
     enabled: true
     host: 0.0.0.0

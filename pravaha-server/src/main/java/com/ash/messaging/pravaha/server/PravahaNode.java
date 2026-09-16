@@ -87,6 +87,10 @@ public class PravahaNode implements SmartLifecycle {
     private static final Logger log = LoggerFactory.getLogger(PravahaNode.class);
 
     private final StreamCatalog streams;
+    private final boolean pgwireEnabled;
+    private final String pgwireHost;
+    private final int pgwirePort;
+
     private final boolean flightEnabled;
     private final String flightHost;
     private final int flightPort;
@@ -114,6 +118,8 @@ public class PravahaNode implements SmartLifecycle {
     private volatile ViewCatalog views;
     private volatile QueryRegistry registry;
     private volatile PravahaFlightServer flight;
+
+    private volatile com.ash.messaging.pravaha.pgwire.PravahaPgWireServer pgwire;
     private final SourceBindingProperties sources;
 
     private PluginLookupSources lookupSources;
@@ -151,7 +157,10 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.node.id:pravaha-node-01}") String nodeId,
             @Value("${pravaha.state.allow-shared:false}") boolean allowSharedState,
             @Value("${pravaha.standby.enabled:false}") boolean standby,
-            com.ash.messaging.pravaha.server.ingest.LaneProperties lanes) {
+            com.ash.messaging.pravaha.server.ingest.LaneProperties lanes,
+            @Value("${pravaha.pgwire.enabled:false}") boolean pgwireEnabled,
+            @Value("${pravaha.pgwire.host:0.0.0.0}") String pgwireHost,
+            @Value("${pravaha.pgwire.port:5432}") int pgwirePort) {
         this.streams = streams;
         this.sources = sources;
         this.declaredStreams = declaredStreams;
@@ -166,6 +175,9 @@ public class PravahaNode implements SmartLifecycle {
         // Defaults to the library's if no bean is supplied, so the fourteen test call sites that
         // construct a node directly keep working and keep meaning the same thing.
         this.lanes = lanes == null ? new com.ash.messaging.pravaha.server.ingest.LaneProperties() : lanes;
+        this.pgwireEnabled = pgwireEnabled;
+        this.pgwireHost = pgwireHost;
+        this.pgwirePort = pgwirePort;
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
         this.flightPort = flightPort;
@@ -640,6 +652,34 @@ public class PravahaNode implements SmartLifecycle {
         } else {
             log.info("Flight SQL disabled (pravaha.flight.enabled=false); this node serves HTTP only");
         }
+
+        if (pgwireEnabled) {
+            // The PostgreSQL wire protocol, read path only, so that psql, DBeaver, Grafana and every
+            // ORM can reach a maintained view without a Flight SQL driver -- which almost nothing
+            // ships, and which is why Gate P6's "DBeaver connects" criterion has never been tried.
+            //
+            // Same policy object and same audit sink as Flight and the registry: this is a transport,
+            // and it must not become a second, weaker way to the data. PgWireConnection calls
+            // ViewQuery.execute(sql, principal) exactly as PravahaFlightSqlProducer does.
+            //
+            // OFF BY DEFAULT, and that is the setting doing real work rather than caution. This
+            // gateway has no TLS in its first slice, so the password crosses the wire in the clear.
+            // An operator turns it on knowing that, on loopback or behind a terminator; nobody gets
+            // it by not reading the configuration file.
+            com.ash.messaging.pravaha.pgwire.PravahaPgWireServer server =
+                    new com.ash.messaging.pravaha.pgwire.PravahaPgWireServer(views)
+                            .authorizedBy(securityPolicyOf(registry), auditSink());
+            TokenVerifier pgVerifier = security.verifier();
+            if (pgVerifier != null) {
+                server.authenticatedBy(pgVerifier);
+            }
+            pgwire = server.start(pgwireHost, pgwirePort);
+            log.info(
+                    "PostgreSQL wire protocol listening on {}:{} -- NO TLS, the credential crosses "
+                            + "the wire in the clear; use loopback or a terminator",
+                    pgwireHost,
+                    pgwire.port());
+        }
         running = true;
     }
 
@@ -652,6 +692,7 @@ public class PravahaNode implements SmartLifecycle {
         standbyWatch = null;
         // Reverse of startup: stop accepting, then let go of the queries, then leave the cluster.
         closeQuietly("Flight server", flight);
+        closeQuietly("PostgreSQL wire server", pgwire);
         closeQuietly("registry", registry);
         // After the registry, because a running query may still be looking rows up in one.
         closeQuietly("dimension tables", lookupSources);

@@ -79,7 +79,10 @@ class PravahaMetricsTest {
                 "metrics-node",
                 true,
                 false,
-                null);
+                null,
+                false,
+                "127.0.0.1",
+                0);
         node.start();
         meters = new SimpleMeterRegistry();
         metrics = new PravahaMetrics(meters, node);
