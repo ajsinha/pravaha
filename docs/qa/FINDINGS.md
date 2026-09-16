@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 161 FIXED, 119 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 119 open, **2 are
-GA-BLOCKER, 14 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 162 FIXED, 118 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 118 open, **2 are
+GA-BLOCKER, 14 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 14 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The fifteen blockers, by what they break.** Data reaching the wrong principal: `SX-5`, `SX-1`.
@@ -6023,8 +6023,13 @@ the same binding. This finding was the threads and the sockets; that one is the 
 
 ### SRC-3 (HIGH) — N queries over one source are N readers; nothing below the fingerprint is shared
 
-> **Status:** OPEN — measured both ways. Filesystem: `SourceScaleTest.twoQueriesOverOneSourceShareNothingButTheSchema` — a second registration of *identical* SQL opens no descriptor, a registration of *different* SQL over the same file opens one. Aerospike: four queries over one set produced 79–131 scans/s against 43–50 for one.
-> **Disposition:** POST-GA — load on the cluster, not a wrong answer; W9-11 measured the node side as met
+> **Status:** FIXED — **for at-least-once, unordered, replayable sources only; every other source still reads once per query, by design and not by omission (the gate is below).** The seam is the binding now, not the fingerprint: `PluginSourceFeeds` keys a `SharedSourceGroup` on `(stream, binding, scan output schema)`, one reader per partition drives one virtual thread, and a `BroadcastSink` forwards each setter to every member's claimed inbox cell — one decode, N writes, no intermediate buffer. **Measured against a real Aerospike cluster** (`AerospikeSourceScaleIT`, four queries with different SQL over one set, from the cluster's own `pi_query_*` counters): **3.8 scans/s → 1.0**, i.e. 1.0 per query → 0.3. Scans follow the number of *sets* now, not registrations. Seed-proven by defaulting `share.reader=false`: two queries go 350 → 615 scans and the open-reader count goes 1 → 2.
+
+**Thread confinement is narrowed, not broken.** Every cell in every member's inbox is claimed by the one group thread, so each inbox still has exactly one producer — there are simply fewer producer threads than lanes. Catch-up readers are polled on that same thread for this reason. Arenas, operator state and lane cursors are untouched.
+
+**The gate, and the thing that could not be solved.** A shared reader has one position and its consumers sit at several. A consumer joining behind is attached to the fan-out *first* and then given a private catch-up reader for the history it missed — attaching first is what makes it lossless, and the cost is that the handover duplicates its overlap. So **sharing is refused for sources declaring `EXACTLY_ONCE`, non-replayable offsets, or ordering within a partition**; they keep a reader per query exactly as before. Today only Aerospike shares; filesystem, Delta, replayable feedfile and JDBC do not, and JDBC is excluded solely by `orderedWithinPartition=true`. `SharedSourceGroup.whyNotShared` states each refusal in a sentence and records the rejected alternative — stall the whole group during a catch-up, which preserves ordering and pays by stopping every query on the binding for an unbounded read.
+
+**What sharing costs, recorded because it is a real trade:** one group failure stops every query on that binding; one full inbox stalls the group; a registration can block for one in-flight poll; and pushdown is dropped for a group once two members' filters differ — correctness is unaffected since the engine keeps its own filters, but that is a win at large N and a loss at N=2 with very selective predicates. `share.reader=false` is the per-binding escape hatch.
 
 This is what ADR-036 §3 asserts from reading the code, now measured. `QueryFingerprint` shares one
 computation across identical normalised plans, and `QueryRegistry.start` opens the feed per

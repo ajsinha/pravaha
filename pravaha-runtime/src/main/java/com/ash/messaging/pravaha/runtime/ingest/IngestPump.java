@@ -187,6 +187,51 @@ public final class IngestPump implements AutoCloseable {
     }
 
     /**
+     * Applies backpressure and reports how many rows this pump's lane can take right now.
+     *
+     * <p>SRC-3. One reader now feeds several lanes, and a poll is one call with no way to give a row
+     * back -- so the caller has to ask for no more than the smallest of those lanes can hold, which
+     * means asking each of them first.
+     *
+     * <p>It runs the hysteresis as well as reading the fill, because for a pump whose rows arrive
+     * through {@link #sharedSink()} nothing else is going to: {@link #pumpOnce} is what normally
+     * pauses a source at the high watermark and resumes it at the low one, and that pump is never
+     * called. Zero here is backpressure, and a shared reader answers it by not reading at all rather
+     * than by reading and dropping this lane's copy.
+     */
+    public int roomForSharedPoll() {
+        updateBackpressure();
+        return paused ? 0 : freeCells();
+    }
+
+    /**
+     * Where a shared reader writes this pump's copy of a record. SRC-3.
+     *
+     * <p>The same sink {@link #pumpOnce} hands its own reader: it claims a cell in this lane's inbox
+     * and publishes it on commit. What differs is who drives it -- one reader writing one decoded
+     * record into several lanes, from the single thread that owns all of them. The confinement is
+     * unchanged and in fact narrowed: an inbox still has exactly one producer thread, and there are
+     * now fewer of those than there are lanes.
+     *
+     * <p>Only safe to use between {@link #freezeIngest} and {@link #thawIngest}, which is the same
+     * window {@code pumpOnce} holds for the length of its own poll: a checkpoint reading this pump's
+     * offset must see it between rows and never during one.
+     */
+    public PartitionReader.RecordSink sharedSink() {
+        return sink;
+    }
+
+    /**
+     * Counts rows a shared reader wrote through {@link #sharedSink()}. SRC-3.
+     *
+     * <p>Told rather than observed, because the sink does not know how many rows a poll moved --
+     * only the reader that was polled does, and it was polled once for all of them.
+     */
+    public void countSharedRows(int rows) {
+        rowsPumped.addAndGet(rows);
+    }
+
+    /**
      * Holds this pump between rows, so a barrier can be taken across it.
      *
      * <p>A checkpoint has to record two things that must agree: where the source is, and which rows

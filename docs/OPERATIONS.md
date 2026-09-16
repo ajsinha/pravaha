@@ -735,8 +735,11 @@ Listed because you will meet them, not to be thorough:
   nothing — no longer blocked (a row now identifies its stream, W9-9) but wave-sized, because the
   aligned checkpoint barrier and three hundred watermark ticks a second on one lane are in tension
   (W9-8, W9-10)
-- **N Aerospike-backed queries over one set are N scans**, each throttled to `scan.interval.ms` but
-  none of them shared. One reader per *binding* is designed and not built (SRC-3)
+- **N Aerospike-backed queries over one set are one scan**, throttled to `scan.interval.ms` and
+  shared: one reader per *source binding* fans each record into every lane bound to it (SRC-3). Set
+  `share.reader=false` on a binding to go back to a reader per query, which keeps that query's
+  filter pushdown at the cost of its own scan. Sources declaring exactly-once or ordering within a
+  partition — filesystem, Delta, JDBC — are never shared
 - **No clustering, no rebalance, no multi-node execution.** Deferred under
   [ADR-034](adr/034-distribution-deferred.md); Wave 8 bought survival on one node, not
   distribution across several ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)). The

@@ -84,5 +84,6 @@ of homogeneous hardware, and this machine's heterogeneous cores cannot produce a
 anybody should quote. **What this wave reports is resource cost per query — a count, not a rate.**
 
 A followed file still costs about 13 ms of CPU per second while completely idle, so a hundred of them
-is 1.8 cores (SRC-6, open). N queries over one Aerospike set are still N scans (SRC-3, open) — one
-client is not one reader, and that load is on the cluster rather than on this node.
+is 1.8 cores (SRC-6, open). N queries over one Aerospike set were N scans at the time of this gate
+(SRC-3, since fixed: one reader per source binding, four queries over one set measured at 1.0
+scans/s between them).

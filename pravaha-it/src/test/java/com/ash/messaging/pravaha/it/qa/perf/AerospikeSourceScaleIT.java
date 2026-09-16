@@ -59,12 +59,12 @@ import static org.assertj.core.api.Assumptions.assumeThat;
  * else's cluster, so it is measured here against a real server: the numbers below are Aerospike's own
  * counters, read out of {@code namespace/test} and {@code statistics}, not the plugin's.
  *
- * <p>Two things are measured and both are per <em>registration</em> rather than per set:
+ * <p>Two things are measured, and both used to be per <em>registration</em> rather than per set:
  *
  * <ul>
  *   <li><strong>Scans.</strong> {@code pi_query_*} on the namespace counts primary-index queries,
- *       which is what {@code scanPartitions} is. If N queries over one set were one scan, this would
- *       not move with N.
+ *       which is what {@code scanPartitions} is. It moved with N, and since SRC-3 it does not: one
+ *       reader per binding feeds every query bound to it, so this follows the number of sets.
  *   <li><strong>Connections.</strong> {@code client_connections} on the node. Since SRC-2 every
  *       {@code AerospikeSourcePlugin.open()} against one cluster and credential shares a single
  *       {@code AerospikeClient} -- one cluster object, one tend thread, one per-node pool. It was
@@ -248,8 +248,11 @@ class AerospikeSourceScaleIT {
                             + "%n  The scan rate is now bounded by scan.interval.ms, one second by default.%n"
                             + "  It was bounded by nothing: LutScanReader.scan() ran whenever poll() found its%n"
                             + "  buffer empty and PumpingFeed polls every millisecond, so one query alone took%n"
-                            + "  the cluster from 1%% to 200-310%% CPU. Scans still scale with registrations%n"
-                            + "  rather than with sets, which is what ADR-036 section 3's shared scan is for.%n",
+                            + "  the cluster from 1%% to 200-310%% CPU.%n"
+                            + "%n  And since SRC-3 the scans follow the number of *sets* rather than the number%n"
+                            + "  of registrations: one reader per binding fans each decoded record into every%n"
+                            + "  lane that asked for it. A query joining a reader that has already read pays one%n"
+                            + "  catch-up scan for the history it missed, and nothing after that.%n",
                     QUERIES,
                     NAMESPACE,
                     SET,
@@ -307,17 +310,27 @@ class AerospikeSourceScaleIT {
                             scansPerSecondOne, 1000)
                     .isLessThan(3.0);
 
-            // The measurement ADR-036 section 3 asserts from the code. Recorded as an assertion so
-            // that the day a shared scan exists, this test is what says so.
+            // ADR-036 section 3, and this assertion is now the other way round. It used to demand
+            // scansPerSecondMany > scansPerSecondOne * 1.5 -- and it was right to, because that was
+            // the behaviour: different SQL over one set meant a different plan, a different
+            // fingerprint, a different feed, a different reader and a different scan.
+            //
+            // SRC-3 moved the sharing to the binding. One reader per (binding, stream, partition)
+            // fans each decoded record into every subscribed lane, so the scan rate now follows the
+            // number of *sets* rather than the number of registrations. Inverted rather than
+            // deleted, so the day sharing regresses this is what says so.
+            //
+            // The allowance above one query's rate is for the catch-up reads: a query joining a
+            // reader that has already read gets a private scan of the history it missed, once, and
+            // three of those land inside this window.
             assertThat(scansPerSecondMany)
                     .as(
-                            "%d queries over one set produced %.1f scans/s against %.1f scans/s for one. Scans "
-                                    + "scale with the number of registrations, not with the number of sets: a "
-                                    + "thousand continuous queries over one set is a thousand scans of it, and "
-                                    + "that load is on the store. This assertion is the one that changes when "
-                                    + "ADR-036 section 3's shared scan exists",
+                            "%d queries over one set produced %.1f scans/s against %.1f scans/s for one. Since "
+                                    + "SRC-3 they share one reader per binding, so scans follow the number of "
+                                    + "sets and not the number of registrations -- which is what a thousand "
+                                    + "continuous queries over one set needs, because the load is on the store",
                             QUERIES, scansPerSecondMany, scansPerSecondOne)
-                    .isGreaterThan(scansPerSecondOne * 1.5);
+                    .isLessThan(scansPerSecondOne * 1.5 + QUERIES);
 
             // SRC-2 fixed: one client per cluster per credential, shared by every registration.
             // This assertion used to demand the opposite -- connections >= QUERIES -- and it was

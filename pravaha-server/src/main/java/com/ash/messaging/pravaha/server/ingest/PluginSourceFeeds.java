@@ -23,6 +23,7 @@ import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.ReadRequest;
@@ -61,6 +62,22 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     private final Map<String, SourceBinding> bindings = new ConcurrentHashMap<>();
     private final BackpressurePolicy policy;
     private volatile java.nio.file.Path deadLetterDirectory;
+
+    /**
+     * One reader per binding, shared by every query that reads it. SRC-3.
+     *
+     * <p>Keyed by the binding and the layout its scan emits rather than by the query, which is the
+     * whole finding: {@code QueryFingerprint} already shares a computation between registrations of
+     * identical SQL, and a deployment with a thousand continuous queries has a thousand different
+     * questions about one set rather than a thousand copies of one.
+     */
+    private final Map<SharedSourceGroup.Key, SharedSourceGroup> groups = new java.util.HashMap<>();
+
+    /** Bindings whose plugin has told us sharing is not safe for it. See {@code canShare}. */
+    private final Map<SourceBinding, String> unshareable = new java.util.HashMap<>();
+
+    /** Guards {@link #groups} and {@link #unshareable}. */
+    private final Object sharing = new Object();
 
     public PluginSourceFeeds() {
         this(BackpressurePolicy.defaults());
@@ -122,10 +139,42 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
 
         List<IngestPump> pumps = new ArrayList<>();
         List<AutoCloseable> resources = new ArrayList<>();
+        List<AutoCloseable> sharedResources = new ArrayList<>();
+        List<SharedPartitionFeed.Member> members = new ArrayList<>();
+        List<SharedSourceGroup> joined = new ArrayList<>();
         Map<String, Integer> partitionCounts = new LinkedHashMap<>();
+        // One publish at a time, whoever calls it. A query with both a shared stream and an
+        // unshared one is now published by two threads -- the group's and its own feed's -- and
+        // committing a frontier was only ever done by one.
+        Runnable publish = serialised(afterDelivery);
+        // Counts partitions across every stream, shared and not, because that is what keys the
+        // resume tokens a checkpoint wrote. It used to be pumps.size(), which counted the same
+        // thing only while every partition had a pump of this query's own.
+        int[] partitionOrdinal = {0};
         try {
             for (String stream : bound) {
                 SourceBinding binding = bindings.get(stream);
+
+                // SRC-3. One reader per binding where the source allows it, and the query joins it
+                // rather than opening its own.
+                SharedSourceGroup group = groupFor(stream, binding, execution);
+                if (group != null) {
+                    joined.add(group);
+                    partitionCounts.put(stream, group.partitionCount());
+                    ReadRequest shared = Pushdown.requestFor(
+                            execution.plan(), stream, group.plugin().capabilities());
+                    for (int index = 0; index < group.partitionCount(); index++) {
+                        String token = resumeFrom.get("partition-" + partitionOrdinal[0]++);
+                        SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
+                        members.add(group.feed(index).join(queryName, from, shared, publish, reader -> {
+                            IngestPump pump = execution.pumpInto(0, stream, reader, policy);
+                            attachDeadLetters(pump, queryName, sharedResources);
+                            return pump;
+                        }));
+                    }
+                    continue;
+                }
+
                 StreamSourcePlugin plugin = openPlugin(binding);
                 resources.add(plugin);
 
@@ -145,7 +194,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     // Resume where the checkpoint left off, when there is one. Reading from the
                     // beginning after a restore would replay every record between the checkpoint and
                     // the failure on top of the state that already counted them.
-                    String token = resumeFrom.get("partition-" + pumps.size());
+                    String token = resumeFrom.get("partition-" + partitionOrdinal[0]++);
                     SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
                     PartitionReader reader = plugin.createReader(partition, from, request);
                     resources.add(reader);
@@ -162,19 +211,161 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             // Nothing half-open survives a failed binding. Without this, a query that failed to
             // register would leave a plugin holding a file handle or a connection for the lifetime
             // of the process.
+            members.forEach(SharedPartitionFeed.Member::close);
+            closeQuietly(sharedResources);
             closeQuietly(resources);
+            release(joined);
             throw e;
         }
 
-        PumpingFeed feed = new PumpingFeed(queryName, pumps, resources, describe(partitionCounts), afterDelivery);
+        String description = describe(partitionCounts);
+        if (members.isEmpty()) {
+            // Nothing shared: exactly the feed this returned before SRC-3, including the thread.
+            PumpingFeed feed = new PumpingFeed(queryName, pumps, resources, description, publish);
+            feed.start();
+            return feed;
+        }
+        // A feed thread only for the streams that kept a reader of their own. A query whose sources
+        // are all shared has none at all, which is the other half of what sharing buys.
+        PumpingFeed unshared =
+                pumps.isEmpty() ? null : new PumpingFeed(queryName, pumps, resources, description, publish);
+        List<AutoCloseable> owned = new ArrayList<>(sharedResources);
+        List<SharedSourceGroup> held = List.copyOf(joined);
+        SharedFeed feed = new SharedFeed(members, held, () -> release(held), unshared, owned, description);
         feed.start();
         return feed;
     }
 
+    /**
+     * The group of queries reading one binding, or null when this one keeps a reader of its own.
+     *
+     * <p>Null for three reasons, and they are different: the deployment turned sharing off for this
+     * binding, the plan's scan emits a layout no existing group is fanning out, or the plugin
+     * declares a guarantee sharing cannot keep ({@link SharedSourceGroup#whyNotShared}).
+     */
+    private SharedSourceGroup groupFor(String stream, SourceBinding binding, QueryExecution execution) {
+        // The escape hatch. Sharing trades a query's own pushdown for the store's scan count once a
+        // second query with a different WHERE clause joins, and a deployment running one query
+        // against a set it cares about may want the filter more than the sharing.
+        if (!Boolean.parseBoolean(binding.options().getOrDefault("share.reader", "true"))) {
+            return null;
+        }
+        StreamSchema scanned = scanSchemaOf(execution.plan(), stream);
+        if (scanned == null) {
+            return null;
+        }
+        SharedSourceGroup.Key key = new SharedSourceGroup.Key(stream, binding, scanned);
+        synchronized (sharing) {
+            if (unshareable.containsKey(binding)) {
+                return null;
+            }
+            SharedSourceGroup group = groups.get(key);
+            if (group == null) {
+                // Configured but not yet opened: what a plugin can promise is a property of its
+                // configuration, and asking before connecting means a source that cannot share does
+                // not pay for a connection this throws away.
+                StreamSourcePlugin plugin = configure(binding);
+                String why = SharedSourceGroup.whyNotShared(plugin.capabilities());
+                if (why != null) {
+                    unshareable.put(binding, why);
+                    closeQuietly(List.of(plugin));
+                    return null;
+                }
+                openConfigured(plugin, binding);
+                group = new SharedSourceGroup(key, plugin, plugin.partitions(stream));
+                groups.put(key, group);
+            }
+            group.retain();
+            return group;
+        }
+    }
+
+    /** Gives back one query's hold on the groups it joined, closing any nobody is left reading. */
+    private void release(List<SharedSourceGroup> held) {
+        synchronized (sharing) {
+            for (SharedSourceGroup group : held) {
+                if (group.release()) {
+                    groups.remove(group.key());
+                    group.close();
+                }
+            }
+        }
+    }
+
+    /**
+     * The layout this plan's scan of {@code stream} emits, or null when it does not scan it.
+     *
+     * <p>Part of the sharing key rather than an assumption, because a pushed projection makes two
+     * scans of one set emit different rows -- see {@link SharedSourceGroup.Key}.
+     */
+    private static StreamSchema scanSchemaOf(
+            com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan, String stream) {
+        if (plan instanceof com.ash.messaging.pravaha.runtime.plan.ScanOperator scan
+                && scan.streamName().equals(stream)) {
+            return scan.outputSchema();
+        }
+        for (com.ash.messaging.pravaha.runtime.plan.PhysicalOperator input : plan.inputs()) {
+            StreamSchema found = scanSchemaOf(input, stream);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Serialises whatever publishes a query's frontier.
+     *
+     * <p>A query reading one shared stream and one of its own is now published from two threads. It
+     * was published from one, so nothing on that path was ever written to expect two, and the cost
+     * of saying so here is an uncontended monitor fifty times a second.
+     */
+    private static Runnable serialised(Runnable afterDelivery) {
+        Runnable delegate = afterDelivery == null ? () -> {} : afterDelivery;
+        return new Runnable() {
+            @Override
+            public synchronized void run() {
+                delegate.run();
+            }
+        };
+    }
+
     private StreamSourcePlugin openPlugin(SourceBinding binding) {
+        return openConfigured(configure(binding), binding);
+    }
+
+    /**
+     * Finds the plugin and hands it its configuration, without connecting to anything.
+     *
+     * <p>Split from {@link #openConfigured} for SRC-3: what a source can promise -- and so whether
+     * one reader of it may feed several queries -- is a property of its configuration, and asking
+     * before opening means a source that turns out not to be shareable has not opened a connection
+     * that is then thrown away.
+     */
+    private StreamSourcePlugin configure(SourceBinding binding) {
         StreamSourcePlugin plugin = discover(binding);
         try {
             plugin.configure(new BindingContext(binding));
+            return plugin;
+        } catch (RuntimeException e) {
+            closeQuietly(List.of(plugin));
+            throw new PravahaException(
+                    IngestErrors.BINDING_FAILED,
+                    "the '" + binding.plugin() + "' plugin could not be opened for stream '" + binding.streamName()
+                            + "': " + e + descriptorHint(),
+                    e);
+        } catch (Exception e) {
+            closeQuietly(List.of(plugin));
+            throw new PravahaException(
+                    IngestErrors.BINDING_FAILED,
+                    "the '" + binding.plugin() + "' plugin refused its configuration for stream '"
+                            + binding.streamName() + "': " + e + descriptorHint(),
+                    e);
+        }
+    }
+
+    private StreamSourcePlugin openConfigured(StreamSourcePlugin plugin, SourceBinding binding) {
+        try {
             plugin.open();
             return plugin;
         } catch (RuntimeException e) {

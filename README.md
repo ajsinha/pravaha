@@ -77,9 +77,11 @@
   *blocked*: a row now carries the identity of the stream it came from (W9-9). It is *large*, and
   the aligned checkpoint barrier is why — three hundred queries on one lane each advancing a
   watermark every second would cut the lane's batches short several hundred times a second (W9-10).
-- **N queries over one Aerospike set are still N scans**, one reader per registration. Each scan is
-  now throttled to `scan.interval.ms` (one second by default), which is what made the load
-  survivable; one reader feeding many queries is designed and not built (ADR-036 §3, SRC-3).
+- **N queries over one Aerospike set are one scan.** Each scan is throttled to `scan.interval.ms`
+  (one second by default), and since SRC-3 one reader per *source binding* feeds every query bound
+  to it — four queries over one set measured at 1.0 scans/s between them, where it was 1.0 each
+  (ADR-036 §3). Sources that promise exactly-once or ordering within a partition keep a reader per
+  query: the handover that lets a late query join a running reader cannot preserve either.
 - **State spills nowhere.** A query that reaches its ceiling is still refused, not degraded; what
   Wave 9 added is the ability to *see* the ceiling coming (ADR-037 B1). The on-disk tier is B2,
   scoped and not started.

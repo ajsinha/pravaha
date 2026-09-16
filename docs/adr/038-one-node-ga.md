@@ -43,7 +43,9 @@ error into a stringy exception, and an audit sink nothing can read (`CFG-23`).
 Membership, partition assignment, rebalance, elastic rescale, multi-tenancy, Ratis, any multi-node
 execution (ADR-034). The time-travel debugger and the control-plane UI. Self-tuning. Nexmark and the
 published SLOs. `LaneMultiplexer` wiring (W9-8, W9-10), demoted by W9-11's measurement rather than
-abandoned. ADR-037's B2 disk spill. `SX-5`'s remaining channels and `SRC-3`'s shared reader.
+abandoned. ADR-037's B2 disk spill. `SX-5`'s remaining channels. (`SRC-3`'s shared reader was on this list and
+has since been built for at-least-once sources; the exactly-once and ordered ones still read once per
+query.)
 
 ## Why this is honest rather than convenient
 
