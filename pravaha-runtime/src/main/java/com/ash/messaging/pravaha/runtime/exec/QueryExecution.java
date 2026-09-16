@@ -471,9 +471,27 @@ public final class QueryExecution implements AutoCloseable {
         }
     }
 
-    /** The watermark this execution has reached, or empty when it derives none. */
+    /**
+     * The watermark this execution has reached, or empty when there is not one yet.
+     *
+     * <p>Empty covers two different things and both must stay empty. An execution that derives no
+     * watermarks at all has none; and one that derives them but has seen no row yet holds
+     * {@link WatermarkGenerator#NOT_YET}, which is a sentinel and not a time. Returning the sentinel
+     * as though it were a watermark would make a query that has never seen a row report a lag, and
+     * {@code PravahaMetricsTest} is right to insist it reports none: zero lag on a silent query
+     * shows it as perfectly up to date, which is the opposite of what is true.
+     *
+     * <p>Found by TIME-12's fix breaking that test. The registry now reads this method, so a
+     * sentinel leaking out of here reaches the only watermark gauge there is.
+     */
     public java.util.OptionalLong watermarkNanos() {
-        return watermarks == null ? java.util.OptionalLong.empty() : java.util.OptionalLong.of(watermarks.watermark());
+        if (watermarks == null) {
+            return java.util.OptionalLong.empty();
+        }
+        long current = watermarks.watermark();
+        return current == WatermarkGenerator.NOT_YET
+                ? java.util.OptionalLong.empty()
+                : java.util.OptionalLong.of(current);
     }
 
     /**

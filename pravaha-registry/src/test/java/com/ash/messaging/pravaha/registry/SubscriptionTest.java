@@ -352,4 +352,12 @@ class SubscriptionTest {
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-8003");
     }
+
+    @Test
+    void aPushedWatermarkIsStillReported() {
+        // The property the fix must not cost: an embedder driving watermarks by hand is a real
+        // caller, and its number is not the execution's.
+        query.advanceWatermark(5_000_000_000L);
+        assertThat(query.watermarkNanos()).contains(5_000_000_000L);
+    }
 }

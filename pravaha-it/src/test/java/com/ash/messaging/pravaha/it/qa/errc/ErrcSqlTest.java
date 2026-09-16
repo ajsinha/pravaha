@@ -130,16 +130,23 @@ class ErrcSqlTest extends ErrcTestSupport {
     }
 
     @Test
-    void sqlSupportMdIsNotReferencedByAnyOfPhysicalPlanBuilderSTwentyFourThrowSites() throws Exception {
+    void sqlSupportMdIsNotReferencedByAnyOfPhysicalPlanBuilderSThrowSites() throws Exception {
         Path file = repoRoot()
                 .resolve("pravaha-sql/src/main/java/com/ash/messaging/pravaha/sql/plan/PhysicalPlanBuilder.java");
         String source = Files.readString(file);
         long throwSites = source.lines()
                 .filter(l -> l.contains("SqlErrors.UNSUPPORTED_OPERATOR"))
                 .count();
-        assertThat(throwSites).as("case fact: twenty-four sites").isEqualTo(24);
-        // The one mention of the string in the whole file is a comment, not inside any of the
-        // twenty-four throw statements' message text.
+        // Twenty-four when this case was written, twenty-five since TIME-2 added the descriptor
+        // check. Recorded as a floor rather than pinned exactly: the subject of this test is the
+        // assertion below -- that not one of these messages points at SQL_SUPPORT.md -- and pinning
+        // the count made every legitimate new refusal fail a test about documentation pointers,
+        // which teaches the next person to edit the number rather than read the assertion.
+        assertThat(throwSites)
+                .as("case fact: twenty-four sites when recorded, and it only grows")
+                .isGreaterThanOrEqualTo(24);
+        // The one mention of the string in the whole file is a comment, not inside any throw
+        // statement's message text. This is the assertion the case is actually about.
         long messagesNamingIt = source.lines()
                 .filter(l -> l.contains("SQL_SUPPORT.md") && !l.trim().startsWith("//"))
                 .count();

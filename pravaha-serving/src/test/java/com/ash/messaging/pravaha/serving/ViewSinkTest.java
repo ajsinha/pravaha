@@ -186,4 +186,73 @@ class ViewSinkTest {
         assertThat(view.size()).isZero();
         assertThat(sink.rowsApplied()).isZero();
     }
+
+    @Test
+    void aSubscriberAttachingMidCommitGetsTheNextCommitWholeRatherThanThisOnesTail() {
+        // STRM-11. The staging decision was `!listeners.isEmpty()` evaluated per row, so a
+        // subscriber that attached between two rows of one commit received the rows after it
+        // attached and not the ones before -- a fragment, delivered as a completed batch.
+        // USER_GUIDE.md promises "a batch is a commit. Never a partial window", and on a windowed
+        // query this is a partly-closed window presented as a closed one.
+        ServedView view = view();
+        ViewSink sink = sink(view);
+
+        List<List<ViewChange>> batches = new java.util.ArrayList<>();
+
+        // First row of the commit goes in with nobody listening...
+        sink.begin().setString(0, "u1").setLong(1, 1).weight(1).sequence(1).commit();
+        // ...and the subscriber arrives here, mid-commit.
+        sink.onCommit((changes, frontier) -> batches.add(List.copyOf(changes)));
+        sink.begin().setString(0, "u2").setLong(1, 2).weight(1).sequence(2).commit();
+        sink.begin().setString(0, "u3").setLong(1, 3).weight(1).sequence(3).commit();
+        sink.commit(100L);
+
+        assertThat(batches)
+                .as("this commit began with no audience, so the subscriber hears nothing of it. It "
+                        + "used to receive [u2, u3] -- two thirds of a commit, indistinguishable from "
+                        + "a whole one")
+                .isEmpty();
+
+        // The next commit is delivered entire.
+        sink.begin().setString(0, "u4").setLong(1, 4).weight(1).sequence(4).commit();
+        sink.begin().setString(0, "u5").setLong(1, 5).weight(1).sequence(5).commit();
+        sink.commit(200L);
+
+        assertThat(batches).hasSize(1);
+        assertThat(batches.get(0))
+                .as("a subscription starts at a commit boundary, never inside one")
+                .hasSize(2);
+    }
+
+    @Test
+    void aCommitThatBeganWithSubscribersIsDeliveredWhole() {
+        // The property the fix must not cost: an already-attached subscriber still gets every row.
+        ServedView view = view();
+        ViewSink sink = sink(view);
+
+        List<List<ViewChange>> batches = new java.util.ArrayList<>();
+        sink.onCommit((changes, frontier) -> batches.add(List.copyOf(changes)));
+
+        sink.begin().setString(0, "u1").setLong(1, 1).weight(1).sequence(1).commit();
+        sink.begin().setString(0, "u2").setLong(1, 2).weight(1).sequence(2).commit();
+        sink.begin().setString(0, "u3").setLong(1, 3).weight(1).sequence(3).commit();
+        sink.commit(100L);
+
+        assertThat(batches).hasSize(1);
+        assertThat(batches.get(0)).as("all three rows, one batch, one commit").hasSize(3);
+    }
+
+    @Test
+    void aSinkWithNoSubscribersStagesNothing() {
+        // The other property: a sink nobody is listening to must not accumulate a change log.
+        ServedView view = view();
+        ViewSink sink = sink(view);
+
+        sink.begin().setString(0, "u1").setLong(1, 1).weight(1).sequence(1).commit();
+        sink.begin().setString(0, "u2").setLong(1, 2).weight(1).sequence(2).commit();
+
+        assertThat(sink.pendingChanges()).isZero();
+        sink.commit(100L);
+        assertThat(sink.pendingChanges()).isZero();
+    }
 }

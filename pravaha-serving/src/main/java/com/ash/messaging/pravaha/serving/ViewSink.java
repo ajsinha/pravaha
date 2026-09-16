@@ -55,6 +55,27 @@ public final class ViewSink {
     private final List<ViewChange> pending = new ArrayList<>();
     private final List<ViewChangeListener> listeners = new CopyOnWriteArrayList<>();
 
+    /**
+     * Who this commit is for, decided once when its first row is staged.
+     *
+     * <p>STRM-11. The staging decision used to be {@code !listeners.isEmpty()} evaluated <em>per
+     * row</em>, so a subscriber attaching between two rows of one commit was delivered the rows
+     * after it attached and not the ones before — a fragment, arriving as a completed batch, which
+     * is exactly what {@code USER_GUIDE.md}'s "a batch is a commit, never a partial window" promises
+     * cannot happen. On a windowed query that is a partly-closed window presented as a closed one.
+     *
+     * <p>Deciding once per commit fixes both halves. A commit that began with subscribers stages
+     * every one of its rows and delivers the whole thing. A commit that began with none stages
+     * nothing, and a subscriber that attached midway through it hears about that commit not at all
+     * and receives the next one entire — which is the correct boundary: a subscription starts at a
+     * commit, never inside one.
+     *
+     * <p>Null between commits. Written on the lane thread that stages rows and read by the same
+     * thread at drain, so the field itself needs no lock; the list it holds is a snapshot precisely
+     * so a concurrent {@code subscribe} cannot widen the audience of a commit already in flight.
+     */
+    private volatile List<ViewChangeListener> batchAudience;
+
     public ViewSink(ServedView view, StreamSchema schema) {
         this.view = view;
         this.schema = schema;
@@ -104,7 +125,10 @@ public final class ViewSink {
     }
 
     private void drainPending(long committedFrontier) {
-        if (listeners.isEmpty()) {
+        // The audience this commit was staged for, and the end of the commit either way.
+        List<ViewChangeListener> audience = batchAudience;
+        batchAudience = null;
+        if (audience == null || audience.isEmpty()) {
             // Still cleared: a sink with no subscribers must not accumulate a change log nobody
             // will ever read.
             synchronized (pending) {
@@ -120,7 +144,10 @@ public final class ViewSink {
             batch = List.copyOf(pending);
             pending.clear();
         }
-        for (ViewChangeListener listener : listeners) {
+        // Delivered to the audience the commit began with, not to whoever is attached now: a
+        // subscriber that arrived midway through this commit must receive the next one entire
+        // rather than the tail of this one (STRM-11).
+        for (ViewChangeListener listener : audience) {
             try {
                 listener.onCommit(batch, committedFrontier);
             } catch (RuntimeException | Error escaped) {
@@ -276,7 +303,13 @@ public final class ViewSink {
         @Override
         public int commit() {
             view.applyValues(values, weight, Math.max(eventTime, sequence));
-            if (!listeners.isEmpty()) {
+            // STRM-11: decided once for the commit, not once per row. See batchAudience.
+            List<ViewChangeListener> audience = batchAudience;
+            if (audience == null) {
+                audience = listeners.isEmpty() ? List.of() : List.copyOf(listeners);
+                batchAudience = audience;
+            }
+            if (!audience.isEmpty()) {
                 synchronized (pending) {
                     pending.add(new ViewChange(values, weight));
                 }

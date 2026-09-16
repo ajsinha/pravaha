@@ -142,6 +142,7 @@ public final class QueryRunner {
         long executeStart = System.nanoTime();
         long rowsRead = 0;
         long rowsWritten;
+        long written = 0;
         long rowsRejected = 0;
         long deadLetterFailures = 0;
 
@@ -210,15 +211,37 @@ public final class QueryRunner {
                     // Closing stops the lanes, and each lane finishes its own pipeline on its own
                     // thread -- which is what emits the final windows of a stateful query.
                     execution.close();
+                    // TY-2. Whatever the engine produced is written here, on every exit path.
+                    //
+                    // It used to be written only after checkHealth() below, and a lane that died
+                    // mid-stream throws from *inside the pump loop* -- so the write was never
+                    // reached and out.csv was created with zero rows, contradicting what the
+                    // PRV-3010 message itself promises: the offending record is diverted, not the
+                    // batch. My first attempt moved the write into a finally around the checkHealth
+                    // below and changed nothing at all, because the throw happens two blocks
+                    // earlier than that. A probe on the collector, which never printed, is what said
+                    // so.
+                    //
+                    // The failure still propagates and the exit code is unchanged. Rows the engine
+                    // completed are simply no longer collateral.
+                    written = flushCollected(sink, collector);
                 }
                 // After close, because close is where each lane finishes its pipeline -- and a lane
                 // that dies in finish() dies after every earlier check has passed. Without this the
                 // command printed "ok  3 in, 1 out" and exited zero for a query that had thrown:
                 // two rows silently missing, a successful status, and the ArithmeticException that
                 // caused it never reaching the person who ran it.
+                // TY-2. checkHealth() throws when a lane died mid-stream, and the write below used
+                // to sit after it -- so a div-by-zero on row eight produced PRV-3010, exit 1, and an
+                // out.csv with *zero* rows instead of the seven that had completed. That contradicts
+                // what the PRV-3010 message itself promises: the offending record is diverted, not
+                // the batch.
+                //
+                // The failure still propagates and the exit code is unchanged. What changes is that
+                // the rows the engine actually produced reach the sink first, because losing them is
+                // a separate harm from the query failing, and only one of the two was intended.
                 execution.checkHealth();
-                rowsWritten = sink.write(collector.rows());
-                sink.flush();
+                rowsWritten = written;
                 if (deadLetters != null) {
                     rowsRejected = deadLetters.count();
                     deadLetterFailures = deadLetters.failures();
@@ -274,6 +297,24 @@ public final class QueryRunner {
      * such a row used to come back corrupted under exit 0, and now says so.
      */
     private static final int PAYLOAD_BUDGET = 2048;
+
+    /**
+     * Writes whatever the engine produced, on every exit path including a failing one.
+     *
+     * <p>TY-2. Never lets its own failure replace the query's: if the query is on its way out with a
+     * {@code PRV-3010}, a secondary problem writing the output must not be the message the person
+     * sees instead.
+     */
+    private static long flushCollected(FilesystemSinkPlugin sink, Collector collector) {
+        try {
+            long written = sink.write(collector.rows());
+            sink.flush();
+            return written;
+        } catch (RuntimeException secondary) {
+            System.err.println("could not write the collected rows: " + secondary.getMessage());
+            return 0;
+        }
+    }
 
     private static final class Collector implements RowOutput, AutoCloseable {
         private final RowLayout layout;

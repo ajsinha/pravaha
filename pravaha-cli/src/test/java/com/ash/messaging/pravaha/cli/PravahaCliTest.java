@@ -342,4 +342,37 @@ class PravahaCliTest {
         assertThat(Ansi.bold("plain")).isEqualTo("plain");
         assertThat(Ansi.bad("plain")).doesNotContain("[");
     }
+
+    @Test
+    void aMidStreamLaneFailureKeepsTheRowsThatCompletedBeforeIt(@TempDir Path dir) throws IOException {
+        // TY-2. A div-by-zero on one row produced PRV-3010, exit 1, and an out.csv with ZERO rows --
+        // not the rows that had already completed. That contradicts what the PRV-3010 message itself
+        // promises: the offending record is diverted, not the batch. The failure and the exit code
+        // are correct and stay; losing the other rows was a separate harm that nobody intended.
+        Path input = dir.resolve("num.csv");
+        Files.writeString(
+                input,
+                "1,alice,10,COMPLETED\n" + "2,bob,5,COMPLETED\n" + "3,carol,0,COMPLETED\n" + "4,dave,2,COMPLETED\n");
+        Path out = dir.resolve("out.csv");
+
+        int code = run(
+                "run",
+                "--sql",
+                "SELECT user_id, 100 / amount AS ratio FROM txn",
+                "--schema",
+                SCHEMA,
+                "--in",
+                input.toString(),
+                "--out",
+                out.toString(),
+                "--out-schema",
+                "user_id:STRING,ratio:INT64");
+
+        assertThat(code).as("the query still fails, and visibly").isEqualTo(1);
+        assertThat(stderr()).contains("PRV-3010");
+        assertThat(Files.readAllLines(out))
+                .as("the rows that completed before the bad one survive; an empty file here says the "
+                        + "engine produced nothing, which is not what happened")
+                .isNotEmpty();
+    }
 }

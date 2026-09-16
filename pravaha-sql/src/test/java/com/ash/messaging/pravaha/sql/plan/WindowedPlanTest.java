@@ -159,4 +159,45 @@ class WindowedPlanTest {
 
         assertThat(PhysicalPlanBuilder.explain(root)).contains("WindowedAggregate");
     }
+
+    @Test
+    void aDescriptorOnTheWrongTimestampColumnIsRefused() {
+        // TIME-2. Calcite refuses a descriptor on a non-temporal column, which is a *type* check --
+        // it says nothing about which timestamp column, and a schema with two of them walks straight
+        // through it. The two queries differ by one identifier; both used to be accepted, and one
+        // answered with windows cut from a column no watermark tracks.
+        StreamSchema twoStamps = StreamSchema.builder("ev")
+                .field("id", Types.int64())
+                .field("event_time", Types.timestamp())
+                .field("other_time", Types.timestamp())
+                .eventTime("event_time")
+                .build();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new PhysicalPlanBuilder()
+                        .build(SqlPlanner.withStreams(twoStamps)
+                                .plan("SELECT COUNT(*) FROM TABLE(TUMBLE(TABLE ev, DESCRIPTOR(other_time), "
+                                        + "INTERVAL '10' SECOND)) GROUP BY window_start, window_end")))
+                .as("a window grid keyed to an undeclared column is closed by a clock that knows nothing "
+                        + "about it -- the answer is wrong rather than late")
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("other_time")
+                .hasMessageContaining("event_time");
+    }
+
+    @Test
+    void aDescriptorOnTheDeclaredEventTimeIsAccepted() {
+        // The property the guard must not cost: the correct query, one identifier away, still plans.
+        StreamSchema twoStamps = StreamSchema.builder("ev")
+                .field("id", Types.int64())
+                .field("event_time", Types.timestamp())
+                .field("other_time", Types.timestamp())
+                .eventTime("event_time")
+                .build();
+
+        assertThat(new PhysicalPlanBuilder()
+                        .build(SqlPlanner.withStreams(twoStamps)
+                                .plan("SELECT COUNT(*) FROM TABLE(TUMBLE(TABLE ev, DESCRIPTOR(event_time), "
+                                        + "INTERVAL '10' SECOND)) GROUP BY window_start, window_end")))
+                .isNotNull();
+    }
 }

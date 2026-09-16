@@ -510,7 +510,7 @@ public final class PhysicalPlanBuilder {
 
     private PhysicalOperator buildProject(Project project) {
         PhysicalOperator input = build(project.getInput());
-        StreamSchema output = schemaOf(project, input.outputSchema().name() + "_projected");
+        StreamSchema output = schemaOf(project, input.outputSchema().name() + "_projected", input.outputSchema());
 
         // The grouped-window form -- GROUP BY TUMBLE(event_time, INTERVAL '10' SECOND) -- arrives as
         // an ordinary projection containing a $TUMBLE call, because Calcite rewrites the grouping
@@ -700,6 +700,7 @@ public final class PhysicalPlanBuilder {
                     SqlErrors.UNSUPPORTED_OPERATOR,
                     "the windowing function names no time column. Pass one with DESCRIPTOR(event_time).");
         }
+        requireDeclaredEventTime(function, eventTimeOrdinal, input.outputSchema());
 
         WindowSpec spec =
                 switch (function) {
@@ -725,8 +726,46 @@ public final class PhysicalPlanBuilder {
                                 SqlErrors.UNSUPPORTED_OPERATOR, "unsupported windowing function " + function);
                 };
 
-        StreamSchema output = schemaOf(windowing, input.outputSchema().name() + "_windowed");
+        StreamSchema output = schemaOf(windowing, input.outputSchema().name() + "_windowed", input.outputSchema());
         return new WindowAssignOperator(input, output, spec, eventTimeOrdinal);
+    }
+
+    /**
+     * Refuses a {@code DESCRIPTOR} that names a timestamp column other than the declared event time.
+     *
+     * <p>TIME-2. There <em>was</em> a guard and it was the wrong one. Calcite refuses a descriptor
+     * on a non-temporal column, which is a <strong>type</strong> check: it says nothing about
+     * <em>which</em> timestamp column, and a schema with two of them walks straight through it. On a
+     * stream declaring {@code event_time} and also carrying {@code other_time}, the two queries
+     * differ by one identifier, both are accepted, and one of them answers with windows assigned
+     * from a column no watermark tracks — so the result is wrong rather than late, and nothing says
+     * anything.
+     *
+     * <p>Windows are assigned in event time and closed by a watermark, and the watermark advances on
+     * the column the stream declared. A window grid keyed to any other column is not a slower answer
+     * to the same question; it is an answer to a question the engine cannot bound.
+     *
+     * <p>A stream that declares no event time at all is left alone: that is TIME-002's finding and a
+     * different conversation, and refusing here would replace its message with this one.
+     */
+    private static void requireDeclaredEventTime(String function, int descriptorOrdinal, StreamSchema schema) {
+        java.util.OptionalInt declared = schema.eventTimeOrdinal();
+        if (declared.isEmpty() || declared.getAsInt() == descriptorOrdinal) {
+            return;
+        }
+        throw new PravahaException(
+                SqlErrors.UNSUPPORTED_OPERATOR,
+                function + " is given DESCRIPTOR("
+                        + schema.field(descriptorOrdinal).name() + "), but '"
+                        + schema.name() + "' declares '"
+                        + schema.field(declared.getAsInt()).name()
+                        + "' as its event time. Windows are assigned in event time and closed by a watermark, "
+                        + "and the watermark only advances on the declared column -- so windows cut from '"
+                        + schema.field(descriptorOrdinal).name() + "' would be closed by a clock that knows "
+                        + "nothing about them, and the answer would be wrong rather than late. Use "
+                        + "DESCRIPTOR(" + schema.field(declared.getAsInt()).name() + "), or declare '"
+                        + schema.field(descriptorOrdinal).name() + "' as the stream's event time if that is "
+                        + "what it is.");
     }
 
     private static void requireIntervals(String function, List<Long> intervals, int expected) {
@@ -1067,6 +1106,38 @@ public final class PhysicalPlanBuilder {
         rel.getRowType()
                 .getFieldList()
                 .forEach(field -> builder.field(field.getName(), TypeMapping.fromCalcite(field.getType())));
+        return builder.build();
+    }
+
+    /**
+     * The schema of a derived relation, carrying the event time forward when the column survives.
+     *
+     * <p>TIME-2, and the reason that finding could not be guarded where it appears. Every derived
+     * schema was built from the Calcite row type alone, so a projection produced {@code ev_projected}
+     * with <strong>no declared event time at all</strong> — the marker existed on the stream and was
+     * dropped by the first operator above the scan. Anything downstream asking "which column is the
+     * event time" got "none", including the check that should refuse a {@code DESCRIPTOR} naming the
+     * wrong one.
+     *
+     * <p>Matched by name rather than by ordinal, because a projection reorders and drops columns.
+     * When the declared column does not survive the projection the derived schema genuinely has no
+     * event time, and saying so is correct.
+     */
+    private static StreamSchema schemaOf(RelNode rel, String name, StreamSchema source) {
+        java.util.OptionalInt declared = source.eventTimeOrdinal();
+        String eventTimeColumn =
+                declared.isEmpty() ? null : source.field(declared.getAsInt()).name();
+
+        StreamSchema.Builder builder = StreamSchema.builder(name);
+        boolean survives = false;
+        for (org.apache.calcite.rel.type.RelDataTypeField field :
+                rel.getRowType().getFieldList()) {
+            builder.field(field.getName(), TypeMapping.fromCalcite(field.getType()));
+            survives |= field.getName().equals(eventTimeColumn);
+        }
+        if (survives) {
+            builder.eventTime(eventTimeColumn);
+        }
         return builder.build();
     }
 

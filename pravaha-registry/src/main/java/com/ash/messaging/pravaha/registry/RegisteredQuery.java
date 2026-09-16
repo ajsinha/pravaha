@@ -50,6 +50,8 @@ public final class RegisteredQuery implements AutoCloseable {
 
     private final QueryFingerprint fingerprint;
     private final String sql;
+    private static final System.Logger LOG = System.getLogger(RegisteredQuery.class.getName());
+
     private final Set<String> names = new LinkedHashSet<>();
     private final ServedView view;
     private final ViewSink sink;
@@ -193,10 +195,26 @@ public final class RegisteredQuery implements AutoCloseable {
         return rowsIn.get() + feed.rowsFed();
     }
 
-    /** The watermark reached, or empty if none has been declared. */
+    /**
+     * The watermark reached, or empty if this query derives none.
+     *
+     * <p>TIME-12. This reported only what {@link #advanceWatermark} had been told, and the engine
+     * does not go through that method: when the registry arms watermark generation, the execution
+     * derives and advances them on its own timer. So the field stayed at {@code Long.MIN_VALUE} for
+     * every query on every node, and {@code pravaha_query_watermark_lag_seconds} — the engine's only
+     * watermark instrument — read {@code NaN} whatever event time was doing.
+     *
+     * <p>Nothing was missing. {@code QueryExecution.watermarkNanos()} had the answer the whole time
+     * and nobody asked it. The push path's value still wins when it is higher, because an embedder
+     * driving watermarks by hand is a real caller and its number is not the execution's.
+     */
     public Optional<Long> watermarkNanos() {
-        long value = watermarkNanos.get();
-        return value == Long.MIN_VALUE ? Optional.empty() : Optional.of(value);
+        long pushed = watermarkNanos.get();
+        java.util.OptionalLong derived = execution.watermarkNanos();
+        if (derived.isPresent()) {
+            return Optional.of(pushed == Long.MIN_VALUE ? derived.getAsLong() : Math.max(pushed, derived.getAsLong()));
+        }
+        return pushed == Long.MIN_VALUE ? Optional.empty() : Optional.of(pushed);
     }
 
     /** Why it failed, if it did. */
@@ -464,6 +482,29 @@ public final class RegisteredQuery implements AutoCloseable {
                 }
             }
             execution.close();
+            // W-2. execution.close() is where each lane runs finish(), and finish() is what fires a
+            // stateful query's final windows -- so the last windows of every query were emitted here
+            // and then thrown away, because the feed thread is the only thing that commits and it
+            // was closed two lines above.
+            //
+            // The ordering above is not the defect and must not be changed: closing the execution
+            // while a pump is mid-write leaves it writing into a lane that has gone, which is the
+            // failure that ordering was introduced to fix. What was missing is a commit *after* the
+            // last emit, which is this.
+            //
+            // Not routed through advanceWatermark: that returns early unless the state is RUNNING,
+            // and by here it is DROPPED by design -- no new work may be accepted, but what the
+            // engine already produced still has to reach the view.
+            try {
+                sink.commit(sink.appliedFrontier());
+            } catch (RuntimeException e) {
+                // A close must not throw on its way out. The query is going; a view that cannot
+                // take its final commit is worth a line, not an exception nobody can act on.
+                LOG.log(
+                        System.Logger.Level.WARNING,
+                        "could not commit the final windows of " + names + ": " + e.getMessage(),
+                        e);
+            }
         }
     }
 

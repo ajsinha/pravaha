@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 143 FIXED, 137 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 137 open, **10 are
-GA-BLOCKER, 24 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **294 findings carrying a
+status — 148 FIXED, 131 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 131 open, **6 are
+GA-BLOCKER, 23 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -19,6 +19,32 @@ by being forgotten. Status is one of:
 | **PARTIAL** | The reported symptom is closed; the underlying cause is not. Says what remains. |
 | **OPEN** | Not addressed. Still true of the build. |
 
+## The commonest defect in this register: built, correct, and connected to nothing
+
+Named here because it has now been fixed seven times under seven different identifiers, and naming
+it is cheaper than finding it an eighth time.
+
+| Finding | The mechanism | What was actually wrong |
+|---|---|---|
+| `SX-11` | `SecurityPolicy` | asked about the view's *name*, never about the data behind it |
+| `CFG-5` | `AuditSink` | the HTTP bean returned `NONE` whatever the configuration said |
+| `P-3` | `ClientOptions.build()`'s token refusal | worked, and the CLI switched it off for every user |
+| `I-3` | `QueryFingerprint` | did not include the key columns, so two different views were "the same" |
+| `TIME-2` | the declared event-time marker | dropped by the first projection above the scan |
+| `TIME-12` | `QueryExecution.watermarkNanos()` | had the right answer; the registry never asked it |
+| `W8-15` | the pid in the ownership marker | recorded, and never read to tell a crash from a live peer |
+
+In every one of these the component existed, was tested, and was documented. What failed was the
+**wiring** — a value not carried forward, a getter with no caller, a check applied to the wrong
+noun. `OrphanedClassTest` exists because the same thing happened four times at the level of whole
+classes; these are the same defect one level down, where no scan can see it.
+
+**Two consequences worth acting on.** A fix that re-derives the right value in a second place will
+look correct and stay broken — that happened twice in one session (`CFG-5`, where resolving the
+audit key again would have produced a second invisible sink; `P-3`, where I began writing a
+duplicate check the SDK already had). And when a finding says a mechanism is missing, check whether
+it is merely disconnected before building a new one.
+
 ## Triage — what blocks a release, and what does not
 
 Every OPEN finding now carries a `> **Disposition:**` line as well as a status, and
@@ -28,19 +54,19 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 10 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 24 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **GA-BLOCKER** | 6 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-REQUIRED** | 23 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The fifteen blockers, by what they break.** Data reaching the wrong principal: `SX-5`, `SX-1`.
 A security control that reports itself on and is off: `SX-7`. (`SX-11`, `CFG-5`, `CFG-6` and `P-3`
 were in these two rows and are **fixed** — the security group is now down to the existence oracle
 and the audit that logs ALLOW for a refused read.) Silently wrong
-answers: `TIME-2`, `STRM-11`. (`TY-3` and `TY-13` are **fixed** — NaN outranking every value, and a
+answers: none left — `TIME-2` and `STRM-11` were the last two and both are **fixed**. (`TY-3` and `TY-13` are **fixed** — NaN outranking every value, and a
 literal that compiled to `Infinity`.) (`TY-21` and `I-3` are **fixed** — and both had
 been written down as correct somewhere: `win067` expected a total of 28 where the right answer is
-31, and three lifecycle cases asserted the sharing defect as intended behaviour.) Silent loss: `TY-2`, `W-2`, `TIME-4`. (`TIME-1` is **fixed**; `TIME-4` was attempted and
+31, and three lifecycle cases asserted the sharing defect as intended behaviour.) Silent loss: `TIME-4` alone — `TY-2` and `W-2` are **fixed**. (`TIME-1` is **fixed**; `TIME-4` was attempted and
 reverted — the skip needs a cancel path on `RowInbox` or a server DLQ key, not a change to the
 reader.) Declared and does nothing: `I-6`, `S-3`.
 
@@ -681,8 +707,7 @@ emit. Re-verified executing `AGG.md`/`SQLX.md` this round (`SqlAnswerTest`'s
 `docs/qa/logs/AGG.md`.
 
 ## W-2 (HIGH) — the last window is computed and thrown away, and that ordering is mine
-> **Status:** OPEN — reproduced directly: a TUMBLE query fed one row and closed without ever advancing the watermark leaves `served.scan()` empty; `finish()` writes the final window into `ViewSink`'s staged overlay but nothing calls `sink.commit()` afterward once `state != RUNNING`
-> **Disposition:** GA-BLOCKER — every query loses its final windows at close
+> **Status:** FIXED — `RegisteredQuery.close()` commits the sink after `execution.close()`, which is where each lane runs `finish()` and fires a stateful query's final windows. **The close ordering is unchanged and that is deliberate**: closing the execution while a pump is mid-write leaves it writing into a lane that has gone, which is the failure that ordering was introduced to fix. The defect was never the order — it was that nothing committed after the last emit. Not routed through `advanceWatermark`, which returns early unless the state is `RUNNING`, and by then it is `DROPPED` by design: no new work may be accepted, but what the engine already produced still has to reach the view.
 
 
 `finish()` does fire the final windows at lane shutdown. But `RegisteredQuery.close()` sets
@@ -2064,8 +2089,7 @@ floating arithmetic ... ✅" row gives no indication `%` behaves differently fro
 carry a caveat naming this exception. See docs/qa/logs/TYPE.md §13-15.
 
 ## TY-2 (HIGH) — `pravaha run` discards the entire output batch, not just the offending row, on a mid-stream lane failure
-> **Status:** OPEN — reproduced live: a div-by-zero row still yields `PRV-3010`, exit 1, and a 0-row output file; `QueryRunner.Collector` still buffers all rows and only calls `sink.write(collector.rows())` after `execution.close()`/`checkHealth()` succeed.
-> **Disposition:** GA-BLOCKER — a whole output batch discarded on one bad row; loss, not refusal
+> **Status:** FIXED — whatever the engine produced is now written on **every** exit path, in the same `finally` that closes the execution. The failure still propagates and the exit code is unchanged; the completed rows simply stop being collateral. `PravahaCliTest` +1; seed-proven by removing the flush, which fails 4 tests. **My first attempt did nothing and the test proved it**: I moved the write into a `finally` around the `checkHealth()` near the end, but a lane that dies mid-stream throws from the `checkHealth()` *inside the pump loop*, two blocks earlier — a probe on the collector that never printed is what said so. Fixing the ordering at the wrong site looked exactly like fixing it.
 
 
 `QueryRunner`'s `Collector` (`pravaha-cli`) buffers every output row in memory and flushes to the
@@ -4030,8 +4054,7 @@ slices exist.
 
 ### TIME-2 (HIGH) — a `DESCRIPTOR` naming a timestamp column that is not the stream's declared event time is accepted, and the answer is nonsense
 
-> **Status:** OPEN — reproduced on a live node with a two-timestamp stream. `TUMBLE(TABLE ev, DESCRIPTOR(other_time), …)` where `pravaha.streams.ev.event-time: event_time` plans, registers and serves **one** window holding all 121 rows; the identical query with `DESCRIPTOR(event_time)` serves the correct twelve. `WindowAssign.process` (`pravaha-runtime/.../exec/WindowAssign.java:62`) slices on `row.getLong(operator.eventTimeOrdinal())`, which `PhysicalPlanBuilder` fills from `descriptorOrdinal(descriptor, schema)` (`:617`, `:729`); the watermark that fires those slices comes from the *stamped* event time. Nothing checks they are the same column.
-> **Disposition:** GA-BLOCKER — a descriptor on the wrong timestamp column is accepted and answered
+> **Status:** FIXED — and the finding named the symptom rather than the cause. The descriptor is now checked against the stream's declared event time, **and that check could not work until a second defect was fixed**: `PhysicalPlanBuilder.schemaOf` rebuilt every derived schema from the Calcite row type alone, so a projection produced `ev_projected` with *no declared event time at all* — the marker existed on the stream and was gone at the first operator above the scan. A probe showed `declared=OptionalInt.empty` where the guard needed it. Derived schemas now carry the event time forward when the column survives, matched by name because projections reorder and drop. `WindowedPlanTest` +2; seed-proven by removing the guard.
 
 There **is** a guard, and it is the wrong one. A descriptor on a non-temporal column is refused by
 Calcite's validator:
@@ -4063,31 +4086,8 @@ time — or at minimum warning — costs one comparison at plan time.
 
 ### TIME-12 (HIGH) — the engine's only watermark instrument reads `NaN` on a query whose watermark is advancing
 
-> **Status:** OPEN — reproduced on a live node: `pravaha_query_watermark_lag_seconds{query="w10"} NaN` on a query serving eleven correct windows, in the same scrape as two queries that genuinely have no watermark. `RegisteredQuery.advanceWatermark` (`pravaha-registry/.../RegisteredQuery.java:266`) is the only writer of `watermarkNanos`, and `QueryExecution.advanceWatermarkQuietly` (`pravaha-runtime/.../exec/QueryExecution.java:442`) calls `QueryExecution.advanceWatermark` instead.
-> **Disposition:** GA-REQUIRED — assigned individually
-
-`PravahaMetrics.java:132` registers the gauge and `:146-148` computes it from
-`query.watermarkNanos()`, reporting `NaN` when the `OptionalLong` is empty. The internal clock never
-fills it in, so the gauge is `NaN` for every query on every node whatever event time is doing.
-
-One scrape of `/actuator/prometheus` on `$QA/conf/base.yaml`, with three queries registered:
-
-```
-pravaha_query_watermark_lag_seconds{query="p_noet"} NaN     # a projection, no windows
-pravaha_query_watermark_lag_seconds{query="w10"} NaN        # 11 windows served, watermark at T0+110
-pravaha_query_watermark_lag_seconds{query="w10n"} NaN       # no event-time declaration, 0 windows for ever
-```
-
-`w10` and `w10n` are the same SQL over byte-identical files and differ only in one configuration
-line; one is healthy and one is the failure mode the whole watermark subsystem exists to make
-visible. The instrument cannot tell them apart. A fourth kind of query — one with no source bound at
-all — reads `NaN` too. Combined with TIME-8, an operator diagnosing a frozen watermark has the row
-count, an empty view, and a gauge that says "no watermark" about a working query.
-
-### TIME-13 (MEDIUM) — a late row reaches every still-open window of its slice and never reopens one that has closed, which is not what the HOP correction path promises
-
-> **Status:** OPEN — reproduced on a live node with a `follow: true` paced feed. `HOP(… INTERVAL '10' SECOND, INTERVAL '20' SECOND)` over `ev`, `out-of-orderness: 0s`, fed T0+0 … T0+105 so the window `[T0+80, T0+100)` had fired at `n = 20, total = 1790`. Injecting `904,u0,500,T0+95` left it at **1790** with no retraction and no re-emission; the same row then appeared in `[T0+90, T0+110)`, which emitted later as `n = 21, total = 2490` (= 1990 + 500).
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — `RegisteredQuery.watermarkNanos()` now reads `QueryExecution.watermarkNanos()`, which had the answer all along; it previously reported only what `advanceWatermark` had been told, and the engine does not go through that method. **Fixing it exposed a second defect and broke a correct test**: `QueryExecution.watermarkNanos()` returned `WatermarkGenerator.NOT_YET` as though it were a time, so a query that had seen no row would have reported a lag — `PravahaMetricsTest.aQueryThatHasSeenNothingReportsNoLagRatherThanZeroLag` was right to fail, because zero lag on a silent query shows it as perfectly up to date. The sentinel is now filtered at its source.
+> **Coverage, stated precisely:** `PravahaMetricsTest` proves the unfed case still reports nothing; `StreamingWatermarkTest` asserts the execution-level watermark is present when rows have flowed and empty when they have not. **The registry's delegation is not covered end to end.** A registry unit test cannot reach it — the tracker is fed by the *source* path and `accept()` is the push path, so a pushed row never advances it, which is also why this defect only ever showed on source-fed queries. I wrote such a test, watched it fail for that reason, and removed it rather than contrive one that passed without proving anything.
 
 `WindowedAggregate.process` (`pravaha-runtime/.../exec/WindowedAggregate.java:170-179`) accepts a row
 when `lastWindowEnd + allowedLatenessNanos > watermark`, and `lastWindowEndFor(T0+90)` is T0+110,
@@ -4646,8 +4646,7 @@ delivered batch was a whole commit, never a fragment. What is missing is telling
 
 ### STRM-11 (HIGH) — a subscriber attaching during a commit receives a fragment of it, delivered as a completed batch
 
-> **Status:** OPEN — reproduced deterministically in `SectionD.s060` and at scale under scheduling pressure in `SectionE.s120`.
-> **Disposition:** GA-BLOCKER — a partial commit delivered to a subscriber as a completed batch
+> **Status:** FIXED — the audience of a commit is decided once, when its first row is staged, and snapshotted. A commit that began with subscribers delivers every one of its rows to them; a commit that began with none stages nothing, and a subscriber arriving midway hears nothing of it and receives the next one entire. A subscription starts at a commit boundary, never inside one. `ViewSinkTest` +3; seed-proven by restoring the per-row `!listeners.isEmpty()`, which fails exactly the mid-commit case.
 
 The guard in `StagedRow.commit` is `if (!listeners.isEmpty())`, evaluated **per row**
 (`ViewSink.java:232`). A subscriber that attaches between two rows of the same commit is delivered
