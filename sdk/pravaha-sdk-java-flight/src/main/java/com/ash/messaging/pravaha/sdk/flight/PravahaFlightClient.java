@@ -34,6 +34,7 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
+import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.sdk.ClientErrors;
 import com.ash.messaging.pravaha.sdk.ClientOptions;
@@ -102,17 +103,36 @@ public final class PravahaFlightClient implements AutoCloseable {
      */
     private final java.util.Set<Subscription> subscriptions = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    /**
+     * The node this client was pointed at, as {@code host:port}.
+     *
+     * <p>Held only to name it in a failure. E-7: "io exception" is what a dead server used to say,
+     * and on a machine talking to three nodes it does not say which one, which is the only thing
+     * the operator needs.
+     */
+    private final String endpoint;
+
+    /**
+     * Whether {@link #close()} has run.
+     *
+     * <p>Volatile because a subscription callback runs on a Flight thread and may outlive the
+     * thread that closed the client -- which is how a use-after-close happens in the first place.
+     */
+    private volatile boolean closed;
+
     private PravahaFlightClient(
             BufferAllocator allocator,
             boolean ownsAllocator,
             FlightClient transport,
             FlightSqlClient client,
-            CallOption[] callOptions) {
+            CallOption[] callOptions,
+            String endpoint) {
         this.transport = transport;
         this.allocator = allocator;
         this.ownsAllocator = ownsAllocator;
         this.client = client;
         this.callOptions = callOptions;
+        this.endpoint = endpoint;
     }
 
     /** Connects to {@code host:port}. */
@@ -144,7 +164,12 @@ public final class PravahaFlightClient implements AutoCloseable {
                     : Location.forGrpcInsecure(node.host(), node.port());
             FlightClient transport = FlightClient.builder(allocator, location).build();
             return new PravahaFlightClient(
-                    allocator, ownsAllocator, transport, new FlightSqlClient(transport), credentialsOf(options));
+                    allocator,
+                    ownsAllocator,
+                    transport,
+                    new FlightSqlClient(transport),
+                    credentialsOf(options),
+                    node.host() + ":" + node.port());
         } catch (RuntimeException e) {
             if (ownsAllocator) {
                 allocator.close();
@@ -188,20 +213,16 @@ public final class PravahaFlightClient implements AutoCloseable {
      * it streams rather than materialises.
      */
     public QueryResult query(String sql) {
+        requireOpen();
         try {
             FlightInfo info = client.execute(sql, callOptions);
-            return new QueryResult(client.getStream(info.getEndpoints().get(0).getTicket(), callOptions));
+            return new QueryResult(client.getStream(info.getEndpoints().get(0).getTicket(), callOptions), this);
         } catch (FlightRuntimeException e) {
-            throw new PravahaClientException(
-                    ClientErrors.QUERY_REFUSED,
-                    // The server's own diagnosis, PRV code and all, rather than a wrapper that hides
-                    // it: "PRV-4023 ... this server serves [user_volume]" is actionable and "query
-                    // failed" is not.
-                    e.status().description() == null
-                            ? e.getMessage()
-                            : e.status().description(),
-                    false,
-                    e);
+            // The server's own diagnosis *and its own code*, rather than a wrapper that keeps the
+            // first and discards the second: "PRV-4023 ... this server serves [user_volume]" is
+            // actionable, and a caller that wants to branch on it should not have to grep for it.
+            // See ServerFailures.
+            throw failureOf(e);
         }
     }
 
@@ -223,22 +244,17 @@ public final class PravahaFlightClient implements AutoCloseable {
         if (parameters == null || parameters.length == 0) {
             return query(sql);
         }
+        requireOpen();
         try (FlightSqlClient.PreparedStatement statement = client.prepare(sql, callOptions)) {
             try (VectorSchemaRoot bound = VectorSchemaRoot.create(statement.getParameterSchema(), allocator)) {
                 Parameters.write(bound, parameters);
                 statement.setParameters(bound);
                 FlightInfo info = statement.execute(callOptions);
                 return new QueryResult(
-                        client.getStream(info.getEndpoints().get(0).getTicket(), callOptions));
+                        client.getStream(info.getEndpoints().get(0).getTicket(), callOptions), this);
             }
         } catch (FlightRuntimeException e) {
-            throw new PravahaClientException(
-                    ClientErrors.QUERY_REFUSED,
-                    e.status().description() == null
-                            ? e.getMessage()
-                            : e.status().description(),
-                    false,
-                    e);
+            throw failureOf(e);
         }
     }
 
@@ -324,6 +340,7 @@ public final class PravahaFlightClient implements AutoCloseable {
             pairs.add(column);
             pairs.add(value);
         });
+        requireOpen();
         FlightStream stream = client.getStream(new Ticket(ControlWire.subscribeTicket(view, pairs)), callOptions);
         Subscription subscription = new Subscription(stream, onBatch, subscriptions::remove);
         subscriptions.add(subscription);
@@ -336,21 +353,64 @@ public final class PravahaFlightClient implements AutoCloseable {
     }
 
     private List<List<String>> act(String type, String... fields) {
+        requireOpen();
         List<List<String>> results = new java.util.ArrayList<>();
         try {
             transport
                     .doAction(new Action(type, ControlWire.encode(fields)), callOptions)
                     .forEachRemaining(result -> results.add(ControlWire.decode(result.getBody())));
         } catch (FlightRuntimeException e) {
-            throw new PravahaClientException(
-                    ClientErrors.QUERY_REFUSED,
-                    e.status().description() == null
-                            ? e.getMessage()
-                            : e.status().description(),
+            throw failureOf(e);
+        }
+        return results;
+    }
+
+    /**
+     * The Pravaha failure a Flight failure on this connection means.
+     *
+     * <p>Shared with {@link QueryResult}, so that a server error part way through reading a result
+     * is reported exactly as one raised when the call was made -- a caller should not need two
+     * handlers for the same refusal arriving at two moments.
+     *
+     * <p>The closed check comes first and is the reason this is a method on the client rather than a
+     * call to {@link ServerFailures} everywhere: gRPC reports a call on a shut-down channel as
+     * UNAVAILABLE, indistinguishable from an unreachable server, and only the client knows which it
+     * was.
+     */
+    PravahaClientException failureOf(FlightRuntimeException e) {
+        return failureOf(e, ClientErrors.QUERY_REFUSED);
+    }
+
+    /** The same, for a caller whose "something else went wrong" code is not QUERY_REFUSED. */
+    PravahaClientException failureOf(FlightRuntimeException e, ErrorCode fallback) {
+        if (closed) {
+            return new PravahaClientException(
+                    ClientErrors.CLOSED,
+                    "the client that opened this result has been closed; read the rows you need before "
+                            + "closing it, or keep it open for as long as the result is in use",
                     false,
                     e);
         }
-        return results;
+        return ServerFailures.of(e, endpoint, fallback);
+    }
+
+    /**
+     * Refuses a call on a client that has been closed.
+     *
+     * <p>E-7, the second half. gRPC answers a call on a shut-down channel with {@code UNAVAILABLE}
+     * and the text "Channel shutdown invoked" -- indistinguishable, from the outside, from a server
+     * that is down. Without this guard the connection-failure branch would report a closed client as
+     * a retryable {@code PRV-1040}, advising a retry that cannot ever succeed; with it,
+     * {@code PRV-1040} keeps one meaning and {@code PRV-1043 CLIENT_CLOSED} -- declared since the
+     * SDK was written and never thrown (ERRC-017) -- finally has the site it was declared for.
+     */
+    private void requireOpen() {
+        if (closed) {
+            throw new PravahaClientException(
+                    ClientErrors.CLOSED,
+                    "this client was closed; open another with PravahaFlightClient.connect(...)",
+                    false);
+        }
     }
 
     private static String field(List<String> row, int index) {
@@ -371,6 +431,7 @@ public final class PravahaFlightClient implements AutoCloseable {
      */
     @Override
     public void close() {
+        closed = true;
         // Subscriptions first, and this ordering is the point. Each one is cancelled so the server
         // detaches its listener and releases its buffers; dropping the transport underneath them
         // instead leaves the server holding both.

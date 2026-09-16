@@ -97,10 +97,40 @@ public class QueryController {
         }
     }
 
+    /**
+     * Refuses a body that carried no {@code sql} field at all.
+     *
+     * <p>API-F9. A missing field is not an invalid query, and answering it as one produced the worst
+     * possible reply: {@code /validate} returned {@code 200 valid:false} with
+     * {@code PRV-2010  Cannot invoke "String.length()" because "s" is null} -- the planner's own
+     * {@link NullPointerException} message, forwarded verbatim by whoever wrapped it, under a
+     * planning code and a help URL for a planning failure that never happened. Dressed as a normal
+     * editor diagnostic, an internal-exception leak was indistinguishable from "your SQL is wrong".
+     *
+     * <p>Thrown <em>before</em> the try that turns refusals into diagnostics, so it leaves as a
+     * {@code 400} rather than a {@code 200}: the caller sent a malformed request, which is a
+     * different thing from a query that does not validate, and only one of them is a normal state of
+     * an editor.
+     *
+     * <p>Null only, deliberately. An empty or blank {@code sql} is what an editor sends while the
+     * pane is empty and the lexer already refuses it precisely ({@code PRV-2001}); turning that into
+     * a {@code 400} would make the console's own idle state an error in its logs, which is the exact
+     * failure this endpoint's {@code 200 valid:false} shape exists to avoid.
+     */
+    private static String requireSql(ValidateRequest request) {
+        if (request == null || request.sql() == null) {
+            throw new PravahaException(
+                    ApiErrors.MISSING_FIELD,
+                    "this request has no 'sql': send a JSON body of the form {\"sql\": \"SELECT ...\"}");
+        }
+        return request.sql();
+    }
+
     @PostMapping("/validate")
     @Operation(summary = "Validate and plan a query without running it")
     public ApiDtos.ValidationResult validate(
             @RequestBody ValidateRequest request, jakarta.servlet.http.HttpServletRequest http) {
+        requireSql(request);
         requireReadable(http, request.sql());
         long start = System.nanoTime();
         try {
@@ -125,6 +155,7 @@ public class QueryController {
             @RequestParam(defaultValue = "physical") String level,
             jakarta.servlet.http.HttpServletRequest http) {
 
+        requireSql(request);
         requireReadable(http, request.sql());
         SqlPlanner planner = plannerFor();
         return switch (level) {

@@ -166,7 +166,10 @@ class ErrcCrossCuttingTest {
         assertThat(new ErrorCode(1030, "CLIENT_MALFORMED_ENDPOINT").helpUrl())
                 .isEqualTo("https://docs.pravaha.io/errors/PRV-1030");
         assertThat(new ErrorCode(1043, "CLIENT_CLOSED").helpUrl())
-                .as("even the unreachable, undocumented code gets a well-formed helpUrl that cannot help")
+                // Was "even the unreachable, undocumented code ... that cannot help": PRV-1043 is
+                // now thrown (PravahaFlightClient.requireOpen, added with E-7) and has a row in
+                // TROUBLESHOOTING.md, so the helpUrl points at something.
+                .as("the helpUrl is the docs base plus the code, for every code")
                 .isEqualTo("https://docs.pravaha.io/errors/PRV-1043");
         // The honest part the case asks for: whether docs.pravaha.io resolves. It does not in this
         // sandbox (no network per the harness notes -- confirmed by DNS resolution failing instantly
@@ -255,11 +258,15 @@ class ErrcCrossCuttingTest {
             // JVM scheduling) outcome. If none appears, that is itself worth a follow-up, not a
             // silent pass.
             if (errors.stream().anyMatch(e -> e.contains("PRV-4026"))) {
+                // INVERTED for S-4. This asserted the refusal also contained PRV-1041 -- the SDK's
+                // own catch-all wrapped around the server's real code. It no longer does: PRV-4026
+                // reaches the caller as the code, which is the whole point for an admission refusal,
+                // because that is the one a client is supposed to recognise and back off on.
                 assertThat(errors.stream()
                                 .filter(e -> e.contains("PRV-4026"))
                                 .findFirst()
                                 .orElseThrow())
-                        .contains("PRV-1041");
+                        .doesNotContain("PRV-1041");
             } else {
                 System.out.println("ERRC-118: saturation did not reproduce this run (timing-sensitive); "
                         + "static FlightErrors.statusFor assertions above still hold.");

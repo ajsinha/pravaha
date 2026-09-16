@@ -143,18 +143,22 @@ class ErrcClientTest extends ErrcTestSupport {
     // ------------------------------------------------------------ ERRC-014 -- PRV-1040
 
     @Test
-    void connectingToADeadLoopbackPortDoesNotProduceClientConnectFailed() throws Exception {
+    void connectingToADeadLoopbackPortProducesClientConnectFailed() throws Exception {
+        // INVERTED for E-7. This test was named ...DoesNotProduceClientConnectFailed and asserted
+        // `doesNotContain("PRV-1040")` and `isEqualToIgnoringNewLines("PRV-1041  io exception")` --
+        // it recorded the defect as the expected output, which pinned it open: fixing it would have
+        // turned this red, and the register's own text said so ("the operator now searches PRV-1041
+        // and reads about parameter binding and duplicate names, not about a dead server").
+        //
+        // What changed: connect() still returns -- gRPC/Arrow-Flight builds the channel lazily and
+        // nothing about an unreachable host is knowable synchronously, so the finding's diagnosis of
+        // *why* PRV-1040 was unreachable stands and is pinned by the test below. What is fixed is
+        // where it is reported. The first RPC now asks whether the failure carries a Pravaha code at
+        // all; UNAVAILABLE with none means no server answered, which is PRV-1040 CLIENT_CONNECT_FAILED,
+        // retryable, naming the endpoint -- rather than PRV-1041, non-retryable, "io exception".
+        //
         // The case's own Setup: "node down; pravaha queries --url grpc://127.0.0.1:19900". Port
-        // 19900 chosen closed deliberately (nothing bound there in this test). PravahaFlightClient's
-        // ONLY throw site for CLIENT_CONNECT_FAILED is at PravahaFlightClient.java:152, inside
-        // FlightClient.builder(...).build() -- and gRPC/Arrow-Flight builds a channel lazily, so
-        // building it against an unreachable host does not throw synchronously. The actual failure
-        // happens on the first RPC (client.queries()'s underlying act() call), which is caught by a
-        // *different* handler and rethrown as PRV-1041 QUERY_REFUSED, not PRV-1040. Verified below.
-        // This is the case's own falsifier, realised: "a connection failure surfaces as a raw gRPC
-        // UNAVAILABLE with no PRV- code" -- except it does carry a code, just the wrong one, which is
-        // arguably worse, because the operator now searches PRV-1041 and reads about parameter
-        // binding and duplicate names (ERRC-015), not about a dead server.
+        // 19900 chosen closed deliberately (nothing bound there in this test).
         //
         // Run as a real subprocess of the CLI's own shaded jar (ErrcTestSupport.cliSubprocess), not
         // the in-process cli() helper: pravaha-it's own test classpath mixes netty 4.1.135 (pulled in
@@ -169,14 +173,12 @@ class ErrcClientTest extends ErrcTestSupport {
         assertThat(result.exitCode()).isEqualTo(1);
         assertThat(result.stderr()).as("verbatim CLI stderr for a down node").isNotBlank();
         assertThat(result.stderr())
-                .as("ERRC-014 finding: connecting to a down node does not produce PRV-1040")
-                .doesNotContain("PRV-1040");
-        // What it produces instead, captured verbatim: PRV-1041 (QUERY_REFUSED) with the message
-        // "io exception" -- a bare Java-exception-shaped string that fails E3(a) and E3(b) both (it
-        // names nothing specific and says nothing to do), and is a worse outcome than ERRC-015's own
-        // worry (a server refusal losing its code): here there was no server to answer, and the
-        // client's own connectivity failure is reported as if the server had refused the query.
-        assertThat(result.stderr()).isEqualToIgnoringNewLines("PRV-1041  io exception");
+                .as("ERRC-014: connecting to a down node is a connection failure, and says so")
+                .contains("PRV-1040")
+                .doesNotContain("PRV-1041");
+        // E3(a) and E3(b), which the old "PRV-1041  io exception" failed both of: name the specific
+        // thing that went wrong, and say what to do about it.
+        assertThat(result.stderr()).contains("127.0.0.1:19900").contains("running");
     }
 
     @Test
@@ -195,20 +197,27 @@ class ErrcClientTest extends ErrcTestSupport {
     // ------------------------------------------------------------ ERRC-017 -- PRV-1043 (unreachable)
 
     @Test
-    void noCandidateForClientClosedProducesPrv1043() throws Exception {
-        // ClientErrors.CLOSED (PRV-1043) is declared and never thrown anywhere in main sources (case
-        // fact 9). Two of the case's four candidates are testable without a live server -- connect()
-        // succeeds even against a dead port (proven above), so a real client exists to close and
-        // reuse. The other two (iterate a QueryResult after closing its client; use a subscription
-        // after close()) need a QueryResult or Subscription that only a live server can produce, so
-        // they are NOT RUN here and recorded as such in the ERRC log, not silently skipped.
+    void usingAClosedClientProducesPrv1043() throws Exception {
+        // INVERTED alongside E-7. This was noCandidateForClientClosedProducesPrv1043 and asserted
+        // `doesNotContain("PRV-1043")` -- ClientErrors.CLOSED was declared and thrown nowhere, and
+        // the test recorded that rather than closing it.
+        //
+        // It had to change with E-7 rather than separately. gRPC answers a call on a shut-down
+        // channel with UNAVAILABLE and the text "Channel shutdown invoked", which is
+        // indistinguishable from an unreachable server -- so once "UNAVAILABLE with no Pravaha code"
+        // began meaning PRV-1040 "retry, the server may come back", a closed client would have been
+        // told to retry something that can never work again. The guard in PravahaFlightClient keeps
+        // PRV-1040 to one meaning and gives PRV-1043 the throw site it was declared for.
+        //
+        // Still not run here: the case's other two candidates (iterate a QueryResult after closing
+        // its client; use a subscription after close()) need a QueryResult or Subscription that only
+        // a live server can produce. Recorded as NOT RUN, not silently skipped.
         ErrcTestSupport.CliResult probe = closedClientProbeSubprocess();
         assertThat(probe.exitCode()).as(probe.combined()).isZero();
-        // Recorded verbatim rather than merely "not PRV-1043", per the case's own instruction ("record
-        // what each does produce").
+        // Closing twice stays a no-op: close() is idempotent by design and turning a second one into
+        // a refusal would break try-with-resources around an explicit close.
         assertThat(probe.stdout()).contains("double-close: ok, no exception");
-        assertThat(probe.stdout()).contains("query-after-close:");
-        assertThat(probe.stdout()).as("neither candidate produces PRV-1043").doesNotContain("PRV-1043");
+        assertThat(probe.stdout()).contains("query-after-close:").contains("PRV-1043");
     }
 
     private static ErrcTestSupport.CliResult closedClientProbeSubprocess() throws Exception {

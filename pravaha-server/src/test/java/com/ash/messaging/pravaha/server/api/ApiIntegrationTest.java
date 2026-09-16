@@ -129,6 +129,53 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void aBodyWithNoSqlIsARefusalRatherThanALeakedNullPointerException() throws Exception {
+        // API-F9. Both bodies -- {} and {"sql":null} -- used to reach the planner, which dereferenced
+        // the null and produced PRV-2010 carrying Java's own text, `Cannot invoke "String.length()"
+        // because "s" is null`, with a helpUrl for a planning failure that had not happened. On
+        // /validate it arrived as a 200 with valid:false, which is the shape of a normal editor
+        // diagnostic -- so an internal-exception leak read as "your SQL is wrong".
+        //
+        // Asserted on both endpoints and both bodies because the two bodies take different paths
+        // through Jackson (absent field versus explicit null) and only one of them was ever tried.
+        for (String body : new String[] {"{}", "{\"sql\":null}"}) {
+            mvc.perform(post("/api/v1/queries/validate")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("PRV-1050"))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("no 'sql'")))
+                    // E3(b): the accepted form is stated, not just the refusal.
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("SELECT")))
+                    .andExpect(jsonPath("$.message")
+                            .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("String.length"))))
+                    .andExpect(jsonPath("$.helpUrl").value("https://docs.pravaha.io/errors/PRV-1050"));
+
+            mvc.perform(post("/api/v1/queries/explain")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("PRV-1050"))
+                    .andExpect(jsonPath("$.message")
+                            .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("String.length"))));
+        }
+    }
+
+    @Test
+    void anEmptySqlStringIsStillAnOrdinaryEditorDiagnostic() throws Exception {
+        // The other half of API-F9's fix, pinned so it cannot drift: an empty pane is what the
+        // console sends between keystrokes, and the lexer refuses it precisely. Widening the
+        // missing-field guard to cover blank text would turn the console's idle state into a stream
+        // of 400s, which is the thing this endpoint's 200/valid:false shape exists to prevent.
+        mvc.perform(post("/api/v1/queries/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sql\":\"\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.valid").value(false))
+                .andExpect(jsonPath("$.diagnostics[0].code").value(org.hamcrest.Matchers.startsWith("PRV-2")));
+    }
+
+    @Test
     void validationReportsItsOwnLatency() throws Exception {
         // The console calls this on every keystroke burst and design 24.1 targets under 50 ms, so
         // the endpoint reports what it actually took rather than leaving the client to guess.

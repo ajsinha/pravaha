@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 162 FIXED, 118 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 118 open, **2 are
-GA-BLOCKER, 14 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 166 FIXED, 114 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 114 open, **2 are
+GA-BLOCKER, 10 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 14 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 10 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -1087,8 +1087,7 @@ partitioning does nothing either way. Seven cluster keys have no readers, so the
 from configuration even if it worked.
 
 ## S-4 (HIGH) — no server error code reaches an SDK caller as a code
-> **Status:** OPEN — `PravahaFlightClient.query(...)` still catches every `FlightRuntimeException` and rethrows as `ClientErrors.QUERY_REFUSED` (PRV-1041) regardless of the server's real code; reconfirmed by the later finding API-F7, which shows the same catch-all `PRV-1041` for every CLI command against a dead server
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — a new `ErrorWire` contract in `pravaha-api` carries the code two ways: the number in the message prefix, the name in a gRPC trailer `x-pravaha-error-name`. **Two carriers deliberately** — a proxy that strips trailers costs the name and nothing else. `FlightErrors.failureOf(...)` replaces every `statusFor(e).withDescription(...)`, descriptions byte-identical, so this adds a channel rather than changing one; the hand-built auth refusals in `PravahaFlightSqlProducer` and `PrincipalMiddleware` route through it too, so there is one shape of failure on the wire. `ServerFailures` in the SDK asks three questions in order — did the server diagnose this, was there a server at all, anything else — and `retryable()` is derived from the Flight status instead of the constant `false`. **The worse half, found while fixing this:** `QueryResult`'s iterator called `FlightStream.next()` unguarded, so a result dying mid-stream escaped as a raw Arrow exception carrying *no* `PRV-` code, uncatchable by a caller's `catch (PravahaClientException)`. Now `PRV-1042`. Seed-proven: reverting six files fails 5 of 6 fidelity cases, all returning `PRV-1041`.
 
 
 Eight provocations, every one re-stamped `PRV-1041`. The console recovers the real code by
@@ -1444,8 +1443,7 @@ made the change. (SQLX-183, SQLX-184, SQLX-189)
 
 
 ## X-8 (HIGH) — `PRV-2061` (parameter arity mismatch) is unreachable through the shipped SDK/CLI
-> **Status:** OPEN — `sdk/pravaha-sdk-java-flight/.../Parameters.write` still throws `PravahaClientException(ClientErrors.QUERY_REFUSED)` (PRV-1041) client-side on an arity mismatch before any request reaches the server; `BoundParameters.requireArity`'s `PARAMETER_ARITY` (PRV-2061) remains unreachable through this path — code unchanged.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — the client-side arity check was right and stays (no round trip, names both counts); only the code was wrong. `Parameters.write` raises `PRV-2061 SQL_PARAMETER_ARITY`. **Declared in two places and that could not be avoided:** `pravaha-sdk-java` depends on `pravaha-api` and nothing else, enforced by its own banned-dependencies rule, so it cannot see `SqlErrors`. Number and name are duplicated verbatim so `ErrcCrossCuttingTest`'s "one code means one thing" fails loudly if either copy is edited alone; moving the constant to `pravaha-api` is the right shape and is a separate change.
 
 
 `BoundParameters.requireArity` throws a well-designed `PravahaException(SqlErrors.PARAMETER_ARITY,
@@ -1503,8 +1501,7 @@ cross-cutting cases ERRC-111/114/116/118; more to follow in the
 same section).
 
 ### E-7 (HIGH) — `PRV-1040 CLIENT_CONNECT_FAILED` is unreachable through the scenario every new user hits
-> **Status:** OPEN — `PravahaFlightClient.connect()` still only throws `CONNECT_FAILED` (PRV-1040) from `FlightClient.builder(...).build()`, which is synchronous/lazy and does not fail for an unreachable host; `query()`'s catch block still wraps every `FlightRuntimeException` as `QUERY_REFUSED` (PRV-1041) instead
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — `UNAVAILABLE` carrying no Pravaha code now means no Pravaha answered, so it reports `PRV-1040`, retryable, naming `host:port`. **The fix forced a second one:** gRPC reports a call on a shut-down channel as `UNAVAILABLE` too, indistinguishable from a dead server — so without a guard this would have told a *closed client* to retry something that can never work. `PravahaFlightClient` now tracks `closed` and refuses with `PRV-1043 CLIENT_CLOSED`, a code declared since the SDK was written and thrown nowhere until now. That keeps `PRV-1040` meaning one thing.
 
 
 The case file (fact 8, ERRC-014) already names `PRV-1040` as the highest-severity item in the
@@ -1613,9 +1610,9 @@ The case's Setup for `PRV-8004` is "a query that fails at runtime; then read it,
 naming `Subscription.java:103,134` and `RegisteredQuery.java:191`. Traced all four of `QUERY_FAILED`'s
 throw sites (grep, exhaustive): `Subscription.java:103,134` are **subscriber-side** failures (the
 consumer callback itself throwing, or a subscriber falling behind under the `FAIL` overflow policy),
-unrelated to whether the underlying query's own lane died. `RegisteredQuery.java:189` is inside
-`RegisteredQuery.failure()`'s own body, and that getter has **zero callers anywhere in main sources** —
-dead code. `RegisteredQuery.java:238` fires synchronously to whoever calls `accept()`, and only for an
+unrelated to whether the underlying query's own lane died. `RegisteredQuery.java:228` is inside
+`RegisteredQuery.failure()`'s own body. **That getter is no longer dead** — `EngineHealthIndicator:59`
+calls it, so this clause of the finding is stale; the line numbers have moved too (189/238 → 228/277). `RegisteredQuery.java:238` fires synchronously to whoever calls `accept()`, and only for an
 unexpected *non*-`PravahaException` during row processing — not to a later reader. Subscribing to an
 **already**-failed query — the case's exact scenario — does not reach `PRV-8004` at all: it is refused
 earlier, by `RegisteredQuery`'s own state guard, as `PRV-8003` (`"cannot subscribe to 'v1': it is
@@ -2049,8 +2046,7 @@ endpoint. **Status: OPEN.**
 
 ### API-F9 (MEDIUM-HIGH) — a null `sql` in a JSON body reaches the client as a raw `NullPointerException` message dressed up as `PRV-2010`
 
-> **Status:** OPEN — a null `sql` in a JSON body still surfaces a raw `NullPointerException` message dressed as `PRV-2010`.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — new `PRV-1050 API_MISSING_FIELD`, guarding `/validate` and `/explain`. Thrown *before* the try that turns refusals into diagnostics, so it leaves as a **400** rather than a 200 with `valid:false`: a malformed request is not a query that failed to validate, and anything reading the response programmatically depends on that difference. In 1xxx rather than 2xxx on purpose — a `PRV-2xxx` sends the reader to the SQL documentation for a request that carried no SQL. **Null only:** an empty `sql` is what the console sends between keystrokes and the lexer already refuses it precisely, so widening the guard would turn the console's idle state into a stream of 400s. Pinned by a second test so nobody widens it later.
 
 `POST /api/v1/queries/validate` with body `{}` or `{"sql":null}` returns `200` with
 `{"valid":false,"diagnostics":[{"code":"PRV-2010","message":"PRV-2010  Cannot invoke

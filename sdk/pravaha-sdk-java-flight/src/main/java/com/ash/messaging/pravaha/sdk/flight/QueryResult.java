@@ -20,6 +20,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
@@ -42,10 +43,21 @@ public final class QueryResult implements Iterable<Row>, AutoCloseable {
 
     private final FlightStream stream;
     private final List<String> columns;
+
+    /**
+     * The client that opened this stream.
+     *
+     * <p>Held so that a failure raised part way through reading can be diagnosed the same way one
+     * raised at call time is -- S-4: a stream that dies mid-result is the one place a server failure
+     * was not merely re-stamped but not caught at all. See {@code advanceBatch}.
+     */
+    private final PravahaFlightClient owner;
+
     private boolean iterated;
 
-    QueryResult(FlightStream stream) {
+    QueryResult(FlightStream stream, PravahaFlightClient owner) {
         this.stream = stream;
+        this.owner = owner;
         this.columns = new ArrayList<>();
         stream.getSchema().getFields().forEach(field -> columns.add(field.getName()));
     }
@@ -125,7 +137,20 @@ public final class QueryResult implements Iterable<Row>, AutoCloseable {
          * and wrong the moment a non-final batch is empty.
          */
         private boolean advanceBatch() {
-            if (!stream.next()) {
+            boolean more;
+            try {
+                more = stream.next();
+            } catch (FlightRuntimeException e) {
+                // S-4, the half that was not even a wrong code: a failure part way through a result
+                // -- the lane behind the view dying, the credential expiring under a long read, the
+                // node going away -- escaped this iterator as Arrow's own FlightRuntimeException,
+                // with no PRV code at all and nothing a caller could catch that was Pravaha's. The
+                // server's diagnosis is decoded here by the same route as at call time, so a
+                // mid-stream failure and an up-front refusal look the same to the code handling
+                // them, which is the only way a caller can handle them in one place.
+                throw owner.failureOf(e, ClientErrors.READ_FAILED);
+            }
+            if (!more) {
                 return false;
             }
             root = stream.getRoot();

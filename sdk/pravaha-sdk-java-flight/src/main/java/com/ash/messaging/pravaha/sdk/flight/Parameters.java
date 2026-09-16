@@ -49,8 +49,13 @@ final class Parameters {
     static void write(VectorSchemaRoot root, Object[] values) {
         int expected = root.getFieldVectors().size();
         if (values.length != expected) {
+            // X-8: PRV-2061, the engine's own code for this, not PRV-1041. The wording is unchanged
+            // and always was the same as the server's; only the code was the SDK's generic "the
+            // server refused the query", which is not what happened -- no request was sent -- and
+            // which left PRV-2061 unreachable through every shipped surface. An operator who looks
+            // up 2061 now finds the failure they actually had.
             throw new PravahaClientException(
-                    ClientErrors.QUERY_REFUSED,
+                    ClientErrors.PARAMETER_ARITY,
                     "this statement has " + expected + " placeholder" + (expected == 1 ? "" : "s")
                             + " and " + values.length + " value" + (values.length == 1 ? " was" : "s were")
                             + " given",

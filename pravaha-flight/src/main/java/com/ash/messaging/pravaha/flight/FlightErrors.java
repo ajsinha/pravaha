@@ -16,10 +16,12 @@
 package com.ash.messaging.pravaha.flight;
 
 import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.ErrorFlightMetadata;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
+import com.ash.messaging.pravaha.api.wire.ErrorWire;
 
 /** Flight gateway error codes, PRV-8nnn. */
 public final class FlightErrors {
@@ -76,6 +78,50 @@ public final class FlightErrors {
             case "PRV-6102" -> CallStatus.NOT_FOUND;
             default -> CallStatus.INVALID_ARGUMENT;
         };
+    }
+
+    /**
+     * The whole of a Pravaha failure, ready to send: status, diagnosis and code.
+     *
+     * <p>S-4. Every call site used to be {@code statusFor(e).withDescription(e.getMessage())}, which
+     * carries the code only as the first token of a string -- so the client could show it to a human
+     * and nothing else could read it. This adds the code's <em>name</em> as a trailer
+     * ({@link ErrorWire#NAME_HEADER}) alongside the number the message already begins with, so the
+     * client can rebuild the server's {@link ErrorCode} rather than re-stamp it with one of its own.
+     *
+     * <p>The description is unchanged, deliberately: it is what an operator reads and what the
+     * console, the CLI and several tests match on. This adds a channel rather than altering one.
+     */
+    public static CallStatus failureOf(PravahaException e) {
+        return statusFor(e).withDescription(e.getMessage()).withMetadata(named(e.errorCode()));
+    }
+
+    /**
+     * The same, for a refusal stated as a code and a message rather than as an exception.
+     *
+     * <p>The authentication and authorization checks refuse before any {@link PravahaException}
+     * exists, and they built their descriptions by hand. They go through here so that a client sees
+     * one shape of failure rather than two, and so that adding a third such site cannot quietly
+     * produce a refusal the client cannot decode.
+     */
+    public static CallStatus failureOf(CallStatus status, ErrorCode code, String message) {
+        return status.withDescription(code.code() + "  " + message).withMetadata(named(code));
+    }
+
+    /**
+     * The same, where the status is decided by the caller rather than by the code.
+     *
+     * <p>Authentication is the one place that happens: the middleware refuses before the call
+     * reaches a producer, and UNAUTHENTICATED is a property of where it refused, not of the code.
+     */
+    public static CallStatus failureOf(CallStatus status, PravahaException e) {
+        return status.withDescription(e.getMessage()).withMetadata(named(e.errorCode()));
+    }
+
+    private static ErrorFlightMetadata named(ErrorCode code) {
+        ErrorFlightMetadata trailers = new ErrorFlightMetadata();
+        trailers.insert(ErrorWire.NAME_HEADER, code.name());
+        return trailers;
     }
 
     private FlightErrors() {}

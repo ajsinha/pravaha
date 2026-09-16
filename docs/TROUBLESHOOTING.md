@@ -85,6 +85,7 @@ pravaha queries --url grpc://localhost:9090
 | `PRV-7001` | Not authenticated | Present a credential, or a fresh one |
 | `PRV-7002` | Authenticated, not authorized | Ask for access — a new credential will not help |
 | `PRV-7004` security misconfigured | A **security setting** this node refuses to start with — not a caller being denied. The message names the key and the value. Split from `PRV-7002` by E-3, which had accumulated four unrelated meanings across twenty sites: an authorization denial, the open-server refusal, the policy/authentication contradiction, and a bad configuration value. The advice for `7002` ("ask for access; a new credential will not help") is right for a denial and useless for a typo — an operator who wrote `policy: permisive` was being told to go and ask somebody for permission. One is about a caller and is answered by a grant; this one is about a file and is answered by an edit |
+| `PRV-1050` missing field | A JSON request body left out a field the endpoint requires — today a null `sql` on `/validate` or `/explain`. Returned as **400**, not as a 200 with `valid:false`: a malformed request is not a query that failed to validate, and the distinction matters to anything reading the response programmatically. It used to surface as a raw `NullPointerException` message dressed in a `PRV-` code (API-F9). Deliberately 1xxx rather than 2xxx — a `PRV-2xxx` would send the reader to the SQL documentation for a request that carried no SQL. An *empty* `sql` is not this: the console sends one between keystrokes and the lexer already refuses it precisely |
 
 `7001`'s message says only that the credential was not accepted, never *why*: "expired" versus
 "unknown" versus "wrong signature" is three bits of an oracle for whoever is working through guesses.
@@ -200,11 +201,54 @@ it opened when you close it; a hand-rolled client must do the same.
 
 ---
 
+## Limits that have no code of their own
+
+Three ceilings a query can reach that are real, reproducible, and **not** reported as a `PRV-` code.
+They are written down here because the first thing anyone does with an unfamiliar failure is search
+this file for it, and until each of them has a code that is the only way to find them.
+
+**A row cannot have more than 64 columns.** Any row — a wide projection, a wide join, a wide
+aggregate — is capped at 64 fields, because `BinaryRowWriter` (in `pravaha-common`) tracks which
+fields have been written in a single `long` bitmask. Past that it refuses at construction with a
+plain `IllegalArgumentException`:
+
+```
+BinaryRowWriter tracks written fields in a long bitmask and so supports at most 64 fields;
+<stream> has 65
+```
+
+The diagnosis is exact and the architectural reason is real; what is missing is a code and a
+category, so the refusal cannot be classified, mapped to an HTTP or Flight status, or looked up.
+Note also *when* it fires: `pravaha validate` plans a 1,000-column projection without complaint,
+because nothing writes a row during validation. The ceiling is met later, when rows start moving —
+which is the worst time to meet it. Split the query, or project fewer columns.
+
+**A long chain of `AND` or `OR` terms fails, and the whole predicate is echoed back.** Past roughly
+a couple of thousand terms — the shape a generated query or an `IN`-list rewrite produces — planning
+fails with `PRV-2010` carrying Calcite's own text:
+
+```
+PRV-2010  java.lang.RuntimeException: while converting `txn`.`amount` > CAST(0 AS BIGINT) AND ... 
+```
+
+`...` there is the entire predicate, interpolated verbatim: a 3,000-term chain produces about 125 KB
+of stderr, which for a CLI user means the reason scrolls away and for a log means one refusal fills
+a page. The failure is genuine, but `PRV-2010 SQL_PLANNING_FAILED` is the planner's catch-all and
+says nothing about term count, and the message summarises nothing. Shorter chains are fine; the
+threshold depends on the shape of the terms, not just their number. Rewrite the filter (a range
+comparison instead of a chain of them, or a join against a table of values instead of a long `IN`).
+
+This is the third distinct thing a large boolean expression does, and they are worth telling apart
+because the same input can produce any of them depending on width and shape: a `StackOverflowError`
+during validation is now caught and refused with a code, `PRV-2001 null` was the older form of that
+on the execution path, and this is the conversion failure above both.
+
 ## Every code
 
 | Code | Name | Range |
 |---|---|---|
 | `PRV-1001` | CONFIG_FILE_UNREADABLE | config |
+| `PRV-1050` | API_MISSING_FIELD | api |
 | `PRV-1002` | CONFIG_FILE_MALFORMED | config |
 | `PRV-1010` | CONFIG_UNRESOLVED_REFERENCE | config |
 | `PRV-1011` | CONFIG_CIRCULAR_REFERENCE | config |

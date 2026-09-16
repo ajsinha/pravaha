@@ -225,8 +225,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         } catch (PravahaException e) {
             // The engine's own diagnosis, with its PRV code, rather than a generic INTERNAL. A
             // client that gets "PRV-4023 ... this server serves [user_volume]" can act on it.
-            listener.error(
-                    FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException());
+            listener.error(FlightErrors.failureOf(e).toRuntimeException());
         } catch (RuntimeException e) {
             listener.error(CallStatus.INTERNAL
                     .withDescription(String.valueOf(e.getMessage()))
@@ -264,8 +263,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             listener.onNext(new Result(com.google.protobuf.Any.pack(result).toByteArray()));
             listener.onCompleted();
         } catch (PravahaException e) {
-            listener.onError(
-                    FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException());
+            listener.onError(FlightErrors.failureOf(e).toRuntimeException());
         } catch (RuntimeException e) {
             listener.onError(CallStatus.INTERNAL
                     .withDescription(String.valueOf(e.getMessage()))
@@ -292,7 +290,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             ViewQuery.Prepared prepared = queries.prepare(handle.sql(), principalOf(context));
             return generateFlightInfo(command, descriptor, arrowSchemaOf(prepared.resultSchema()));
         } catch (PravahaException e) {
-            throw FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException();
+            throw FlightErrors.failureOf(e).toRuntimeException();
         }
     }
 
@@ -336,9 +334,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                 }
                 ackStream.onCompleted();
             } catch (PravahaException e) {
-                ackStream.onError(FlightErrors.statusFor(e)
-                        .withDescription(e.getMessage())
-                        .toRuntimeException());
+                ackStream.onError(FlightErrors.failureOf(e).toRuntimeException());
             } catch (RuntimeException e) {
                 ackStream.onError(CallStatus.INTERNAL
                         .withDescription(String.valueOf(e.getMessage()))
@@ -440,8 +436,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             }
             listener.onCompleted();
         } catch (PravahaException e) {
-            listener.onError(
-                    FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException());
+            listener.onError(FlightErrors.failureOf(e).toRuntimeException());
         } catch (RuntimeException e) {
             listener.onError(CallStatus.INTERNAL
                     .withDescription(String.valueOf(e.getMessage()))
@@ -615,19 +610,22 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                         viewName,
                                         decision,
                                         "the credential this subscription opened with is no longer accepted"));
-                                listener.error(CallStatus.UNAUTHENTICATED
-                                        .withDescription(SecurityErrors.UNAUTHENTICATED.code()
-                                                + "  the credential this subscription opened with is no longer "
-                                                + "accepted; open it again with a current one")
+                                listener.error(FlightErrors.failureOf(
+                                                CallStatus.UNAUTHENTICATED,
+                                                SecurityErrors.UNAUTHENTICATED,
+                                                "the credential this subscription opened with is no longer "
+                                                        + "accepted; open it again with a current one")
                                         .toRuntimeException());
                                 return;
                             }
                             AccessDecision now = policy.mayRead(principal, viewName);
                             if (!now.allowed()) {
                                 audit.record(AuditEvent.of(principal, "subscribe.withdrawn", viewName, now, ""));
-                                listener.error(CallStatus.UNAUTHORIZED
-                                        .withDescription(SecurityErrors.FORBIDDEN.code() + "  " + principal.id()
-                                                + " may no longer read '" + viewName + "': " + now.reason())
+                                listener.error(FlightErrors.failureOf(
+                                                CallStatus.UNAUTHORIZED,
+                                                SecurityErrors.FORBIDDEN,
+                                                principal.id() + " may no longer read '" + viewName + "': "
+                                                        + now.reason())
                                         .toRuntimeException());
                                 return;
                             }
@@ -657,8 +655,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     .withDescription("subscription interrupted")
                     .toRuntimeException());
         } catch (PravahaException e) {
-            listener.error(
-                    FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException());
+            listener.error(FlightErrors.failureOf(e).toRuntimeException());
         } catch (RuntimeException e) {
             listener.error(CallStatus.INTERNAL
                     .withDescription(String.valueOf(e.getMessage()))
@@ -710,7 +707,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         try {
             return queries.schemaOf(sql, principalOf(context));
         } catch (PravahaException e) {
-            throw FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException();
+            throw FlightErrors.failureOf(e).toRuntimeException();
         }
     }
 
@@ -728,7 +725,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         try {
             return ArrowSchemas.toArrow(schema);
         } catch (PravahaException e) {
-            throw FlightErrors.statusFor(e).withDescription(e.getMessage()).toRuntimeException();
+            throw FlightErrors.failureOf(e).toRuntimeException();
         }
     }
 

@@ -133,6 +133,35 @@ class JavaSdkParameterTest {
     }
 
     @Test
+    void anArityMismatchCarriesTheEnginesOwnCodeInAllThreeShapes() {
+        // X-8. This refusal is raised client-side, before a request is sent -- which is right, and
+        // is why the server's PRV-2061 (SqlErrors.PARAMETER_ARITY, thrown by
+        // BoundParameters.requireArity) was unreachable through the SDK or the CLI: the SDK answered
+        // first, under its own generic PRV-1041. A user who looked up 2061 in TROUBLESHOOTING.md
+        // found a row for something that could not have happened to them. Same wording, engine's
+        // code.
+        //
+        // All three shapes the register names, since they take different branches of the comparison:
+        // too few, too many, and none expected but one bound.
+        assertArityRefusal("SELECT user_id FROM user_volume WHERE user_id = ? AND total > ?", new Object[] {"u1"});
+        assertArityRefusal("SELECT user_id FROM user_volume WHERE user_id = ?", new Object[] {"u1", 2L});
+        assertArityRefusal("SELECT user_id FROM user_volume", new Object[] {"u1"});
+    }
+
+    private void assertArityRefusal(String sql, Object[] values) {
+        assertThatThrownBy(() -> client.query(sql, values))
+                .as(sql)
+                .isInstanceOfSatisfying(PravahaClientException.class, e -> {
+                    assertThat(e.errorCode().code()).isEqualTo("PRV-2061");
+                    assertThat(e.errorCode().name()).isEqualTo("SQL_PARAMETER_ARITY");
+                    assertThat(e.retryable())
+                            .as("binding the same values again will fail the same way")
+                            .isFalse();
+                    assertThat(e.getMessage()).contains("placeholder");
+                });
+    }
+
+    @Test
     void aValueOfTheWrongTypeNamesThePlaceholder() {
         assertThatThrownBy(() -> client.query("SELECT user_id FROM user_volume WHERE total > ?", "not a number"))
                 .isInstanceOf(PravahaClientException.class)

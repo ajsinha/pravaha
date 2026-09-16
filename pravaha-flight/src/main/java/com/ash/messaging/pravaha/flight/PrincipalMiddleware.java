@@ -133,16 +133,18 @@ public final class PrincipalMiddleware implements FlightServerMiddleware {
         public PrincipalMiddleware onCallStarted(CallInfo info, CallHeaders headers, RequestContext context) {
             String header = headers.get(HEADER);
             if (header == null || header.isBlank()) {
-                throw CallStatus.UNAUTHENTICATED
-                        .withDescription(SecurityErrors.UNAUTHENTICATED.code()
-                                + "  this server requires a credential: send it as the header "
-                                + "'authorization: Bearer <token>'")
+                throw FlightErrors.failureOf(
+                                CallStatus.UNAUTHENTICATED,
+                                SecurityErrors.UNAUTHENTICATED,
+                                "this server requires a credential: send it as the header "
+                                        + "'authorization: Bearer <token>'")
                         .toRuntimeException();
             }
             if (header.length() <= BEARER.length() || !header.regionMatches(true, 0, BEARER, 0, BEARER.length())) {
-                throw CallStatus.UNAUTHENTICATED
-                        .withDescription(SecurityErrors.UNAUTHENTICATED.code()
-                                + "  the authorization header must use the Bearer scheme")
+                throw FlightErrors.failureOf(
+                                CallStatus.UNAUTHENTICATED,
+                                SecurityErrors.UNAUTHENTICATED,
+                                "the authorization header must use the Bearer scheme")
                         .toRuntimeException();
             }
             String token = header.substring(BEARER.length()).trim();
@@ -159,7 +161,7 @@ public final class PrincipalMiddleware implements FlightServerMiddleware {
             } catch (PravahaException e) {
                 // The verifier's message, not the exception's cause: the contract on TokenVerifier
                 // is that the message says the credential was rejected and not why.
-                throw CallStatus.UNAUTHENTICATED.withDescription(e.getMessage()).toRuntimeException();
+                throw FlightErrors.failureOf(CallStatus.UNAUTHENTICATED, e).toRuntimeException();
             }
         }
     }

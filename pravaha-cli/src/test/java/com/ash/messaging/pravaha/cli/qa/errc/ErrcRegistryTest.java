@@ -125,7 +125,13 @@ class ErrcRegistryTest extends ErrcServerSupport {
         ErrcServerSupport.CliResult differentSql =
                 cli("register", "--url", url, "--name", "v1", "--sql", "SELECT usr FROM txn", "--keys", "0");
         assertThat(differentSql.code()).isEqualTo(1);
-        assertThat(differentSql.err()).contains("PRV-1041").contains("PRV-8001");
+        // INVERTED for S-4. This read `.contains("PRV-1041").contains("PRV-8001")` -- it recorded the
+        // double-stamping as the expected output: the SDK wrapped every server refusal in its own
+        // PRV-1041 CLIENT_QUERY_REFUSED and the real code survived only inside the text, so an
+        // operator read "PRV-1041  PRV-8001  ..." and had to know which of the two to look up. The
+        // SDK now rebuilds the server's own ErrorCode from the wire, so PRV-8001 arrives as the
+        // code, once, and PRV-1041 means only what its name says.
+        assertThat(differentSql.err()).contains("PRV-8001").doesNotContain("PRV-1041");
         // E3: names the existing query.
         assertThat(differentSql.err()).contains("v1");
 
@@ -144,7 +150,9 @@ class ErrcRegistryTest extends ErrcServerSupport {
         for (String verb : List.of("drop", "pause", "resume")) {
             ErrcServerSupport.CliResult r = cli(verb, "--url", url, "--name", "nosuch");
             assertThat(r.code()).as(verb).isEqualTo(1);
-            assertThat(r.err()).as(verb).contains("PRV-1041").contains("PRV-8002");
+            // INVERTED for S-4, same reason as the PRV-8001 assertion above: the server's own code
+            // now reaches the caller as the code rather than as a substring of a PRV-1041 message.
+            assertThat(r.err()).as(verb).contains("PRV-8002").doesNotContain("PRV-1041");
             // The case's E3 expectation -- "lists what does exist", as PRV-4023 does for views --
             // is withdrawn, and deliberately: STRM-9 reproduced one principal, denied read on every
             // view, learning the node's whole catalogue by misspelling a single name. QueryRegistry
