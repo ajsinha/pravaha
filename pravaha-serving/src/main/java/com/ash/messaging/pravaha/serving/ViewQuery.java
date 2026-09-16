@@ -170,11 +170,12 @@ public final class ViewQuery {
     public Result execute(String sql, Principal principal) {
         PhysicalOperator plan = planFor(sql);
         String source = sourceViewOf(plan);
-        ServedView view = catalog.find(source)
-                .orElseThrow(() -> new PravahaException(
-                        ServingErrors.NO_SUCH_VIEW,
-                        "'" + source + "' is not a registered view; this server serves " + catalog.names()));
 
+        // SX-5/SX-1: authorize before looking the view up, not after. Requiring existence first made
+        // "denied" and "does not exist" answer differently -- different code, different gRPC status,
+        // and a not-found message that enumerated every registered name -- so a caller who was never
+        // authorized for anything could map the node's whole catalogue by asking for names and
+        // reading which refusal came back.
         AccessDecision decision = policy.mayRead(principal, source);
         // Recorded whether allowed or denied: an audit log holding only refusals answers "who was
         // stopped" and not "who read the salary view", which is the question that gets asked.
@@ -183,10 +184,26 @@ public final class ViewQuery {
             throw new PravahaException(
                     SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + source + "': " + decision.reason());
         }
-        if (decision.rowFilter().isPresent()) {
-            plan = withRowFilter(plan, view, decision.rowFilter().get(), source);
+        ServedView view = catalog.find(source).orElseThrow(() -> unknownView(source));
+        // SX-7. The ALLOW above is true -- the policy did allow -- but the read can still be refused
+        // a line later when the row filter cannot be enforced on this view (PRV-7003). That left an
+        // audit log saying ALLOW for a read that returned nothing, and an investigator reading the
+        // log alone would conclude it succeeded. Both facts are now recorded: the policy allowed,
+        // and the read was refused anyway.
+        try {
+            if (decision.rowFilter().isPresent()) {
+                plan = withRowFilter(plan, view, decision.rowFilter().get(), source);
+            }
+            plan = authorizeProvenance(plan, view, principal, "query", sql);
+        } catch (PravahaException refused) {
+            audit.record(AuditEvent.of(
+                    principal,
+                    "query",
+                    source,
+                    AccessDecision.deny("allowed by policy, then refused: " + refused.getMessage()),
+                    sql));
+            throw refused;
         }
-        plan = authorizeProvenance(plan, view, principal, "query", sql);
 
         // Taken *after* the policy check, so a refused read never occupies a permit somebody
         // authorized could have used, and before any planning work that would otherwise be done on
@@ -401,6 +418,26 @@ public final class ViewQuery {
         return plan;
     }
 
+    /**
+     * The refusal for a name this server does not serve.
+     *
+     * <p>SX-5/SX-1. This used to append {@code catalog.names()} -- every registered view on the node
+     * -- which is a catalogue dump handed to whoever asked for a name that does not exist, including
+     * a caller authorized for nothing. The list was there to be helpful about typos, and the cost of
+     * that help was the whole inventory.
+     *
+     * <p>Reached only after the policy has allowed the name, so a principal who may not read it gets
+     * {@code PRV-7002} whether it exists or not, and the two cases stop being distinguishable by
+     * their answer.
+     */
+    private static PravahaException unknownView(String name) {
+        return new PravahaException(
+                ServingErrors.NO_SUCH_VIEW,
+                "'" + name + "' is not a registered view on this server. The list of views is not "
+                        + "part of this message on purpose: it would tell a caller who may not read them "
+                        + "that they exist. Use the listing call, which is filtered by what you may read.");
+    }
+
     /** Re-runs the policy for a plan that came from the cache, and records the decision. */
     private Prepared authorized(Prepared prepared, String sql, Principal principal) {
         AccessDecision decision = policy.mayRead(principal, prepared.view());
@@ -470,8 +507,7 @@ public final class ViewQuery {
         parameters.requireArity(prepared.parameters().count());
         ServedView view = catalog.find(prepared.view())
                 .orElseThrow(() -> new PravahaException(
-                        ServingErrors.NO_SUCH_VIEW,
-                        "'" + prepared.view() + "' is no longer registered; this server serves " + catalog.names()));
+                        ServingErrors.NO_SUCH_VIEW, "'" + prepared.view() + "' is no longer registered"));
 
         AccessDecision decision = policy.mayRead(principal, prepared.view());
         audit.record(AuditEvent.of(principal, "query", prepared.view(), decision, prepared.sql()));

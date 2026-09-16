@@ -71,12 +71,24 @@ class SqlPlannerTest {
     }
 
     @Test
-    void anUnknownStreamListsTheKnownOnes() {
+    void anUnknownStreamCountsTheKnownOnesWithoutNamingThem() {
+        // This asserted the opposite until SX-5, and the listing was a real kindness: a typo is the
+        // commonest reason to land here, and being shown the right spelling ends the problem.
+        //
+        // It is also a catalogue dump. Validation happens during planning, before any authorization
+        // can run, so the names went to anyone who asked for one that does not exist -- a caller
+        // authorized for nothing could map the whole deployment by guessing. That is SX-5's
+        // enumeration channel, and it was the widest of the three.
+        //
+        // The count survives because it separates two diagnoses that look identical otherwise:
+        // "you misspelled one of forty" and "this node declared nothing at all", the second of
+        // which is a real failure that has confused people before (StreamDeclarationProperties).
         assertThatThrownBy(() -> planner().plan("SELECT * FROM no_such_stream"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2002")
                 .hasMessageContaining("no_such_stream")
-                .hasMessageContaining("txn_stream");
+                .hasMessageContaining("1 stream(s) declared")
+                .hasMessageNotContaining("txn_stream");
     }
 
     @Test

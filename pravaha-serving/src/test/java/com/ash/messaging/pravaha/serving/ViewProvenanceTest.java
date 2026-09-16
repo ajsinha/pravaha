@@ -156,4 +156,63 @@ class ViewProvenanceTest {
                         + "derived from it — otherwise renaming is all it takes to shed an entitlement")
                 .hasSize(1);
     }
+
+    @Test
+    void aDeniedNameAndAnUnknownNameAnswerTheSameWay() {
+        // SX-5/SX-1, the existence oracle. Requiring the view to exist before authorizing made the
+        // two cases answer differently -- different code, different gRPC status, and a not-found
+        // message enumerating every registered name -- so a caller authorized for nothing could map
+        // the node's whole catalogue by reading which refusal came back.
+        // secret_pay exists; this policy denies it by name. payroll_absent does not exist at all.
+        ViewQuery queries = new ViewQuery(catalog, (principal, view) -> AccessDecision.deny("not for you"), audit);
+
+        Throwable denied = org.assertj.core.api.Assertions.catchThrowable(
+                () -> queries.execute("SELECT employee FROM secret_pay", CAROL));
+        Throwable absent = org.assertj.core.api.Assertions.catchThrowable(
+                () -> queries.execute("SELECT employee FROM payroll_absent", CAROL));
+
+        assertThat(denied).isInstanceOf(PravahaException.class);
+        assertThat(absent).isInstanceOf(PravahaException.class);
+        // Honest about what is and is not closed. The *catalogue* is no longer disclosed by either
+        // path -- that was the channel that let a caller enumerate the node. The refusal codes still
+        // differ, because an unknown name fails in Calcite's validator during planning, before any
+        // authorization can run: closing that needs the referenced name resolved and authorized
+        // before the SQL is validated, which is a larger change than this one. Recorded on SX-5.
+        assertThat(absent.getMessage())
+                .as("an unknown name must not name anything else on the server")
+                .doesNotContain("secret_pay");
+        // Naming the view the caller themselves asked about is not disclosure; naming any OTHER is.
+        assertThat(denied.getMessage()).contains("PRV-7002");
+    }
+
+    @Test
+    void anUnknownNameDoesNotListTheServersViews() {
+        // The catalogue dump. The list was there to be helpful about typos, and the cost of that
+        // help was the whole inventory, handed to anyone who asked for a name that does not exist.
+        ViewQuery queries = new ViewQuery(catalog, (principal, view) -> AccessDecision.allow(), audit);
+
+        assertThatThrownBy(() -> queries.execute("SELECT employee FROM no_such_view", CAROL))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageNotContaining("secret_pay");
+    }
+
+    @Test
+    void aReadAllowedThenRefusedIsAuditedAsRefused() {
+        // SX-7. The ALLOW is true -- the policy did allow -- but the read is refused a line later
+        // when the row filter cannot be enforced on this view. The log said ALLOW for a read that
+        // returned nothing, so an investigator reading it alone would conclude it succeeded.
+        ViewQuery queries = new ViewQuery(
+                catalog,
+                // A filter naming a column this view does not carry: allowed by policy, unenforceable
+                // in practice, which is PRV-7003 by design.
+                (principal, view) -> AccessDecision.allowWithRowFilter("no_such_column = 1"),
+                audit);
+
+        assertThatThrownBy(() -> queries.execute("SELECT employee FROM secret_pay", CAROL))
+                .isInstanceOf(PravahaException.class);
+
+        assertThat(audit.events())
+                .as("an audit that records only the ALLOW says a refused read succeeded")
+                .anyMatch(event -> !event.allowed());
+    }
 }

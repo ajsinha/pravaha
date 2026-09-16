@@ -134,8 +134,24 @@ public final class SqlPlanner {
             try {
                 validated = planner.validate(dropStreamKeyword(parsed));
             } catch (ValidationException e) {
+                // SX-5/SX-1. This appended every known stream name, which is a catalogue dump
+                // handed to whoever typed a name that does not exist -- including a caller
+                // authorized for nothing, and before any authorization can run, because validation
+                // happens during planning. The list was there to help with typos; the cost of that
+                // help was the node's whole inventory, and a caller could map it by guessing.
+                //
+                // The count is kept because "0 known streams" is a genuinely different diagnosis
+                // from "you misspelled one of 40" -- a node whose declarations never loaded is a
+                // real and confusing failure (see StreamDeclarationProperties) -- and a count
+                // discloses nothing about what the names are.
                 throw new PravahaException(
-                        SqlErrors.VALIDATION_FAILED, rootMessage(e) + ". Known streams: " + schema.streamNames(), e);
+                        SqlErrors.VALIDATION_FAILED,
+                        rootMessage(e) + ". This server has "
+                                + schema.streamNames().size()
+                                + " stream(s) declared; their names are not listed here because that would "
+                                + "tell a caller who may not read them that they exist. Use the listing call, "
+                                + "which is filtered by what you may read.",
+                        e);
             }
 
             try {

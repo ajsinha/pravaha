@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **294 findings carrying a
-status — 148 FIXED, 131 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 131 open, **6 are
-GA-BLOCKER, 23 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **295 findings carrying a
+status — 149 FIXED, 131 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 131 open, **5 are
+GA-BLOCKER, 23 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -54,9 +54,9 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 6 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-BLOCKER** | 5 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 23 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The fifteen blockers, by what they break.** Data reaching the wrong principal: `SX-5`, `SX-1`.
@@ -2714,7 +2714,8 @@ Seed-proven by removing the periodic check, which leaves both tests hanging unti
 the unbounded delivery this finding describes, reproduced exactly.
 
 ## SX-5 (HIGH) — the existence oracle: three independent, measurable channels distinguish "denied" from "doesn't exist"
-> **Status:** OPEN — the same require-before-authorize pattern reproduces on multiple Flight paths: `QueryRegistry.require` in subscribe, and `ViewQuery.execute`'s `catalog.find(source).orElseThrow(...)` (naming every registered view) before `policy.mayRead`; SX-3's HTTP fix did not touch the Flight surface.
+> **Status:** OPEN — narrowed, not closed, and kept OPEN deliberately so it stays in the blocker count. The **enumeration channel is closed**, and it was the widest: `SqlPlanner` appended every known stream name to a validation failure, so a caller authorized for nothing could map the deployment by guessing names. It now reports a *count* — which separates "you misspelled one of forty" from "this node declared nothing", a real and previously confusing failure — and names nothing. `ViewQuery` also authorizes before it looks a view up, and its not-found message no longer lists the catalogue.
+> **Still open, and named rather than rounded up:** the refusal *codes* still differ (`PRV-7002` denied, `PRV-2002` absent), because an unknown name fails in Calcite's validator during planning, before authorization can run — closing that means resolving and authorizing the referenced name before the SQL is validated, which is a larger change. The **latency channel** (denied median 23.8 ms, absent 13.4 ms) is untouched. A caller can still confirm a name they already guessed; they can no longer obtain the list.
 > **Disposition:** GA-BLOCKER — a stated security property; existence is disclosed over three measurable channels
 
 
@@ -2745,8 +2746,7 @@ depends on, even though SX-2's general finding (an entitled-but-unrelated reader
 No new finding; folded into SX-2's evidence. See docs/qa/logs/SECX.md (SECX-077, SECX-078).
 
 ## SX-7 — the audit log records ALLOW for a read that was in fact refused
-> **Status:** OPEN — `ViewQuery.execute` records the "allowed with a row filter" audit event before calling `withRowFilter`, which can still throw `PRV-7003`/`FILTER_NOT_ENFORCEABLE` — the false ALLOW record still precedes the refusal.
-> **Disposition:** GA-BLOCKER — the audit log records ALLOW for a read that was refused -- an audit that lies is worse than none
+> **Status:** FIXED — a read that the policy allows and the engine then refuses (`PRV-7003`, an unenforceable row filter) now records the refusal as well. The ALLOW stays, because it is true and "who was permitted" is a question the log has to answer; what was missing is the second fact. An investigator reading the log alone no longer concludes a refused read succeeded. `ViewProvenanceTest` +1.
 
 
 A read whose row filter cannot be enforced on the target view (`PRV-7003`, per the "row filter is
@@ -2874,6 +2874,24 @@ security dimension of its own: an endpoint listing who-read-what is itself a dis
 needs its own authorization, and a file sink needs rotation, permissions and a format. Picking one
 in passing, inside a commit about bean wiring, is how a security feature gets designed by accident.
 `docs/SECURITY.md` now says plainly what `memory` is and is not.
+
+### SX-19 (LOW) — SX-5's catalogue suppression costs the CLI a diagnosis it can safely give
+
+> **Status:** OPEN — `SqlPlanner` no longer names declared streams in a validation failure, on any surface, including `pravaha validate` where the schema came from the caller's own `--schema` flag.
+> **Disposition:** POST-GA — a diagnosability regression, knowingly taken to close a disclosure channel, on the surface where it costs least
+
+Created by the fix for SX-5 rather than found. The planner appended every known stream name to an
+"object not found", which is a catalogue dump when the caller is remote and authorized for nothing —
+and validation runs during planning, before authorization can. Suppressing it is right for that case.
+
+**It is blanket, because `SqlPlanner` cannot tell one caller from another.** On `pravaha validate
+--schema "txn:INT64,..."` the names it is now withholding are the ones the user typed seconds
+earlier, so the suppression protects nothing and removes the one hint that ends a typo.
+
+**The fix is on the CLI side, not the planner's.** The CLI owns the schema it passed in; it can
+append those names itself when it catches `PRV-2002`. That restores the help exactly where it is
+safe and nowhere else. Small, and not done here because it is a different module from the security
+change and would have hidden inside it.
 
 ## SX-12 (HIGH) — a legitimately secure configuration (`authentication=token` + `policy=permissive` + a real token table + `allow-anonymous=false`) refuses to start at all, and its refusal message misattributes the cause
 > **Status:** OPEN — `PravahaNode.refuseAccidentalOpenServer` still computes `open` from `!(securityPolicy() instanceof AuthenticatedOnlyPolicy)` alone, ignoring `authentication`/token config, and the refusal message still hardcodes `pravaha.security.authentication=none` regardless of the real configuration.
