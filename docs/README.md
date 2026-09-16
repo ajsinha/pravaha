@@ -26,6 +26,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 | | |
 |---|---|
 | [Architecture](ARCHITECTURE.md) | The shape, in two pages |
+| [Execution model](EXECUTION_MODEL.md) | Lanes, inboxes, arenas, confinement, backpressure, and what actually bounds a node. The single source of truth for how the engine runs |
 | [System design](system_design.md) | The full specification |
 | [Decisions (ADRs)](adr/) | Every architectural decision, with the reasoning and the alternatives rejected |
 

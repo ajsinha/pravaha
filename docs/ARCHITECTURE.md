@@ -85,6 +85,10 @@ them.
 
 ## What a lane is
 
+> **Full treatment: [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md).** This section is the summary a
+> reader of the architecture needs; that document is the one kept next to the code, and it wins if
+> the two ever disagree.
+
 A **lane** is the engine's unit of execution: one *driver* and the memory only that driver may
 touch. It is not a cache, not a staging area clients read from, and not a queue — it is a slice of
 the engine that owns its work end to end.
@@ -137,6 +141,17 @@ on a shared aggregate anywhere in the steady state. That is also why the gate is
 (≥ 1.2 M rec/s) with a separate scaling clause (≥ 90 % from 1 to 8 lanes) — the first measures what
 the loop costs, the second measures what the lanes share, and the intended answer to the second is
 nothing.
+
+### How many lanes, how deep the inbox, and where it all lives
+
+Short answers, because [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) owns the long ones:
+
+- **The ceiling is memory, not threads** — it stopped being threads at
+  [ADR-027](adr/027-lane-multiplexes-queries.md). A thousand queries on 24 cores add **24** platform
+  threads and **61 MiB** off-heap at the advised sizing.
+- **Inbox depth is `cells × cell-bytes`** — 2048 × 512 = 1,024 KiB by default.
+- **All RAM, nothing spills.** A full inbox backpressures; state that outgrows its ceiling is refused
+  with `PRV-4001`, not degraded.
 
 ## Threads: what is an OS thread here, and what is not
 

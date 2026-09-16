@@ -96,6 +96,11 @@ pravaha:
       max-slabs: 8
 ```
 
+> **What these settings are settings *for*: [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md).** It explains
+> why a claim is one cell whatever the row's size, why `cell-bytes` is a hard ceiling rather than a
+> hint, and why a full inbox backpressures instead of spilling.
+
+
 | Key | Default | What it decides |
 |---|---|---|
 | `pravaha.lane.batch-size` | 512 | Rows drained from the inbox per step |

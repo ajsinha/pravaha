@@ -1,5 +1,8 @@
 # Concepts
 
+> **How any of this actually runs — lanes, inboxes, arenas, and what bounds a node:**
+> [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md).
+
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
 
