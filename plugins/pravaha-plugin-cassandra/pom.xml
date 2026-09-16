@@ -23,6 +23,28 @@
     <dependency>
       <groupId>org.apache.cassandra</groupId>
       <artifactId>java-driver-core</artifactId>
+      <exclusions>
+        <!--
+          jnr-posix is how the driver reads a microsecond clock through JNI, and it arrives with
+          jnr-ffi and jffi, whose native jar carries eighteen platform binaries (Linux on x86_64,
+          aarch64, arm, i386, mips64el, ppc64, ppc64le, s390x and sparcv9; Windows; SunOS; FreeBSD;
+          OpenBSD; DragonFlyBSD). That is 41 MB of closure, and the only JNI in this repository, in
+          a deployment whose whole point is one bundle that runs anywhere.
+
+          The driver degrades by itself: with no native clock it uses System.currentTimeMillis() for
+          its timestamp generator and logs that once at startup. Pravaha never reads a driver
+          timestamp. A row's event time comes from its own column and the watermark from
+          WatermarkGenerator, so the resolution lost is resolution nothing here consults.
+
+          Excluded rather than shaded or left alone, and proven by the tests rather than assumed:
+          the plugin's unit tests and its Cassandra 4.1 container ITs, the TCK included, pass
+          without it.
+        -->
+        <exclusion>
+          <groupId>com.github.jnr</groupId>
+          <artifactId>jnr-posix</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>

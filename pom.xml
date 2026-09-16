@@ -269,6 +269,28 @@
         <artifactId>java-driver-core</artifactId>
         <version>${cassandra.driver.version}</version>
       </dependency>
+      <!--
+        Pinned for TEST scope only, and only because excluding jnr-posix from the driver changed
+        which version wins. Testcontainers asks for jnr-ffi 2.1.7, the driver asked for 2.2.11, and
+        with the driver's request gone the older one is selected. It is not a runtime dependency of
+        anything here; pinning keeps the offline build resolvable and stops a test-scope transitive
+        drifting backwards on its own.
+      -->
+      <dependency>
+        <groupId>com.github.jnr</groupId>
+        <artifactId>jnr-ffi</artifactId>
+        <version>2.2.11</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.jnr</groupId>
+        <artifactId>jnr-posix</artifactId>
+        <version>3.1.15</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.jnr</groupId>
+        <artifactId>jffi</artifactId>
+        <version>1.3.9</version>
+      </dependency>
       <dependency>
         <groupId>org.apache.arrow</groupId>
         <artifactId>arrow-bom</artifactId>
