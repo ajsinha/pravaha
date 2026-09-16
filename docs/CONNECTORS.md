@@ -332,6 +332,19 @@ The queue connectors are architecturally different and it is worth saying so bef
 queue gives you *acknowledgement*, not a position you can return to. They cannot be `EXACTLY_ONCE`,
 and `SharedSourceGroup` will decline to share their readers for the same reason it declines JDBC's.
 
+
+### The remote connector — the source that inverts this table
+
+Every row above is a connector Pravaha writes in order to reach a system. The **remote connector** is
+the other direction: a small library an application embeds, which streams rows to a node over Arrow
+Flight `DoPut`. The application becomes a source, and the set of systems Pravaha can ingest from
+stops being the set somebody wrote a plugin for.
+
+It is designed and not built. The design — why Flight rather than a bespoke socket, why at-least-once
+delivery **requires** server-side deduplication in an engine where a duplicate row is a real `+1`,
+why an idle agent must not freeze a watermark, and what an inbound write path has to enforce before
+it is opened — is [ADR-040](adr/040-the-remote-connector.md). Scheduled after cluster mode, before GA.
+
 ---
 
 ## 8. What is missing from this framework today

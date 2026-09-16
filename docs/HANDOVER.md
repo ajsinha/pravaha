@@ -20,7 +20,7 @@ otherwise have to rediscover the hard way.
 | Java tests | **2,214** across the 27 of 31 modules that have tests, 4 skipped, all green — `./mvnw -o -DskipITs -Dbenchmarks.skip=true verify` over the whole reactor on 2026-09-15; `pravaha-it` alone is 756. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there. Count the **per-module summary lines only** — summing those and the per-class `-- in Class` lines together is how a report came to quote 4,408 for a run of 2,207 (DOCR-22). A bare `test` phase is not the same run: three `ErrcClientTest` cases need a packaged CLI jar and error without one |
 | Python tests | **67** in `sdk/python` (collected 2026-09-14), including the client driving a real Java Flight SQL server, plus **34** for the console |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **39** |
+| ADRs | **40** |
 
 **Where the waves stand.** Waves 3, 4 and 5 (E4) are **complete** in scope, Wave 6 (E5) and Wave 7
 (E6) are complete in scope as well, **Wave 8 is built** — rescoped by
