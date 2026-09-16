@@ -62,15 +62,31 @@ pravaha:
   # same ViewQuery authorization path and the same audit sink as Flight, so it is not a second, weaker
   # route to the data.
   #
-  # IT IS OFF BECAUSE IT HAS NO TLS YET. The password crosses the wire in the clear, so run it on
-  # loopback or behind a terminator, and turn it on deliberately rather than inherit it.
+  # IT IS OFF BECAUSE IT IS NEW, not because it cannot be secured: tls.certificate and tls.key below
+  # give it TLS, and psql's sslmode=require negotiates over the same port. Left unset the gateway
+  # still serves plaintext, and then the password crosses the wire in the clear -- so configure the
+  # pair, or run it on loopback or behind a terminator.
+  #
+  # The two TLS settings are read together and refused together. A key without a certificate, or the
+  # reverse, is refused at startup naming the missing one, rather than read into a field and silently
+  # ignored -- which is what Flight did before CFG-6(a), serving plaintext while advising the operator
+  # to set the very keys they had half-set.
   #
   # Port 5432 is what clients expect and is also what a PostgreSQL server on the same host is already
   # using -- change it rather than fight over it.
-  # pgwire:
-  #   enabled: false
-  #   host: 0.0.0.0
-  #   port: 5432
+  # Written at column zero deliberately. DocumentationFreshnessTest reads a commented key as a
+  # declared one, and computes its depth as (spaces before the #) + 1 + (spaces after it) -- so a
+  # block indented to match its neighbours visually lands two levels too deep and declares
+  # pravaha.security.pgwire.* instead of pravaha.pgwire.*. The same is true of the commented
+  # sources: and streams: blocks above; nothing has caught it because the check only tests settings
+  # an error message actually names, and until now none of theirs did.
+# pgwire:
+#   enabled: false
+#   host: 0.0.0.0
+#   port: 5432
+#   tls:
+#     certificate: ""
+#     key: ""
 
   flight:
     enabled: true
