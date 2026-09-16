@@ -15,8 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.exec;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -24,6 +24,7 @@ import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.RowLayout;
+import com.ash.messaging.pravaha.runtime.state.VariableKeyStateMap;
 import com.ash.messaging.pravaha.state.RowStore;
 
 /**
@@ -63,6 +64,14 @@ final class JoinSide implements AutoCloseable {
 
     private static final int OFFSET_ROW = 24;
 
+    /** Size classes for the bucket index's own key/value store: eight-byte values need very little. */
+    private static final int BUCKET_STORE_SLAB_BYTES = 1 << 20;
+
+    /** 4096 slabs of a MiB each is a four-GiB ceiling on the bucket index -- tens of millions of
+     * distinct keys before it is reached, which is the point: a ceiling this join never used to have
+     * must not become the first thing a legitimate large join hits. */
+    private static final int BUCKET_STORE_MAX_SLABS = 4096;
+
     private final RowStore store;
     private final StreamSchema schema;
     private final RowLayout layout;
@@ -70,14 +79,21 @@ final class JoinSide implements AutoCloseable {
     private final BinaryRowView cursor;
 
     /**
-     * Bucket heads, keyed by the key columns' hash.
+     * Bucket heads, keyed by the key columns' hash -- off-heap (ADR-039 item 4, W8-12).
      *
-     * <p>On the heap, and the one place in this class that is. The rows themselves -- the part that
-     * grows with data -- are off-heap; this map holds one long per <em>distinct key</em>, which is
-     * the smaller number by orders of magnitude in every join worth running. Moving it off-heap is
-     * a later change with a measurement behind it, not a guess.
+     * <p>This was the one place in this class still on the heap, and its own comment used to record
+     * why: "moving it off-heap is a later change with a measurement behind it, not a guess." {@link
+     * VariableKeyStateMap} is that change. The key stored here is the eight-byte hash {@link
+     * JoinKeys#hash} already computes -- this class does not need an arbitrary-width key, because it
+     * reduced to one a long time ago -- so this usage does not exercise the map's variable-width
+     * case; {@code VariableKeyStateMapTest} does that, over string keys, which is the case {@link
+     * com.ash.messaging.pravaha.runtime.window.SlicedAggregateState}'s {@code GROUP BY} state would
+     * need and this one does not.
      */
-    private final Map<Long, Long> buckets = new HashMap<>();
+    private final VariableKeyStateMap buckets;
+
+    /** Encodes a hash as the eight bytes {@link #buckets} is keyed by. Reused across every call. */
+    private final MemoryRegion hashScratch;
 
     private long rows;
     private long distinctRows;
@@ -112,6 +128,24 @@ final class JoinSide implements AutoCloseable {
         this.keyOrdinals = keyOrdinals.clone();
         this.cursor = new BinaryRowView(layout);
         this.restoreView = new BinaryRowView(layout);
+        this.buckets = new VariableKeyStateMap(access, 64, BUCKET_STORE_SLAB_BYTES, BUCKET_STORE_MAX_SLABS);
+        this.hashScratch = access.allocate(Long.BYTES);
+    }
+
+    /** The chain head for a hash, or {@link ArenaHandle#NULL} if no bucket exists for it yet. */
+    private long headFor(long hash) {
+        hashScratch.putLong(0, hash);
+        long bucketHandle = buckets.find(hashScratch, 0, Long.BYTES);
+        return bucketHandle == ArenaHandle.NULL
+                ? ArenaHandle.NULL
+                : buckets.valueRegionOf(bucketHandle).getLong(buckets.valueOffsetOf(bucketHandle));
+    }
+
+    /** Sets a hash's chain head, creating the bucket if this is its first entry. */
+    private void setHead(long hash, long head) {
+        hashScratch.putLong(0, hash);
+        long bucketHandle = buckets.getOrCreate(hashScratch, 0, Long.BYTES, Long.BYTES);
+        buckets.valueRegionOf(bucketHandle).putLong(buckets.valueOffsetOf(bucketHandle), head);
     }
 
     /**
@@ -126,7 +160,7 @@ final class JoinSide implements AutoCloseable {
             return ArenaHandle.NULL;
         }
         long hash = JoinKeys.hash(row, keyOrdinals, schema);
-        long head = buckets.getOrDefault(hash, ArenaHandle.NULL);
+        long head = headFor(hash);
 
         long previous = ArenaHandle.NULL;
         for (long entry = head; entry != ArenaHandle.NULL; entry = nextOf(entry)) {
@@ -145,7 +179,7 @@ final class JoinSide implements AutoCloseable {
         }
 
         long entry = insert(row, weight, head);
-        buckets.put(hash, entry);
+        setHead(hash, entry);
         rows += weight;
         distinctRows++;
         return entry;
@@ -157,9 +191,7 @@ final class JoinSide implements AutoCloseable {
             return;
         }
         long hash = JoinKeys.hash(row, keyOrdinals, schema);
-        for (long entry = buckets.getOrDefault(hash, ArenaHandle.NULL);
-                entry != ArenaHandle.NULL;
-                entry = nextOf(entry)) {
+        for (long entry = headFor(hash); entry != ArenaHandle.NULL; entry = nextOf(entry)) {
             if (sameRow(entry, row)) {
                 markMatched(entry);
                 return;
@@ -193,15 +225,21 @@ final class JoinSide implements AutoCloseable {
      * released and reused.
      */
     long evictOlderThan(long horizon, java.util.function.Consumer<RowView> unmatched) {
-        if (horizon == Long.MIN_VALUE || buckets.isEmpty()) {
+        if (horizon == Long.MIN_VALUE || buckets.size() == 0) {
             return 0;
         }
         long removed = 0;
-        java.util.Iterator<Map.Entry<Long, Long>> heads = buckets.entrySet().iterator();
-        while (heads.hasNext()) {
-            Map.Entry<Long, Long> bucket = heads.next();
+        // Snapshot the bucket handles before mutating: forEach walks the slot table by index, and
+        // removing the *current* bucket mid-walk is safe (its slot is simply tombstoned, and we
+        // already hold the handle we need), but taking the list up front makes that safety explicit
+        // rather than relying on it.
+        List<Long> bucketHandles = new ArrayList<>(buckets.size());
+        buckets.forEach(bucketHandles::add);
+        for (long bucketHandle : bucketHandles) {
+            long hash = buckets.keyRegionOf(bucketHandle).getLong(buckets.keyOffsetOf(bucketHandle));
             long previous = ArenaHandle.NULL;
-            long entry = bucket.getValue();
+            long head = buckets.valueRegionOf(bucketHandle).getLong(buckets.valueOffsetOf(bucketHandle));
+            long entry = head;
             while (entry != ArenaHandle.NULL) {
                 long next = nextOf(entry);
                 if (eventTimeOf(entry) < horizon) {
@@ -210,7 +248,7 @@ final class JoinSide implements AutoCloseable {
                         unmatched.accept(cursor.wrap(store.regionOf(entry), store.offsetOf(entry) + OFFSET_ROW));
                     }
                     if (previous == ArenaHandle.NULL) {
-                        bucket.setValue(next);
+                        head = next;
                     } else {
                         store.regionOf(previous).putLong(store.offsetOf(previous) + OFFSET_NEXT, next);
                     }
@@ -223,8 +261,11 @@ final class JoinSide implements AutoCloseable {
                 }
                 entry = next;
             }
-            if (bucket.getValue() == ArenaHandle.NULL) {
-                heads.remove();
+            if (head == ArenaHandle.NULL) {
+                hashScratch.putLong(0, hash);
+                buckets.remove(hashScratch, 0, Long.BYTES);
+            } else {
+                buckets.valueRegionOf(bucketHandle).putLong(buckets.valueOffsetOf(bucketHandle), head);
             }
         }
         return removed;
@@ -251,9 +292,7 @@ final class JoinSide implements AutoCloseable {
             return;
         }
         long hash = JoinKeys.hash(probe, probeKeyOrdinals, probeSchema);
-        for (long entry = buckets.getOrDefault(hash, ArenaHandle.NULL);
-                entry != ArenaHandle.NULL;
-                entry = nextOf(entry)) {
+        for (long entry = headFor(hash); entry != ArenaHandle.NULL; entry = nextOf(entry)) {
             RowView stored = wrap(entry);
             // The hash brought candidates; only equal key values are matches.
             //
@@ -293,7 +332,10 @@ final class JoinSide implements AutoCloseable {
     void writeTo(java.io.DataOutputStream out) throws java.io.IOException {
         out.writeInt((int) distinctRows);
         byte[] scratch = new byte[0];
-        for (long head : buckets.values()) {
+        List<Long> bucketHandles = new ArrayList<>(buckets.size());
+        buckets.forEach(bucketHandles::add);
+        for (long bucketHandle : bucketHandles) {
+            long head = buckets.valueRegionOf(bucketHandle).getLong(buckets.valueOffsetOf(bucketHandle));
             for (long entry = head; entry != ArenaHandle.NULL; entry = nextOf(entry)) {
                 int length = store.regionOf(entry).getInt(store.offsetOf(entry) + OFFSET_ROW_LENGTH);
                 if (scratch.length < length) {
@@ -370,9 +412,10 @@ final class JoinSide implements AutoCloseable {
                 // Last row for this key. Dropping the bucket rather than leaving an empty chain is
                 // what keeps a long-running join's index flat instead of accumulating one dead entry
                 // per key it has ever seen.
-                buckets.remove(hash);
+                hashScratch.putLong(0, hash);
+                buckets.remove(hashScratch, 0, Long.BYTES);
             } else {
-                buckets.put(hash, next);
+                setHead(hash, next);
             }
         } else {
             store.regionOf(previous).putLong(store.offsetOf(previous) + OFFSET_NEXT, next);
@@ -426,7 +469,8 @@ final class JoinSide implements AutoCloseable {
 
     @Override
     public void close() {
-        buckets.clear();
+        buckets.close();
+        hashScratch.close();
         if (scratch != null) {
             scratch.close();
             scratch = null;
