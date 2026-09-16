@@ -269,4 +269,63 @@ class FlightListingDisclosureTest {
             assertThat(row.get(4)).isEqualTo("4");
         });
     }
+
+    @Test
+    void sx1_aDeniedSubscriberCannotTellAnExistingViewFromAnAbsentOne() {
+        // SX-1, and the ordering that closed it. streamSubscription resolved the name before it
+        // authorized it, so the registry answered first: a real-but-forbidden view gave a policy
+        // refusal, an absent one gave "no query named 'zzz' is registered; this node has [...]"
+        // with the whole catalogue attached. A principal denied every view could map the node by
+        // misspelling one name.
+        //
+        // Both halves are fixed -- mayRead runs before require, and require no longer enumerates --
+        // and neither had a test. The enumeration is pinned by LifeDropTest and LifePauseTest at
+        // the registry; the ORDER is pinned here, because swapping those two lines back restores
+        // the oracle without failing anything else.
+        String existing = subscribeRefusal(STRANGER_TOKEN, "sales_view");
+        String absent = subscribeRefusal(STRANGER_TOKEN, "zzz_nope");
+
+        assertThat(existing)
+                .as("a denied subscriber must actually be refused, or this test proves nothing")
+                .isNotEqualTo(NOT_REFUSED);
+        assertThat(absent).isNotEqualTo(NOT_REFUSED);
+
+        // The channel that mattered: the name of a view this principal may not see, handed to them
+        // because they asked for a different name that does not exist.
+        assertThat(absent)
+                .as("a refusal for an absent name must not disclose a view the caller may not read")
+                .doesNotContain("sales_view");
+
+        // And the codes must agree. Different codes for "forbidden" and "absent" are the same
+        // oracle spelled in a number rather than in a list -- which is SX-5's remaining channel on
+        // the query path, and must not be reintroduced here.
+        assertThat(codeIn(absent))
+                .as(
+                        "existing and absent must refuse identically to a principal authorized for "
+                                + "neither; got '%s' for the real view and '%s' for the absent one",
+                        existing, absent)
+                .isEqualTo(codeIn(existing));
+    }
+
+    /** What a subscription attempt reports, or {@link #NOT_REFUSED} when it was allowed. */
+    private String subscribeRefusal(String token, String view) {
+        try (org.apache.arrow.flight.FlightStream stream = client.getStream(
+                new org.apache.arrow.flight.Ticket(ControlWire.subscribeTicket(view, List.of())), bearing(token))) {
+            while (stream.next()) {
+                // Draining. Reaching here at all is the failure this test is about.
+            }
+            return NOT_REFUSED;
+        } catch (Exception refused) {
+            return String.valueOf(refused.getMessage());
+        }
+    }
+
+    private static final String NOT_REFUSED = "not refused";
+
+    /** The {@code PRV-} code a refusal carries, which is the part a caller can branch on. */
+    private static String codeIn(String message) {
+        java.util.regex.Matcher found =
+                java.util.regex.Pattern.compile("PRV-\\d{4}").matcher(String.valueOf(message));
+        return found.find() ? found.group() : "no code";
+    }
 }
