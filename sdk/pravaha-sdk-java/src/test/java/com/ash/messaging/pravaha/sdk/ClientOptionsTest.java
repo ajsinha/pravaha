@@ -42,7 +42,10 @@ class ClientOptionsTest {
                 .token("secret-token")
                 .connectTimeout(Duration.ofSeconds(2))
                 .requestTimeout(Duration.ofSeconds(5))
-                .defaultConsistency(Consistency.LATEST)
+                // CONSISTENT, because it is the only mode the server implements: I-6 made the
+                // other three refuse rather than be silently downgraded. This case is about the
+                // builder carrying overrides through, not about which modes exist.
+                .defaultConsistency(Consistency.CONSISTENT)
                 .subscriberBufferRows(50)
                 .conflateOnOverflow(false)
                 .applicationName("fraud-service")
@@ -51,7 +54,7 @@ class ClientOptionsTest {
         assertThat(o.token()).hasValue("secret-token");
         assertThat(o.connectTimeout()).isEqualTo(Duration.ofSeconds(2));
         assertThat(o.requestTimeout()).isEqualTo(Duration.ofSeconds(5));
-        assertThat(o.defaultConsistency()).isEqualTo(Consistency.LATEST);
+        assertThat(o.defaultConsistency()).isEqualTo(Consistency.CONSISTENT);
         assertThat(o.subscriberBufferRows()).isEqualTo(50);
         assertThat(o.conflateOnOverflow()).isFalse();
         assertThat(o.applicationName()).isEqualTo("fraud-service");
@@ -110,5 +113,35 @@ class ClientOptionsTest {
         assertThat(e.retryable()).isTrue();
         assertThat(e.getMessage()).startsWith("PRV-3001");
         assertThat(e.helpUrl()).endsWith("PRV-3001");
+    }
+
+    @Test
+    void anUnimplementedConsistencyModeIsRefusedRatherThanSilentlyDowngraded() {
+        // I-6. LATEST, AT_LEAST and AS_OF are declared by this SDK and implemented by nothing:
+        // ViewQuery reads committed state only, and ServedView.get(Consistency, ...) has no
+        // transport caller. A client asking for LATEST was served CONSISTENT -- a different answer
+        // than the one requested, with nothing anywhere to say so.
+        //
+        // Refused rather than implemented, because wiring the modes through the Flight surface is
+        // real work and an answer nobody can tell is wrong is the worst kind this system produces.
+        for (Consistency unimplemented :
+                new Consistency[] {Consistency.LATEST, Consistency.AT_LEAST, Consistency.AS_OF}) {
+            assertThatThrownBy(() -> ClientOptions.builder("grpc+tls://host:9090")
+                            .defaultConsistency(unimplemented)
+                            .build())
+                    .as("%s must refuse rather than quietly become CONSISTENT", unimplemented)
+                    .isInstanceOf(PravahaClientException.class)
+                    .hasMessageContaining("not implemented")
+                    .hasMessageContaining("CONSISTENT");
+        }
+    }
+
+    @Test
+    void theImplementedModeIsAccepted() {
+        assertThat(ClientOptions.builder("grpc+tls://host:9090")
+                        .defaultConsistency(Consistency.CONSISTENT)
+                        .build()
+                        .defaultConsistency())
+                .isEqualTo(Consistency.CONSISTENT);
     }
 }

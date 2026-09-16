@@ -31,5 +31,14 @@ public final class StateErrors {
     /** A stored state image could not be read back: truncated, corrupt, or from another version. */
     public static final ErrorCode STATE_UNREADABLE = new ErrorCode(4002, "STATE_UNREADABLE");
 
+    /**
+     * {@code pravaha.dlq.directory} is set and this node cannot write there.
+     *
+     * <p>TIME-4. Refused rather than degraded: an operator who configured a dead-letter queue asked
+     * for records to be kept, and carrying on without one would hand them exactly the behaviour
+     * they configured it to avoid -- a decode failure ending the poll and taking the file with it.
+     */
+    public static final ErrorCode DLQ_UNUSABLE = new ErrorCode(4090, "STATE_DLQ_UNUSABLE");
+
     private StateErrors() {}
 }

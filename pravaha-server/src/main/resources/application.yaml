@@ -156,6 +156,23 @@ pravaha:
     # customer ids), so permission it like data, not like configuration.
     journal: ""
 
+  # Where records this node cannot decode are written, one file per query.
+  #
+  # Unset means nowhere, and that is the default on purpose. A dead-letter queue keeps two rules
+  # that pull against each other -- never drop a record silently, never let one record stop the
+  # pipeline -- and without somewhere durable to put the record, "keep going" is just "drop it". So
+  # with no queue the source still fails on an undecodable record, loudly.
+  #
+  # Set it and the other rule applies: the bad record is written here with its bytes and its reason,
+  # and the source keeps reading. Before this key existed the engine had the whole mechanism and a
+  # server had no way to switch it on, so one malformed field took an entire file to zero rows with
+  # the query still reporting RUNNING (TIME-4, W8-11).
+  #
+  # If this is set and the node cannot write there, it refuses to start (PRV-4090) rather than
+  # running without the queue -- which would be the behaviour you configured it to avoid.
+  dlq:
+    directory: ""
+
 
   # What one registered query costs in memory, and how its lane waits.
   #

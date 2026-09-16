@@ -62,12 +62,32 @@ class CoordinatorFactoryTest {
 
     @Test
     void aSingleNodeReallyDoesExcludeSplitBrain() {
-        // Not a cheeky claim: with one node there is no second node to disagree with it. So it is a
-        // legitimate choice for PARTITIONED, where it assigns every partition to itself.
+        // Not a cheeky claim: with one node there is no second node to disagree with it.
+        //
+        // This used to demonstrate that through PARTITIONED, on the reasoning that a single node is
+        // a legitimate choice for it because it assigns every partition to itself. The reasoning
+        // holds and the mode does not: S-3 found that PARTITIONED assigns nothing at all, so that
+        // configuration started, reported itself partitioned, and partitioned nothing. It is refused
+        // now (ADR-038), and the guarantee is asserted directly instead -- which is what this case
+        // was ever about.
         try (ClusterCoordinator coordinator = CoordinatorFactory.create(
-                config("pravaha.cluster.mode", "PARTITIONED", "pravaha.cluster.mechanism", "single"))) {
+                config("pravaha.cluster.mode", "SINGLE", "pravaha.cluster.mechanism", "single"))) {
             assertThat(coordinator.guarantees().excludesSplitBrain()).isTrue();
         }
+    }
+
+    @Test
+    void partitionedModeIsRefusedEvenOnACoordinatorThatCouldSupportIt() {
+        // S-3. The split-brain guard above made PARTITIONED look guarded, and it only ever refused
+        // the mechanisms that cannot exclude split-brain. PARTITIONED x single passed that guard and
+        // started, which is the silent half of the defect.
+        assertThatThrownBy(() -> CoordinatorFactory.create(
+                        config("pravaha.cluster.mode", "PARTITIONED", "pravaha.cluster.mechanism", "single")))
+                .as("a mode that reports success and does nothing is worse than one that refuses")
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-9002")
+                .hasMessageContaining("not implemented")
+                .hasMessageContaining("ADR-034");
     }
 
     @Test

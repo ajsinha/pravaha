@@ -162,33 +162,27 @@ class StateClusterTest extends StateTestSupport {
     }
 
     @Test
-    void state101_partitionedBySingleStartsBecauseOneNodeCannotDisagreeWithItself() throws Exception {
+    void state101_partitionedBySingleIsRefusedBecauseThisBuildPartitionsNothing() throws Exception {
+        // This case recorded the behaviour it found: PARTITIONED x single started, on the sound
+        // reasoning that one node cannot disagree with itself. The reasoning holds and the mode does
+        // not -- state106 below is the other half of the same observation, that the partition
+        // machinery is reachable from nothing at all. Together they are S-3, and the node now
+        // refuses rather than starting and partitioning nothing (ADR-038).
+        //
+        // The split-brain guarantee this case was really about is still asserted, on SINGLE.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> CoordinatorFactory.create(config(
+                        "pravaha.cluster.mode", "PARTITIONED",
+                        "pravaha.cluster.mechanism", "single")))
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-9002")
+                .hasMessageContaining("not implemented");
+
         try (ClusterCoordinator coordinator = CoordinatorFactory.create(config(
-                "pravaha.cluster.mode", "PARTITIONED",
+                "pravaha.cluster.mode", "SINGLE",
                 "pravaha.cluster.mechanism", "single"))) {
             assertThat(coordinator.guarantees().excludesSplitBrain()).isTrue();
             coordinator.start(new Member("only", "localhost", 9070));
             assertThat(coordinator.isLeader()).isTrue();
-
-            // No partition method anywhere on the interface, and PravahaNode never asks the mode
-            // anything except through CoordinatorFactory.create/describe.
-            List<String> methodNames = new ArrayList<>();
-            for (var method : ClusterCoordinator.class.getMethods()) {
-                if (method.getDeclaringClass() == ClusterCoordinator.class) {
-                    methodNames.add(method.getName());
-                }
-            }
-            assertThat(methodNames).doesNotContain("partition", "partitions", "assignPartition", "assignments");
-
-            List<String> modeReadsInPravahaNode =
-                    grep("\\bClusterMode\\b|modeOf\\(", repoRoot().resolve("pravaha-server/src/main/java"));
-            List<String> outsideFactoryCall = modeReadsInPravahaNode.stream()
-                    .filter(l -> l.contains("PravahaNode.java"))
-                    .toList();
-            assertThat(outsideFactoryCall)
-                    .as("PravahaNode.java never names ClusterMode or calls modeOf itself -- the mode "
-                            + "reaches it only through CoordinatorFactory.create/describe")
-                    .isEmpty();
         }
     }
 
@@ -338,29 +332,26 @@ class StateClusterTest extends StateTestSupport {
                         "onMembershipChange",
                         "close");
 
-        // Two servers, identical in every way except the cluster mode, registering the same three
-        // queries and fed the same rows: everything observable through the registry must match.
-        Path partitionedJournal = Files.createTempDirectory("state106-p").resolve("registry.journal");
+        // The other half of this case used to start two nodes, one PARTITIONED and one SINGLE, and
+        // assert their results were identical -- which they were, because PARTITIONED did nothing.
+        // That demonstration is what the finding was built on, and it cannot be run any more: the
+        // mode is refused now (S-3, ADR-038), which is the stronger version of the same statement.
+        //
+        // The reachability check above is the part that still holds and still matters: if any of
+        // those types ever appears on a running path, PARTITIONED has become real and this case
+        // needs rewriting rather than passing quietly.
         Path singleJournal = Files.createTempDirectory("state106-s").resolve("registry.journal");
-        var partitioned = nodeWithMode("PARTITIONED", partitionedJournal);
         var single = nodeWithMode("SINGLE", singleJournal);
         try {
-            List<List<Object>> partitionedResult = runThreeQueriesAndScan(partitioned);
-            List<List<Object>> singleResult = runThreeQueriesAndScan(single);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> nodeWithMode("PARTITIONED", singleJournal))
+                    .as("a mode whose machinery nothing references must not start and claim to partition")
+                    .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                    .hasMessageContaining("PRV-9002");
 
-            assertThat(partitioned.describe().get(2))
-                    .isEqualTo(single.describe().get(2)); // registry: N queries
-            assertThat(partitionedResult)
-                    .as("query results are identical regardless of PARTITIONED vs SINGLE on the single mechanism")
-                    .containsExactlyInAnyOrderElementsOf(singleResult);
-
-            // Only the cluster line of describe() differs, and only in name, not in kind: both name
-            // "single" as the mechanism because the mechanism, not the mode, is what describe()
-            // reports (PravahaNode.describe(), line ~545).
-            assertThat(partitioned.describe().get(0))
-                    .isEqualTo(single.describe().get(0));
+            assertThat(runThreeQueriesAndScan(single))
+                    .as("and SINGLE still answers, which is the mode a one-node GA ships with")
+                    .isNotEmpty();
         } finally {
-            partitioned.stop();
             single.stop();
         }
     }
@@ -568,7 +559,10 @@ class StateClusterTest extends StateTestSupport {
                         "socket",
                         "cluster mode REPLICATED on socket (NO consensus — cannot exclude split-brain), "
                                 + "self-contained, development only"),
-                new Cell("PARTITIONED", "single", "cluster mode PARTITIONED on single (consensus), self-contained"));
+                // PARTITIONED is refused now (S-3, ADR-038), so it has no startup line to describe --
+                // which is the point: a mode that never starts cannot mis-describe itself. The
+                // reachable cells are the ones a node can actually be in.
+                new Cell("REPLICATED", "single", "cluster mode REPLICATED on single (consensus), self-contained"));
 
         for (Cell cell : cells) {
             List<String> pairs = new ArrayList<>(

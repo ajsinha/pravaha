@@ -44,6 +44,24 @@ public class PersistenceProperties {
 
     private final Registry registry = new Registry();
     private final Checkpoint checkpoint = new Checkpoint();
+    private final Dlq dlq = new Dlq();
+
+    public Dlq getDlq() {
+        return dlq;
+    }
+
+    /**
+     * Where a record the engine could not decode is written, or empty when nowhere.
+     *
+     * <p>TIME-4/W8-11. The dead-letter path exists and works and a server had no key to switch it
+     * on, so every node ran the unguarded path -- where a decode failure ends the poll and stops the
+     * source, taking every other row in the file with it. `pravaha run --dlq` had this; a server did
+     * not, which is the deployment that matters.
+     */
+    public Optional<Path> dlqPath() {
+        String directory = dlq.getDirectory();
+        return directory == null || directory.isBlank() ? Optional.empty() : Optional.of(Path.of(directory));
+    }
 
     public Registry getRegistry() {
         return registry;
@@ -87,6 +105,28 @@ public class PersistenceProperties {
     }
 
     /** {@code pravaha.registry.*} */
+    /** {@code pravaha.dlq.*}: where records that could not be decoded go. */
+    public static class Dlq {
+
+        /**
+         * Directory for dead-letter files, one per query. Empty means no queue.
+         *
+         * <p>Empty is the default and stays the default: a record must not be dropped merely
+         * because nobody arranged somewhere to put it, which is the rule the unguarded path keeps
+         * by failing. What changes is that an operator can now choose the other rule -- keep going,
+         * keep the record -- without editing code.
+         */
+        private String directory = "";
+
+        public String getDirectory() {
+            return directory;
+        }
+
+        public void setDirectory(String directory) {
+            this.directory = directory;
+        }
+    }
+
     public static class Registry {
 
         private String journal = "";

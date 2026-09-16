@@ -104,6 +104,7 @@ public class PravahaNode implements SmartLifecycle {
 
     private final Optional<Path> journalPath;
     private final Configuration clusterConfiguration;
+    private final java.util.Optional<java.nio.file.Path> dlqPath;
     private final String nodeId;
     private final boolean allowSharedState;
     private final boolean standby;
@@ -169,6 +170,7 @@ public class PravahaNode implements SmartLifecycle {
         this.flightHost = flightHost;
         this.flightPort = flightPort;
         this.journalPath = persistence.journalPath();
+        this.dlqPath = persistence.dlqPath();
         this.checkpointPath = persistence.checkpointPath();
         this.checkpointConfiguration = persistence.checkpointConfiguration();
         this.clusterConfiguration = Configuration.builder()
@@ -190,21 +192,34 @@ public class PravahaNode implements SmartLifecycle {
      * refusal is of running open <em>by default</em>, which is the only version of it nobody chose.
      */
     private void refuseAccidentalOpenServer() {
-        // An open server is one that serves data to callers it has not identified. That is true
-        // whenever the policy admits anonymous callers, regardless of whether a token mechanism also
-        // exists -- my first version required authentication to be off entirely, which made
-        // allow-anonymous silently dead on exactly the configuration a team reaches by hardening dev.
-        boolean open = !(securityPolicy() instanceof AuthenticatedOnlyPolicy);
+        // An open server is one that serves data to callers it has not identified, and that needs
+        // BOTH halves to be true: an unauthenticated caller has to get in, and the policy has to
+        // hand them everything once they are.
+        //
+        // CFG-9/SX-12. This was computed from the policy alone, and the comment it replaces records
+        // the correction before it -- the version before that required authentication to be off
+        // entirely, which made allow-anonymous dead under `token`. One term keeps failing in one
+        // direction or the other, which is the signal that the question needs two.
+        //
+        // What the one-term version did: a node with authentication=token, a real token table,
+        // policy=permissive and allow-anonymous=false -- where BearerTokenFilter refuses every
+        // unauthenticated caller with a 401, which is exactly the posture an operator sets out to
+        // configure -- could not start. The only way to start it was allow-anonymous=true, which is
+        // a lie about the node.
+        boolean unauthenticatedCallersGetIn = !security.authenticates() || security.isAllowAnonymous();
+        boolean policyServesThemEverything = !(securityPolicy() instanceof AuthenticatedOnlyPolicy);
+        boolean open = unauthenticatedCallersGetIn && policyServesThemEverything;
         if (open && !security.isAllowAnonymous()) {
             throw new PravahaException(
                     SecurityErrors.FORBIDDEN,
                     "this node is configured to accept unauthenticated callers and serve them every view "
-                            + "(pravaha.security.authentication=none, policy=" + security.getPolicy() + "). That "
-                            + "is a reasonable way to run an engine behind a boundary that has already "
-                            + "authenticated the caller, and a bad way to run one on a network. Set "
-                            + "pravaha.security.authentication=token with pravaha.security.tokens.*, or set "
-                            + "pravaha.security.policy=authenticated, or -- if open really is what you want -- "
-                            + "set pravaha.security.allow-anonymous=true to say so on purpose.");
+                            + "(pravaha.security.authentication=" + security.getAuthentication() + ", policy="
+                            + security.getPolicy() + "). That is a reasonable way to run an engine behind a "
+                            + "boundary that has already authenticated the caller, and a bad way to run one on "
+                            + "a network. Set pravaha.security.authentication=token with "
+                            + "pravaha.security.tokens.*, or set pravaha.security.policy=authenticated, or -- "
+                            + "if open really is what you want -- set pravaha.security.allow-anonymous=true to "
+                            + "say so on purpose.");
         }
         if (!security.authenticates() && securityPolicy() instanceof AuthenticatedOnlyPolicy) {
             // A contradiction, and a dangerous one rather than a merely silly one. The policy says
@@ -488,6 +503,14 @@ public class PravahaNode implements SmartLifecycle {
         log.info("watermarks: idle-after={}, tick={}", watermarkIdleAfter, watermarkTick);
 
         feeds = new PluginSourceFeeds();
+        // TIME-4/W8-11. Without this the server has no way to switch the dead-letter path on, so
+        // every node ran the unguarded one: a single undecodable field ended the poll and stopped
+        // the source, taking every other row in the file with it, with the query still RUNNING and
+        // nothing in any log. `pravaha run --dlq` had this and a deployment did not.
+        dlqPath.ifPresent(directory -> {
+            feeds.deadLetteringTo(directory);
+            log.info("dead-lettering undecodable records to {} (pravaha.dlq.directory)", directory);
+        });
         sources.toBindings().forEach(binding -> feeds.bind(withDeclaredEventTime(binding)));
         registry.feedingFrom(feeds);
 

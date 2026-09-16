@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **295 findings carrying a
-status — 149 FIXED, 131 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 131 open, **5 are
-GA-BLOCKER, 23 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 154 FIXED, 126 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 126 open, **2 are
+GA-BLOCKER, 21 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -54,8 +54,8 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 5 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 23 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-REQUIRED** | 21 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -68,7 +68,8 @@ literal that compiled to `Infinity`.) (`TY-21` and `I-3` are **fixed** — and b
 been written down as correct somewhere: `win067` expected a total of 28 where the right answer is
 31, and three lifecycle cases asserted the sharing defect as intended behaviour.) Silent loss: `TIME-4` alone — `TY-2` and `W-2` are **fixed**. (`TIME-1` is **fixed**; `TIME-4` was attempted and
 reverted — the skip needs a cancel path on `RowInbox` or a server DLQ key, not a change to the
-reader.) Declared and does nothing: `I-6`, `S-3`.
+reader.) Declared and does nothing: none left — `I-6` and `S-3` now refuse
+rather than pretend (ADR-038).
 
 **`SX-11`, the worst of them, is fixed.** Authorization was keyed on the *registered view name*,
 never on what the query actually reads, so a principal denied everything named "payroll" saw 6 of 8
@@ -569,8 +570,7 @@ boundary) was identified this round but not yet reduced to a test — it is the 
 in `docs/qa/logs/WIN.md`, and would extend this finding with a second, independent reproduction.
 
 ## I-6 (HIGH) — three of the four read-consistency modes never leave the client
-> **Status:** OPEN — `ViewQuery.run` still reads only `view.scan()`; `ServedView.get(Consistency, …)` has no caller outside tests; `LifeReadConsistencyTest` (13/13 pass) states in its own docstring that every read is CONSISTENT regardless of what was requested
-> **Disposition:** GA-BLOCKER — three of four consistency modes are API surface with nothing behind them
+> **Status:** FIXED — `ClientOptions.build()` refuses `LATEST`, `AT_LEAST` and `AS_OF`, naming `CONSISTENT` as what the server implements. Refused rather than implemented, per ADR-038: wiring the modes through the Flight surface is roadmap work, and until then a client asking for `LATEST` and being served committed-only has no way to discover it. An answer nobody can tell is wrong is the worst kind this system produces. `ClientOptionsTest` +2; the pre-existing `overridesApply` used `LATEST` as a sample override and now uses `CONSISTENT`, since its subject is the builder rather than which modes exist.
 
 
 `ViewQuery.run` reads `view.scan()` — committed state only — and stamps `writer.weight(1L)`.
@@ -1060,8 +1060,7 @@ principal it refuses everything under any policy that inspects roles or tenant. 
 branch is unreachable, and `PRV-8007` is declared and never thrown.
 
 ## S-3 (HIGH) — `PARTITIONED` has no runtime behaviour at all
-> **Status:** OPEN — `PartitionAssignment`/`Rebalancer`/`PartitionHandoff` (pravaha-cluster) are still never referenced from `pravaha-server`/`PravahaNode`; `PravahaNode`'s `clusterConfiguration` builder still only sets `pravaha.cluster.mode`/`mechanism`, never forwarding any `socket.*`/`zookeeper.*` key; `StateClusterTest` itself asserts results are identical under PARTITIONED vs SINGLE
-> **Disposition:** GA-BLOCKER — PARTITIONED is accepted and does nothing at all
+> **Status:** FIXED — `CoordinatorFactory` refuses `PARTITIONED` outright, naming ADR-034 and what to use instead. Only `PARTITIONED` × `socket` was refused before, for split-brain, which made that look like the guard — `PARTITIONED` × `single` **started, reported itself partitioned, and partitioned nothing**. Refused rather than implemented (ADR-038): a mode that reports success and does nothing is worse than one that refuses, because only the second tells the operator what they actually have.
 
 
 Only `PARTITIONED` × `socket` is refused (`PRV-9002`). `PARTITIONED` × `single` **starts** — and
@@ -2894,8 +2893,7 @@ safe and nowhere else. Small, and not done here because it is a different module
 change and would have hidden inside it.
 
 ## SX-12 (HIGH) — a legitimately secure configuration (`authentication=token` + `policy=permissive` + a real token table + `allow-anonymous=false`) refuses to start at all, and its refusal message misattributes the cause
-> **Status:** OPEN — `PravahaNode.refuseAccidentalOpenServer` still computes `open` from `!(securityPolicy() instanceof AuthenticatedOnlyPolicy)` alone, ignoring `authentication`/token config, and the refusal message still hardcodes `pravaha.security.authentication=none` regardless of the real configuration.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — the same defect as CFG-9, found from the security side rather than the configuration side. `refuseAccidentalOpenServer` now asks both halves of the question it exists to answer: can an unauthenticated caller get in (`!authenticates() || allowAnonymous`), **and** does the policy hand them everything. It was computed from the policy alone, so `authentication=token` + a real token table + `policy=permissive` + `allow-anonymous=false` — where `BearerTokenFilter` refuses every unauthenticated caller — could not start, and the only way to start it was `allow-anonymous=true`, which is a lie about the node. **An operator following the message would have made a secure deployment less secure to get it to boot.** The message also hard-coded `authentication=none` whatever was configured, misattributing the cause and suggesting a setting already in force; it now reports what is actually set. `ServerSecurityTest` +3, seed-proven by restoring the one-term predicate, which fails exactly the misfiring case and leaves the genuinely-open guard green.
 
 
 `PravahaNode.refuseAccidentalOpenServer()`'s "would this node serve an unauthenticated caller"
@@ -3691,8 +3689,11 @@ See `docs/qa/logs/CFG.md` (CFG-011, CFG-086, CFG-088, CFG-089, CFG-090, CFG-092)
 
 ### CFG-9 (HIGH) — `refuseAccidentalOpenServer` refuses a fully credentialled deployment and blames a setting the operator did not make
 
-> **Status:** OPEN — reproduced live: `policy: permissive` + `authentication: token` + a valid one-token table + `allow-anonymous: false` exits non-zero with `PRV-7002 this node is configured to accept unauthenticated callers and serve them every view (pravaha.security.authentication=none, policy=permissive)` — on a node whose `authentication` is `token`.
-> **Disposition:** GA-REQUIRED — assigned individually
+> **Status:** FIXED — `refuseAccidentalOpenServer` now asks both halves of the question it exists to answer: can an unauthenticated caller get in (`!authenticates() || allowAnonymous`), **and** does the policy hand them everything. It was computed from the policy alone, so `authentication=token` + a real token table + `policy=permissive` + `allow-anonymous=false` — where `BearerTokenFilter` refuses every unauthenticated caller — could not start, and the only way to start it was `allow-anonymous=true`, which is a lie about the node. **An operator following the message would have made a secure deployment less secure to get it to boot.** The message also hard-coded `authentication=none` whatever was configured, misattributing the cause and suggesting a setting already in force; it now reports what is actually set. `ServerSecurityTest` +3, seed-proven by restoring the one-term predicate, which fails exactly the misfiring case and leaves the genuinely-open guard green.
+
+**Worth noting how it got here.** The comment this replaces records a previous correction: an earlier
+version required authentication to be off entirely, which made `allow-anonymous` dead under `token`.
+One term kept failing in one direction or the other, which is the signal the question needed two.
 
 `PravahaNode.java:174` now computes `open` as `!(securityPolicy() instanceof
 AuthenticatedOnlyPolicy)`, so the guard fires on **any** non-`authenticated` policy regardless of
@@ -4158,8 +4159,7 @@ query that is ingesting perfectly emits nothing for ever (TIME-035, TIME-037).
 
 ### TIME-4 (MEDIUM-HIGH) — one unparseable field reduces a source to zero rows, with no log line anywhere
 
-> **Status:** OPEN — **attempted and reverted on 2026-09-15, and the attempt found the real blocker.** Skipping the bad line needs `writer.abort()`, and on the no-DLQ path `DelegatingRowWriter.refuseAbort` throws `UnsupportedOperationException`: "a plugin aborted a row mid-write, which the ingest path cannot yet undo — the claimed inbox cell would stay unpublished and stall this lane". So the skip produced a *worse* failure than the one it replaced, and hid the decode message behind a "report this" that named nothing useful — which is precisely what the code comment there already warned would happen.
-> **Disposition:** GA-BLOCKER — one unparseable field takes a source to zero rows with no log line
+> **Status:** FIXED — `pravaha.dlq.directory` exists on the server, so the guarded path that already worked is now the one a node can take. The mechanism was never missing: `pravaha run --dlq` had it and a deployment did not, which is the wrong way round. With the key unset the behaviour is unchanged and deliberately so — without somewhere durable to put a record, "keep going" is just "drop it", and failing loudly is the better of those two. If the key is set and the directory is unwritable the node refuses to start (`PRV-4090`) rather than running without the queue, which would be the behaviour the operator configured it to avoid. **This is my third approach to TIME-4**: the first was a workaround inside `FilesystemPartitionReader` that the code comment there explicitly forbade and that produced a worse error than the defect; it was reverted. The register recorded the two real options, and this is the smaller of them.
 
 Setup: `$QA/conf/t017.yaml`, `ev` bound to `evNull.csv` with
 `schema: "id:INT64,usr:STRING,amount:INT64,event_time:TIMESTAMP"` and `event-time: event_time`.

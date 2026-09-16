@@ -60,6 +60,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
 
     private final Map<String, SourceBinding> bindings = new ConcurrentHashMap<>();
     private final BackpressurePolicy policy;
+    private volatile java.nio.file.Path deadLetterDirectory;
 
     public PluginSourceFeeds() {
         this(BackpressurePolicy.defaults());
@@ -67,6 +68,23 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
 
     public PluginSourceFeeds(BackpressurePolicy policy) {
         this.policy = policy == null ? BackpressurePolicy.defaults() : policy;
+    }
+
+    /**
+     * Sends records this node cannot decode to a file under {@code directory}, one per query.
+     *
+     * <p>TIME-4/W8-11. The dead-letter path already existed and already worked; a server had no key
+     * to switch it on, so every node took the unguarded path -- where a decode failure ends the poll
+     * and stops the source, taking every other row in the file with it. `pravaha run --dlq` had
+     * this and a deployment did not, which is the wrong way round.
+     *
+     * <p>Null or unset leaves the old behaviour exactly as it was, and that is deliberate: without
+     * somewhere durable to put a record, "keep going" is just "drop it", and failing loudly is the
+     * better of those two.
+     */
+    public PluginSourceFeeds deadLetteringTo(java.nio.file.Path directory) {
+        this.deadLetterDirectory = directory;
+        return this;
     }
 
     /**
@@ -134,7 +152,10 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     // Lane 0: a registered query is compiled onto one lane today. When that
                     // changes, the partition index is what chooses the lane -- it is already the
                     // unit the source split itself into.
-                    pumps.add(execution.pumpInto(0, stream, reader, policy));
+                    com.ash.messaging.pravaha.runtime.ingest.IngestPump pump =
+                            execution.pumpInto(0, stream, reader, policy);
+                    attachDeadLetters(pump, queryName, resources);
+                    pumps.add(pump);
                 }
             }
         } catch (RuntimeException e) {
@@ -225,6 +246,35 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 .append("), "));
         text.setLength(text.length() - 2);
         return text.toString();
+    }
+
+    /** Gives one pump a dead-letter file, when a directory is configured. */
+    private void attachDeadLetters(
+            com.ash.messaging.pravaha.runtime.ingest.IngestPump pump, String queryName, List<AutoCloseable> resources) {
+        java.nio.file.Path directory = deadLetterDirectory;
+        if (directory == null) {
+            return;
+        }
+        try {
+            java.nio.file.Files.createDirectories(directory);
+            // One file per query, named for it: a shared file would make "which query rejected
+            // this" a question you answer by reading, and the queryId is already on every entry.
+            java.nio.file.Path file = directory.resolve(queryName + ".dlq");
+            com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue queue =
+                    new com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue(file);
+            resources.add(queue);
+            pump.deadLetteringTo(queue, queryName);
+        } catch (java.io.IOException | RuntimeException cannot) {
+            // Refused rather than degraded. An operator who set pravaha.dlq.directory asked for
+            // records to be kept; carrying on without one would silently give them the behaviour
+            // they were trying to leave, which is the failure this whole finding is about.
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.state.StateErrors.DLQ_UNUSABLE,
+                    "pravaha.dlq.directory is " + directory + " and this node cannot write there: "
+                            + cannot.getMessage() + ". Fix the path or unset the key -- starting without the "
+                            + "queue would give you the behaviour you configured it to avoid.",
+                    cannot);
+        }
     }
 
     private static void closeQuietly(List<? extends AutoCloseable> resources) {

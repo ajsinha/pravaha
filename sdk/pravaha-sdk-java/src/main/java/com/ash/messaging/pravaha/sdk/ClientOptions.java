@@ -200,6 +200,25 @@ public final class ClientOptions {
                                 + "the connection is loopback or TLS ends at a local sidecar",
                         false);
             }
+            // I-6. LATEST, AT_LEAST and AS_OF are API surface with nothing behind them: ViewQuery
+            // reads view.scan() -- committed state only -- and ServedView.get(Consistency, ...) has
+            // no transport caller at all. A client setting one of them was silently served
+            // CONSISTENT, which is a different answer from the one it asked for.
+            //
+            // Refused rather than implemented. Wiring the modes through the Flight surface is real
+            // work, and until it is done a refusal is the only honest response: a caller who asked
+            // for LATEST and got committed-only has no way to discover that, and an answer nobody
+            // can tell is wrong is the worst kind this system produces.
+            if (defaultConsistency != Consistency.CONSISTENT) {
+                throw new PravahaClientException(
+                        INVALID,
+                        "consistency " + defaultConsistency + " is declared by this SDK and not implemented "
+                                + "by the server: reads are served from committed state, which is CONSISTENT. "
+                                + "Asking for " + defaultConsistency + " and being given CONSISTENT would be a "
+                                + "different answer than the one requested, with nothing to tell you so. Use "
+                                + "CONSISTENT until the other modes reach the wire (I-6).",
+                        false);
+            }
             return new ClientOptions(this);
         }
 

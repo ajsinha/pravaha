@@ -25,9 +25,15 @@
 
 ---
 
-> **Project status: Wave 9 of 11 — an engine, a client protocol, an operator console, a node that
-> survives its own restart, and a node whose thread and memory cost stops following its query count.
-> No clustering.**
+> **Project status: Wave 9 of 11, heading for a one-node GA — an engine, a client protocol, an
+> operator console, a node that survives its own restart, and a node whose thread and memory cost
+> stops following its query count. No clustering.**
+>
+> [ADR-038](docs/adr/038-one-node-ga.md) cuts waves 10 and 11 to what a single deployable node
+> requires: the findings dispositioned GA-REQUIRED, and the two gate proofs that are missing rather
+> than failed. The time-travel debugger, the control plane, self-tuning, Nexmark and all of
+> distribution are roadmap, and named there so nobody has to guess whether they were decided or
+> forgotten.
 >
 > Written as *what is true now* rather than as a history of waves. The wave-by-wave version of this
 > section said "no UI" nine lines above a paragraph describing the console, and listed watermark

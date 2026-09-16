@@ -263,4 +263,59 @@ class ServerSecurityTest {
                         + "identity: refusing is visible, inventing is not")
                 .isEmpty();
     }
+
+    @Test
+    void aTokenAuthenticatedNodeWithAPermissivePolicyStarts() {
+        // CFG-9/SX-12. authentication=token + a real token table + policy=permissive +
+        // allow-anonymous=false is the posture an operator sets out to configure: every
+        // unauthenticated caller is refused a 401 by BearerTokenFilter, and authenticated ones see
+        // what the policy allows. It could not start.
+        //
+        // The guard computed "is this node open" from the policy type alone, so any non-authenticated
+        // policy tripped it however the node authenticated -- and the only way to start was
+        // allow-anonymous=true, which is a lie about the node. An operator following the message
+        // would have made a secure deployment less secure to get it to boot.
+        SecurityProperties security = new SecurityProperties();
+        security.setAuthentication("token");
+        security.setPolicy("permissive");
+        security.setAllowAnonymous(false);
+        SecurityProperties.TokenSpec ann = new SecurityProperties.TokenSpec();
+        ann.setId("ann");
+        security.setTokens(Map.of("ann-token", ann));
+
+        PravahaNode node = nodeWithFlight(security);
+        assertThatCode(node::start)
+                .as("a node that refuses every unauthenticated caller is not an open server")
+                .doesNotThrowAnyException();
+        node.stop();
+    }
+
+    @Test
+    void aGenuinelyOpenNodeIsStillRefused() {
+        // The property the fix must not cost, and the whole reason the guard exists: no
+        // authentication at all plus a policy that serves everything is an open server, and it must
+        // not start unless somebody said so on purpose.
+        SecurityProperties security = new SecurityProperties();
+        security.setAuthentication("none");
+        security.setPolicy("permissive");
+        security.setAllowAnonymous(false);
+
+        assertThatThrownBy(() -> nodeWithFlight(security).start())
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-7002")
+                .hasMessageContaining("unauthenticated");
+    }
+
+    @Test
+    void theRefusalReportsTheAuthenticationSettingActuallyInForce() {
+        // The message hard-coded "pravaha.security.authentication=none" whatever was configured, so
+        // on the misfiring case it misattributed the cause and its first suggested remedy was a
+        // setting already in force.
+        SecurityProperties security = new SecurityProperties();
+        security.setAuthentication("none");
+        security.setPolicy("permissive");
+        security.setAllowAnonymous(false);
+
+        assertThatThrownBy(() -> nodeWithFlight(security).start()).hasMessageContaining("authentication=none");
+    }
 }
