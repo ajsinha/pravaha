@@ -25,9 +25,9 @@
 
 ---
 
-> **Project status: Wave 9 of 11, heading for a one-node GA — an engine, a client protocol, an
-> operator console, a node that survives its own restart, and a node whose thread and memory cost
-> stops following its query count. No clustering.**
+> **Project status: Wave 9 of 11. An engine, a client protocol, an operator console, a node that
+> survives its own restart, and a node whose thread and memory cost stops following its query count.
+> Clustering is not built — and it is now inside GA rather than after it.**
 >
 > [ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) sets the road to GA: the seven
 > known gaps below, then cluster mode, then GA. It supersedes ADR-038, which cut GA to a single node
@@ -412,10 +412,17 @@ operator console is its own artefact in [`console`](console).
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built · console included |
 | 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ✅ built · gate P7 pack not written |
 | 9 | — | One node, thousands of queries — lane multiplexing onto shared threads, a shared clock, arena and inbox sizing, an Aerospike scan interval, state you can watch approach its ceiling ([ADR-036](docs/adr/036-one-node-thousands-of-queries.md), [ADR-037](docs/adr/037-state-that-degrades-instead-of-dying.md)) | ✅ built · no gate pack |
-| 10–11 | 46–62 | Time-travel debugger, Nexmark published head-to-head, **GA** | ▫️ not started |
+| 10–11 | 46–62 | **Redefined twice, and now holds less.** [ADR-038](docs/adr/038-one-node-ga.md) moved the time-travel debugger and the Nexmark head-to-head out to the roadmap; [ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) superseded it, so what stands between here and **GA** is the seven known gaps above, then cluster mode | ▫️ not started |
 
-Waves 1–7 are merged to `main` at tag `M7`; Waves 8 and 9 are on `develop` and not yet merged or
-tagged. **Wave 9 was inserted by [ADR-036](docs/adr/036-one-node-thousands-of-queries.md)** ahead of
+Waves 1–7 are complete and the gap work above is **not** wave 10 — it is the unfinished part of
+waves 8 and 9 (`W8-12`, `W8-13`, `W9-8`), which is why the wave counter still reads 9 while
+[ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 1 is closed and item 5 is
+half closed.
+
+`main` and `develop` are the **same commit**: the drill after every piece of work is to push
+`develop` and then fast-forward `main`, so `main` is no longer a wave behind. It carries 316 commits
+past `M7`, which is the newest tag — waves 8 and 9 are merged but **not tagged**, and that is the
+part of the old sentence that is still true. **Wave 9 was inserted by [ADR-036](docs/adr/036-one-node-thousands-of-queries.md)** ahead of
 the control-plane and GA waves, which keep their content and their week estimates and move down by
 one — its own length was never estimated, which is why its Weeks cell is empty rather than invented.
 "Built" means the code is there and tested; it does not mean a performance gate passed, and
