@@ -95,12 +95,25 @@
 
 ### What cannot be measured here
 
-**Gates P2 and P3 are blocked on hardware, not code.** The throughput and scaling figures need 16
-physical homogeneous cores; the development machine is a 12-core heterogeneous laptop part. The
-evidence packs in [`docs/gates`](docs/gates/) say exactly what is and is not measurable, and no
-number from this machine is quoted as if it were. The Aerospike edition question in
-[Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has procurement lead time and
-is worth settling early.
+**Gates P2 and P3 are blocked on hardware, not code.** Their figures — 1.2 M rec/s per lane, ≥ 90 %
+scaling from one lane to eight — need 16 physical homogeneous cores; the development machine is a
+12-core heterogeneous laptop part. The evidence packs in [`docs/gates`](docs/gates/) say exactly what
+is and is not measurable, and no number from this machine is quoted as if it were. The Aerospike
+edition question in [Appendix B](docs/system_design.md#appendix-b--immediate-next-steps) has
+procurement lead time and is worth settling early.
+
+**Those figures are aspirations, not requirements** ([ADR-042](docs/adr/042-the-throughput-bar-is-the-requirement.md)).
+The workload this engine exists for needs on the order of **1,000 rows per second**, because it
+maintains answers to registered questions rather than moving bulk data. So the gates' throughput
+criteria are restated against the requirement — which is the opposite of the thing the next paragraph
+forbids, and both figures are kept so the move is visible rather than quiet. P2 and P3 keep their
+original criteria and their unmeasured verdict; they are a performance claim to substantiate when
+hardware exists, not a thing a release waits on.
+
+For scale, the same laptop already measures the **lane machinery at 21 M rows/s** — roughly
+seventeen thousand times the requirement. What has never been measured is Profile A's end-to-end rate
+under P2's conditions, and a restated bar still has to be *measured* before anything is called
+passed.
 
 What Wave 9 *can* report is a **cost per query** — threads, off-heap bytes, file descriptors,
 registration time — which is a count rather than a rate and is measured by `NodeScaleTest` and
