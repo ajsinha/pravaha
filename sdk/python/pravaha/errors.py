@@ -38,3 +38,16 @@ class InvalidOptionsError(PravahaError):
 
     def __init__(self, message: str) -> None:
         super().__init__(1031, message)
+
+
+class InvalidTlsOptionsError(PravahaError):
+    """TLS options are inconsistent -- a certificate without its key, both PEM and a keystore
+    configured together, or disabled hostname verification combined with certificate material.
+
+    A distinct code from ``InvalidOptionsError``, matching the Java SDK's
+    ``TlsOptions``-specific ``PRV-1032`` rather than the general ``PRV-1031``: a team running
+    both languages should find one page per code, not two meanings behind one.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(1032, message)

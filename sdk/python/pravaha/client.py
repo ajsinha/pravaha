@@ -31,6 +31,7 @@ from typing import Any, Iterator, Optional, Sequence
 from pravaha.endpoint import Endpoint
 from pravaha.errors import PravahaError
 from pravaha.options import ClientOptions
+from pravaha.tls import TlsOptions
 
 try:  # pragma: no cover - exercised by the import-error path, not by the happy one
     import pyarrow.flight as _flight
@@ -41,6 +42,45 @@ except ImportError as exc:  # pragma: no cover
         "It is optional because a client is installed into somebody else's environment, "
         "and every pin it adds is one their resolver has to reconcile."
     ) from exc
+
+
+def _flight_client_tls_kwargs(tls: TlsOptions) -> dict:
+    """Translates ``TlsOptions`` into the keyword arguments ``pyarrow.flight.FlightClient`` takes.
+
+    ``FlightClient`` accepts only PEM bytes -- ``tls_root_certs``, ``cert_chain``,
+    ``private_key`` -- with no keystore API of its own. A keystore is bridged to those
+    bytes by :mod:`pravaha._keystore`, imported lazily here so that a client never
+    touching a keystore never needs the ``cryptography`` package that bridge uses.
+    """
+    kwargs: dict = {}
+    if tls.ca_certificate is not None:
+        kwargs["tls_root_certs"] = tls.ca_certificate.read_bytes()
+    elif tls.trust_store is not None:
+        from pravaha._keystore import trusted_certificates_pem
+
+        kwargs["tls_root_certs"] = trusted_certificates_pem(
+            tls.trust_store, tls.trust_store_password or "", tls.trust_store_type
+        )
+    if tls.client_certificate is not None:
+        # client_key is guaranteed present too: TlsOptions refuses one without the other.
+        kwargs["cert_chain"] = tls.client_certificate.read_bytes()
+        kwargs["private_key"] = tls.client_key.read_bytes()
+    elif tls.key_store is not None:
+        from pravaha._keystore import client_certificate_and_key_pem
+
+        cert_pem, key_pem = client_certificate_and_key_pem(
+            tls.key_store, tls.key_store_password or "", tls.key_store_type
+        )
+        kwargs["cert_chain"] = cert_pem
+        kwargs["private_key"] = key_pem
+    if tls.override_hostname is not None:
+        kwargs["override_hostname"] = tls.override_hostname
+    if tls.disable_hostname_verification:
+        # pyarrow's own name for "disable all server verification". TlsOptions refuses
+        # combining this with certificate material, mirroring the Java SDK, so this is
+        # never reached alongside tls_root_certs/cert_chain/private_key above.
+        kwargs["disable_server_verification"] = True
+    return kwargs
 
 
 class QueryError(PravahaError):
@@ -269,8 +309,9 @@ class Client:
             if options.token
             else _flight.FlightCallOptions()
         )
+        kwargs = _flight_client_tls_kwargs(options.tls) if options.endpoint.tls else {}
         try:
-            self._client = _flight.FlightClient(self._uri)
+            self._client = _flight.FlightClient(self._uri, **kwargs)
         except Exception as exc:  # pragma: no cover - network failure shape varies
             raise ConnectError(f"cannot connect to {self._uri}: {exc}") from exc
 

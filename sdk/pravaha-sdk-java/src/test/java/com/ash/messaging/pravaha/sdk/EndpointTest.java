@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.sdk;
 
+import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -94,5 +96,54 @@ class EndpointTest {
                 .hasSameHashCodeAs(Endpoint.parse("grpc://a:1"));
         assertThat(Endpoint.parse("grpc://a:1")).isNotEqualTo(Endpoint.parse("grpc+tls://a:1"));
         assertThat(Endpoint.parse("grpc://a:1")).isNotEqualTo("not an endpoint");
+    }
+
+    @Test
+    void fromConfigPrefersAFullConnectionStringOverHostsAndTlsEnabled() {
+        // The scheme in 'endpoint' already answers the TLS question explicitly; tls.enabled is not
+        // even consulted, let alone allowed to override it.
+        Endpoint e = Endpoint.fromConfig(Map.of("endpoint", "grpc://a:1", "tls.enabled", "true"));
+        assertThat(e.tls()).isFalse();
+    }
+
+    @Test
+    void fromConfigWithHostsAndExplicitTlsEnabledFalseStaysPlaintextEvenWithCertMaterialPresent() {
+        // This is the rule the owner corrected in the connector loader's PluginTls: an explicit
+        // tls.enabled must win in both directions, never be overridden by inferring "on" from a
+        // leftover certificate setting.
+        Endpoint e = Endpoint.fromConfig(
+                Map.of("hosts", "a:1", "tls.enabled", "false", "tls.ca-certificate", "/tmp/ca.pem"));
+        assertThat(e.tls()).isFalse();
+    }
+
+    @Test
+    void fromConfigWithHostsAndExplicitTlsEnabledTrueTurnsTlsOnWithNoCertMaterialAtAll() {
+        Endpoint e = Endpoint.fromConfig(Map.of("hosts", "a:1", "tls.enabled", "true"));
+        assertThat(e.tls()).isTrue();
+    }
+
+    @Test
+    void fromConfigWithHostsAndNoTlsEnabledInfersTlsFromCertMaterial() {
+        Endpoint withMaterial = Endpoint.fromConfig(Map.of("hosts", "a:1", "tls.trust-store", "/tmp/ts.jks"));
+        assertThat(withMaterial.tls()).isTrue();
+
+        // Unlike parse("a:1"), which assumes TLS when a scheme is simply omitted, the "hosts" form
+        // mirrors PluginTls's inference rule: nothing said at all means TLS was not asked for.
+        Endpoint withoutMaterial = Endpoint.fromConfig(Map.of("hosts", "a:1"));
+        assertThat(withoutMaterial.tls()).isFalse();
+    }
+
+    @Test
+    void fromConfigRequiresEitherEndpointOrHosts() {
+        assertThatThrownBy(() -> Endpoint.fromConfig(Map.of("token", "x")))
+                .isInstanceOf(PravahaClientException.class)
+                .hasMessageContaining("neither 'endpoint' nor 'hosts'");
+    }
+
+    @Test
+    void fromConfigRejectsATlsEnabledValueThatIsNeitherTrueNorFalse() {
+        assertThatThrownBy(() -> Endpoint.fromConfig(Map.of("hosts", "a:1", "tls.enabled", "maybe")))
+                .isInstanceOf(PravahaClientException.class)
+                .hasMessageContaining("neither true nor false");
     }
 }

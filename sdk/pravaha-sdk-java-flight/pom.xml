@@ -30,6 +30,30 @@
       <artifactId>arrow-memory-netty</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!--
+      Without this, TLS never actually works: gRPC's Netty transport wires an SSL engine through
+      netty-tcnative-boringssl-static (already on the classpath via grpc-netty), and that wiring
+      reaches into io.netty.channel.unix.UnixChannel regardless of whether a Unix socket is in
+      use. Absent this artifact the failure is NoClassDefFoundError during channel setup on
+      either side of a real TLS handshake, server or client, surfacing to a caller as a generic,
+      unhelpful "io exception" with no indication that a jar is missing. Found only by actually
+      connecting a client to a TLS server: every TLS test that existed before this one checked
+      configuration validation (readable files, both halves present) and never started a server,
+      so the gap had no way to be seen.
+
+      The version is 4.2.9.Final, not the 4.1.130.Final most of grpc-netty's own transitive Netty
+      artifacts resolve to; requireUpperBoundDeps is what caught the difference. Arrow's own
+      flight-core already pulls netty-handler:4.2.9.Final, so the tree already spans two Netty
+      lines before this dependency is added; this one has to match the higher of the two or the
+      enforcer refuses the build, and matching the higher is the correct choice regardless: a
+      dependency compiled against the newer API must not find the older class on the classpath.
+    -->
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport-native-unix-common</artifactId>
+      <version>4.2.9.Final</version>
+      <scope>runtime</scope>
+    </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-security</artifactId>
@@ -70,6 +94,29 @@
         <configuration>
           <argLine>@{jacoco.surefire.argLine} -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED</argLine>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <!--
+              Same mechanism pravaha-flight's own pom uses for the Python SDK's plaintext
+              cross-language test: writes this module's test classpath to a file so a Python
+              test can start TestTlsFlightServerMain, the real PravahaFlightServer with real
+              TLS, rather than a Python imitation of it.
+            -->
+            <id>write-test-classpath</id>
+            <goals>
+              <goal>build-classpath</goal>
+            </goals>
+            <phase>test-compile</phase>
+            <configuration>
+              <outputFile>${project.build.directory}/test-classpath.txt</outputFile>
+              <includeScope>test</includeScope>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

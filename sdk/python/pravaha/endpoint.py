@@ -7,7 +7,7 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence, Tuple
+from typing import Mapping, Sequence, Tuple
 
 from pravaha.errors import MalformedEndpointError
 
@@ -86,6 +86,46 @@ class Endpoint:
         scheme = "grpc+tls" if self.tls else "grpc"
         return f"{scheme}://" + ",".join(str(n) for n in self.nodes)
 
+    @staticmethod
+    def from_config(config: Mapping[str, str]) -> "Endpoint":
+        """Builds an endpoint from a config map, so an operator can turn TLS on or off by
+        editing a file rather than a connection string embedded in code.
+
+        Two forms, checked in this order:
+
+        * ``endpoint`` -- a full connection string (``grpc://host:port`` or
+          ``grpc+tls://host:port,...``). Its own scheme decides TLS, exactly as
+          :meth:`parse` always has; ``tls.enabled`` is not consulted, because the operator
+          already wrote the answer explicitly in the scheme.
+        * ``hosts`` -- a bare comma-separated ``host:port`` list, no scheme. TLS is then
+          decided by ``tls.enabled`` (``"true"``/``"false"``) if present. If it is absent,
+          TLS is inferred from whether any certificate-material key (``tls.ca-certificate``,
+          ``tls.client-certificate``, ``tls.client-key``, ``tls.trust-store``,
+          ``tls.key-store``) is set, and defaults to ``False`` when none of that is present
+          either -- deliberately not :meth:`parse`'s own "scheme omitted, TLS assumed"
+          default for a bare connection string: ``hosts`` exists specifically to mirror the
+          connector loader's ``PluginTls`` inference rule, where an operator who supplied
+          nothing at all has not asked for TLS.
+
+        **``tls.enabled``, when present, decides in both directions and is never overridden
+        by inference.** Setting ``tls.ca-certificate`` does not switch TLS on behind an
+        explicit ``tls.enabled=false`` -- the endpoint stays plaintext, and
+        ``TlsOptions.from_config``'s own material is then refused by ``ClientOptions``'s
+        constructor as certificate material configured for a plaintext endpoint, loudly,
+        rather than the certificate being silently dropped or TLS being silently turned
+        back on. This is the same rule the connector loader and the Java SDK's
+        ``Endpoint.fromConfig`` enforce, so the three configuration surfaces cannot
+        disagree about what an explicit ``tls.enabled`` means.
+        """
+        full = config.get("endpoint")
+        if full:
+            return Endpoint.parse(full)
+        hosts = config.get("hosts")
+        if not hosts:
+            raise _malformed("<config>", "neither 'endpoint' nor 'hosts' is set")
+        tls = _resolve_tls(config)
+        return Endpoint.parse(("grpc+tls://" if tls else "grpc://") + hosts)
+
 
 def _parse_host_port(original: str, text: str) -> HostPort:
     if not text:
@@ -102,6 +142,27 @@ def _parse_host_port(original: str, text: str) -> HostPort:
     if not 1 <= port <= 65535:
         raise _malformed(original, f"port {port} is outside 1-65535")
     return HostPort(host, port)
+
+
+def _resolve_tls(config: Mapping[str, str]) -> bool:
+    enabled = config.get("tls.enabled")
+    if enabled:
+        lowered = enabled.strip().lower()
+        if lowered in ("true", "1", "yes"):
+            return True
+        if lowered in ("false", "0", "no"):
+            return False
+        raise _malformed("<config>", f"tls.enabled='{enabled}' is neither true nor false")
+    # No explicit answer: infer from whatever certificate material was configured, the same
+    # way PluginTls infers enablement on the connector side when it too has no explicit
+    # tls.enabled to consult.
+    return bool(
+        config.get("tls.ca-certificate")
+        or config.get("tls.client-certificate")
+        or config.get("tls.client-key")
+        or config.get("tls.trust-store")
+        or config.get("tls.key-store")
+    )
 
 
 def _malformed(original: str, why: str) -> MalformedEndpointError:

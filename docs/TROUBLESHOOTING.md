@@ -271,10 +271,12 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-1026` | CONFIG_OUT_OF_RANGE | config |
 | `PRV-1030` | CLIENT_MALFORMED_ENDPOINT | client (SDK) |
 | `PRV-1031` | CLIENT_INVALID_OPTIONS | client (SDK) |
+| `PRV-1032` | CLIENT_INVALID_TLS_OPTIONS | client (SDK) |
 | `PRV-1040` | CLIENT_CONNECT_FAILED | client (SDK) |
 | `PRV-1041` | CLIENT_QUERY_REFUSED | client (SDK) |
 | `PRV-1042` | CLIENT_READ_FAILED | client (SDK) |
 | `PRV-1043` | CLIENT_CLOSED | client (SDK) |
+| `PRV-1044` | CLIENT_TLS_UNREADABLE | client (SDK) |
 | `PRV-2001` | SQL_PARSE_FAILED | sql |
 | `PRV-2002` | SQL_VALIDATION_FAILED | sql |
 | `PRV-2003` | SQL_UNKNOWN_STREAM | sql |

@@ -29,9 +29,24 @@ dependencies = []
 # no separate grpcio or protobuf pin for a resolver to argue with -- which is most of the
 # point of choosing a protocol whose client somebody else maintains.
 flight = ["pyarrow>=15.0.0"]
+# A JKS or PKCS12 keystore/truststore, for TLS. Separate from "flight" and lazily imported
+# by pravaha._keystore only when TlsOptions actually names a keystore: a client that only
+# ever configures PEM certificates -- the more universal case -- should not need this pin
+# at all. JKS itself needs a JDK's own keytool on the PATH to convert to PKCS12 first; that
+# is not a package pin, it is the same assumption the feature makes everywhere else --
+# keystore support is for a JVM shop, which already has one.
+tls-keystore = ["cryptography>=41.0.0"]
 # "build" is here because `./mvnw -Ppython verify` packages a wheel; without it the
 # reactor fails at the packaging step in an environment where every test passed.
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "mypy>=1.8", "ruff>=0.4", "pyarrow>=15.0.0", "build>=1.2"]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "mypy>=1.8",
+  "ruff>=0.4",
+  "pyarrow>=15.0.0",
+  "cryptography>=41.0.0",
+  "build>=1.2",
+]
 
 [project.urls]
 Homepage = "https://github.com/ajsinha/pravaha"

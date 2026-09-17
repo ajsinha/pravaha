@@ -12,8 +12,14 @@ environment should not drag pyarrow in unless it is going to talk to a server.
 
 from pravaha.consistency import Consistency
 from pravaha.endpoint import Endpoint, HostPort
-from pravaha.errors import PravahaError, MalformedEndpointError, InvalidOptionsError
+from pravaha.errors import (
+    PravahaError,
+    MalformedEndpointError,
+    InvalidOptionsError,
+    InvalidTlsOptionsError,
+)
 from pravaha.options import ClientOptions
+from pravaha.tls import TlsOptions
 
 
 
@@ -36,8 +42,10 @@ __all__ = [
     "Endpoint",
     "HostPort",
     "InvalidOptionsError",
+    "InvalidTlsOptionsError",
     "MalformedEndpointError",
     "PravahaError",
+    "TlsOptions",
 ]
 
 __version__ = "0.1.0"

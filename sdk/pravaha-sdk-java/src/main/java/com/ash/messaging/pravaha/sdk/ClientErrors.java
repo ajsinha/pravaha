@@ -38,6 +38,15 @@ public final class ClientErrors {
     public static final ErrorCode CLOSED = new ErrorCode(1043, "CLIENT_CLOSED");
 
     /**
+     * TLS material named in {@link TlsOptions} could not be read: a missing file, a wrong password,
+     * an alias this client did not expect. Distinct from {@link TlsOptions}'s own configuration
+     * refusals, which catch a nonsensical combination of settings before any file is opened -- this
+     * is what is left once the settings themselves were coherent and the filesystem or the store's
+     * own contents disagreed with them.
+     */
+    public static final ErrorCode TLS_UNREADABLE = new ErrorCode(1044, "CLIENT_TLS_UNREADABLE");
+
+    /**
      * The engine's own parameter-arity refusal, raised here because here is where it is noticed.
      *
      * <p>X-8. The server declares this as {@code SqlErrors.PARAMETER_ARITY} and

@@ -15,7 +15,9 @@
  */
 package com.ash.messaging.pravaha.sdk;
 
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -143,5 +145,102 @@ class ClientOptionsTest {
                         .build()
                         .defaultConsistency())
                 .isEqualTo(Consistency.CONSISTENT);
+    }
+
+    @Test
+    void defaultTlsOptionsAreCarriedThrough() {
+        ClientOptions o = ClientOptions.builder("grpc+tls://host:9090").build();
+        assertThat(o.tls().isDefault()).isTrue();
+    }
+
+    @Test
+    void tlsOptionsOnAPlaintextEndpointAreRefused() {
+        // Certificate material configured for a connection that will not use TLS at all is exactly
+        // the kind of setting that looks like it did something and did not.
+        TlsOptions tls =
+                TlsOptions.builder().caCertificate(Path.of("/tmp/ca.pem")).build();
+        assertThatThrownBy(
+                        () -> ClientOptions.builder("grpc://host:9090").tls(tls).build())
+                .isInstanceOf(PravahaClientException.class)
+                .hasMessageContaining("plaintext");
+    }
+
+    @Test
+    void defaultTlsOptionsOnAPlaintextEndpointAreFine() {
+        // The refusal above is about material that would silently do nothing, not about the mere
+        // presence of a tls(...) call -- passing TlsOptions.defaults() explicitly must not be
+        // punished the way configuring real material is.
+        assertThat(ClientOptions.builder("grpc://host:9090")
+                        .tls(TlsOptions.defaults())
+                        .build()
+                        .tls()
+                        .isDefault())
+                .isTrue();
+    }
+
+    @Test
+    void disablingHostnameVerificationOnATlsConnectionDoesNotAlsoWaiveTheTokenRefusal() {
+        // The two checks are independent -- Endpoint.tls() decides the token refusal, and hostname
+        // verification is a property of the TLS handshake itself -- so disabling one must not read as
+        // having disabled the other. On a real TLS endpoint, a token is fine either way.
+        TlsOptions insecureHostnameCheck =
+                TlsOptions.builder().disableHostnameVerificationInsecure(true).build();
+        assertThat(ClientOptions.builder("grpc+tls://host:9090")
+                        .tls(insecureHostnameCheck)
+                        .token("t")
+                        .build()
+                        .token())
+                .hasValue("t");
+    }
+
+    @Test
+    void disablingHostnameVerificationOnAPlaintextEndpointIsStillRefusedForBeingPlaintext() {
+        // Hostname verification only means anything once TLS is in use at all, so configuring it on
+        // a grpc:// endpoint is refused by the same "TLS options on a plaintext endpoint" check as
+        // any other TLS setting -- it does not open some separate path around the token refusal.
+        TlsOptions insecureHostnameCheck =
+                TlsOptions.builder().disableHostnameVerificationInsecure(true).build();
+        assertThatThrownBy(() -> ClientOptions.builder("grpc://host:9090")
+                        .tls(insecureHostnameCheck)
+                        .token("t")
+                        .build())
+                .isInstanceOf(PravahaClientException.class)
+                .hasMessageContaining("plaintext");
+    }
+
+    @Test
+    void fromConfigBuildsAFullyTlsConfiguredClientFromAPlainMapAloneNoCodeEdit() {
+        ClientOptions opts = ClientOptions.fromConfig(Map.of(
+                "hosts", "db01:9090",
+                "tls.enabled", "true",
+                "tls.trust-store", "/tmp/truststore.p12",
+                "tls.trust-store-password", "secret",
+                "tls.trust-store-type", "PKCS12",
+                "token", "t",
+                "application-name", "config-driven-app"));
+        assertThat(opts.endpoint().tls()).isTrue();
+        assertThat(opts.tls().trustStore()).contains(Path.of("/tmp/truststore.p12"));
+        assertThat(opts.token()).hasValue("t");
+        assertThat(opts.applicationName()).isEqualTo("config-driven-app");
+    }
+
+    @Test
+    void fromConfigWithTlsEnabledFalseTurnsTlsOffEvenWithLeftoverCertMaterial() {
+        assertThatThrownBy(() -> ClientOptions.fromConfig(
+                        Map.of("hosts", "db01:9090", "tls.enabled", "false", "tls.ca-certificate", "/tmp/ca.pem")))
+                // Endpoint stays plaintext (tls.enabled won), so the leftover cert material is then
+                // caught -- loudly, not silently dropped and not silently switching TLS back on -- by
+                // the ordinary "TLS options on a plaintext endpoint" refusal.
+                .isInstanceOf(PravahaClientException.class)
+                .hasMessageContaining("plaintext");
+    }
+
+    @Test
+    void applyConfigComposesWithDirectBuilderCallsLastCallWins() {
+        ClientOptions opts = ClientOptions.builder(Endpoint.parse("grpc://host:9090"))
+                .applyConfig(Map.of("application-name", "from-config"))
+                .applicationName("from-code")
+                .build();
+        assertThat(opts.applicationName()).isEqualTo("from-code");
     }
 }

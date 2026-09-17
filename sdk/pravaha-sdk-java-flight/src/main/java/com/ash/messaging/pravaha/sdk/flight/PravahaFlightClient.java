@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.sdk.flight;
 
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -40,6 +41,7 @@ import com.ash.messaging.pravaha.sdk.ClientErrors;
 import com.ash.messaging.pravaha.sdk.ClientOptions;
 import com.ash.messaging.pravaha.sdk.Endpoint;
 import com.ash.messaging.pravaha.sdk.PravahaClientException;
+import com.ash.messaging.pravaha.sdk.TlsOptions;
 
 /**
  * Asking Pravaha a question from Java.
@@ -162,7 +164,11 @@ public final class PravahaFlightClient implements AutoCloseable {
             Location location = options.endpoint().tls()
                     ? Location.forGrpcTls(node.host(), node.port())
                     : Location.forGrpcInsecure(node.host(), node.port());
-            FlightClient transport = FlightClient.builder(allocator, location).build();
+            FlightClient.Builder builder = FlightClient.builder(allocator, location);
+            if (options.endpoint().tls()) {
+                applyTls(builder, options.tls());
+            }
+            FlightClient transport = builder.build();
             return new PravahaFlightClient(
                     allocator,
                     ownsAllocator,
@@ -182,6 +188,48 @@ public final class PravahaFlightClient implements AutoCloseable {
                     true,
                     e);
         }
+    }
+
+    /**
+     * Applies {@link TlsOptions} to a Flight client builder, bridging a keystore to the PEM bytes
+     * the builder actually accepts when one was configured (see {@link KeystoreMaterial}).
+     *
+     * <p>Called only when {@code options.endpoint().tls()} -- TLS options on a plaintext endpoint are
+     * refused earlier, in {@link ClientOptions.Builder#build()}, so by the time this runs the two
+     * agree.
+     */
+    private static void applyTls(FlightClient.Builder builder, TlsOptions tls) {
+        try {
+            if (tls.caCertificate().isPresent()) {
+                builder.trustedCertificates(
+                        java.nio.file.Files.newInputStream(tls.caCertificate().get()));
+            } else if (tls.trustStore().isPresent()) {
+                builder.trustedCertificates(KeystoreMaterial.trustedCertificatesPem(
+                        tls.trustStore().get(), tls.trustStorePassword().orElse(null), tls.trustStoreType()));
+            }
+            if (tls.clientCertificate().isPresent()) {
+                // clientKey() is guaranteed present too: TlsOptions.Builder.build() refuses one
+                // without the other.
+                builder.clientCertificate(
+                        java.nio.file.Files.newInputStream(
+                                tls.clientCertificate().get()),
+                        java.nio.file.Files.newInputStream(tls.clientKey().get()));
+            } else if (tls.keyStore().isPresent()) {
+                InputStream[] certAndKey = KeystoreMaterial.clientCertificateAndKeyPem(
+                        tls.keyStore().get(), tls.keyStorePassword().orElse(null), tls.keyStoreType());
+                builder.clientCertificate(certAndKey[0], certAndKey[1]);
+            }
+        } catch (java.io.IOException e) {
+            throw new PravahaClientException(
+                    ClientErrors.TLS_UNREADABLE, "cannot read TLS material: " + e.getMessage(), false, e);
+        }
+        if (!tls.verifyHostname()) {
+            // Arrow's own name for "disable hostname/server verification". A separate, explicit
+            // TlsOptions method had to be called to reach this branch; nothing here would flip it
+            // on its own.
+            builder.verifyServer(false);
+        }
+        tls.overrideHostname().ifPresent(builder::overrideHostname);
     }
 
     /**

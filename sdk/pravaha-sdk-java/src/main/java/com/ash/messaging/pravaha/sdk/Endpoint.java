@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.sdk;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
@@ -105,6 +106,78 @@ public final class Endpoint {
             nodes.add(parseHostPort(connectionString, part.strip()));
         }
         return new Endpoint(nodes, tls);
+    }
+
+    /**
+     * Builds an endpoint from a config map, so an operator can turn TLS on or off by editing a
+     * file rather than a connection string embedded in code.
+     *
+     * <p>Two forms, checked in this order:
+     *
+     * <ul>
+     *   <li>{@code endpoint} -- a full connection string ({@code grpc://host:port} or {@code
+     *       grpc+tls://host:port,...}). Its own scheme decides TLS, exactly as {@link
+     *       #parse(String)} always has; {@code tls.enabled} is not consulted, because the operator
+     *       already wrote the answer explicitly in the scheme.
+     *   <li>{@code hosts} -- a bare comma-separated {@code host:port} list, no scheme. TLS is then
+     *       decided by {@code tls.enabled} ({@code "true"}/{@code "false"}) if present. If it is
+     *       absent, TLS is inferred from whether any certificate-material key ({@code
+     *       tls.ca-certificate}, {@code tls.client-certificate}, {@code tls.client-key}, {@code
+     *       tls.trust-store}, {@code tls.key-store}) is set, and defaults to {@code false} when
+     *       none of that is present either -- deliberately not the "scheme omitted, TLS assumed"
+     *       default {@link #parse(String)} uses for a bare connection string, because {@code
+     *       hosts} exists specifically to mirror {@code PluginTls}'s inference rule on the
+     *       connector side, where an operator who supplied nothing at all has not asked for TLS.
+     *       {@code endpoint} (the form above) keeps {@link #parse(String)}'s own default
+     *       unchanged; only this newer, config-map form follows the connector's convention.
+     * </ul>
+     *
+     * <p><strong>{@code tls.enabled}, when present, decides in both directions and is never
+     * overridden by inference.</strong> Setting {@code tls.ca-certificate} does not switch TLS on
+     * behind an explicit {@code tls.enabled=false} -- the endpoint stays plaintext, and {@link
+     * TlsOptions.Builder#applyConfig(Map)}'s own material would then be refused by {@link
+     * ClientOptions.Builder#build()} as certificate material configured for a plaintext endpoint,
+     * loudly, rather than the certificate being silently dropped or TLS being silently turned back
+     * on. This is the same rule the connector loader's {@code PluginTls} enforces, so the three
+     * configuration surfaces (connectors, server, SDK) cannot disagree about what an explicit
+     * {@code tls.enabled} means.
+     *
+     * @throws PravahaClientException if neither {@code endpoint} nor {@code hosts} is present, or
+     *     either is malformed
+     */
+    public static Endpoint fromConfig(Map<String, String> config) {
+        Objects.requireNonNull(config, "config");
+        String full = config.get("endpoint");
+        if (full != null && !full.isBlank()) {
+            return parse(full);
+        }
+        String hosts = config.get("hosts");
+        if (hosts == null || hosts.isBlank()) {
+            throw malformed("<config>", "neither 'endpoint' nor 'hosts' is set");
+        }
+        boolean tls = resolveTls(config);
+        return parse((tls ? "grpc+tls://" : "grpc://") + hosts);
+    }
+
+    private static boolean resolveTls(Map<String, String> config) {
+        String enabled = config.get("tls.enabled");
+        if (enabled != null && !enabled.isBlank()) {
+            if (SdkConfig.truthy(enabled)) {
+                return true;
+            }
+            if (SdkConfig.falsy(enabled)) {
+                return false;
+            }
+            throw malformed("<config>", "tls.enabled='" + enabled + "' is neither true nor false");
+        }
+        // No explicit answer: infer from whatever certificate material was configured, the same
+        // way PluginTls infers enablement on the connector side when it too has no explicit
+        // tls.enabled to consult.
+        return config.get("tls.ca-certificate") != null
+                || config.get("tls.client-certificate") != null
+                || config.get("tls.client-key") != null
+                || config.get("tls.trust-store") != null
+                || config.get("tls.key-store") != null;
     }
 
     private static HostPort parseHostPort(String original, String text) {

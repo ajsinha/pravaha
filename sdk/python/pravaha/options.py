@@ -7,11 +7,12 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Mapping, Optional, Union
 
 from pravaha.consistency import Consistency
 from pravaha.endpoint import Endpoint
 from pravaha.errors import InvalidOptionsError
+from pravaha.tls import TlsOptions
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,12 @@ class ClientOptions:
     #: host. Both are real; neither is the common case, which is why it has to be
     #: asked for by a name that says what is being given up.
     allow_insecure_token: bool = False
+    #: How this client verifies the server's certificate and, for mutual TLS, presents
+    #: its own. Configuring any real material here on a plaintext (``grpc://``) endpoint
+    #: is refused: the endpoint's own scheme decides whether TLS is used at all, and a
+    #: setting that looks like it did something and silently did not is exactly what
+    #: this class exists to refuse.
+    tls: TlsOptions = field(default_factory=TlsOptions)
 
     def __post_init__(self) -> None:
         if self.connect_timeout_seconds <= 0:
@@ -54,6 +61,13 @@ class ClientOptions:
             )
         if not self.application_name or not self.application_name.strip():
             raise InvalidOptionsError("application_name must not be blank")
+        if not self.endpoint.tls and not self.tls.is_default:
+            # Certificate material configured for a connection that will not use TLS at all --
+            # the endpoint's own scheme decides that, and this setting has no way to change it.
+            raise InvalidOptionsError(
+                f"TLS options were configured ({self.tls}) but the endpoint {self.endpoint} is "
+                "plaintext; use grpc+tls:// or remove the TLS options"
+            )
         if self.token is not None and not self.endpoint.tls and not self.allow_insecure_token:
             # Sending a bearer token over plaintext hands it to anyone on the path.
             # Refusing is less convenient than warning, and considerably safer.
@@ -68,6 +82,29 @@ class ClientOptions:
         """Builds options, accepting a connection string or a parsed endpoint."""
         parsed = Endpoint.parse(endpoint) if isinstance(endpoint, str) else endpoint
         return ClientOptions(endpoint=parsed, **kwargs)  # type: ignore[arg-type]
+
+    @staticmethod
+    def from_config(config: Mapping[str, str]) -> "ClientOptions":
+        """Builds options entirely from a config map -- the endpoint (including whether it is
+        TLS at all, via :meth:`Endpoint.from_config`), every TLS detail (via
+        :meth:`TlsOptions.from_config`), and the few other settings an operator commonly needs
+        to change without a recompile: ``token``, ``allow-insecure-token``
+        (``"true"``/``"false"``), and ``application-name``.
+
+        :func:`pravaha.config.layered` is how ``config`` itself typically gets built, so an
+        environment variable can override one key from a file without editing the file.
+        """
+        endpoint = Endpoint.from_config(config)
+        tls = TlsOptions.from_config(config)
+        kwargs: dict = {"tls": tls}
+        if config.get("token"):
+            kwargs["token"] = config["token"]
+        allow_insecure = config.get("allow-insecure-token")
+        if allow_insecure:
+            kwargs["allow_insecure_token"] = allow_insecure.strip().lower() in ("true", "1", "yes")
+        if config.get("application-name"):
+            kwargs["application_name"] = config["application-name"]
+        return ClientOptions(endpoint=endpoint, **kwargs)  # type: ignore[arg-type]
 
     def __str__(self) -> str:
         # Deliberately omits the token. Options reaching a log line must not leak it.

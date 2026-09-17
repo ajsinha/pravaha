@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.sdk;
 
 import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -42,6 +43,7 @@ public final class ClientOptions {
     private final boolean conflateOnOverflow;
     private final String applicationName;
     private final boolean allowInsecureToken;
+    private final TlsOptions tls;
 
     private ClientOptions(Builder b) {
         this.endpoint = b.endpoint;
@@ -53,6 +55,7 @@ public final class ClientOptions {
         this.conflateOnOverflow = b.conflateOnOverflow;
         this.applicationName = b.applicationName;
         this.allowInsecureToken = b.allowInsecureToken;
+        this.tls = b.tls;
     }
 
     public static Builder builder(String connectionString) {
@@ -63,8 +66,31 @@ public final class ClientOptions {
         return new Builder(endpoint);
     }
 
+    /**
+     * Builds options entirely from a config map -- the endpoint (including whether it is TLS at
+     * all, via {@link Endpoint#fromConfig(Map)}), every TLS detail (via {@link
+     * TlsOptions.Builder#applyConfig(Map)}), and the few other settings an operator commonly needs
+     * to change without a recompile: {@code token}, {@code allow-insecure-token} ({@code
+     * "true"}/{@code "false"}), and {@code application-name}.
+     *
+     * <p>{@link SdkConfig#layered(Map, String)} is how {@code config} itself typically gets built,
+     * so a system property or environment variable can override one key from a file without
+     * editing the file.
+     */
+    public static ClientOptions fromConfig(Map<String, String> config) {
+        Objects.requireNonNull(config, "config");
+        Builder b = builder(Endpoint.fromConfig(config));
+        b.applyConfig(config);
+        return b.build();
+    }
+
     public Endpoint endpoint() {
         return endpoint;
+    }
+
+    /** How this client verifies the server's certificate and, for mutual TLS, presents its own. */
+    public TlsOptions tls() {
+        return tls;
     }
 
     /** Whether a token may travel over a plaintext connection; false unless asked for. */
@@ -129,9 +155,22 @@ public final class ClientOptions {
         private int subscriberBufferRows = 10_000;
         private boolean conflateOnOverflow = true;
         private String applicationName = "pravaha-java-sdk";
+        private TlsOptions tls = TlsOptions.defaults();
 
         private Builder(Endpoint endpoint) {
             this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
+        }
+
+        /**
+         * How this client verifies the server's certificate and, for mutual TLS, presents its own.
+         *
+         * <p>Meaningless -- and refused -- on a plaintext ({@code grpc://}) endpoint: certificate
+         * material configured for a connection that will not use TLS at all is exactly the kind of
+         * setting that looks like it did something and did not.
+         */
+        public Builder tls(TlsOptions value) {
+            this.tls = Objects.requireNonNull(value, "tls");
+            return this;
         }
 
         /**
@@ -189,7 +228,43 @@ public final class ClientOptions {
             return this;
         }
 
+        /**
+         * Applies {@code tls.*} (via {@link TlsOptions.Builder#applyConfig(Map)}), {@code token},
+         * {@code allow-insecure-token}, and {@code application-name} from {@code config}, each only
+         * if present. Called by {@link ClientOptions#fromConfig(Map)}; exposed directly so a caller
+         * can layer a config map onto a builder already carrying programmatic settings, or follow
+         * it with more builder calls that override what the config supplied.
+         */
+        public Builder applyConfig(Map<String, String> config) {
+            Objects.requireNonNull(config, "config");
+            tls(TlsOptions.builder().applyConfig(config).build());
+            String tok = config.get("token");
+            if (tok != null && !tok.isBlank()) {
+                token(tok);
+            }
+            String insecure = config.get("allow-insecure-token");
+            if (insecure != null && !insecure.isBlank()) {
+                allowInsecureToken(SdkConfig.truthy(insecure));
+            }
+            String app = config.get("application-name");
+            if (app != null && !app.isBlank()) {
+                applicationName(app);
+            }
+            return this;
+        }
+
         public ClientOptions build() {
+            if (!endpoint.tls() && !tls.isDefault()) {
+                // Certificate material configured for a connection that will not use TLS at all --
+                // the endpoint's own scheme decides that, and this setting has no way to change it.
+                // A setting that looks like it did something and silently did nothing is exactly
+                // what ClientOptions is built to refuse rather than accept.
+                throw new PravahaClientException(
+                        INVALID,
+                        "TLS options were configured (" + tls + ") but the endpoint " + endpoint
+                                + " is plaintext; use grpc+tls:// or remove the TLS options",
+                        false);
+            }
             if (!endpoint.tls() && token != null && !allowInsecureToken) {
                 // Sending a bearer token over plaintext hands it to anyone on the path. Refusing is
                 // less convenient than warning and considerably safer.
