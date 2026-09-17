@@ -38,6 +38,21 @@
       <artifactId>arrow-memory-netty</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!-- Without this, grpc-netty's TLS handshake throws NoClassDefFoundError on
+         io.netty.channel.unix.UnixChannel from inside SslHandler.setOpensslEngineSocketFd,
+         referenced by the tcnative BoringSSL engine even though nothing here uses a Unix domain
+         socket. Nothing in this module's own dependency tree pulled it in, so no TLS handshake
+         through PravahaFlightServer.encryptedWith could ever complete; only starting a real TLS
+         server and connecting a real client (FlightServerTlsEndToEndTest) surfaced it, the same
+         way it surfaced in sdk-java-flight, whose pom.xml carries the identical fix at the
+         identical version, pinned to flight-core's own transitive netty-handler version to
+         satisfy requireUpperBoundDeps. -->
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport-native-unix-common</artifactId>
+      <version>4.2.9.Final</version>
+      <scope>runtime</scope>
+    </dependency>
   </dependencies>
 
   <build>
