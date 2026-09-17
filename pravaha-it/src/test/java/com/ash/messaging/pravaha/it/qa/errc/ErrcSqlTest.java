@@ -220,57 +220,19 @@ class ErrcSqlTest extends ErrcTestSupport {
     // ------------------------------------------------------------ ERRC-024 -- PRV-2041 (UNREACHABLE)
 
     @Test
-    void noProductionPathAttachesARegisteredQueryToASinkThatCouldReceiveARetraction() throws Exception {
+    void aQueryIsNeverAttachedToASinkWithoutCheckingItsChangelogFirst() throws Exception {
         // ERRC-024 found that ChangelogAnalysis.checkAgainst -- the sole throw site for PRV-2041 --
-        // is invoked from no main source, and asserted exactly that: zero call sites. That
-        // assertion was pointed the wrong way once already: it encoded the absence of *all* sink
-        // wiring as the contract, so the first person to wire any part of it correctly would have
-        // been failed by the test that exists to complain the wiring is missing.
+        // was called from nowhere, and this test has guarded that absence through three rounds while
+        // W8-13 built the sink side beneath it. **It was written to fail at the commit that finally
+        // attaches a query to a sink, and that commit has now happened**, so the assertion is
+        // inverted rather than deleted: the guard is no longer "nothing calls it" but "whatever
+        // attaches must call it, and must call it first".
         //
-        // W8-13 (ADR-039 item 5) built the first half: pravaha.sinks.* now names a StreamSinkPlugin,
-        // ServiceLoader finds one by the name it reports for itself, and PluginSinks
-        // (pravaha-server) resolves a binding to an opened, writable instance -- proven directly by
-        // PluginSinksTest, with no query involved. So the two checks this test used to make -- "no
-        // ServiceLoader declaration for sinks anywhere" and "QueryRunner is the only file that binds
-        // one" -- are no longer the right proxy for the thing that actually matters: both are now
-        // true by design, not by omission.
-        //
-        // What must still be true, because the QueryRegistry half of W8-13 has not been built:
-        //
-        //   1. pravaha-registry does not reference StreamSinkPlugin at all. A registered query's
-        //      output today only ever reaches a ViewSink, which applies a Z-set weight as a removal
-        //      and so has no mismatch for checkAgainst to catch; the moment the registry references
-        //      the sink SPI, that stops being true.
-        //   2. ChangelogAnalysis.checkAgainst is called from no production code anywhere. The first
-        //      file that resolves which registered query's output goes to which sink must call it
-        //      before a single row reaches the sink, or a revising query can silently corrupt one
-        //      that cannot take a revision (design section 15.5) -- and that first file is what
-        //      should make this assertion fail.
+        // Why first matters more than whether. Design section 15.5's failure is silent: a query that
+        // revises its answer, pointed at a sink that can only append, corrupts that sink with rows
+        // which are each individually correct and a total that is wrong for ever. A check run after
+        // the feed opens is a check that runs after the corruption has begun.
         Path root = repoRoot();
-
-        try (Stream<Path> files = Files.walk(root.resolve("pravaha-registry"))) {
-            List<String> referencesTheSinkSpi = files.filter(p -> p.toString().endsWith(".java"))
-                    .filter(p -> p.toString().contains("/src/main/"))
-                    .filter(p -> !p.toString().contains("/target/"))
-                    .filter(p -> !p.startsWith(nestedCheckouts()))
-                    .filter(p -> {
-                        try {
-                            return Files.readString(p).contains("StreamSinkPlugin");
-                        } catch (Exception e) {
-                            return false;
-                        }
-                    })
-                    .map(p -> p.getFileName().toString())
-                    .sorted()
-                    .toList();
-            assertThat(referencesTheSinkSpi)
-                    .as("pravaha-registry must not reference StreamSinkPlugin until a registered "
-                            + "query's plan is actually checked against a sink's declared modes before "
-                            + "being sent to it -- a bare reference here is the attachment this test "
-                            + "exists to catch the absence of; wire ChangelogAnalysis.checkAgainst in "
-                            + "alongside it (PRV-2041)")
-                    .isEmpty();
-        }
 
         try (Stream<Path> files = Files.walk(root)) {
             List<String> callers = files.filter(p -> p.toString().endsWith(".java"))
@@ -281,10 +243,6 @@ class ErrcSqlTest extends ErrcTestSupport {
                     .filter(p -> !p.toString().endsWith("ChangelogAnalysis.java"))
                     .filter(p -> {
                         try {
-                            // The paren distinguishes an actual call from prose that merely names
-                            // the method -- StreamSchema's javadoc says "ChangelogAnalysis.checkAgainst
-                            // is called from no production code", which contains the bare name and
-                            // must not itself trip this check.
                             return Files.readString(p).contains("ChangelogAnalysis.checkAgainst(");
                         } catch (Exception e) {
                             return false;
@@ -294,13 +252,28 @@ class ErrcSqlTest extends ErrcTestSupport {
                     .sorted()
                     .toList();
             assertThat(callers)
-                    .as("ChangelogAnalysis.checkAgainst must be called from no production code: sinks "
-                            + "can now be configured and opened (W8-13), but nothing yet resolves which "
-                            + "registered query's output goes to one, so there is still nothing for "
-                            + "checkAgainst to check. The first binder that wires a query's plan to a "
-                            + "sink must call it before writing a single row (PRV-2041)")
-                    .isEmpty();
+                    .as("something in production must call ChangelogAnalysis.checkAgainst now that a "
+                            + "registration can name a sink (ADR-043). If this is empty again, the "
+                            + "attachment has been built or kept without the changelog negotiation that "
+                            + "makes it safe, and PRV-2041 is unreachable once more")
+                    .isNotEmpty();
         }
+
+        // And the ordering, which is the part a caller could get wrong while still calling it: the
+        // check must precede the feed opening. Reading the source is crude, and it is the only way
+        // to assert an ordering that has no runtime observable when the query is well-formed -- a
+        // correctly-checked registration and an unchecked one look identical unless the sink refuses.
+        String registry = Files.readString(
+                root.resolve("pravaha-registry/src/main/java/com/ash/messaging/pravaha/registry/QueryRegistry.java"));
+        int checkedAt = registry.indexOf("ChangelogAnalysis.checkAgainst(");
+        int feedOpenedAt = registry.indexOf("feeds.open(");
+        assertThat(checkedAt).as("the registry must call checkAgainst at all").isNotNegative();
+        assertThat(feedOpenedAt).as("the registry must still open a feed").isNotNegative();
+        assertThat(checkedAt)
+                .as("checkAgainst must be called BEFORE feeds.open: a sink that cannot take this "
+                        + "query's changelog has to be refused before a single row can be produced, "
+                        + "not after the feed has started delivering (design section 15.5)")
+                .isLessThan(feedOpenedAt);
     }
 
     private static Path repoRoot() {

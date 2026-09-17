@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **296 findings carrying a
-status — 178 FIXED, 103 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **1 is
-GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **299 findings carrying a
+status — 180 FIXED, 104 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 104 open, **1 is
+GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 1 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The fifteen blockers, by what they break.** Data reaching the wrong principal: `SX-5` alone — `SX-1` is **fixed**, and was already fixed in code when its status line still said otherwise; what it lacked was a test pinning the order, which it now has.
@@ -6563,4 +6563,23 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Found by running the TCK against the connector the documentation holds up as the model.** `AerospikeSourcePlugin` had never been run against `SourcePluginTck` at all; `AerospikePluginIT` only ever takes `position()` after a *full* drain, so it tests "resume to see what changed since" and never "resume mid-drain to get the rest". Five records, poll two, resume: the remaining three came back as zero.
 > **A second defect, in the TCK itself, and this one is mine to own rather than the plugin's.** `replayableOffsetsActuallyReplay` asserted the resumed reader yields *exactly* the unread remainder, which holds an at-least-once source to an exactly-once contract. The load-bearing property is that resuming **loses nothing**; whether it re-delivers what was already read is the delivery guarantee's business, and `AT_LEAST_ONCE` says plainly that it may. A source whose offset is a *timestamp* rather than a *position* cannot express "records three to five of this scan" at all, and would have had to declare `replayableOffsets false` to pass — a declaration `SharedSourceGroup` reads as "a late-joining query cannot be given the records it missed", which would have cost reader sharing (`SRC-3`) to satisfy an assertion that was asking the wrong question. The case now requires no-loss of every source and exactness only of an `EXACTLY_ONCE` one.
 > **Disposition:** was a silent-loss defect on a shipped connector; both halves fixed and the TCK now passes 10/10 against a real Community Edition container, with `AerospikePluginIT` 12/12 beside it.
+
+
+### CON-1 (HIGH) — the console served every query's SQL and a live row stream to an anonymous caller
+
+> **Status:** FIXED — `GET /overview`, `GET /queries`, `GET /queries/{name}` and their JSON equivalents (`/api/v1/queries`, `/api/v1/queries/{name}`, `/api/v1/stats`) required **no session at all**, and neither did `GET /api/v1/views/{view}/stream` — the live SSE tail, which is not metadata but a view's actual rows crossing the wire. Anyone who could reach the console's port saw every registered query's name and full SQL and could open a live stream of real data, unauthenticated. Gated now at **both** the HTML screen and the JSON endpoint beneath it, because gating only the screen leaves the endpoint as a second, weaker route to the same answer. Pinned by `test_reading_what_is_registered_is_not_open_to_an_anonymous_visitor`.
+> **Established as a defect rather than a trade-off, not assumed.** `console/README.md` states the intent — "only the landing page, the documentation and the health probes are deliberately ungated" — and the suite's own `client`/`anonymous` fixture split already assumed reads were gated. The code simply did not enforce what its own design said.
+> **Worse than the oracle it resembles.** `SX-5` is about a caller distinguishing "denied" from "does not exist"; this was unauthenticated access to the data itself. The login system's docstring records that it was built because "the console held one engine token from configuration and acted as it for every visitor" — that account only ever covered *mutating* actions, and the read side was never revisited.
+> **Why it mattered:** a live unauthenticated data path on a shipped surface, not an oracle about one.
+
+### CON-2 (MEDIUM) — the correlation id on every console error was decorative
+
+> **Status:** FIXED — `api.js` generated and displayed a correlation id on every error, with a comment stating its whole purpose: that "what appears on screen is the same string that is in the console's log." Nothing on the server ever read the `X-Correlation-Id` header, so the id an operator quoted and the id in the log were unrelated strings, and the one affordance for tying a user's report to a log line did the opposite of what it claimed. `Routes.json_guard` logs it now; two tests cover it, including that a request with no header — the server-rendered no-JavaScript forms — still logs cleanly.
+> **Why it mattered:** a diagnosability affordance that was worse than none, because it was believed.
+
+### SRC-10 (MEDIUM) — the shared reader's ref-counting races under load
+
+> **Status:** OPEN — `SharedSourceReaderTest.theLastQueryOutClosesTheSharedReader` fails intermittently under full-reactor load with "expected: 1 but was: 2" at line 218, on the assertion "dropping one of two queries must leave the reader open for the other". Passes in isolation and on immediate re-run. Seen independently by two agents on separate rounds, which is what moves it from a flake to a signal.
+> **Not investigated.** It is `SRC-3`'s shared reader — the mechanism that took four queries over one Aerospike set from 3.8 scans/s to 1.0 — and a ref count that can be read stale is a reader closed while a query still needs it, or held open for ever. Both matter; neither is proven yet. What is recorded here is the reproduction, not a diagnosis.
+> **Disposition:** POST-GA — intermittent, and the failure mode is a test observation rather than a demonstrated production defect. It should not stay that way.
 
