@@ -43,6 +43,10 @@ final class AerospikeTls {
      * <p>Call this before parsing hosts, because the name has to be built into each one.
      */
     static String tlsName(PluginContext context) {
+        // This runs before apply(), so it is the first place a misspelled option can be caught --
+        // and catching it here means the error names the option rather than the missing tls.name
+        // that a silently-ignored option would have produced instead.
+        PluginTls.refuseUnknownOptions(context, AerospikeErrors.BAD_CONFIGURATION, "tls.name");
         if (!PluginTls.isConfigured(context)) {
             return "";
         }
@@ -66,8 +70,8 @@ final class AerospikeTls {
      * half-set pair, and {@code tls.enabled: false} is honoured in both directions.
      */
     static void apply(PluginContext context, ClientPolicy policy) {
-        SSLContext ssl =
-                PluginTls.from(context, AerospikeErrors.BAD_CONFIGURATION).orElse(null);
+        SSLContext ssl = PluginTls.from(context, AerospikeErrors.BAD_CONFIGURATION, "tls.name")
+                .orElse(null);
         if (ssl == null) {
             return;
         }

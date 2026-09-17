@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.api.plugin;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.ErrorCode;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -385,5 +388,71 @@ final class PluginTlsTest {
                         .waitFor())
                 .isZero();
         return pem;
+    }
+
+    @Test
+    void anSdkSpellingIsRefusedAndTheConnectorSpellingIsNamed() {
+        // The same operator configures both surfaces, often on the same afternoon, and the two
+        // vocabularies genuinely disagree. Being told the option is unknown is much less useful
+        // than being told which word this side wants.
+        assertThatThrownBy(() -> PluginTls.from(context(Map.of("tls.ca-certificate", "/etc/ca.pem")), BAD_CONFIG))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("tls.ca-certificate")
+                .hasMessageContaining("a connector calls this 'tls.ca'");
+    }
+
+    @Test
+    void theRefusalFiresEvenThoughTheMisspellingIsWhatMakesTlsLookUnconfigured() {
+        // This is the whole point, and the reason the check sits above the isConfigured
+        // short-circuit rather than below it. A misspelled option sets nothing, so inference finds
+        // no material and answers "TLS is off" -- which is exactly the case the refusal exists for.
+        // Placed after the short-circuit it would return empty here and never fire at all.
+        assertThat(PluginTls.isConfigured(context(Map.of("tls.trust-store", "/etc/trust.p12"))))
+                .as("the misspelled option is invisible to inference -- that is the danger")
+                .isFalse();
+        assertThatThrownBy(() -> PluginTls.from(context(Map.of("tls.trust-store", "/etc/trust.p12")), BAD_CONFIG))
+                .as("but from() must still refuse rather than hand back a plaintext connection")
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("tls.truststore");
+    }
+
+    @Test
+    void anOutrightTypoIsRefusedAndTheKnownOptionsAreListed() {
+        assertThatThrownBy(() -> PluginTls.from(context(Map.of("tls.truststor", "/etc/trust.p12")), BAD_CONFIG))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("is not a TLS option a connector understands")
+                .hasMessageContaining("plaintext connection configured to look encrypted")
+                .hasMessageContaining("tls.truststore.password");
+    }
+
+    @Test
+    void everyOptionThisSideActuallyUsesIsAccepted() {
+        // A refusal list that has drifted from the options the class reads is worse than none: it
+        // rejects correct configuration. Each of these is read somewhere in this file.
+        for (String option : List.of(
+                "tls.enabled",
+                "tls.verify-hostname",
+                "tls.ca",
+                "tls.certificate",
+                "tls.key",
+                "tls.truststore",
+                "tls.truststore.password",
+                "tls.truststore.type",
+                "tls.keystore",
+                "tls.keystore.password",
+                "tls.keystore.type")) {
+            Map<String, String> options = new HashMap<>();
+            options.put("tls.enabled", "false");
+            options.put(option, "x");
+            assertThatCode(() -> PluginTls.refuseUnknownOptions(context(options), BAD_CONFIG))
+                    .as("%s must not be refused", option)
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    @Test
+    void aConnectorWithNoTlsOptionsAtAllIsNeverRefused() {
+        assertThatCode(() -> PluginTls.from(context(Map.of("hosts", "127.0.0.1:3000")), BAD_CONFIG))
+                .doesNotThrowAnyException();
     }
 }

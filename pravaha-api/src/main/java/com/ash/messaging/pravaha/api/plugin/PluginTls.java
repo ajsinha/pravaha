@@ -27,10 +27,14 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -92,6 +96,83 @@ public final class PluginTls {
 
     private PluginTls() {}
 
+    /**
+     * Every {@code tls.} option a connector understands.
+     *
+     * <p>Kept as a set so an option this side does <em>not</em> understand can be refused rather
+     * than ignored. See {@link #refuseUnknownOptions}.
+     */
+    private static final Set<String> KNOWN = Set.of(
+            "tls.enabled",
+            "tls.verify-hostname",
+            "tls.ca",
+            "tls.certificate",
+            "tls.key",
+            "tls.truststore",
+            "tls.truststore.password",
+            "tls.truststore.type",
+            "tls.keystore",
+            "tls.keystore.password",
+            "tls.keystore.type");
+
+    /**
+     * Options that belong to the SDK rather than to a connector, and the connector spelling of each.
+     *
+     * <p>The two surfaces grew their vocabularies separately and they do not agree: the SDK writes
+     * {@code tls.ca-certificate} and {@code tls.trust-store-password} where a connector writes
+     * {@code tls.ca} and {@code tls.truststore.password}. The same operator configures both, often
+     * in the same afternoon, so guessing wrong is the expected mistake rather than a careless one --
+     * and it is named here so the refusal can say which word to use instead of only that this one
+     * is unknown.
+     */
+    private static final Map<String, String> SDK_SPELLINGS = Map.of(
+            "tls.ca-certificate", "tls.ca",
+            "tls.client-certificate", "tls.certificate",
+            "tls.client-key", "tls.key",
+            "tls.trust-store", "tls.truststore",
+            "tls.trust-store-password", "tls.truststore.password",
+            "tls.trust-store-type", "tls.truststore.type",
+            "tls.key-store", "tls.keystore",
+            "tls.key-store-password", "tls.keystore.password",
+            "tls.key-store-type", "tls.keystore.type",
+            "tls.disable-hostname-verification-insecure", "tls.verify-hostname");
+
+    /**
+     * Refuses any {@code tls.} option this side does not understand.
+     *
+     * <p>Without this an unrecognised option is simply absent: it switches nothing on, inference
+     * finds no material, and the connector opens in plaintext under a configuration that plainly
+     * says otherwise. That is the silent downgrade this class exists to prevent, arriving through
+     * a typo instead of through a missing flag -- and it is the harder of the two to notice,
+     * because the file reads correctly.
+     *
+     * @param alsoKnown options this particular plugin understands beyond the shared set. Aerospike's
+     *     {@code tls.name} is one: it is meaningless to every other connector, so it cannot live in
+     *     the shared list, and a plugin that forgets to declare its own would refuse its own valid
+     *     configuration.
+     */
+    public static void refuseUnknownOptions(PluginContext context, ErrorCode badConfiguration, String... alsoKnown) {
+        Set<String> known = new HashSet<>(KNOWN);
+        known.addAll(List.of(alsoKnown));
+        for (String key : context.config().keySet()) {
+            if (!key.startsWith("tls.") || known.contains(key)) {
+                continue;
+            }
+            String instead = SDK_SPELLINGS.get(key);
+            throw new ConfigurationException(
+                    badConfiguration,
+                    instead != null
+                            ? "'" + key + "' is the SDK's spelling; a connector calls this '" + instead
+                                    + "'. The two vocabularies are not the same and an option spelled the "
+                                    + "other way round is not applied -- which would have left this "
+                                    + "connection in plaintext under a configuration that says otherwise."
+                            : "'" + key + "' is not a TLS option a connector understands, and an option "
+                                    + "that is not understood is not applied -- so this would have been a "
+                                    + "plaintext connection configured to look encrypted. Known options: "
+                                    + known.stream().sorted().collect(Collectors.joining(", ")) + ".");
+        }
+    }
+
     /** Whether any TLS option is set, so a plugin can skip building a context it will not use. */
     public static boolean isConfigured(PluginContext context) {
         // An explicit setting decides, in BOTH directions. Inference only fills the silence.
@@ -129,8 +210,14 @@ public final class PluginTls {
      *
      * @param badConfiguration the calling plugin's own configuration error code, so a refusal carries
      *     the code of the plugin that was misconfigured rather than a shared one nobody recognises
+     * @param alsoKnown any {@code tls.} options this plugin understands beyond the shared set, passed
+     *     straight through to {@link #refuseUnknownOptions}
      */
-    public static Optional<SSLContext> from(PluginContext context, ErrorCode badConfiguration) {
+    public static Optional<SSLContext> from(PluginContext context, ErrorCode badConfiguration, String... alsoKnown) {
+        // Before the short-circuit, not after: a misspelled option is precisely what makes
+        // isConfigured answer false, so a refusal placed below this line would never fire in the
+        // one case it was written for.
+        refuseUnknownOptions(context, badConfiguration, alsoKnown);
         if (!isConfigured(context)) {
             return Optional.empty();
         }
