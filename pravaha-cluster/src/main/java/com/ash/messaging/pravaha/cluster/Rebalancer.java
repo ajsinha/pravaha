@@ -138,6 +138,14 @@ public final class Rebalancer {
         }
     }
 
+    // ADR-039 item 8, second slice: PartitionHandoff's real, fenced constructor needs a
+    // PartitionLeaseCoordinator and a proven current sourceLease, neither of which this class has
+    // any notion of. Rebalancer is explicitly out of scope for that slice ("stays untouched...
+    // depends on handoff being trustworthy"), so this keeps calling the deprecated, unfenced
+    // constructor rather than acquiring real leases it has nowhere principled to get from -- doing
+    // that properly is exactly the work of making Rebalancer itself trustworthy, which is not this
+    // round's job.
+    @SuppressWarnings("deprecation")
     private Outcome run(List<PartitionAssignment.PartitionMove> moves) {
         long startNanos = System.nanoTime();
         log.accept("rebalancing " + moves.size() + " partitions, one at a time");

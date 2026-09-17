@@ -32,7 +32,9 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.cluster.ClusterCoordinator;
 import com.ash.messaging.pravaha.cluster.ClusterErrors;
 import com.ash.messaging.pravaha.cluster.Guarantees;
+import com.ash.messaging.pravaha.cluster.LeaseGrantingCoordinator;
 import com.ash.messaging.pravaha.cluster.Member;
+import com.ash.messaging.pravaha.cluster.PartitionLeaseCoordinator;
 
 /**
  * Membership and leadership through ZooKeeper, for deployments that already run one.
@@ -50,7 +52,7 @@ import com.ash.messaging.pravaha.cluster.Member;
  * and a cluster that stops electing when ZooKeeper is down. That is the trade for a guarantee that
  * partition assignment actually requires.
  */
-public final class ZooKeeperCoordinator implements ClusterCoordinator {
+public final class ZooKeeperCoordinator implements ClusterCoordinator, LeaseGrantingCoordinator {
 
     private static final Guarantees GUARANTEES = new Guarantees("zookeeper", true, true, true);
 
@@ -58,6 +60,7 @@ public final class ZooKeeperCoordinator implements ClusterCoordinator {
     private final String root;
     private final List<Consumer<Optional<Member>>> leadershipListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<List<Member>>> membershipListeners = new CopyOnWriteArrayList<>();
+    private final PartitionLeaseCoordinator leases;
 
     private volatile Member self;
     private volatile List<Member> members = List.of();
@@ -67,6 +70,7 @@ public final class ZooKeeperCoordinator implements ClusterCoordinator {
     public ZooKeeperCoordinator(CuratorFramework curator, String root) {
         this.curator = curator;
         this.root = root.endsWith("/") ? root.substring(0, root.length() - 1) : root;
+        this.leases = new ZooKeeperPartitionLeaseCoordinator(curator, this.root);
     }
 
     @Override
@@ -202,5 +206,10 @@ public final class ZooKeeperCoordinator implements ClusterCoordinator {
         // The ephemeral member node goes with the session; Curator's lifecycle is the caller's,
         // because a deployment may share one client with the rest of its application.
         members = List.of();
+    }
+
+    @Override
+    public PartitionLeaseCoordinator leases() {
+        return leases;
     }
 }

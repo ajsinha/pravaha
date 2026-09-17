@@ -30,14 +30,16 @@ import java.util.function.Consumer;
  *
  * <p>It claims to exclude split-brain, which is true rather than cheeky: with one node there is no
  * second node to disagree with it. It is therefore a legitimate choice for {@code PARTITIONED} mode,
- * where it assigns every partition to itself.
+ * where it assigns every partition to itself -- and, since ADR-039 item 8's second slice, can also
+ * grant a real (if single-process) {@link PartitionLease} for each one, through {@link #leases()}.
  */
-public final class SingleNodeCoordinator implements ClusterCoordinator {
+public final class SingleNodeCoordinator implements ClusterCoordinator, LeaseGrantingCoordinator {
 
     private static final Guarantees GUARANTEES = new Guarantees("single", true, false, true);
 
     private final List<Consumer<Optional<Member>>> leadershipListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<List<Member>>> membershipListeners = new CopyOnWriteArrayList<>();
+    private final PartitionLeaseCoordinator leases = new InMemoryPartitionLeaseCoordinator();
 
     private volatile Member self;
 
@@ -93,5 +95,10 @@ public final class SingleNodeCoordinator implements ClusterCoordinator {
     @Override
     public void close() {
         self = null;
+    }
+
+    @Override
+    public PartitionLeaseCoordinator leases() {
+        return leases;
     }
 }

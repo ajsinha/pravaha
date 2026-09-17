@@ -298,24 +298,42 @@ class StateClusterTest extends StateTestSupport {
     }
 
     @Test
-    void state106_partitionAssignmentIsNowReachableButHandoffAndRebalanceAreStillReachableFromNothing()
-            throws Exception {
-        // Renamed from state106_partitionedAssignsNothingBecauseThePartitionMachineryIsReachableFromNothing.
-        // ADR-039 item 8's first slice made that name half wrong on purpose: PartitionAssignment now
-        // is reachable from a running path (com.ash.messaging.pravaha.cluster.PartitionAssigner,
-        // itself inside pravaha-cluster's own main sources) and genuinely drives a real assignment.
-        // What did not change, and what this case still exists to catch, is the other three:
-        // PartitionOwner, PartitionHandoff and Rebalancer remain wired to nothing, because rebalance
-        // and handoff are explicitly the next slice, not this one -- see PartitionAssigner's own
-        // javadoc for why finishing that part in a hurry would be worse than leaving it undone.
+    void state106_partitionOwnershipIsNowRealButRebalanceIsStillReachableFromNothing() throws Exception {
+        // Third name for this case, and each rename recorded exactly what changed underneath it.
+        // ADR-039 item 8's first slice made PartitionAssignment reachable (PartitionAssigner turns
+        // real membership into a real assignment) while PartitionOwner, PartitionHandoff and
+        // Rebalancer stayed wired to nothing. The second slice is what changes PartitionOwner and
+        // PartitionHandoff: PartitionLease and PartitionLeaseCoordinator (a fenced, revocable claim,
+        // not a belief) make PartitionHandoff's sequence real -- proved against real disagreement,
+        // both in pravaha-cluster's own PartitionHandoffTest (real threads racing a real
+        // compare-and-swap) and against a real ZooKeeper ensemble in the plugin's own
+        // ZooKeeperPartitionLeaseCoordinatorTest, including a lease surviving nothing once the
+        // session holding it actually ends rather than merely being told to let go.
+        //
+        // What still has not changed, on purpose: Rebalancer still calls PartitionHandoff's
+        // deprecated, unfenced constructor (a private, single-use lease coordinator nothing else
+        // can contend for), because Rebalancer is explicitly out of scope for this slice too --
+        // "Rebalancer and elastic rescale stay untouched. They depend on handoff being
+        // trustworthy." Handoff is trustworthy now; Rebalancer has not yet been asked to use that.
+        //
+        // And nothing outside pravaha-cluster reaches into any of these four types at all -- not
+        // even the ones now genuinely real. Consumption -- routing or refusing what a node serves
+        // based on ownership -- is deliberately not built this round: a first draft of a
+        // PartitionOwnership helper combining assignment and lease was written and then deleted
+        // rather than kept, because this exact test caught it as a fifth instance of the pattern
+        // its own javadoc names (L0StateMap, RegisteredQuery.accept and two others): built, given a
+        // good test, and called by nothing outside that test. There is no caller for it within this
+        // round's scope (pravaha-runtime, where a caller would actually live, is not this module's
+        // to touch), so the honest choice was to say so rather than let it stand as a fifth entry
+        // in this test's own list of things that looked used.
         List<String> references =
                 grep("PartitionOwner|PartitionHandoff|Rebalancer|PartitionSnapshot", repoRoot()).stream()
                         .filter(l -> l.contains("/src/main/"))
                         .filter(l -> !l.contains("/pravaha-cluster/src/main/"))
                         .toList();
         assertThat(references)
-                .as("no shipped code outside pravaha-cluster names any of the three not-yet-built "
-                        + "handoff/rebalance classes, or PartitionSnapshot, the value type between them")
+                .as("no shipped code outside pravaha-cluster names any of these four -- real or not, "
+                        + "nothing outside this module consumes an ownership decision yet")
                 .isEmpty();
 
         // PartitionAssignment itself is checked the opposite way now: it is reachable, but only from
