@@ -85,6 +85,21 @@ final class PluginTlsTest {
     }
 
     @Test
+    void anExplicitDisableBeatsEveryInference() {
+        // The owner's rule: enablement and disablement are controlled fully by configuration. A
+        // leftover certificate path beside tls.enabled: false must NOT switch TLS back on -- the
+        // operator wrote the answer down and inference does not get to overrule it. This method
+        // originally did the opposite, and that is the direction that matters: guessing "on" over a
+        // written "off" turns a setting into a suggestion.
+        assertThat(PluginTls.isConfigured(context(Map.of(
+                        "tls.enabled", "false",
+                        "tls.ca", "/leftover.pem"))))
+                .isFalse();
+        assertThat(PluginTls.from(context(Map.of("tls.enabled", "false", "tls.ca", "/leftover.pem")), BAD_CONFIG))
+                .isEmpty();
+    }
+
+    @Test
     void hostnameVerificationIsOnUnlessTurnedOff() {
         assertThat(PluginTls.verifyHostname(context(Map.of()))).isTrue();
         assertThat(PluginTls.verifyHostname(context(Map.of("tls.verify-hostname", "false"))))

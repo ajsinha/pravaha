@@ -94,8 +94,16 @@ public final class PluginTls {
 
     /** Whether any TLS option is set, so a plugin can skip building a context it will not use. */
     public static boolean isConfigured(PluginContext context) {
-        if (Boolean.parseBoolean(context.get("tls.enabled", "false"))) {
-            return true;
+        // An explicit setting decides, in BOTH directions. Inference only fills the silence.
+        //
+        // This was written the other way round and it was wrong: any option present meant on, so an
+        // operator who wrote tls.enabled: false beside a certificate path they had stopped using
+        // would have had TLS switched on against their written instruction. Enablement and
+        // disablement are configuration's to state, not this method's to guess, and a guess that
+        // overrides what somebody wrote down is the worst of the two directions.
+        String explicit = context.get("tls.enabled", "");
+        if (!explicit.isBlank()) {
+            return Boolean.parseBoolean(explicit);
         }
         for (String option : List.of("tls.ca", "tls.certificate", "tls.key", "tls.truststore", "tls.keystore")) {
             if (!context.get(option, "").isBlank()) {
