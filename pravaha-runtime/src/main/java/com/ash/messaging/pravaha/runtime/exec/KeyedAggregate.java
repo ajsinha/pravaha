@@ -114,6 +114,61 @@ final class KeyedAggregate implements RowProcessor {
         group.accumulate(row, weight, operator.aggregates(), ordinal -> read(row, ordinal));
     }
 
+    /**
+     * ADR-039 item 6: folds a pre-combined partial into the group it belongs to, exactly as {@link
+     * GlobalAggregate#processPartial} does for the unkeyed case -- see that method's javadoc for
+     * why the scaled arithmetic is correct under retraction and why only {@code COUNT}/{@code SUM}
+     * ever reach here.
+     *
+     * @param partial the group's key values, in {@link #keyOrdinals} order, then one column per
+     *     aggregate call in {@code operator.aggregates()} order -- the same layout {@link #emit}
+     *     itself writes
+     * @param weight the Z-set weight the summarised rows arrived (or are being retracted) with
+     */
+    void processPartial(RowView partial, long weight) {
+        if (weight == 0) {
+            return;
+        }
+        Object[] keyValues = new Object[keyOrdinals.size()];
+        for (int i = 0; i < keyValues.length; i++) {
+            keyValues[i] = partial.isNull(i) ? null : readOutputColumn(partial, i);
+        }
+        Group group = groups.computeIfAbsent(new Key(keyValues), key -> {
+            if (groups.size() >= maxGroups) {
+                throw new PravahaException(
+                        RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                        "this GROUP BY has produced " + maxGroups + " distinct groups, which is the ceiling "
+                                + "for a single read. Narrow it with a WHERE clause, or group by fewer columns");
+            }
+            return new Group(operator.aggregates().size());
+        });
+        group.accumulatePartial(partial, keyOrdinals.size(), weight, operator.aggregates());
+    }
+
+    /**
+     * One value from a partial row, read by the type its column has in this aggregate's own
+     * output schema -- {@link #read} reads a raw input row by {@link #inputSchema} instead, which
+     * is the wrong schema for a partial: its leading columns are group-key values already in the
+     * aggregate's output shape, not columns of the stream the aggregate reads.
+     */
+    private Object readOutputColumn(RowView row, int ordinal) {
+        return switch (operator.outputSchema().field(ordinal).type().typeName()) {
+            case BOOLEAN -> row.getBoolean(ordinal);
+            case INT8 -> row.getByte(ordinal);
+            case INT16 -> row.getShort(ordinal);
+            case INT32, DATE -> row.getInt(ordinal);
+            case INT64, TIME, TIMESTAMP_LTZ -> row.getLong(ordinal);
+            case FLOAT32 -> row.getFloat(ordinal);
+            case FLOAT64 -> row.getDouble(ordinal);
+            case STRING -> row.getString(ordinal);
+            default ->
+                throw new PravahaException(
+                        RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                        "cannot group by a column of type "
+                                + operator.outputSchema().field(ordinal).type().typeName() + " yet");
+        };
+    }
+
     /** Emits one row per surviving group. Called when the input ends. */
     void emit() {
         List<AggregateOperator.AggregateCall> calls = operator.aggregates();
@@ -306,6 +361,33 @@ final class KeyedAggregate implements RowProcessor {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        /**
+         * ADR-039 item 6: folds a pre-combined partial in, mirroring {@link #accumulate}'s
+         * arithmetic scaled by the partial's own value rather than by one row's -- see {@link
+         * KeyedAggregate#processPartial}.
+         *
+         * @param keyColumns how many leading columns of {@code partial} are group-key values, to
+         *     skip before reading the aggregate calls' own columns
+         */
+        void accumulatePartial(
+                RowView partial, int keyColumns, long weight, List<AggregateOperator.AggregateCall> calls) {
+            rowCount += weight;
+            lastTimestamp = partial.eventTimestampNanos();
+            lastSequence = partial.sequence();
+            for (int i = 0; i < calls.size(); i++) {
+                long partialValue = partial.getLong(keyColumns + i);
+                switch (calls.get(i).kind()) {
+                    case COUNT -> counts[i] += weight * partialValue;
+                    case SUM -> sums[i] += weight * partialValue;
+                    default ->
+                        throw new IllegalStateException(
+                                "accumulatePartial received a " + calls.get(i).kind()
+                                        + " call; SourcePushdown never offers partial-aggregate pushdown for anything but "
+                                        + "COUNT and SUM");
                 }
             }
         }

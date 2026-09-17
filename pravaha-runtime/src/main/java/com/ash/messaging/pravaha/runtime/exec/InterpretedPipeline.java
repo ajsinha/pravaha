@@ -140,6 +140,20 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     private final Map<String, RowProcessor> inputs = new LinkedHashMap<>();
 
+    /**
+     * ADR-039 item 6: where a pre-combined partial aggregate enters, by the stream it summarises.
+     *
+     * <p>Populated only when an {@link com.ash.messaging.pravaha.runtime.plan.AggregateOperator}
+     * sits directly over a chain of {@link FilterOperator}s and exactly one {@link ScanOperator} --
+     * the identical shape {@code SourcePushdown.partialAggregateFor} (pravaha-sql) requires before it
+     * will ever build a {@code ReadRequest.PartialAggregate} naming this stream, found the same way
+     * that class finds it: by walking the plan, not by asking the aggregate what it was built from.
+     * A plan with a computed column, a join, or a window between the scan and the aggregate has no
+     * entry here, and {@link #acceptPartialAggregate} refuses by name rather than guessing which
+     * aggregate a caller meant.
+     */
+    private final Map<String, PartialAggregateSink> partialAggregateTargets = new LinkedHashMap<>();
+
     private final List<ScanOperator> scans;
 
     private InterpretedPipeline(RowArena arena, RowProcessor head, List<ScanOperator> scans) {
@@ -208,6 +222,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         pipeline.joins.addAll(builder.joins);
         pipeline.lookupJoins.addAll(builder.lookupJoins);
         pipeline.inputs.putAll(builder.heads);
+        pipeline.partialAggregateTargets.putAll(builder.partialAggregateTargets);
         return pipeline;
     }
 
@@ -266,6 +281,51 @@ public final class InterpretedPipeline implements AutoCloseable {
                     "'" + streamName + "' is not an input of this pipeline; it reads " + sourceStreams());
         }
         input.process(row);
+    }
+
+    /**
+     * ADR-039 item 6: whether this pipeline has an aggregate eligible to receive a pre-combined
+     * partial for {@code streamName} -- the same question {@code SourcePushdown.partialAggregateFor}
+     * answers before it ever builds a {@code ReadRequest} naming this stream. A caller holding a
+     * {@code PartitionReader} that honoured a partial-aggregate request should check this before
+     * calling {@link #acceptPartialAggregate}, exactly as it already knows which stream a row
+     * arrived on before calling {@link #accept(String, RowView)}.
+     */
+    public boolean acceptsPartialAggregateFor(String streamName) {
+        return partialAggregateTargets.containsKey(streamName);
+    }
+
+    /**
+     * Folds a pre-combined partial into the aggregate reading {@code streamName}, exactly as if the
+     * rows it summarises had each arrived with this weight -- see {@code ReadRequest.PartialAggregate}
+     * and {@link GlobalAggregate#processPartial}/{@link KeyedAggregate#processPartial} for the
+     * arithmetic. {@code weight} negative retracts the partial's own contribution, which is the
+     * property restricting this to {@code COUNT} and {@code SUM} exists to preserve: both are
+     * invertible by subtraction, so undoing a whole partial is the same arithmetic as undoing one
+     * row, scaled.
+     *
+     * @param partial one column per {@link com.ash.messaging.pravaha.runtime.plan.AggregateOperator}
+     *     group-key ordinal (in order), then one column per aggregate call (in {@code
+     *     operator.aggregates()} order) -- the same layout the aggregate's own {@code emit} writes,
+     *     since a partial is exactly a miniature aggregate result
+     * @throws IllegalStateException if {@link #acceptsPartialAggregateFor} would say false for this
+     *     stream -- a partial arriving for a plan shape that never asked for one is a bug in
+     *     whichever plugin sent it, not something to silently drop or misattribute
+     */
+    public void acceptPartialAggregate(String streamName, RowView partial, long weight) {
+        PartialAggregateSink target = partialAggregateTargets.get(streamName);
+        if (target == null) {
+            throw new IllegalStateException("'" + streamName + "' has no aggregate eligible for a partial in this "
+                    + "pipeline; acceptsPartialAggregateFor(streamName) would have said so before this was called");
+        }
+        target.accept(partial, weight);
+    }
+
+    /** Where {@link #acceptPartialAggregate} delivers to -- {@code GlobalAggregate::processPartial}
+     * or {@code KeyedAggregate::processPartial}, never anything that also reads raw rows. */
+    @FunctionalInterface
+    private interface PartialAggregateSink {
+        void accept(RowView partial, long weight);
     }
 
     private volatile boolean abandoned;
@@ -695,6 +755,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final List<LookupJoin> lookupJoins = new ArrayList<>();
         private final List<ScanOperator> scans = new ArrayList<>();
         private final Map<String, RowProcessor> heads = new LinkedHashMap<>();
+        private final Map<String, PartialAggregateSink> partialAggregateTargets = new LinkedHashMap<>();
 
         private final Map<String, LookupSourcePlugin> lookups;
 
@@ -767,11 +828,15 @@ public final class InterpretedPipeline implements AutoCloseable {
                         // and emit nothing, because a stream has no end to trigger a finisher.
                         finishers.add(aggregate::emit);
                         continuousEmitters.add(aggregate::emitIncremental);
+                        onlyStreamOf(a.input())
+                                .ifPresent(stream -> partialAggregateTargets.put(stream, aggregate::processPartial));
                         yield buildInput(a.input(), aggregate);
                     }
                     KeyedAggregate aggregate = new KeyedAggregate(
                             a, a.input().outputSchema(), arena, downstream, KeyedAggregate.DEFAULT_MAX_GROUPS);
                     finishers.add(aggregate::emit);
+                    onlyStreamOf(a.input())
+                            .ifPresent(stream -> partialAggregateTargets.put(stream, aggregate::processPartial));
                     yield buildInput(a.input(), aggregate);
                 }
                 case WindowAssignOperator w -> {
@@ -831,6 +896,28 @@ public final class InterpretedPipeline implements AutoCloseable {
                     };
                 }
             };
+        }
+
+        /**
+         * The one stream {@code operator} reads, if it is nothing but a chain of single-input
+         * operators (a filter, a projection, a computed column -- any shape SQL planning would put
+         * between an aggregate and its scan) over a single {@link ScanOperator} --
+         * {@code Optional.empty()} the moment something with zero or two-or-more inputs appears (a
+         * join, most notably). This is deliberately more permissive than requiring a specific chain
+         * of types: the only question this answers is "does this subtree read exactly one stream",
+         * which a projection or a computed column never changes the answer to, and enumerating the
+         * types that do not affect it would just be re-deriving that fact one type at a time.
+         *
+         * <p>{@code SourcePushdown.partialAggregateFor} (pravaha-sql) asks the same question, for
+         * the same reason, on the plan builder's side of the boundary; independently implemented
+         * here because pravaha-runtime does not depend on pravaha-sql (ADR-002).
+         */
+        private static java.util.Optional<String> onlyStreamOf(PhysicalOperator operator) {
+            if (operator instanceof ScanOperator s) {
+                return java.util.Optional.of(s.streamName());
+            }
+            List<PhysicalOperator> inputs = operator.inputs();
+            return inputs.size() == 1 ? onlyStreamOf(inputs.get(0)) : java.util.Optional.empty();
         }
 
         private void registerScan(ScanOperator scan, RowProcessor entry) {

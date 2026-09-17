@@ -164,6 +164,58 @@ final class GlobalAggregate implements RowProcessor {
         }
     }
 
+    /**
+     * ADR-039 item 6: folds a pre-combined partial into the same accumulators {@link #process}
+     * would have built from the rows it summarises -- see {@code ReadRequest.PartialAggregate}.
+     *
+     * <p>The arithmetic is {@link #process}'s own, scaled: a row contributes {@code weight} to
+     * {@code counts[i]}, or {@code value * weight} to {@code sums[i]}; a partial contributes {@code
+     * weight} times its own already-combined count or sum instead of one row's worth. That scaling
+     * is what makes retraction ({@code weight < 0}) correct here for exactly the same reason it is
+     * correct per row: {@code counts[i] += weight * partialCount} undoes {@code counts[i] += weight
+     * * partialCount} from an earlier call precisely, which is the property restricting this to
+     * {@code COUNT} and {@code SUM} exists to preserve -- both compose under addition and invert
+     * under subtraction. {@code MIN}/{@code MAX} do neither, which is why {@code SourcePushdown}
+     * never offers a source one to push.
+     *
+     * <p>{@link #rowCount} is incremented by {@code weight} alone, not by {@code weight} times a
+     * row count -- a partial for a query with no {@code COUNT} call (say, {@code SELECT SUM(amount)
+     * FROM t}) carries no row count to scale by. That field exists only to answer "has anything
+     * arrived yet" for {@link #emitIncremental}; it is not read by any aggregate's own arithmetic,
+     * so undercounting it here changes nothing this class computes, only what {@link #rowCount()}
+     * would report to a caller that reads it as a literal row count while partials are in use.
+     *
+     * @param partial one column per {@link #operator}'s aggregate call, in {@code
+     *     operator.aggregates()} order -- the same layout {@link #emit} itself writes, since a
+     *     partial is exactly a miniature aggregate result
+     * @param weight the Z-set weight the summarised rows arrived (or are being retracted) with
+     * @throws IllegalStateException if {@code operator} has a call this method cannot fold a
+     *     partial into -- unreachable in practice, since {@code SourcePushdown} only ever offers a
+     *     source a partial for an aggregate whose every call is {@code COUNT} or {@code SUM}
+     */
+    void processPartial(RowView partial, long weight) {
+        if (weight == 0) {
+            return;
+        }
+        rowCount += weight;
+        lastTimestamp = partial.eventTimestampNanos();
+        lastSequence = partial.sequence();
+
+        List<AggregateOperator.AggregateCall> calls = operator.aggregates();
+        for (int i = 0; i < calls.size(); i++) {
+            AggregateOperator.AggregateCall call = calls.get(i);
+            long partialValue = partial.getLong(i);
+            switch (call.kind()) {
+                case COUNT -> counts[i] += weight * partialValue;
+                case SUM -> sums[i] += weight * partialValue;
+                default ->
+                    throw new IllegalStateException("processPartial received a " + call.kind()
+                            + " call; SourcePushdown never offers partial-aggregate pushdown for anything but "
+                            + "COUNT and SUM, so this aggregate should never have been given a partial for it");
+            }
+        }
+    }
+
     /** Emits the accumulated result. Called when the input ends. */
     /**
      * Emits the running total, retracting the one emitted before it.
