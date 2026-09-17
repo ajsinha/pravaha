@@ -83,6 +83,55 @@ class ReadRequestTest {
     }
 
     @Test
+    void aRequestWithNoFiltersColumnsOrAggregatesIsEmpty() {
+        assertThat(new ReadRequest(List.of(), List.of("id"), List.of()).isEmpty())
+                .isFalse();
+        assertThat(new ReadRequest(
+                                List.of(),
+                                List.of(),
+                                List.of(new ReadRequest.PartialAggregate(
+                                        List.of(),
+                                        List.of(new ReadRequest.PartialAggregate.AggregateCall(
+                                                ReadRequest.PartialAggregate.Kind.COUNT, null, "n")))))
+                        .isEmpty())
+                .isFalse();
+    }
+
+    @Test
+    void theSingleArgumentConstructorStillMeansFiltersOnly() {
+        ReadRequest request = new ReadRequest(List.of(new ReadRequest.Filter("a", ReadRequest.Comparison.EQ, 1L)));
+        assertThat(request.columns()).isEmpty();
+        assertThat(request.aggregates()).isEmpty();
+    }
+
+    @Test
+    void aPartialAggregateNeedsAtLeastOneCall() {
+        assertThatThrownBy(() -> new ReadRequest.PartialAggregate(List.of("status"), List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least one aggregate call");
+    }
+
+    @Test
+    void aSumNeedsAColumnButCountStarDoesNot() {
+        assertThatThrownBy(() -> new ReadRequest.PartialAggregate.AggregateCall(
+                        ReadRequest.PartialAggregate.Kind.SUM, null, "total"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SUM needs a column");
+
+        assertThat(new ReadRequest.PartialAggregate.AggregateCall(ReadRequest.PartialAggregate.Kind.COUNT, null, "n")
+                        .column())
+                .isNull();
+    }
+
+    @Test
+    void aPushedAggregateNeedsAnOutputName() {
+        assertThatThrownBy(() -> new ReadRequest.PartialAggregate.AggregateCall(
+                        ReadRequest.PartialAggregate.Kind.COUNT, null, " "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("output name");
+    }
+
+    @Test
     void everyComparisonHasItsSqlSpelling() {
         // A store that speaks SQL builds its clause from these, so a wrong one is a query that runs
         // and returns the wrong rows.

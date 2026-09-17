@@ -45,9 +45,9 @@ import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
-import com.ash.messaging.pravaha.runtime.plan.Pushdown;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
+import com.ash.messaging.pravaha.sql.plan.SourcePushdown;
 
 /**
  * Plans a query and runs it over delimited files.
@@ -164,7 +164,7 @@ public final class QueryRunner {
             // filesystem plugin declares no pushdown today, so this resolves to nothing and costs
             // one plan walk; a source that does declare it reads less. The engine's own filter
             // stays in the plan either way, which is what makes the offer safe to make blindly.
-            ReadRequest request = Pushdown.requestFor(plan, streamName, source.capabilities());
+            ReadRequest request = SourcePushdown.requestFor(plan, streamName, source.capabilities());
             try (PartitionReader reader =
                             source.createReader(source.partitions(streamName).get(0), null, request);
                     DeadLetterQueue deadLetters = openDeadLetters(deadLetterFile)) {

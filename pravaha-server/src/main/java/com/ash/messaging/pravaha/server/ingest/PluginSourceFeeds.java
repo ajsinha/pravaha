@@ -36,7 +36,7 @@ import com.ash.messaging.pravaha.registry.SourceFeedFactory;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
-import com.ash.messaging.pravaha.runtime.plan.Pushdown;
+import com.ash.messaging.pravaha.sql.plan.SourcePushdown;
 
 /**
  * Turns configured {@link SourceBinding}s into rows arriving at a registered query.
@@ -162,7 +162,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 if (group != null) {
                     joined.add(group);
                     partitionCounts.put(stream, group.partitionCount());
-                    ReadRequest shared = Pushdown.requestFor(
+                    ReadRequest shared = SourcePushdown.requestFor(
                             execution.plan(), stream, group.plugin().capabilities());
                     for (int index = 0; index < group.partitionCount(); index++) {
                         String token = resumeFrom.get("partition-" + partitionOrdinal[0]++);
@@ -187,7 +187,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 //
                 // Safe to offer blindly: the engine keeps its own filter whatever the source does,
                 // so this changes how many bytes cross the boundary and nothing else.
-                ReadRequest request = Pushdown.requestFor(execution.plan(), stream, plugin.capabilities());
+                ReadRequest request = SourcePushdown.requestFor(execution.plan(), stream, plugin.capabilities());
 
                 List<SourcePartition> partitions = plugin.partitions(stream);
                 partitionCounts.put(stream, partitions.size());
