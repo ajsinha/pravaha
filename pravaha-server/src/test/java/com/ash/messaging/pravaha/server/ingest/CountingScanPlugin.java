@@ -65,6 +65,19 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     /** Polls that went to the store. The scan count. */
     static final AtomicLong SCANS = new AtomicLong();
 
+    /**
+     * SRC-10. Lets a test hold one specific reader's <em>next empty poll</em> open before it
+     * returns, so a transient state that would otherwise close itself in a millisecond or two --
+     * a catch-up reader that has delivered its history and is one empty poll from closing -- can
+     * be observed deterministically instead of raced. {@code 0}, the ordinal no reader is ever
+     * given, means nothing is held. Set to a reader's 1-based creation order (see {@link #CREATED})
+     * to arm it; the matching {@link #heldPollGate} is what a test releases.
+     */
+    static volatile int holdEmptyPollForReaderNumber;
+
+    /** The gate {@link #holdEmptyPollForReaderNumber}'s held poll waits on. Set by the test. */
+    static volatile java.util.concurrent.CountDownLatch heldPollGate;
+
     static final StreamSchema SCHEMA = StreamSchema.builder("shared")
             .field("id", Types.int64())
             .field("user_id", Types.string())
@@ -80,6 +93,8 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
         OPEN.set(0);
         CREATED.set(0);
         SCANS.set(0);
+        holdEmptyPollForReaderNumber = 0;
+        heldPollGate = null;
     }
 
     /** Appends a record, as a writer to the store would. */
@@ -134,21 +149,23 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     @Override
     public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom, ReadRequest request) {
         OPEN.incrementAndGet();
-        CREATED.incrementAndGet();
-        return new Reader(resumeFrom);
+        int ordinal = CREATED.incrementAndGet();
+        return new Reader(resumeFrom, ordinal);
     }
 
     /** A scan of the store from a watermark, buffered and drained -- {@code LutScanReader}'s shape. */
     private static final class Reader implements PartitionReader {
 
         private final ArrayDeque<long[]> buffered = new ArrayDeque<>();
+        private final int ordinal;
         private int watermark;
         private boolean paused;
         private boolean closed;
         private long sequence;
 
-        Reader(SourceOffset from) {
+        Reader(SourceOffset from, int ordinal) {
             this.watermark = from == null || from.isBeginning() ? 0 : Integer.parseInt(from.token());
+            this.ordinal = ordinal;
         }
 
         @Override
@@ -178,6 +195,20 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
                         .sequence(++sequence)
                         .commit();
                 emitted++;
+            }
+            if (emitted == 0 && ordinal == holdEmptyPollForReaderNumber) {
+                // SRC-10's deterministic reproduction: this is the exact poll that would otherwise
+                // close a catch-up reader within a millisecond or two of its history being
+                // delivered. Parking here, rather than the test racing to observe it, is what turns
+                // "sometimes caught it" into "always caught it".
+                java.util.concurrent.CountDownLatch gate = heldPollGate;
+                if (gate != null) {
+                    try {
+                        gate.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
             }
             return emitted;
         }

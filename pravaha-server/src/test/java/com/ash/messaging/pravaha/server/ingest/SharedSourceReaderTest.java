@@ -209,8 +209,23 @@ class SharedSourceReaderTest {
         try (QueryRegistry registry =
                 new QueryRegistry(views, CountingScanPlugin.SCHEMA).feedingFrom(feeds(Map.of()))) {
             RegisteredQuery first = registry.register("asks_one", ASKS_ONE, List.of(0), DANA);
-            registry.register("asks_another", ASKS_ANOTHER, List.of(0), DANA);
+            RegisteredQuery second = registry.register("asks_another", ASKS_ANOTHER, List.of(0), DANA);
             awaitRows(first, 1);
+
+            // SRC-10. A query joining behind the shared reader's position is attached to the live
+            // fan-out first and given a private catch-up reader for the gap (see
+            // SharedPartitionFeed#join) -- a real second reader for as long as it takes to deliver
+            // the history and find its next poll empty, which is two rounds of the shared feed's
+            // own thread rather than zero. This used to assert the open-reader count immediately
+            // after registering, with no wait for either the second query's own delivery or that
+            // catch-up settling -- racing a legitimate transient state rather than a defect. See
+            // src10_aCatchUpReaderIsATransientNotALeak for the deterministic reproduction of
+            // exactly this window. Waiting for both here is the fix; what is asserted is unchanged.
+            awaitRows(second, 1);
+            assertThat(awaitOpen(1, Duration.ofSeconds(5)))
+                    .as("the second query's catch-up reader must close on its own once it has delivered the "
+                            + "history and polled again to find nothing new")
+                    .isTrue();
 
             registry.drop("asks_one");
             assertThat(CountingScanPlugin.OPEN.get())
@@ -222,6 +237,79 @@ class SharedSourceReaderTest {
                     .as("a reader nobody is left reading through must be closed, or a dropped query still costs "
                             + "a connection and a scan")
                     .isZero();
+        }
+    }
+
+    /**
+     * SRC-10, diagnosed rather than assumed. {@code theLastQueryOutClosesTheSharedReader} failed
+     * intermittently under full-reactor load with "expected: 1 but was: 2" right after dropping
+     * one of two queries. {@link SharedSourceGroup#holders} and {@link SharedPartitionFeed}'s own
+     * membership are both mutated only under a lock at every call site in the production code (one
+     * monitor per {@link PluginSourceFeeds}, one {@link java.util.concurrent.locks.ReentrantLock}
+     * per {@link SharedPartitionFeed}, checked by reading both classes rather than assumed) -- there
+     * is nowhere in either for a stale read of a reference count to come from.
+     *
+     * <p>What is real is a second reader, on purpose. A query that joins a group <em>behind</em> the
+     * shared reader's position is attached to the live fan-out first and given a private catch-up
+     * reader for what it missed -- correct, and documented as the reason sharing is offered only to
+     * at-least-once sources. That catch-up reader does not close the instant it is created: it
+     * closes once it has polled at least one record and then polled again and found nothing new
+     * (see {@code SharedPartitionFeed#pollCatchUps}), which takes two rounds of the shared feed's
+     * own background thread. For the span between those two rounds, {@code CountingScanPlugin.OPEN}
+     * genuinely reads one higher than the group's own reader count -- and that is correct, not a
+     * leak.
+     *
+     * <p>The flaky test registered its second query and asserted the reader count immediately, with
+     * no wait for either query's delivery or that catch-up's own two rounds -- exactly the shape the
+     * finding was framed around: an assertion placed before the thing it asserted had a chance to
+     * happen. This test reproduces that window <em>deterministically</em> rather than by getting
+     * lucky on scheduling: {@link CountingScanPlugin} can hold one specific reader's closing
+     * (empty) poll open on a gate a test controls, so the transient state can be observed on
+     * purpose instead of raced, and then released to confirm it resolves on its own.
+     */
+    @Test
+    void src10_aCatchUpReaderIsATransientNotALeak() throws Exception {
+        CountingScanPlugin.append(1, 100);
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry =
+                new QueryRegistry(views, CountingScanPlugin.SCHEMA).feedingFrom(feeds(Map.of()))) {
+            RegisteredQuery first = registry.register("asks_one", ASKS_ONE, List.of(0), DANA);
+            awaitRows(first, 1);
+            // Forces the shared reader's position past BEGINNING before the second query joins, so
+            // that join is guaranteed to be "behind" and need a catch-up -- the exact ordering that
+            // made the original assertion flaky rather than reliably wrong.
+            awaitScans(1);
+
+            // Reader #1 is asks_one's original. ASKS_ONE and ASKS_ANOTHER push down different
+            // filters, so joining also rebuilds the group's reader to push nothing down (reader #2,
+            // see SharedSourceGroup's own javadoc on the trade); reader #3 is the catch-up this
+            // join creates for the row asks_another joined too late to have seen from #2. Armed
+            // before registering, so there is no window in which the catch-up could run unobserved.
+            CountingScanPlugin.holdEmptyPollForReaderNumber = 3;
+            java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
+            CountingScanPlugin.heldPollGate = gate;
+            try {
+                RegisteredQuery second = registry.register("asks_another", ASKS_ANOTHER, List.of(0), DANA);
+                awaitRows(second, 1);
+
+                // Held here: the catch-up delivered asks_another's row and is one empty poll away
+                // from closing itself, and that poll is parked on the gate. This is precisely the
+                // state the flaky test could observe and mistake for a leak.
+                assertThat(awaitOpen(2, Duration.ofSeconds(5)))
+                        .as("a catch-up reader really does make this 2 for a moment -- that is the state "
+                                + "the flake caught, not a defect")
+                        .isTrue();
+            } finally {
+                gate.countDown();
+            }
+
+            // Released: the held poll returns empty, pollCatchUps sees it already delivered once,
+            // and closes it. No test code drives that close -- it is the shared feed's own thread,
+            // on its own schedule, which is why asserting ahead of it was the actual bug.
+            assertThat(awaitOpen(1, Duration.ofSeconds(5)))
+                    .as("and it closes itself, unassisted, once its next poll comes back empty")
+                    .isTrue();
         }
     }
 
@@ -242,6 +330,38 @@ class SharedSourceReaderTest {
             // set it cares about may want the server-side filter more than it wants the sharing.
             assertThat(CountingScanPlugin.OPEN.get()).isEqualTo(2);
         }
+    }
+
+    /** Waits until the shared reader has scanned at least this many times. See SRC-10. */
+    private static void awaitScans(long atLeast) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (CountingScanPlugin.SCANS.get() >= atLeast) {
+                return;
+            }
+            Thread.sleep(5);
+        }
+        assertThat(CountingScanPlugin.SCANS.get())
+                .as(
+                        "the shared reader scanned %d times in ten seconds; %d were expected",
+                        CountingScanPlugin.SCANS.get(), atLeast)
+                .isGreaterThanOrEqualTo(atLeast);
+    }
+
+    /**
+     * Waits for {@code CountingScanPlugin.OPEN} to settle at {@code expected}, rather than reading
+     * it once. See SRC-10: a catch-up reader closing itself is real work on another thread, not an
+     * instantaneous side effect of the call that created it.
+     */
+    private static boolean awaitOpen(int expected, Duration timeout) throws InterruptedException {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (CountingScanPlugin.OPEN.get() == expected) {
+                return true;
+            }
+            Thread.sleep(5);
+        }
+        return CountingScanPlugin.OPEN.get() == expected;
     }
 
     private static long scansOver(Duration window) throws InterruptedException {
