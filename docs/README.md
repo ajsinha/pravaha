@@ -28,6 +28,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 | [Execution model](EXECUTION_MODEL.md) | Lanes, inboxes, arenas, confinement, backpressure, and what actually bounds a node. The single source of truth for how the engine runs |
 | [Streams, queries and SQL](CONTINUOUS_QUERIES.md) | A stream becomes a query becomes a view, with worked examples — and every SQL construct that runs or is refused, checked by a test. The single source of truth for what you write |
 | [Connectors](CONNECTORS.md) | The plugin SPI, a worked example, the TCK, cross-source joins, and change-data-capture. The single source of truth for writing a connector |
+| [TLS](CONNECTOR_TLS.md) | Every encrypted connection Pravaha makes or accepts — connector, server and SDK — and the configuration that turns each one on. The single source of truth for TLS |
 | [System design](system_design.md) | The full specification |
 | [Decisions (ADRs)](adr/) | Every architectural decision, with the reasoning and the alternatives rejected |
 
