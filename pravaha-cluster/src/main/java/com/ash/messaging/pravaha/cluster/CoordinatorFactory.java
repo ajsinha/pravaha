@@ -95,31 +95,21 @@ public final class CoordinatorFactory {
                             + "mode REPLICATED, where a split brain costs duplicated work rather than wrong "
                             + "numbers. Refusing now rather than during a partition.");
         }
-        // S-3. Checked *after* the split-brain guard above, deliberately. PARTITIONED assigns
-        // partitions to particular nodes and nothing in this build does that: PartitionAssignment,
-        // Rebalancer and PartitionHandoff are never referenced from any running path, and seven
-        // pravaha.cluster.* keys have no readers. PARTITIONED x socket was already refused for
-        // split-brain, which made that refusal look like the guard -- but PARTITIONED x single
-        // STARTED, reported itself partitioned, and partitioned nothing.
+        // S-3, resolved. PARTITIONED used to be refused unconditionally here, because nothing in the
+        // build computed an assignment at all: PartitionAssignment, Rebalancer and PartitionHandoff
+        // were never referenced from any running path, and PARTITIONED x single started, reported
+        // itself partitioned, and partitioned nothing. ADR-039 item 8's first slice is what changes:
+        // PartitionAssigner (pravaha-cluster's own main sources) turns a coordinator's real,
+        // continuously-updated membership into a real, continuously-recomputed PartitionAssignment,
+        // so a node built on any mechanism that reaches this line -- which the split-brain guard
+        // above has already limited to ones that exclude split-brain -- can now genuinely say which
+        // partitions are its own. That is this slice's whole claim: membership and assignment are
+        // real. Rebalance, handoff and elastic rescale are not, and nothing here wires this
+        // assignment into what a node actually serves -- see PartitionAssigner's own javadoc for
+        // why rushing that part would be worse than not having it yet.
         //
-        // Putting this first would have been simpler and would have made the split-brain check
-        // unreachable, which is how a guard rots: it stops being exercised, and the day PARTITIONED
-        // is implemented somebody has to remember it was ever there. This ordering keeps the more
-        // specific diagnosis for the case that has one, and catches the rest here.
-        //
-        // Refused rather than implemented: distribution is deferred by ADR-034, Wave 8 scoped it out
-        // (ADR-035), and ADR-038 keeps it out of GA. A mode that reports success and does nothing is
-        // worse than one that refuses, because only the second tells the operator what they have.
-        if (mode == ClusterMode.PARTITIONED) {
-            throw new PravahaException(
-                    ClusterErrors.INSUFFICIENT_GUARANTEE,
-                    "cluster mode PARTITIONED is not implemented in this build and starting in it would be "
-                            + "a claim this node cannot honour: partitions would be assigned to nobody, every "
-                            + "node would read every partition, and nothing would say so. Distribution is "
-                            + "deferred by ADR-034. Use SINGLE, or REPLICATED if you are running more than "
-                            + "one node and can tolerate duplicated work. This refusal replaces a silent "
-                            + "start (S-3).");
-        }
+        // The split-brain guard stays first, unchanged: PARTITIONED on a mechanism that cannot
+        // exclude split-brain (socket) is still refused there, for the reason it always was.
         return provider.create(configuration);
     }
 

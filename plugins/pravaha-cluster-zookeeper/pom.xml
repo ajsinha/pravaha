@@ -30,5 +30,16 @@
       <artifactId>curator-recipes</artifactId>
       <version>${curator.version}</version>
     </dependency>
+    <!-- A real embedded ZooKeeper (TestingServer), test-scope only, so this plugin's own claims
+         about membership and partition assignment are proved against a real ensemble rather than
+         asserted about mocked collaborators, the same standard applied to the Flight TLS work
+         this round: a test that only exercises Curator's client against nothing proves nothing
+         about whether this coordinator actually joins a cluster. -->
+    <dependency>
+      <groupId>org.apache.curator</groupId>
+      <artifactId>curator-test</artifactId>
+      <version>${curator.version}</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

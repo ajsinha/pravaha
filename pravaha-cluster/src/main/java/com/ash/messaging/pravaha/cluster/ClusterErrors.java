@@ -37,13 +37,17 @@ public final class ClusterErrors {
     /**
      * This node is not the leader and the operation is the leader's.
      *
-     * <p><strong>Deliberately unreachable for now.</strong> {@code CoordinatorFactory} refuses
-     * {@code PARTITIONED} outright (ADR-034: distribution deferred), and {@code PartitionAssignment},
-     * {@code Rebalancer} and {@code PartitionHandoff} are wired to no running path, so there is no
-     * multi-node deployment in which a "not the leader" refusal could ever fire. This is not owed the
-     * "wire or delete" verdict E-1 applies elsewhere: ADR-039 (item 8) puts cluster mode itself back
-     * on the roadmap, and the code names the exact refusal that mode will need on day one. Remove
-     * this comment, not the declaration, when clustering lands.
+     * <p><strong>Still unreachable, and for a narrower reason than before.</strong> ADR-039 item 8's
+     * first slice landed {@code PartitionAssignment} on a running path: {@code PartitionAssigner}
+     * wires real membership from a real {@code ClusterCoordinator} into a real, continuously
+     * recomputed assignment, and {@code CoordinatorFactory} allows {@code PARTITIONED} on any
+     * mechanism that excludes split-brain. What did not land, on purpose, is anything that needs a
+     * leader at all: assignment is a pure function every node computes independently from whatever
+     * membership it has observed (see {@code PartitionAssigner}'s own javadoc for why), so nothing
+     * asks "am I the leader" before doing it. {@code Rebalancer} and {@code PartitionHandoff} remain
+     * wired to no running path -- initiating a rebalance is the operation that will actually need
+     * this refusal, and that is explicitly the next slice, not this one. Remove this comment, not
+     * the declaration, when it lands.
      */
     public static final ErrorCode NOT_LEADER = new ErrorCode(9004, "CLUSTER_NOT_LEADER");
 

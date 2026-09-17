@@ -162,27 +162,30 @@ class StateClusterTest extends StateTestSupport {
     }
 
     @Test
-    void state101_partitionedBySingleIsRefusedBecauseThisBuildPartitionsNothing() throws Exception {
-        // This case recorded the behaviour it found: PARTITIONED x single started, on the sound
-        // reasoning that one node cannot disagree with itself. The reasoning holds and the mode does
-        // not -- state106 below is the other half of the same observation, that the partition
-        // machinery is reachable from nothing at all. Together they are S-3, and the node now
-        // refuses rather than starting and partitioning nothing (ADR-038).
-        //
-        // The split-brain guarantee this case was really about is still asserted, on SINGLE.
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> CoordinatorFactory.create(config(
-                        "pravaha.cluster.mode", "PARTITIONED",
-                        "pravaha.cluster.mechanism", "single")))
-                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
-                .hasMessageContaining("PRV-9002")
-                .hasMessageContaining("not implemented");
-
+    void state101_partitionedBySingleNowStartsAndGenuinelyAssignsEveryPartitionToItself() throws Exception {
+        // This case's history is S-3 itself. It originally found PARTITIONED x single starting on
+        // the sound reasoning that one node cannot disagree with itself -- sound, and beside the
+        // point, because nothing in the build computed an assignment at all, so the node started,
+        // reported itself partitioned, and partitioned nothing. Between ADR-038 and here it asserted
+        // the opposite: that starting was refused (state106 below is the other half of that same
+        // observation, that the partition machinery was reachable from nothing). ADR-039 item 8's
+        // first slice is what changes now: com.ash.messaging.pravaha.cluster.PartitionAssigner turns
+        // a coordinator's real membership into a real, continuously recomputed
+        // com.ash.messaging.pravaha.cluster.PartitionAssignment, so the original reasoning is no
+        // longer merely sound, it is genuinely true -- confirmed here rather than assumed from the
+        // absence of a refusal.
         try (ClusterCoordinator coordinator = CoordinatorFactory.create(config(
-                "pravaha.cluster.mode", "SINGLE",
+                "pravaha.cluster.mode", "PARTITIONED",
                 "pravaha.cluster.mechanism", "single"))) {
             assertThat(coordinator.guarantees().excludesSplitBrain()).isTrue();
-            coordinator.start(new Member("only", "localhost", 9070));
+            Member self = new Member("only", "localhost", 9070);
+            coordinator.start(self);
             assertThat(coordinator.isLeader()).isTrue();
+
+            var assigner = new com.ash.messaging.pravaha.cluster.PartitionAssigner(coordinator, self, 8);
+            assertThat(assigner.partitionsOwnedBySelf())
+                    .as("the one node in a single-node PARTITIONED cluster owns every partition")
+                    .hasSize(8);
         }
     }
 
@@ -308,15 +311,38 @@ class StateClusterTest extends StateTestSupport {
     }
 
     @Test
-    void state106_partitionedAssignsNothingBecauseThePartitionMachineryIsReachableFromNothing() throws Exception {
+    void state106_partitionAssignmentIsNowReachableButHandoffAndRebalanceAreStillReachableFromNothing()
+            throws Exception {
+        // Renamed from state106_partitionedAssignsNothingBecauseThePartitionMachineryIsReachableFromNothing.
+        // ADR-039 item 8's first slice made that name half wrong on purpose: PartitionAssignment now
+        // is reachable from a running path (com.ash.messaging.pravaha.cluster.PartitionAssigner,
+        // itself inside pravaha-cluster's own main sources) and genuinely drives a real assignment.
+        // What did not change, and what this case still exists to catch, is the other three:
+        // PartitionOwner, PartitionHandoff and Rebalancer remain wired to nothing, because rebalance
+        // and handoff are explicitly the next slice, not this one -- see PartitionAssigner's own
+        // javadoc for why finishing that part in a hurry would be worse than leaving it undone.
         List<String> references =
-                grep("PartitionAssignment|PartitionOwner|PartitionHandoff|Rebalancer|PartitionSnapshot", repoRoot())
-                        .stream()
+                grep("PartitionOwner|PartitionHandoff|Rebalancer|PartitionSnapshot", repoRoot()).stream()
                         .filter(l -> l.contains("/src/main/"))
                         .filter(l -> !l.contains("/pravaha-cluster/src/main/"))
                         .toList();
         assertThat(references)
-                .as("no shipped code outside pravaha-cluster names any of the four partition classes")
+                .as("no shipped code outside pravaha-cluster names any of the three not-yet-built "
+                        + "handoff/rebalance classes, or PartitionSnapshot, the value type between them")
+                .isEmpty();
+
+        // PartitionAssignment itself is checked the opposite way now: it is reachable, but only from
+        // within pravaha-cluster's own main sources -- nothing in pravaha-server or elsewhere reaches
+        // into it directly, because nothing outside pravaha-cluster consumes an assignment to decide
+        // what it serves yet. That consumption is exactly the correctness-sensitive step this slice
+        // does not take (see PartitionAssigner's own javadoc).
+        List<String> assignmentReferencesOutsideCluster = grep("PartitionAssignment", repoRoot()).stream()
+                .filter(l -> l.contains("/src/main/"))
+                .filter(l -> !l.contains("/pravaha-cluster/src/main/"))
+                .toList();
+        assertThat(assignmentReferencesOutsideCluster)
+                .as("PartitionAssignment is real now, and still nobody outside pravaha-cluster reaches "
+                        + "into it to decide what a node serves")
                 .isEmpty();
 
         List<String> methodNames = new ArrayList<>();
@@ -326,6 +352,9 @@ class StateClusterTest extends StateTestSupport {
             }
         }
         assertThat(methodNames)
+                .as("PartitionAssigner is a wrapper around a coordinator, not a new coordinator "
+                        + "method -- the interface ADR-034 called shared-nothing plumbing stays exactly "
+                        + "that size")
                 .containsExactlyInAnyOrder(
                         "mechanism",
                         "guarantees",
@@ -337,25 +366,36 @@ class StateClusterTest extends StateTestSupport {
                         "onMembershipChange",
                         "close");
 
-        // The other half of this case used to start two nodes, one PARTITIONED and one SINGLE, and
-        // assert their results were identical -- which they were, because PARTITIONED did nothing.
-        // That demonstration is what the finding was built on, and it cannot be run any more: the
-        // mode is refused now (S-3, ADR-038), which is the stronger version of the same statement.
-        //
-        // The reachability check above is the part that still holds and still matters: if any of
-        // those types ever appears on a running path, PARTITIONED has become real and this case
-        // needs rewriting rather than passing quietly.
+        // The demonstration this case was originally built on -- PARTITIONED and SINGLE producing
+        // identical results because PARTITIONED did nothing -- cannot be run as originally written,
+        // because PARTITIONED is no longer refused on a mechanism with consensus. What it is replaced
+        // with is the honest current claim: both modes serve the same rows (nothing here routes by
+        // partition ownership yet), and the PARTITIONED node can additionally say which partitions it
+        // owns, which the SINGLE node has no concept of at all.
         Path singleJournal = Files.createTempDirectory("state106-s").resolve("registry.journal");
+        Path partitionedJournal = Files.createTempDirectory("state106-p").resolve("registry.journal");
         var single = nodeWithMode("SINGLE", singleJournal);
         try {
-            org.assertj.core.api.Assertions.assertThatThrownBy(() -> nodeWithMode("PARTITIONED", singleJournal))
-                    .as("a mode whose machinery nothing references must not start and claim to partition")
-                    .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
-                    .hasMessageContaining("PRV-9002");
+            var partitioned = nodeWithMode("PARTITIONED", partitionedJournal);
+            try {
+                List<List<Object>> singleAnswer = runThreeQueriesAndScan(single);
+                assertThat(singleAnswer)
+                        .as("SINGLE answers, the mode a one-node GA ships with")
+                        .isNotEmpty();
+                assertThat(runThreeQueriesAndScan(partitioned))
+                        .as("PARTITIONED answers identically -- nothing yet routes by partition ownership")
+                        .isEqualTo(singleAnswer);
 
-            assertThat(runThreeQueriesAndScan(single))
-                    .as("and SINGLE still answers, which is the mode a one-node GA ships with")
-                    .isNotEmpty();
+                assertThat(partitioned.coordinator())
+                        .isPresent()
+                        .get()
+                        .extracting(c -> c.guarantees().excludesSplitBrain())
+                        .as("single is a legitimate mechanism for PARTITIONED precisely because one "
+                                + "node cannot disagree with itself")
+                        .isEqualTo(true);
+            } finally {
+                partitioned.stop();
+            }
         } finally {
             single.stop();
         }
@@ -569,10 +609,12 @@ class StateClusterTest extends StateTestSupport {
                         "socket",
                         "cluster mode REPLICATED on socket (NO consensus — cannot exclude split-brain), "
                                 + "self-contained, development only"),
-                // PARTITIONED is refused now (S-3, ADR-038), so it has no startup line to describe --
-                // which is the point: a mode that never starts cannot mis-describe itself. The
-                // reachable cells are the ones a node can actually be in.
-                new Cell("REPLICATED", "single", "cluster mode REPLICATED on single (consensus), self-contained"));
+                // PARTITIONED x socket is still refused (no consensus) and so still has no startup
+                // line to describe -- asserted below, separately, since assertThatThrownBy does not
+                // fit this table shape. PARTITIONED x single does now, since ADR-039 item 8's first
+                // slice: the reachable cells are the ones a node can actually be in, and this one
+                // became reachable rather than staying hypothetical.
+                new Cell("PARTITIONED", "single", "cluster mode PARTITIONED on single (consensus), self-contained"));
 
         for (Cell cell : cells) {
             List<String> pairs = new ArrayList<>(

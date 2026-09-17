@@ -64,12 +64,15 @@ class CoordinatorFactoryTest {
     void aSingleNodeReallyDoesExcludeSplitBrain() {
         // Not a cheeky claim: with one node there is no second node to disagree with it.
         //
-        // This used to demonstrate that through PARTITIONED, on the reasoning that a single node is
-        // a legitimate choice for it because it assigns every partition to itself. The reasoning
-        // holds and the mode does not: S-3 found that PARTITIONED assigns nothing at all, so that
-        // configuration started, reported itself partitioned, and partitioned nothing. It is refused
-        // now (ADR-038), and the guarantee is asserted directly instead -- which is what this case
-        // was ever about.
+        // This asserted the same thing through PARTITIONED once, on the reasoning that a single
+        // node is a legitimate choice for it because it assigns every partition to itself. Between
+        // ADR-038 and ADR-039 item 8's first slice, PARTITIONED was refused unconditionally, because
+        // nothing computed an assignment at all (S-3): asserting through PARTITIONED would have
+        // demonstrated a mode that started and did nothing, not the guarantee. Now that
+        // PartitionAssigner makes the assignment real again (see
+        // partitionedModeIsNowAllowedOnACoordinatorThatCanSupportIt), the guarantee itself is still
+        // asserted directly here, on plain SINGLE, because that is what this case has always been
+        // about and a guarantee belongs on its own the moment it can be checked either way.
         try (ClusterCoordinator coordinator = CoordinatorFactory.create(
                 config("pravaha.cluster.mode", "SINGLE", "pravaha.cluster.mechanism", "single"))) {
             assertThat(coordinator.guarantees().excludesSplitBrain()).isTrue();
@@ -77,17 +80,26 @@ class CoordinatorFactoryTest {
     }
 
     @Test
-    void partitionedModeIsRefusedEvenOnACoordinatorThatCouldSupportIt() {
-        // S-3. The split-brain guard above made PARTITIONED look guarded, and it only ever refused
-        // the mechanisms that cannot exclude split-brain. PARTITIONED x single passed that guard and
-        // started, which is the silent half of the defect.
-        assertThatThrownBy(() -> CoordinatorFactory.create(
-                        config("pravaha.cluster.mode", "PARTITIONED", "pravaha.cluster.mechanism", "single")))
-                .as("a mode that reports success and does nothing is worse than one that refuses")
-                .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-9002")
-                .hasMessageContaining("not implemented")
-                .hasMessageContaining("ADR-034");
+    void partitionedModeIsNowAllowedOnACoordinatorThatCanSupportIt() {
+        // S-3, resolved. This case used to assert the opposite -- that PARTITIONED x single was
+        // refused even though a single node trivially satisfies it (one node cannot disagree with
+        // itself about who owns what). That refusal was correct at the time for an entirely
+        // different reason than "single can't do this": nothing in the build computed an assignment
+        // at all, so PARTITIONED x single started, reported itself partitioned, and partitioned
+        // nothing (S-3). ADR-039 item 8's first slice is what changes: PartitionAssigner turns real
+        // membership into a real, continuously recomputed PartitionAssignment, so a node can now
+        // genuinely say which partitions are its own, and PARTITIONED is no longer refused on any
+        // mechanism this factory's own split-brain guard has already accepted.
+        try (ClusterCoordinator coordinator = CoordinatorFactory.create(
+                config("pravaha.cluster.mode", "PARTITIONED", "pravaha.cluster.mechanism", "single"))) {
+            Member self = new Member("only", "localhost", 19077);
+            coordinator.start(self);
+
+            PartitionAssigner assigner = new PartitionAssigner(coordinator, self, 16);
+            assertThat(assigner.partitionsOwnedBySelf())
+                    .as("the one node in a single-node PARTITIONED cluster owns every partition")
+                    .hasSize(16);
+        }
     }
 
     @Test
