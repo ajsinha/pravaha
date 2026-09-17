@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **299 findings carrying a
-status — 181 FIXED, 103 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 182 FIXED, 102 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The fifteen blockers, by what they break.** Data reaching the wrong principal: `SX-5` alone — `SX-1` is **fixed**, and was already fixed in code when its status line still said otherwise; what it lacked was a test pinning the order, which it now has.
@@ -6578,9 +6578,12 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Status:** FIXED — `api.js` generated and displayed a correlation id on every error, with a comment stating its whole purpose: that "what appears on screen is the same string that is in the console's log." Nothing on the server ever read the `X-Correlation-Id` header, so the id an operator quoted and the id in the log were unrelated strings, and the one affordance for tying a user's report to a log line did the opposite of what it claimed. `Routes.json_guard` logs it now; two tests cover it, including that a request with no header — the server-rendered no-JavaScript forms — still logs cleanly.
 > **Why it mattered:** a diagnosability affordance that was worse than none, because it was believed.
 
-### SRC-10 (MEDIUM) — the shared reader's ref-counting races under load
+### SRC-10 (MEDIUM) — the shared reader's ref-counting races under load — *it does not; the test raced a deliberate transient*
 
-> **Status:** OPEN — `SharedSourceReaderTest.theLastQueryOutClosesTheSharedReader` fails intermittently under full-reactor load with "expected: 1 but was: 2" at line 218, on the assertion "dropping one of two queries must leave the reader open for the other". Passes in isolation and on immediate re-run. Seen independently by two agents on separate rounds, which is what moves it from a flake to a signal.
+> **Originally recorded as:** `SharedSourceReaderTest.theLastQueryOutClosesTheSharedReader` fails intermittently under full-reactor load with "expected: 1 but was: 2" at line 218, on the assertion "dropping one of two queries must leave the reader open for the other". Passes in isolation and on immediate re-run. Seen independently by two agents on separate rounds, which is what moves it from a flake to a signal.
 > **Not investigated.** It is `SRC-3`'s shared reader — the mechanism that took four queries over one Aerospike set from 3.8 scans/s to 1.0 — and a ref count that can be read stale is a reader closed while a query still needs it, or held open for ever. Both matter; neither is proven yet. What is recorded here is the reproduction, not a diagnosis.
-> **Disposition:** POST-GA — intermittent, and the failure mode is a test observation rather than a demonstrated production defect. It should not stay that way.
+> **Status:** FIXED — and the finding's own title was wrong, which is the useful part. There is no race in the ref-counting. `SharedSourceGroup.holders` is mutated at exactly two call sites, both inside `PluginSourceFeeds`'s `sharing` monitor; `SharedPartitionFeed`'s membership and its `reader` field are mutated only under its own `ReentrantLock`, at every call site. Both were read end to end before anything was edited. Neither has anywhere for a stale read to come from.
+> **What the test saw was real, and correct.** A query that joins a group *behind* the shared reader's position is attached to the live fan-out first and handed a private catch-up reader for the gap — documented behaviour, and the reason sharing is offered only to at-least-once sources. That catch-up reader does not close immediately: per `SharedPartitionFeed#pollCatchUps` it closes only after delivering its backlog on one poll and then polling again to find nothing new, which is two rounds of the shared feed's own background thread. For that span there genuinely are two open readers. The test asserted the count immediately after registering the second query, waiting for neither its delivery nor the catch-up settling — an assertion placed before the thing it asserted had a chance to happen.
+> **Proven before it was believed.** A gate was added to the test-only `CountingScanPlugin` that can hold one specific reader's closing poll open on command, and used to force the window open under the *old* assertion shape: "expected: 1 but was: 2" reproduced on demand rather than by luck. That temporary proof was then reverted and kept as a permanent test, `src10_aCatchUpReaderIsATransientNotALeak`, which holds the window open deliberately, asserts `OPEN` reads 2 while held, releases the gate and asserts it settles to 1 unassisted. The flaky test now waits for the second query's delivery and for the count to settle; **what it asserts is unchanged, only when.**
+> **This is the fourth kind of load-sensitivity found in this suite**, after sleeps standing in for conditions, timeouts tuned on an idle machine, and ZooKeeper leadership asserted instantly. This one is distinct: the code under test was right, the transient was intentional, and the test raced it. Test-only change; no production code touched. Verified at 788 tests across `pravaha-it`, plus five consecutive isolated runs by the author and three more on a concurrently loaded machine.
 
