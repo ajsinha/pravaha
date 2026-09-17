@@ -142,9 +142,9 @@ def client(engine_url):
     config.set("console.password", CONSOLE_PASSWORD)
     config.set("console.session_secret", "test-only-secret")
     client = fastapi_testclient.TestClient(create_app(config))
-    # Signed in, because every state-changing route is gated now. A fixture that did not
-    # would exercise the login redirect instead of the thing each test is about -- and the
-    # gate itself is tested directly, below.
+    # Signed in, because every route that names a registered query -- reading or writing --
+    # is gated now. A fixture that did not would exercise the login redirect instead of the
+    # thing each test is about -- and the gate itself is tested directly, below.
     client.post("/login", data={"password": CONSOLE_PASSWORD, "next": "/overview"})
     return client
 
@@ -160,6 +160,28 @@ def anonymous(engine_url):
     config.set("console.password", CONSOLE_PASSWORD)
     config.set("console.session_secret", "test-only-secret")
     return fastapi_testclient.TestClient(create_app(config))
+
+
+ENGINE_TOKEN = "s3cret-engine-bearer-token-should-never-render"
+SESSION_SECRET = "s3cret-session-signing-key-should-never-render"
+
+
+@pytest.fixture
+def secretive_client(engine_url):
+    """Every secret this console holds set to a distinctive, greppable value.
+
+    Not a fixture other tests share: setting an engine token this deployment does not
+    expect is exactly the kind of thing that should stay confined to the one test that
+    needs it.
+    """
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("engine.url", engine_url)
+    config.set("engine.token", ENGINE_TOKEN)
+    config.set("console.password", CONSOLE_PASSWORD)
+    config.set("console.session_secret", SESSION_SECRET)
+    client = fastapi_testclient.TestClient(create_app(config))
+    client.post("/login", data={"password": CONSOLE_PASSWORD, "next": "/overview"})
+    return client
 
 
 def test_health_reports_a_reachable_engine(client):
@@ -255,6 +277,59 @@ def test_the_detail_page_shows_the_sql_and_fingerprint(client):
         assert "fingerprint" in page
     finally:
         client.post("/queries/detail/drop")
+
+
+def test_dropping_a_query_needs_its_name_typed_not_just_clicked_through(client):
+    # A plain OK/Cancel confirm() is exactly the dialog a hurried click clears without
+    # reading. §23.16 requires typed confirmation of the object's name for a destructive
+    # action, so the rendered page must carry the query's own name as the value the input
+    # has to match -- not merely a generic "are you sure" string.
+    client.post("/queries", data={"name": "typed_confirm", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        page = client.get("/queries/typed_confirm").text
+        assert 'data-expected="typed_confirm"' in page
+        # The no-JavaScript path stays a real, working form -- a modal is JavaScript by
+        # definition, and the console's own rule is that every control still works when a
+        # script does not.
+        assert '<form method="post" action="/queries/typed_confirm/drop"' in page
+        assert 'id="dropConfirmSubmit"' in page and "disabled" in page
+    finally:
+        client.post("/queries/typed_confirm/drop")
+
+
+def test_no_secret_is_ever_serialised_to_the_browser(secretive_client):
+    # §23.20's own words. The engine bearer token and the session-signing secret are the
+    # two values this console holds that must never cross into anything a browser receives
+    # -- the cookie is signed with the session secret, not carrying it, and the engine
+    # token authenticates a server-to-server call the browser is never party to. Checked
+    # across every page and API response the rest of the suite exercises, on a real running
+    # engine and a registered query, rather than asserted about one screen in isolation.
+    secretive_client.post(
+        "/queries", data={"name": "secrets_check", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        pages = [
+            "/", "/about", "/help", "/help/concepts", "/tutorials",
+            "/overview", "/queries", "/queries/secrets_check", "/workbench",
+            "/api/v1/health", "/api/v1/queries", "/api/v1/queries/secrets_check",
+            "/api/v1/stats",
+        ]
+        for path in pages:
+            body = secretive_client.get(path).text
+            assert ENGINE_TOKEN not in body, f"engine token leaked on {path}"
+            assert SESSION_SECRET not in body, f"session secret leaked on {path}"
+
+        # A bad query's own error text is the likeliest accidental leak: an engine message
+        # that happened to echo back configuration would land here first.
+        bad = secretive_client.post(
+            "/workbench", data={"sql": "SELECT * FROM nowhere", "params": ""}).text
+        assert ENGINE_TOKEN not in bad
+        assert SESSION_SECRET not in bad
+
+        # And the session cookie itself carries a signature, not the secret that produced it.
+        session_cookie = secretive_client.cookies.get("session") or ""
+        assert SESSION_SECRET not in session_cookie
+    finally:
+        secretive_client.post("/queries/secrets_check/drop")
 
 
 def test_an_unknown_query_says_so(client):
@@ -402,6 +477,36 @@ def test_an_api_error_carries_the_engines_code(client):
     # instead of leaving the reader to search for the useful part of a long message.
     assert "error" in body
     assert body.get("code", "").startswith("PRV-")
+
+
+def test_the_browsers_correlation_id_reaches_the_servers_own_log(client, caplog):
+    # api.js generates a correlation id, sends it as X-Correlation-Id, and shows it on
+    # screen -- but that only means something if the same string lands in the log an
+    # operator would actually search. Before this, json_guard never read the header at
+    # all: the id on screen and the id in the log were two different pieces of paper.
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="routes.base")
+    response = client.post(
+        "/api/v1/query", json={"sql": "SELECT * FROM nowhere"},
+        headers={"X-Correlation-Id": "test-corr-abc123"})
+
+    assert response.status_code >= 400
+    assert any("test-corr-abc123" in record.message for record in caplog.records), (
+        "the request's own correlation id never reached the server's log line"
+    )
+
+
+def test_a_request_with_no_correlation_id_still_logs_cleanly(client, caplog):
+    # The server-rendered forms (pause/resume/drop) never run api.js and so never send
+    # this header -- that must not be an error, or every no-JavaScript action would throw.
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="routes.base")
+    response = client.post("/api/v1/query", json={"sql": "SELECT * FROM nowhere"})
+
+    assert response.status_code >= 400
+    assert any("[-]" in record.message for record in caplog.records)
 
 
 def test_one_engine_subscription_serves_every_browser(engine_url):
@@ -590,6 +695,39 @@ def test_reading_stays_open_to_an_anonymous_visitor(anonymous):
     assert anonymous.get("/").status_code == 200
     assert anonymous.get("/help").status_code == 200
     assert anonymous.get("/health").status_code == 200
+
+
+def test_reading_what_is_registered_is_not_open_to_an_anonymous_visitor(anonymous, client):
+    # Distinct from the test above on purpose. A registered query's name, its SQL and its
+    # live row-level output are the engine's own data, reached with the console's one shared
+    # engine identity -- not console chrome. Before this gate existed, an anonymous visitor
+    # who merely reached the console's port saw exactly what a signed-in operator saw: the
+    # read half of the exact defect the login system's own docstring (routes/auth_routes.py)
+    # says it exists to close on the write side. This is the SX-5 shape: a caller learning
+    # what exists (and here, what it says, and what it is producing) through a door the
+    # engine's own authorization never sees.
+    client.post("/queries", data={"name": "guarded_read", "sql": TRADE_SQL, "keys": "0"})
+    try:
+        for path in ("/overview", "/queries", "/queries/guarded_read"):
+            refused = anonymous.get(path, follow_redirects=False)
+            assert refused.status_code == 303, path
+            assert "/login" in refused.headers["location"], path
+
+        for path in (
+            "/api/v1/queries",
+            "/api/v1/queries/guarded_read",
+            "/api/v1/stats",
+            "/api/v1/views/guarded_read/stream",
+        ):
+            refused = anonymous.get(path)
+            assert refused.status_code == 401, path
+            assert "sign in" in refused.json()["error"], path
+
+        # And the same page, signed in, still shows it -- the gate refuses the caller, not
+        # the query.
+        assert "guarded_read" in client.get("/queries").text
+    finally:
+        client.post("/queries/guarded_read/drop")
 
 
 def test_a_wrong_password_is_refused(anonymous):

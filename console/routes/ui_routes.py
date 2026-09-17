@@ -65,7 +65,18 @@ class UIRoutes(Routes):
         # ---------------------------------------------------------- overview
         @self.app.get("/overview", response_class=HTMLResponse, tags=["ui"])
         def overview(request: Request):
-            """Is it up, what is registered, and how much of it is shared."""
+            """Is it up, what is registered, and how much of it is shared.
+
+            Gated, unlike the landing page and the docs: a registered query's name and
+            fingerprint are the engine's own data, reached with the console's one shared
+            engine identity, not console-specific metadata safe to hand to anyone who can
+            reach the port. Before this gate existed, an anonymous visitor saw exactly what
+            an operator sees -- which is the read half of the same defect the login system
+            was built to close on the write side (see routes/auth_routes.py's own account
+            of why it exists).
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
             busiest = _safe(lambda: services.queries.find(limit=8, sort="-rows_in").items, [])
             return self.page(request, "overview.html", current="/overview",
                              queries=busiest)
@@ -74,7 +85,13 @@ class UIRoutes(Routes):
         @self.app.get("/queries", response_class=HTMLResponse, tags=["ui"])
         def queries(request: Request, search: str = "", state: str = "",
                     sort: str = "name", offset: int = 0):
-            """The list. Every filter is in the URL, so a view can be shared as it is."""
+            """The list. Every filter is in the URL, so a view can be shared as it is.
+
+            Gated for the same reason as /overview: this is which queries exist and what
+            SQL they run, not console chrome.
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
             page = _safe(
                 lambda: services.queries.find(search=search, state=state, sort=sort,
                                               offset=offset, limit=page_size),
@@ -85,6 +102,14 @@ class UIRoutes(Routes):
 
         @self.app.get("/queries/{name}", response_class=HTMLResponse, tags=["ui"])
         def query_detail(request: Request, name: str):
+            """The detail page: full SQL, fingerprint, siblings, a live tail.
+
+            Gated -- this is the single most sensitive read the console has. The SQL text
+            of a continuous query can itself be confidential (table names, join keys,
+            business logic), which is exactly the "caller learning what exists" SX-5 names.
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
             try:
                 query = services.queries.get(name)
                 siblings = services.queries.siblings(name)

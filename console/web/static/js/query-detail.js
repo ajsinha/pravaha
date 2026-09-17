@@ -32,7 +32,7 @@
   document.querySelectorAll('form[action^="/queries/"]').forEach(function (form) {
     form.addEventListener("submit", async function (event) {
       var action = form.getAttribute("action").split("/").pop();
-      if (action === "drop") { return; }   // let the confirm and the POST happen
+      if (action === "drop") { return; }   // the typed-confirmation modal owns this one
       event.preventDefault();
       try {
         await api.call("/queries/" + encodeURIComponent(view) + "/" + action, {method: "POST"});
@@ -42,4 +42,30 @@
       }
     });
   });
+
+  /* Drop's typed-name confirmation (§23.16): a plain OK/Cancel is exactly the kind of
+     dialog a hurried click clears without reading. This only runs once JS has proven it
+     can, so the plain form above -- which needs no script at all -- stays the one that
+     works when this one cannot; see the template comment for why both exist. */
+  var dropPlain = document.getElementById("dropPlain");
+  var dropTrigger = document.getElementById("dropModalTrigger");
+  var dropInput = document.getElementById("dropConfirmInput");
+  var dropSubmit = document.getElementById("dropConfirmSubmit");
+  if (dropPlain && dropTrigger && dropInput && dropSubmit) {
+    dropPlain.closest("form").classList.add("d-none");
+    dropTrigger.classList.remove("d-none");
+    var expected = dropInput.getAttribute("data-expected");
+    dropInput.addEventListener("input", function () {
+      dropSubmit.disabled = dropInput.value !== expected;
+    });
+    var modalEl = document.getElementById("dropConfirmModal");
+    if (modalEl) {
+      modalEl.addEventListener("hidden.bs.modal", function () {
+        // A dialog reopened later must ask again, not remember a name typed last time.
+        dropInput.value = "";
+        dropSubmit.disabled = true;
+      });
+      modalEl.addEventListener("shown.bs.modal", function () { dropInput.focus(); });
+    }
+  }
 }());

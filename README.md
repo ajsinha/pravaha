@@ -308,13 +308,13 @@ cd console && make install && make run     # :8090, engine at :9090
 
 | | |
 |---|---|
-| `/` `/about` | What this is. Both answer with the engine down |
-| `/overview` | What is registered, how much is shared, how many live feeds |
-| `/queries` | Filter, sort and page — every filter in the URL, so a view is shareable |
-| `/queries/{name}` | SQL, fingerprint, siblings, a live tail, and pause/resume/drop |
+| `/` `/about` | What this is. Both answer with the engine down, and need no session |
+| `/overview` | What is registered, how much is shared, how many live feeds — signed in only |
+| `/queries` | Filter, sort and page — every filter in the URL, so a view is shareable — signed in only |
+| `/queries/{name}` | SQL, fingerprint, siblings, a live tail, and pause/resume/drop — signed in only |
 | `/workbench` | Ask once with parameters, or register it |
 | `/help` `/tutorials` | The `docs/` set and the five worked systems, rendered in place |
-| `/api/v1/...` | The console's own JSON services, which its screens are built on — not the engine's |
+| `/api/v1/...` | The console's own JSON services, which its screens are built on — not the engine's, and gated the same way its screens are |
 
 One engine subscription serves every browser watching a view, ref-counted: ten analysts on one
 dashboard are ten connections and **one** subscriber on the engine. Every page renders before its
@@ -322,9 +322,18 @@ JavaScript does, and every control is a real form, so the console works when a s
 
 **What it is not.** A functional admin console, on purpose. The IDE-grade workbench, the live plan
 DAG and the time-travel debugger that §23 specifies are **not built**, and neither is the §23.20
-release gate — no Storybook, no visual-regression baseline, no WCAG 2.2 AA audit. Light/dark/
-terminal, density, keyboard paths, deep links and the eight states of §23.12 are implemented; they
-are not audited.
+release gate — no Storybook, no visual-regression baseline, no WCAG 2.2 AA axe audit. Light/dark/
+terminal, density, keyboard paths and deep links are implemented; they are not audited.
+
+**What ADR-039 item 7 closed rather than audited.** Reading what is registered — the list, a
+query's own SQL, its live tail — used to be open to anyone who could reach the port; only writing
+was gated. That was the read half of the exact defect the login system exists to close on the
+write half, and it reopened SX-5 through the console rather than the engine. It is gated now, at
+both the screen and the JSON endpoint underneath it (`console/README.md` has the detail). Drop's
+confirmation is now typed, not a dismissable pop-up (§23.16). The browser's own correlation id,
+shown on an error, now reaches the console's own log line rather than existing only on screen. And
+`console/tests/test_console.py` now asserts directly that no secret this console holds is ever
+serialised to a response, the literal §23.20 item.
 
 [Specification →](docs/system_design.md#23-the-pravaha-console--web-ui) ·
 [How it is built →](console/README.md)

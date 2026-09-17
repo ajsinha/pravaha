@@ -39,6 +39,19 @@ def _signed_in(request: Request | None) -> bool:
     except Exception:  # noqa: BLE001 -- no session middleware on this app
         return False
 
+
+def _correlation(request: Request | None) -> str:
+    """The id api.js generated for this call, or ``"-"`` for a caller that sent none.
+
+    A request without the header is not an error -- a server-rendered page's own POST
+    (the pause/resume/drop forms, which work with scripting off) never runs api.js at all,
+    so it never had an id to send. What matters is that when the header IS present, the
+    same string ends up in this log line and nowhere else it could drift from.
+    """
+    if request is None:
+        return "-"
+    return request.headers.get("x-correlation-id", "-")
+
 #: Where the JSON API lives. One constant, because the browser modules build
 #: their URLs from what the template tells them rather than from a string
 #: repeated in eleven files.
@@ -108,7 +121,7 @@ class Routes:
         raise NotImplementedError
 
     # ----------------------------------------------------------------- domain
-    def guard(self, fn: Callable[[], Any]) -> Any:
+    def guard(self, fn: Callable[[], Any], request: Request | None = None) -> Any:
         """Run a service call, mapping any refusal onto the taxonomy."""
         try:
             return fn()
@@ -116,15 +129,22 @@ class Routes:
             # A refusal is normal operation, not a fault -- but it is never
             # translated without a trace, or a console that swallows the engine's
             # reasoning becomes the reason nobody can see it.
-            logger.warning("refused (%s): %s", exc.code or "-", exc)
+            logger.warning("refused (%s) [%s]: %s", exc.code or "-", _correlation(request), exc)
             raise HTTPException(status_for(exc), problem(exc)) from exc
 
-    def json_guard(self, fn: Callable[[], Any]) -> JSONResponse:
-        """The same, for the API: a JSON body rather than an exception."""
+    def json_guard(self, fn: Callable[[], Any], request: Request | None = None) -> JSONResponse:
+        """The same, for the API: a JSON body rather than an exception.
+
+        ``request`` is how the browser's own correlation id (api.js's ``X-Correlation-Id``,
+        shown on screen by ``States.error``) reaches this log line. Generating the id in the
+        browser and never logging it server-side would make "paste the correlation id into a
+        ticket" a step that finds nothing -- the whole point of having one is that the string
+        on screen is the string an operator can grep for.
+        """
         try:
             return JSONResponse(fn())
         except ServiceError as exc:
-            logger.warning("refused (%s): %s", exc.code or "-", exc)
+            logger.warning("refused (%s) [%s]: %s", exc.code or "-", _correlation(request), exc)
             return JSONResponse(problem(exc), status_code=status_for(exc))
 
     # ------------------------------------------------------------------ pages

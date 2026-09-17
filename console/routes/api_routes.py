@@ -50,18 +50,29 @@ class ApiRoutes(Routes):
             return JSONResponse(services.health.health().as_dict())
 
         @self.app.get(f"{api}/queries", tags=["api"])
-        def list_queries(search: str = "", state: str = "", sort: str = "name",
+        def list_queries(request: Request, search: str = "", state: str = "", sort: str = "name",
                          offset: int = 0, limit: int = 50):
+            # Which queries exist and what SQL they run is the engine's own data, read with
+            # the console's one shared engine identity -- not console chrome safe to hand to
+            # an anonymous caller of the JSON API even though the HTML screen built on this
+            # endpoint is gated. Gating only the screen and not the endpoint it calls would
+            # be a second, weaker route to the same answer.
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
             return self.json_guard(lambda: services.queries.find(
-                search=search, state=state, sort=sort, offset=offset, limit=limit).as_dict())
+                search=search, state=state, sort=sort, offset=offset, limit=limit).as_dict(),
+                request=request)
 
         @self.app.get(f"{api}/queries/{{name}}", tags=["api"])
-        def get_query(name: str):
+        def get_query(request: Request, name: str):
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+
             def build():
                 payload = services.queries.get(name).as_dict()
                 payload["siblings"] = services.queries.siblings(name)
                 return payload
-            return self.json_guard(build)
+            return self.json_guard(build, request=request)
 
         @self.app.post(f"{api}/queries", tags=["api"], status_code=201)
         async def register(request: Request):
@@ -72,7 +83,8 @@ class ApiRoutes(Routes):
             if isinstance(keys, str):
                 keys = [int(part) for part in keys.replace(" ", "").split(",") if part]
             return self.json_guard(lambda: services.queries.register(
-                str(body.get("name", "")), str(body.get("sql", "")), list(keys)).as_dict())
+                str(body.get("name", "")), str(body.get("sql", "")), list(keys)).as_dict(),
+                request=request)
 
         @self.app.post(f"{api}/queries/{{name}}/{{action}}", tags=["api"])
         def act(request: Request, name: str, action: str):
@@ -82,7 +94,7 @@ class ApiRoutes(Routes):
             def run():
                 services.queries.act(name, action)
                 return {"name": name, "action": action, "ok": True}
-            return self.json_guard(run)
+            return self.json_guard(run, request=request)
 
         @self.app.post(f"{api}/query", tags=["api"])
         async def run_query(request: Request):
@@ -90,11 +102,20 @@ class ApiRoutes(Routes):
                 return refusal
             body = await request.json()
             return self.json_guard(
-                lambda: services.adhoc.run(str(body.get("sql", "")), body.get("parameters")))
+                lambda: services.adhoc.run(str(body.get("sql", "")), body.get("parameters")),
+                request=request)
 
         @self.app.get(f"{api}/stats", tags=["api"])
-        def stats():
-            """What the console can see, including its own fan-out."""
+        def stats(request: Request):
+            """What the console can see, including its own fan-out.
+
+            Gated with the query-count breakdown it carries, for the same reason as
+            /api/v1/queries: the health half (is the engine reachable) is safe to publish
+            to an incident responder with no session, but this endpoint mixes that with
+            per-state query counts, which is engine data.
+            """
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
             health = services.health.health()
             payload = {"engine": health.as_dict(),
                        "upstream_subscriptions": services.feeds.live_feeds()}
@@ -122,7 +143,16 @@ class ApiRoutes(Routes):
             The subscription behind it is shared with every other browser
             watching the same view, so the engine sees one subscriber however
             many people have the page open.
+
+            Gated -- this is not metadata about a query, it is the query's own row-level
+            output crossing the wire to a browser. An anonymous caller reaching this
+            directly (the browser's EventSource sends the session cookie automatically for
+            this same-origin request once signed in, so nothing else changes) would be a
+            live read of engine data with no session at all: the exact "second, weaker
+            route to the data" a console must not become.
             """
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
             filters = {k: v for k, v in request.query_params.items()}
             subscriber = services.feeds.subscribe(view, filters)
 

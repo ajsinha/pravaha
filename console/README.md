@@ -33,7 +33,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 
 | Setting | Environment variable | Default | What it does |
 |---|---|---|---|
-| `console.password` | `CONSOLE_PASSWORD` | *empty* | **The sign-in gate. Set it or nobody can sign in** — which is the safe failure, because the console can drop queries and a default password is a public one. Reading stays open without it: the landing page, the documentation and the health probes are deliberately ungated, so an operator can open the console during an incident and see what is wrong before they find a password. Registering, pausing, dropping and running queries all require a session. |
+| `console.password` | `CONSOLE_PASSWORD` | *empty* | **The sign-in gate. Set it or nobody can sign in** — which is the safe failure, because the console can drop queries and a default password is a public one. Only the landing page, the documentation and the health probes are ungated, deliberately, so an operator can open the console during an incident and see what is wrong before they find a password. Everything that names a registered query — the list, a query's own SQL, its live tail — requires a session, the same as registering, pausing, dropping and running one: which queries exist and what they say is the engine's own data, read with the console's one shared engine identity, not console chrome safe to hand to whoever can reach the port. |
 | `console.session_secret` | `CONSOLE_SESSION_SECRET` | *empty* | Signs the session cookie. Set it in any deployment where sessions should survive a restart. |
 | `server.host` | `CONSOLE_HOST` | `127.0.0.1` | Loopback by default; set `0.0.0.0` only behind something that authenticates. |
 | `server.port` | `CONSOLE_PORT` | `8090` | |
@@ -111,12 +111,59 @@ there is none.
 This is a **functional admin console**. Server-rendered HTML, no build step, no JavaScript
 framework. It does the operator's job and does not pretend to be the product surface design §23.20
 describes: no Monaco editor, no plan DAG, no time-travel debugger, no Storybook, no
-visual-regression baseline, and no WCAG 2.2 AA audit. Light and dark, density, keyboard paths, deep
-links and the eight states of §23.12 are *implemented*; they are not yet *audited*.
+visual-regression baseline, and no WCAG 2.2 AA audit. Light and dark, density, keyboard paths and
+deep links are *implemented*; they are not yet *audited*.
 
 That trade is recorded rather than accidental — see the implementation plan, which says plainly
 that without a dedicated frontend engineer the console degrades to exactly this, and that it is a
 legitimate trade to make on purpose.
+
+## What ADR-039 item 7 changed (2026-09)
+
+Closing this gap without letting it drift into a rewrite meant identifying what §23.20 asks for
+that a functional admin console can genuinely close, and closing exactly that -- not rebuilding the
+console as the React product surface §23 describes, which nobody asked for and no dedicated
+frontend engineer is here to do.
+
+**Reading what is registered now requires a session.** `/overview`, `/queries`, `/queries/{name}`,
+and their JSON equivalents (`GET /api/v1/queries`, `GET /api/v1/queries/{name}`, `GET
+/api/v1/stats`), plus the live tail itself (`GET /api/v1/views/{view}/stream`) were reachable by
+anyone who could reach the port, with no session at all -- only the mutating routes were gated.
+That is the read half of the exact defect `routes/auth_routes.py`'s own docstring says the login
+system exists to close on the write half: an anonymous caller could see every registered query's
+name, read its full SQL, and open a live stream of a view's actual row-level output, all
+unauthenticated and unaudited. `routes/auth_routes.py`'s own account of *why* the gate exists never
+distinguished "acting" from "reading" -- both are the console handing out the console's one shared
+engine identity, and the write half being gated while the read half was not made this a second,
+weaker route to the same data the engine authorizes carefully everywhere else (pgwire, Flight, the
+SDKs). Fixed by gating those reads the same way the mutating routes already were; see
+`test_reading_what_is_registered_is_not_open_to_an_anonymous_visitor` in `tests/test_console.py`.
+
+**Drop needs the query's name typed, not a dismissable OK/Cancel** (§23.16's own wording: "typed
+confirmation of the object's name"). `query_detail.html`'s modal disables its confirm button until
+the input matches exactly; the plain, no-JavaScript form this replaces still works exactly as
+before for a caller with scripting off, since a modal is JavaScript by definition and the console's
+own rule is that every control still works without it.
+
+**The correlation id shown on an error now reaches the console's own log line.** `api.js` has
+generated one and displayed it since before this round; nothing on the server side ever logged it,
+so pasting the id from the screen into a log search found nothing. `Routes.json_guard` now reads
+the browser's `X-Correlation-Id` header and includes it in the same `logger.warning` call that
+records the refusal.
+
+**"No secret is ever serialised to the browser" is now a test**, `test_no_secret_is_ever_serialised_to_the_browser`
+-- the literal §23.20 item, not merely something believed true because no code path obviously does it.
+
+**What is still open, and why it is not closed here.** Every §23.20 item that depends on the React
+island / Monaco / ECharts / Storybook / Lighthouse-CI stack §23.3 and §23.19 describe -- the eight
+states audited by Storybook coverage, visual regression, an axe-verified WCAG 2.2 AA pass, the
+performance budgets, the eight critical journeys on every PR -- remains open, because closing any
+of it for real needs that stack and that stack does not exist in this console; building it would be
+the rewrite this round was explicitly told not to become. Two items are open for a different
+reason and are not this console's to close at all: "every error message names ... a correlation
+id" needs the *engine* to mint and carry a correlation id across pgwire, Flight and the SDKs so the
+same id means the same request everywhere, which is `pravaha-api` work outside `console/`'s scope;
+and the five-minute, real-people onboarding measurement is exactly that -- a measurement, not code.
 
 ## Tests
 
