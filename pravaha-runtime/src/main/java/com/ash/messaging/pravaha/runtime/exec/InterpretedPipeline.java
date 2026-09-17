@@ -70,51 +70,48 @@ public final class InterpretedPipeline implements AutoCloseable {
 
     /**
      * ADR-037 item B2: a join whose state exceeds {@link #MAX_JOIN_STATE_SLABS} keeps running,
-     * slower, by spilling to a file under this directory, instead of being refused.
+     * slower, by spilling instead of being refused, once {@link #configureSpill} has been called
+     * with settings that enable it.
      *
-     * <p>Unset by default -- the same choice {@code pravaha.pgwire.enabled} makes for TLS, and for
-     * the same reason: ADR-037 states plainly what this costs (a second tier a checkpoint must stay
-     * consistent with, latency that becomes bimodal and therefore harder to reason about) and asks
-     * that a deployment choose it rather than inherit it. Named the same way {@link
-     * MemoryAccess#IMPL_PROPERTY} already is in this codebase: a system property, not a constructor
-     * argument threaded through every caller, because nothing between this class and the process
-     * boundary has an opinion worth expressing.
+     * <p>Disabled by default -- the same choice {@code pravaha.pgwire.enabled} makes for TLS, and
+     * for the same reason: ADR-037 states plainly what this costs (a second tier a checkpoint must
+     * stay consistent with, latency that becomes bimodal and therefore harder to reason about) and
+     * asks that a deployment choose it rather than inherit it.
+     *
+     * <p>A static field rather than a parameter threaded through {@link #compile}, deliberately, and
+     * for the same reason {@link #MAX_JOIN_STATE_SLABS} already is one: this is a process-wide,
+     * node-level setting, not a per-query one, and every one of {@link #compile}'s many call sites
+     * -- most of them tests that have no opinion on spilling at all -- would otherwise need a new
+     * argument to say so. What changed from the first cut of this mechanism is <em>where the
+     * setting comes from</em>: a system property read directly here was not deployment
+     * configuration in the sense every other capability in this codebase has it, so it moved out --
+     * see {@link SpillSettings} and {@code pravaha-server}'s {@code StateSpillProperties}, which
+     * resolves {@code pravaha.state.spill.*} from {@code application.yaml} and calls {@link
+     * #configureSpill} once, at startup.
      */
-    private static final String SPILL_DIRECTORY_PROPERTY = "pravaha.state.spill.directory";
-
-    /**
-     * Ceiling on overflow slabs once spilling is configured. Generous relative to {@link
-     * #MAX_JOIN_STATE_SLABS}: the point of a disk tier is to be much larger than the memory ceiling
-     * it backs up, and the disk itself is the real limit long before this one is reached.
-     */
-    private static final int MAX_JOIN_OVERFLOW_SLABS = 512;
+    private static volatile SpillSettings spillSettings = SpillSettings.DISABLED;
 
     private static volatile MemoryAccess overflowAccess;
-    private static volatile boolean overflowAccessResolved;
 
     /**
-     * Resolves {@link #SPILL_DIRECTORY_PROPERTY} once per process and caches the result -- a
-     * directory does not change under a running node, and re-reading a system property on every
-     * join built by every query would be a property lookup on a path that should cost nothing when
-     * spilling is not configured, which is the common case this reads as a single volatile field.
+     * Configures ADR-037 item B2's overflow tier for every join compiled from this call onward.
+     * Called once, at process start-up, by whatever reads {@code pravaha.state.spill.*} out of
+     * configuration; never called by anything in this module's own test suite, whose joins must
+     * refuse at their in-memory ceiling exactly as they did before this mechanism existed, so that
+     * a test asserting {@code PRV-4001} keeps meaning what it says regardless of what other tests in
+     * the same process have configured.
      */
-    private static MemoryAccess overflowAccessIfConfigured() {
-        if (overflowAccessResolved) {
-            return overflowAccess;
-        }
-        return resolveOverflowAccess();
+    public static synchronized void configureSpill(SpillSettings settings) {
+        spillSettings = java.util.Objects.requireNonNull(settings, "settings");
+        overflowAccess = settings.enabled()
+                ? new com.ash.messaging.pravaha.state.spill.MappedFileMemoryAccess(
+                        java.nio.file.Path.of(settings.directory()))
+                : null;
     }
 
-    private static synchronized MemoryAccess resolveOverflowAccess() {
-        if (overflowAccessResolved) {
-            return overflowAccess;
-        }
-        String directory = System.getProperty(SPILL_DIRECTORY_PROPERTY, "").trim();
-        overflowAccess = directory.isEmpty()
-                ? null
-                : new com.ash.messaging.pravaha.state.spill.MappedFileMemoryAccess(java.nio.file.Path.of(directory));
-        overflowAccessResolved = true;
-        return overflowAccess;
+    /** The settings {@link #configureSpill} was last called with, or {@link SpillSettings#DISABLED}. */
+    public static SpillSettings spillSettings() {
+        return spillSettings;
     }
 
     /**
@@ -354,6 +351,20 @@ public final class InterpretedPipeline implements AutoCloseable {
             total += join.stateBytes();
         }
         return total;
+    }
+
+    /**
+     * Whether any of this pipeline's joins has spilled to its overflow tier (ADR-037 item B2).
+     * False when spilling was never configured, exactly as it is when a join has simply not
+     * reached its ceiling -- both mean the same thing to an operator: nothing to look at yet.
+     */
+    public boolean joinsHaveSpilled() {
+        for (SymmetricHashJoin join : joins) {
+            if (join.hasSpilled()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -782,11 +793,16 @@ public final class InterpretedPipeline implements AutoCloseable {
                     // join as their downstream, and each side's scan registers its own entry point;
                     // there is no single head to hand back, so anything above the join reaches its
                     // inputs by name rather than by holding a processor.
-                    MemoryAccess overflow = overflowAccessIfConfigured();
+                    MemoryAccess overflow = overflowAccess;
                     SymmetricHashJoin join = overflow == null
                             ? new SymmetricHashJoin(j, arena, downstream, MAX_JOIN_STATE_SLABS)
                             : new SymmetricHashJoin(
-                                    j, arena, downstream, MAX_JOIN_STATE_SLABS, overflow, MAX_JOIN_OVERFLOW_SLABS);
+                                    j,
+                                    arena,
+                                    downstream,
+                                    MAX_JOIN_STATE_SLABS,
+                                    overflow,
+                                    spillSettings.maxOverflowSlabs());
                     joins.add(join);
                     buildInput(j.left(), join.leftInput());
                     buildInput(j.right(), join.rightInput());
