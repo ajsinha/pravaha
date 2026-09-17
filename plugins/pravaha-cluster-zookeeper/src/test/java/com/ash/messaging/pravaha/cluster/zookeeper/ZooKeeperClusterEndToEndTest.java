@@ -106,8 +106,20 @@ class ZooKeeperClusterEndToEndTest {
                 // And leadership -- ZooKeeper's own LeaderLatch, not a guess from what each side can
                 // currently reach, which is exactly what makes excludesSplitBrain() true rather than
                 // aspirational.
+                // Awaited, not asserted outright. Membership converging and leadership being
+                // decided are two different round trips through ZooKeeper, and this asserted the
+                // second the instant the first completed -- which held on an idle machine and failed
+                // under full-reactor load with both sides still false, because the latch had simply
+                // not finished electing yet. The property is "exactly one leader, eventually"; a
+                // bounded wait states that, where an immediate assertion states "instantly", which
+                // is a claim ZooKeeper never made.
+                long leaderDeadline =
+                        System.nanoTime() + java.time.Duration.ofSeconds(30).toNanos();
+                while (!(coordinatorA.isLeader() ^ coordinatorB.isLeader()) && System.nanoTime() < leaderDeadline) {
+                    Thread.sleep(25L);
+                }
                 assertThat(coordinatorA.isLeader() ^ coordinatorB.isLeader())
-                        .as("exactly one of the two is leader")
+                        .as("exactly one of the two is leader, within thirty seconds of joining")
                         .isTrue();
             }
         }
