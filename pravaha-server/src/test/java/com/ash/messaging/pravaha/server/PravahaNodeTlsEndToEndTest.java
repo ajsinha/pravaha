@@ -25,8 +25,6 @@ import org.junit.jupiter.api.Test;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
-import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
-import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 
@@ -77,30 +75,17 @@ class PravahaNodeTlsEndToEndTest {
     @Test
     void aNodeConfiguredWithTlsCertificateAndKeyActuallyServesTlsToARealClient() throws Exception {
         try (SelfSignedTestCertificate certificate = SelfSignedTestCertificate.generate()) {
-            PravahaNode node = new PravahaNode(
-                    catalog(),
-                    new SourceBindingProperties(),
-                    new StreamDeclarationProperties(),
-                    openServer(),
-                    certificate.pemCertificate().toString(),
-                    certificate.pemPrivateKey().toString(),
-                    java.time.Duration.ofSeconds(30),
-                    java.time.Duration.ofSeconds(1),
-                    true,
-                    "127.0.0.1",
-                    0,
-                    persistence(),
-                    "SINGLE",
-                    "single",
-                    "tls-test-node",
-                    true,
-                    false,
-                    null,
-                    null,
-                    null,
-                    false,
-                    "127.0.0.1",
-                    0);
+            PravahaNode node = PravahaNode.builder()
+                    .withCatalog(catalog())
+                    .withSecurity(openServer())
+                    .withFlightTls(
+                            certificate.pemCertificate().toString(),
+                            certificate.pemPrivateKey().toString())
+                    .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                    .withFlight(true, "127.0.0.1", 0)
+                    .withPersistence(persistence())
+                    .withNodeId("tls-test-node")
+                    .build();
 
             node.start();
             try {

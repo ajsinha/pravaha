@@ -720,30 +720,16 @@ class StateRestoreTest extends StateTestSupport {
         persistence.getCheckpoint().setInterval(Duration.ofSeconds(1));
         persistence.getCheckpoint().setKeep(3);
 
-        com.ash.messaging.pravaha.server.PravahaNode first = new com.ash.messaging.pravaha.server.PravahaNode(
-                catalog,
-                new com.ash.messaging.pravaha.server.ingest.SourceBindingProperties(),
-                new com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties(),
-                security,
-                null,
-                null,
-                Duration.ofSeconds(30),
-                Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence,
-                "SINGLE",
-                "single",
-                "state-063-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        com.ash.messaging.pravaha.server.PravahaNode first = com.ash.messaging.pravaha.server.PravahaNode.builder()
+                .withCatalog(catalog)
+                .withSources(new com.ash.messaging.pravaha.server.ingest.SourceBindingProperties())
+                .withDeclaredStreams(new com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties())
+                .withSecurity(security)
+                .withWatermark(Duration.ofSeconds(30), Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence)
+                .withNodeId("state-063-node")
+                .build();
         first.start();
         long checkpointA;
         try {
@@ -801,30 +787,16 @@ class StateRestoreTest extends StateTestSupport {
             first.stop();
         }
 
-        com.ash.messaging.pravaha.server.PravahaNode second = new com.ash.messaging.pravaha.server.PravahaNode(
-                catalog,
-                new com.ash.messaging.pravaha.server.ingest.SourceBindingProperties(),
-                new com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties(),
-                security,
-                null,
-                null,
-                Duration.ofSeconds(30),
-                Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence,
-                "SINGLE",
-                "single",
-                "state-063-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        com.ash.messaging.pravaha.server.PravahaNode second = com.ash.messaging.pravaha.server.PravahaNode.builder()
+                .withCatalog(catalog)
+                .withSources(new com.ash.messaging.pravaha.server.ingest.SourceBindingProperties())
+                .withDeclaredStreams(new com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties())
+                .withSecurity(security)
+                .withWatermark(Duration.ofSeconds(30), Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence)
+                .withNodeId("state-063-node")
+                .build();
         second.start();
         try {
             com.ash.messaging.pravaha.registry.QueryRegistry registry =

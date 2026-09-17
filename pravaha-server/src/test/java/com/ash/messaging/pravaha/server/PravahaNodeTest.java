@@ -26,8 +26,6 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
-import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
-import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 
@@ -55,58 +53,26 @@ class PravahaNodeTest {
 
     /** A node with the wire protocol switched off: running, and reachable by no client. */
     private static PravahaNode nodeWithoutFlight() {
-        return new PravahaNode(
-                catalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                openServer(),
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence(""),
-                "SINGLE",
-                "single",
-                "no-flight-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        return PravahaNode.builder()
+                .withCatalog(catalog())
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence(""))
+                .withNodeId("no-flight-node")
+                .build();
     }
 
     private static PravahaNode node(String journal) {
         // Port zero: the operating system picks, so tests do not fight over a fixed one.
-        return new PravahaNode(
-                catalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                openServer(),
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                true,
-                "127.0.0.1",
-                0,
-                persistence(journal),
-                "SINGLE",
-                "single",
-                "test-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        return PravahaNode.builder()
+                .withCatalog(catalog())
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(true, "127.0.0.1", 0)
+                .withPersistence(persistence(journal))
+                .withNodeId("test-node")
+                .build();
     }
 
     @Test
@@ -171,30 +137,15 @@ class PravahaNodeTest {
 
     @Test
     void partitionedModeWithoutConsensusRefusesToStart() {
-        PravahaNode node = new PravahaNode(
-                catalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                openServer(),
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence(""),
-                "PARTITIONED",
-                "socket",
-                "test-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        PravahaNode node = PravahaNode.builder()
+                .withCatalog(catalog())
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence(""))
+                .withCluster("PARTITIONED", "socket")
+                .withNodeId("test-node")
+                .build();
 
         // Two nodes each believing they own a partition write the same aggregate twice, and the
         // damage is silent, durable, and found later by whoever reconciles the numbers. Refusing to
@@ -205,30 +156,14 @@ class PravahaNodeTest {
 
     @Test
     void flightCanBeTurnedOffForAnHttpOnlyNode() {
-        PravahaNode node = new PravahaNode(
-                catalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                openServer(),
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence(""),
-                "SINGLE",
-                "single",
-                "test-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        PravahaNode node = PravahaNode.builder()
+                .withCatalog(catalog())
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence(""))
+                .withNodeId("test-node")
+                .build();
         try {
             node.start();
 
@@ -274,30 +209,15 @@ class PravahaNodeTest {
     private static PravahaNode ownedNode(String nodeId, java.nio.file.Path checkpointDirectory, String journal) {
         PersistenceProperties persistence = persistence(journal);
         persistence.getCheckpoint().setDirectory(checkpointDirectory.toString());
-        return new PravahaNode(
-                catalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                openServer(),
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                true,
-                "127.0.0.1",
-                0,
-                persistence,
-                "SINGLE",
-                "single",
-                nodeId,
-                false,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        return PravahaNode.builder()
+                .withCatalog(catalog())
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(true, "127.0.0.1", 0)
+                .withPersistence(persistence)
+                .withNodeId(nodeId)
+                .allowingSharedState(false)
+                .build();
     }
 
     /** A node that stands by for {@code nodeId} rather than claiming its state at startup. */
@@ -306,30 +226,16 @@ class PravahaNodeTest {
         if (checkpointDirectory != null) {
             persistence.getCheckpoint().setDirectory(checkpointDirectory.toString());
         }
-        return new PravahaNode(
-                catalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                openServer(),
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                true,
-                "127.0.0.1",
-                0,
-                persistence,
-                "SINGLE",
-                "single",
-                nodeId,
-                false,
-                true,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        return PravahaNode.builder()
+                .withCatalog(catalog())
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(true, "127.0.0.1", 0)
+                .withPersistence(persistence)
+                .withNodeId(nodeId)
+                .allowingSharedState(false)
+                .asStandby(true)
+                .build();
     }
 
     @Test

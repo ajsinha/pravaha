@@ -219,30 +219,17 @@ class StateClusterTest extends StateTestSupport {
         com.ash.messaging.pravaha.server.state.PersistenceProperties persistence =
                 new com.ash.messaging.pravaha.server.state.PersistenceProperties();
 
-        com.ash.messaging.pravaha.server.PravahaNode node = new com.ash.messaging.pravaha.server.PravahaNode(
-                catalog,
-                new com.ash.messaging.pravaha.server.ingest.SourceBindingProperties(),
-                new com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties(),
-                security,
-                null,
-                null,
-                Duration.ofSeconds(30),
-                Duration.ofSeconds(1),
-                true,
-                "127.0.0.1",
-                port,
-                persistence,
-                "PARTITIONED",
-                "socket",
-                "state-102-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        com.ash.messaging.pravaha.server.PravahaNode node = com.ash.messaging.pravaha.server.PravahaNode.builder()
+                .withCatalog(catalog)
+                .withSources(new com.ash.messaging.pravaha.server.ingest.SourceBindingProperties())
+                .withDeclaredStreams(new com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties())
+                .withSecurity(security)
+                .withWatermark(Duration.ofSeconds(30), Duration.ofSeconds(1))
+                .withFlight(true, "127.0.0.1", port)
+                .withPersistence(persistence)
+                .withCluster("PARTITIONED", "socket")
+                .withNodeId("state-102-node")
+                .build();
 
         assertThatThrownBy(node::start).isInstanceOf(PravahaException.class).hasMessageContaining("PRV-9002");
         assertThat(isListening("127.0.0.1", port))
@@ -412,30 +399,17 @@ class StateClusterTest extends StateTestSupport {
                 new com.ash.messaging.pravaha.server.state.PersistenceProperties();
         persistence.getRegistry().setJournal(journal.toString());
 
-        com.ash.messaging.pravaha.server.PravahaNode node = new com.ash.messaging.pravaha.server.PravahaNode(
-                catalog,
-                new com.ash.messaging.pravaha.server.ingest.SourceBindingProperties(),
-                new com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties(),
-                security,
-                null,
-                null,
-                Duration.ofSeconds(30),
-                Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence,
-                mode,
-                "single",
-                "state-106-" + mode.toLowerCase(java.util.Locale.ROOT),
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        com.ash.messaging.pravaha.server.PravahaNode node = com.ash.messaging.pravaha.server.PravahaNode.builder()
+                .withCatalog(catalog)
+                .withSources(new com.ash.messaging.pravaha.server.ingest.SourceBindingProperties())
+                .withDeclaredStreams(new com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties())
+                .withSecurity(security)
+                .withWatermark(Duration.ofSeconds(30), Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence)
+                .withCluster(mode, "single")
+                .withNodeId("state-106-" + mode.toLowerCase(java.util.Locale.ROOT))
+                .build();
         node.start();
         return node;
     }

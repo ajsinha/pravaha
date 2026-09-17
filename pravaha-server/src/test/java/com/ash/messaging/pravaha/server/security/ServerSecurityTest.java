@@ -26,8 +26,6 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.server.PravahaNode;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
-import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
-import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -186,57 +184,25 @@ class ServerSecurityTest {
 
     /** A node that actually listens, so the Flight wiring is exercised rather than skipped. */
     private static PravahaNode nodeWithFlight(SecurityProperties security) {
-        return new PravahaNode(
-                new StreamCatalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                security,
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                true,
-                "127.0.0.1",
-                0,
-                persistence(""),
-                "SINGLE",
-                "single",
-                "security-flight-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        return PravahaNode.builder()
+                .withCatalog(new StreamCatalog())
+                .withSecurity(security)
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(true, "127.0.0.1", 0)
+                .withPersistence(persistence(""))
+                .withNodeId("security-flight-node")
+                .build();
     }
 
     private static PravahaNode node(SecurityProperties security) {
-        return new PravahaNode(
-                new StreamCatalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                security,
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence(""),
-                "SINGLE",
-                "single",
-                "security-test-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        return PravahaNode.builder()
+                .withCatalog(new StreamCatalog())
+                .withSecurity(security)
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence(""))
+                .withNodeId("security-test-node")
+                .build();
     }
 
     /** Journal where the caller asked for one, and no checkpoint directory. */

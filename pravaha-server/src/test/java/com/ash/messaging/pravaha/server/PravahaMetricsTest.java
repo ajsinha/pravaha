@@ -28,8 +28,6 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
-import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
-import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 
@@ -61,30 +59,14 @@ class PravahaMetricsTest {
                 .field("user_id", Types.string())
                 .field("amount", Types.int64())
                 .build());
-        node = new PravahaNode(
-                catalog,
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                openServer(),
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence(""),
-                "SINGLE",
-                "single",
-                "metrics-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        node = PravahaNode.builder()
+                .withCatalog(catalog)
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence(""))
+                .withNodeId("metrics-node")
+                .build();
         node.start();
         meters = new SimpleMeterRegistry();
         metrics = new PravahaMetrics(meters, node);

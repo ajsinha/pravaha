@@ -19,8 +19,6 @@ import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
-import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
-import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 
@@ -52,30 +50,14 @@ class AuditSinkSharingTest {
     private static PravahaNode node(String audit) {
         SecurityProperties security = new SecurityProperties();
         security.setAudit(audit);
-        return new PravahaNode(
-                new StreamCatalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                security,
-                null,
-                null,
-                java.time.Duration.ofSeconds(30),
-                java.time.Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence(),
-                "SINGLE",
-                "single",
-                "audit-sharing-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        return PravahaNode.builder()
+                .withCatalog(new StreamCatalog())
+                .withSecurity(security)
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence())
+                .withNodeId("audit-sharing-node")
+                .build();
     }
 
     @Test

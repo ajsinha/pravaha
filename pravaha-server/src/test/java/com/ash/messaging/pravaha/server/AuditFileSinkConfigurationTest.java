@@ -29,8 +29,6 @@ import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.FileAuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
-import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
-import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 
@@ -56,30 +54,14 @@ class AuditFileSinkConfigurationTest {
     }
 
     private static PravahaNode node(SecurityProperties security) {
-        return new PravahaNode(
-                new StreamCatalog(),
-                new SourceBindingProperties(),
-                new StreamDeclarationProperties(),
-                security,
-                null,
-                null,
-                Duration.ofSeconds(30),
-                Duration.ofSeconds(1),
-                false,
-                "127.0.0.1",
-                0,
-                persistence(),
-                "SINGLE",
-                "single",
-                "audit-file-node",
-                true,
-                false,
-                null,
-                null,
-                null,
-                false,
-                "127.0.0.1",
-                0);
+        return PravahaNode.builder()
+                .withCatalog(new StreamCatalog())
+                .withSecurity(security)
+                .withWatermark(Duration.ofSeconds(30), Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence())
+                .withNodeId("audit-file-node")
+                .build();
     }
 
     private static SecurityProperties fileAudit(Path trail) {

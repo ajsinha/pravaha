@@ -144,6 +144,173 @@ public class PravahaNode implements SmartLifecycle {
     private volatile ClusterCoordinator coordinator;
     private volatile boolean running;
 
+    /**
+     * A node built by naming what differs from the defaults.
+     *
+     * <p>Spring keeps the constructor: {@code @Value} injection needs one, and a framework that
+     * binds configuration to parameters cannot be handed a builder. What the constructor is bad at
+     * is <em>everything else</em> — it carries twenty-three positional parameters, of which a test
+     * typically cares about two, and the rest are {@code null}, {@code false} and {@code 0} standing
+     * in a row where nothing says which is which.
+     *
+     * <p><strong>That is not a style complaint; it broke this build three times in one day.</strong>
+     * Each new parameter meant editing fifteen call sites across seven files, and twice a call site
+     * at a different indent was missed and found by a compile error, once after the tree had already
+     * been pushed. A builder moves that cost to one place: a new parameter changes the constructor
+     * and this class, and every caller that does not care about it stays as it was.
+     *
+     * <p>The defaults here are the {@code @Value} defaults, in one place, so a test that says
+     * {@code PravahaNode.builder().withCatalog(c).build()} gets the same node the configuration file
+     * would have produced with nothing set.
+     */
+    public static final class Builder {
+
+        private StreamCatalog streams = new StreamCatalog();
+        private SourceBindingProperties sources = new SourceBindingProperties();
+        private StreamDeclarationProperties declaredStreams = new StreamDeclarationProperties();
+        private SecurityProperties security = new SecurityProperties();
+        private String tlsCertificate;
+        private String tlsKey;
+        private Duration watermarkIdleAfter = Duration.ofSeconds(30);
+        private Duration watermarkTick = Duration.ofSeconds(1);
+        private boolean flightEnabled;
+        private String flightHost = "127.0.0.1";
+        private int flightPort;
+        private PersistenceProperties persistence = new PersistenceProperties();
+        private String clusterMode = "SINGLE";
+        private String clusterMechanism = "single";
+        private String nodeId = "pravaha-node-01";
+        private boolean allowSharedState = true;
+        private boolean standby;
+        private com.ash.messaging.pravaha.server.ingest.LaneProperties lanes;
+        private SinkBindingProperties sinks;
+        private com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill;
+        private boolean pgwireEnabled;
+        private String pgwireHost = "127.0.0.1";
+        private int pgwirePort;
+
+        public Builder withCatalog(StreamCatalog streams) {
+            this.streams = streams;
+            return this;
+        }
+
+        public Builder withSources(SourceBindingProperties sources) {
+            this.sources = sources;
+            return this;
+        }
+
+        public Builder withDeclaredStreams(StreamDeclarationProperties declaredStreams) {
+            this.declaredStreams = declaredStreams;
+            return this;
+        }
+
+        public Builder withSecurity(SecurityProperties security) {
+            this.security = security;
+            return this;
+        }
+
+        /** Both halves together, because half a pair is refused rather than ignored (CFG-6). */
+        public Builder withFlightTls(String certificate, String key) {
+            this.tlsCertificate = certificate;
+            this.tlsKey = key;
+            return this;
+        }
+
+        public Builder withWatermark(Duration idleAfter, Duration tick) {
+            this.watermarkIdleAfter = idleAfter;
+            this.watermarkTick = tick;
+            return this;
+        }
+
+        /** Port zero lets the operating system pick, so tests do not fight over a fixed one. */
+        public Builder withFlight(boolean enabled, String host, int port) {
+            this.flightEnabled = enabled;
+            this.flightHost = host;
+            this.flightPort = port;
+            return this;
+        }
+
+        public Builder withPgWire(boolean enabled, String host, int port) {
+            this.pgwireEnabled = enabled;
+            this.pgwireHost = host;
+            this.pgwirePort = port;
+            return this;
+        }
+
+        public Builder withPersistence(PersistenceProperties persistence) {
+            this.persistence = persistence;
+            return this;
+        }
+
+        public Builder withCluster(String mode, String mechanism) {
+            this.clusterMode = mode;
+            this.clusterMechanism = mechanism;
+            return this;
+        }
+
+        public Builder withNodeId(String nodeId) {
+            this.nodeId = nodeId;
+            return this;
+        }
+
+        public Builder allowingSharedState(boolean allow) {
+            this.allowSharedState = allow;
+            return this;
+        }
+
+        public Builder asStandby(boolean standby) {
+            this.standby = standby;
+            return this;
+        }
+
+        public Builder withLanes(com.ash.messaging.pravaha.server.ingest.LaneProperties lanes) {
+            this.lanes = lanes;
+            return this;
+        }
+
+        public Builder withSinks(SinkBindingProperties sinks) {
+            this.sinks = sinks;
+            return this;
+        }
+
+        public Builder withStateSpill(com.ash.messaging.pravaha.server.state.StateSpillProperties spill) {
+            this.stateSpill = spill;
+            return this;
+        }
+
+        public PravahaNode build() {
+            return new PravahaNode(
+                    streams,
+                    sources,
+                    declaredStreams,
+                    security,
+                    tlsCertificate,
+                    tlsKey,
+                    watermarkIdleAfter,
+                    watermarkTick,
+                    flightEnabled,
+                    flightHost,
+                    flightPort,
+                    persistence,
+                    clusterMode,
+                    clusterMechanism,
+                    nodeId,
+                    allowSharedState,
+                    standby,
+                    lanes,
+                    sinks,
+                    stateSpill,
+                    pgwireEnabled,
+                    pgwireHost,
+                    pgwirePort);
+        }
+    }
+
+    /** A node built by naming what differs from the defaults. See {@link Builder}. */
+    public static Builder builder() {
+        return new Builder();
+    }
+
     public PravahaNode(
             StreamCatalog streams,
             SourceBindingProperties sources,
