@@ -199,6 +199,28 @@ public final class QueryRegistry implements AutoCloseable {
         return List.copyOf(counts);
     }
 
+    /** Where a registration's named sink is resolved. {@link SinkFactory#NONE} until one is given. */
+    private SinkFactory sinks = SinkFactory.NONE;
+
+    /** The sink each registration named, by query name, so a drop can let go of it. */
+    private final java.util.Map<String, String> sinkByName = new java.util.LinkedHashMap<>();
+
+    /**
+     * Resolves the sinks registrations name (ADR-043, W8-13).
+     *
+     * <p>The mirror of {@link #feedingFrom}: {@code PluginSinks} knows about ServiceLoader and
+     * configuration, and the registry knows only that a name resolves to something it can ask about.
+     */
+    public QueryRegistry writingTo(SinkFactory factory) {
+        this.sinks = factory == null ? SinkFactory.NONE : factory;
+        return this;
+    }
+
+    /** The sink a registered query writes to, or empty when it writes only to its view. */
+    public synchronized java.util.Optional<String> sinkOf(String queryName) {
+        return java.util.Optional.ofNullable(sinkByName.get(queryName));
+    }
+
     /**
      * Registrations share multiplexed lanes instead of each owning one.
      *
@@ -448,6 +470,33 @@ public final class QueryRegistry implements AutoCloseable {
         return register(name, sql, keyColumns, principal, retention, BoundParameters.none());
     }
 
+    /**
+     * Registers a query that also writes its changelog to a named sink (ADR-043, W8-13).
+     *
+     * <p>The sink is named as an argument rather than in the SQL. {@code INSERT INTO <sink> SELECT}
+     * is the better eventual form and every comparable engine uses it, but the planner refuses
+     * {@code INSERT} with {@code PRV-2020} on the grounds that Pravaha answers questions and sinks
+     * write results -- giving the keyword a second meaning needs a DML surface that exists only as a
+     * refusal today. ADR-043 records that, and the reasoning for fanning a shared computation out to
+     * every sink bound to it rather than forking the computation, since a sink does not change the
+     * answer.
+     *
+     * <p><strong>The changelog check happens here, before the feed opens.</strong> Design section
+     * 15.5's failure is silent: a query that revises its answer, pointed at a sink that can only
+     * append, corrupts that sink with rows which are each individually correct and a total that is
+     * wrong for ever. So the sink is asked what it can take -- without being opened -- and the pair
+     * is refused before a row exists.
+     */
+    public synchronized RegisteredQuery registerWritingTo(
+            String name, String sql, List<Integer> keyColumns, Principal principal, String sinkName) {
+        if (sinkName == null || sinkName.isBlank()) {
+            throw new IllegalArgumentException("a sink name is required; use register(...) to write only a view");
+        }
+        RegisteredQuery query = register(name, sql, keyColumns, principal, Retention.forever(), sinkName);
+        sinkByName.put(name, sinkName);
+        return query;
+    }
+
     /** Registers with both an explicit retention and bound parameters. */
     public synchronized RegisteredQuery register(
             String name,
@@ -456,6 +505,27 @@ public final class QueryRegistry implements AutoCloseable {
             Principal principal,
             Retention retention,
             BoundParameters parameters) {
+        return register(name, sql, keyColumns, principal, retention, parameters, null);
+    }
+
+    private synchronized RegisteredQuery register(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            Retention retention,
+            String sinkName) {
+        return register(name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName);
+    }
+
+    private synchronized RegisteredQuery register(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            Retention retention,
+            BoundParameters parameters,
+            String sinkName) {
         requireName(name);
         if (keyColumns == null || keyColumns.isEmpty()) {
             throw new IllegalArgumentException(
@@ -467,6 +537,16 @@ public final class QueryRegistry implements AutoCloseable {
                 sql, parameters, java.util.List.of(streams), List.copyOf(lookupSchemas.values()));
         List<ParameterPlacement> placements = prepared.placements();
         PhysicalOperator plan = prepared.plan();
+
+        if (sinkName != null) {
+            // Before the feed, before the view, before a row can exist. capabilitiesOf configures
+            // the plugin and asks it, without opening a connection, so a refusal costs nothing --
+            // and a query whose changelog the sink cannot take is refused as a PAIR: the query may
+            // be perfectly good against a different sink, and the fix is usually the sink rather
+            // than the SQL.
+            com.ash.messaging.pravaha.sql.plan.ChangelogAnalysis.checkAgainst(
+                    plan, sinks.capabilitiesOf(sinkName), sinkName);
+        }
 
         AccessDecision decision = policy.mayRegisterQuery(principal);
         audit.record(AuditEvent.of(principal, "register", name, decision, sql));

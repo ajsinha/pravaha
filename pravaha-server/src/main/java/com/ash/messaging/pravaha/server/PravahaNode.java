@@ -123,6 +123,8 @@ public class PravahaNode implements SmartLifecycle {
     private volatile com.ash.messaging.pravaha.pgwire.PravahaPgWireServer pgwire;
     private final SourceBindingProperties sources;
     private final SinkBindingProperties sinks;
+
+    private final com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill;
     private volatile com.ash.messaging.pravaha.server.egress.PluginSinks pluginSinks;
 
     private PluginLookupSources lookupSources;
@@ -162,6 +164,7 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.standby.enabled:false}") boolean standby,
             com.ash.messaging.pravaha.server.ingest.LaneProperties lanes,
             SinkBindingProperties sinks,
+            com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill,
             @Value("${pravaha.pgwire.enabled:false}") boolean pgwireEnabled,
             @Value("${pravaha.pgwire.host:0.0.0.0}") String pgwireHost,
             @Value("${pravaha.pgwire.port:5432}") int pgwirePort) {
@@ -171,6 +174,8 @@ public class PravahaNode implements SmartLifecycle {
         // a node directly -- none of which cares about sinks -- keep working, exactly as `lanes`
         // does above.
         this.sinks = sinks == null ? new SinkBindingProperties() : sinks;
+        this.stateSpill =
+                stateSpill == null ? new com.ash.messaging.pravaha.server.state.StateSpillProperties() : stateSpill;
         this.declaredStreams = declaredStreams;
         this.security = security;
         this.tlsCertificate = tlsCertificate == null || tlsCertificate.isBlank() ? null : new File(tlsCertificate);
@@ -606,6 +611,18 @@ public class PravahaNode implements SmartLifecycle {
         // Deliberately not opened: nothing yet resolves a registered query's output against one of
         // these names (that is a QueryRegistry change, tracked separately), so opening a connection
         // or a file handle here would hold a resource for a use that cannot yet happen.
+        // ADR-037 B2. Process-wide rather than per-query, and set before any query compiles a
+        // pipeline: a lane that has already built its join or window state cannot be told later
+        // that an overflow tier exists. Off unless configured, because a spill tier is a real cost
+        // and a deployment chooses it -- the same reasoning as pravaha.pgwire.enabled.
+        com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.configureSpill(stateSpill.toSpillSettings());
+        if (stateSpill.resolvedEnabled()) {
+            log.info(
+                    "state spills to {} past its memory tier, up to {} overflow slabs; a query that outgrows "
+                            + "memory degrades instead of being refused",
+                    stateSpill.getDirectory(),
+                    stateSpill.getMaxOverflowSlabs());
+        }
         pluginSinks = new com.ash.messaging.pravaha.server.egress.PluginSinks();
         sinks.toBindings().forEach(pluginSinks::bind);
         if (pluginSinks.bindings().isEmpty()) {

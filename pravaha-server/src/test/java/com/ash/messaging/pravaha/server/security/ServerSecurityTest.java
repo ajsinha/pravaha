@@ -206,6 +206,7 @@ class ServerSecurityTest {
                 false,
                 null,
                 null,
+                null,
                 false,
                 "127.0.0.1",
                 0);
@@ -230,6 +231,7 @@ class ServerSecurityTest {
                 "security-test-node",
                 true,
                 false,
+                null,
                 null,
                 null,
                 false,

@@ -1,0 +1,64 @@
+/*
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL.
+ *
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
+ *
+ * See the LICENSE file in the root of this repository for the full terms.
+ */
+package com.ash.messaging.pravaha.registry;
+
+import com.ash.messaging.pravaha.api.plugin.SinkCapabilities;
+import com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin;
+
+/**
+ * Resolves the sink a registration names, without the registry knowing how sinks are discovered.
+ *
+ * <p>The mirror of {@link SourceFeedFactory}, and for the same reason: {@code PluginSinks} lives in
+ * {@code pravaha-server} and knows about {@code ServiceLoader}, configuration and plugin
+ * classloaders, none of which the registry has any business depending on. The registry knows only
+ * that a name resolves to something it can ask about and something it can write to.
+ *
+ * <p>{@link #NONE} is the default, so an embedded engine with no sinks configured needs no null
+ * check anywhere -- the same choice {@code SourceFeedFactory.NONE} makes for the ingest side.
+ */
+public interface SinkFactory {
+
+    /** A factory that has no sinks, which is correct for an embedded engine and for most tests. */
+    SinkFactory NONE = new SinkFactory() {
+        @Override
+        public SinkCapabilities capabilitiesOf(String sinkName) {
+            throw new IllegalArgumentException("no sink named '" + sinkName
+                    + "' is bound: this engine has no sink factory, so nothing can be written out. "
+                    + "Bind one under pravaha.sinks.<name>.");
+        }
+
+        @Override
+        public StreamSinkPlugin open(String sinkName) {
+            // Unreachable in practice: capabilitiesOf refuses first, and a registration is refused
+            // before anything tries to open what it named.
+            return capabilitiesOf(sinkName) == null ? null : null;
+        }
+    };
+
+    /**
+     * What a sink can promise, <em>without opening it</em>.
+     *
+     * <p>Asked at registration so {@code ChangelogAnalysis.checkAgainst} can refuse a query whose
+     * changelog the sink cannot take, before a row is produced and before a connection is paid for.
+     * Design section 15.5 is why the check has to happen here: a revising query pointed at an
+     * append-only sink corrupts it <em>silently</em>, with rows that are each individually correct
+     * and a total that is wrong for ever.
+     */
+    SinkCapabilities capabilitiesOf(String sinkName);
+
+    /** The sink itself, opened and ready to be written to. */
+    StreamSinkPlugin open(String sinkName);
+}

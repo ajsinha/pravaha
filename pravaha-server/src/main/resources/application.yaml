@@ -80,6 +80,28 @@ pravaha:
   # pravaha.security.pgwire.* instead of pravaha.pgwire.*. The same is true of the commented
   # sources: and streams: blocks above; nothing has caught it because the check only tests settings
   # an error message actually names, and until now none of theirs did.
+  # Where state goes when a query outgrows memory, instead of being refused (ADR-037 B2).
+  #
+  # A query whose join or windowed-aggregate state reaches its ceiling is refused today with
+  # PRV-4001 and its lane dies. With a directory configured it spills the overflow to disk and keeps
+  # running slower instead of stopping. Eviction is deliberately not an option: a retraction whose
+  # insert was evicted leaves a row that can never be withdrawn, so spilling is the only correct
+  # degradation for a Z-set.
+  #
+  # Mapped files through java.nio, not an embedded key-value store. No native library, nothing to
+  # ship per platform -- the cost ADR-037 warned about, and the same reason the Cassandra driver's
+  # JNI was excluded from the bundle.
+  #
+  # `enabled` is tri-state and explicit wins in BOTH directions: set it false and a directory left
+  # configured underneath does NOT switch spilling back on. Leave it unset and a configured
+  # directory means on. COUNT(DISTINCT) cannot spill and says so at registration (PRV-3023) rather
+  # than silently filling memory.
+# state:
+#   spill:
+#     enabled: false
+#     directory: ""
+#     max-overflow-slabs: 512
+
 # pgwire:
 #   enabled: false
 #   host: 0.0.0.0
