@@ -83,6 +83,25 @@ final class SymmetricHashJoin implements AutoCloseable {
     private long pairsEmitted;
 
     SymmetricHashJoin(JoinOperator plan, RowArena arena, RowProcessor downstream, int maxStateSlabs) {
+        this(plan, arena, downstream, maxStateSlabs, null, 0);
+    }
+
+    /**
+     * ADR-037 item B2: a join whose state would otherwise be refused at {@code maxStateSlabs} keeps
+     * running, slower, once given somewhere to spill to.
+     *
+     * @param overflowAccess where state is carved from once {@code maxStateSlabs} of in-memory
+     *     slabs are exhausted, or {@code null} for no overflow tier -- today's behaviour, unchanged
+     * @param maxOverflowSlabs the ceiling on {@code overflowAccess} slabs, ignored when {@code
+     *     overflowAccess} is {@code null}
+     */
+    SymmetricHashJoin(
+            JoinOperator plan,
+            RowArena arena,
+            RowProcessor downstream,
+            int maxStateSlabs,
+            MemoryAccess overflowAccess,
+            int maxOverflowSlabs) {
         this.plan = plan;
         this.arena = arena;
         this.downstream = downstream;
@@ -97,7 +116,7 @@ final class SymmetricHashJoin implements AutoCloseable {
             JoinKeys.checkJoinable(rightSchema, ordinal, "right");
         }
         MemoryAccess access = MemoryAccess.best();
-        this.store = new RowStore(access, STATE_SLAB_BYTES, maxStateSlabs);
+        this.store = new RowStore(access, STATE_SLAB_BYTES, maxStateSlabs, overflowAccess, maxOverflowSlabs);
         this.leftState = new JoinSide(store, access, leftSchema, leftKeys);
         this.rightState = new JoinSide(store, access, rightSchema, rightKeys);
         this.outputLayout = RowLayout.of(plan.outputSchema());
@@ -279,6 +298,16 @@ final class SymmetricHashJoin implements AutoCloseable {
     /** Bytes the state store has taken from the operating system. */
     long stateBytes() {
         return store.bytesReserved();
+    }
+
+    /** Whether this join has spilled any state to its overflow tier. */
+    boolean hasSpilled() {
+        return store.hasSpilled();
+    }
+
+    /** How many overflow-tier slabs this join has used. */
+    int overflowSlabsUsed() {
+        return store.overflowSlabsUsed();
     }
 
     private static int[] ordinals(java.util.List<Integer> list) {

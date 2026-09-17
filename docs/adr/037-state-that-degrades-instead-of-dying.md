@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — scope decision, B1 built, B2 not started |
+| Status | Accepted — scope decision, B1 built, B2's first slice built (stream-to-stream join state) |
 | Date | 2026-09-15 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-006 (tiered state), ADR-008 (aligned checkpoints), ADR-013 (Z-sets), ADR-036 (one node, thousands of queries) |
@@ -67,3 +67,51 @@ been built; that is not an accident of scheduling but a reflection of its size.
 **What would make it urgent.** A workload whose steady state does not fit — which, on the numbers
 above, this one does not have. Revisit when a measurement says otherwise, and B1 is what produces
 that measurement.
+
+## B2, first slice: a stream-to-stream join's state, and the dependency question answered
+
+**No new dependency.** `RowStore` already has everything a key-value store would otherwise be
+adopted to provide — size classes, a free list, block reuse — and every accessor
+(`allocate`/`release`/`regionOf`) already addresses a slab by its index in one list, never by which
+`MemoryAccess` carved it. The only thing missing was a `MemoryAccess` whose regions live on disk
+instead of RAM, and `java.nio`'s `FileChannel.map` provides exactly that with no native library and
+nothing this bundle would need to ship per platform — the cost this ADR named as real ("a
+native-code dependency … as the Cassandra driver's JNI was"). `RowStore` now accepts an optional
+second `MemoryAccess` and a ceiling on slabs carved from it (`pravaha-state`'s
+`com.ash.messaging.pravaha.state.spill` package); once its primary ceiling is reached it carves the
+next slab from the overflow tier instead of refusing, and every existing constructor and caller is
+unchanged when no overflow tier is given.
+
+**Why the join first.** Both sides of a stream-to-stream join keep every row that could still match,
+with no eviction possible (Z-set semantics: a retraction whose insert was evicted can never be
+withdrawn) — the exact "case nobody planned" this ADR opens with: an unwindowed join over two
+unbounded streams. `SymmetricHashJoin` now accepts the same optional overflow tier, wired in
+`InterpretedPipeline` behind a system property (`pravaha.state.spill.directory`, unset by default —
+the same choice `pravaha.pgwire.enabled` makes for TLS, for the same reason: this has a real cost and
+a deployment should choose it, not inherit it).
+
+**The checkpoint invariant held without being touched.** `JoinSide.writeTo`/`readFrom` already walk
+live entries by handle and ask each one's `MemoryRegion` for its bytes; they were never told which
+tier a handle's slab came from, and still are not. A checkpoint taken while state is spilled is
+therefore already the one thing this ADR insisted on — state on disk checkpointed *as part of* the
+same snapshot as everything else, never a second durable thing beside it — proven by a test that
+takes a snapshot from a join with spilled state and restores it into a fresh join, fresh arena, fresh
+spill directory, with no shared object between the two.
+
+**What was measured, not asserted.** Two numbers, both in `RowStoreSpillMeasurementTest`
+(`pravaha-state`): per-operation latency in the overflow tier ran about 2x the RAM tier's, measured
+after warming up both code paths so neither number is inflated by JIT order; and 4 RAM slabs plus 60
+overflow slabs held 16x as many rows as 4 RAM slabs alone. Both numbers carry the same caveat, stated
+in that test's own javadoc rather than left implicit: a few megabytes of mapped file, written and
+read within milliseconds, mostly never leaves the operating system's page cache on the machine this
+was run on, so the 2x figure is the cost of one more layer of indirection through `MappedByteBuffer`,
+not a measurement of physical disk latency. A workload whose spilled state is large or old enough to
+actually miss the page cache will cost more, and finding out how much is exactly the kind of
+measurement a real deployment's metrics — not this test — should produce.
+
+**What this slice does not cover.** Windowed and keyed aggregate state (`SlicedAggregateState`) does
+not have an overflow tier yet; the join was chosen as the one case this ADR names directly, not as a
+claim that it is the only one that matters. There is no `application.yaml` key or `LaneProperties`
+setting for the spill directory — it is a system property today, matching the level of
+configurability `MAX_JOIN_STATE_SLABS` itself has (none), and a deployment-facing setting is a
+follow-on decision, not one this slice made.

@@ -69,6 +69,55 @@ public final class InterpretedPipeline implements AutoCloseable {
     private static final int MAX_JOIN_STATE_SLABS = 64;
 
     /**
+     * ADR-037 item B2: a join whose state exceeds {@link #MAX_JOIN_STATE_SLABS} keeps running,
+     * slower, by spilling to a file under this directory, instead of being refused.
+     *
+     * <p>Unset by default -- the same choice {@code pravaha.pgwire.enabled} makes for TLS, and for
+     * the same reason: ADR-037 states plainly what this costs (a second tier a checkpoint must stay
+     * consistent with, latency that becomes bimodal and therefore harder to reason about) and asks
+     * that a deployment choose it rather than inherit it. Named the same way {@link
+     * MemoryAccess#IMPL_PROPERTY} already is in this codebase: a system property, not a constructor
+     * argument threaded through every caller, because nothing between this class and the process
+     * boundary has an opinion worth expressing.
+     */
+    private static final String SPILL_DIRECTORY_PROPERTY = "pravaha.state.spill.directory";
+
+    /**
+     * Ceiling on overflow slabs once spilling is configured. Generous relative to {@link
+     * #MAX_JOIN_STATE_SLABS}: the point of a disk tier is to be much larger than the memory ceiling
+     * it backs up, and the disk itself is the real limit long before this one is reached.
+     */
+    private static final int MAX_JOIN_OVERFLOW_SLABS = 512;
+
+    private static volatile MemoryAccess overflowAccess;
+    private static volatile boolean overflowAccessResolved;
+
+    /**
+     * Resolves {@link #SPILL_DIRECTORY_PROPERTY} once per process and caches the result -- a
+     * directory does not change under a running node, and re-reading a system property on every
+     * join built by every query would be a property lookup on a path that should cost nothing when
+     * spilling is not configured, which is the common case this reads as a single volatile field.
+     */
+    private static MemoryAccess overflowAccessIfConfigured() {
+        if (overflowAccessResolved) {
+            return overflowAccess;
+        }
+        return resolveOverflowAccess();
+    }
+
+    private static synchronized MemoryAccess resolveOverflowAccess() {
+        if (overflowAccessResolved) {
+            return overflowAccess;
+        }
+        String directory = System.getProperty(SPILL_DIRECTORY_PROPERTY, "").trim();
+        overflowAccess = directory.isEmpty()
+                ? null
+                : new com.ash.messaging.pravaha.state.spill.MappedFileMemoryAccess(java.nio.file.Path.of(directory));
+        overflowAccessResolved = true;
+        return overflowAccess;
+    }
+
+    /**
      * How many looked-up rows one lookup join may cache.
      *
      * <p>Bounded, and access-ordered underneath, because a lookup join's key distribution is
@@ -733,7 +782,11 @@ public final class InterpretedPipeline implements AutoCloseable {
                     // join as their downstream, and each side's scan registers its own entry point;
                     // there is no single head to hand back, so anything above the join reaches its
                     // inputs by name rather than by holding a processor.
-                    SymmetricHashJoin join = new SymmetricHashJoin(j, arena, downstream, MAX_JOIN_STATE_SLABS);
+                    MemoryAccess overflow = overflowAccessIfConfigured();
+                    SymmetricHashJoin join = overflow == null
+                            ? new SymmetricHashJoin(j, arena, downstream, MAX_JOIN_STATE_SLABS)
+                            : new SymmetricHashJoin(
+                                    j, arena, downstream, MAX_JOIN_STATE_SLABS, overflow, MAX_JOIN_OVERFLOW_SLABS);
                     joins.add(join);
                     buildInput(j.left(), join.leftInput());
                     buildInput(j.right(), join.rightInput());

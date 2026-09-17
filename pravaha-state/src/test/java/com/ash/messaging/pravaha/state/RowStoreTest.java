@@ -15,16 +15,19 @@
  */
 package com.ash.messaging.pravaha.state;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
+import com.ash.messaging.pravaha.state.spill.MappedFileMemoryAccess;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -195,5 +198,102 @@ class RowStoreTest {
         assertThatThrownBy(() -> new RowStore(MemoryAccess.best(), 1000, 4))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("power of two");
+    }
+
+    // ------------------------------------------------------------------ ADR-037 item B2: overflow
+
+    @Test
+    void withNoOverflowTierGivenTheStoreBehavesExactlyAsBefore() {
+        try (RowStore store = new RowStore(MemoryAccess.best(), MIN_SLAB, 2, null, 0)) {
+            assertThat(store.hasSpilled()).isFalse();
+            assertThat(store.overflowSlabsUsed()).isZero();
+        }
+    }
+
+    @Test
+    void anOverflowTierNeedsAtLeastOneSlab(@TempDir Path dir) {
+        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir)) {
+            assertThatThrownBy(() -> new RowStore(MemoryAccess.best(), MIN_SLAB, 2, overflow, 0))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("overflow slab");
+        }
+    }
+
+    @Test
+    void aQueryThatWouldHaveBeenRefusedKeepsRunningOnceOverflowIsConfigured(@TempDir Path dir) {
+        // Exactly the scenario ADR-037 names: two in-memory slabs are not enough for what this test
+        // writes, and without an overflow tier this is runningOutOfSlabsNamesTheCauseRatherThanTheSymptom
+        // above -- PRV-4001, query dead. With one it keeps accepting rows.
+        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir);
+                RowStore store = new RowStore(MemoryAccess.best(), MIN_SLAB, 2, overflow, 4)) {
+            List<Long> handles = new ArrayList<>();
+            for (int i = 0; i < 80; i++) {
+                handles.add(store.allocate(200));
+            }
+            assertThat(store.hasSpilled())
+                    .as("400 rows of 200 bytes each do not fit two 4 KiB slabs, so this must have spilled")
+                    .isTrue();
+            assertThat(store.overflowSlabsUsed()).isGreaterThan(0);
+        }
+    }
+
+    @Test
+    void aRowWrittenIntoAnOverflowSlabReadsBackCorrectly(@TempDir Path dir) {
+        // The point of putting the overflow tier behind the same RowStore/MemoryRegion API: a
+        // caller writes and reads a spilled row exactly as it does an in-memory one, with no
+        // branch anywhere asking which tier a handle's slab came from.
+        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir);
+                RowStore store = new RowStore(MemoryAccess.best(), MIN_SLAB, 1, overflow, 4)) {
+            List<Long> handles = new ArrayList<>();
+            for (int i = 0; i < 100; i++) {
+                long handle = store.allocate(64);
+                store.regionOf(handle).putLong(store.offsetOf(handle), i);
+                handles.add(handle);
+            }
+            assertThat(store.hasSpilled()).isTrue();
+            for (int i = 0; i < handles.size(); i++) {
+                long handle = handles.get(i);
+                assertThat(store.regionOf(handle).getLong(store.offsetOf(handle)))
+                        .as("row %d, possibly in the overflow tier", i)
+                        .isEqualTo(i);
+            }
+        }
+    }
+
+    @Test
+    void reachingBothCeilingsStillRefusesRatherThanGrowingWithoutBound(@TempDir Path dir) {
+        // A second tier moves the ceiling; it does not remove it. Eviction remains off the table
+        // (ADR-037), so exhausting both tiers must still fail loudly.
+        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir);
+                RowStore store = new RowStore(MemoryAccess.best(), MIN_SLAB, 1, overflow, 1)) {
+            assertThatThrownBy(() -> {
+                        for (int i = 0; i < 10_000; i++) {
+                            store.allocate(200);
+                        }
+                    })
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-4001")
+                    .hasMessageContaining("overflow");
+        }
+    }
+
+    @Test
+    void blocksReleasedFromAnOverflowSlabAreReusedLikeAnyOther(@TempDir Path dir) {
+        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir);
+                RowStore store = new RowStore(MemoryAccess.best(), MIN_SLAB, 1, overflow, 2)) {
+            List<Long> handles = new ArrayList<>();
+            for (int i = 0; i < 80; i++) {
+                handles.add(store.allocate(64));
+            }
+            assertThat(store.hasSpilled()).isTrue();
+            long reusesBefore = store.reuses();
+            for (long handle : handles) {
+                store.release(handle);
+            }
+            for (int i = 0; i < 80; i++) {
+                store.allocate(64);
+            }
+            assertThat(store.reuses()).isGreaterThan(reusesBefore);
+        }
     }
 }

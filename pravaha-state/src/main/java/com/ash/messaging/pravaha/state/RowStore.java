@@ -66,6 +66,8 @@ public final class RowStore implements AutoCloseable {
     private final MemoryAccess access;
     private final int slabBytes;
     private final int maxSlabs;
+    private final MemoryAccess overflowAccess;
+    private final int maxOverflowSlabs;
     private final List<MemoryRegion> slabs = new ArrayList<>();
     private final long[] freeHeads;
 
@@ -75,6 +77,7 @@ public final class RowStore implements AutoCloseable {
     private long bytesFree;
     private long liveBlocks;
     private long reuses;
+    private int overflowSlabsUsed;
     private boolean closed;
 
     /**
@@ -84,6 +87,32 @@ public final class RowStore implements AutoCloseable {
      *     down with it later
      */
     public RowStore(MemoryAccess access, int slabBytes, int maxSlabs) {
+        this(access, slabBytes, maxSlabs, null, 0);
+    }
+
+    /**
+     * ADR-037 item B2: a query whose state outgrows {@code maxSlabs} keeps running, slower, once
+     * this is given a second tier to carve slabs from -- instead of being refused.
+     *
+     * <p>The tiers are not distinguished past this constructor. Every accessor below --
+     * {@link #allocate}, {@link #release}, {@link #regionOf} -- addresses a slab by its index in one
+     * list regardless of which {@code MemoryAccess} carved it, which is what lets a caller ({@code
+     * JoinSide}, {@code VariableKeyStateMap}) read and write overflowed state exactly as it does
+     * in-memory state, including through a checkpoint: {@code writeTo} walks live entries by handle
+     * and asks each one's region for its bytes, never asking which tier the region came from, so
+     * spilled rows are checkpointed as part of the same snapshot as everything else -- never a
+     * second durable thing beside it.
+     *
+     * @param overflowAccess where slabs beyond {@code maxSlabs} are carved from, or {@code null} for
+     *     no overflow tier -- today's behaviour, unchanged
+     * @param maxOverflowSlabs the ceiling on {@code overflowAccess} slabs, ignored when {@code
+     *     overflowAccess} is {@code null}. Reaching {@code maxSlabs + maxOverflowSlabs} still throws
+     *     {@link StateErrors#STATE_TOO_LARGE}: a second tier moves the ceiling, and does not remove
+     *     it -- eviction is not an option for a Z-set (a retraction whose insert was evicted can
+     *     never be withdrawn), so a bound has to exist somewhere and be enforced loudly when reached.
+     */
+    public RowStore(
+            MemoryAccess access, int slabBytes, int maxSlabs, MemoryAccess overflowAccess, int maxOverflowSlabs) {
         if (Integer.bitCount(slabBytes) != 1 || slabBytes < MIN_BLOCK_BYTES) {
             throw new IllegalArgumentException(
                     "slab size must be a power of two of at least " + MIN_BLOCK_BYTES + ", got " + slabBytes);
@@ -91,9 +120,15 @@ public final class RowStore implements AutoCloseable {
         if (maxSlabs < 1) {
             throw new IllegalArgumentException("a store needs at least one slab, got " + maxSlabs);
         }
+        if (overflowAccess != null && maxOverflowSlabs < 1) {
+            throw new IllegalArgumentException(
+                    "an overflow tier needs at least one overflow slab, got " + maxOverflowSlabs);
+        }
         this.access = access;
         this.slabBytes = slabBytes;
         this.maxSlabs = maxSlabs;
+        this.overflowAccess = overflowAccess;
+        this.maxOverflowSlabs = overflowAccess == null ? 0 : maxOverflowSlabs;
         this.freeHeads = new long[classCount(slabBytes)];
         java.util.Arrays.fill(this.freeHeads, ArenaHandle.NULL);
     }
@@ -140,10 +175,18 @@ public final class RowStore implements AutoCloseable {
             if (!advanceSlab()) {
                 throw new PravahaException(
                         StateErrors.STATE_TOO_LARGE,
-                        "state store is full at " + (long) maxSlabs * slabBytes + " bytes across " + maxSlabs
-                                + " slabs, with " + liveBlocks + " live blocks. A join or aggregate is holding "
+                        "state store is full at " + (long) (maxSlabs + maxOverflowSlabs) * slabBytes + " bytes across "
+                                + maxSlabs
+                                + (maxOverflowSlabs > 0
+                                        ? (" in-memory slabs and " + maxOverflowSlabs + " overflow slabs ("
+                                                + overflowSlabsUsed + " of which were used)")
+                                        : " slabs")
+                                + ", with " + liveBlocks + " live blocks. A join or aggregate is holding "
                                 + "rows it will never match again; bound it with a window, a TTL or a tighter "
-                                + "key range.");
+                                + "key range."
+                                + (maxOverflowSlabs == 0
+                                        ? " This store has no overflow tier configured; ADR-037 item B2 is what adds one."
+                                        : ""));
             }
         }
         int offset = cursor;
@@ -158,12 +201,17 @@ public final class RowStore implements AutoCloseable {
     }
 
     private boolean advanceSlab() {
-        if (currentSlab + 1 >= maxSlabs) {
+        if (currentSlab + 1 >= maxSlabs + maxOverflowSlabs) {
             return false;
         }
         currentSlab++;
         if (currentSlab == slabs.size()) {
-            slabs.add(access.allocate(slabBytes));
+            boolean overflow = currentSlab >= maxSlabs;
+            MemoryAccess source = overflow ? overflowAccess : access;
+            slabs.add(source.allocate(slabBytes));
+            if (overflow) {
+                overflowSlabsUsed++;
+            }
         }
         cursor = 0;
         return true;
@@ -236,6 +284,16 @@ public final class RowStore implements AutoCloseable {
 
     public int slabCount() {
         return slabs.size();
+    }
+
+    /** How many slabs have been carved from the overflow tier. Zero when nothing has spilled yet. */
+    public int overflowSlabsUsed() {
+        return overflowSlabsUsed;
+    }
+
+    /** Whether this store has ever carved a slab from its overflow tier. */
+    public boolean hasSpilled() {
+        return overflowSlabsUsed > 0;
     }
 
     @Override
