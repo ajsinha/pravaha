@@ -3301,19 +3301,34 @@ class QueryController {
 
 ### 23.19 Build and packaging
 
+> **Superseded by ADR-024 (§23.2a).** This section described a `pravaha-ui` Maven module — a Spring
+> Boot BFF with a `frontend-maven-plugin` → pnpm build and a `-Pui` profile. None of it was built.
+> There is no `pravaha-ui` module in the reactor and no `ui` profile in any POM; the root `pom.xml`
+> lists `pravaha-ui` only as a future module and says empty modules are noise. What follows is what
+> exists, and the contradiction with §23.2a is why this section is rewritten rather than deleted:
+> a plan that reads as current is worse than one plainly marked dead.
+
+The console is a **separate Python process** under `console/`, not a Maven module:
+
 ```
-pravaha-ui/
-├── pom.xml                      frontend-maven-plugin → pnpm → target/classes/static
-├── src/main/java/…              Spring Boot BFF
-└── src/main/frontend/
-    ├── src/{app,components,features,lib,styles}
-    ├── src/design-system/       tokens, primitives, Storybook
-    └── e2e/                     Playwright
+console/
+├── pyproject.toml               pravaha-console; Python >= 3.11, FastAPI + Uvicorn
+├── Makefile                     install / run / run-against / test / lint / typecheck / clean
+├── run_pravaha_web.py           entry point
+├── routes/                      api_routes, auth_routes, base
+├── core/  config/  content/
+├── web/                         templates and static assets
+└── tests/
 ```
 
-- `./mvnw -Pui verify` builds and tests everything; without `-Pui` the reactor skips Node entirely, so backend engineers never wait on pnpm.
-- Storybook is published per build as living documentation of the design system.
-- Deployable standalone or embedded in `pravaha-server` (mode D, §22.2) — same artefact, different bootstrap.
+- `make -C console run` installs into a local `.venv` and starts it; `make -C console test` runs its
+  tests. The Java reactor never builds it, so backend work never waits on a Python toolchain — which
+  is the benefit the old `-Pui` profile was reaching for, obtained by separation instead of a flag.
+- It talks to the engine over the **published Python SDK and the public API only** (ADR-023,
+  ADR-024). That is the point of the split: the API boundary is unviolable because the console
+  physically cannot reach past it, rather than being held back by a test.
+- The cost is stated rather than hidden: two runtimes, and no "download one jar and open a browser"
+  onboarding path. Both were accepted in ADR-024.
 
 ### 23.20 What "polished" means — the acceptance checklist
 

@@ -55,12 +55,16 @@
 | **Recovery** | Checkpoints carry operator state, source offsets and the served view, cut at one point across every input (ADR-008); a restart resumes rather than replaying or starting empty. |
 | **Survival** | A node claims the checkpoint root and the registry journal it writes, so two nodes cannot silently prune and replay each other's state (`PRV-4003`, override with `pravaha.state.allow-shared`). A standby (`pravaha.standby.enabled`) takes over when the claim goes stale and reports what the takeover lost rather than implying continuity. A bad input line goes to a dead-letter queue (`pravaha run --dlq <file>`) instead of ending the run. |
 | **Scale on one node** | A registered query no longer costs a platform thread. Lanes are driven by a fixed pool sized to the cores (`LaneRunner`, ADR-027), the watermark and checkpoint clocks are one shared timer for the process, and 200 queries cost **24 platform threads — one per core, fixed** — where they used to cost 400. Off-heap per query is **~1,024 KiB idle, ~1,328 KiB active**, down from ~5 MiB, and every component reports its own bytes by name (ADR-036). |
-| **Clients** | Flight SQL, a Java SDK, a Python SDK, a CLI, and a console. Authentication, authorisation, row filters and prepared statements. Also a **PostgreSQL wire protocol gateway** (`pravaha.pgwire.enabled`, read path only) so `psql` and any Postgres driver can read a maintained view without a Flight SQL client — **off by default, because this slice has no TLS**. |
+| **Clients** | Flight SQL, a Java SDK, a Python SDK, a CLI, and a console. Authentication, authorisation, row filters and prepared statements. Also a **PostgreSQL wire protocol gateway** (`pravaha.pgwire.enabled`, read path only) so `psql` and any Postgres driver can read a maintained view without a Flight SQL client — **off by default**, though no longer for want of TLS: `pravaha.pgwire.tls.certificate` and `.key` make it answer an `SSLRequest` with `S` and upgrade the socket, so `psql "sslmode=require"` negotiates over the same port. |
 
 ### What is not built, stated plainly
 
-- **Multi-node execution is deferred** (ADR-034). The engine targets one node scaled to its cores;
-  the clustering coordination code is carried unused.
+- **Multi-node execution is deferred** (ADR-034). The engine targets one node scaled to its cores.
+  The coordination code is no longer inert, though: membership produces a real partition assignment
+  by rendezvous hashing, and ownership of a partition is a lease acquired by compare-and-swap with a
+  fenced handoff, proved against a real ZooKeeper ensemble by making two nodes genuinely contend.
+  What is still missing is the consumer — no runtime path yet asks "may I serve this partition right
+  now" before reading one — so execution remains single-node.
 - **No Spring Boot starter** (ADR-020). The engine core contains no Spring and sits behind a plain
   `PravahaEngine` seam, so embedding it never dictates your Spring version.
 - **A sink can be configured but no query writes to one** (W8-13, half built). `pravaha.sinks.<name>`
