@@ -113,15 +113,38 @@ public final class VariableKeyStateMap implements AutoCloseable {
      * @param storeSlabBytes size of each slab the key/value store carves blocks from
      * @param storeMaxSlabs the ceiling on the key/value store, in slabs. Reaching it is a refusal
      *     ({@link RowStore} throws {@code PRV-4001}), not silent eviction -- state this map is asked
-     *     to hold and cannot is exactly the case ADR-037 item 3 (spill to disk, not this change)
-     *     exists to eventually soften; until it is built, the honest answer is to fail loudly.
+     *     to hold and cannot is exactly the case ADR-037 item B2 exists to soften; see the other
+     *     constructor for the overflow tier that does.
      */
     public VariableKeyStateMap(MemoryAccess access, int initialCapacity, int storeSlabBytes, int storeMaxSlabs) {
+        this(access, initialCapacity, storeSlabBytes, storeMaxSlabs, null, 0);
+    }
+
+    /**
+     * ADR-037 item B2: the key/value store's ceiling can be moved by carving overflow slabs from a
+     * second {@link MemoryAccess} instead of refusing outright -- see {@link RowStore}'s own
+     * overflow-aware constructor, which this passes straight through to. The slot table itself is
+     * never given an overflow tier: at sixteen bytes a slot it is a small fraction of what a large
+     * key or value costs, and {@code RowStore} is where the actual bytes -- the part that can grow
+     * without bound -- live.
+     *
+     * @param overflowAccess where slabs beyond {@code storeMaxSlabs} are carved from, or {@code null}
+     *     for no overflow tier -- today's behaviour, unchanged
+     * @param maxOverflowSlabs the ceiling on {@code overflowAccess} slabs, ignored when {@code
+     *     overflowAccess} is {@code null}
+     */
+    public VariableKeyStateMap(
+            MemoryAccess access,
+            int initialCapacity,
+            int storeSlabBytes,
+            int storeMaxSlabs,
+            MemoryAccess overflowAccess,
+            int maxOverflowSlabs) {
         if (initialCapacity < 2) {
             throw new IllegalArgumentException("initial capacity must be at least 2, got " + initialCapacity);
         }
         this.access = access;
-        this.store = new RowStore(access, storeSlabBytes, storeMaxSlabs);
+        this.store = new RowStore(access, storeSlabBytes, storeMaxSlabs, overflowAccess, maxOverflowSlabs);
         allocateTable(nextPowerOfTwo(initialCapacity));
     }
 
@@ -430,6 +453,16 @@ public final class VariableKeyStateMap implements AutoCloseable {
     /** How many size-class blocks were handed out from a free list rather than carved fresh. */
     public long reuses() {
         return store.reuses();
+    }
+
+    /** Whether this map's key/value store has ever carved a slab from its overflow tier. */
+    public boolean hasSpilled() {
+        return store.hasSpilled();
+    }
+
+    /** How many overflow-tier slabs this map's key/value store has used. */
+    public int overflowSlabsUsed() {
+        return store.overflowSlabsUsed();
     }
 
     @Override

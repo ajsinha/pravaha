@@ -367,6 +367,18 @@ public final class InterpretedPipeline implements AutoCloseable {
         return false;
     }
 
+    /** Whether any of this pipeline's windowed aggregates has spilled to its overflow tier
+     * (ADR-037 item B2). Always false for one computing {@code COUNT(DISTINCT ...)}, which cannot
+     * spill and is refused at construction instead if spilling was configured for it. */
+    public boolean windowedStateHasSpilled() {
+        for (WindowedAggregate aggregate : windowed) {
+            if (aggregate.hasSpilled()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Finishes any outstanding lookups without ending the query.
      *
@@ -663,6 +675,11 @@ public final class InterpretedPipeline implements AutoCloseable {
     @Override
     public void close() {
         joins.forEach(SymmetricHashJoin::close);
+        // ADR-037 item B2: a windowed aggregate now owns off-heap state (unless it computes
+        // COUNT(DISTINCT ...), the one shape that stays on-heap -- see SlicedAggregateState's own
+        // class javadoc) and, like a join's, it has to be released rather than left to the
+        // collector. Before this, WindowedAggregate held nothing that needed it.
+        windowed.forEach(WindowedAggregate::close);
         lookupJoins.forEach(LookupJoin::close);
         arena.close();
     }
@@ -762,7 +779,10 @@ public final class InterpretedPipeline implements AutoCloseable {
                     yield buildInput(w.input(), assign);
                 }
                 case WindowedAggregateOperator w -> {
-                    WindowedAggregate aggregate = new WindowedAggregate(w, arena, downstream);
+                    WindowedAggregate aggregate = overflowAccess == null
+                            ? new WindowedAggregate(w, arena, downstream)
+                            : new WindowedAggregate(
+                                    w, arena, downstream, overflowAccess, spillSettings.maxOverflowSlabs());
                     // A bounded source must not leave its final windows unemitted: that looks
                     // exactly like the query being wrong about its last period.
                     finishers.add(aggregate::finish);

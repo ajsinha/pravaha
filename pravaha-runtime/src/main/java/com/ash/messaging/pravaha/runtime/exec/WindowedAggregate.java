@@ -21,6 +21,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.arena.RowArena;
+import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
@@ -75,7 +76,7 @@ import com.ash.messaging.pravaha.runtime.window.SlicedWindows;
  * routed to the late output and counted, never silently dropped and never allowed to produce a
  * result that contradicts one already sent.
  */
-final class WindowedAggregate implements RowProcessor {
+final class WindowedAggregate implements RowProcessor, AutoCloseable {
 
     private final WindowedAggregateOperator operator;
     private final SlicedWindows windows;
@@ -160,6 +161,26 @@ final class WindowedAggregate implements RowProcessor {
     private long earliestWindowStart = Long.MAX_VALUE;
 
     WindowedAggregate(WindowedAggregateOperator operator, RowArena arena, RowProcessor downstream) {
+        this(operator, arena, downstream, null, 0);
+    }
+
+    /**
+     * ADR-037 item B2: a windowed aggregate whose live-slice count exceeds {@code operator.maxSlices()}
+     * keeps running, slower, once given an overflow tier -- see {@link SlicedAggregateState}'s own
+     * overflow-aware constructor, which this passes straight through to, refusal for {@code COUNT
+     * DISTINCT} included.
+     *
+     * @param overflowAccess where state beyond the in-memory ceiling is carved from, or {@code null}
+     *     for no overflow tier -- today's behaviour, unchanged
+     * @param maxOverflowSlabs the ceiling on {@code overflowAccess} slabs, ignored when {@code
+     *     overflowAccess} is {@code null}
+     */
+    WindowedAggregate(
+            WindowedAggregateOperator operator,
+            RowArena arena,
+            RowProcessor downstream,
+            MemoryAccess overflowAccess,
+            int maxOverflowSlabs) {
         this.operator = operator;
         this.windows = new SlicedWindows(operator.spec());
         this.arena = arena;
@@ -183,7 +204,7 @@ final class WindowedAggregate implements RowProcessor {
                 case MAX -> SlicedAggregateState.Kind.MAX;
             };
         }
-        this.state = new SlicedAggregateState(windows, kinds, operator.maxSlices());
+        this.state = new SlicedAggregateState(windows, kinds, operator.maxSlices(), overflowAccess, maxOverflowSlabs);
         this.scratch = new long[kinds.length];
         this.present = new boolean[kinds.length];
         boolean anyDistinct = false;
@@ -510,6 +531,16 @@ final class WindowedAggregate implements RowProcessor {
     /** Live accumulators this aggregate holds, and the ceiling it is refused at. */
     com.ash.messaging.pravaha.runtime.window.SlicedAggregateState state() {
         return state;
+    }
+
+    /** Whether this aggregate has spilled to its overflow tier (ADR-037 item B2). */
+    boolean hasSpilled() {
+        return state.hasSpilled();
+    }
+
+    @Override
+    public void close() {
+        state.close();
     }
 
     /** Records too late to correct anything. The number that says whether the lateness is set right. */

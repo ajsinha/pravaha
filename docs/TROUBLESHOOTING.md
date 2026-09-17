@@ -296,6 +296,7 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-3020` | RUNTIME_UNSUPPORTED_AGGREGATE | runtime |
 | `PRV-3022` | RUNTIME_WINDOW_SPAN_IMPLAUSIBLE | runtime |
 | `PRV-3021` | RUNTIME_UNSUPPORTED_JOIN | runtime |
+| `PRV-3023` | RUNTIME_COUNT_DISTINCT_CANNOT_SPILL | runtime |
 | `PRV-3100` | CODEGEN_COMPILATION_FAILED | runtime |
 | `PRV-3101` | CODEGEN_UNSUPPORTED_OPERATOR | runtime |
 | `PRV-3102` | CODEGEN_STAGE_TOO_LARGE | runtime |
