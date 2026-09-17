@@ -19,12 +19,18 @@ import com.aerospike.client.Host;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 
-/** Parses {@code host:port,host:port}. Small, and the first thing a misconfiguration hits. */
+/**
+ * Parses {@code host:port,host:port}. Small, and the first thing a misconfiguration hits.
+ *
+ * <p>When TLS is on, every host also carries the name the server certificate must present.
+ * Aerospike checks that name rather than the address that was dialled, so it belongs on the host
+ * rather than on the policy.
+ */
 final class AerospikeHosts {
 
     private AerospikeHosts() {}
 
-    static Host[] parse(String spec) {
+    static Host[] parse(String spec, String tlsName) {
         String[] entries = spec.split(",");
         Host[] hosts = new Host[entries.length];
         for (int i = 0; i < entries.length; i++) {
@@ -35,7 +41,10 @@ final class AerospikeHosts {
                         "host entry '" + entries[i].strip() + "' is not 'host:port'. Example: 127.0.0.1:3000");
             }
             try {
-                hosts[i] = new Host(parts[0].strip(), Integer.parseInt(parts[1].strip()));
+                int port = Integer.parseInt(parts[1].strip());
+                hosts[i] = tlsName.isBlank()
+                        ? new Host(parts[0].strip(), port)
+                        : new Host(parts[0].strip(), tlsName, port);
             } catch (NumberFormatException e) {
                 throw new ConfigurationException(
                         AerospikeErrors.BAD_CONFIGURATION, "port '" + parts[1].strip() + "' is not a number");

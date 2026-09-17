@@ -33,6 +33,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.api.plugin.PluginTls;
 import com.ash.messaging.pravaha.api.plugin.Version;
 
 /**
@@ -86,6 +87,7 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
 
     @Override
     public void configure(PluginContext context) {
+        refuseSharedTlsOptions(context);
         this.url = required(context, "url");
         this.table = required(context, "table");
         this.user = context.get("user", "");
@@ -294,5 +296,30 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
             }
         }
         pool = null;
+    }
+
+    /**
+     * Refuses the shared {@code tls.*} options, which a JDBC driver cannot be handed.
+     *
+     * <p>Every other connector takes an {@link javax.net.ssl.SSLContext}. A JDBC driver does not:
+     * {@code DriverManager} is given a URL and a property bag, and each driver spells TLS its own
+     * way. Accepting {@code tls.enabled: true} here and quietly doing nothing with it would leave a
+     * plaintext connection behind a configuration that says otherwise, which is the one outcome
+     * worth refusing outright.
+     */
+    private static void refuseSharedTlsOptions(PluginContext context) {
+        if (!PluginTls.isConfigured(context)) {
+            return;
+        }
+        throw new ConfigurationException(
+                JdbcErrors.BAD_CONFIGURATION,
+                "the shared 'tls.*' options do not apply to a JDBC connector, and accepting them would "
+                        + "leave you with a plaintext connection that looks encrypted in config. A JDBC "
+                        + "driver takes its TLS settings in the URL. PostgreSQL: append "
+                        + "'?ssl=true&sslmode=verify-full&sslrootcert=/path/ca.pem'. MySQL: "
+                        + "'?sslMode=VERIFY_IDENTITY&trustCertificateKeyStoreUrl=file:/path/truststore.p12'. "
+                        + "Oracle and SQL Server each have their own spelling -- check the driver's "
+                        + "documentation. Remove the tls.* options once the URL carries them, or set "
+                        + "'tls.enabled: false' to say the plaintext connection is deliberate.");
     }
 }

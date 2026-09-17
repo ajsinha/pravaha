@@ -87,7 +87,7 @@ public final class AerospikeSinkPlugin implements StreamSinkPlugin {
     @Override
     public void configure(PluginContext context) {
         this.instanceName = context.instanceName();
-        this.hosts = AerospikeHosts.parse(context.require("hosts"));
+        this.hosts = AerospikeHosts.parse(context.require("hosts"), AerospikeTls.tlsName(context));
         this.namespace = context.require("namespace");
         this.set = context.require("set");
         this.schema = AerospikeSchemas.parse(context.get("stream", set), context.require("schema"));
@@ -118,6 +118,7 @@ public final class AerospikeSinkPlugin implements StreamSinkPlugin {
             policy.password = context.get("password", "");
         }
         policy.failIfNotConnected = true;
+        AerospikeTls.apply(context, policy);
         this.clientPolicy = policy;
     }
 

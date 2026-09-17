@@ -27,6 +27,7 @@ import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.CqlSessionBuilder;
 import com.datastax.oss.driver.api.core.DefaultConsistencyLevel;
 import com.datastax.oss.driver.api.core.cql.PreparedStatement;
+import com.datastax.oss.driver.api.core.ssl.ProgrammaticSslEngineFactory;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -107,6 +108,7 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
     private int requestTimeoutMillis;
     private String user;
     private String password;
+    private ProgrammaticSslEngineFactory sslEngineFactory;
 
     private CqlSession session;
     private PreparedStatement greaterThan;
@@ -221,6 +223,7 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
 
         this.user = context.get("user", "");
         this.password = context.get("password", "");
+        this.sslEngineFactory = CassandraTls.engineFactory(context);
     }
 
     @Override
@@ -232,6 +235,9 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         }
         if (!user.isBlank()) {
             builder.withAuthCredentials(user, password);
+        }
+        if (sslEngineFactory != null) {
+            builder.withSslEngineFactory(sslEngineFactory);
         }
         try {
             this.session = builder.build();
