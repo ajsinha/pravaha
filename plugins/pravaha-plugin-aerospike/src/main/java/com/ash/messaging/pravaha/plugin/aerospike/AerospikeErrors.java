@@ -35,5 +35,14 @@ public final class AerospikeErrors {
     /** A stored offset this plugin did not write. */
     public static final ErrorCode MALFORMED_OFFSET = new ErrorCode(5084, "AEROSPIKE_MALFORMED_OFFSET");
 
+    /**
+     * With {@code deletes: detect}, a partition holds more rows than {@code deletes.max.keys}.
+     * Numbered outside 5080-5084 because that range is full.
+     */
+    public static final ErrorCode DELETE_STATE_FULL = new ErrorCode(5120, "AEROSPIKE_DELETE_STATE_FULL");
+
+    /** With {@code deletes: detect}, the remembered rows could not be written, or a restore could not read them back. */
+    public static final ErrorCode DELETE_STATE_FAILED = new ErrorCode(5121, "AEROSPIKE_DELETE_STATE_FAILED");
+
     private AerospikeErrors() {}
 }

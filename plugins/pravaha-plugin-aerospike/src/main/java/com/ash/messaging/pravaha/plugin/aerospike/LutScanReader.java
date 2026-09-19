@@ -187,6 +187,13 @@ final class LutScanReader implements PartitionReader {
             return 0;
         }
         String token = offset.token();
+        if (token.startsWith(DetectingScanReader.PREFIX)) {
+            throw new PravahaException(
+                    AerospikeErrors.BAD_CONFIGURATION,
+                    "offset '" + token + "' was written with deletes: detect, and this source now has deletes: "
+                            + "ignore. The restored view holds rows this reader cannot tell apart from new ones; "
+                            + "switch deletes back, or drop and re-register the query so it starts afresh.");
+        }
         if (!token.startsWith("lut=")) {
             throw new PravahaException(
                     AerospikeErrors.MALFORMED_OFFSET,
@@ -337,6 +344,15 @@ final class LutScanReader implements PartitionReader {
     private Expression filter() {
         List<Exp> conditions = new ArrayList<>();
         conditions.add(Exp.ge(Exp.lastUpdate(), Exp.val(watermarkNanos)));
+        return withPushedFilters(conditions, request, schema);
+    }
+
+    /**
+     * {@code conditions} and whatever of {@code request}'s filters translates, as one expression, or
+     * null when there is nothing to filter on. Shared with {@link DetectingScanReader}, whose scan
+     * has no last-update condition and must push exactly what this one pushes.
+     */
+    static Expression withPushedFilters(List<Exp> conditions, ReadRequest request, StreamSchema schema) {
         for (ReadRequest.Filter pushed : request.filters()) {
             Exp translated = AerospikeExpressions.translate(pushed, schema);
             if (translated != null) {
@@ -346,6 +362,9 @@ final class LutScanReader implements PartitionReader {
         Exp anyOf = AerospikeExpressions.anyOf(request.alternatives(), schema);
         if (anyOf != null) {
             conditions.add(anyOf);
+        }
+        if (conditions.isEmpty()) {
+            return null;
         }
         return Exp.build(conditions.size() == 1 ? conditions.get(0) : Exp.and(conditions.toArray(new Exp[0])));
     }

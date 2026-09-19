@@ -51,9 +51,11 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * <p>What a scan cannot do, however carefully it is written:
  *
  * <ul>
- *   <li><strong>Deletes are invisible.</strong> A deleted record is simply absent from the next
- *       scan, which is indistinguishable from one that never existed. A maintained view over this
- *       source will keep serving deleted rows, and that is a property of the strategy.
+ *   <li><strong>Deletes are invisible</strong> to a last-update-time scan. A deleted record is simply
+ *       absent from the next scan, which is indistinguishable from one that never existed. A
+ *       maintained view over this source keeps serving deleted rows -- unless {@code deletes:
+ *       detect} is set, which trades the filtered scan for a full one each pass and retracts what
+ *       is missing ({@link DetectingScanReader}).
  *   <li><strong>Intra-interval overwrites collapse.</strong> Two writes between scans are seen as
  *       one, with only the final value. For an aggregate that sums deltas this is wrong; for one
  *       that reads current state it is not.
@@ -76,7 +78,9 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * <p>Configuration: {@code hosts} (required, {@code host:port,host:port}), {@code namespace}
  * (required), {@code set} (required), {@code schema} (required, {@code bin:TYPE,...}),
  * {@code strategy} (default {@code lut-scan}), {@code partitions} (default 1),
- * {@code records.per.second} (default 0, unthrottled), {@code user}, {@code password}.
+ * {@code records.per.second} (default 0, unthrottled), {@code user}, {@code password},
+ * {@code deletes} (default {@code ignore}; {@code detect}), {@code deletes.state.dir} (required with
+ * {@code detect}), {@code deletes.max.keys} (default 1,000,000 per partition).
  */
 public final class AerospikeSourcePlugin implements StreamSourcePlugin {
 
@@ -98,6 +102,12 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
     private Host[] hosts;
     private ClientPolicy clientPolicy;
     private IAerospikeClient client;
+
+    /** {@code deletes: detect}; see {@link #configureDeletes}. */
+    private boolean detectDeletes;
+
+    private java.nio.file.Path deletesStateDir;
+    private long deletesMaxKeys;
 
     @Override
     public String name() {
@@ -173,6 +183,7 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
                     AerospikeErrors.BAD_CONFIGURATION,
                     "scan.interval.ms must not be negative, got " + scanIntervalMillis);
         }
+        configureDeletes(context);
         this.socketTimeoutMillis = Integer.parseInt(context.get("scan.socket.timeout.ms", "30000"));
         this.totalTimeoutMillis = Integer.parseInt(context.get("scan.total.timeout.ms", "120000"));
         if (socketTimeoutMillis <= 0 || totalTimeoutMillis <= 0) {
@@ -193,8 +204,63 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
         this.clientPolicy = policy;
     }
 
+    /**
+     * {@code deletes}: {@code ignore} (the default, and the behaviour before the option existed) or
+     * {@code detect}. With {@code detect}, {@code deletes.state.dir} is required -- the remembered
+     * rows must survive a restart as exactly as the checkpoint does -- and {@code deletes.max.keys}
+     * (default 1,000,000 per partition) bounds how many rows one partition may remember.
+     */
+    private void configureDeletes(PluginContext context) {
+        String mode = context.get("deletes", "ignore").strip().toLowerCase(java.util.Locale.ROOT);
+        switch (mode) {
+            case "ignore" -> this.detectDeletes = false;
+            case "detect" -> this.detectDeletes = true;
+            default ->
+                throw new ConfigurationException(
+                        AerospikeErrors.BAD_CONFIGURATION, "deletes must be 'ignore' or 'detect', got '" + mode + "'");
+        }
+        if (!detectDeletes) {
+            return;
+        }
+        String dir = context.get("deletes.state.dir", "").strip();
+        if (dir.isEmpty()) {
+            throw new ConfigurationException(
+                    AerospikeErrors.BAD_CONFIGURATION,
+                    "deletes: detect needs deletes.state.dir: a directory on durable local disk where each reader "
+                            + "keeps the rows it has emitted. A restore from a checkpoint reads them back; without "
+                            + "them the rows the restored view holds are unknown and no pass could retract them.");
+        }
+        this.deletesStateDir = java.nio.file.Path.of(dir).resolve(instanceName);
+        String max = context.get("deletes.max.keys", "1000000").strip();
+        try {
+            this.deletesMaxKeys = Long.parseLong(max);
+        } catch (NumberFormatException e) {
+            throw new ConfigurationException(
+                    AerospikeErrors.BAD_CONFIGURATION, "deletes.max.keys must be a number, got '" + max + "'");
+        }
+        if (deletesMaxKeys < 1) {
+            throw new ConfigurationException(
+                    AerospikeErrors.BAD_CONFIGURATION, "deletes.max.keys must be positive, got " + deletesMaxKeys);
+        }
+    }
+
+    /** Whether this source runs {@code deletes: detect}. */
+    public boolean detectsDeletes() {
+        return detectDeletes;
+    }
+
     @Override
     public void open() {
+        if (detectDeletes) {
+            try {
+                java.nio.file.Files.createDirectories(deletesStateDir);
+            } catch (java.io.IOException e) {
+                throw new PravahaException(
+                        AerospikeErrors.DELETE_STATE_FAILED,
+                        "source '" + instanceName + "' cannot create deletes.state.dir " + deletesStateDir + ": " + e,
+                        e);
+            }
+        }
         this.client = AerospikeClients.connect(clientPolicy, hosts, instanceName);
     }
 
@@ -207,6 +273,9 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
      */
     @Override
     public SourceCapabilities capabilities() {
+        if (detectDeletes) {
+            return detectingCapabilities();
+        }
         return new SourceCapabilities(
                 // The offset is a last-update-time watermark, and re-reading from it is exact --
                 // it just re-delivers the boundary records, which is what at-least-once means.
@@ -230,6 +299,37 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
                 // would be exactly as wrong as the rows are, while costing a UDF to be so.
                 EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT),
                 Duration.ofSeconds(1));
+    }
+
+    /**
+     * What {@code deletes: detect} can promise, which is more, and each difference is earned.
+     *
+     * <ul>
+     *   <li><strong>Deletes and before-images.</strong> A record gone from a full pass is retracted
+     *       as the whole row this source last emitted for it, and a changed record is that row at
+     *       {@code -1} followed by the new one at {@code +1} -- the shape a changelog with a full
+     *       before-image has. The before-image is the row as the previous pass saw it: writes between
+     *       two passes collapse, so an intermediate value is never emitted and never needs retracting.
+     *   <li><strong>Exactly-once.</strong> A resumed reader holds exactly the rows the restored view
+     *       was built from (see {@link EmittedRows}) and emits the difference between those and the
+     *       store: every row of the store is counted once after the first pass, none twice, none
+     *       missed. It also stops the engine sharing this reader between queries, which is required
+     *       rather than merely allowed -- a shared reader's rows are relative to its own emitted
+     *       state, and a late joiner caught up from another point would be given a difference taken
+     *       against rows it never had.
+     *   <li><strong>Latency is the scan interval</strong> plus one full scan, since a delete is only
+     *       seen as an absence.
+     * </ul>
+     */
+    private SourceCapabilities detectingCapabilities() {
+        return new SourceCapabilities(
+                true,
+                false,
+                true,
+                true,
+                DeliveryGuarantee.EXACTLY_ONCE,
+                EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT),
+                Duration.ofMillis(Math.max(1000, scanIntervalMillis)));
     }
 
     @Override
@@ -273,6 +373,23 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
         if (client == null) {
             throw new PravahaException(
                     AerospikeErrors.CONNECT_FAILED, "source '" + instanceName + "' was not opened before use");
+        }
+        if (detectDeletes) {
+            return new DetectingScanReader(
+                    client,
+                    namespace,
+                    set,
+                    schema,
+                    Integer.parseInt(partition.properties().getOrDefault("firstPartition", "0")),
+                    Integer.parseInt(partition.properties().getOrDefault("partitionCount", "4096")),
+                    recordsPerSecond,
+                    scanIntervalMillis,
+                    socketTimeoutMillis,
+                    totalTimeoutMillis,
+                    resumeFrom,
+                    request,
+                    deletesStateDir,
+                    deletesMaxKeys);
         }
         return new LutScanReader(
                 client,

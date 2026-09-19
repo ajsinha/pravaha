@@ -24,6 +24,20 @@
       <groupId>com.aerospike</groupId>
       <artifactId>aerospike-client-jdk21</artifactId>
     </dependency>
+    <!-- deletes: detect is proved end to end: a registered view over this source, checkpointed and
+         restarted, through the registry and source bindings a node uses. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-registry</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-bindings</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-testkit</artifactId>
