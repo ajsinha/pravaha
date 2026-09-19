@@ -600,15 +600,22 @@ workbench, any Flight SQL client, or the embedded engine's `query(sql)`:
 
 ```sql
 CREATE CONTINUOUS QUERY hourly_spend
-    KEYED BY (user_id, hour)
+    KEYED BY (user_id, window_end)
     RETAIN FOR P7D
 AS
 SELECT user_id,
-       TUMBLE_END(event_time, INTERVAL '1' HOUR) AS hour,
+       window_end,
        SUM(amount) AS spend
 FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' HOUR))
 GROUP BY user_id, window_start, window_end;
 ```
+
+**Keep the window's own column names.** This example once read `TUMBLE_END(event_time, INTERVAL
+'1' HOUR) AS hour`, and was refused twice over: `TUMBLE_END` belongs to the older
+`GROUP BY TUMBLE(...)` form, not to `TABLE(TUMBLE(...))` (`PRV-2002`), and `hour` is a reserved word
+(`PRV-2001`). Renaming the boundary instead — `window_end AS hour_end` — is refused with `PRV-2050`,
+because the planner no longer sees the aggregate grouped by its window. Every SQL example in the
+console's help is now planned by `HelpExamplesSqlTest`, which is how this was found.
 
 It answers with one row — the name, its state, the fingerprint of the computation the name landed
 on, and the sink — and `DROP`, `PAUSE` and `RESUME CONTINUOUS QUERY hourly_spend` and `SHOW
@@ -621,7 +628,7 @@ Or, with the same meaning, as a registration whose arguments name everything:
 ```bash
 pravaha register --name hourly_spend \
   --sql "SELECT user_id,
-                TUMBLE_END(event_time, INTERVAL '1' HOUR) AS hour,
+                window_end,
                 SUM(amount) AS spend
          FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' HOUR))
          GROUP BY user_id, window_start, window_end" \
