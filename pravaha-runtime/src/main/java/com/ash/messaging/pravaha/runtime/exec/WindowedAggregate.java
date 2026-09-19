@@ -99,6 +99,11 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
     private final Object[] distinctScratch;
 
     private final List<Integer> valueOrdinals;
+
+    /** Each call's argument type and each output column's type, for {@link AggregateSlots} (HLP-1). */
+    private final com.ash.messaging.pravaha.api.data.TypeName[] argumentTypes;
+
+    private final com.ash.messaging.pravaha.api.data.TypeName[] outputTypes;
     private final List<com.ash.messaging.pravaha.api.data.TypeName> groupTypes;
     /** Group keys other than the window boundaries: the actual data keys. */
     private final List<Integer> dataKeyOrdinals;
@@ -194,6 +199,12 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         this.valueOrdinals = operator.aggregates().stream()
                 .map(AggregateOperator.AggregateCall::argumentOrdinal)
                 .toList();
+        this.argumentTypes = AggregateSlots.typesOf(operator.input().outputSchema(), valueOrdinals);
+        this.outputTypes = AggregateSlots.typesOf(
+                operator.outputSchema(),
+                java.util.stream.IntStream.range(0, operator.outputSchema().fieldCount())
+                        .boxed()
+                        .toList());
         for (int i = 0; i < kinds.length; i++) {
             kinds[i] = switch (operator.aggregates().get(i).kind()) {
                 case COUNT -> SlicedAggregateState.Kind.COUNT;
@@ -277,7 +288,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             // neither can tell a genuine zero from an absent value.
             boolean known = ordinal < 0 || !row.isNull(ordinal);
             present[i] = known;
-            scratch[i] = known && ordinal >= 0 ? row.getLong(ordinal) : 0;
+            scratch[i] = known && ordinal >= 0 ? AggregateSlots.read(row, ordinal, argumentTypes[i]) : 0;
         }
         // The key's values travel with the accumulator: the result row has to contain them, and a
         // hash can say that a group counted seven without saying which group.
@@ -444,7 +455,8 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                 }
             }
             for (int i = 0; i < values.length; i++) {
-                writer.setLong(column++, values[i]);
+                AggregateSlots.write(writer, column, values[i], outputTypes[column]);
+                column++;
             }
             writer.weight(weight)
                     .eventTimestampNanos(windowEndNanos)

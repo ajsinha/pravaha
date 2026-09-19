@@ -60,6 +60,12 @@ final class GlobalAggregate implements RowProcessor {
     private final java.util.Set<Object>[] distincts;
 
     private final boolean[] seen;
+
+    /** Each call's argument type and each output column's type, for {@link AggregateSlots} (HLP-1). */
+    private final com.ash.messaging.pravaha.api.data.TypeName[] argumentTypes;
+
+    private final com.ash.messaging.pravaha.api.data.TypeName[] outputTypes;
+
     private long rowCount;
     private long lastTimestamp;
     private long lastSequence;
@@ -92,6 +98,14 @@ final class GlobalAggregate implements RowProcessor {
         java.util.Set<Object>[] sets = new java.util.Set[n];
         this.distincts = sets;
         this.seen = new boolean[n];
+        this.argumentTypes = AggregateSlots.typesOf(
+                operator.input().outputSchema(),
+                operator.aggregates().stream()
+                        .map(AggregateOperator.AggregateCall::argumentOrdinal)
+                        .toList());
+        this.outputTypes = AggregateSlots.typesOf(
+                operator.outputSchema(),
+                java.util.stream.IntStream.range(0, n).boxed().toList());
     }
 
     @Override
@@ -133,7 +147,7 @@ final class GlobalAggregate implements RowProcessor {
                 }
                 case SUM, AVG -> {
                     if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                        sums[i] += row.getLong(call.argumentOrdinal()) * weight;
+                        sums[i] += AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i]) * weight;
                         counts[i] += weight;
                     }
                 }
@@ -149,7 +163,7 @@ final class GlobalAggregate implements RowProcessor {
                                         + "the aggregate lift. Use SUM or COUNT for now.");
                     }
                     if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                        long value = row.getLong(call.argumentOrdinal());
+                        long value = AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i]);
                         if (!seen[i]) {
                             sums[i] = value;
                             seen[i] = true;
@@ -264,7 +278,7 @@ final class GlobalAggregate implements RowProcessor {
         }
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         for (int i = 0; i < values.length; i++) {
-            writer.setLong(i, values[i]);
+            AggregateSlots.write(writer, i, values[i], outputTypes[i]);
         }
         writer.weight(weight)
                 .eventTimestampNanos(lastTimestamp)
@@ -325,7 +339,7 @@ final class GlobalAggregate implements RowProcessor {
                         case AVG -> counts[i] == 0 ? 0 : sums[i] / counts[i];
                         case COUNT_DISTINCT -> distincts[i] == null ? 0 : distincts[i].size();
                     };
-            writer.setLong(i, value);
+            AggregateSlots.write(writer, i, value, outputTypes[i]);
         }
         writer.weight(1L)
                 .eventTimestampNanos(lastTimestamp)

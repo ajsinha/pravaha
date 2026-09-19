@@ -70,6 +70,11 @@ final class KeyedAggregate implements RowProcessor {
     private final StreamSchema inputSchema;
     private final int maxGroups;
 
+    /** Each call's argument type and each output column's type, for {@link AggregateSlots} (HLP-1). */
+    private final TypeName[] argumentTypes;
+
+    private final TypeName[] outputTypes;
+
     // Insertion-ordered so that two runs of the same query return rows in the same order. There is
     // no ORDER BY to make it meaningful, but an answer that shuffles between identical calls is one
     // people waste an afternoon on.
@@ -90,6 +95,16 @@ final class KeyedAggregate implements RowProcessor {
         this.view = new BinaryRowView(layout);
         this.keyOrdinals = operator.groupKeyOrdinals();
         this.maxGroups = maxGroups;
+        this.argumentTypes = AggregateSlots.typesOf(
+                inputSchema,
+                operator.aggregates().stream()
+                        .map(AggregateOperator.AggregateCall::argumentOrdinal)
+                        .toList());
+        this.outputTypes = AggregateSlots.typesOf(
+                operator.outputSchema(),
+                java.util.stream.IntStream.range(0, operator.outputSchema().fieldCount())
+                        .boxed()
+                        .toList());
         if (keyOrdinals.isEmpty()) {
             throw new IllegalArgumentException("an unkeyed aggregate belongs in GlobalAggregate");
         }
@@ -111,7 +126,7 @@ final class KeyedAggregate implements RowProcessor {
             }
             return new Group(operator.aggregates().size());
         });
-        group.accumulate(row, weight, operator.aggregates(), ordinal -> read(row, ordinal));
+        group.accumulate(row, weight, operator.aggregates(), argumentTypes, ordinal -> read(row, ordinal));
     }
 
     /**
@@ -192,7 +207,8 @@ final class KeyedAggregate implements RowProcessor {
                 writeKey(i, key[i]);
             }
             for (int i = 0; i < calls.size(); i++) {
-                writer.setLong(key.length + i, group.valueOf(i, calls.get(i)));
+                AggregateSlots.write(
+                        writer, key.length + i, group.valueOf(i, calls.get(i)), outputTypes[key.length + i]);
             }
             writer.weight(1L)
                     .eventTimestampNanos(group.lastTimestamp)
@@ -306,6 +322,7 @@ final class KeyedAggregate implements RowProcessor {
                 RowView row,
                 long weight,
                 List<AggregateOperator.AggregateCall> calls,
+                TypeName[] argumentTypes,
                 java.util.function.IntFunction<Object> valueAt) {
             rowCount += weight;
             lastTimestamp = row.eventTimestampNanos();
@@ -338,7 +355,7 @@ final class KeyedAggregate implements RowProcessor {
                     }
                     case SUM, AVG -> {
                         if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                            sums[i] += row.getLong(call.argumentOrdinal()) * weight;
+                            sums[i] += AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i]) * weight;
                             counts[i] += weight;
                         }
                     }
@@ -350,7 +367,7 @@ final class KeyedAggregate implements RowProcessor {
                                             + "extreme needs an ordered multiset per group");
                         }
                         if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                            long value = row.getLong(call.argumentOrdinal());
+                            long value = AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i]);
                             if (!seen[i]) {
                                 sums[i] = value;
                                 seen[i] = true;

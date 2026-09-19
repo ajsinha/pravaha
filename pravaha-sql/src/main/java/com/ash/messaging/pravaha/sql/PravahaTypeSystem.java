@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.sql;
 
+import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rel.type.RelDataTypeSystemImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -76,6 +78,25 @@ public final class PravahaTypeSystem extends RelDataTypeSystemImpl {
             // for no reason a user could see.
             case TIMESTAMP, TIMESTAMP_WITH_LOCAL_TIME_ZONE -> TimestampType.MAX_PRECISION;
             default -> super.getDefaultPrecision(typeName);
+        };
+    }
+
+    /**
+     * {@code SUM} of an integer narrower than {@code BIGINT} is a {@code BIGINT}.
+     *
+     * <p>Calcite's default keeps the argument's type, so {@code SUM(CASE WHEN tier = 'silver' THEN 1
+     * ELSE 0 END)} -- an {@code INTEGER} -- planned an {@code INT32} output column. The engine's
+     * accumulators add in 64 bits, and the sum of a stream of 32-bit values outgrows 32 bits long
+     * before the stream ends; a column that narrow was a runtime failure waiting for its first row
+     * (HLP-1). {@code SUM0} derives through here too.
+     */
+    @Override
+    public RelDataType deriveSumType(RelDataTypeFactory typeFactory, RelDataType argumentType) {
+        return switch (argumentType.getSqlTypeName()) {
+            case TINYINT, SMALLINT, INTEGER ->
+                typeFactory.createTypeWithNullability(
+                        typeFactory.createSqlType(SqlTypeName.BIGINT), argumentType.isNullable());
+            default -> super.deriveSumType(typeFactory, argumentType);
         };
     }
 
