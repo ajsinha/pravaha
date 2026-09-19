@@ -1,11 +1,14 @@
 # ADR-006: tiered state
 
+> **Superseded in part by [ADR-044](044-no-rocksdb-the-mapped-tier-is-l1.md)** (2026-09-19): the
+> RocksDB L1 tier will not be built; the memory-mapped overflow tier (ADR-037 B2) is L1.
+
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **not built** — only L2 (checkpoint files) exists; there is no RocksDB L1 and no off-heap L0 tier, and `L0StateMap` was deleted in Wave 8 (W8-12). See *Implementation status* below |
+| Status | Accepted in part — L0 is built (off-heap `RowStore` blocks behind `VariableKeyStateMap`), L2 is built (checkpoint files), and L1 is the memory-mapped overflow tier, not RocksDB, by [ADR-044](044-no-rocksdb-the-mapped-tier-is-l1.md). The *Implementation status* below is the 2026-09-11 record |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

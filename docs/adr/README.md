@@ -20,7 +20,7 @@ description of the system (DOCX-042, DOCX-046).
 | [003](003-binary-flyweight-rows.md) | Binary flyweight rows over an arena |
 | [004](004-partitioned-lanes.md) | Partitioned lanes, single-writer |
 | [005](005-whole-stage-codegen.md) | Whole-stage codegen with interpreted fallback |
-| [006](006-tiered-state.md) | Tiered state (off-heap → RocksDB → durable store) |
+| [006](006-tiered-state.md) | Tiered state (off-heap → RocksDB → durable store) — **superseded in part by ADR-044**: off-heap and durable tiers built, L1 is memory-mapped files rather than RocksDB |
 | [007](007-grpc-and-arrow-for-streaming.md) | gRPC + Arrow for streaming; Avatica for control plane |
 | [008](008-aligned-checkpoints.md) | Aligned checkpoints; exactly-once state, effectively-once output |
 | [009](009-embedded-raft-metadata.md) | Embedded Raft (Ratis) for metadata |
@@ -57,4 +57,5 @@ description of the system (DOCX-042, DOCX-046).
 | [040](040-the-remote-connector.md) | An application embeds a small agent and becomes a source. Arrow Flight `DoPut` rather than a bespoke socket; at-least-once with server-side deduplication on `(agent_id, sequence)`, because a duplicate row is a real `+1` and an aggregate that absorbs one is wrong for ever. Designed now, built after cluster mode |
 | [041](041-change-data-capture-without-debezium.md) | The first CDC source is a native Postgres logical-replication reader on the JDBC driver, which already ships the replication API, rather than an embedded Debezium engine and the Kafka Connect runtime it brings. Records the `REPLICA IDENTITY FULL` trap: a key-only before-image leaves a retraction with nothing to retract — **decision only, no code started** |
 | [042](042-the-throughput-bar-is-the-requirement.md) | The throughput requirement is ~1,000 rows/s, the rate the workload needs; 1.2 M rec/s per lane and a 1 M rows/s client were aspirations nobody required. Restates the gate criteria against the requirement — which is the opposite of redefining a gate to match what was built, and keeps both figures so the move is visible |
+| [044](044-no-rocksdb-the-mapped-tier-is-l1.md) | No RocksDB: a native JNI library is the one dependency the run-anywhere bundle refuses, and the memory-mapped overflow tier already does the spilling D5 wanted it for. Commits to what RocksDB would have given — slab compaction, a byte quota, `COUNT(DISTINCT)` spilling, a measurement at several times RAM — **not built yet** |
 | [043](043-how-a-continuous-query-names-its-sink.md) | A registration names its sink as an argument, not in the SQL, and `ChangelogAnalysis.checkAgainst` runs before a row can reach it. Records the complication that matters: a fingerprint shares a computation while a sink is bound to a name, so one computation can have two sinks — resolved by fanning out, because a sink does not change the answer and must not fork the computation |

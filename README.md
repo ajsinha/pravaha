@@ -115,8 +115,11 @@ corrected by late data arrives as a retraction of the old answer followed by the
 - **Change data capture.** A PostgreSQL logical-replication source is designed
   ([ADR-041](docs/adr/041-change-data-capture-without-debezium.md)) and not started. Sources poll or
   scan; Aerospike and Cassandra scans cannot see deletes.
-- **A RocksDB state tier**, a Spring Boot starter (ADR-020), and SQL registration statements
-  (`CREATE CONTINUOUS QUERY`). The embedded engine (`pravaha-embedded`) is a lifecycle seam that
+- **The spill tier's last four pieces.** There is no RocksDB, by decision
+  ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
+  the on-disk tier. It does not yet compact its slabs, budget in bytes, spill `COUNT(DISTINCT)`, or
+  have a measurement at several times RAM.
+- **A Spring Boot starter** (ADR-020), and SQL registration statements (`CREATE CONTINUOUS QUERY`). The embedded engine (`pravaha-embedded`) is a lifecycle seam that
   cannot yet register or read a query.
 - **Blue/green query updates and backfill splicing** are built in `pravaha-backfill` and reachable
   from no running path.
@@ -262,7 +265,7 @@ console is its own artefact in [`console`](console).
 | 1 | 1–2 | Foundations; deterministic harness | ✅ `M1` |
 | 2 | 3–5 | Vertical slice; **go/no-go on the incremental core** | ✅ `M2` |
 | 3 | 6–11 | Codegen, lanes, exchange — Profile A ≥ 1.2 M rec/s/lane | ✅ built · gate P2 needs hardware |
-| 4 | 12–18 | Windows, watermarks, late data, tiered state | ✅ built, except the RocksDB tier · gate P3 needs hardware |
+| 4 | 12–18 | Windows, watermarks, late data, tiered state | ✅ built, with a memory-mapped L1 instead of RocksDB (ADR-044) · gate P3 needs hardware |
 | 5 | 19–25 | Joins, Aerospike, checkpointing and recovery | ✅ built |
 | 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built · blue/green reachable from nothing |
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built |

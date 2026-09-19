@@ -59,8 +59,9 @@ a dashboard exists.
 registration when `pravaha.checkpoint.directory` is set. Nothing has to be pruned by hand, and this
 section used to say the opposite.
 
-There is **no RocksDB** in the build — the L1 tier is designed (D5) and unbuilt. State is off-heap
-plus checkpoint files, and optionally a memory-mapped overflow tier:
+There is **no RocksDB**, by decision ([ADR-044](adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): a
+native library is the one dependency this bundle refuses. State is off-heap plus checkpoint files,
+and optionally a memory-mapped overflow tier, which is the on-disk tier:
 
 ```yaml
 pravaha:
