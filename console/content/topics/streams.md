@@ -6,7 +6,7 @@ order: 10
 icon: water
 summary: "A stream is a named, typed, unbounded sequence of rows. How to declare one — schema, event time, lateness — in configuration, over HTTP or in code, and how it is bound to a source."
 audience: Everyone
-keywords: [stream, schema, declare, pravaha.streams, event-time, out-of-orderness, types, nullable, source binding, POST /api/v1/streams, catalog]
+keywords: [stream, schema, declare, pravaha.streams, event-time, out-of-orderness, allowed-lateness, allowedLateness, types, nullable, source binding, POST /api/v1/streams, catalog]
 guide: continuous-queries#2-declaring-a-stream
 related: [event-time-watermarks, sources-overview, source-filesystem, query-lifecycle, sql-types]
 ---
@@ -47,6 +47,7 @@ pravaha:
 | `schema` | yes | — | the columns, as `name:TYPE,name:TYPE`; a `?` suffix makes a column nullable |
 | `event-time` | for any windowed query or time-bounded join | none | the `TIMESTAMP` column that carries each row's own time. **Without it no watermark advances and no window ever closes** |
 | `out-of-orderness` | no | `10s` | how late this stream's rows may arrive and still be waited for; the watermark trails the newest event time by this much |
+| `allowed-lateness` | no | `0s` | how long after a window has been published a late row may still **correct** it — the old result at `−1`, the new one at `+1`. Needs `event-time`; refused negative. Non-zero makes every windowed query over the stream one that revises, so it needs a sink that takes retractions (PRV-2041) |
 
 Declared here, a stream comes back on every start. The keys are per stream on purpose: lateness is a
 property of the **source** — a feed of mobile clients over a bad network and a scan of data at rest
@@ -102,8 +103,8 @@ pravaha:
     different components and must agree. (Some plugins — Delta — take the schema from the table
     instead and have no `schema` option.)
 
-Only `filesystem` is inside the server jar; `feedfile`, `jdbc`, `delta`, `aerospike`, `cassandra` and
-`postgres-cdc` are separate modules dropped on the classpath. A plugin is found when a query is first registered
+Only `filesystem` is inside the server jar; `feedfile`, `jdbc`, `delta`, `aerospike`, `cassandra`,
+`postgres-cdc` and `kafka` are separate modules dropped on the classpath. A plugin is found when a query is first registered
 against the stream, **not at startup** — so a binding naming a missing plugin starts cleanly and
 fails at the registration that needs it, listing the plugins that are available. A stream with no
 binding at all registers and runs, and the node logs that nothing is attached. See
@@ -123,10 +124,12 @@ curl -s -X POST http://localhost:8080/api/v1/streams \
 curl -s http://localhost:8080/api/v1/streams
 ```
 
-`GET /api/v1/streams` reports each stream's schema, `eventTime`, `outOfOrderness` and the `source`
-plugin feeding it — the plugin's name only, never its options. Over HTTP the lateness is an
-ISO-8601 duration (`PT10S`); in YAML, `10s` works. An `outOfOrderness` without an `eventTime` is
-refused: it is how late an event time may be, and there is none for it to be about. A stream
+An optional `"allowedLateness": "PT1M"` declares the allowed lateness the same way.
+`GET /api/v1/streams` reports each stream's schema, `eventTime`, `outOfOrderness`, `allowedLateness`
+(`PT0S` when windows are final at close) and the `source` plugin feeding it — the plugin's name only,
+never its options. Over HTTP the durations are ISO-8601 (`PT10S`); in YAML, `10s` works. An
+`outOfOrderness` or an `allowedLateness` without an `eventTime` is refused: each is about an event
+time, and there is none. A stream
 declared over HTTP lasts until the node restarts; declare it in configuration to keep it.
 
 ## Declaring a stream in code
@@ -138,7 +141,7 @@ engine.declareStream("txn",
         "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP", "event_time");
 ```
 
-or with every property, including the one no configuration key can set — **allowed lateness**:
+or with every property, **allowed lateness** included:
 
 ```java
 StreamSchema txn = StreamSchema.builder("txn")
@@ -205,7 +208,7 @@ may not read them that they are there. `GET /api/v1/streams` lists what you may 
 !!! tip "Nullable columns and three-valued logic"
     `status:STRING?` is nullable. `WHERE status = 'COMPLETED'` keeps only rows where the
     comparison is TRUE, so null statuses are excluded; `SELECT status = 'ok'` is refused because
-    it would write UNKNOWN into a boolean. See [types](/help/topics/sql-types).
+    it would write UNKNOWN into a boolean — `SELECT (status = 'ok') IS TRUE` plans. See [types](/help/topics/sql-types).
 
 ## Where next
 

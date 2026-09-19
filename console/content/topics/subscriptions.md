@@ -167,7 +167,7 @@ client.subscribe("large_payments", Map.of("merchant", "TRAVELCO"), batch -> { /*
 | Equality only | Ranges and expressions belong in the continuous query's `WHERE` |
 | Several pairs | All must match (`--filter a=1,b=2`) |
 | A column the view does not have | **Refused**, before a single batch — a filter silently dropped would leave you receiving everything while believing you had a slice |
-| Values | Compared exactly with the value the view holds. Over Flight a filter value travels as **text**, so filter on `STRING` columns: a filter on a numeric column is accepted and, today, matches nothing |
+| Values | Compared exactly with the value the view holds. A value travels as text and is read as its **column's type**: `--filter txn_id=9001` on an `INT64` column matches the number 9001, a `BOOLEAN` takes `true`/`false`, a `DECIMAL` is read at the column's scale, and `DATE`, `TIME` and `TIMESTAMP` take their stored numbers (days since the epoch, nanoseconds of the day, nanoseconds since the epoch). Text that is not a value of the column's type is **refused** when you subscribe, like an unknown column |
 
 ## Whole commits, and what that guarantees
 

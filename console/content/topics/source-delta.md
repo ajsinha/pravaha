@@ -21,8 +21,9 @@ The interesting property is how little it has to do. Delta rewrites whole files:
 version *n* and version *n+1* is exactly a set of removed files and a set of added files — and emitting
 the added files' rows at weight `+1` and the removed files' rows at weight `−1` **is** the Z-set delta
 for that commit. Delta's storage semantics and Pravaha's algebra agree without an adapter. With
-[postgres-cdc](/help/topics/source-postgres-cdc), it is one of the two shipped sources whose deletes
-and updates reach a view as retractions without any help from you.
+[postgres-cdc](/help/topics/source-postgres-cdc) and the [Kafka source](/help/topics/source-kafka)
+reading a changelog, it is one of the shipped sources whose deletes and updates reach a view as
+retractions without any help from you.
 
 It is built on **Delta Kernel, not Spark**: the connector-facing library that understands the log,
 checkpoints, protocol versions and column mapping, bringing Hadoop and Parquet with it but not a
@@ -50,6 +51,7 @@ cluster.
 | `path` | yes | — | The table root: the directory holding `_delta_log/` |
 | `start.version` | no | the latest snapshot | The version to start from. Its whole snapshot is emitted first, then every later commit. A value that is not a number is refused with PRV-5050 |
 | `stream` | no | the table directory's name | The stream name the plugin reports |
+| `event.time` | no | on a server, the stream's `event-time`; otherwise none | A `TIMESTAMP` column of the table whose value stamps each row's event time — what the watermark and every window run on. A column the table does not have, or that is not a Delta `TIMESTAMP`, is refused with PRV-5050. A NULL stamps zero. Without it every row is stamped zero; nothing is derived from commit or file times |
 | `share.reader` | no | `true` | Read by the binding layer; an exactly-once source is never shared, so it has no effect |
 
 ## How a table becomes rows
@@ -148,11 +150,13 @@ trade_id	qty
 
 A subscriber to `block_trades` saw the `−1` for trade 7 in the commit that carried version 144.
 
-!!! danger "Windowed queries over delta do not close windows today"
-    This reader stamps every row with event time **zero**, and the engine's watermark comes from those
-    stamps rather than from the declared `event-time` column. A windowed aggregate such as
-    `buys_by_symbol` plans, registers, reads the table and never publishes a window. Recorded as open
-    (QA finding T-5). Filters, projections, lookups and reads of the resulting views work as shown.
+!!! warning "Windows need the stream's `event-time`"
+    Each row is stamped with its `event.time` column's value, and the engine's watermark comes from
+    those stamps. On a server the stream's declared `event-time` is handed to the source as
+    `event.time`, so `buys_by_symbol` publishes its windows as the table's own times advance. Without
+    it every row is stamped zero, and a windowed aggregate plans, registers, reads the table and never
+    publishes a window. A **retraction** carries the removed row's own time, so a correction to a
+    window that has already closed is late — dropped, unless the stream declares allowed lateness.
 
 ## Pushdown
 

@@ -179,8 +179,9 @@ does, retractions included. Three things are checked **at registration**, before
 | A query that revises its answer is not pointed at an append-only sink | PRV-2041 | Otherwise each row is right and the total is wrong for ever |
 | The sink named is bound on this node | the registration fails naming it | |
 
-A filter, a projection, or a tumbling window without lateness never revises its answer, and may go
-anywhere. An unwindowed aggregate over a view, a window with allowed lateness, or a join that can
+Over a source that only appends, a filter, a projection, or a tumbling window without lateness never
+revises its answer, and may go anywhere; over one that deletes (postgres-cdc, Delta, a Kafka
+changelog) even a filter passes retractions on. An unwindowed aggregate over a view, a window with allowed lateness, or a join that can
 withdraw a match needs a sink that accepts updates. [Sinks](/help/topics/sinks-overview) has the
 binding and the delivery guarantees; a sink that later refuses a batch is detached (PRV-8009) and the
 view carries on.

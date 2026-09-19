@@ -4,18 +4,18 @@ slug: sources-overview
 category: sources
 order: 10
 icon: box-arrow-in-right
-summary: "Where rows come from: the three configuration blocks (streams, sources, lookups), how a plugin is found, what each of the seven shipped sources can and cannot see, and how to pick one."
+summary: "Where rows come from: the three configuration blocks (streams, sources, lookups), how a plugin is found, what each of the eight shipped sources can and cannot see, and how to pick one."
 badge: START HERE
 audience: Operators
-keywords: [source, binding, plugin, connector, pravaha.sources, pravaha.streams, pravaha.lookups, options, classpath, serviceloader, capabilities, delivery guarantee, share.reader, pushdown, projection, partial aggregate, cdc]
+keywords: [source, binding, plugin, connector, pravaha.sources, pravaha.streams, pravaha.lookups, options, classpath, serviceloader, capabilities, delivery guarantee, share.reader, pushdown, projection, partial aggregate, cdc, kafka]
 guide: continuous-queries#2-declaring-a-stream
-related: [streams, source-filesystem, source-jdbc, source-postgres-cdc, lookups, connector-security]
+related: [streams, source-filesystem, source-jdbc, source-postgres-cdc, source-kafka, lookups, connector-security]
 ---
 
 A **source** is what feeds a stream: a plugin, and the options that tell it where to read. Pravaha
-ships seven stream sources and two lookup plugins, each discovered by name, each declaring honestly what
+ships eight stream sources and two lookup plugins, each discovered by name, each declaring honestly what
 it can deliver. This page is the map: how a node is told about its data, what happens when a query
-first needs a source, and how the seven differ in the one thing that decides whether your answer is
+first needs a source, and how the eight differ in the one thing that decides whether your answer is
 right — **what they can see**.
 
 ## Three blocks, kept separate on purpose
@@ -50,7 +50,7 @@ Three rules that catch everyone once:
 - **Plugin options live under `options:`.** A key written one level too high is not read, not reported,
   and the node starts and ingests nothing.
 - **The schema is written twice** for a source that has no schema of its own (filesystem, feedfile,
-  Aerospike, Cassandra) — once for the catalogue to plan against, once for the plugin to decode with.
+  Aerospike, Cassandra, Kafka) — once for the catalogue to plan against, once for the plugin to decode with.
   The two are read by different components that do not share a parser, and must agree column for
   column. JDBC, Delta and postgres-cdc read the schema from the store, so only the catalogue copy is
   yours (postgres-cdc also takes a declared `schema`, checked against the table).
@@ -96,7 +96,7 @@ table stops the node from starting.
 | `aerospike`, `aerospike-lookup`, `aerospike-sink` | `plugins/pravaha-plugin-aerospike` | no |
 | `cassandra` | `plugins/pravaha-plugin-cassandra` | no |
 | `postgres-cdc` | `plugins/pravaha-plugin-postgres-cdc` (plus the PostgreSQL JDBC driver) | no |
-| `kafka-sink` (a sink; the plugin does not read from Kafka) | `plugins/pravaha-plugin-kafka` | no |
+| `kafka` (source), `kafka-sink` | `plugins/pravaha-plugin-kafka` | no |
 
 Be precise about what "drop a jar on the classpath" means today. The server is launched as
 `java -jar pravaha-server.jar` (that is what `bin/pravaha-server` runs), and that launcher reads only
@@ -108,7 +108,7 @@ what is inside the jar: there is no plugins directory and `-Dloader.path` is not
   plugin module on your application's classpath is found by `ServiceLoader` like any other — nothing
   else to do. See [the embedded engine](/help/topics/embedded-engine).
 
-## The seven sources side by side
+## The eight sources side by side
 
 What each can see decides what a view over it can mean. "Emits deletes" is the question to ask first:
 a source that cannot see a delete gives a view that keeps serving deleted rows.
@@ -119,6 +119,7 @@ a source that cannot see a delete gives a view that keeps serving deleted rows.
 | [feedfile](/help/topics/source-feedfile) | a directory of CSV/Parquet files | no | no | yes (new files) | exactly-once *or* at-least-once, by configuration | none | no |
 | [jdbc](/help/topics/source-jdbc) | a table or `SELECT`, polled on a monotonic column | no | no | yes (beyond the watermark) | at-least-once | filter, columns, and `COUNT`/`SUM` partials with `key.column` | no |
 | [postgres-cdc](/help/topics/source-postgres-cdc) | a PostgreSQL table's changes, from its write-ahead log | **yes** (the whole old row at `−1`) | **yes** — an update is `−1` then `+1` | yes (every commit) | exactly-once | none | no |
+| [kafka](/help/topics/source-kafka) | a Kafka topic, one reader per partition | only with `format: changelog` (`kafka-sink`'s envelope, weights and all) | with `format: changelog` | yes (new records) | exactly-once | none | no |
 | [delta](/help/topics/source-delta) | a Delta table: snapshot, then each commit | **yes** (removed files at `−1`) | as a retraction of the old row | yes (new commits) | exactly-once | none | no |
 | [aerospike](/help/topics/source-aerospike) | a set, scanned by last-update time | no | no | yes (server-side filter) | at-least-once | filter, columns | **yes** |
 | [cassandra](/help/topics/source-cassandra) | a table, scanned by `token()` range | no | no | **no** — every pass reads everything | at-least-once | columns | **yes** |
@@ -132,7 +133,8 @@ And the event time each stamps on a row — which is what the watermark, and so 
 | cassandra | the `event.time` `TIMESTAMP` column; without it, when its pass started |
 | jdbc | the `watermark.column` value, as nanoseconds, unconverted |
 | postgres-cdc | the `event.time` timestamp column (on a server, the declared `event-time`); without it, the transaction's commit time |
-| feedfile, delta | **zero** — so windows over them do not close today (QA finding T-5, open) |
+| kafka | the `event.time` timestamp column (on a server, the declared `event-time`); without it, the record's Kafka timestamp |
+| feedfile, delta | the `event.time` timestamp column (on a server, the declared `event-time`); without it, **zero** — so declare the stream's `event-time` before windowing over them |
 
 ### Choosing
 
@@ -142,6 +144,8 @@ And the event time each stamps on a row — which is what the watermark, and so 
   `completion: marker` if the producer can write one.
 - **A PostgreSQL table whose deletes and updates must reduce totals** → [postgres-cdc](/help/topics/source-postgres-cdc),
   if the DBA can grant logical replication; it leaves a replication slot on the server to look after.
+- **A Kafka topic** → [kafka](/help/topics/source-kafka): exactly once from the checkpoint's offsets.
+  `format: changelog` reads another query's `kafka-sink` changelog with its retractions.
 - **A relational table with no change feed you can use** → [jdbc](/help/topics/source-jdbc), on a
   database-maintained monotonic column. Deletes will not reduce totals.
 - **A lakehouse table whose upstream updates and deletes must flow through** → [delta](/help/topics/source-delta).
@@ -158,7 +162,7 @@ its inputs', so it is only as current as its laggiest source.
 
 Every source declares, in code, what it can promise: replayable offsets, ordering within a partition,
 deletes, before-images, a delivery guarantee, which pushdown kinds it accepts, and a typical latency.
-Today two things read those declarations:
+Today three things read those declarations:
 
 - **Pushdown.** A source is asked only for the kinds it declares. `FILTER` (JDBC, Aerospike): the
   conjuncts of a `WHERE` directly over the scan that compare one column with a literal. `PROJECT`
@@ -173,9 +177,15 @@ Today two things read those declarations:
   filters and the union of their columns; the others are read once per query. `share.reader: "false"`
   on a binding opts out, giving each query its own narrower read.
 
-What the declarations do **not** do yet is refuse a registration: a query that needs deletes from a
-source that cannot see them is accepted ([ADR-028](/help/decisions/028-connectors-earn-their-place):
-declared, not enforced). Choose the source with the table above in mind.
+- **The retraction check.** A source that declares it emits deletes — postgres-cdc, Delta, Kafka
+  with `format: changelog` — makes every query over it one that can withdraw rows, so pointed at an
+  append-only sink it is refused with [PRV-2041](/help/codes/PRV-2041), a plain filter included
+  ([sinks](/help/topics/sinks-overview)).
+
+What the declarations do **not** do yet is refuse a query for needing deletes its source cannot see:
+a view over a source that cannot see a delete is accepted
+([ADR-028](/help/decisions/028-connectors-earn-their-place): declared, not enforced). Choose the
+source with the table above in mind.
 
 ## Pitfalls
 
@@ -185,7 +195,8 @@ declared, not enforced). Choose the source with the table above in mind.
     answer.
 
 !!! warning "Pitfall: a scan or a poll cannot see a delete"
-    Of the seven, only postgres-cdc, Delta (and filesystem with `op.column`) can withdraw a row. Over
+    Of the eight, only postgres-cdc, Delta, Kafka with `format: changelog` (and filesystem with
+    `op.column`) can withdraw a row. Over
     JDBC, Aerospike and Cassandra, a deleted row simply stops appearing — and a view that already
     counted it keeps it. Model deletes as a status column you filter on, or choose a source that sees
     them.
@@ -199,5 +210,6 @@ declared, not enforced). Choose the source with the table above in mind.
 
 - [Streams](/help/topics/streams) — the declaration itself: schema grammar, event time, lateness
 - [The filesystem source](/help/topics/source-filesystem) — the one to start with
+- [The Kafka source](/help/topics/source-kafka) — a topic, exactly once
 - [Lookup tables](/help/topics/lookups) — reference data asked, not consumed
 - [Connector security](/help/topics/connector-security) — credentials and TLS for every store

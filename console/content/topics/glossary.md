@@ -26,8 +26,9 @@ sentence or two, and links to the topic that explains it with examples.
 tenant. A read past them is refused (PRV-4026, PRV-4027, PRV-4028) and retried by the client, so a
 client in a loop cannot stop a continuous query keeping up. → [State and serving codes](/help/topics/errors-state)
 
-**Allowed lateness.** How long after a window has emitted a late row may still correct it. A window
-with allowed lateness *revises* its answer, which matters for which sinks it may write to.
+**Allowed lateness.** How long after a window has emitted a late row may still correct it — zero
+unless a stream declares it (`pravaha.streams.<name>.allowed-lateness`). A window with allowed lateness
+*revises* its answer, which matters for which sinks it may write to.
 → [Late data and corrections](/help/topics/late-data)
 
 **Arena.** The slabs of off-heap memory a lane's operators write output batches into, sized by
@@ -57,6 +58,11 @@ the Catalog screen. → [Streams](/help/topics/streams)
 **Change data capture (CDC).** Reading a database's own log of changes instead of polling its
 tables, so a delete arrives as a `−1` and an update as a `−1` and a `+1`. The `postgres-cdc` source
 does it for PostgreSQL. → [The postgres-cdc source](/help/topics/source-postgres-cdc)
+
+**Changelog (Kafka).** A topic of changes with their weights, `{"op","weight","row"}`: what
+`kafka-sink` writes in `mode: changelog`, and what the `kafka` source reads with `format: changelog`,
+so one query's retractions reach another through a topic.
+→ [The Kafka source](/help/topics/source-kafka) · [The Kafka sink](/help/topics/sink-kafka)
 
 **Checkpoint.** A query's accumulated state and its source offsets, written periodically under
 `pravaha.checkpoint.directory` so a restart recovers answers, not only questions.
@@ -103,7 +109,8 @@ the application pushes. → [The embedded engine](/help/topics/embedded-engine)
 
 **Exactly once.** A delivery guarantee: each change is committed to the sink once, even across a
 crash — a transactional sink (`jdbc-sink`, or `kafka-sink` to a `read_committed` consumer) on a node
-that checkpoints. → [Delivery guarantees](/help/topics/delivery-guarantees)
+that checkpoints. A source can be exactly once too — filesystem, Delta, postgres-cdc, Kafka (and feedfile,
+configured for it) resume at the exact position their checkpoint recorded. → [Delivery guarantees](/help/topics/delivery-guarantees)
 
 ## F
 
@@ -136,6 +143,10 @@ so stops holding the watermark back. → [Event time and watermarks](/help/topic
 startup. It keeps the questions; checkpoints keep the answers. → [Checkpoints and recovery](/help/topics/checkpoints-recovery)
 
 ## K
+
+**Kafka offset.** A position in one partition of a topic. The `kafka` source keeps each partition's
+next offset in the query's checkpoint — never in a consumer group — which is what makes it exactly
+once. → [The Kafka source](/help/topics/source-kafka)
 
 **Key (`KEYED BY`).** The output columns that decide what a view row *replaces*: a second row with the
 same key supersedes the first. Part of the query's identity. → [Views and keys](/help/topics/views-and-keys)
@@ -220,7 +231,7 @@ and key, column for column (PRV-8010). → [How a query writes to a sink](/help/
 Kafka topic — named with `WRITING TO`. → [Sinks](/help/topics/sinks-overview)
 
 **Source.** Where a stream's rows come from — a file, a directory, a table, a Delta table, a set, a
-PostgreSQL table's change log.
+PostgreSQL table's change log, a Kafka topic.
 → [Sources](/help/topics/sources-overview)
 
 **Spill tier.** Memory-mapped files on disk that a query's state overflows into instead of being refused
@@ -246,7 +257,9 @@ refreshing its ownership claim. → [Standby](/help/topics/standby)
 → [Authorization](/help/topics/authorization)
 
 **Tombstone.** A Kafka record with a key and a null value: how `kafka-sink` in upsert mode writes a
-retraction, and what a compacted topic reads as a delete. → [The Kafka sink](/help/topics/sink-kafka)
+retraction, and what a compacted topic reads as a delete. The `kafka` source cannot retract one — it
+does not say what row the key held — so it refuses it unless told `tombstone: skip`.
+→ [The Kafka sink](/help/topics/sink-kafka) · [The Kafka source](/help/topics/source-kafka)
 
 **Tumbling window.** Fixed, non-overlapping windows: every row falls in exactly one.
 → [Windows](/help/topics/windows)

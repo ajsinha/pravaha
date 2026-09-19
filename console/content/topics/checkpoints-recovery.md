@@ -8,7 +8,7 @@ summary: "What survives a restart: the registry journal remembers the questions,
 audience: Operators
 keywords: [checkpoint, restart, journal, registry.journal, recovery, replay, offsets, keep, interval, timeout, ownership, .pravaha-owner, PRV-4003, PRV-4004, PRV-4002, PRV-8005, PRV-8006, backup]
 guide: operations#restarts-what-survives
-related: [standby, delivery-guarantees, upgrades, metrics-alerts, state-spill]
+related: [standby, delivery-guarantees, upgrades, metrics-alerts, state-spill, source-kafka]
 ---
 
 A restarted node has to answer two different questions, and Pravaha keeps two different files for
@@ -157,14 +157,17 @@ GROUP BY user_id, window_start, window_end;
 
 What the replay does to a **sink** depends on the sink — exactly once for `jdbc-sink` and `kafka-sink`
 (to a `read_committed` consumer) on a node that checkpoints, effectively once for `aerospike-sink`, at
-least once (duplicates in the file) for `filesystem`. See [Delivery guarantees](/help/topics/delivery-guarantees).
+least once for `filesystem`, which keeps what it had written and appends the replayed rows below it
+(duplicates in the file). See [Delivery guarantees](/help/topics/delivery-guarantees).
 
 What it does to a **source** that cannot rewind: a source that cannot return to a checkpoint's
 offsets makes the whole pipeline at-least-once, and a source that no longer holds those rows cannot
 supply them at all. A source may also be *told* when a checkpoint holding its offset is durable:
 [postgres-cdc](/help/topics/source-postgres-cdc) confirms its replication slot only then, so the
 database never discards a change a restore could ask for — which is why that source needs
-checkpoints to run at all.
+checkpoints to run at all. The [Kafka source](/help/topics/source-kafka)'s offsets live only in the
+checkpoint (never in a consumer group), and a restore that finds retention has already deleted the
+records after them is refused with [PRV-5106](/help/codes/PRV-5106) rather than resumed further on.
 
 After the restart, a point read shows the recovered answer immediately:
 

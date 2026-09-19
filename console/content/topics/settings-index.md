@@ -80,7 +80,8 @@ These are maps whose keys are **your** names — a stream called `txn` is config
 | `pravaha.streams.<name>.schema` | — | The stream's columns, `name:TYPE,name:TYPE` (`?` after a type for nullable) |
 | `pravaha.streams.<name>.event-time` | *none* | The column carrying each row's own time. **Without it no watermark advances and no window ever closes** |
 | `pravaha.streams.<name>.out-of-orderness` | `10s` | How late *this* stream's rows may be. The key that is actually read — see `pravaha.watermark.out-of-orderness` below |
-| `pravaha.sources.<stream>.plugin` | — | The source plugin feeding the stream: `filesystem`, `feedfile`, `jdbc`, `delta`, `aerospike`, `cassandra`, `postgres-cdc` |
+| `pravaha.streams.<name>.allowed-lateness` | `0s` | How long after a window closes a late row may still correct it (a `−1` and a `+1`). Needs `event-time`; non-zero makes windowed queries over the stream revise, so they need a sink that takes retractions (PRV-2041). See [late data](/help/topics/late-data) |
+| `pravaha.sources.<stream>.plugin` | — | The source plugin feeding the stream: `filesystem`, `feedfile`, `jdbc`, `delta`, `aerospike`, `cassandra`, `postgres-cdc`, `kafka` |
 | `pravaha.sources.<stream>.options.*` | — | That plugin's own options, passed to it untouched. **Note the `options:` nesting** — a key one level too high is not read |
 | `pravaha.lookups.<table>.plugin` | — | A dimension table for temporal joins: `jdbc-lookup` or `aerospike-lookup` |
 | `pravaha.lookups.<table>.options.*` | — | Its options |
@@ -90,7 +91,8 @@ These are maps whose keys are **your** names — a stream called `txn` is config
 Each connector's options are on its own page: [filesystem](/help/topics/source-filesystem),
 [feedfile](/help/topics/source-feedfile), [jdbc](/help/topics/source-jdbc),
 [delta](/help/topics/source-delta), [aerospike](/help/topics/source-aerospike),
-[cassandra](/help/topics/source-cassandra), [postgres-cdc](/help/topics/source-postgres-cdc), and the
+[cassandra](/help/topics/source-cassandra), [postgres-cdc](/help/topics/source-postgres-cdc),
+[kafka](/help/topics/source-kafka), and the
 sinks [filesystem](/help/topics/sink-filesystem), [jdbc-sink](/help/topics/sink-jdbc),
 [aerospike-sink](/help/topics/sink-aerospike), [kafka-sink](/help/topics/sink-kafka).
 

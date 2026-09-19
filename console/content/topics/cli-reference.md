@@ -138,7 +138,7 @@ pravaha run --sql <query> --schema <spec> --in <file> --out <file> --out-schema 
 | Flag | | |
 |---|---|---|
 | `--in` | required | A delimited file of input rows, in `--schema` order |
-| `--out` | required | Where the result rows are written |
+| `--out` | required | Where the result rows are written. **Replaced** on each run — a second run leaves one answer in the file, not two (unlike a server's `filesystem` sink, which appends across restarts) |
 | `--out-schema` | required | The result's columns, `name:TYPE,…` — must match what the query produces |
 | `--dlq` | none | Finish the run anyway and write rejected lines here, one JSON object each with the original bytes base64-encoded. Without it, one undecodable line ends the run and writes nothing |
 

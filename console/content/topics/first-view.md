@@ -358,11 +358,11 @@ echo '9,u1,m-7,500,GBP,COMPLETED,2026-09-19T09:00:30Z,I' >> txn.csv
 ```
 
 `big_payments` has no window, so a 500 does not pass its filter either way. `minute_spend` does not
-change: `u1`'s first minute stays at 1650. On a server-registered `TUMBLE` query the **allowed
-lateness is zero**, so a row for a window that has already been published is counted as late and
-dropped rather than reopening it. The same retraction arithmetic *can* correct a closed window —
-a `-1` for the old total and a `+1` for the new one — when a stream declares allowed lateness, which
-today only an embedder can do. The [late data](/help/topics/late-data) page shows both paths.
+change: `u1`'s first minute stays at 1650. The stream declares no **allowed lateness** — zero, the
+default — so a row for a window that has already been published is counted as late and dropped
+rather than reopening it. The same retraction arithmetic *can* correct a closed window — a `-1` for
+the old total and a `+1` for the new one — when the stream declares one
+(`pravaha.streams.txn.allowed-lateness`). The [late data](/help/topics/late-data) page shows both paths.
 
 The deletion in step 10 had the same fate in `minute_spend`: it is stamped 09:01:12, behind the
 watermark, so the closed minute keeps its 2500. Only the unwindowed `big_payments` withdrew it.

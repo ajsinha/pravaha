@@ -43,7 +43,7 @@ what a query emits while you develop it.
 | `schema` | yes | — | The row shape, `name:TYPE,...` (`?` suffix for nullable). The registered query's `SELECT` list must match it in order, name and type (PRV-8010) |
 | `delimiter` | no | `,` | The field separator. Only its first character is used |
 | `null.literal` | no | empty | What a NULL is written as |
-| `append` | no | `false` | `false` **truncates the file each time the sink opens** — including when a restart re-attaches it. `true` opens it for append |
+| `append` | no | `true` | `true` keeps what the file already holds and appends to it, **across restarts too**. `false` empties the file every time the sink opens — a restart included — so it throws away everything written before |
 | `flush.every.batch` | no | `true` | Flush the file after every batch, so a line a query committed is in the file when the commit returns. `false` leaves flushing to the buffer and to close |
 
 ## How values are written
@@ -193,10 +193,11 @@ SELECT COUNT(*) AS payments, SUM(amount) AS total FROM txn
 PRV-2041  sink 'merchant_minutes' accepts [APPEND], but this query needs one of [UPSERT, RETRACT].
 ```
 
-The check reads the plan's aggregates only. A source that delivers deletes (postgres-cdc, Delta, the
-filesystem source's `op.column`) sends retractions through a plain filter, which the check judges append-only — and a
-file writes such a retraction as an ordinary line, with no weight to tell it apart. Keep retracting
-sources away from this sink.
+The check also asks each stream's source whether it deletes. A query over postgres-cdc, Delta or a
+[Kafka source](/help/topics/source-kafka) reading a changelog passes retractions on even through a
+plain filter or a join, so it is refused the same way. The one retracting source the check cannot see
+is the filesystem source with `op.column`, whose plugin declares no deletes: a file writes such a
+retraction as an ordinary line, with no weight to tell it apart. Keep it away from this sink.
 
 Point such a query at [`jdbc-sink`](/help/topics/sink-jdbc),
 [`aerospike-sink`](/help/topics/sink-aerospike) or [`kafka-sink`](/help/topics/sink-kafka), which take a
@@ -205,7 +206,8 @@ retraction — as a delete, or a tombstone.
 ## Delivery
 
 **At least once.** After a crash or a restart the query resumes from its last checkpoint and replays
-what came after it; the file receives those rows again. A view commit carries no sequence number the
+what came after it; the file, which the sink reopens for append, keeps everything written before and
+receives those rows again below it. A view commit carries no sequence number the
 sink could deduplicate on, so expect repeats after a restart and deduplicate downstream by the
 query's key if it matters. Nothing is ever taken back out of the file: what was written stays
 written.
@@ -218,10 +220,15 @@ query 'big_txn_feed' writes to sink 'large_payments', at-least-once: the sink ap
 
 ## Pitfalls
 
-!!! danger "Pitfall: the default truncates"
-    `append` defaults to `false`, and the file is opened for writing — emptied — every time the
-    sink opens, which includes every restart. If the file must accumulate across restarts, set
-    `append: "true"`.
+!!! danger "Pitfall: `append: false` empties the file at every restart"
+    The default, `append: true`, keeps the file across restarts: a restored view does not send again
+    what it wrote before its checkpoint, so that output exists only in the file. `append: "false"`
+    empties the file every time the sink opens, a restart included, and so throws that output away.
+    Use it only where each start should write a fresh file.
+
+!!! note "`pravaha run` replaces its output"
+    A one-shot `pravaha run --out` writes the whole answer in one go, so it opens its output with
+    `append: false`: running it twice leaves one answer in the file, not two.
 
 !!! warning "Pitfall: a delimiter that appears in the data"
     Nothing is quoted or escaped. A merchant name containing a comma produces a line with one field

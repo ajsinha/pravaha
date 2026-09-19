@@ -4,7 +4,7 @@ slug: pgwire
 category: reading
 order: 40
 icon: server
-summary: "Reading maintained views from psql, DBeaver, Grafana or any PostgreSQL driver: turning the gateway on, connecting, the types it sends, what it refuses (writes, PRV-6211, BYTES and TIME), and its TLS status."
+summary: "Reading maintained views from psql, DBeaver, Grafana or any PostgreSQL driver: turning the gateway on, connecting, the types it sends, what it refuses (writes, PRV-6211, BYTES and TIME), and TLS on the same port."
 badge: GATEWAY
 audience: Developers
 keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, 5432, sslmode, "25006", read-only, "\\d", PRV-6211, PRV-6200]
@@ -31,7 +31,7 @@ It is **read-only**, and **off by default**.
 | Catalogue | A minimal read-only `pg_catalog` (`pg_class`, `pg_namespace`, `pg_attribute`, `version()`, `current_schema()`), filtered by what you may read — so `\d` and a driver's `getTables()` work |
 | Authentication | The **password** is the node's credential (a bearer token under `authentication: token`); the user name is informational |
 | Writes | None. `INSERT`/`UPDATE`/`DELETE` are refused by the planner; continuous-query statements with PRV-6211 (SQLSTATE `25006`) |
-| TLS | Built into the module (answers `SSLRequest`), **not yet wired into `pravaha-server`** — see below |
+| TLS | `pravaha.pgwire.tls.certificate` and `pravaha.pgwire.tls.key` (PEM chain, PKCS#8 key): the gateway then answers `SSLRequest` on the same port. **Off until both are set** — see below |
 
 ## Turning it on
 
@@ -41,7 +41,7 @@ In the node's `application.yaml`, or any Spring property source:
 pravaha:
   pgwire:
     enabled: true
-    host: 127.0.0.1        # loopback until TLS is in front of it
+    host: 127.0.0.1        # loopback until TLS is configured
     port: 5433             # 5432 is usually a real PostgreSQL on the same host
   security:
     authentication: token
@@ -54,12 +54,33 @@ The node logs the gateway at startup:
 PostgreSQL wire protocol listening on 127.0.0.1:5433 -- NO TLS, the credential crosses the wire in the clear; use loopback or a terminator
 ```
 
-!!! danger "The credential crosses the wire in the clear"
-    The PostgreSQL password *is* the node's bearer token. `pravaha-server` starts the gateway without
-    TLS today: the module can negotiate TLS on `SSLRequest` (PEM certificate chain and PKCS#8 key),
-    and `application.yaml` documents `pravaha.pgwire.tls.certificate` and `pravaha.pgwire.tls.key`,
-    but the node does not yet read those two keys or hand them to the gateway. Until it does, bind the
-    gateway to loopback, or put a TLS-terminating proxy in front of it, as the startup line says.
+!!! danger "Without TLS the credential crosses the wire in the clear"
+    The PostgreSQL password *is* the node's bearer token. Until `pravaha.pgwire.tls.certificate` and
+    `pravaha.pgwire.tls.key` are set, the gateway answers every `SSLRequest` with "no" and the token
+    travels as it is — which is what that startup line says. Bind it to loopback, or configure TLS.
+
+With the pair set, the gateway negotiates TLS on the same port and authenticates **after** the
+handshake, so the token is always inside it:
+
+```yaml
+pravaha:
+  pgwire:
+    enabled: true
+    host: 0.0.0.0
+    port: 5432
+    tls:
+      certificate: /etc/pravaha/tls/server-chain.pem
+      key: /etc/pravaha/tls/server-key.pem
+```
+
+```text
+PostgreSQL wire protocol listening on 0.0.0.0:5432 over TLS
+```
+
+Connect with `sslmode=verify-full` (and `sslrootcert=` for a private CA): `require` encrypts and checks
+nothing. One of the pair without the other, an unreadable file or a PKCS#1 key stops the node at
+startup with [PRV-6206](/help/codes/PRV-6206) — never a gateway silently serving plaintext. See
+[TLS everywhere](/help/topics/tls).
 
 ## Connecting
 

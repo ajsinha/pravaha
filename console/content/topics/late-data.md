@@ -4,9 +4,9 @@ slug: late-data
 category: concepts
 order: 70
 icon: arrow-counterclockwise
-summary: "What happens to a row that arrives after its window was published: out-of-orderness versus allowed lateness, why a server query drops it today, how an embedder turns it into a −1/+1 correction, and how a consumer should apply one."
+summary: "What happens to a row that arrives after its window was published: out-of-orderness versus allowed lateness, dropped by default, a −1/+1 correction once a stream declares allowed lateness, and how a consumer should apply one."
 audience: Developers
-keywords: [late, late data, lateness, allowed lateness, allowedLateness, correction, retraction, reopen, TIME-7, out-of-orderness, dropped, count went down]
+keywords: [late, late data, lateness, allowed lateness, allowed-lateness, allowedLateness, correction, retraction, reopen, out-of-orderness, dropped, count went down]
 guide: concepts#3-watermarks-nothing-earlier-is-coming
 related: [event-time-watermarks, zset-weights, windows, subscriptions, embedded-engine]
 ---
@@ -19,7 +19,7 @@ by two different properties of the stream, and they are easy to conflate.
 | Property | Decides | Default | Set by |
 |---|---|---|---|
 | **out-of-orderness** | how long the engine *waits* before calling a window complete | 10 s | `pravaha.streams.<name>.out-of-orderness`, or `StreamSchema.outOfOrderness` |
-| **allowed lateness** | whether a row arriving *after that* still corrects the published answer | **zero** | `StreamSchema.allowedLateness` only — no server configuration key sets it (TIME-7) |
+| **allowed lateness** | whether a row arriving *after that* still corrects the published answer | **zero** | `pravaha.streams.<name>.allowed-lateness`, `allowedLateness` on `POST /api/v1/streams`, or `StreamSchema.allowedLateness` |
 
 Out-of-orderness is about **waiting**; allowed lateness is about **revising**. A row inside the
 out-of-orderness is not late at all — it is counted before the window is published. A row behind
@@ -31,14 +31,14 @@ event time ──────────────────────┬
                               watermark              watermark − allowed lateness
 ```
 
-## On a server today: late rows are dropped
+## By default: late rows are dropped
 
-A server-registered windowed query runs with allowed lateness zero, and no configuration can raise
-it. So a row for a window that has already been published is counted as late and **dropped**; the
-published answer stands. This is a known limit (TIME-7), not a design: the correction path is real,
-tested, and reachable today only from an embedder that declares allowed lateness.
+A stream that declares no allowed lateness has zero, and a windowed query over it treats a row for a
+window that has already been published as late and **drops** it; the published answer stands. That
+is the default on purpose: a window that can be corrected is a query that revises its answer, and a
+revising query needs a sink that can take a retraction.
 
-Worked on the server, with `txn` at 10 s of out-of-orderness and this query:
+Worked with `txn` at 10 s of out-of-orderness, no allowed lateness, and this query:
 
 ```sql
 CREATE CONTINUOUS QUERY minute_takings
@@ -67,11 +67,32 @@ window_end            payments  takings
 2026-09-19 09:01:00   2         1200
 ```
 
-If late rows matter to you on a server today, raise the stream's out-of-orderness until they are not
-late: the window then waits longer before publishing and the stragglers are counted the first time.
-The cost is latency and state, both visible; the alternative is a silently low number.
+If late rows matter, there are two remedies. Raise the stream's out-of-orderness until they are not
+late: the window then waits longer before publishing and the stragglers are counted the first time,
+at the cost of latency. Or declare allowed lateness, below: the window publishes on time and is
+**corrected** when a straggler arrives, at the cost of state and of a revising query.
 
-## Embedded: late rows become corrections
+## On a server: declare allowed lateness on the stream
+
+```yaml
+pravaha:
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,currency:STRING,status:STRING?,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 10s
+      allowed-lateness: 5m
+```
+
+or `"allowedLateness": "PT5M"` beside `eventTime` in `POST /api/v1/streams`. It needs `event-time`
+(refused without one) and is refused negative; `GET /api/v1/streams` reports it. Every windowed query
+planned over the stream afterwards gets it. With it, the fourth row above — 09:00:50, behind the
+watermark but within five minutes — **reopens** `[09:00, 09:01)`: the published `2, 1200` is
+retracted and `3, 2100` published, in one commit, and the read above returns `3  2100`.
+
+
+
+## Embedded: the same, in code
 
 An embedder declares the stream with allowed lateness, and a row within it **reopens** the window:
 the engine retracts the result it published (`−1`) and publishes the corrected one (`+1`), in one
@@ -152,9 +173,14 @@ revises, and can go anywhere. See [sinks](/help/topics/sinks-overview).
     A correction, working as designed: a late row (or a retraction from the source) withdrew a
     result and replaced it.
 
-!!! warning "Late rows vanish without a trace on the server"
+!!! warning "Late rows vanish without a trace by default"
     With allowed lateness zero, a late row is dropped. If the numbers are consistently low, compare
-    the source's real disorder with the stream's `out-of-orderness`.
+    the source's real disorder with the stream's `out-of-orderness`, or declare `allowed-lateness`.
+
+!!! warning "Allowed lateness changes which sinks a query may use"
+    A windowed query over a stream with allowed lateness revises its answer, so registering it
+    `WRITING TO` an append-only sink (a `filesystem` sink, `jdbc-sink` in `mode: append`) is refused
+    with PRV-2041. Declare the lateness before registering, and pick the sink to match.
 
 !!! warning "Idle exclusion can make on-time rows late"
     If `pravaha.watermark.idle-after` is shorter than a partition's normal gap, that partition is
@@ -165,5 +191,6 @@ revises, and can go anywhere. See [sinks](/help/topics/sinks-overview).
 
 - [Z-set weights](/help/topics/zset-weights) — the arithmetic of `−1` and `+1`
 - [Event time and watermarks](/help/topics/event-time-watermarks)
-- [The embedded engine](/help/topics/embedded-engine) — where allowed lateness can be declared
+- [Streams](/help/topics/streams) — `allowed-lateness` beside the other stream keys
+- [The embedded engine](/help/topics/embedded-engine) — declaring it in code
 - The long form: [Concepts §3–§4](/help/concepts#3-watermarks-nothing-earlier-is-coming)

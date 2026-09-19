@@ -154,21 +154,29 @@ PRV-8010  sink 'large_payments' is configured for rows (txn_id:INT64, user_id:ST
 ```
 
 Names matter as much as order. An aggregate with no alias is named `EXPR$2` by the planner, so
-`SUM(amount)` never matches a sink column called `total` — write `SUM(amount) AS total`.
+`SUM(amount)` never matches a sink column called `total` — write `SUM(amount) AS total`. Types matter
+too: `COUNT` and every `SUM` of an integer are `INT64`, even over an `INT32` column, while `MIN` and
+`MAX` keep the column's own type.
 
 ### The retraction check — PRV-2041
 
-Some queries only ever **append**: a filter, a projection, a join, a tumbling or hopping window
-with no allowed lateness — each output row is final the moment it is emitted. Others **revise**
+Some queries only ever **append**: over streams whose sources only append, a filter, a projection,
+a join, a tumbling or hopping window with no allowed lateness — each output row is final the moment
+it is emitted. Others **revise**
 their answer, and the engine works out which from the plan:
 
 - **an aggregate with no window** — `SELECT COUNT(*) AS payments, SUM(amount) AS total FROM txn`
   has one result, and every new row replaces it: the old result is retracted and the new one
   inserted;
 - **a windowed aggregate that allows lateness** re-emits a window it has already reported, as a
-  retraction of the old answer and the corrected one. (Allowed lateness is a property of a stream's
-  schema; the server's stream declarations do not set it, so through `pravaha-server` this case
-  arises only for streams an embedder declared with it.)
+  retraction of the old answer and the corrected one. (Allowed lateness is a property of a stream:
+  `pravaha.streams.<name>.allowed-lateness`, or `allowedLateness` on `POST /api/v1/streams`. It is
+  zero unless declared, and then no window revises.)
+- **a stream whose source emits deletes** — [postgres-cdc](/help/topics/source-postgres-cdc), Delta,
+  the [Kafka source](/help/topics/source-kafka) with `format: changelog` — sends retractions through a
+  plain filter or a join too, so any query over it that passes rows on revises. The check asks the
+  stream's bound source whether it deletes. (A windowed aggregate over such a stream, without
+  lateness, still fires each window once and is append-only.)
 
 A revision arrives as a retraction (weight `-1`) and an insertion (`+1`).
 
@@ -204,12 +212,16 @@ in upsert mode, and it, `jdbc-sink` and `aerospike-sink` are the shipped sinks t
 query. A file holding rows that are each correct and a total that is wrong for ever is
 the failure this check exists to prevent.
 
-!!! warning "What the check does not see: retractions from a source"
-    The analysis reads the plan's aggregates. A source that delivers deletes —
-    [postgres-cdc](/help/topics/source-postgres-cdc), Delta, the filesystem source's `op.column` —
-    sends retractions through a plain filter too, and a filter is judged append-only. Pointed at an
-    append-only sink, such a retraction is written as an ordinary line. Send a query over a
-    retracting source to a sink that takes retractions.
+Over a stream fed by postgres-cdc, the same refusal names the stream instead:
+
+```text
+  Why: stream 'orders' is read from a source that emits deletes, so a row it delivers can later be withdrawn, and whatever this query built from it -- a join's pair included -- is withdrawn with it.
+```
+
+!!! warning "What the check does not see: the filesystem source's `op.column`"
+    The filesystem plugin declares that it never deletes, even when `op.column` makes some of its rows
+    retractions. A query over such a file is judged append-only, and pointed at an append-only sink its
+    retractions are written as ordinary lines. Send it to a sink that takes retractions.
 
 ## What the sink receives
 
@@ -294,10 +306,11 @@ appears to a caller the policy lets read its name, and `writers` are only the qu
 own listing shows. When a plugin refuses to describe its configuration, `problem` carries a code and
 a pointer to the node log rather than the plugin's text, which could quote the options.
 
-`guarantee` is the strongest the sink can support **on its own**: `EXACTLY_ONCE` for a transactional
-sink *and* for an idempotent upsert sink (which Pravaha calls effectively once). What a particular
-registration gets also depends on checkpoints and on the source — the registration's log line is
-the authority. See [delivery guarantees](/help/topics/delivery-guarantees).
+`guarantee` is what **this node** gives the sink, in the registration log's terms: `EXACTLY_ONCE` for
+a transactional sink on a node that takes checkpoints, `EFFECTIVELY_ONCE` for an idempotent upsert
+(`aerospike-sink`, and `jdbc-sink` or `kafka-sink` in upsert mode without checkpoints),
+`AT_LEAST_ONCE` otherwise. What a particular registration gets also depends on its source — the
+registration's log line is the authority. See [delivery guarantees](/help/topics/delivery-guarantees).
 
 The Python SDK's `client.sinks()` returns the same list; the console's **Catalog → Sinks** tab
 (`/catalog?tab=sinks`) renders it, and its register panel offers exactly these sinks.

@@ -36,7 +36,7 @@ this surface.
 
 | Method | Path | Answers | SDK (Python) |
 |---|---|---|---|
-| GET | `/api/v1/streams` | Every stream you may read: name, version, fields, `eventTime`, `outOfOrderness`, `source` plugin | `streams()` |
+| GET | `/api/v1/streams` | Every stream you may read: name, version, fields, `eventTime`, `outOfOrderness`, `allowedLateness`, `source` plugin | `streams()` |
 | GET | `/api/v1/streams/{name}` | One stream | `stream(name)` |
 | POST | `/api/v1/streams` | Declares a stream; **201** with its summary. Needs administer on the name | `declare_stream(…)` |
 | POST | `/api/v1/queries/validate` | Plans SQL without running it: `valid`, `diagnostics`, `outputFields`, `elapsedMicros` | `validate(sql)` |
@@ -49,7 +49,7 @@ this surface.
 | GET | `/api/v1/plugins` | Every plugin the node can load: manifest, compatibility, kinds, capabilities, setting names, health, visible bindings | `plugins()` |
 | GET | `/api/v1/me/permissions` | What the policy lets **you** do: register, read the audit trail, and per view/stream read and administer | `permissions()` |
 | GET | `/api/v1/audit` | One page of recorded authorization decisions, newest first. Needs the audit-read permission | `audit(…)` |
-| GET | `/api/v1/status` | Node id, version, engine state, uptime, stream count, plugin health | `status()` |
+| GET | `/api/v1/status` | Node id, version, engine state, uptime, registered-query count, stream count, plugin health | `status()` |
 | GET | `/status` | The same as a self-contained HTML page | — |
 | GET | `/actuator/prometheus` | Every metric, Prometheus text format | `metrics_text()` |
 | GET | `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness` | Spring health probes (open) | — |
@@ -170,16 +170,18 @@ figures are not measured; the note says so) and `query`: `rowsIn`, `stateHeld`, 
 curl -s -X POST http://engine:8080/api/v1/streams \
   -H "Authorization: Bearer $PRAVAHA_TOKEN" -H "Content-Type: application/json" \
   -d '{"name": "orders", "schema": "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP",
-       "eventTime": "event_time", "outOfOrderness": "PT30S"}'
+       "eventTime": "event_time", "outOfOrderness": "PT30S", "allowedLateness": "PT2M"}'
 ```
 
 ```json
-{"name": "orders", "version": 1, "fieldCount": 6, "fields": [ ... ], "eventTime": "event_time", "outOfOrderness": "PT30S", "source": null}
+{"name": "orders", "version": 1, "fieldCount": 6, "fields": [ ... ], "eventTime": "event_time", "outOfOrderness": "PT30S", "source": null, "allowedLateness": "PT2M"}
 ```
 
-`201 Created`. The schema uses the node's one grammar, `name:TYPE,…` with `?` for nullable. An
-`outOfOrderness` without an `eventTime` is refused: it is how late an event time may be, and there is
-none for it to be about. Declaring a stream is an administrative act; a caller who may not administer
+`201 Created`. The schema uses the node's one grammar, `name:TYPE,…` with `?` for nullable.
+`allowedLateness` is optional and zero when absent: how long after a window is published a late row
+may still correct it ([late data](/help/topics/late-data)). An `outOfOrderness` or an
+`allowedLateness` without an `eventTime` is refused — each is about an event time, and there is none —
+and a negative lateness is refused. Declaring a stream is an administrative act; a caller who may not administer
 the name gets `403`.
 
 ## Status
@@ -194,13 +196,15 @@ curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:8080/api/v1/stat
   "version": "0.1.0-SNAPSHOT",
   "engineState": "RUNNING",
   "uptimeSeconds": 8123,
-  "registeredQueries": 6,
-  "plugins": [{"name": "filesystem", "version": "0.1.0", "health": "HEALTHY", "detail": ""}]
+  "registeredQueries": 2,
+  "plugins": [{"name": "filesystem", "version": "0.1.0", "health": "HEALTHY", "detail": ""}],
+  "streams": 6
 }
 ```
 
-`registeredQueries` counts the node's catalogue of streams, not continuous queries — the field's name is
-older than the distinction. `/status` renders the same facts as a page that needs nothing else to load.
+`registeredQueries` counts the continuous queries registered on the node, by name — two names sharing
+one computation are two. `streams` counts the streams it has declared. `/status` renders the same facts
+as a page that needs nothing else to load.
 
 ## The audit trail and your own permissions
 

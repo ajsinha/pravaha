@@ -183,9 +183,9 @@ what was already gone. The set converges to the view. What a reader *can* observ
 is a record briefly holding an older value it held before, until the replay catches up — the writes
 are not atomic across records.
 
-`GET /api/v1/sinks` reports this sink's `guarantee` as `EXACTLY_ONCE`, because the API's vocabulary
-has no separate word for an idempotent upsert; the registration's log line calls it what it is,
-effectively once. See [delivery guarantees](/help/topics/delivery-guarantees).
+`GET /api/v1/sinks` reports this sink's `guarantee` as `EFFECTIVELY_ONCE`, as the registration's log
+line does. (`GET /api/v1/plugins` shows the plugin's own declared guarantee, which is the SPI's word
+for an idempotent upsert, `EXACTLY_ONCE`.) See [delivery guarantees](/help/topics/delivery-guarantees).
 
 ## When a write fails
 

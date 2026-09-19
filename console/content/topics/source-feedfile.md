@@ -56,6 +56,7 @@ perfectly short file, and no schema check can tell.
 | `delimiter` | no | `,` | CSV only. One character |
 | `skip.header` | no | `false` | CSV only. Skip each file's first line |
 | `null.literal` | no | `""` | CSV only. The text meaning NULL |
+| `event.time` | no | on a server, the stream's `event-time`; otherwise none | A `TIMESTAMP` column of `schema` whose value stamps each row's event time — what the watermark and every window run on. Naming a column that is not there, or is not a `TIMESTAMP`, is refused with PRV-5065. A NULL in it stamps zero. Without it every row is stamped zero |
 
 ### Choosing `completion`
 
@@ -165,16 +166,13 @@ US	3	750
 The `GROUP BY` without a window is refused on a stream (PRV-2050) and allowed here because it reads a
 maintained view, whose scan ends.
 
-!!! danger "Windowed queries over feedfile do not close windows today"
-    This reader stamps every row with event time **zero** — it has no `event.time` option — and the
-    engine's watermark is derived from those stamps, not from the stream's declared `event-time`
-    column. So a windowed aggregate like `feed_region_revenue` above plans and registers, reads every
-    file, and its windows wait for a watermark that does not move: an empty view under a `RUNNING`
-    query. It is recorded as open (QA finding T-5). Until it is fixed, use feedfile for filters,
-    projections, lookups and reads of the resulting view, and put time-windowed work on a source that
-    stamps event time — [filesystem](/help/topics/source-filesystem) with `event.time`, or
-    [Cassandra](/help/topics/source-cassandra) and [Aerospike](/help/topics/source-aerospike), which
-    read it from the row.
+!!! warning "Windows need the stream's `event-time`"
+    Each row is stamped with the value of its `event.time` column, and the engine's watermark is
+    derived from those stamps. On a server the stream's declared `event-time` (`event_time` above) is
+    handed to the source as `event.time`, so `feed_region_revenue` closes its windows as the files'
+    own times advance. Without either, every row is stamped zero: the windowed query plans, registers
+    and reads every file, and its windows wait for a watermark that never moves — an empty view under
+    a `RUNNING` query. Declare `event-time` on the stream (or `event.time` on an embedded binding).
 
 ## What happens to each file
 

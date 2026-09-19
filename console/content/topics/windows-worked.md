@@ -90,11 +90,11 @@ Three things to notice:
 ### A row that arrives too late
 
 Now a row carrying 09:00:04 arrives after row 6. The watermark (09:00:21) is already past its
-window's end. On a server-registered query **allowed lateness is zero** and no server setting raises
-it, so the row is dropped rather than applied; the published 1520 stands. The correction path — a
-`-1` for the old row and a `+1` for the new one — exists and is reachable from an embedder that
-declares `allowedLateness` on its stream. [Late data and corrections](/help/topics/late-data) walks
-through it.
+window's end. The stream declares no **allowed lateness** — zero, the default — so the row is
+dropped rather than applied; the published 1520 stands. A stream that declares one
+(`pravaha.streams.<name>.allowed-lateness`, or `allowedLateness` on `POST /api/v1/streams`) takes the
+correction path instead: a `-1` for the old row and a `+1` for the new one.
+[Late data and corrections](/help/topics/late-data) walks through it.
 
 ### Why a window "never closes"
 

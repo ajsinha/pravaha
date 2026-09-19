@@ -225,8 +225,8 @@ column:
 transaction. In upsert mode that is **effectively once** — a replay after a restart rewrites rows
 with the values they already hold. In append mode it is **at least once**, and the table keeps the
 repeats. Choose it when a minute of lag matters more than a checkpoint's atomicity, or on a node that
-takes no checkpoints (where a transactional sink is only at least once anyway: there is no checkpoint
-to tie a transaction to).
+takes no checkpoints (where a transactional sink gives the same anyway: there is no checkpoint to tie
+a transaction to, so it is effectively once in upsert mode and at least once in append mode).
 
 ```yaml
 pravaha:
@@ -267,8 +267,9 @@ which the upsert makes harmless in upsert mode and which an append table receive
 
 !!! warning "Pitfall: no checkpoint directory"
     Without `pravaha.checkpoint.directory` the sink is still transactional, but each commit is its
-    own transaction and a restart delivers again: **at least once**. The registration's log line
-    says so.
+    own transaction and a restart delivers again: **effectively once** in upsert mode (the repeat
+    rewrites rows with the values they hold), **at least once** in append mode. The registration's
+    log line and `GET /api/v1/sinks` say which.
 
 !!! warning "Pitfall: two registrations on one binding"
     Staging rows are found by `transaction.id`, which defaults to the binding's name. Two queries
