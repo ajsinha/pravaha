@@ -557,7 +557,7 @@ pravaha:
         topic: orders
         schema: "order_id:INT64,customer:STRING,amount:DECIMAL(12,2),placed_at:TIMESTAMP"
         format: json                   # json | changelog (kafka-sink's changelog mode, weights and all)
-        event.time: placed_at          # optional TIMESTAMP column; default: each record's Kafka timestamp
+        event.time: placed_at          # optional TIMESTAMP column; on a node, the stream's event-time
         start.from: earliest           # earliest | latest -- only when there is no checkpoint
         isolation.level: read_committed
         tombstone: reject              # reject | skip -- what a null value is in format: json
@@ -575,7 +575,7 @@ pravaha:
 | `topic` | yes | — must exist; the source never creates it |
 | `schema` | yes | — `name:TYPE`, as every other connector; `?` marks a nullable column |
 | `format` | no | `json`: each value a JSON object of the row, matched to the schema by column name, every row `+1`. `changelog`: `kafka-sink`'s `{"op","weight","row"}` envelope, its weight applied |
-| `event.time` | no | the record's Kafka timestamp |
+| `event.time` | no | on a node, the stream's declared `event-time` column (handed down as this option); the record's Kafka timestamp only when the stream declares none |
 | `start.from` | no | `earliest`; `latest` starts after what the topic already holds. A restore ignores it |
 | `isolation.level` | no | `read_committed`; `read_uncommitted` also delivers what aborted transactions wrote |
 | `tombstone` | no | `reject`: a null value is a dead letter, or stops the source. `skip` reads an upsert topic as insertions only |

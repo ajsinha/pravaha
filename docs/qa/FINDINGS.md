@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **329 findings carrying a
-status — 213 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
+only part that is kept current. Counting the register as it stands: **330 findings carrying a
+status — 214 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6736,3 +6736,8 @@ runs is how a default becomes folklore, and this project has already found two o
 ### HLP-14 (MEDIUM) — five engine messages sent the operator the wrong way
 
 > **Status:** FIXED — `350584a`, `a2c563a`: PRV-2021's hint recommended `IS NOT NULL AND ...`, which is itself refused (now `IS TRUE` / `IS NOT FALSE`); PRV-2020 for a filter on a looked-up column spoke of correlated subqueries (now its own message, and the `LEFT JOIN ... WHERE` form it suggests is proven to plan); PRV-2050 for a renamed window column said the GROUP BY lacked the window (now names the grouped columns and says to keep the window columns' names); `Retention`'s javadoc called a day the default; Flight's `noParameters` promised that registration binds parameters. Each new text is pinned by a test.
+
+### HLP-15 (HIGH) — a filesystem source with `op.column` retracted while declaring that it never deletes
+
+> **Status:** FIXED — `4ad7c4f`: `FilesystemSourcePlugin.capabilities()` answered `emitsDeletes = false` whatever its configuration, so with `op.column` set — where a delete value makes a row arrive at weight −1 — HLP-3's PRV-2041 check still admitted a query over the file to an append-only sink, and the sink would have written the retraction as a row. It now declares deletes exactly when `op.column` is set (never a before-image). `FilesystemPluginTest#aFileWithAnOperationColumnDeclaresThatItDeletes`, `PluginSourceFeedsTest#aFileWithAnOperationColumnIsASourceThatDeletes`, which failed against the plugin as built before the change. Found by the console's help agent while documenting PRV-2041.
+> **Why it mattered:** the same wrong-output-under-success as HLP-3, through the one shipped source that had carried retractions before change data capture existed.

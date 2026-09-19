@@ -83,11 +83,11 @@ this one idea.
 >
 > Note what this is *not*. It decides how long the engine waits before calling a window complete.
 > **It is not allowed lateness**, which is what decides whether a row arriving after that is still
-> applied as a retraction and a correction. Allowed lateness defaults to zero and no server
-> configuration can raise it (TIME-7), so on a server-registered `TUMBLE` query a row arriving after
-> the window closed is counted as late and dropped. The correction path is real, and today it is
-> reachable only from an embedder that declares `allowedLateness`, or from an overlapping window
-> still inside its band.
+> applied as a retraction and a correction. Allowed lateness defaults to zero, so unless a stream
+> declares it a row arriving after its window closed is counted as late and dropped. A server
+> declares it per stream (`pravaha.streams.<name>.allowed-lateness`, or `allowedLateness` on
+> `POST /api/v1/streams`), and an embedder on the stream's schema; either makes the correction
+> path reachable.
 >
 > **Where watermarks come from.** Ask for them:
 >
