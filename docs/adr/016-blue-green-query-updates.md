@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **not built** — `ShadowDeployment` exists in `pravaha-backfill` with tests and no caller |
+| Status | Accepted; **built** 2026-09-19 — see [ADR-046](046-a-replacement-meets-the-running-version-at-a-position.md), which settles what this one left open |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 
@@ -20,6 +20,16 @@ Stop-and-restart (Flink); in-place mutation
 ## Rationale and consequences
 
 Zero downtime, state preserved, instant rollback; also the substrate for live replanning and version upgrades (§16.3)
+
+## Amendment, 2026-09-19
+
+Built. `ShadowDeployment` -- which was the whole of this decision's code and had no caller -- is now
+the state and the audit trail of a replacement the registry runs: it refuses a cutover before the
+candidate has caught up (`PRV-4014`) and a seam that would go backwards (`PRV-4015`), and it holds
+who served the name from which seam. What this ADR did not settle, and what a cutover actually
+turns on, is in [ADR-046](046-a-replacement-meets-the-running-version-at-a-position.md): the seam is
+a source position rather than a moment, subscribers are told the view was replaced, the sink follows
+the name at a checkpoint boundary, and a replacement in flight survives a restart.
 
 ## Notes
 

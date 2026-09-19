@@ -384,6 +384,51 @@ a query reading a stream you may not read answers exactly as a name that was nev
 
 The [console](../console/) shows all of this in a browser, including which computations are shared.
 
+### Changing a running query: replace, cut over, roll back
+
+Dropping a query and registering it again takes the answer away from everybody reading it and gives
+them back an aggregate with no history. Replacing it does not
+([ADR-046](adr/046-a-replacement-meets-the-running-version-at-a-position.md),
+[CONTINUOUS_QUERIES §8.1](CONTINUOUS_QUERIES.md)):
+
+```sql
+CREATE OR REPLACE CONTINUOUS QUERY card_velocity KEYED BY (card_id)
+    WITH (backfill = 'history', backfill.rate.limit = 5000)
+AS SELECT card_id, COUNT(*) AS attempts, SUM(amount) AS total
+   FROM authorisation GROUP BY card_id, HOP(ts, INTERVAL '1' MINUTE, INTERVAL '10' MINUTE);
+```
+
+```bash
+pravaha replace --name card_velocity --sql-file v2.sql --keys 0 --wait
+pravaha replacements                       # how far the backfill has got, and how fast
+pravaha cutover  --name card_velocity      # move the name, when the two have consumed the same input
+pravaha rollback --name card_velocity      # put the old one back, while it is still retained
+pravaha finish   --name card_velocity      # release it, and end the chance to roll back
+```
+```java
+client.replace("card_velocity", sql, List.of(0), "backfill=history;backfill.rate.limit=5000");
+client.replacement("card_velocity");   // state, history rows, rate, lag, rollback window
+client.cutOver("card_velocity");
+client.rollBack("card_velocity");
+```
+```python
+client.replace("card_velocity", sql, [0], backfill="history", rate_limit=5000)
+client.replacement("card_velocity")
+client.cut_over("card_velocity")
+client.roll_back("card_velocity")
+```
+
+The new version runs **beside** the old one: it replays the source from the beginning, splices onto
+the live stream at the exact position the running version has reached, and catches up. The name goes
+on answering the old version until you cut over — and the cutover happens only when the two have
+consumed exactly the same input, so a reader sees the old answer up to that point and the new answer
+after it, with no gap and nothing counted twice. **Every subscription to the name ends with
+`PRV-4019` at the cutover**: subscribe again, and a snapshot subscription starts from a fresh
+snapshot of the new version. A sink follows the name and is sent only the difference.
+
+The replaced version keeps running for an hour by default, so a rollback is one swap rather than
+another backfill. A replacement requires the administer permission on the name, as a drop does.
+
 ## 6. Write SQL Pravaha will run
 
 The complete, test-checked list is [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md). The shape that works:

@@ -7,8 +7,9 @@
 > describe something shipped, something partly built, or something never started. Named examples
 > found by audit: `mode: HA`, `PravahaConfig.fromYaml`, `@PravahaTest`,
 > `pravaha-ui/`, `/actuator/pravaha` and `POST /api/v1/queries/{id}/backfill` do not exist in the
-> tree, and §22.4's starter exists in a smaller shape than it describes (see the status note
-> there). For what is
+> tree (the backfill of a blue/green replacement is read at `GET /api/v1/queries/{name}/backfill`
+> and started at `POST /api/v1/queries/{name}/replacement`, ADR-046), and §22.4's starter exists in
+> a smaller shape than it describes (see the status note there). For what is
 > actually built, read [`HANDOVER.md`](HANDOVER.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the
 > [ADRs](adr/); this document is the record of intent behind them.
 

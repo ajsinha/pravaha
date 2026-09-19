@@ -1106,6 +1106,14 @@ Prometheus metrics are at `/actuator/prometheus`. Per continuous query:
 | `pravaha_query_checkpoint_last_success_timestamp_seconds{query=}` | When the query last **stored** a checkpoint, as Unix seconds. Alert on its age (`time() - ...`): that is how much recovery would now replay. `NaN` while the query is not checkpointing or has not stored one yet — never zero, which would read as 1970 |
 | `pravaha_query_checkpoint_duration_seconds{query=}` | How long that last stored checkpoint took, snapshot to stored. `NaN` as above |
 | `pravaha_query_checkpoint_failures_total{query=}` | Checkpoints that did not happen. Rising while the last-success age rises is a query whose recovery story is getting older by the minute |
+| `pravaha_query_replacement_state{query=}` | Whether this name is being replaced, and where that has got to: 0 none, 1 backfilling, 2 caught up, 3 cut over and retaining the version it replaced, 4 rolled back, 5 abandoned, 6 failed, 7 finished (ADR-046). An ordinal rather than a tag per state, so a panel following one query keeps its history across the transitions |
+| `pravaha_query_backfill_history_rows{query=}` | Records of history the backfill has read. Flat while it should be rising is a backfill that is paused, throttled to nothing, or blocked on the store |
+| `pravaha_query_backfill_rows_per_second{query=}` | What it is reading at, over the last sample. **This is the number to plot beside the store's own p99 latency**: the impact you are causing, not just the progress you are making |
+| `pravaha_query_backfill_rate_limit{query=}` | The ceiling in records a second, or 0 for none |
+| `pravaha_query_backfill_partitions{query=}` | How many partitions the backfill has |
+| `pravaha_query_backfill_partitions_live{query=}` | How many of them have reached the live stream. Equal to `..._partitions` means the seam is behind all of them and a cutover may be asked for |
+| `pravaha_query_backfill_paused{query=}` | 1 while an operator has paused it |
+| `pravaha_query_backfill_lag_seconds{query=}` | How far behind the running version the candidate's **event time** is. Falling towards zero is a replacement approaching its cutover |
 | `pravaha_query_commit_latency_seconds_count{query=}`, `..._sum` | Commits that changed the view, and the total time they took: from applying the changes to the last subscriber **and sink** having them (a slow sink is on this thread, so it is in this number). The mean over a window is `rate(_sum) / rate(_count)`, exactly. **No percentiles are published**: the engine keeps a count and a total, not each commit's duration, and a p99 it did not measure would be invented. Idle commits — a watermark tick with nothing in it — are not timed |
 
 Not published, because the engine does not measure them: per-operator rows, state or watermarks
@@ -1129,6 +1137,11 @@ before it is refused.
 Lag is event-time lag, not processing latency: a query can be fast and still far behind, because
 this measures the data rather than the engine. A query that has never seen a row reports `NaN`, not
 zero — zero would show it as perfectly up to date.
+
+The eight replacement gauges are published for **every** query, not only the ones being replaced,
+and read zero while nothing is happening. A gauge that appears when an operation starts is a gauge
+nothing was alerting on when it did, and a dashboard panel has to exist before the cutover it is
+watching.
 
 Meters are removed when a query is dropped. That matters more than it sounds: a gauge registered per
 query and never removed leaks the meter *and* the query state its reference keeps alive, and nothing
@@ -1163,6 +1176,77 @@ To recover: fix the cause, then drop the query and register it again, or restart
 opens a new feed, which resumes from the last checkpoint if the query checkpoints. For a source whose
 records sometimes cannot be decoded, set `pravaha.dlq.directory` and the bad records go there while
 the rest keep flowing.
+
+## Replacing a running query: the operator's side
+
+A blue/green replacement (ADR-046, design §16.3) changes the query behind a name without taking the
+answer away from anybody reading it. What an operator does, and what to watch while it happens.
+
+**Start it.** Any of these; they are the same operation.
+
+```bash
+pravaha replace --name spend --sql-file v2.sql --keys 0 \
+    --backfill history --rate-limit 5000 --cutover manual
+```
+
+```sql
+CREATE OR REPLACE CONTINUOUS QUERY spend KEYED BY (user_id)
+    WITH (backfill = 'history', backfill.rate.limit = 5000) AS SELECT ...
+```
+
+```bash
+curl -XPOST $NODE/api/v1/queries/spend/replacement \
+  -d '{"sql":"SELECT ...","backfill":"history","rateLimit":5000}'
+```
+
+The name goes on answering the version it answers now. What has started is a shadow: its own state,
+its own checkpoints, its own readers, unreachable by any reader.
+
+**Set the rate before you start, and lower it while it runs.** `backfill.rate.limit` is a ceiling —
+`pravaha throttle --name spend --rate 500` may lower it and may not raise it above the number the
+replacement was started with, so a rate somebody chose during an incident cannot be undone by
+somebody else's typo. `pravaha pause-backfill` and `resume-backfill` stop and start it without
+giving up what it has read. **A backfill competes with production traffic on the same storage**:
+plot `pravaha_query_backfill_rows_per_second` next to the store's own p99 latency, and if the store
+suffers, lower the rate. Nothing here does that for you — `backfill.adaptive` is refused by name
+(`PRV-4018`) rather than pretended, because nothing probes the store's latency.
+
+**Watch it.** `pravaha replacements`, or `GET /api/v1/queries/spend/backfill`. What to look for:
+
+- `history_rows` rising. Flat is paused, throttled to nothing, or a store that is not answering.
+- `partitions_live` reaching `partitions`. That, and only that, is "caught up": every partition has
+  read its history and is on the live stream. Rows read and time elapsed are proxies that are wrong
+  exactly when the input rate changes.
+- `lag_nanos` falling. How far behind the running version the candidate's event time is.
+
+**Cut over.** `pravaha cutover --name spend`. It happens only when the two versions have consumed
+*exactly* the same input, compared position by position with both feeds stopped; if they cannot be
+brought together inside thirty seconds the cutover is **refused** with `PRV-4014` and nothing has
+changed. Try again, or quieten the source. `cutover = 'auto'` does it for you as soon as the
+candidate is caught up.
+
+What changes at that instant: readers of the name get the new version's view — no gap, nothing
+counted twice, and no read that mixes the two. Every subscription ends with `PRV-4019` and the
+clients subscribe again. A sink follows the name and is sent only the difference between the old
+answer and the new one, at a checkpoint boundary.
+
+**Keep the way back open.** The replaced version keeps running for `rollback.retention` (an hour by
+default), so `pravaha rollback --name spend` is one swap and a few milliseconds rather than a second
+backfill. It costs a retained computation — its state, its lanes, its feed — which is the price of
+an instant rollback and the reason the window is not indefinite. `pravaha finish --name spend`
+releases it early when you are satisfied; after that there is nothing to roll back to, and the
+status says so (`rollback_available: false`).
+
+**If the node restarts mid-backfill**, the replacement comes back: the name is the version that was
+serving it, and the candidate starts again from its own checkpoints. If it restarts after a cutover,
+the name is the new version and **the rollback window is gone** — the replaced version was a running
+computation, not a durable one. Confirm or roll back before a planned restart.
+
+**What it will not do.** Change the sink the name writes to, or the view's retention (`PRV-4018`);
+replace a query whose computation is shared with another name (`PRV-8003`); or replace a query whose
+streams cannot be replayed — a table scan's position names where its pass began rather than the
+record it was taken after, so there is no offset a history and a live stream could meet at
+(`PRV-4018`, before anything starts).
 
 ## Restarts: what survives
 

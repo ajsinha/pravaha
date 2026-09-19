@@ -458,11 +458,31 @@ the statement's expected shape.
 |---|---|---|
 | `PRV-2070` | The text starts as one of the statements — `CREATE CONTINUOUS`, `DROP CONTINUOUS`, `SHOW CONTINUOUS`, `PAUSE`, `RESUME` — and does not have its shape: no `KEYED BY`, a clause given twice, a retention that is not a duration, words after the name. Also: parameters bound to one of these statements, which take none | The message says what was expected, what was found, and the line and column. Compare it with the shape at the end of the message |
 | `PRV-2071` | `KEYED BY` names a column the `SELECT` does not produce, or names one twice | Name the column as the `SELECT` list does — by its alias where it has one (`SUM(amount) AS total` is `total`). The message does not list the columns, because it is raised before the registry has decided whether you may read what the query reads |
-| `PRV-2072` | A clause from the design's grammar that is not built: `INDEXED BY ... RANGE`, `WITH (...)`, `EMIT CHANGES WITH (...)`, `CREATE OR REPLACE`, a `SERVE AS VIEW` naming another view | Say a retention with `RETAIN FOR`; drop and re-create instead of replacing; give the query the name clients read. Refused rather than ignored: an ignored `'retention' = '24h'` is a view kept for ever |
+| `PRV-2072` | A clause from the design's grammar that is not built: `INDEXED BY ... RANGE`, a `WITH (...)` list on a plain `CREATE`, `EMIT CHANGES WITH (...)`, a `SERVE AS VIEW` naming another view | Say a retention with `RETAIN FOR`; put a replacement's options on `CREATE OR REPLACE`, which does take a `WITH (...)` list; give the query the name clients read. Refused rather than ignored: an ignored `'retention' = '24h'` is a view kept for ever |
 | `PRV-6211` | One of the statements was sent to the PostgreSQL gateway (SQLSTATE `25006`), which is read-only | Send it over Flight SQL: an SDK's `query()`, `pravaha query --sql`, or the console's workbench |
 
 A reserved word as the query's name is refused by the registry's own name rule, `PRV-8008`, whichever
 way it was registered.
+
+## Replacing a query: `CREATE OR REPLACE`, cutover and rollback
+
+A blue/green replacement ([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §8.1,
+[`OPERATIONS.md`](OPERATIONS.md)) refuses seven things by name, and each refusal is the engine
+declining to make an answer quietly wrong.
+
+| Code | What happened | What to do |
+|---|---|---|
+| `PRV-4013` | The backfill read all the history the source has and never reached the position the running version is at. Its positions do not name the record they were taken after, so there is no offset the history and the live stream can meet at | Nothing to retry: the replacement is stopped rather than reading past the seam and delivering the overlap twice. Replace over a source whose offsets are records — a file, a Kafka topic, a Delta table — or drop and re-register |
+| `PRV-4014` | A cutover before the new version had caught up, **or** the two versions could not be brought to the same position inside thirty seconds | Wait for `partitions_live` to reach `partitions` (`pravaha replacements`). If it is caught up and the cutover still refuses, the source is busy enough that the two never stop at the same record: try again, or quieten it. Nothing has changed either way |
+| `PRV-4016` | A cutover, rollback, throttle or status for a name nothing is replacing | Start one: `pravaha replace`, `CREATE OR REPLACE CONTINUOUS QUERY`, or `POST /api/v1/queries/{name}/replacement`. After a `finish` or a `rollback` there is no replacement left to act on |
+| `PRV-4017` | A second replacement of one name; a new version whose plan normalises to the same computation as the old one (a cutover to itself); or a drop while a candidate is still running | Cut over, roll back or abandon the first. For "the same computation", the SQL you are replacing with is the query you already have — point readers at the existing name instead |
+| `PRV-4018` | A stream nothing is bound to, or one whose source cannot be replayed or whose positions do not order its records (a table scan reports where its pass began); an option this engine does not build (`backfill.parallelism`, `backfill.window`, `backfill.adaptive`); a rate above the ceiling the replacement was started with; or a `WRITING TO` / `RETAIN` that would change the sink or the retention | The message names which. A rate limit is a ceiling by design; start another replacement to raise it. Moving a sink is a drop and a fresh registration, so that what the old sink holds is a decision rather than a side effect |
+| `PRV-4019` | The subscription you were holding ended: the view it followed was replaced at a cutover | Subscribe again. A snapshot subscription then starts from a fresh snapshot of the new version — which is what it needs, and what a diff between two different queries could not give it |
+| `PRV-8003` | The query's computation is shared with another name (two registrations of the same question), or it is paused | Change or drop the other names first. A replacement moves one name, and a shared computation cannot tell which name a subscriber arrived through, so some subscribers would go on following the old version under a name that now answers the new one |
+
+**After a restart there is no rollback.** A replacement still backfilling comes back and carries on;
+one that had cut over comes back as the new version, and the version it replaced is gone — it was a
+running computation, not a durable one. Confirm or roll back before a planned restart.
 
 ## Every code
 
@@ -525,8 +545,13 @@ way it was registered.
 | `PRV-4010` | BACKFILL_BUFFER_FULL | state/serving |
 | `PRV-4011` | BACKFILL_MISSING_VERSION | state/serving |
 | `PRV-4012` | BACKFILL_UNSUPPORTED_KEY | state/serving |
+| `PRV-4013` | BACKFILL_SPLICE_MISSED | state/serving |
 | `PRV-4014` | BACKFILL_NOT_CAUGHT_UP | state/serving |
 | `PRV-4015` | BACKFILL_SEAM_WENT_BACKWARDS | state/serving |
+| `PRV-4016` | BACKFILL_NO_REPLACEMENT | state/serving |
+| `PRV-4017` | BACKFILL_REPLACEMENT_IN_PROGRESS | state/serving |
+| `PRV-4018` | BACKFILL_SOURCE_UNSUPPORTED | state/serving |
+| `PRV-4019` | BACKFILL_VIEW_REPLACED | state/serving |
 | `PRV-4020` | SERVING_NO_HISTORY | state/serving |
 | `PRV-4021` | SERVING_READ_TIMED_OUT | state/serving |
 | `PRV-4022` | SERVING_VIEW_TOO_LARGE | state/serving |

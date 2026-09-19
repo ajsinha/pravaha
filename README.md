@@ -93,6 +93,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 | **Serving** | The maintained view is read by key or scanned with SQL, and subscribed to per commit — or from a snapshot: the view at a commit, then every commit after it, with none lost between (`subscribeFromSnapshot`, `snapshot=True`, `pravaha subscribe --snapshot`). Over **Arrow Flight SQL** (Java SDK, Python SDK, CLI, console), and over the **PostgreSQL wire protocol** (`pravaha.pgwire.enabled`, off by default) so `psql`, DBeaver, Grafana and any Postgres driver can read a view — simple and extended protocol, `\d`, TLS |
 | **Sinks** | A registration can also name a sink (`pravaha register --sink`), and every commit of its view is written there, retractions included. Refused at registration, before the sink opens: a query that revises its answer against an append-only sink (`PRV-2041`), any sink but an upsert over a source that repeats rows (`PRV-2042`), and a sink whose configured columns or key differ from the query's (`PRV-8010`). Shipped: `filesystem` (append-only), `aerospike-sink` (upsert and delete by key), `jdbc-sink` (a table in any JDBC database: upsert and delete by key, or append) and `kafka-sink` (a Kafka topic: keyed JSON upserts with a tombstone for a retraction, or an explicit changelog). Delivery is stated per sink at registration: a transactional sink such as `jdbc-sink` or `kafka-sink` is prepared at each checkpoint's cut and committed once the checkpoint is durable — exactly once; an idempotent upsert sink such as `aerospike-sink` is effectively once; a plain append sink such as `filesystem` is at least once |
 | **State** | Off-heap: join indexes and windowed-aggregate accumulators live in `RowStore` blocks behind open-addressed tables, `COUNT(DISTINCT)`'s values included. With `pravaha.state.spill.*` set, state past its memory ceiling spills to memory-mapped files and the query slows instead of stopping. Per-query gauges show state approaching its ceiling |
+| **Blue/green replacement** | A registered query's SQL is changed without taking its answer away: `CREATE OR REPLACE CONTINUOUS QUERY`, `pravaha replace`, both SDKs, the Flight actions and `/api/v1/queries/{name}/replacement`. The new version runs beside the old one, replays the source from the beginning, **splices onto the live stream at the exact position the running version has reached**, and takes the name only when the two have consumed the same input — so a reader sees the old answer up to the seam and the new one after it, with no gap and nothing counted twice. Subscribers are told the view was replaced (`PRV-4019`) rather than handed another query's changes; a sink follows the name at a checkpoint boundary and is sent only the difference; the replaced version keeps running for an hour, so a rollback is one swap. The backfill is throttled, pausable and watched by eight gauges, and a replacement in flight survives a restart ([ADR-046](docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md)) |
 | **Recovery** | Checkpoints hold operator state, source offsets and the served view, cut at one point across every input (ADR-008), so a restart resumes rather than replaying from scratch or starting empty. The registry journal brings back every registration, and its sink |
 | **Survival** | A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query |
 | **Many queries on one node** | A fixed pool of one thread per core drives every lane, and the watermark and checkpoint clocks are one timer for the process: **200 queries add 24 platform threads** on 24 cores, where they once added 400. About **1 MiB off-heap per idle query** on a lane of its own, and every component reports its own bytes. With lane sharing on, **1,000 queries over one source run on 8 lanes, and each row is written into them 8 times instead of 1,000** |
@@ -183,8 +184,15 @@ corrected by late data arrives as a retraction of the old answer followed by the
   listener error handler. Its Boot matrix is Maven profiles (`-Pboot-3.2` to `-Pboot-3.5`) with a
   test that fails a leg running a Boot other than the one it names; only the 3.5 leg (3.5.16) has
   been run, and no CI job runs the others.
-- **Blue/green query updates and backfill splicing** are built in `pravaha-backfill` and reachable
-  from no running path.
+- **The snapshot-and-change-feed splice.** Design §16.1's other backfill — a table snapshot joined
+  to a change feed, deduplicated by the store's own version — is built and tested as
+  `SplicedReader` in `pravaha-backfill`, and is reachable from no running path: no source plugin
+  here exposes a snapshot read separately from its change feed, and `postgres-cdc` does its own
+  initial snapshot behind its own offset. What a replacement's backfill uses instead is the seam
+  these sources do have, an offset ([ADR-046](docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md)).
+  The design's `backfill.parallelism`, `backfill.window` and `backfill.adaptive` are refused by name
+  (`PRV-4018`): a backfill reads each partition once, from the beginning, at the rate an operator
+  sets, and nothing probes the store's own latency to adapt to.
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
   views, live results, operations, a plugins screen built on the engine's manifest listing, and
   admin screens for access and the audit trail are built, and a headless-Chrome suite holds zero axe
@@ -193,7 +201,8 @@ corrected by late data arrives as a retraction of the old answer followed by the
   engine feature is missing. A component gallery the console renders itself stands in for
   Storybook, which is not adopted (it needs Node). Not done: the manual WCAG 2.2 AA audit, the
   eight-states audit screen by screen, and the engine features the six journeys wait on — the
-  time-travel debugger, a readable DLQ, backfill and cutover control, backpressure sampling — plus
+  time-travel debugger, a readable DLQ, backpressure sampling — the backfill and cutover the
+  console's journey waits on are built now and its screens are not — plus
   cluster screens, tenants and quotas, and editing grants (the engine is not where grants live).
 
 ## Performance: what is measured, and what cannot be here
@@ -350,7 +359,7 @@ console is its own artefact in [`console`](console).
 | 3 | 6–11 | Codegen, lanes, exchange — Profile A ≥ 1.2 M rec/s/lane | ✅ built · gate P2 needs hardware |
 | 4 | 12–18 | Windows, watermarks, late data, tiered state | ✅ built, with a memory-mapped L1 instead of RocksDB (ADR-044) · gate P3 needs hardware |
 | 5 | 19–25 | Joins, Aerospike, checkpointing and recovery | ✅ built |
-| 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built · blue/green reachable from nothing |
+| 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built · blue/green reachable from SQL, the CLI, both SDKs and the API ([ADR-046](docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md)) |
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built |
 | 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ✅ built · gate P7 passed |
 | 9 | — | One node, thousands of queries ([ADR-036](docs/adr/036-one-node-thousands-of-queries.md), [ADR-037](docs/adr/037-state-that-degrades-instead-of-dying.md)) | ✅ built · lane sharing by stream (LANE-2) |

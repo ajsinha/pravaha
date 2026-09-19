@@ -1181,6 +1181,93 @@ bound) and, for a stopped source, the code, the stream and partition, and when. 
 SDKs' `queries()`, in `pravaha_query_feed_stopped`, on `/status`, in the health indicator
 (`DEGRADED`) and on the console's query and operations pages. See OPERATIONS, *A source that stopped*.
 
+### 8.1 Replacing a running query: `CREATE OR REPLACE`
+
+Changing a query's SQL used to mean dropping it and registering it again, which takes the answer
+away from everybody reading it and gives them back an aggregate with no history. A replacement does
+not:
+
+```sql
+CREATE OR REPLACE CONTINUOUS QUERY spend
+    KEYED BY (user_id)
+    WITH (backfill = 'history', backfill.rate.limit = 5000, cutover = 'manual')
+AS SELECT user_id, SUM(amount) AS total, COUNT(*) AS payments
+   FROM txn GROUP BY user_id, TUMBLE(ts, INTERVAL '1' HOUR);
+```
+
+What happens, in order:
+
+1. **The new version is registered beside the running one**, as a shadow: its own state, its own
+   checkpoints, its own readers, and no reader can reach it. The name goes on answering the version
+   it answers now. The statement returns immediately, with the state `BACKFILLING`.
+2. **It reads the history** — the source from the beginning — and **splices onto the live stream at
+   the exact position the running version has reached**. The seam is a position, not a moment: the
+   history is read to that offset and a reader is then created at it, so every record arrives
+   exactly once.
+3. **It catches up**, which means every partition has reached the live stream. `pravaha
+   replacements`, `GET /api/v1/queries/spend/replacement` and the `pravaha.replacement` action all
+   say how far it has got.
+4. **You cut over** — `pravaha cutover --name spend`, `POST .../replacement/cutover`, or
+   `cutover = 'auto'` to say you do not want to be asked. The cutover happens only when the two
+   versions have consumed *exactly* the same input, compared position by position with both feeds
+   stopped; a cutover that cannot find such a point in thirty seconds is refused with `PRV-4014`
+   rather than taken.
+5. **The version it replaced keeps running** for `rollback.retention` (an hour by default), so
+   `pravaha rollback --name spend` is one swap rather than a second backfill. `pravaha finish`
+   releases it early; after that there is nothing to roll back to.
+
+**The options.**
+
+| Option | Default | Means |
+|---|---|---|
+| `backfill` | `history` | `history` replays the source and splices onto the live stream. `none` starts the new version where the running one is, with empty state — cheap, and correct only for a query whose answer does not depend on history |
+| `backfill.rate.limit` | none | Records a second the backfill may read. A **ceiling**: an operator may lower it while it runs (`pravaha throttle`) and may not raise it above this |
+| `cutover` | `manual` | `auto` cuts over as soon as the new version has caught up |
+| `rollback.retention` | `PT1H` | How long the replaced version keeps running afterwards |
+
+The design's `backfill.parallelism`, `backfill.window` and `backfill.adaptive` are **refused by
+name** with `PRV-4018`: a backfill reads each partition once, from the beginning, at the rate you
+set, and nothing here probes the store's own latency to adapt to.
+
+**What a reader sees.** A read of the name resolves to one version's view or the other's and never a
+mixture, and neither is behind the other, so the answer to the old question up to the seam is
+followed by the answer to the new question after it — with no gap and nothing counted twice.
+
+**What a subscriber sees.** Every commit the replaced version ever made, the last of them taken
+while it was paused at the seam, and then the subscription **ends with `PRV-4019`**. Plain and
+snapshot subscriptions alike: handing a subscriber the new version's changes on top of the old
+version's would be a copy that is half one query's answer and half another's, with nothing in the
+stream to say so. Subscribe again — a snapshot subscription then starts from a fresh snapshot of the
+new version, which is what it actually needs.
+
+**What a sink sees.** It follows the name, at a checkpoint boundary: everything the replaced version
+wrote is committed, and the new version's delivery is sent the **difference** between that and its
+own view as one batch — the old answer withdrawn, the new one written. Nothing twice, nothing left
+behind. A replacement may not change *which* sink the name writes to, or the view's retention:
+`WRITING TO` naming a different sink and `RETAIN` are refused with `PRV-4018`. Moving a sink is a
+drop and a fresh registration, so that what the old sink holds is somebody's decision rather than a
+side effect.
+
+**What is refused, by name.**
+
+| Code | When |
+|---|---|
+| `PRV-4013` | The backfill read all the history there is and never reached the position it was to splice at — a source whose positions do not name the record they were taken after |
+| `PRV-4014` | A cutover before the candidate caught up, or when the two versions could not be brought to the same position |
+| `PRV-4016` | A cutover, rollback or status for a name nothing is replacing |
+| `PRV-4017` | A second replacement of one name; a new version that is the same computation as the old; a drop while a candidate is running |
+| `PRV-4018` | A stream nothing is bound to or that cannot be replayed; an option this engine does not build; a rate above the ceiling; a changed sink or retention |
+| `PRV-4019` | The subscription you were holding: the view was replaced |
+| `PRV-8003` | The query's computation is shared with another name — a replacement moves one name, and a shared computation cannot tell which name a subscriber arrived through |
+| `PRV-7002` | You may not administer this name. A replacement requires the same permission a drop does, reading its status included |
+
+**Where it runs.** `CREATE OR REPLACE` over Flight SQL and in the embedded engine; the actions
+`pravaha.replace`, `pravaha.replacement`, `pravaha.cutover`, `pravaha.rollback`, `pravaha.abandon`,
+`pravaha.finish` and `pravaha.backfill`; `pravaha replace | replacements | cutover | rollback |
+abandon | finish | throttle | pause-backfill | resume-backfill`; both SDKs; and
+`/api/v1/queries/{name}/replacement` with `/api/v1/queries/{name}/backfill`. The PostgreSQL gateway
+is read-only and refuses it with `PRV-6211`.
+
 ---
 
 ## 9. Parameters
@@ -1246,10 +1333,11 @@ costs whatever was decided on the strength of it.
 ### 10.1 The statements that register and manage queries
 
 ```
-CREATE CONTINUOUS QUERY name
+CREATE [OR REPLACE] CONTINUOUS QUERY name
     KEYED BY (column [, column]...)
     [WRITING TO sink]
     [RETAIN FOR duration | RETAIN FOREVER]
+    [WITH (option = value [, option = value]...)]
 AS select
 
 DROP   CONTINUOUS QUERY name
@@ -1274,6 +1362,13 @@ SHOW   CONTINUOUS QUERIES
   holds.
 - **One trailing semicolon** is accepted, and so are comments.
 
+- **`OR REPLACE`** starts a blue/green replacement when the name already exists (§8.1), and is an
+  ordinary `CREATE` when it does not — so the same script runs on the first deployment and on the
+  tenth. It does **not** take the name from its readers: the new version is registered beside the
+  running one and the statement answers with the state it is in, which is `BACKFILLING`.
+- **`WITH (...)`** carries a replacement's options, and only a replacement's. On a plain `CREATE` it
+  is refused with `PRV-2072`, because none of its options mean anything there.
+
 **What each answers.** `CREATE`: one row — `name`, `state`, `fingerprint`, `sink`. `DROP`, `PAUSE`,
 `RESUME`: `name` and the state it is now in (`DROPPED`, `PAUSED`, `RUNNING`). `SHOW CONTINUOUS
 QUERIES`: a row per name you may learn exists — `name`, `state`, `sql`, `fingerprint`, `rows_in`
@@ -1290,9 +1385,11 @@ spelling changes nothing about who may do what.
 for `WRITING TO sink`, `INDEXED BY (...)` for `KEYED BY (...)`, `SERVE AS VIEW name` when it names
 the query itself, and a trailing `EMIT CHANGES` — which every continuous query does. The rest of
 that design is refused by name with `PRV-2072` rather than ignored: `INDEXED BY ... RANGE (...)`, a
-`WITH (...)` option list (read a retention there as ignored and a view you asked to keep for a day
-is kept for ever), `EMIT CHANGES WITH (...)`, `CREATE OR REPLACE`, and a `SERVE AS VIEW` naming
-something other than the query — here a query and its view are one name.
+`WITH (...)` option list on a plain `CREATE` (read a retention there as ignored and a view you asked
+to keep for a day is kept for ever), `EMIT CHANGES WITH (...)`, and a `SERVE AS VIEW` naming
+something other than the query — here a query and its view are one name. `CREATE OR REPLACE` was on
+that list until there was a mechanism behind it that does not take a running query's answers away
+(§8.1, [ADR-046](adr/046-a-replacement-meets-the-running-version-at-a-position.md)).
 
 **Why this grammar.** `KEYED BY` says what the clause does — a second row with the same key replaces
 the first — where `INDEXED BY` suggests an index beside the view, which nothing builds. `WRITING TO`
@@ -1621,6 +1718,12 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2070` | A `CREATE`/`DROP`/`PAUSE`/`RESUME CONTINUOUS QUERY` or `SHOW CONTINUOUS QUERIES` without that statement's shape — §10.1 |
 | `PRV-2071` | `KEYED BY` names a column the query does not produce, or one twice — §10.1 |
 | `PRV-2072` | A clause of the design's `CREATE CONTINUOUS QUERY` that is not built — §10.1 |
+| `PRV-4013` | A backfill reached the end of the history without reaching its seam — §8.1 |
+| `PRV-4014` | A cutover before the new version had caught up, or at a position the two do not share — §8.1 |
+| `PRV-4016` | No replacement of that name is in flight — §8.1 |
+| `PRV-4017` | A second replacement of one name, a replacement by the same computation, or a drop during one — §8.1 |
+| `PRV-4018` | A stream that cannot be backfilled, an option that is not built, or a rate above the ceiling — §8.1 |
+| `PRV-4019` | A subscription ended because the view it followed was replaced — §8.1 |
 | `PRV-3030` | A row's output is wider than 64 columns — §11 |
 | `PRV-6211` | A continuous-query statement sent to the read-only PostgreSQL gateway — §10.1 |
 | `PRV-8009` | A sink refused a batch and was detached from the query; the view carries on — §4 |
