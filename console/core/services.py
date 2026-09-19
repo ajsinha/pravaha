@@ -215,7 +215,7 @@ class QueryService:
             if row.fingerprint == target.fingerprint and row.name != name
         )
 
-    def register(self, name: str, sql: str, keys: list[int]) -> Query:
+    def register(self, name: str, sql: str, keys: list[int], sink: str | None = None) -> Query:
         if not name.strip():
             raise ServiceError("a registration needs a name", status=400)
         if not sql.strip():
@@ -227,7 +227,10 @@ class QueryService:
                 status=400,
             )
         try:
-            row = self._engine.register(name.strip(), sql.strip(), keys)
+            if sink and sink.strip():
+                row = self._engine.register(name.strip(), sql.strip(), keys, sink=sink.strip())
+            else:
+                row = self._engine.register(name.strip(), sql.strip(), keys)
         except Exception as exc:
             raise ServiceError(str(exc), status=400, code=_code_in(str(exc))) from exc
         return self._of(row)
@@ -271,16 +274,17 @@ class AdHocService:
             raise ServiceError("nothing to run", status=400)
         started = time.monotonic()
         try:
-            columns, rows = self._engine.query(sql, parameters)
+            columns, rows, types = self._engine.query_typed(sql, parameters)
         except Exception as exc:
             raise ServiceError(str(exc), status=400, code=_code_in(str(exc))) from exc
         took_ms = round((time.monotonic() - started) * 1000, 1)
         truncated = len(rows) > limit
         return {
             "columns": columns,
+            "types": types,
             # Truncated here rather than in the browser: a query that returns a million
             # rows should not be able to make the console the reason the tab dies.
-            "rows": rows[:limit],
+            "rows": jsonable(rows[:limit]),
             "truncated": truncated,
             "returned": min(len(rows), limit),
             "took_ms": took_ms,
@@ -436,12 +440,336 @@ class _Feed:
                 subscriber.offer({"_error": self.error})
 
 
+def jsonable(value: Any) -> Any:
+    """Engine values as JSON: a timestamp as ISO-8601, a decimal as a string, bytes as hex.
+
+    A decimal becomes a string rather than a float on purpose -- a money column rounded
+    by the console on its way to the browser would be a wrong number on the one screen
+    people copy numbers from.
+    """
+    import datetime as _dt
+    import decimal as _decimal
+    import math as _math
+
+    if isinstance(value, list):
+        return [jsonable(v) for v in value]
+    if isinstance(value, tuple):
+        return [jsonable(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): jsonable(v) for k, v in value.items()}
+    if isinstance(value, (_dt.datetime, _dt.date, _dt.time)):
+        return value.isoformat()
+    if isinstance(value, _dt.timedelta):
+        return value.total_seconds()
+    if isinstance(value, _decimal.Decimal):
+        return str(value)
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).hex()
+    if isinstance(value, float) and (_math.isnan(value) or _math.isinf(value)):
+        return None
+    return value
+
+
+def _refusal(exc: Exception, status: int = 400) -> ServiceError:
+    """An engine refusal as a ServiceError, keeping the engine's own code and status."""
+    code = getattr(exc, "code", None) or _code_in(str(exc))
+    http = getattr(exc, "status", None)
+    if http == 0:
+        # Did not answer at all: the engine is down or the URL is wrong, which is retryable.
+        return ServiceError(str(exc), status=503, code=code)
+    if isinstance(http, int) and 400 <= http < 600:
+        status = 503 if http >= 500 else http
+    return ServiceError(str(exc), status=status, code=code)
+
+
+class CatalogService:
+    """What exists to be queried: streams and their fields, from the engine's public REST API.
+
+    Cached for a few seconds. The workbench asks on every page load and completion asks on
+    every keystroke burst; the catalog changes when an administrator declares a stream,
+    which is not a thing that happens between two keystrokes.
+    """
+
+    def __init__(self, engine: Engine, ttl_seconds: float = 5.0) -> None:
+        self._engine = engine
+        self._ttl = ttl_seconds
+        self._lock = threading.Lock()
+        self._cached: list[dict] | None = None
+        self._at = 0.0
+
+    def streams(self, fresh: bool = False) -> list[dict]:
+        with self._lock:
+            if (not fresh and self._cached is not None
+                    and time.monotonic() - self._at < self._ttl):
+                return self._cached
+        try:
+            streams = sorted(self._engine.streams(), key=lambda s: str(s.get("name", "")))
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+        with self._lock:
+            self._cached, self._at = streams, time.monotonic()
+        return streams
+
+    def streams_or_empty(self) -> list[dict]:
+        """For callers that can do without the catalog -- validation, the palette."""
+        try:
+            return self.streams()
+        except ServiceError:
+            return []
+
+    def stream(self, name: str) -> dict:
+        for stream in self.streams():
+            if str(stream.get("name", "")).lower() == name.lower():
+                return stream
+        raise ServiceError(f"no stream named '{name}' is declared on this engine, or this "
+                           "console's identity may not read it", status=404)
+
+    def declare(self, name: str, schema: str) -> dict:
+        from core.snippets import IDENTIFIER
+
+        if not IDENTIFIER.match(name or ""):
+            raise ServiceError("a stream name must be letters, digits and underscores", status=400)
+        if not (schema or "").strip():
+            raise ServiceError("a stream needs a schema, as name:TYPE pairs separated by commas",
+                               status=400)
+        try:
+            declared = self._engine.declare_stream(name, schema.strip())
+        except Exception as exc:
+            raise _refusal(exc) from exc
+        with self._lock:
+            self._cached = None
+        return declared
+
+    def completions(self) -> dict:
+        """Everything the editor completes: streams, their columns with types, functions."""
+        from core import authoring
+
+        return {
+            "streams": [{"name": s.get("name"), "version": s.get("version"),
+                         "fields": s.get("fields") or []} for s in self.streams_or_empty()],
+            "functions": authoring.FUNCTIONS,
+            "keywords": authoring.KEYWORDS,
+            "types": authoring.TYPES,
+        }
+
+
+class AuthoringService:
+    """Validate and explain, through the engine's public REST API, made editor-shaped."""
+
+    LEVELS = ("physical", "logical", "codegen")
+
+    def __init__(self, engine: Engine, catalog: CatalogService) -> None:
+        self._engine = engine
+        self._catalog = catalog
+
+    def validate(self, sql: str) -> dict:
+        from core import authoring
+
+        try:
+            raw = self._engine.validate(sql)
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+        return authoring.enrich(raw, sql, self._catalog.streams_or_empty())
+
+    def explain(self, sql: str, level: str = "physical") -> dict:
+        from core import authoring
+
+        if level not in self.LEVELS:
+            raise ServiceError(f"level must be one of {', '.join(self.LEVELS)}", status=400)
+        if not sql.strip():
+            raise ServiceError("nothing to explain", status=400)
+        try:
+            raw = self._engine.explain(sql, level)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+        text = str(raw.get("plan") or "")
+        return {
+            "level": raw.get("level", level),
+            "plan": text,
+            "graph": authoring.plan_graph(text) if level != "codegen" else {"nodes": [], "edges": []},
+            "output_fields": list(raw.get("outputFields") or []),
+            # Said by the answer, not left to the reader to notice: the plan is the engine's
+            # structure only. Per-operator rates, state and lag need an engine API that
+            # does not exist yet.
+            "operator_metrics": None,
+        }
+
+    def key_ordinals(self, sql: str, names: list[str]) -> tuple[list[int], list[dict]]:
+        """Key columns by name -> the ordinals the engine takes, against its own schema."""
+        from core import authoring
+
+        checked = self.validate(sql)
+        if not checked["valid"]:
+            first = checked["diagnostics"][0] if checked["diagnostics"] else {}
+            raise ServiceError(first.get("message") or "the query does not validate",
+                               status=400, code=first.get("code"))
+        try:
+            return authoring.output_ordinals(checked["output_fields"], names), checked["output_fields"]
+        except KeyError as exc:
+            raise ServiceError(str(exc.args[0]), status=400) from exc
+
+
+class ViewService:
+    """A registered query's view, as an application developer consumes it."""
+
+    def __init__(self, engine: Engine, queries: QueryService, authoring: AuthoringService,
+                 row_limit: int = 500) -> None:
+        self._engine = engine
+        self._queries = queries
+        self._authoring = authoring
+        self._limit = row_limit
+
+    def schema(self, name: str) -> list[dict]:
+        """The view's columns: its query's validated output schema.
+
+        Validation plans the query's own SQL against the catalog without reading a row. If
+        that is unavailable the view is read and only its schema kept -- correct, and more
+        expensive, which is why it is the fallback. The engine has no "describe view"
+        endpoint yet (see the console README's list of engine APIs it needs).
+        """
+        query = self._queries.get(name)
+        try:
+            checked = self._authoring.validate(query.sql)
+            if checked["valid"] and checked["output_fields"]:
+                return checked["output_fields"]
+        except ServiceError:
+            pass
+        try:
+            columns, _rows, types = self._engine.query_typed(f"SELECT * FROM {name}")
+        except Exception as exc:
+            raise _refusal(exc) from exc
+        return [{"name": c, "type": t, "nullable": True, "ordinal": i}
+                for i, (c, t) in enumerate(zip(columns, types))]
+
+    def lookup(self, name: str, filters: dict[str, Any]) -> dict:
+        """A point query: ``SELECT * FROM view WHERE col = ? AND ...``, parameterised.
+
+        Column names are checked against the view's own schema and the values bound as
+        parameters, so nothing typed into the form is ever spliced into SQL.
+        """
+        from core.snippets import IDENTIFIER, _typed
+
+        if not IDENTIFIER.match(name or ""):
+            raise ServiceError(f"'{name}' is not a view name this console can query", status=400)
+        known = {str(f.get("name")).lower(): str(f.get("name")) for f in self.schema(name)}
+        clauses, values = [], []
+        for column, value in filters.items():
+            if value is None or str(value) == "":
+                continue
+            actual = known.get(str(column).lower())
+            if actual is None:
+                raise ServiceError(f"'{column}' is not a column of {name}", status=400)
+            clauses.append(f"{actual} = ?")
+            values.append(_typed(str(value)))
+        sql = f"SELECT * FROM {name}" + (" WHERE " + " AND ".join(clauses) if clauses else "")
+        started = time.monotonic()
+        try:
+            columns, rows, types = self._engine.query_typed(sql, values or None)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+        return {"sql": sql, "parameters": jsonable(values), "columns": columns, "types": types,
+                "rows": jsonable(rows[: self._limit]), "truncated": len(rows) > self._limit,
+                "returned": min(len(rows), self._limit),
+                "took_ms": round((time.monotonic() - started) * 1000, 1)}
+
+
+class OpsService:
+    """The operations dashboard's data: parsed metrics, node status, and a verdict."""
+
+    def __init__(self, engine: Engine, queries: QueryService, feeds: Broadcaster,
+                 lag_warn_seconds: float = 300.0) -> None:
+        from core.metrics import MetricsHistory
+
+        self._engine = engine
+        self._queries = queries
+        self._feeds = feeds
+        self._lag_warn = lag_warn_seconds
+        self.history = MetricsHistory(engine.prometheus)
+        self._status_lock = threading.Lock()
+        self._status: tuple[float, dict] | None = None
+
+    def _node_status(self) -> dict:
+        with self._status_lock:
+            if self._status and time.monotonic() - self._status[0] < 5:
+                return self._status[1]
+        try:
+            status = {"available": True, **self._engine.status()}
+        except Exception as exc:  # noqa: BLE001 -- rendered, not raised
+            status = {"available": False, "error": str(exc)}
+        with self._status_lock:
+            self._status = (time.monotonic(), status)
+        return status
+
+    def snapshot(self) -> dict:
+        from core import metrics
+        from core.metrics import QUERY_METERS
+
+        scraped = self.history.snapshot()
+        try:
+            registered = {q.name: q for q in self._queries.find(limit=QueryService.MAX_LIMIT).items}
+            registry_error = None
+        except ServiceError as exc:
+            registered, registry_error = {}, str(exc)
+        states = {name: q.state for name, q in registered.items()}
+        per_query = []
+        names = sorted(set(scraped["queries"]) | set(registered))
+        for name in names:
+            # Every meter present as a key, None when unpublished, so a screen can tell
+            # "not published" from "zero" without guarding each lookup.
+            numbers: dict[str, Any] = {key: None for key in QUERY_METERS.values()}
+            numbers["rows_in_rate"] = None
+            numbers.update(scraped["queries"].get(name) or {})
+            numbers["name"] = name
+            query = registered.get(name)
+            numbers["state"] = query.state if query else None
+            numbers["shared"] = query.shared if query else False
+            numbers["fingerprint"] = query.fingerprint if query else None
+            if numbers.get("rows_in") is None and query is not None:
+                numbers["rows_in"] = query.rows_in
+            numbers["metrics_published"] = name in scraped["queries"]
+            per_query.append(numbers)
+        found = metrics.findings(scraped["queries"], lag_warn_seconds=self._lag_warn,
+                                 registered_states=states)
+        # A query the registry lists as FAILED but the metrics have not caught up with yet
+        # (they reconcile every fifteen seconds) is still a finding.
+        for name, state in states.items():
+            if state == "FAILED" and not any(f.query == name for f in found):
+                found.insert(0, metrics.Finding("critical", name, "Not running",
+                                                f"{name} is FAILED. Open it to see why."))
+        return {
+            "at": scraped["at"],
+            "metrics": {"reachable": scraped["reachable"], "error": scraped["error"]},
+            "registry": {"reachable": registry_error is None, "error": registry_error},
+            "node": {**scraped["node"], "status": self._node_status()},
+            "queries": per_query,
+            "findings": [f.as_dict() for f in found],
+            "verdict": metrics.verdict(scraped["reachable"] or registry_error is None, found,
+                                       len(names)),
+            "console": {"upstream_subscriptions": self._feeds.live_feeds()},
+            "not_exposed": metrics.NOT_EXPOSED,
+        }
+
+    def series(self, metric: str) -> dict:
+        from core.metrics import QUERY_METERS
+
+        allowed = set(QUERY_METERS.values()) | {"rows_in_rate"}
+        if metric not in allowed:
+            raise ServiceError(f"'{metric}' is not a per-query metric this console charts",
+                               status=400)
+        return {"metric": metric, "series": self.history.series(metric)}
+
+
 class Services:
     """Everything the API layer needs, constructed once."""
 
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, *, row_limit: int = 500,
+                 lag_warn_seconds: float = 300.0) -> None:
         self.engine = engine
         self.health = HealthService(engine)
         self.queries = QueryService(engine)
         self.adhoc = AdHocService(engine)
         self.feeds = Broadcaster(engine)
+        self.catalog = CatalogService(engine)
+        self.authoring = AuthoringService(engine, self.catalog)
+        self.views = ViewService(engine, self.queries, self.authoring, row_limit)
+        self.ops = OpsService(engine, self.queries, self.feeds, lag_warn_seconds)

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import helpcards %}
+{% block title %}Operations — {{ app_name }}{% endblock %}
+{% macro pct(v) %}{% if v is none %}—{% else %}{{ '%.0f'|format(v * 100) }}%{% endif %}{% endmacro %}
+{% macro lag(v) %}{% if v is none %}<span class="text-muted" title="No row with an event time has arrived">no watermark</span>{% elif v < 90 %}{{ '%.0f'|format(v) }} s{% elif v < 5400 %}{{ '%.0f'|format(v / 60) }} min{% else %}{{ '%.1f'|format(v / 3600) }} h{% endif %}{% endmacro %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">OPERATIONS</p>
+    <h1>Is everything healthy — and if not, where?</h1>
+  </div>
+  <span class="freshness" id="ops-freshness" data-state="fresh"><span class="dot"></span><span>as of page load</span></span>
+</div>
+<div class="rule"></div>
+
+<div id="ops-app">
+{% set v = snapshot.verdict %}
+<div class="verdict {{ v.status }} mb-3" id="verdict" role="status">
+  <i class="icon bi {{ 'bi-check-circle-fill' if v.status == 'ok' else 'bi-exclamation-triangle-fill' if v.status == 'warn' else 'bi-x-octagon-fill' }}" aria-hidden="true"></i>
+  <div><div class="headline">{{ v.headline }}</div>
+    {% if v.where %}<div class="small text-muted">Where: <span class="mono">{{ v.where }}</span></div>{% endif %}</div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card h-100"><div class="card-header">What needs attention</div><div class="card-body py-1" id="findings">
+      {% for f in snapshot.findings %}
+      <div class="finding"><span class="sev chip {{ 'bad' if f.severity == 'critical' else 'warn' if f.severity == 'warn' else 'info' }}">{{ f.severity }}</span>
+        <div><div class="fw-semibold">{% if f.query %}<a class="mono" href="/queries/{{ f.query }}">{{ f.query }}</a> — {% endif %}{{ f.title }}</div>
+          <div class="small text-muted">{{ f.detail }}</div></div></div>
+      {% else %}
+      <div class="state py-4"><h3>Nothing</h3><p>No query is near its state ceiling, stopped, or behind in event time.</p></div>
+      {% endfor %}
+    </div></div>
+  </div>
+  <div class="col-lg-7">
+    <div class="row g-3" id="tiles">
+      {% set st = snapshot.node.status %}
+      <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
+        <div class="label">Engine</div><div class="value" style="font-size:1.1rem">{{ st.engineState if st.available else 'unreachable' }}</div>
+        <div class="note">{{ ('v' ~ st.version) if st.available and st.version else (st.error or '')[:60] }}</div></div></div></div>
+      <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
+        <div class="label">Queries</div><div class="value">{{ snapshot.queries|length }}</div>
+        <div class="note">{{ snapshot.queries|selectattr('state', 'equalto', 'RUNNING')|list|length }} running</div></div></div></div>
+      <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
+        <div class="label">Heap</div><div class="value">{% if snapshot.node.heap_used_bytes %}{{ '%.0f'|format(snapshot.node.heap_used_bytes / 1048576) }}<small class="fs-6"> MB</small>{% else %}—{% endif %}</div>
+        <div class="note">{% if snapshot.node.heap_max_bytes %}of {{ '%.0f'|format(snapshot.node.heap_max_bytes / 1048576) }} MB{% else %}not published{% endif %}</div></div></div></div>
+      <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
+        <div class="label">Console fan-out</div><div class="value">{{ snapshot.console.upstream_subscriptions }}</div>
+        <div class="note">engine subscriptions this console holds</div></div></div></div>
+      {% if st.available and st.plugins %}
+      <div class="col-12"><div class="card"><div class="card-body py-2 small">
+        <span class="text-muted me-2">Plugins</span>
+        {% for p in st.plugins %}<span class="chip {{ 'ok' if p.health in ('UP', 'HEALTHY', 'OK') else 'warn' }} me-1" title="{{ p.detail }}">{{ p.name }} · {{ p.health }}</span>{% endfor %}
+      </div></div></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if not snapshot.metrics.reachable %}
+<div class="alert alert-warning mt-3 small" role="status"><div class="fw-semibold">The engine's metrics endpoint is not answering</div>
+  {{ snapshot.metrics.error }} — the per-query numbers below come from the registry alone until it does.</div>
+{% endif %}
+
+<h2>Queries</h2>
+<div class="card"><div class="table-responsive"><table class="table mb-0" id="ops-queries">
+  <thead><tr><th>Query</th><th>State</th><th class="num">Rows in</th><th class="num">Rows/s</th><th>State vs ceiling</th>
+    <th class="num">View rows</th><th class="num">Watermark lag</th></tr></thead>
+  <tbody>
+  {% for q in snapshot.queries %}
+  {% set frac = q.state_fraction %}
+  <tr><td><a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a>{% if q.shared %} <span class="chip warn">shared</span>{% endif %}</td>
+    <td>{% if q.state %}<span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}"><span class="dot"></span>{{ q.state }}</span>{% else %}<span class="chip mute">unlisted</span>{% endif %}</td>
+    <td class="num">{{ '{:,.0f}'.format(q.rows_in) if q.rows_in is not none else '—' }}</td>
+    <td class="num">{{ '{:,.1f}'.format(q.rows_in_rate) if q.rows_in_rate is not none else '—' }}</td>
+    <td>{% if frac is not none %}<div class="d-flex align-items-center gap-2"><div class="gauge {{ 'critical' if frac >= 0.9 else 'warn' if frac >= 0.75 else '' }}" style="width:7rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (frac * 100)|round|int }}" aria-label="state held as a share of its ceiling"><span style="width:{{ [frac * 100, 100]|min }}%"></span></div><span class="small">{{ pct(frac) }}</span></div>{% else %}<span class="text-muted small">{{ 'not published yet' if not q.metrics_published else '—' }}</span>{% endif %}</td>
+    <td class="num">{{ '{:,.0f}'.format(q.view_size) if q.view_size is not none else '—' }}</td>
+    <td class="num">{{ lag(q.watermark_lag_seconds) if q.metrics_published else '—' }}</td></tr>
+  {% else %}
+  <tr><td colspan="7"><div class="state"><h3>No queries registered</h3><p>Once one is, its throughput, state and lag are here.</p>
+    <a class="btn btn-sm btn-primary" href="/start">Get started</a></div></td></tr>
+  {% endfor %}
+  </tbody></table></div></div>
+<p class="small text-muted mt-1">Per-query meters are reconciled with the registry every 15 s, so a query registered a moment
+  ago shows “not published yet” for up to that long.</p>
+
+<div class="row g-3 mt-1">
+  <div class="col-xl-6"><div class="card"><div class="card-header">Rows in per second</div><div class="card-body">
+    <div class="chart-box" id="chart-rate" role="img" aria-label="Rows in per second, per query"></div>
+    <p class="chart-caption mb-0">Rate of <code>pravaha_query_rows_in</code>, per query, from this console's 1 s scrapes. Window: since this page opened, up to 5 min.</p></div></div></div>
+  <div class="col-xl-6"><div class="card"><div class="card-header">State held, as a share of its ceiling</div><div class="card-body">
+    <div class="chart-box" id="chart-state" role="img" aria-label="State held as a fraction of ceiling, per query"></div>
+    <p class="chart-caption mb-0"><code>pravaha_query_state_fraction</code>, 0–100 %, fixed scale so queries compare. At 100 % a query is refused (PRV-4001) unless spilling is on.</p></div></div></div>
+</div>
+
+<h2>Not published by the engine yet</h2>
+<div class="row g-3">
+  {% for n in snapshot.not_exposed %}
+  <div class="col-md-6 col-xl-3"><div class="needs-engine h-100"><div class="title"><i class="bi bi-plug"></i>{{ n.label }}</div>
+    <div class="mt-1">Needs {{ n.needs }}.</div></div></div>
+  {% endfor %}
+</div>
+</div>
+<script type="application/json" id="ops-initial">{{ snapshot_data|tojson }}</script>
+{{ helpcards([('operations', 'Operating it', 'What to watch, what survives a restart, what a cluster promises.'), ('troubleshooting', 'When it refuses', 'Every PRV code, what it means, what to do.'), ('execution-model', 'Lanes and state', 'Where a query runs and what it holds.')]) }}
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/app/ops.js?v={{ asset_version }}"></script>{% endblock %}

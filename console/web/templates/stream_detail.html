@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import helpcards %}
+{% block title %}{{ stream.name }} · stream — {{ app_name }}{% endblock %}
+{% block content %}
+<p class="text-muted small"><a href="/catalog">&larr; Catalog</a></p>
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">STREAM</p>
+    <h1 class="mono">{{ stream.name }}</h1>
+  </div>
+  <a class="btn btn-sm btn-primary" href="/workbench?template=tumble&amp;stream={{ stream.name }}">Write a query against it</a>
+</div>
+<div class="rule"></div>
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card"><div class="card-header d-flex justify-content-between"><span>Schema</span><span class="chip mute">version {{ stream.version }}</span></div>
+      <div class="card-body p-0"><table class="table mb-0">
+        <thead><tr><th class="num">#</th><th>Column</th><th>Type</th><th>Nullable</th></tr></thead>
+        <tbody>{% for f in stream.fields %}<tr><td class="num">{{ f.ordinal }}</td><td class="mono">{{ f.name }}</td>
+          <td class="mono small">{{ f.type }}</td><td>{{ 'yes' if f.nullable else 'no' }}</td></tr>{% endfor %}</tbody>
+      </table></div></div>
+    <div class="needs-engine mt-3"><div class="title"><i class="bi bi-plug"></i>Event time, lateness and source</div>
+      Not published by <code>GET /api/v1/streams/{{ stream.name }}</code>. Needed on the summary: <code>eventTime</code>,
+      <code>outOfOrderness</code> and <code>source</code> (plugin name, or none). A column of type TIMESTAMP is only the
+      event time if the configuration says so.</div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card"><div class="card-header">Registered queries that read it</div><div class="card-body">
+      {% if readers %}
+      <ul class="list-unstyled mb-0">{% for q in readers %}<li class="d-flex justify-content-between py-1">
+        <a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a>
+        <span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}">{{ q.state }}</span></li>{% endfor %}</ul>
+      <p class="small text-muted mt-2 mb-0">Matched by name in each query's SQL — lineage from the plan needs engine support.</p>
+      {% else %}<p class="small text-muted mb-0">None yet.</p>{% endif %}
+    </div></div>
+    <div class="card mt-3"><div class="card-header">Start from a template</div><div class="card-body">
+      <ul class="list-unstyled mb-0">{% for t in templates %}<li class="mb-2">
+        <a href="/workbench?template={{ t.id }}&amp;stream={{ stream.name }}">{{ t.title }}</a>
+        <div class="small text-muted">{{ t.summary }}</div></li>{% endfor %}</ul>
+    </div></div>
+  </div>
+</div>
+{{ helpcards([('continuous-queries', 'Declaring a stream', 'Schema, event time and lateness, and why each matters.'), ('concepts', 'Watermarks', 'Why a window closes on data rather than on the clock.'), ('connectors', 'Sources', 'Where a stream\'s rows come from.')]) }}
+{% endblock %}

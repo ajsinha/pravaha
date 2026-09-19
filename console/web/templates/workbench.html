@@ -1,89 +1,142 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helpcards %}
 {% block title %}Workbench — {{ app_name }}{% endblock %}
+{% block main_class %}container-fluid px-lg-4{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/monaco/vs/editor/editor.main.css">
+{% endblock %}
 {% block content %}
-<div class="accent"></div>
-<p class="kicker mt-2 mb-1">WORKBENCH</p>
-<h1>Ask once, or register it</h1>
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">SQL WORKBENCH</p>
+    <h1>Write it, check it, see its plan, register it</h1>
+  </div>
+  <div class="small text-muted">
+    <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> explain ·
+    <kbd>Ctrl</kbd>+<kbd>K</kbd> jump anywhere</div>
+</div>
 <div class="rule"></div>
-<p class="text-muted" style="max-width:46rem">A one-off query is answered from the views the engine
-  already maintains. Nothing is registered until you ask for it — and a registration is maintained
-  for as long as it is registered, by everyone who asked the same question.</p>
 
 {% if error %}
 <div class="alert alert-danger" role="alert">
   <div class="fw-semibold">The engine refused this query</div>
   <pre class="small mt-2 mb-2">{{ error }}</pre>
   {% if code %}<div class="small">{{ code }} —
-    <a href="/help/troubleshooting">what this code means</a></div>{% endif %}
+    <a href="/help/codes/{{ code }}">what this code means</a></div>{% endif %}
 </div>
 {% endif %}
 
-<form method="post" action="/workbench" id="run-form">
-  <div class="card"><div class="card-body">
-    <div class="mb-3">
-      <label class="form-label small text-muted mb-1" for="sql">SQL
-        <span class="fw-normal">— Ctrl+Enter runs it</span></label>
-      <textarea class="form-control mono" id="sql" name="sql" rows="5" spellcheck="false"
-        placeholder="SELECT user_id, SUM(amount) FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' MINUTE)) GROUP BY window_start, window_end, user_id">{{ sql }}</textarea>
-    </div>
-    <div class="mb-3">
-      <label class="form-label small text-muted mb-1" for="params">Parameters
-        <span class="fw-normal">— comma-separated, one per <code>?</code></span></label>
-      <input class="form-control form-control-sm" id="params" name="params" value="{{ params }}"
-             placeholder="e.g. 40, ACME">
-      <div class="form-text small">A <code>?</code> may stand where a value goes and nowhere else.
-        Numbers stay numbers: quoting 40 would compare a string to an integer and silently match
-        nothing.</div>
-    </div>
-    <button class="btn btn-sm btn-primary" type="submit" id="run">Run once</button>
-  </div></div>
-</form>
+<div class="wb">
+  {# The catalog. Server-rendered, so it is there before any script and without one; the
+     island only adds "click a column to insert it". #}
+  <aside class="wb-side" aria-label="Catalog">
+    <div class="card"><div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span class="section-label m-0">Streams</span>
+        <a class="small" href="/catalog">catalog &rarr;</a>
+      </div>
+      {% if streams %}
+        {% for s in streams %}
+        <details {{ 'open' if loop.first else '' }}>
+          <summary><span class="mono" data-insert="{{ s.name }}" title="Insert {{ s.name }}">{{ s.name }}</span>
+            <span class="field-type ms-auto">{{ s.fields|length }}</span></summary>
+          <ul class="field-list">
+            {% for f in s.fields %}
+            <li data-insert="{{ f.name }}" title="Insert {{ f.name }}"><span class="mono">{{ f.name }}</span>
+              <span class="field-type">{{ f.type }}</span></li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% endfor %}
+      {% else %}
+        <p class="small text-muted mb-0">No streams to show. Either none is declared, or the engine's
+          HTTP API at its configured address is not answering — completion and validation need it too.
+          <a href="/start">Declare one &rarr;</a></p>
+      {% endif %}
+      <div class="section-label mb-1">Library</div>
+      <ul class="list-unstyled small mb-0">
+        {% for t in library %}
+        <li class="mb-1"><a href="/workbench?template={{ t.id }}{% if streams %}&amp;stream={{ streams[0].name }}{% endif %}"
+               data-template="{{ t.id }}" title="{{ t.summary }}">{{ t.title }}</a></li>
+        {% endfor %}
+      </ul>
+    </div></div>
+  </aside>
 
-<form method="post" action="/queries" class="card mt-3"><div class="card-body">
-  <div class="row g-2 align-items-end">
-    <div class="col-sm-5">
-      <label class="form-label small text-muted mb-1" for="name">Register as</label>
-      <input class="form-control form-control-sm" id="name" name="name"
-             placeholder="a name clients will use in FROM" required>
-    </div>
-    <div class="col-sm-3">
-      <label class="form-label small text-muted mb-1" for="keys">Key columns</label>
-      <input class="form-control form-control-sm" id="keys" name="keys" value="0">
-    </div>
-    <div class="col-auto">
-      <button class="btn btn-sm btn-outline-secondary" type="submit">Register</button>
-    </div>
-  </div>
-  <input type="hidden" name="sql" id="register-sql" value="{{ sql }}">
-  <div class="form-text small mt-2">Key columns are output ordinals. A view with no key is a log,
-    and a point read against it has nothing to look up.</div>
-</div></form>
+  <section aria-label="Editor">
+    {# The island mounts here. Until it does -- or if it never does -- this is a working
+       form: run the SQL once, or register it, with the server rendering the answer. #}
+    <div id="workbench-app" data-origin="{{ origin }}">
+      <form method="post" action="/workbench" id="run-form">
+        <div class="card"><div class="card-body">
+          <div class="mb-3">
+            <label class="form-label small text-muted mb-1" for="sql">SQL</label>
+            <textarea class="form-control mono" id="sql" name="sql" rows="9" spellcheck="false"
+              placeholder="SELECT window_start, window_end, COUNT(*) FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' MINUTE)) GROUP BY window_start, window_end">{{ sql }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted mb-1" for="params">Parameters
+              <span class="fw-normal">— comma-separated, one per <code>?</code></span></label>
+            <input class="form-control form-control-sm" id="params" name="params" value="{{ params }}"
+                   placeholder="e.g. 40, ACME">
+          </div>
+          <button class="btn btn-sm btn-primary" type="submit" id="run">Run once</button>
+        </div></div>
+      </form>
 
-<h2>Result <span class="freshness ms-2" id="freshness"></span></h2>
-<div class="card"><div class="card-body" id="result">
-  {% if result %}
-    {% if result.truncated %}
-    <div class="alert alert-warning py-2 small">Showing {{ result.returned }} rows; the result was
-      larger. These are the first rows, not a sample of all of them.</div>
-    {% endif %}
-    {% if result.rows %}
-    <div class="table-responsive"><table class="table mb-0">
-      <thead><tr>{% for c in result.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
-      <tbody>{% for row in result.rows %}<tr>{% for v in row %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody>
-    </table></div>
-    <p class="small text-muted mt-2 mb-0">{{ result.returned }} rows in {{ result.took_ms }}ms</p>
-    {% else %}
-    <div class="state"><h3>No rows</h3>
-      <p>The query ran in {{ result.took_ms }}ms and matched nothing. On a stream this often means
-        the window has not closed yet: a window closes when data says it is over, not when the
-        clock does.</p></div>
-    {% endif %}
-  {% else %}
-    <div class="state"><h3>Nothing run yet</h3>
-      <p>Write a query above and run it. Nothing is registered until you ask for it.</p></div>
-  {% endif %}
-</div></div>
-{{ helpcards([   ('sql-support', 'What SQL works', 'The matrix: every construct, and the reason for each refusal.'),   ('quickstart', 'Quick start', 'The shortest path from a query to a maintained view.'),   ('troubleshooting', 'When it refuses', 'Every PRV code, what it means, and what to do.'), ]) }}
+      <form method="post" action="/queries" class="card mt-3" id="register-form"><div class="card-body">
+        <div class="row g-2 align-items-end">
+          <div class="col-sm-4">
+            <label class="form-label small text-muted mb-1" for="name">Register as</label>
+            <input class="form-control form-control-sm" id="name" name="name"
+                   placeholder="a name clients will use in FROM" required>
+          </div>
+          <div class="col-sm-3">
+            <label class="form-label small text-muted mb-1" for="keys">Key columns</label>
+            <input class="form-control form-control-sm" id="keys" name="keys" value="" placeholder="user_id, window_end">
+          </div>
+          <div class="col-sm-3">
+            <label class="form-label small text-muted mb-1" for="sink">Sink <span class="fw-normal">(optional)</span></label>
+            <input class="form-control form-control-sm" id="sink" name="sink" placeholder="pravaha.sinks.&lt;name&gt;">
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Register</button>
+          </div>
+        </div>
+        <input type="hidden" name="sql" id="register-sql" value="{{ sql }}">
+        <div class="form-text small mt-2">Key columns by name (or output ordinal). A view with no key is a
+          log, and a point read against it has nothing to look up.</div>
+      </div></form>
+
+      <h2>Result</h2>
+      <div class="card"><div class="card-body" id="result">
+        {% if result %}
+          {% if result.truncated %}
+          <div class="alert alert-warning py-2 small">Showing {{ result.returned }} rows; the result was
+            larger. These are the first rows, not a sample of all of them.</div>
+          {% endif %}
+          {% if result.rows %}
+          <div class="table-responsive"><table class="table mb-0">
+            <thead><tr>{% for c in result.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for row in result.rows %}<tr>{% for v in row %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+          </table></div>
+          <p class="small text-muted mt-2 mb-0">{{ result.returned }} rows in {{ result.took_ms }}ms</p>
+          {% else %}
+          <div class="state"><h3>No rows</h3>
+            <p>The query ran in {{ result.took_ms }}ms and matched nothing. On a stream this often means
+              the window has not closed yet: a window closes when data says it is over, not when the
+              clock does.</p></div>
+          {% endif %}
+        {% else %}
+          <div class="state"><h3>Nothing run yet</h3>
+            <p>Write a query above and run it. Nothing is registered until you ask for it.</p></div>
+        {% endif %}
+      </div></div>
+    </div>
+  </section>
+</div>
+<script type="application/json" id="wb-library">{{ library|tojson }}</script>
+{{ helpcards([   ('continuous-queries', 'What SQL runs', 'Every construct, and the reason for each refusal.'),   ('quickstart', 'Quick start', 'The shortest path from a query to a maintained view.'),   ('troubleshooting', 'When it refuses', 'Every PRV code, what it means, and what to do.'), ]) }}
 {% endblock %}
-{% block scripts %}<script src="/static/js/workbench.js"></script>{% endblock %}
+{% block scripts %}<script type="module" src="/static/app/workbench.js?v={{ asset_version }}"></script>{% endblock %}

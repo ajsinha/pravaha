@@ -10,11 +10,13 @@ engine logic.
 from routes.api_routes import ApiRoutes
 from routes.auth_routes import AuthRoutes
 from routes.base import API, Routes
+from routes.product_routes import ProductRoutes
 from routes.public_routes import PublicRoutes
 from routes.ui_routes import UIRoutes
 
 # Order matters: `/queries/{name}` would swallow a literal path registered after
 # it, so the modules with the more specific paths register first.
-ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, UIRoutes)
+ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, ProductRoutes, UIRoutes)
 
-__all__ = ["ALL_ROUTES", "API", "ApiRoutes", "AuthRoutes", "PublicRoutes", "Routes", "UIRoutes"]
+__all__ = ["ALL_ROUTES", "API", "ApiRoutes", "AuthRoutes", "ProductRoutes", "PublicRoutes", "Routes",
+           "UIRoutes"]

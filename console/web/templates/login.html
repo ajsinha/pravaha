@@ -28,6 +28,19 @@
         <input class="form-control" type="password" id="password" name="password"
                autocomplete="current-password" autofocus required>
       </div>
+      <fieldset class="mb-3">
+        <legend class="form-label small text-muted mb-1 fs-6">I am here to</legend>
+        {% for key, meta in roles.items() %}
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="role" id="role-{{ key }}" value="{{ key }}"
+                 {{ 'checked' if key == role else '' }}>
+          <label class="form-check-label small" for="role-{{ key }}"><strong>{{ meta.blurb }}</strong>
+            <span class="text-muted">— lands on {{ meta.landing }}</span></label>
+        </div>
+        {% endfor %}
+        <div class="form-text small">Changeable at any time from the account menu. It picks where you
+          land and what the command palette offers first; it grants nothing.</div>
+      </fieldset>
       <button class="btn btn-primary w-100" type="submit" {{ 'disabled' if not configured }}>Sign in</button>
     </div></form>
 

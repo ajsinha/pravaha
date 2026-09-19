@@ -147,9 +147,33 @@ class UIRoutes(Routes):
 
         # --------------------------------------------------------- workbench
         @self.app.get("/workbench", response_class=HTMLResponse, tags=["ui"])
-        def workbench(request: Request):
+        def workbench(request: Request, query: str = "", sql: str = "", template: str = "",
+                      stream: str = ""):
+            """The SQL Workbench: the analyst's landing (design 23.7).
+
+            Gated now, because it renders the catalog -- which streams exist and what is in
+            them -- and prefills from a registered query's own SQL. ``?query=`` opens a
+            registered query, ``?sql=`` a piece of SQL, ``?template=`` a library template
+            written against ``?stream=``.
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            from core import authoring
+
+            streams = _safe(services.catalog.streams, [])
+            prefill, origin = sql, ""
+            if query:
+                found = _safe(lambda: services.queries.get(query), None)
+                if found is not None:
+                    prefill, origin = found.sql, query
+            elif template:
+                chosen = next((s for s in streams if s.get("name") == stream), None)
+                for item in authoring.templates(chosen or (streams[0] if streams else None)):
+                    if item["id"] == template:
+                        prefill = item["sql"]
             return self.page(request, "workbench.html", current="/workbench",
-                             result=None, sql="", params="")
+                             result=None, sql=prefill, params="", origin=origin,
+                             streams=streams, library=authoring.templates(streams[0] if streams else None))
 
         @self.app.post("/workbench", response_class=HTMLResponse, tags=["ui"])
         def run(request: Request, sql: str = Form(...), params: str = Form("")):
@@ -159,24 +183,36 @@ class UIRoutes(Routes):
             if (refusal := login_required(request)) is not None:
                 return refusal
             values = [_typed(part) for part in params.split(",") if part.strip()]
+            from core import authoring
+
+            streams = _safe(services.catalog.streams, [])
+            library = authoring.templates(streams[0] if streams else None)
             try:
                 result = services.adhoc.run(sql, values or None)
             except ServiceError as exc:
                 return self.page(request, "workbench.html", http_status=400,
                                  current="/workbench", result=None, sql=sql,
-                                 params=params, error=str(exc), code=exc.code or "")
+                                 params=params, error=str(exc), code=exc.code or "",
+                                 origin="", streams=streams, library=library)
             return self.page(request, "workbench.html", current="/workbench",
-                             result=result, sql=sql, params=params)
+                             result=result, sql=sql, params=params, origin="",
+                             streams=streams, library=library)
 
         @self.app.post("/queries", tags=["ui"])
         def register_query(request: Request, name: str = Form(...), sql: str = Form(...),
-                           keys: str = Form("0")):
+                           keys: str = Form("0"), sink: str = Form("")):
             if (refusal := login_required(request)) is not None:
                 return refusal
             logger.info("%s registered '%s'", current_user(request), name)
-            ordinals = [int(part.strip()) for part in keys.split(",") if part.strip()]
+            # Keys by ordinal ("0,1") or by name ("user_id, window_end"): a name is mapped
+            # against the schema the engine validated, which is what the workbench does too.
+            parts = [part.strip() for part in keys.split(",") if part.strip()]
             try:
-                services.queries.register(name, sql, ordinals)
+                if parts and not all(p.lstrip("-").isdigit() for p in parts):
+                    ordinals, _fields = services.authoring.key_ordinals(sql, parts)
+                else:
+                    ordinals = [int(p) for p in parts]
+                services.queries.register(name, sql, ordinals, sink=sink or None)
             except ServiceError as exc:
                 return self.page(request, "refused.html", http_status=400,
                                  current="/workbench", what=f"register '{name}'",

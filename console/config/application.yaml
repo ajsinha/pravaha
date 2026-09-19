@@ -59,6 +59,14 @@ engine:
   # asking the engine directly would make the health check a load source of its
   # own -- which is the failure where monitoring takes down what it monitors.
   health_cache_seconds: 1
+  # The engine's HTTP surface: its public REST API (/api/v1/streams, /api/v1/queries/validate,
+  # /api/v1/queries/explain, /api/v1/status) and /actuator/prometheus. The workbench's
+  # catalog, validation and plans, and the operations dashboard, read it. A separate port
+  # from Flight -- 8080, not 9090.
+  http_url: "${PRAVAHA_ENGINE_HTTP:http://localhost:8080}"
+  # Where psql reaches the engine's PostgreSQL gateway, for the view browser's snippets.
+  # Only ever shown as text; the console does not connect to it.
+  pgwire: "${PRAVAHA_PGWIRE:localhost:5432}"
 
 ui:
   # Rows buffered per browser on a live tail before the oldest are dropped. A
@@ -69,6 +77,13 @@ ui:
   # rows should not be able to make the console the reason a tab dies.
   query_row_limit: 500
   page_size: 25
+  # A watermark further behind the wall clock than this is a finding on the operations
+  # dashboard: the data is late, or its source has stopped.
+  lag_warn_seconds: 300
+  # Where a signed-in person lands when they have not chosen: analyst (workbench),
+  # operator (operations dashboard) or developer (views). Each person can change their own
+  # from the account menu; this is only the default.
+  default_role: "${CONSOLE_DEFAULT_ROLE:operator}"
 
 api:
   prefix: "/api/v1"

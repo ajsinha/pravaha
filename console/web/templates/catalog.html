@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import helpcards %}
+{% block title %}Catalog — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">CATALOG</p>
+    <h1>What exists, and what reads it</h1>
+  </div>
+  <a class="btn btn-sm btn-primary" href="/start">Declare a stream or write a query</a>
+</div>
+<div class="rule"></div>
+
+<nav class="tabs-bar" aria-label="Catalog sections">
+  <a href="/catalog?tab=streams" aria-selected="{{ 'true' if tab == 'streams' else 'false' }}" {% if tab == 'streams' %}aria-current="page"{% endif %}>Streams<span class="count">{{ streams|length }}</span></a>
+  <a href="/catalog?tab=queries" aria-selected="{{ 'true' if tab == 'queries' else 'false' }}" {% if tab == 'queries' %}aria-current="page"{% endif %}>Registered queries<span class="count">{{ queries|length }}</span></a>
+  <a href="/catalog?tab=sinks" aria-selected="{{ 'true' if tab == 'sinks' else 'false' }}" {% if tab == 'sinks' %}aria-current="page"{% endif %}>Sinks</a>
+</nav>
+
+{% if tab == 'streams' %}
+  {% if streams_error %}
+  <div class="alert alert-warning small" role="status"><div class="fw-semibold">The stream catalog is not answering</div>
+    {{ streams_error }}. Streams are read from the engine's REST API at <span class="mono">{{ engine_http or 'engine.http_url (not set)' }}</span>.</div>
+  {% elif not streams %}
+  <div class="state"><h3>No streams declared</h3><p>A stream is declared under <code>pravaha.streams</code> in the
+    engine's configuration, or through its REST API. The get-started guide can declare one.</p>
+    <a class="btn btn-sm btn-primary" href="/start">Declare a stream</a></div>
+  {% else %}
+  <div class="row g-3">
+    {% for s in streams %}
+    <div class="col-md-6 col-xl-4"><div class="card h-100"><div class="card-body">
+      <div class="d-flex justify-content-between align-items-start">
+        <a class="mono fw-semibold fs-6" href="/catalog/streams/{{ s.name }}">{{ s.name }}</a>
+        <span class="chip mute">v{{ s.version }}</span></div>
+      <ul class="field-list mt-2">
+        {% for f in s.fields[:6] %}<li><span class="mono">{{ f.name }}</span><span class="field-type">{{ f.type }}</span></li>{% endfor %}
+        {% if s.fields|length > 6 %}<li class="text-muted small">and {{ s.fields|length - 6 }} more</li>{% endif %}
+      </ul>
+      <div class="d-flex gap-2 mt-2">
+        <a class="btn btn-sm btn-outline-secondary" href="/workbench?template=tumble&amp;stream={{ s.name }}">Query it</a>
+        <a class="btn btn-sm btn-link" href="/catalog/streams/{{ s.name }}">Schema &rarr;</a></div>
+    </div></div></div>
+    {% endfor %}
+  </div>
+  <div class="needs-engine mt-3"><div class="title"><i class="bi bi-plug"></i>Event time and watermarks are not shown</div>
+    The stream summary (<code>GET /api/v1/streams</code>) carries name, version and fields — not the declared
+    <code>event-time</code> column or <code>out-of-orderness</code>, and not whether a source is bound. Needed: those three
+    fields on <code>StreamSummary</code>, since a stream with no event time never closes a window.</div>
+  {% endif %}
+
+{% elif tab == 'queries' %}
+  {% if queries_error %}
+  <div class="alert alert-warning small">{{ queries_error }}</div>
+  {% elif not queries %}
+  <div class="state"><h3>Nothing registered</h3><p>A continuous query is registered once and maintained until it is dropped.</p>
+    <a class="btn btn-sm btn-primary" href="/workbench">Open the workbench</a></div>
+  {% else %}
+  <div class="card"><div class="table-responsive"><table class="table mb-0">
+    <thead><tr><th>Query</th><th>State</th><th>Fingerprint</th><th>Shares its computation with</th><th>Sink</th><th class="num">Rows in</th></tr></thead>
+    <tbody>
+    {% for q in queries %}
+    <tr><td><a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a></td>
+      <td><span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}"><span class="dot"></span>{{ q.state }}</span></td>
+      <td class="mono small">{{ q.fingerprint }}</td>
+      <td>{% set others = siblings[q.fingerprint]|reject('equalto', q.name)|list %}
+        {% if others %}{% for o in others %}<a class="mono small" href="/queries/{{ o }}">{{ o }}</a>{{ ', ' if not loop.last }}{% endfor %}
+        {% else %}<span class="text-muted small">none — its own computation</span>{% endif %}</td>
+      <td><span class="text-muted small" title="The engine's listing does not include a query's sink">not published</span></td>
+      <td class="num">{{ "{:,}".format(q.rows_in) }}</td></tr>
+    {% endfor %}
+    </tbody></table></div></div>
+  <p class="small text-muted mt-2">Two names on one fingerprint are one computation with one copy of the state: the
+    registry matched their normalised plans. Dropping one leaves the other running.</p>
+  {% endif %}
+
+{% else %}
+  <div class="needs-engine"><div class="title"><i class="bi bi-plug"></i>Sinks cannot be listed yet</div>
+    <p class="mb-1 mt-1">A sink is bound in the engine's configuration under <code>pravaha.sinks.&lt;name&gt;</code> and named at
+      registration. The engine publishes no API that lists those bindings, their plugin, their row shape, whether they
+      accept retractions, or which queries write to them.</p>
+    <p class="mb-0">Needed: <code>GET /api/v1/sinks</code> → <code>[{name, plugin, fields:[{name,type}], keyColumns, acceptsRetractions, writers:[query]}]</code>
+      and a <code>sink</code> field on each entry of the <code>pravaha.list</code> action. Until then the workbench's register
+      panel takes a sink by name, and the engine checks it (<a href="/help/codes/PRV-8010">PRV-8010</a>,
+      <a href="/help/codes/PRV-2041">PRV-2041</a>).</p></div>
+{% endif %}
+{{ helpcards([('continuous-queries', 'Streams and sources', 'Declaring a stream, binding a source, and event time.'), ('connectors', 'Connectors', 'Every source and sink plugin, configured.'), ('concepts', 'Sharing', 'Why two names can be one computation.')]) }}
+{% endblock %}

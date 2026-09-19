@@ -24,7 +24,7 @@ from urllib.parse import quote
 from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from routes.base import Routes
+from routes.base import ROLES, SHARED_PRINCIPAL, Routes
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def local_path(target: str) -> str:
     front of it.
     """
     if not target or not target.startswith("/") or target.startswith("//"):
-        return "/overview"
+        return "/home"
     return target
 
 
@@ -61,13 +61,13 @@ class AuthRoutes(Routes):
         secret = self.ctx["config"].get("console.password", "") or ""
 
         @self.app.get("/login", response_class=HTMLResponse, tags=["auth"])
-        def login_page(request: Request, next: str = "/overview"):
+        def login_page(request: Request, next: str = "/home"):
             return self.page(request, "login.html", current="/login",
                              next=local_path(next), error=None, configured=bool(secret))
 
         @self.app.post("/login", tags=["auth"])
         def login_submit(request: Request, password: str = Form(""),
-                         next: str = Form("/overview")):
+                         next: str = Form("/home"), role: str = Form("")):
             # Defaulted rather than required, so an empty submission reaches the check below
             # and is refused as a wrong password. Declared required, the form validator
             # rejects it first with a 422 -- a validation error, which is not what happened.
@@ -79,7 +79,12 @@ class AuthRoutes(Routes):
                 return self.page(request, "login.html", http_status=401, current="/login",
                                  next=local_path(next), configured=bool(secret),
                                  error="That is not the console password.")
-            request.session["user"] = "operator"
+            request.session["user"] = SHARED_PRINCIPAL
+            # Where this person lands and what the palette offers first. A preference, not a
+            # permission: every role can reach every screen, and the server re-checks the
+            # session on every call regardless (design 23.16).
+            if role in ROLES:
+                request.session["role"] = role
             logger.info("console sign-in from %s",
                         request.client.host if request.client else "unknown")
             return RedirectResponse(local_path(next), status_code=303)

@@ -60,15 +60,20 @@ def _truncate(value, length: int = 64) -> str:
     return text if len(text) <= length else text[:length] + "…"
 
 
-def create_app(config: PropertiesConfigurator) -> FastAPI:
+def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> FastAPI:
     """Build the application from configuration.
 
     Separate from ``main`` so a test can build one without binding a port, which
-    is how the console's own tests run it.
+    is how the console's own tests run it. ``engine`` lets a test substitute the one
+    adapter that talks to the engine -- everything above it is the real console.
     """
-    engine = Engine(config.get("engine.url", "grpc://localhost:9090"),
-                    config.get("engine.token") or None)
-    services = Services(engine)
+    if engine is None:
+        engine = Engine(config.get("engine.url", "grpc://localhost:9090"),
+                        config.get("engine.token") or None,
+                        http_url=config.get("engine.http_url") or None)
+    services = Services(engine,
+                        row_limit=config.get_int("ui.query_row_limit", 500),
+                        lag_warn_seconds=config.get_float("ui.lag_warn_seconds", 300.0))
 
     app = FastAPI(title=config.get("app.name", "Pravaha") + " console",
                   version=config.get("app.version", "0.1.0"),

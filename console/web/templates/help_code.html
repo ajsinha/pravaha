@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.code }} — {{ app_name }}{% endblock %}
+{% block head %}<style>
+.doc p,.doc li{line-height:1.68;color:var(--slate)}
+.doc pre{margin:.8rem 0}
+.mention{border-left:3px solid var(--rule);padding:.1rem 0 .1rem .8rem;margin:.6rem 0}
+.mention p{margin:0}
+</style>{% endblock %}
+{% block content %}
+<p class="text-muted small"><a href="/help/troubleshooting">&larr; Every code</a></p>
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">ERROR CODE</p>
+<h1 class="mono" style="font-size:1.6rem">{{ entry.code }}</h1>
+<div class="rule"></div>
+{% if entry.constant %}
+<p><span class="chip info">{{ entry.constant }}</span> <span class="chip mute">{{ entry.area }}</span></p>
+{% endif %}
+<p class="text-muted" style="max-width:48rem">The code is the stable part of a refusal: the message may
+  improve, the code does not change. Everything below is read from the documentation that ships with
+  the engine, so it is the same text a reader of the repository sees.</p>
+
+{% if not entry.known %}
+<div class="state"><h3>Nothing is written about {{ entry.code }} yet</h3>
+  <p>The code is well-formed but no shipped document discusses it. The message that carried it is the
+    best description there is; the full table is on the troubleshooting page.</p>
+  <a class="btn btn-sm btn-primary" href="/help/troubleshooting">Open troubleshooting</a></div>
+{% endif %}
+
+{% for doc, heading, html in sections %}
+<article class="card mb-3"><div class="card-header d-flex justify-content-between">
+  <span>{{ heading }}</span><span class="small text-muted mono">{{ doc }}</span></div>
+  <div class="card-body doc">{{ html|safe }}</div></article>
+{% endfor %}
+
+{% if mentions %}
+<h2>Where else it is mentioned</h2>
+<div class="card"><div class="card-body doc">
+  {% for doc, html in mentions %}
+  <div class="mention"><div class="small text-muted mono">{{ doc }}</div>{{ html|safe }}</div>
+  {% endfor %}
+</div></div>
+{% endif %}
+{% endblock %}

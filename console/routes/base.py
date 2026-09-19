@@ -52,6 +52,47 @@ def _correlation(request: Request | None) -> str:
         return "-"
     return request.headers.get("x-correlation-id", "-")
 
+#: The principal the console's shared-secret sign-in records for everybody.
+SHARED_PRINCIPAL = "operator"
+
+#: The three personas a signed-in person can be (design 23.2), where each lands, and what
+#: the landing is for. Platform administration is the fourth persona and has no screens
+#: yet, so it is not offered: a role whose landing does not exist would be a lie.
+ROLES: dict[str, dict[str, str]] = {
+    "analyst": {"label": "Analyst", "landing": "/workbench",
+                "blurb": "Write and iterate on continuous SQL"},
+    "operator": {"label": "Operator", "landing": "/operations",
+                 "blurb": "Keep it running; find what is wrong"},
+    "developer": {"label": "Developer", "landing": "/views",
+                  "blurb": "Consume views from a service"},
+}
+
+
+def role_of(request: Request | None, default: str = "operator") -> str:
+    """The signed-in person's role: their own choice, else the principal's name, else the default.
+
+    The console's sign-in is one shared secret today, so the principal is usually just
+    "operator"; a deployment fronted by an identity provider would name the person, and a
+    principal literally called ``analyst`` or ``developer`` lands where that name says.
+    """
+    chosen = None
+    user = None
+    if request is not None:
+        try:
+            chosen = request.session.get("role")
+            user = request.session.get("user")
+        except Exception:  # noqa: BLE001 -- no session middleware on this app
+            chosen = user = None
+    if chosen in ROLES:
+        return str(chosen)
+    # The shared-secret sign-in names everyone "operator" -- a name for the gate, not a
+    # statement about the person -- so it does not decide a role; the configured default
+    # does. A principal from a real identity provider named for a role does.
+    if user in ROLES and user != SHARED_PRINCIPAL:
+        return str(user)
+    return default if default in ROLES else "operator"
+
+
 #: Where the JSON API lives. One constant, because the browser modules build
 #: their URLs from what the template tells them rather than from a string
 #: repeated in eleven files.
@@ -168,6 +209,11 @@ class Routes:
             # On every page, because a control that is present but refuses is worse than
             # one whose absence is explained.
             "signed_in": _signed_in(request),
+            "role": role_of(request, c.get("ui.default_role", "operator")),
+            "roles": ROLES,
+            # Asset versions are part of the page, so a cached module can never run against
+            # a template from another release.
+            "asset_version": c.get("app.version", "0"),
         }
 
     def page(self, request: Request, template: str, *, http_status: int = 200,

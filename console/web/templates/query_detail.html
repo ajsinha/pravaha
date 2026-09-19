@@ -5,7 +5,15 @@
 <p class="text-muted small"><a href="/queries">&larr; All queries</a></p>
 <div class="accent"></div>
 <p class="kicker mt-2 mb-1">QUERY</p>
-<h1>{{ query.name }}</h1>
+<div class="page-head">
+  <h1>{{ query.name }}</h1>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-sm btn-primary" href="/views/{{ query.name }}/live"><i class="bi bi-activity"></i> Watch live</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/views/{{ query.name }}">Browse view &amp; client code</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}&amp;panel=explain">See its plan</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}">Edit a copy</a>
+  </div>
+</div>
 <div class="rule"></div>
 
 <div class="row g-3">

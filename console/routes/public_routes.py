@@ -100,6 +100,27 @@ class PublicRoutes(Routes):
             """Cards, grouped by section, from the markdown on disk."""
             return index(request, "help")
 
+        @self.app.get("/help/codes/{code}", response_class=HTMLResponse, tags=["public"])
+        def help_code(request: Request, code: str):
+            """One PRV code: what the documentation says about it, gathered onto one page.
+
+            Public, like the rest of the documentation: a code read off a log during an
+            incident should explain itself before anybody has found the console password.
+            """
+            from core.content.codes import lookup
+
+            entry = lookup(code, content.include_root / "docs")
+            if entry is None:
+                return self.page(request, "not_found.html", http_status=404, current="/help",
+                                 what="error code", identifier=code, back_href="/help/troubleshooting",
+                                 back_label="Every code")
+            renderer = content.renderer
+            sections = [(doc, heading, renderer.render(body)[0])
+                        for doc, heading, body in entry.sections]
+            mentions = [(doc, renderer.render(line)[0]) for doc, line in entry.mentions]
+            return self.page(request, "help_code.html", current="/help", entry=entry,
+                             sections=sections, mentions=mentions)
+
         @self.app.get("/help/{slug}", response_class=HTMLResponse, tags=["public"])
         def help_topic(request: Request, slug: str):
             return topic(request, "help", slug)

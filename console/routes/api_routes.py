@@ -14,6 +14,7 @@ version they assumed.
 from __future__ import annotations
 
 import json
+import logging
 
 import anyio
 from fastapi import Request
@@ -22,6 +23,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from routes.auth_routes import current_user
 from routes.base import Routes
 
+logger = logging.getLogger(__name__)
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
@@ -82,9 +84,26 @@ class ApiRoutes(Routes):
             keys = body.get("keys") or []
             if isinstance(keys, str):
                 keys = [int(part) for part in keys.replace(" ", "").split(",") if part]
-            return self.json_guard(lambda: services.queries.register(
-                str(body.get("name", "")), str(body.get("sql", "")), list(keys)).as_dict(),
-                request=request)
+            key_names = body.get("key_names") or []
+            sink = str(body.get("sink") or "").strip() or None
+            sql = str(body.get("sql", ""))
+
+            def register_it():
+                ordinals = list(keys)
+                if key_names:
+                    # Chosen by NAME in the workbench and mapped to ordinals here, against
+                    # the schema the engine itself validated -- so the ordinal sent is the
+                    # one the engine will use, whatever order the SELECT list is in.
+                    ordinals, _fields = services.authoring.key_ordinals(sql, list(key_names))
+                payload = services.queries.register(
+                    str(body.get("name", "")), sql, ordinals, sink=sink).as_dict()
+                payload["keys"] = ordinals
+                payload["sink"] = sink
+                return payload
+
+            logger.info("%s registered '%s'%s", current_user(request), body.get("name"),
+                        f" writing to sink '{sink}'" if sink else "")
+            return self.json_guard(register_it, request=request)
 
         @self.app.post(f"{api}/queries/{{name}}/{{action}}", tags=["api"])
         def act(request: Request, name: str, action: str):

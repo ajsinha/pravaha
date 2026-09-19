@@ -23,6 +23,7 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
 }catch(e){}}());
 </script>
 <link href="/static/vendor/fonts/fonts.css" rel="stylesheet">
+<link href="/static/app/product.css?v={{ asset_version }}" rel="stylesheet">
 <style>
 /* ------------------------------------------------------------------ tokens
    Every colour on every screen resolves through one of these, so a theme is a
@@ -69,6 +70,11 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --code:"Source Code Pro",Consolas,"SF Mono",Menlo,monospace;
 
   --row-h:38px;
+
+  /* DATA colour, never UI chrome (design 23.4): a validated categorical order, assigned to a
+     series by identity and never cycled. The dark themes carry their own steps of it. */
+  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100;
+  --series-5:#e87ba4; --series-6:#008300; --series-7:#4a3aa7; --series-8:#e34948;
 }
 
 /* Dark. Not an inversion -- an inverted blue is a mustard nobody chose, and
@@ -96,6 +102,8 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --bar:linear-gradient(180deg, #1B2735 0%, #16202C 60%, #121A24 100%);
   --tint:linear-gradient(180deg, rgba(121,178,242,.06) 0%, rgba(121,178,242,0) 100%);
   --focus-glow:rgba(121,178,242,.22);
+  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+  --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
 }
 
 /* ── TERMINAL ──────────────────────────────────────────────────────────────
@@ -131,6 +139,8 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --bar:linear-gradient(180deg, #151610 0%, #0F100C 60%, #080A0A 100%);
   --tint:linear-gradient(180deg, rgba(255,169,43,.055) 0%, rgba(255,169,43,0) 100%);
   --focus-glow:rgba(255,169,43,.22);
+  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+  --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
 }
 
 /* And for anybody who has never touched the picker: follow the machine. The
@@ -152,6 +162,8 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
     --lift-2:0 2px 8px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4);
     --bar:linear-gradient(180deg, #1B2735 0%, #16202C 60%, #121A24 100%);
     --focus-glow:rgba(121,178,242,.22);
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+    --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
   }
 }
 
@@ -287,7 +299,7 @@ footer .principle{font-family:var(--serif);font-style:italic;}
 <div id="live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
 <nav class="navbar navbar-expand-lg navbar-dark mb-4">
   <div class="container">
-    <a class="navbar-brand d-flex align-items-center gap-2" href="/">
+    <a class="navbar-brand d-flex align-items-center gap-2" href="{{ '/home' if signed_in else '/' }}">
       <img src="/static/img/pravaha-mark.svg" alt="" width="24" height="24">{{ app_name }}
     </a>
     <span class="slogan d-none d-xl-inline">{{ slogan }}</span>
@@ -306,10 +318,14 @@ footer .principle{font-family:var(--serif);font-style:italic;}
            unpack" -- a 3-tuple nav entry being read as a 2-tuple section. The
            brand-key collision check in Routes.page cannot see this one, because a
            template-local set is not a context key. #}
+        {# Six now, one per job rather than one per feature: author, discover, consume,
+           operate, manage, learn. The persona landings (design 23.2) are the first four. #}
         {% set nav_sections = [
-          ("/", "Overview", "is it up, and what is it doing"),
+          ("/workbench", "Workbench", "write, validate, explain and register SQL"),
+          ("/catalog", "Catalog", "streams, registered queries and sinks"),
+          ("/views", "Views", "point queries, live changes and client code"),
+          ("/operations", "Operations", "is everything healthy, and if not, where?"),
           ("/queries", "Queries", "what is registered, and what it costs"),
-          ("/workbench", "Workbench", "ask once, or register it"),
           ("/help", "Help", "the documentation that ships with the engine")
         ] %}
         {% for path, label, gloss in nav_sections %}
@@ -320,6 +336,9 @@ footer .principle{font-family:var(--serif);font-style:italic;}
         </li>
         {% endfor %}
         <li class="nav-item ms-lg-3 d-flex align-items-center gap-2">
+          <button type="button" class="btn btn-sm btn-outline-light palette-trigger" id="palette-trigger"
+                  title="Command palette (Ctrl+K)" aria-label="Open the command palette" hidden>
+            <i class="bi bi-search" aria-hidden="true"></i><kbd class="ms-1">Ctrl K</kbd></button>
           {# The engine's reachability on every page, not only the one that
              failed: an operator who navigates away must not lose the single
              fact that explains why the next screen is empty. #}
@@ -329,7 +348,27 @@ footer .principle{font-family:var(--serif);font-style:italic;}
             <span class="chip bad" title="{{ engine_error }}"><span class="dot"></span>engine unreachable</span>
           {% endif %}
           {% if signed_in %}
-            <a class="btn btn-sm btn-outline-light" href="/logout" title="End this session">Sign out</a>
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" id="account-menu"
+                      data-bs-toggle="dropdown" aria-expanded="false" title="Your view of the console">
+                <i class="bi bi-person-circle" aria-hidden="true"></i> {{ roles[role].label }}</button>
+              <div class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="account-menu" style="min-width:17rem">
+                <div class="small text-muted px-2 pb-1">Land on, and see first</div>
+                {# Real forms: the role switch works with scripting off, like every control. #}
+                {% for key, meta in roles.items() %}
+                <form method="post" action="/preferences/role" class="m-0">
+                  <input type="hidden" name="role" value="{{ key }}">
+                  <input type="hidden" name="next" value="/home">
+                  <button class="dropdown-item small{{ ' active' if key == role else '' }}" type="submit"
+                          {% if key == role %}aria-current="true"{% endif %}>
+                    <strong>{{ meta.label }}</strong> <span class="text-muted">— {{ meta.blurb|lower }}</span></button>
+                </form>
+                {% endfor %}
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item small" href="/start">Get started guide</a>
+                <a class="dropdown-item small" href="/logout" title="End this session">Sign out</a>
+              </div>
+            </div>
           {% else %}
             <a class="btn btn-sm btn-outline-light" href="/login" title="Sign in to act">Sign in</a>
           {% endif %}
@@ -342,7 +381,7 @@ footer .principle{font-family:var(--serif);font-style:italic;}
     </div>
   </div>
 </nav>
-<main class="container" id="main" tabindex="-1">{% block content %}{% endblock %}</main>
+<main class="{% block main_class %}container{% endblock %}" id="main" tabindex="-1">{% block content %}{% endblock %}</main>
 <footer><div class="container d-flex flex-wrap gap-3 justify-content-between">
   <span class="principle">{{ principle }}</span>
   <span>{{ app_name }} {{ version }} — engine at <span class="mono">{{ engine_url }}</span></span>
@@ -351,6 +390,17 @@ footer .principle{font-family:var(--serif);font-style:italic;}
 <script src="/static/js/theme.js"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/states.js"></script>
+{# The islands are ES modules with no bundler: this map is the whole "build". Every entry
+   is a vendored file under /static/vendor, so nothing resolves off this server. #}
+<script type="importmap">
+{"imports": {
+  "preact": "/static/vendor/preact/preact.module.js",
+  "preact/hooks": "/static/vendor/preact/hooks.module.js",
+  "htm": "/static/vendor/htm/htm.module.js",
+  "pravaha/": "/static/app/"
+}}
+</script>
+<script type="module" src="/static/app/palette.js?v={{ asset_version }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
