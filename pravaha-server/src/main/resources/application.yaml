@@ -75,11 +75,12 @@ pravaha:
   # Port 5432 is what clients expect and is also what a PostgreSQL server on the same host is already
   # using -- change it rather than fight over it.
   # Written at column zero deliberately. DocumentationFreshnessTest reads a commented key as a
-  # declared one, and computes its depth as (spaces before the #) + 1 + (spaces after it) -- so a
-  # block indented to match its neighbours visually lands two levels too deep and declares
-  # pravaha.security.pgwire.* instead of pravaha.pgwire.*. The same is true of the commented
-  # sources: and streams: blocks above; nothing has caught it because the check only tests settings
-  # an error message actually names, and until now none of theirs did.
+  # declared one, and computes its depth as (spaces before the #) + 1 + (spaces after it) -- which
+  # is also where the key lands for anyone who uncomments it by turning the # into a space. So a
+  # block indented to match its neighbours visually lands one level too deep and declares
+  # pravaha.security.pgwire.* instead of pravaha.pgwire.*. Every commented block in this file is
+  # written that way: the streams:, sources: and sinks: blocks below at column zero, and security's
+  # tokens: two columns left of its neighbours (it was pravaha.security.allow-anonymous.tokens).
   # Where state goes when a query outgrows memory, instead of being refused (ADR-037 B2).
   #
   # A query whose join or windowed-aggregate state reaches its ceiling is refused today with
@@ -145,17 +146,17 @@ pravaha:
   # Declaring them here is what lets a node be described by a file. The alternative, and for a long
   # time the only way, is POST /api/v1/streams after every restart.
   #
-  # streams:
-  #   txn:
-  #     schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
-  #     # The column carrying each row's own time. Without it no watermark advances and no window
-  #     # ever closes: a windowed query plans, registers, reports RUNNING, ingests every row and
-  #     # emits nothing, for ever. The name:TYPE grammar has no syntax for marking a column, so
-  #     # this is the only way to say it from configuration.
-  #     event-time: event_time
-  #     # How late THIS stream's rows may be. Lateness belongs to the source, so it is set per
-  #     # stream. This is the key that is read; pravaha.watermark.out-of-orderness below is not.
-  #     out-of-orderness: 10s
+# streams:
+#   txn:
+#     schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+#     # The column carrying each row's own time. Without it no watermark advances and no window
+#     # ever closes: a windowed query plans, registers, reports RUNNING, ingests every row and
+#     # emits nothing, for ever. The name:TYPE grammar has no syntax for marking a column, so
+#     # this is the only way to say it from configuration.
+#     event-time: event_time
+#     # How late THIS stream's rows may be. Lateness belongs to the source, so it is set per
+#     # stream. This is the key that is read; pravaha.watermark.out-of-orderness below is not.
+#     out-of-orderness: 10s
 
   # Who may connect, and what they may see.
   #
@@ -202,47 +203,48 @@ pravaha:
     # StaticTokenVerifier so that nobody mistakes it for an identity system. A real deployment
     # implements TokenVerifier against whatever issues its credentials.
     #
-    # tokens:
-    #   "a-long-random-string":
-    #     id: ann
-    #     tenant: acme
-    #     roles: [reader]
+  # tokens:
+  #   "a-long-random-string":
+  #     id: ann
+  #     tenant: acme
+  #     roles: [reader]
 
   # Where each stream's rows come from. Without a binding a registered query runs and receives
   # nothing -- correct for an engine an application pushes rows into, and a silent surprise for a
   # server, which is why the node logs which streams are bound at startup.
   #
   # The plugin name is the one the plugin reports for itself, found on the classpath by
-  # ServiceLoader: filesystem, feedfile, jdbc, delta, aerospike, cassandra and postgres-cdc ship in
-  # this repository. Options are passed to the plugin untouched.
+  # ServiceLoader. filesystem is inside the server jar; feedfile, jdbc, delta, aerospike, cassandra
+  # and postgres-cdc ship as plugin modules in this repository. Options are passed to the plugin
+  # untouched.
   #
   # postgres-cdc is the one that is a changelog: a delete arrives as a retraction of the whole old
   # row and an update as a retraction and an insertion (docs/CONTINUOUS_QUERIES.md section 2.1). It
   # leaves a replication slot on the database that retains WAL until a checkpoint confirms it, so
   # set pravaha.checkpoint.directory with it, and read docs/OPERATIONS.md before the first one.
   #
-  # sources:
-  #   txn:
-  #     plugin: filesystem
-  #     options:
-  #       path: /var/lib/pravaha/incoming/txn.csv
-  #       schema: "id:INT64,user_id:STRING,amount:INT64"
-  #       # Optional. Names a column saying whether a row inserts or retracts. Without one a file is
-  #       # an append-only log of insertions, which is what it was before this existed -- and the
-  #       # engine's whole retraction model had no way in from a configured source.
-  #       op.column: op
-  #       # The values in that column that mean "retract". Default: D,DELETE,-,-1
-  #       op.delete.values: "D,DELETE,-,-1"
-  #   customers:
-  #     plugin: postgres-cdc
-  #     options:
-  #       url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/etc/pravaha/db-ca.pem"
-  #       user: pravaha_cdc                 # REPLICATION role
-  #       password: "${PRAVAHA_CDC_PASSWORD}"
-  #       table: public.customers           # must be REPLICA IDENTITY FULL
-  #       slot: pravaha_customers
-  #       publication: pravaha_customers
-  #       heartbeat.interval: 10s           # keeps the slot moving on a quiet table
+# sources:
+#   txn:
+#     plugin: filesystem
+#     options:
+#       path: /var/lib/pravaha/incoming/txn.csv
+#       schema: "id:INT64,user_id:STRING,amount:INT64"
+#       # Optional. Names a column saying whether a row inserts or retracts. Without one a file is
+#       # an append-only log of insertions, which is what it was before this existed -- and the
+#       # engine's whole retraction model had no way in from a configured source.
+#       op.column: op
+#       # The values in that column that mean "retract". Default: D,DELETE,-,-1
+#       op.delete.values: "D,DELETE,-,-1"
+#   customers:
+#     plugin: postgres-cdc
+#     options:
+#       url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/etc/pravaha/db-ca.pem"
+#       user: pravaha_cdc                 # REPLICATION role
+#       password: "${PRAVAHA_CDC_PASSWORD}"
+#       table: public.customers           # must be REPLICA IDENTITY FULL
+#       slot: pravaha_customers
+#       publication: pravaha_customers
+#       heartbeat.interval: 10s           # keeps the slot moving on a quiet table
 
   # W8-13 (ADR-039 item 5, ADR-043). Names a StreamSinkPlugin the way `sources` above names a
   # StreamSourcePlugin -- same ServiceLoader-by-name() resolution, same plugin/options shape. A
@@ -273,12 +275,12 @@ pravaha:
   #   options: {bootstrap.servers: "kafka-1:9092", topic: spend-by-user,
   #             schema: "user_id:STRING,total:INT64", key.columns: user_id}
   #
-  # sinks:
-  #   audit_trail:
-  #     plugin: filesystem
-  #     options:
-  #       path: /var/lib/pravaha/outgoing/audit_trail.csv
-  #       schema: "id:INT64,user_id:STRING,amount:INT64"
+# sinks:
+#   audit_trail:
+#     plugin: filesystem
+#     options:
+#       path: /var/lib/pravaha/outgoing/audit_trail.csv
+#       schema: "id:INT64,user_id:STRING,amount:INT64"
 
   registry:
     # Where registered continuous queries are written down. Unset means they live only in memory and
