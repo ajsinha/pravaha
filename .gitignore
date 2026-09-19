@@ -40,3 +40,4 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 dependency-reduced-pom.xml
+.jqwik-database

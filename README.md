@@ -131,10 +131,11 @@ corrected by late data arrives as a retraction of the old answer followed by the
   only. `aerospike-sink` stays effectively once and `filesystem` at least once, whose repeats after a
   restart stay in the file. End to end is still capped by the source: one that cannot rewind to a
   checkpoint's offsets (ADR-029) is at least once whatever the sink does.
-- **Sinks, and their real-server tests.** Four sinks. `aerospike-sink` is
-  unit-tested without a server here and `jdbc-sink` against H2; their real-server tests (Aerospike,
-  PostgreSQL) and every `kafka-sink` broker test need Docker. `kafka-sink` writes JSON only, and
-  ships no lz4, snappy or zstd codec (they are native code): `none` and `gzip` compression work.
+- **Sinks: four, and JSON to Kafka.** `filesystem`, `aerospike-sink`, `jdbc-sink` and `kafka-sink`,
+  and no others. Each is unit-tested without a server and again against a real one — Aerospike,
+  PostgreSQL and a Kafka broker, under Testcontainers — so a machine without Docker skips those,
+  by name, rather than passing. `kafka-sink` writes JSON only, and ships no lz4, snappy or zstd
+  codec (they are native code): `none` and `gzip` compression work.
 - **The Kafka source reads JSON only.** No Avro, Protobuf or schema registry; a topic of JSON rows,
   or `kafka-sink`'s changelog. An upsert topic's tombstones cannot be retractions (a tombstone does
   not say what row it deletes), so they are refused or, with `tombstone: skip`, ignored. The
