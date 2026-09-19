@@ -38,6 +38,14 @@ import java.util.Set;
  * @param guarantee the strongest delivery this source supports
  * @param pushdown what the source can absorb
  * @param typicalLatency an honest estimate, used for planning and shown to operators
+ * @param repeatsRows whether, in normal running and not only after a failure, the source can deliver
+ *     a row it has already delivered -- a periodic scan re-reading an unchanged row, or a poll
+ *     re-reading an updated one -- without retracting the earlier delivery. Such a feed is not a
+ *     changelog: every copy arrives at weight {@code +1}, so anything whose answer depends on how
+ *     many times a row arrived (an aggregate, a join, an append-only sink) is wrong, and the
+ *     registry refuses it ({@code PRV-2042}, SCAN-1). A keyed view of the rows themselves is
+ *     unaffected: the repeat overwrites its key with the same values. False unless a source says
+ *     otherwise, which is the right default only because every source that repeats says so
  */
 public record SourceCapabilities(
         boolean replayableOffsets,
@@ -46,7 +54,8 @@ public record SourceCapabilities(
         boolean emitsBeforeImage,
         DeliveryGuarantee guarantee,
         Set<PushdownKind> pushdown,
-        Duration typicalLatency) {
+        Duration typicalLatency,
+        boolean repeatsRows) {
 
     public SourceCapabilities {
         pushdown = pushdown == null ? EnumSet.noneOf(PushdownKind.class) : Set.copyOf(pushdown);
@@ -56,6 +65,34 @@ public record SourceCapabilities(
                     "a source cannot offer EXACTLY_ONCE without replayable offsets: there is no way to "
                             + "resume without either losing or duplicating records");
         }
+        if (guarantee == DeliveryGuarantee.EXACTLY_ONCE && repeatsRows) {
+            throw new IllegalArgumentException(
+                    "a source that repeats rows cannot offer EXACTLY_ONCE: every repeat is a row counted "
+                            + "twice, whatever the offsets say");
+        }
+    }
+
+    /**
+     * A source that never repeats a row -- the declaration every source made before {@code
+     * repeatsRows} existed, and still the right one for a changelog, a log or a file read once.
+     */
+    public SourceCapabilities(
+            boolean replayableOffsets,
+            boolean orderedWithinPartition,
+            boolean emitsDeletes,
+            boolean emitsBeforeImage,
+            DeliveryGuarantee guarantee,
+            Set<PushdownKind> pushdown,
+            Duration typicalLatency) {
+        this(
+                replayableOffsets,
+                orderedWithinPartition,
+                emitsDeletes,
+                emitsBeforeImage,
+                guarantee,
+                pushdown,
+                typicalLatency,
+                false);
     }
 
     public boolean supports(PushdownKind kind) {

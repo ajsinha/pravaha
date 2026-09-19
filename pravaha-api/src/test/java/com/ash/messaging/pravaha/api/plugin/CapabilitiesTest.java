@@ -70,6 +70,35 @@ class CapabilitiesTest {
     }
 
     @Test
+    void aSourceThatRepeatsRowsCannotOfferExactlyOnce() {
+        // SCAN-1: every repeat is a row counted twice, whatever the offsets say.
+        assertThatThrownBy(() -> new SourceCapabilities(
+                        true,
+                        false,
+                        false,
+                        false,
+                        DeliveryGuarantee.EXACTLY_ONCE,
+                        EnumSet.noneOf(PushdownKind.class),
+                        Duration.ofSeconds(1),
+                        true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("repeats rows");
+    }
+
+    @Test
+    void aSourceDeclaredWithoutSayingWhetherItRepeatsDoesNot() {
+        // The seven-argument form is what every plugin wrote before the flag existed, and the flag
+        // must not change what any of them means.
+        SourceCapabilities before = new SourceCapabilities(
+                true, true, false, false, DeliveryGuarantee.AT_LEAST_ONCE, null, Duration.ofSeconds(1));
+        assertThat(before.repeatsRows()).isFalse();
+        assertThat(SourceCapabilities.minimal().repeatsRows()).isFalse();
+        SourceCapabilities scan = new SourceCapabilities(
+                true, false, false, false, DeliveryGuarantee.AT_LEAST_ONCE, null, Duration.ofSeconds(60), true);
+        assertThat(scan.repeatsRows()).isTrue();
+    }
+
+    @Test
     void aSourceReportsWhatItCanPushDown() {
         SourceCapabilities caps = new SourceCapabilities(
                 true,
