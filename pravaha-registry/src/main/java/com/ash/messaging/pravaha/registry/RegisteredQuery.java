@@ -372,6 +372,64 @@ public final class RegisteredQuery implements AutoCloseable {
                 subscription -> sink.onCommit(subscription::onCommit));
     }
 
+    /**
+     * Attaches a consumer that starts from the view's state and then hears every commit after it,
+     * with no gap and no overlap between the two (SUB-1).
+     *
+     * <p>{@link #subscribe} starts at the next commit boundary and carries no state, so a client
+     * mirroring the view has to read it too -- and whichever it does first, the commit in flight at
+     * the time reaches it by neither path. Here the listener is handed the view's committed rows at
+     * a commit boundary, with that commit's frontier, and then each later commit whole; see {@link
+     * com.ash.messaging.pravaha.serving.ViewSink#onCommitFromSnapshot} for why nothing falls between.
+     *
+     * <p>When a commit is in flight as this attaches, the snapshot belongs at its end, so this
+     * commits what has been applied before returning -- what the feed's own timer would do a moment
+     * later. The snapshot has normally arrived by the time this returns; it is certain to arrive
+     * before any commit does.
+     *
+     * <p>The snapshot is filtered and never buffered or conflated. Commits after it go through {@code
+     * options} like any subscription's: a subscriber keeping an exact copy should choose {@link
+     * SubscriptionOptions.Overflow#FAIL}, since a conflated or dropped change is a copy gone wrong.
+     */
+    public Subscription subscribeFromSnapshot(
+            SubscriptionOptions options, SubscriptionFilter filter, SubscriptionListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        if (state().isTerminal()) {
+            throw new PravahaException(
+                    RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state);
+        }
+        Subscription subscription = new Subscription(
+                anyName(),
+                view.keyOrdinals(),
+                options == null ? SubscriptionOptions.DEFAULT : options,
+                filter,
+                listener,
+                attached -> sink.onCommitFromSnapshot(new com.ash.messaging.pravaha.serving.ViewChangeListener() {
+                    @Override
+                    public void onSnapshot(java.util.List<com.ash.messaging.pravaha.serving.ViewChange> rows, long at) {
+                        attached.onSnapshot(rows, at);
+                    }
+
+                    @Override
+                    public void onCommit(
+                            java.util.List<com.ash.messaging.pravaha.serving.ViewChange> changes, long at) {
+                        attached.onCommit(changes, at);
+                    }
+                }));
+        if (sink.awaitingSnapshot()) {
+            // Not needed for correctness -- the next commit from anywhere ends the wait -- but a
+            // paused query's feed commits nothing, and nobody should wait on a timer for a boundary
+            // this call can draw. commitView, not commit: no aggregate is asked to publish here.
+            commitView();
+        }
+        return subscription;
+    }
+
+    /** {@link #subscribeFromSnapshot(SubscriptionOptions, SubscriptionFilter, SubscriptionListener)}, unfiltered. */
+    public Subscription subscribeFromSnapshot(SubscriptionListener listener) {
+        return subscribeFromSnapshot(SubscriptionOptions.DEFAULT, SubscriptionFilter.none(), listener);
+    }
+
     /** Subscribes with the default buffer and conflation. */
     public Subscription subscribe(
             java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {

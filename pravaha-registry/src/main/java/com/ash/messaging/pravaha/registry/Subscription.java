@@ -42,7 +42,7 @@ import com.ash.messaging.pravaha.serving.ViewChange;
 public final class Subscription implements AutoCloseable {
 
     private final String queryName;
-    private final Consumer<List<ViewChange>> consumer;
+    private final SubscriptionListener consumer;
     private final SubscriptionOptions options;
     private final SubscriptionFilter filter;
     private final int[] keyOrdinals;
@@ -56,12 +56,25 @@ public final class Subscription implements AutoCloseable {
 
     private volatile PravahaException failure;
 
+    /** The frontier of the snapshot this subscription started from; absent until it arrives. */
+    private volatile Long snapshotFrontier;
+
     Subscription(
             String queryName,
             List<Integer> keyOrdinals,
             SubscriptionOptions options,
             SubscriptionFilter filter,
             Consumer<List<ViewChange>> consumer,
+            java.util.function.Function<Subscription, AutoCloseable> attach) {
+        this(queryName, keyOrdinals, options, filter, changesOnly(consumer), attach);
+    }
+
+    Subscription(
+            String queryName,
+            List<Integer> keyOrdinals,
+            SubscriptionOptions options,
+            SubscriptionFilter filter,
+            SubscriptionListener consumer,
             java.util.function.Function<Subscription, AutoCloseable> attach) {
         this.queryName = queryName;
         this.consumer = consumer;
@@ -93,18 +106,75 @@ public final class Subscription implements AutoCloseable {
             buffer.clear();
         }
         try {
-            consumer.accept(batch);
+            consumer.onCommit(batch, frontier);
             delivered.addAndGet(batch.size());
         } catch (RuntimeException e) {
             // A consumer that throws has stopped consuming. Recording it and closing is better than
             // calling it again on the next commit, which turns one broken subscriber into a stream
             // of exceptions on the engine's own thread.
-            failure = new PravahaException(
-                    RegistryErrors.QUERY_FAILED,
-                    "subscriber on '" + queryName + "' threw and has been detached: " + e.getMessage(),
-                    e);
-            close();
+            threw(e);
         }
+    }
+
+    /**
+     * Called by the engine once, before any commit, for a subscription started from a snapshot.
+     *
+     * <p>Filtered, but not buffered: the snapshot is the state the subscriber starts from, not a
+     * backlog it has fallen behind on, so conflating or dropping any of it would start the copy
+     * wrong. It is bounded by the view's own ceiling. Delivered even when empty, because an empty
+     * snapshot is still where the copy starts.
+     */
+    void onSnapshot(List<ViewChange> rows, long frontier) {
+        if (closed.get()) {
+            return;
+        }
+        List<ViewChange> matching = new ArrayList<>(rows.size());
+        for (ViewChange row : rows) {
+            if (filter.accepts(row)) {
+                matching.add(row);
+            }
+        }
+        snapshotFrontier = frontier;
+        try {
+            consumer.onSnapshot(List.copyOf(matching), frontier);
+            delivered.addAndGet(matching.size());
+        } catch (RuntimeException e) {
+            threw(e);
+        }
+    }
+
+    private void threw(RuntimeException e) {
+        failure = new PravahaException(
+                RegistryErrors.QUERY_FAILED,
+                "subscriber on '" + queryName + "' threw and has been detached: " + e.getMessage(),
+                e);
+        close();
+    }
+
+    /**
+     * The committed frontier of the snapshot this subscription started from, once it has arrived.
+     *
+     * <p>Empty for a subscription that did not ask for one, and for one still waiting for the commit
+     * in flight when it attached to end (SUB-1).
+     */
+    public java.util.OptionalLong snapshotFrontier() {
+        Long at = snapshotFrontier;
+        return at == null ? java.util.OptionalLong.empty() : java.util.OptionalLong.of(at);
+    }
+
+    /** A plain consumer, which hears commits and was never offered a snapshot. */
+    private static SubscriptionListener changesOnly(Consumer<List<ViewChange>> consumer) {
+        return new SubscriptionListener() {
+            @Override
+            public void onSnapshot(List<ViewChange> rows, long frontier) {
+                // Not reachable: a plain subscription is attached with ViewSink.onCommit.
+            }
+
+            @Override
+            public void onCommit(List<ViewChange> changes, long frontier) {
+                consumer.accept(changes);
+            }
+        };
     }
 
     private void admit(ViewChange change) {
