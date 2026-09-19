@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **308 findings carrying a
-status — 193 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **310 findings carrying a
+status — 194 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The blockers, by what they break — none open.** The fifteen this triage started with are all
@@ -6631,4 +6631,15 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** FIXED — `ef88578`: `GET /api/v1/streams/{name}` for an unknown name answers without naming the declared streams. Found while building the console's catalog endpoints, which apply the Flight listing's rules through one shared `QueryListing`; `RegistryEndpointsTest` covers the existence rules on the new query, plan and view endpoints (a denied name is 403 whether or not it exists) and that no configured sink credential appears in any response.
 > **Why it mattered:** the SX-5 shape through the HTTP door -- a caller entitled to nothing learned the whole stream catalogue from one refusal.
+
+### CKPT-2 (HIGH) — an unwindowed aggregate put nothing in its checkpoint, so a restart served a wrong answer beside the restored one
+
+> **Status:** FIXED — `f5d45bf`: `GlobalAggregate` writes and reads its accumulators (sums, counts, MIN/MAX seen flags, distinct sets, row count) and the answer it last published, `InterpretedPipeline` counts it as stateful and snapshots it (operator snapshot version 4; version 3 still restores a plan with no unwindowed aggregate). `AggregateRestartTest` (pravaha-registry, 3 of 5 cases failing on the old code), `JdbcSinkRegistrationTest#aRestartedAggregateRevisesTheAnswerTheTableHoldsRatherThanWritingOneBesideIt`, `StateRestoreTest` STATE-052 corrected; seed-proven twice -- the aggregate left out of the snapshot, and the last published answer dropped.
+> **Found by the JDBC sink's end-to-end test.** `InterpretedPipeline.snapshotState` wrote windowed aggregates and joins only, so a lane holding a continuous `SELECT COUNT(*), SUM(x) FROM s` checkpointed nothing. A restart restored the served view and resumed the sources past every row it had counted, with the accumulators at zero: the next emission retracted nothing and inserted a partial total, so the view held `[2, 350]` and `[1, 75]` side by side where `[3, 425]` was right, and a sink -- including the exactly-once `jdbc-sink` -- received the same. STATE-052 had recorded the empty checkpoint as the expected behaviour.
+> **Why it mattered:** a silently wrong answer after recovery, the path that exists to preserve answers. Windowed aggregates and stream joins were verified correct across a restart before and after.
+
+### CKPT-3 (LOW) — a continuous global aggregate re-emits its published answer as an insert, with no retraction, when it is closed
+
+> **Status:** OPEN — `RegisteredQuery.close()` runs the lanes' finishers and commits what they emit (W-2), and `GlobalAggregate.emit()` inserts the current answer with weight +1 without retracting the identical answer it already published. Subscribers receive a spurious +1 at a drop, and the view's per-key weight is doubled just before it is discarded.
+> **Disposition:** POST-GA — contained: a revising query cannot be attached to an append-only sink (PRV-2041), an upsert sink absorbs a repeat of the same value, and a transactional sink's post-checkpoint tail is aborted at the next start; the fix is for a continuous global aggregate's finisher to emit nothing it has not already emitted incrementally
 
