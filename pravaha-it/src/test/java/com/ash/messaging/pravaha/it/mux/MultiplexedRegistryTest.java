@@ -47,8 +47,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><strong>Counts, not projections.</strong> This test used to register two filtered projections
  * over one stream on one lane and read back the right rows from each -- and it passed while every
  * row reached each pipeline twice, once from each query's feed, because a keyed view absorbs a
- * duplicate upsert without a trace. A count does not. Two queries over the same stream now never
- * share a lane, and the second half of this test is what would fail if they did.
+ * duplicate upsert without a trace. A count does not. Two queries over the same stream share a
+ * lane again since LANE-2, each fed by its own reader of the file stamped with its own route, and
+ * the second half of this test is what would fail if either were handed the other's rows.
  */
 @Timeout(120)
 final class MultiplexedRegistryTest {
@@ -148,7 +149,7 @@ final class MultiplexedRegistryTest {
     }
 
     @Test
-    void twoQueriesOverOneStreamAreKeptApartAndEachCountsEachRowOnce(@TempDir Path dir) throws Exception {
+    void twoQueriesOverOneStreamShareALaneAndEachCountsEachRowOnce(@TempDir Path dir) throws Exception {
         Path txn = Files.writeString(dir.resolve("txn.csv"), "ann,100\nbob,250\ncat,50\ndan,400\n");
 
         PluginSourceFeeds feeds = new PluginSourceFeeds()
@@ -159,14 +160,14 @@ final class MultiplexedRegistryTest {
             RegisteredQuery all = count(registry, "all_count", "txn", "");
             RegisteredQuery big = count(registry, "big_count", "txn", " WHERE amount > 200");
 
-            assertThat(registry.pipelinesPerSharedLane()).containsExactly(1);
-            assertThat(registry.queriesOnOwnLanes())
-                    .as("the second query over txn, on a lane of its own")
-                    .isEqualTo(1);
+            assertThat(registry.pipelinesPerSharedLane())
+                    .as("both queries over txn on the one shared lane (LANE-2)")
+                    .containsExactly(2);
+            assertThat(registry.queriesOnOwnLanes()).isZero();
 
-            // Each registration's feed copies all four rows into its own query's lane. Had both
-            // queries been on the one shared lane, each pipeline would have been handed both copies:
-            // eight and 1600, and four and 1300.
+            // Each registration's feed copies all four rows into the one shared inbox -- a file
+            // promises exactly-once, so it keeps a reader per query. Dispatched by stream, each
+            // pipeline would be handed both copies: eight and 1600, and four and 1300.
             assertThat(settled(all, 4)).containsExactly(4L, 800L);
             assertThat(settled(big, 2)).containsExactly(2L, 650L);
         }

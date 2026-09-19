@@ -18,7 +18,6 @@ package com.ash.messaging.pravaha.registry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Supplier;
 
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -34,23 +33,18 @@ import com.ash.messaging.pravaha.runtime.lane.LaneRunner;
  * <p>Before this there was one shared lane and no decision: every hosted query on a node shared a
  * single inbox, arena and runner slot, however many there were. Now there are {@code laneCount}
  * of them, each a one-lane {@link LaneGroup} whose processor is a {@link LaneMultiplexer}, and a
- * registration is placed by three rules, applied in this order:
+ * registration is placed by one rule: <strong>the least loaded lane below the ceiling wins</strong>,
+ * by pipeline count, lowest index on a tie. Pipeline count rather than lane time consumed, because a
+ * query being placed has consumed nothing yet, so its cost is unknown at the one moment the decision
+ * is made; and because a count is what the ceiling is expressed in.
  *
- * <ol>
- *   <li><strong>A query reading more than one stream is not hosted.</strong> A hosted pipeline
- *       subscribes by the stream id of its first input, and a shared lane has one inbox: a join's
- *       second side would have nowhere to arrive. It gets a lane of its own, as it always had.
- *   <li><strong>A lane carries at most one pipeline per stream.</strong> Dispatch is by stream, and
- *       each registration is fed by its own feed. Two queries over {@code txn} on one lane would
- *       each have every row copied in by both feeds and dispatched to both pipelines -- an
- *       aggregate counts every row twice. Measured, not supposed: a {@code COUNT(*)} handed one row
- *       answered two before this rule existed. Sharing an ingest between the queries on a lane is
- *       what would lift it, and that is the feed layer's change, not this one.
- *   <li><strong>Among the lanes that remain, the least loaded below the ceiling wins</strong>, by
- *       pipeline count, lowest index on a tie. Pipeline count rather than lane time consumed,
- *       because a query being placed has consumed nothing yet, so its cost is unknown at the one
- *       moment the decision is made; and because a count is what the ceiling is expressed in.
- * </ol>
+ * <p><strong>What the query reads no longer matters (LANE-2).</strong> There were two more rules:
+ * a lane carried at most one query per stream, and a query reading two streams was never hosted.
+ * Both existed because the lane dispatched by stream while each query was fed separately, so two
+ * queries over {@code txn} on one lane each counted the other's rows (LANE-1), and a join's second
+ * side had no stream of its own to arrive under. Each hosted input now has a route of its own, and a
+ * reader shared by several queries on a lane writes one copy that all of them listen to (see {@link
+ * LaneMultiplexer} and {@code SharedPartitionFeed}), so neither rule protects anything.
  *
  * <p>When no lane qualifies the answer is empty and the registry gives the query a <em>lane of its
  * own</em> rather than refusing it. Multiplexing is a memory optimisation; turning it on must never
@@ -87,21 +81,13 @@ final class SharedLanes implements AutoCloseable {
     /** Where a hosted query went: the lane's index, for an operator, and its group, for the engine. */
     record Placement(int index, LaneGroup group) {}
 
-    /**
-     * The lane a query reading {@code streamIds} should be hosted on, or empty for a lane of its own.
-     *
-     * @param streamIds the ids of every stream the query reads
-     */
-    Optional<Placement> place(List<Integer> streamIds) {
-        if (streamIds.size() != 1) {
-            return Optional.empty();
-        }
-        int stream = streamIds.get(0);
+    /** The lane the next query should be hosted on, or empty for a lane of its own. */
+    Optional<Placement> place() {
         int best = -1;
         int bestCount = Integer.MAX_VALUE;
         for (int i = 0; i < lanes.length; i++) {
             int count = pipelinesOn(i);
-            if (count >= ceiling || streamsOn(i).contains(stream)) {
+            if (count >= ceiling) {
                 continue;
             }
             if (count < bestCount) {
@@ -132,8 +118,31 @@ final class SharedLanes implements AutoCloseable {
         return lanes[index] == null ? 0 : multiplexer(lanes[index]).pipelineCount();
     }
 
-    private Set<Integer> streamsOn(int index) {
-        return lanes[index] == null ? Set.of() : multiplexer(lanes[index]).streamIds();
+    /**
+     * Off-heap bytes every built shared lane holds -- its inbox and its arena -- summed. What the
+     * queries hosted on them would otherwise each hold a lane's worth of.
+     */
+    long offHeapBytes() {
+        long total = 0;
+        for (LaneGroup group : lanes) {
+            if (group != null) {
+                for (long bytes : group.lane(0).offHeapBytes().values()) {
+                    total += bytes;
+                }
+            }
+        }
+        return total;
+    }
+
+    /** Shared lanes built so far: the ones something has been placed on. */
+    int built() {
+        int count = 0;
+        for (LaneGroup group : lanes) {
+            if (group != null) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /** Pipelines on every configured lane, zero for one not built yet. */

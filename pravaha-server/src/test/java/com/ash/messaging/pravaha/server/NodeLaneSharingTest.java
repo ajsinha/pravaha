@@ -171,10 +171,13 @@ class NodeLaneSharingTest {
                             .tag("lane", "0")
                             .gauge()
                             .value())
-                    .isEqualTo(2);
-            assertThat(meters.find("pravaha.lane.own.queries").gauge().value())
-                    .as("the second query over txn, which the one shared lane could not take")
-                    .isEqualTo(1);
+                    .as("all three on the one shared lane, two of them over txn (LANE-2)")
+                    .isEqualTo(3);
+            assertThat(meters.find("pravaha.lane.own.queries").gauge().value()).isZero();
+            assertThat(meters.find("pravaha.lane.shared.bytes").gauge().value())
+                    .as("the one shared lane's inbox and arena, held once for three queries")
+                    .isEqualTo((double) registry.sharedLaneBytes())
+                    .isPositive();
         } finally {
             metrics.close();
             meters.close();
@@ -183,7 +186,7 @@ class NodeLaneSharingTest {
     }
 
     @Test
-    void withTheSettingOnAQueryOverAStreamAlreadyOnTheLaneGetsALaneOfItsOwn() {
+    void withTheSettingOnAQueryOverAStreamAlreadyOnTheLaneSharesItAndCountsOnlyItsOwnRows() {
         PravahaNode node = node(true);
         node.start();
         try {
@@ -195,8 +198,8 @@ class NodeLaneSharingTest {
                     List.of(0),
                     Principal.ANONYMOUS);
 
-            assertThat(registry.pipelinesPerSharedLane()).containsExactly(1);
-            assertThat(registry.sharedLaneOf("txn_big")).isEmpty();
+            assertThat(registry.pipelinesPerSharedLane()).containsExactly(2);
+            assertThat(registry.sharedLaneOf("txn_big")).contains(0);
 
             feed(registry, first, "txn", 100);
             feed(registry, second, "txn", 250);
@@ -204,7 +207,7 @@ class NodeLaneSharingTest {
             assertThat(answer(registry.require("txn_totals"))).containsExactly(1L, 100L);
             assertThat(answer(registry.require("txn_big"))).containsExactly(1L, 250L);
             assertThat(node.describe())
-                    .contains("lanes: shared, queries per lane [1] of at most 10; 1 on lanes of their own");
+                    .contains("lanes: shared, queries per lane [2] of at most 10; 0 on lanes of their own");
         } finally {
             node.stop();
         }

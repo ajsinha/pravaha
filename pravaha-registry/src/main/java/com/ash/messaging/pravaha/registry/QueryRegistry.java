@@ -206,17 +206,21 @@ public final class QueryRegistry implements AutoCloseable {
     /**
      * Computations running on a lane of their own.
      *
-     * <p>With multiplexing off, all of them. With it on, the ones admission control could not host:
-     * every lane at its ceiling, a lane for their stream already taken on each, or a query reading
-     * more than one stream. Each costs the inbox multiplexing was turned on to save, so a number
-     * that keeps rising on a multiplexing node is the signal to add shared lanes or raise the
-     * ceiling.
+     * <p>With multiplexing off, all of them. With it on, the ones admission control could not host
+     * because every shared lane was at its ceiling. Each costs the inbox multiplexing was turned on
+     * to save, so a number that keeps rising on a multiplexing node is the signal to add shared
+     * lanes or raise the ceiling.
      */
     public synchronized int queriesOnOwnLanes() {
         return byFingerprint.size()
                 - (int) byFingerprint.keySet().stream()
                         .filter(sharedLaneOf::containsKey)
                         .count();
+    }
+
+    /** Off-heap bytes the built shared lanes hold, inbox and arena, or zero when not multiplexing. */
+    public synchronized long sharedLaneBytes() {
+        return sharedLaneCount == 0 ? 0 : sharedLanes().offHeapBytes();
     }
 
     /** The per-lane ceiling in force, or zero when not multiplexing. */
@@ -272,9 +276,8 @@ public final class QueryRegistry implements AutoCloseable {
      * Registrations share one multiplexed lane instead of each owning one, or stop sharing.
      *
      * <p>The embedder's original switch, kept with its original meaning: one shared lane and no
-     * ceiling, so {@code true} is {@code multiplexingLanes(1, Integer.MAX_VALUE)}. Placement still
-     * applies -- a second query over a stream already on that lane, or a join, gets a lane of its
-     * own (see {@link SharedLanes}).
+     * ceiling, so {@code true} is {@code multiplexingLanes(1, Integer.MAX_VALUE)}: every query,
+     * whatever it reads, shares the one lane (see {@link SharedLanes}).
      */
     public QueryRegistry multiplexingLanes(boolean on) {
         return on ? multiplexingLanes(1, Integer.MAX_VALUE) : multiplexingLanes(0, 0);
@@ -1057,7 +1060,7 @@ public final class QueryRegistry implements AutoCloseable {
         // caller -- and taking rows one at a time let a commit land between an update's retraction
         // and its insert and publish the answer as gone (VIEW-1).
         Optional<SharedLanes.Placement> placement =
-                sharedLaneCount == 0 ? Optional.empty() : sharedLanes().place(streamIdsOf(plan));
+                sharedLaneCount == 0 ? Optional.empty() : sharedLanes().place();
         QueryExecution execution = (placement.isPresent()
                         ? QueryExecution.startOn(placement.get().group(), name, plan, sink::laneOutput, lookups, access)
                         : QueryExecution.start(plan, 1, laneConfig, access, sink::laneOutput, lookups, laneRunner()))
@@ -1112,19 +1115,6 @@ public final class QueryRegistry implements AutoCloseable {
         }
         placement.ifPresent(where -> sharedLaneOf.put(fingerprint, where.index()));
         return query;
-    }
-
-    /** The ids of the streams a plan reads, as this registry identified them. */
-    private List<Integer> streamIdsOf(PhysicalOperator plan) {
-        List<Integer> ids = new ArrayList<>();
-        for (String stream : sourceStreams(plan)) {
-            for (StreamSchema known : streams) {
-                if (known.name().equals(stream)) {
-                    ids.add(known.streamId());
-                }
-            }
-        }
-        return ids;
     }
 
     /**

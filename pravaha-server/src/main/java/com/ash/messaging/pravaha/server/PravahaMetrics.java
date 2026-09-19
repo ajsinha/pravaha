@@ -233,6 +233,15 @@ public class PravahaMetrics implements AutoCloseable {
                         n -> com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.spillBytesMapped())
                 .register(meters)
                 .getId());
+        // What the shared lanes hold off-heap between them, once, however many queries they carry:
+        // the number that lane sharing exists to keep small (LANE-2).
+        laneMeters.add(Gauge.builder(
+                        "pravaha.lane.shared.bytes",
+                        node,
+                        n -> n.registry().map(QueryRegistry::sharedLaneBytes).orElse(0L))
+                .baseUnit("bytes")
+                .register(meters)
+                .getId());
         int sharedLanes = registry.pipelinesPerSharedLane().size();
         for (int i = 0; i < sharedLanes; i++) {
             int lane = i;

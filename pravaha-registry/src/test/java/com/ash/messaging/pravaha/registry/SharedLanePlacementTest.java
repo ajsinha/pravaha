@@ -41,8 +41,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Admission control for shared lanes: which lane a registration lands on, and what happens when
  * none will take it (W9-8).
  *
- * <p>Four streams, because a lane carries at most one pipeline per stream and placement across
- * lanes is only observable with queries that are allowed to share.
+ * <p>Four streams, so placement can be seen spreading queries over different streams; and two
+ * queries over one stream, because since LANE-2 they share a lane too, each counting only its own
+ * rows.
  */
 @Timeout(120)
 class SharedLanePlacementTest {
@@ -162,20 +163,23 @@ class SharedLanePlacementTest {
     }
 
     @Test
-    void twoQueriesOverOneStreamNeverShareALaneBecauseEachWouldCountTheOthersRows() {
+    void twoQueriesOverOneStreamShareALaneAndEachCountsOnlyItsOwnRows() {
         registry.multiplexingLanes(1, 10);
 
         RegisteredQuery first = countOver("first_count", "txn");
         RegisteredQuery other = countOver("other_count", "txn", " WHERE amount >= 0");
         assertThat(other).as("two computations, not one shared").isNotSameAs(first);
 
-        assertThat(registry.pipelinesPerSharedLane()).containsExactly(1);
+        // LANE-2: one lane for both. Before it the second went to a lane of its own, because the lane
+        // dispatched by stream and each count would have been handed the other's rows.
+        assertThat(registry.pipelinesPerSharedLane()).containsExactly(2);
         assertThat(registry.sharedLaneOf("first_count")).contains(0);
-        assertThat(registry.sharedLaneOf("other_count")).isEmpty();
+        assertThat(registry.sharedLaneOf("other_count")).contains(0);
+        assertThat(registry.queriesOnOwnLanes()).isZero();
 
-        // Each query is handed one row by its own caller, the way each registration's feed hands it
-        // its own copy of the stream. On one lane, dispatch by stream gave each pipeline both copies
-        // and each count read two: measured before this rule existed.
+        // Each query is handed one row by its own caller, the way a registration with a reader of its
+        // own is fed. Dispatch by stream gave each pipeline both rows and each count read two; each
+        // row now carries its query's own route.
         feed(first, "txn", "ann", 100);
         feed(other, "txn", "bob", 250);
 
