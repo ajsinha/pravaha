@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **311 findings carrying a
-status — 195 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
+only part that is kept current. Counting the register as it stands: **313 findings carrying a
+status — 197 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6648,4 +6648,15 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Status:** FIXED — the root POM passes `api.version` (`docker.api.version`, 1.44) to the surefire and failsafe JVMs. Before: all 51 tests in `AerospikePluginIT`, `AerospikeSourceTckIT`, `AerospikeContinuousQueryIT`, `AerospikeSourceScaleIT`, `PostgresJdbcIT`, `PostgresJdbcSinkIT`, `CassandraPluginIT` and `CassandraSourceTckIT` reported skipped. After: 51 run, 0 failures, 0 skipped, against real Aerospike, PostgreSQL and Cassandra containers.
 > **Cause.** Testcontainers 1.21.3's docker-java client asks for Docker API 1.32 unless told otherwise, and Docker Engine 29 refuses anything below 1.40 (`client version 1.32 is too old`). Testcontainers reports that as "Docker is not available", and each test's `assumeThat(isDockerAvailable())` turned it into a skip -- so a green build said nothing about any connector against a real store, and every "needs Docker" note in the documentation was describing this machine's client, not its Docker.
 > **Why it mattered:** the real-server proof of four connectors and both database sinks was not running, while the build reported success.
+
+### CON-3 (HIGH) — the query page's script never loaded, so its live tail and typed-name drop confirmation had never run
+
+> **Status:** FIXED — `d3c9a1f`: `tail.js` is included, and `test_browser_journeys.py` drives the page in headless Chrome, including the drop dialog by keyboard with Escape. Found by the first real-browser run of the console.
+> **What was wrong.** The template never included the script its islands depended on, so the query page threw on every load in a browser. The server-rendered tests passed because they read HTML, and nothing had ever executed the page: ADR-039 item 7 recorded the typed-name drop confirmation (§23.16) as closed on the strength of markup that no browser had run.
+> **Why it mattered:** a destructive action's safeguard, counted as delivered, that did not work.
+
+### CON-4 (MEDIUM) — every plain link in the console failed WCAG contrast, in both themes
+
+> **Status:** FIXED — `d3c9a1f`: Bootstrap's link colour is mapped to the theme's accent token, and alerts, `text-danger` and `btn-outline-danger` are themed; `test_browser_accessibility.py` runs axe on 24 pages in both themes and 7 interaction states and fails on any WCAG 2.x A/AA violation, and `test_contrast.py` checks every allowed token pair. The same run found and fixed empty "On this page" help links, misapplied ARIA on tabs, 23 skipped heading levels, keyboard-unreachable scroll regions and editor syntax colours at 2.7:1.
+> **Why it mattered:** the §23.20 accessibility bar had never been measured, and it was not met.
 
