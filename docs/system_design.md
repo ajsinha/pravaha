@@ -2800,19 +2800,37 @@ The console serves audiences with genuinely different jobs. A single undifferent
 |---|---|---|
 | Console process | **Python 3.13 + FastAPI**, Uvicorn | A separate runtime makes the API boundary unviolable (§23.2a); and the console is then built on the published SDK, which proves the integration story rather than asserting it |
 | Engine API | **Spring Boot 3.5** (Java 21), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi | Serves the public REST and gRPC surface, plus a minimal server-rendered status page that works when the console is down |
-| Console-to-engine | **`pravaha` Python SDK** over REST and gRPC | Never raw HTTP: the console is the SDK's first real consumer |
-| Live updates | **SSE** for metrics/status/progress; **WebSocket (STOMP)** for the result tap and the debugger | SSE is simpler and auto-reconnects; WebSocket only where genuinely bidirectional |
+| Console-to-engine | **`pravaha` Python SDK** over Flight; the engine's **published REST endpoints** (`/api/v1/streams`, `/queries/validate`, `/queries/explain`, `/status`) and **Prometheus text** over HTTP | The console is the SDK's first real consumer. The Python SDK speaks Flight only, so the few REST calls live in the one engine adapter (`console/core/engine.py`) — the same public endpoints a third party calls, and the calls the SDK should grow |
+| Live updates | **SSE** for the result tap (one engine subscription fanned out by the BFF) and the operations dashboard (one scrape a second, fanned out) | SSE is one-directional, reconnects by itself and passes proxies that mangle upgrades. A WebSocket is reserved for the debugger, the one genuinely bidirectional surface, which is not built |
 | Page shell and public pages | **Jinja2 templates**, server-rendered (§23.4a) | Renders the theme into the markup, so no flash; works with JavaScript disabled. The pattern is proven in the owner's other Python web applications |
-| Application surfaces | **React 19 + TypeScript (strict)** as islands mounted inside the shell, Vite, TanStack Query | Mature, typed end-to-end from the OpenAPI spec |
-| Styling | **Tailwind CSS + shadcn/ui**, extended with a Pravaha component layer | Owned components, not a framework we cannot restyle |
-| SQL editor | **Monaco** + a Pravaha language service | Catalog-aware completion, inline diagnostics, hover types, format |
-| Plan graph | **React Flow** with a custom ELK-based layout | The DAG is the signature screen; generic graph libraries look generic |
-| Charts | **Apache ECharts** (canvas) | Canvas survives high-frequency updates; SVG charting does not |
-| Tables | **TanStack Table** + TanStack Virtual | 100 k-row result previews without pagination theatre |
-| Forms | React Hook Form + Zod, schemas generated from the OpenAPI spec | One source of truth for validation, client and server |
-| State | TanStack Query for server state; Zustand for the little that is genuinely client state | No global store cargo cult |
-| i18n | react-intl, strings externalised from day one | Retrofitting i18n costs 5× |
-| Build | `uv` for the console; `pnpm` only for the island bundles, vendored into `web/static` | Two artefacts by design (§23.2a) |
+| Application surfaces | **No-build islands**: plain ES modules with **Preact + htm**, resolved by an import map, mounted over server-rendered pages | See below |
+| Styling | **Bootstrap 5** repointed at the design tokens, plus one product stylesheet (`web/static/app/product.css`) | Every colour resolves through a token, so a theme is one block and the islands inherit it |
+| SQL editor | **Monaco** (vendored prebuilt `min/` subset) + a Pravaha language: Monarch tokenizer, completion and hover from the engine's catalog, markers from `/validate` | Catalog-aware completion, inline diagnostics, hover types |
+| Plan graph | **elkjs** layered layout drawn as SVG | Deterministic layout, so nodes do not jump between renders; SVG is keyboard-focusable and exportable |
+| Charts | **Apache ECharts** (canvas), themed from the tokens at draw time | Canvas survives high-frequency updates; SVG charting does not |
+| Tables | A small **virtualised grid** of its own (`web/static/app/grid.js`) | Windowed rows at a fixed height: tens of thousands of rows scroll at the cost of fifty |
+| Forms | Real HTML forms first, enhanced by the islands; validation on the server | Every control works with scripting off, and the server is the one that decides |
+| State | Server state from the console's own `/api/v1`; drafts and snippets in `localStorage` | No global store: each island owns the little client state it has |
+| i18n | Not yet — strings are in the templates and islands | Stated rather than implied |
+| Build | **None for the front end.** `uv`/pip for the console; the islands and vendored libraries ship as files in the wheel | One artefact, air-gapped, no Node toolchain |
+
+**Why no-build islands, not the React + Vite + TanStack stack this table first named.** Three
+constraints decided it, each on its own sufficient:
+
+- **Air-gapped.** Everything the console loads is a file in `console/web/static/`, vendored with its
+  licence (§23.4a). A bundler adds nothing to that and a build step that fetches packages is one more
+  thing that must work behind a customer's proxy.
+- **No Node toolchain.** Pravaha builds with a JDK and a Python; nothing on the build machines runs
+  Node. A React + Vite build would add a second package ecosystem to patch, audit and certify — for
+  the console alone — and a `pnpm` step to the release.
+- **One artefact.** The console ships as one Python wheel that carries `web/**` as it is. With no
+  compile step, the files in the repository are the files the browser runs: what was reviewed is what
+  ships, and there is no bundle to drift from its source.
+
+What it costs, stated: no TypeScript and no types generated from the OpenAPI spec (the contract is
+held by the console's own tests instead), and components written as `htm` tagged templates rather
+than JSX. The libraries that carry the weight — Monaco, ECharts, ELK — are the ones this table
+always named; only the glue changed. The console's README lists each vendored version.
 
 ### 23.2a The API boundary, and what is deployed where
 
@@ -2889,7 +2907,7 @@ fighting the framework. Neither answer is right for the whole console.
 |---|---|---|
 | Landing, about, help (§23.4b) | Server-rendered templates | Public, cacheable, work with JavaScript disabled — an evaluator behind a restrictive corporate proxy is exactly the reader worth keeping |
 | App shell: navigation, theme and density attributes, skip link, live region | Server-rendered | This is what removes the theme flash, and it is where the accessibility scaffolding belongs so it exists once rather than per page |
-| Workbench, plan DAG, debugger, live results, metrics explorer | React islands mounted inside the shell | Genuinely application-like; templates would be the wrong tool |
+| Workbench, plan DAG, debugger, live results, metrics explorer | Islands (ES modules, Preact + htm, no build — §23.3) mounted inside the shell | Genuinely application-like; templates would be the wrong tool |
 
 The shell renders `data-theme`, `data-bs-theme` and `data-density` onto `<html>` from the cookie, and
 the islands inherit them. One architecture, two rendering strategies chosen per page rather than one
@@ -2970,14 +2988,17 @@ during an incident.
 |---|---|
 | Bootstrap 5 (CSS + bundle JS) | ~320 KB |
 | Bootstrap Icons | ~300 KB |
-| IBM Plex (subset: Sans, Sans Condensed, Mono, Sans Devanagari) | ~250 KB |
-| Monaco (SQL workbench) | lazy-loaded route chunk |
-| ECharts, React Flow | lazy-loaded route chunks |
+| Source Sans 3, Source Serif 4, Source Code Pro (latin subsets) | ~390 KB |
+| Monaco 0.56 (editor core, loader, editor worker) | ~3.4 MB, loaded only by the workbench |
+| ECharts 6.1 | ~1.1 MB, loaded only by the live and operations screens |
+| elkjs 0.12 | ~1.6 MB, loaded only when a plan is drawn |
+| Preact 10 + hooks, htm 3 | ~20 KB, every page (the command palette) |
 
-Vendored assets live under `pravaha-ui/src/main/resources/static/vendor/`, are checked in with their
-licences, and are listed in `THIRD-PARTY-NOTICES.md`. A build-time check fails on any `http://` or
-`https://` asset reference in a template or stylesheet — the rule is mechanical, because it is the
-kind that erodes one convenient exception at a time.
+Vendored assets live under `console/web/static/vendor/`, are checked in with their licences, and
+are listed in `THIRD-PARTY-NOTICES.md`. A test (`console/tests/test_product.py`) fails on any
+template, island or stylesheet that makes the browser fetch from another host, and on any rendered
+page whose `<script>`, `<link>` or `<img>` points off the console — the rule is mechanical, because
+it is the kind that erodes one convenient exception at a time.
 
 #### Templates
 
@@ -3315,9 +3336,9 @@ console/
 ├── pyproject.toml               pravaha-console; Python >= 3.11, FastAPI + Uvicorn
 ├── Makefile                     install / run / run-against / test / lint / typecheck / clean
 ├── run_pravaha_web.py           entry point
-├── routes/                      api_routes, auth_routes, base
-├── core/  config/  content/
-├── web/                         templates and static assets
+├── routes/                      api_routes, auth_routes, product_routes, public_routes, ui_routes, base
+├── core/  config/  content/     engine adapter, services, authoring, metrics, snippets
+├── web/                         templates; static/app (the islands); static/vendor (Monaco, ECharts, elkjs, Preact, htm, Bootstrap)
 └── tests/
 ```
 

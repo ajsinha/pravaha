@@ -125,8 +125,10 @@ corrected by late data arrives as a retraction of the old answer followed by the
   cannot yet register or read a query.
 - **Blue/green query updates and backfill splicing** are built in `pravaha-backfill` and reachable
   from no running path.
-- **The console is a functional admin console, on purpose** — not the design-system product surface
-  design §23 describes.
+- **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
+  views, live results and operations are built; the time-travel debugger, backfill and cutover
+  control, cluster, plugin and admin screens are not, and nothing is yet audited (Storybook, visual
+  regression, WCAG 2.2 AA).
 
 ## Performance: what is measured, and what cannot be here
 
@@ -176,20 +178,26 @@ surface is deliberately small: `/status`, `/api/v1/streams`, and `/api/v1/querie
 
 ## The console
 
-A Python FastAPI application on the published SDK, server-rendered, with every asset vendored so it
-runs air-gapped.
+A Python FastAPI application on the published SDK and the engine's public REST API, server-rendered,
+with interactive islands in plain ES modules — no bundler, no Node toolchain — and every asset,
+Monaco, ECharts and ELK included, vendored so it runs air-gapped.
 
 ```bash
-cd console && make install && make run     # :8090, engine at :9090
+cd console && make install && make run     # :8090, engine Flight at :9090 and HTTP at :8080
 ```
 
-It lists and filters what is registered, shows a query's SQL, fingerprint and siblings with a live
-tail, runs pause, resume and drop, has a workbench for asking or registering a query, and renders
-this documentation in place. Everything but the landing page, the documentation and the health
-probes needs a session. One engine subscription serves every browser watching a view. It is not the
-IDE-grade workbench, live plan view or time-travel debugger design §23 specifies, and the §23.20
-release gate — Storybook, visual regression, a WCAG 2.2 AA audit — is not done.
-[How it is built →](console/README.md)
+Each persona lands on its own screen. An analyst gets a **SQL Workbench**: Monaco with catalog-aware
+completion, validation as you type with inline diagnostics and one-click fixes, the plan drawn as a
+graph, a result grid, registration with keys picked by name, and drafts in tabs. A developer gets
+**Views**: point queries and copy-paste client code for the Java and Python SDKs, `psql` and the CLI.
+An operator gets **Operations**: the engine's metrics read into a verdict — is everything healthy,
+and if not, where — with per-query throughput, state against ceiling and watermark lag. Any view can
+be watched **live**, every committed change shown with its `+1`/`−1` weight. A **catalog**, a Ctrl-K
+command palette, a first-run guide from a stream to a live view, and every `PRV` code resolved to
+its documentation complete it. Everything but the landing page, the documentation and the health
+probes needs a session. Where a screen needs an API the engine does not have yet, it says which.
+The time-travel debugger and the §23.20 release gate — Storybook, visual regression, a WCAG 2.2 AA
+audit — are not done. [How it is built →](console/README.md)
 
 ## Documentation
 
