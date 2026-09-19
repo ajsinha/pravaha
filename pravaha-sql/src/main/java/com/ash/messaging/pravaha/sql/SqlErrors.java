@@ -43,6 +43,13 @@ public final class SqlErrors {
     /** The mismatch design section 15.5 exists to catch at registration rather than in production. */
     public static final ErrorCode EMIT_MODE_MISMATCH = new ErrorCode(2041, "SQL_EMIT_MODE_MISMATCH");
 
+    /**
+     * A query whose answer depends on how many times a row arrived -- an aggregate, a join, a sink
+     * that cannot upsert -- over a source that repeats rows (SCAN-1). See {@code
+     * RepeatedRowsAnalysis}.
+     */
+    public static final ErrorCode SOURCE_REPEATS_ROWS = new ErrorCode(2042, "SQL_SOURCE_REPEATS_ROWS");
+
     public static final ErrorCode UNBOUNDED_STATE = new ErrorCode(2050, "SQL_UNBOUNDED_STATE");
 
     /** A statement was executed with fewer values than it has placeholders. */

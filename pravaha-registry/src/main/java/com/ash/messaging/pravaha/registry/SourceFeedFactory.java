@@ -64,4 +64,16 @@ public interface SourceFeedFactory {
     default boolean retracts(String stream) {
         return false;
     }
+
+    /**
+     * The plugin bound to this stream, when its source repeats rows -- delivers, in normal running, a
+     * row it has already delivered without retracting the earlier copy.
+     *
+     * <p>Asked at registration, so {@code PRV-2042} can refuse a query whose answer depends on how
+     * many times a row arrived (SCAN-1). Empty by default and for a stream nothing is bound to, as
+     * {@link #retracts} is.
+     */
+    default java.util.Optional<String> repeatingSource(String stream) {
+        return java.util.Optional.empty();
+    }
 }

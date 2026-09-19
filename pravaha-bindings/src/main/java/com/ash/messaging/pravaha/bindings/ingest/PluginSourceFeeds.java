@@ -141,6 +141,28 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         }
     }
 
+    /**
+     * The bound plugin's name when its source repeats rows, asked of the configured plugin without
+     * opening it, as {@link #retracts} is (SCAN-1). The answer is per configuration: a {@code
+     * cassandra} binding with {@code deletes: ignore} repeats and one with {@code deletes: detect}
+     * does not.
+     */
+    @Override
+    public java.util.Optional<String> repeatingSource(String stream) {
+        SourceBinding binding = bindings.get(stream);
+        if (binding == null) {
+            return java.util.Optional.empty();
+        }
+        StreamSourcePlugin plugin = configure(binding);
+        try {
+            return plugin.capabilities().repeatsRows()
+                    ? java.util.Optional.of(binding.plugin())
+                    : java.util.Optional.empty();
+        } finally {
+            closeQuietly(List.of(plugin));
+        }
+    }
+
     @Override
     public SourceFeed open(
             String queryName,

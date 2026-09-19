@@ -644,13 +644,19 @@ public final class QueryRegistry implements AutoCloseable {
         List<ParameterPlacement> placements = prepared.placements();
         PhysicalOperator plan = prepared.plan();
 
-        if (sinkName != null) {
+        // SCAN-1. Every registration, sink or not: a COUNT over a source that re-reads its rows grows
+        // on every pass, and the view is where that was first wrong. The sink, when there is one, is
+        // described here too, so a sink that would write every copy as a row is refused with it.
+        SinkFactory.Description sink = sinkName == null ? null : sinks.describe(sinkName);
+        com.ash.messaging.pravaha.sql.plan.RepeatedRowsAnalysis.check(
+                plan, feeds::repeatingSource, sink == null ? null : sink.capabilities(), sinkName);
+
+        if (sink != null) {
             // Before the feed, before the view, before a row can exist. capabilitiesOf configures
             // the plugin and asks it, without opening a connection, so a refusal costs nothing --
             // and a query whose changelog the sink cannot take is refused as a PAIR: the query may
             // be perfectly good against a different sink, and the fix is usually the sink rather
             // than the SQL.
-            SinkFactory.Description sink = sinks.describe(sinkName);
             // Knowing which streams delete (HLP-3): a join or a filter over a change feed passes its
             // deletes on as retractions, and a sink that can only append would write them as rows.
             com.ash.messaging.pravaha.sql.plan.ChangelogAnalysis.checkAgainst(
