@@ -38,7 +38,7 @@ a support conversation should have to start with.
 | PRV-5080 – PRV-5084 | `aerospike`, `aerospike-lookup`, `aerospike-sink` |
 | PRV-5085 – PRV-5089 | `cassandra` |
 | PRV-5090 – PRV-5094 | Attaching a source or sink to a registered query |
-| PRV-5100 – PRV-5107 | `kafka` (source) and `kafka-sink` |
+| PRV-5100 – PRV-5109 | `kafka` (source) and `kafka-sink` |
 | PRV-5110 – PRV-5118 | `postgres-cdc` |
 | PRV-5120 – PRV-5121 | `aerospike` with `deletes: detect` (5080 – 5084 was full) |
 | PRV-5122 – PRV-5123 | `cassandra` with `deletes: detect` (5085 – 5089 was full) |
@@ -389,7 +389,7 @@ query's first commit, so nothing is half-written.
 ## Kafka: kafka-sink and the kafka source
 
 One plugin, one block of codes. PRV-5100 and PRV-5101 are either direction's; PRV-5102 and PRV-5103
-are the sink's, PRV-5104 to PRV-5107 the source's. Every option, the staging topic and the sink's
+are the sink's, PRV-5104 to PRV-5109 the source's. Every option, the staging topic and the sink's
 guarantee are on [the Kafka sink](/help/topics/sink-kafka); the source's offsets, formats and
 recoveries on [the Kafka source](/help/topics/source-kafka).
 
@@ -404,8 +404,15 @@ whose library is not on the classpath. `none` and `gzip` work as shipped; lz4, s
 native code the plugin does not bundle, and are refused by name rather than failing at the first
 write unless you add the codec's library yourself.
 
-For the **source**: `bootstrap.servers`, `topic` or `schema` missing, a `format` other than `json` or
-`changelog`, `tombstone` not `reject` or `skip`, `start.from` not `earliest` or `latest`, an
+For the **source**: `bootstrap.servers`, `topic` or `schema` missing, a `format` other than `json`,
+`changelog`, `avro` or `protobuf`, a schema option that does not belong to the format (`schema.file`
+or `schema.registry.url` without `format: avro`, `schema.descriptor` or `schema.message` without
+`format: protobuf`), `format: avro` with neither `schema.file` nor `schema.registry.url` or with
+both, `format: protobuf` without one of `schema.descriptor` and `schema.message`, a
+`schema.registry.url` that is not an `http(s)` URL, registry credentials with no registry,
+`tls.verify-hostname: false` with an `https` registry (the JDK's HTTP client cannot be told not to
+verify one connection's name), a schema file that cannot be read, `tombstone` not `reject` or
+`skip`, `start.from` not `earliest` or `latest`, an
 `isolation.level` other than `read_committed` or `read_uncommitted`, `event.time` naming a column
 that is not in `schema` or is not a `TIMESTAMP`, a `kafka.*` property that is not a consumer property
 or that would move the position (`kafka.group.id`, `kafka.enable.auto.commit`,
@@ -441,9 +448,11 @@ to. If the change was deliberate, drop the query and register it afresh.
 
 ### PRV-5105 — Kafka: undecodable record
 
-A record the source cannot turn into a row — not JSON, a value of the wrong type for its column, a
-`NOT NULL` column missing, a changelog record without `row` or `weight`, or a **tombstone** in
-`format: json` — and no dead-letter queue to set it aside in. The message names it as
+A record the source cannot turn into a row — not JSON, not the Avro or the protobuf message the
+schema describes, a value of the wrong type for its column, a `NOT NULL` column missing, a changelog
+record without `row` or `weight`, a value missing the schema registry's `0x00` prefix (or carrying
+one when no registry is configured), a registry schema that cannot be mapped to this stream's
+columns, or a **tombstone** in `format: json` — and no dead-letter queue to set it aside in. The message names it as
 `topic/partition@offset`. The position stays before it, so a restart meets it again. Set
 `pravaha.dlq.directory` to set such records aside and read on, fix the producer, or, for an upsert
 topic's tombstones, set `tombstone: skip`.
@@ -463,6 +472,41 @@ Fetching failed in a way retrying will not fix — an ACL revoked mid-stream, th
 source's health turns `UNHEALTHY` with the reason. Fix the cause. A node restart resumes the query
 from its checkpoint's offsets; dropping and registering it instead starts it afresh from
 `start.from`.
+
+### PRV-5108 — Kafka: schema unmappable
+
+With `format: avro` or `format: protobuf`, the writer schema cannot become rows of the stream this
+binding feeds, and the message names what stopped it: a column the Avro record or the protobuf
+message has no field for (it lists the fields it does have), a field whose type cannot fill its
+column (an Avro `long` where the column is a `TIMESTAMP` — declare it `timestamp-millis`; a
+`repeated` field where a column is one value; a `double` where the column is a `DECIMAL`), a
+`schema.file` that is not an Avro schema, or a `schema.descriptor` that is not a `FileDescriptorSet`,
+imports a `.proto` it does not carry (write it with `protoc --include_imports`), or has no message of
+the name `schema.message` gives.
+
+**Raised when the query registers**, before a record moves, whenever the schema is configured — which
+is the point of configuring it. A schema that arrives *with* each record, from a schema registry,
+cannot be checked that early: those records become dead letters naming the schema id and the
+mismatch (or PRV-5105 where there is no dead-letter queue), and the mismatch is remembered so the
+records after them cost nothing.
+
+Fix the binding's `schema` to match the producer, or the producer to match the stream. What each
+column accepts from each format is on [the Kafka source](/help/topics/source-kafka).
+
+### PRV-5109 — Kafka: schema registry unavailable
+
+The registry `schema.registry.url` names could not be read, so a record that carries a schema id
+cannot be decoded. One of: unreachable or timed out, after three attempts a short pause apart
+(`schema.registry.timeout`, `10s` each); the credentials refused (401 or 403 — set
+`schema.registry.user` and `schema.registry.password`, or `schema.registry.token`); no schema with
+that id (404 — the records were written against another registry, or the subject was hard-deleted);
+or a 200 whose body is not the documented shape of `GET /schemas/ids/{id}`, which is usually a proxy
+or a login page in front of the registry.
+
+**The reader stops rather than dead-lettering the records.** A registry that is down is not a
+record's fault, and setting good records aside would lose them for an outage that will end. The
+source's health turns `UNHEALTHY` with the reason; once the registry answers again, a restart
+resumes from the checkpoint's offsets with nothing lost.
 
 ## postgres-cdc
 

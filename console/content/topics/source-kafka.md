@@ -4,10 +4,10 @@ slug: source-kafka
 category: sources
 order: 47
 icon: broadcast-pin
-summary: "kafka reads a topic as a stream: one reader per partition, its offsets kept in the query's checkpoint and never in a consumer group, exactly once, read_committed by default. JSON rows, or kafka-sink's changelog with its weights."
+summary: "kafka reads a topic as a stream: one reader per partition, its offsets in the query's checkpoint and never in a consumer group, exactly once. JSON, kafka-sink's changelog, Avro or Protobuf, with a schema registry and no library for any of them."
 badge: SOURCE
 audience: Operators
-keywords: [kafka, kafka source, topic, partition, offset, consumer, consumer group, monitoring.group, read_committed, isolation.level, exactly once, changelog, tombstone, json, start.from, earliest, latest, retention, retention.ms, lag, sasl, scram, dead letter, PRV-5106]
+keywords: [kafka, kafka source, topic, partition, offset, consumer, consumer group, monitoring.group, read_committed, isolation.level, exactly once, changelog, tombstone, json, avro, protobuf, schema registry, schema.file, schema.descriptor, schema.registry.url, confluent, karapace, apicurio, descriptor set, DynamicMessage, logical type, start.from, earliest, latest, retention, retention.ms, lag, sasl, scram, dead letter, PRV-5106, PRV-5108, PRV-5109]
 guide: connectors#a-replayable-source-kafka
 related: [sources-overview, sink-kafka, source-postgres-cdc, checkpoints-recovery, zset-weights, dead-letters, connector-security, delivery-guarantees]
 ---
@@ -20,10 +20,13 @@ partition to the offset the checkpoint recorded, the log replays deterministical
 the engine receives exactly the records the checkpoint does not already hold. So the source is
 **exactly once**.
 
-It reads two shapes of value: a **JSON object** of the row's columns (what most producers write, and
-what [`kafka-sink`](/help/topics/sink-kafka) writes in upsert mode), and **`kafka-sink`'s changelog**,
+It reads four shapes of value: a **JSON object** of the row's columns (what most producers write, and
+what [`kafka-sink`](/help/topics/sink-kafka) writes in upsert mode), **`kafka-sink`'s changelog**,
 whose records carry their weight — so a retraction one query writes to a topic is a retraction in the
-next query that reads it.
+next query that reads it — **Avro**'s binary encoding, and **Protobuf**. Avro and Protobuf are read
+without adding a library for either: the Avro reader is written here from the specification, Protobuf
+goes through `DynamicMessage` over a descriptor set you supply, and a **schema registry** is spoken
+over its REST API rather than through the Confluent client.
 
 The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, named `kafka`.
 
@@ -37,7 +40,7 @@ The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, nam
 | Delivery guarantee | **`EXACTLY_ONCE`** — the offsets are the checkpoint's |
 | Replayable offsets / ordered | yes (for as long as retention keeps the records) / yes, within a partition |
 | Emits deletes / before-image | only with `format: changelog` — then **yes / yes** |
-| Formats | `json` (default): a JSON object by column name, every row `+1`. `changelog`: `kafka-sink`'s `{"op","weight","row"}` envelope, weight applied |
+| Formats | `json` (default): a JSON object by column name, every row `+1`. `changelog`: `kafka-sink`'s `{"op","weight","row"}` envelope, weight applied. `avro`: Avro binary, against `schema.file` or a schema registry. `protobuf`: one message of a `FileDescriptorSet` |
 | Isolation | `read_committed` by default: an aborted transaction's records are never delivered |
 | Pushdown | none — Kafka has no server-side filter; every record is fetched whole |
 | Shared between queries | **no** — an exactly-once source never is: one consumer and one fetch thread per partition per registration |
@@ -52,7 +55,14 @@ The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, nam
 | `bootstrap.servers` | yes | — | `host:port,host:port` |
 | `topic` | yes | — | The topic to read. Letters, digits, `.`, `_`, `-`, at most 249 characters. Must exist when the source opens (PRV-5101) |
 | `schema` | yes | — | `name:TYPE,...` — the same grammar as every other connector, `?` after a type for a nullable column, `DECIMAL(p,s)` accepted. Write the stream's own schema here, column for column |
-| `format` | no | `json` | `json`: each value is a JSON object of the row. `changelog`: each value is `kafka-sink`'s changelog envelope. Anything else is PRV-5100 |
+| `format` | no | `json` | `json`: each value is a JSON object of the row. `changelog`: each value is `kafka-sink`'s changelog envelope. `avro`: Avro's binary encoding. `protobuf`: one protobuf message. Anything else is PRV-5100 |
+| `schema.file` | with `format: avro` | — | The **writer** schema, as Avro JSON, on this node's disk. Exactly one of this and `schema.registry.url`; with any other format, PRV-5100 naming both |
+| `schema.registry.url` | with `format: avro` | — | `http(s)://host:port`, any path prefix kept (Apicurio's `/apis/ccompat/v7`). Each value must then begin with the wire format's `0x00` and four-byte schema id. With `format: protobuf` it means only that the prefix and Confluent's message-index array are read past |
+| `schema.registry.user` / `schema.registry.password` | no | none | HTTP basic auth for the registry. Refused (PRV-5100) without `schema.registry.url` |
+| `schema.registry.token` | no | none | A bearer token instead of basic auth |
+| `schema.registry.timeout` | no | `10s` | Per attempt; three attempts a short pause apart, then PRV-5109 |
+| `schema.descriptor` | with `format: protobuf` | — | A `FileDescriptorSet` file: `protoc --include_imports --descriptor_set_out=x.desc your.proto` |
+| `schema.message` | with `format: protobuf` | — | The message in it a record holds, by full name (`acme.orders.Order`) or an unambiguous simple name |
 | `tombstone` | no | `reject` | What a record with a null value is in `format: json`. `reject`: a dead letter, or the source stops. `skip`: stepped over, so an upsert topic reads as insertions only |
 | `event.time` | no | on a server, the stream's `event-time`; otherwise none | A `TIMESTAMP` column of `schema` whose value becomes each row's event time. Naming a column that is not there, or is not a `TIMESTAMP`, is PRV-5100. Without it, a row's event time is the record's Kafka timestamp |
 | `start.from` | no | `earliest` | Where a reader starts **when there is no checkpoint**: `earliest`, the first record the partition still holds, or `latest`, after what it holds now. A restore ignores it and resumes at the checkpoint's offsets |
@@ -81,7 +91,7 @@ them itself, or because they would move the position somewhere the checkpoint di
 | `kafka.sasl.jaas.config` | set `user` and `password` |
 | `kafka.security.protocol` | it follows from `tls.*` and `user`/`password` |
 | `kafka.ssl.*` | TLS is the shared `tls.*` options |
-| `kafka.key.deserializer`, `kafka.value.deserializer` | the source reads the value itself, as JSON |
+| `kafka.key.deserializer`, `kafka.value.deserializer` | the source reads the value itself, in the format the binding declares |
 | `kafka.allow.auto.create.topics` | the source never creates the topic it reads |
 
 ## One reader per partition
@@ -207,6 +217,140 @@ The inverse of how `kafka-sink` writes them:
 
 A record that does not fit — not JSON, not an object, a string in an `INT64` column, a missing
 `NOT NULL` column, anything after the object — is never given a guessed value.
+
+### `format: avro` — Avro's binary encoding, read here
+
+**No `org.apache.avro` on the classpath.** Avro's binary encoding is small and frozen — zig-zag
+varints, little-endian floats, a length before bytes and strings, blocks for arrays and maps, an index
+before a union's branch, and a record's fields in written order with no names and no tags — so this
+plugin reads it directly, the way `postgres-cdc` reads PostgreSQL's replication protocol. The writer
+schema is Avro JSON, parsed with the Jackson already on the classpath.
+
+Because the encoding carries no names, **the writer schema must be exactly the one the records were
+written with**. It comes from one of two places, and naming both (or neither) is PRV-5100:
+
+```yaml
+pravaha:
+  sources:
+    orders:
+      plugin: kafka
+      options:
+        bootstrap.servers: "kafka-1.internal:9093"
+        topic: orders
+        schema: "order_id:INT64,customer:STRING,amount:DECIMAL(12,2),placed_at:TIMESTAMP"
+        format: avro
+        schema.file: /etc/pravaha/schemas/orders.avsc
+```
+
+What a column accepts, and nothing else:
+
+| Column | Avro |
+|---|---|
+| `BOOLEAN` | `boolean` |
+| `INT8` … `INT64` | `int`, `long` — out of the column's range is **refused, not truncated** |
+| `FLOAT32` | `float` |
+| `FLOAT64` | `float`, `double` |
+| `DECIMAL(p,s)` | `bytes` or `fixed` with `logicalType: decimal` — more than `s` places is **refused, not rounded** |
+| `STRING` | `string`, or an `enum`'s symbol |
+| `BYTES` | `bytes`, `fixed` |
+| `DATE` | `int` with `logicalType: date` |
+| `TIME` | `int`/`time-millis`, `long`/`time-micros` |
+| `TIMESTAMP` | `long` with `timestamp-millis` or `timestamp-micros` |
+
+A plain `int` is **not** read as a `DATE`, nor a plain `long` as a `TIMESTAMP`: the schema either says
+what a number means or it does not, and guessing is how a column silently becomes 1970.
+`local-timestamp-millis` and `-micros` carry no zone, so they are refused rather than assumed to be
+UTC. A `["null", T]` union reads NULL or its branch — and a NULL in a column not marked `?` is refused
+per record, as in every other format.
+
+**Fields and columns are matched by name** (exactly, then ignoring case). A field no column names is
+skipped whole, records, arrays and maps included. A column no field carries, or a field whose type
+cannot become its column, is PRV-5108 **when the query registers** — not a stream of dead letters at
+three in the morning. Every row is an insertion, `+1`; Avro carries no weights, so retractions need
+`format: changelog`.
+
+### `format: protobuf` — one message of a descriptor set
+
+Protobuf's encoding carries field *numbers*, not names, so reading it needs the schema as a
+`FileDescriptorSet` — what `protoc` writes:
+
+```bash
+protoc --include_imports --descriptor_set_out=/etc/pravaha/schemas/orders.desc orders.proto
+```
+
+```yaml
+pravaha:
+  sources:
+    orders:
+      plugin: kafka
+      options:
+        bootstrap.servers: "kafka-1.internal:9093"
+        topic: orders
+        schema: "order_id:INT64,customer:STRING,amount:DECIMAL(12,2),placed_at:TIMESTAMP"
+        format: protobuf
+        schema.descriptor: /etc/pravaha/schemas/orders.desc
+        schema.message: acme.orders.Order
+```
+
+No generated classes and no `protoc` at run time: the message is read with `DynamicMessage`. A
+`google/protobuf/*.proto` import the descriptor set left out is taken from the runtime's own copy;
+any other missing import is refused, naming it and `--include_imports`.
+
+| Column | Protobuf |
+|---|---|
+| `BOOLEAN` | `bool` |
+| `INT8` … `INT64` | any integer type; `uint32`/`fixed32` widened, a `uint64` past the signed range refused |
+| `FLOAT32` / `FLOAT64` | `float` / `float`, `double` |
+| `STRING` | `string`, or an `enum`'s symbol |
+| `BYTES` | `bytes` |
+| `DECIMAL(p,s)` | a `string` holding the number exactly — protobuf has no decimal, and a `double` would not be one |
+| `TIMESTAMP` | `google.protobuf.Timestamp`, or an ISO-8601 `string` |
+| `DATE` / `TIME` | an ISO-8601 `string` (`"2026-09-19"`, `"10:15:30.5"`) |
+
+A `repeated` field, a map, and any other message type map to no column: name one and the binding is
+refused (PRV-5108).
+
+!!! warning "proto3 defaults are not SQL NULL"
+    A proto3 scalar without `optional` **has no presence on the wire**: never set and set to `0`, `""`
+    or `false` are the same bytes — none. Such a field fills its column with the type's default and
+    **never** with NULL, even when the column is declared `?`. Fields that do carry presence — proto3
+    `optional`, any message field including `google.protobuf.Timestamp`, and proto2 `optional` — read
+    as NULL when they are absent. If "unknown" must be tellable from "zero", declare the field
+    `optional` or wrap it.
+
+### A schema registry, over its REST API
+
+A registry-aware producer writes each value as **one `0x00` byte, a four-byte big-endian schema id,
+then the payload**. Set `schema.registry.url` and the source reads that prefix, fetches the schema of
+that id once with `GET <url>/schemas/ids/{id}`, maps it to the columns, and keeps it — an id's meaning
+never changes, so a topic with one schema costs one request per source, however many records arrive.
+
+```yaml
+        format: avro
+        schema.registry.url: https://registry.internal:8081
+        schema.registry.user: pravaha
+        schema.registry.password: "${REGISTRY_PASSWORD}"
+```
+
+**No Confluent client library** (it is under the Confluent Community License and is not on Maven
+Central): just the JDK's HTTP client and the documented request. So **Karapace** works, and so does
+**Apicurio** through its Confluent compatibility endpoint — give the URL its path prefix and nothing
+else changes. TLS for an `https` registry is the same `tls.*` as the brokers'; basic auth or a bearer
+token is `schema.registry.user`/`password` or `schema.registry.token`.
+
+What each failure does, deliberately differently:
+
+| | |
+|---|---|
+| A value without the `0x00` prefix, while a registry is configured | that record is a dead letter saying so |
+| A value **with** the prefix while none is configured | the refusal names `schema.registry.url` |
+| A schema the registry serves that cannot be mapped to the columns | every record carrying that id is a dead letter naming the id; the mismatch is remembered, not re-fetched |
+| The registry unreachable, refusing the credentials, or answering nonsense | PRV-5109, and the reader **stops** — a registry being down is not a record's fault, and dead-lettering good records would lose them |
+
+For `format: protobuf` the registry is not consulted at all: its Protobuf schemas are `.proto`
+*source*, which only `protoc` can turn into a descriptor. Setting `schema.registry.url` there means
+only that the five-byte prefix and Confluent's message-index array are read past, and the message
+still comes from `schema.descriptor`.
 
 ## Dead letters
 
@@ -457,7 +601,9 @@ SCRAM mechanisms are allowed either way. `security.protocol` follows from the tw
 
 | Not built | Instead |
 |---|---|
-| **Avro**, **Protobuf**, a **schema registry** | JSON only. A producer writing Avro needs a JSON copy of its topic |
+| **Avro schema resolution** (reading with a schema other than the writer's), **aliases**, **nested records as columns** | The writer schema is read as written, and only its top-level fields become columns. Flatten in the producer, or read the field as `BYTES` |
+| **A registry's Protobuf schemas** | They are `.proto` source; supply the descriptor set with `schema.descriptor` |
+| **Writing** Avro or Protobuf | `kafka-sink` writes JSON. See [the Kafka sink](/help/topics/sink-kafka) |
 | **The record key** as data | Only the value is read. Put every column in the value, as `kafka-sink` does |
 | **Tombstones as deletes** | `format: changelog`, or `tombstone: skip` to read an upsert topic as insertions |
 | **Partitions added after registration** | Read from the next restart or re-registration, starting at `start.from` |
@@ -475,6 +621,8 @@ SCRAM mechanisms are allowed either way. `security.protocol` follows from the tw
 | [PRV-5105](/help/codes/PRV-5105) | while running | A record does not fit the schema (or is a tombstone in `format: json`) and there is no dead-letter queue. The message names it as `topic/partition@offset`. Set `pravaha.dlq.directory`, fix the producer, or for tombstones set `tombstone: skip` |
 | [PRV-5106](/help/codes/PRV-5106) | at restore, or while running | The offset to resume from is gone — retention, or a recreated topic. Recover as above |
 | [PRV-5107](/help/codes/PRV-5107) | while running | Fetching failed in a way retrying will not fix: an ACL revoked, the topic deleted |
+| [PRV-5108](/help/codes/PRV-5108) | at registration | With `format: avro` or `protobuf`: the writer schema cannot become rows of this stream — a column with no field, a field whose type cannot fill its column, a `schema.file` that is not an Avro schema, a `schema.descriptor` that is not a descriptor set or has no such message. A registry's schema is checked when its first record arrives instead, and a mismatch there is a dead letter |
+| [PRV-5109](/help/codes/PRV-5109) | while running | The schema registry could not be read: unreachable after three attempts, the credentials refused, no schema with that id, or an answer that is not `GET /schemas/ids/{id}`'s documented shape. The reader stops and resumes from its checkpoint once the registry is back |
 | [PRV-2041](/help/codes/PRV-2041) | at registration | A query over a `format: changelog` stream pointed at an append-only sink |
 
 A source that seems stuck with nothing refused is usually `read_committed` waiting behind a producer's
