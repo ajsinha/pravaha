@@ -45,7 +45,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 | `engine.http_url` | `PRAVAHA_ENGINE_HTTP` | `http://localhost:8080` | The engine's HTTP surface, handed to the SDK as `ClientOptions.http_url`: the catalog, sinks, query and view descriptions, validation, plans, status, Prometheus. Without it the workbench still edits and runs, and says validation is unavailable. |
 | `engine.token` | `PRAVAHA_TOKEN` | *empty* | Bearer token, sent to both engine surfaces and never to a browser. One identity for the whole console. |
 | `engine.pgwire` | `PRAVAHA_PGWIRE` | `localhost:5432` | Shown in the view browser's `psql` snippet. The console never connects to it. |
-| `ui.default_role` | `CONSOLE_DEFAULT_ROLE` | `operator` | Where a signed-in person lands until they choose: `analyst`, `operator` or `developer`. |
+| `ui.default_role` | `CONSOLE_DEFAULT_ROLE` | `operator` | Where a signed-in person lands until they choose: `analyst`, `operator`, `developer` or `admin`. |
 | `ui.tail_buffer` | — | `256` | Changes held per browser on a live view before the oldest are dropped (and said to be). |
 | `ui.query_row_limit` | — | `500` | Rows a one-off query or a point query returns to a browser. |
 | `ui.lag_warn_seconds` | — | `300` | A watermark further behind than this is a finding on the operations dashboard. |
@@ -63,7 +63,7 @@ needs it to load and tell them what is wrong.
 
 | Route | For | What it does |
 |---|---|---|
-| `/home` | everyone | Role-aware landing: analyst → workbench, operator → operations, developer → views. On an engine with nothing registered, `/start` instead. |
+| `/home` | everyone | Role-aware landing: analyst → workbench, operator → operations, developer → views, admin → Admin · Access. On an engine with nothing registered, `/start` instead. |
 | `/start` | a first-time user | Pick or declare a stream, pick a question from templates written against that stream's own columns, register it with keys chosen by name, watch it change. |
 | `/workbench` | analyst | Monaco with Pravaha SQL: catalog-aware completion (streams, columns with types, functions with signatures, scoped to what the statement reads), validation as you type (300 ms debounce) with squiggles and a diagnostics panel in which each `PRV-nnnn` links to its help and offers its fix when the fix is certain, Explain as a plan graph (ELK layout, SVG, operators as nodes, exportable), Run over a virtualised grid, Register with keys picked by name and an optional sink, several draft tabs kept in `localStorage`, a snippet library. Deep links: `?query=`, `?sql=`, `?template=&stream=`, `?panel=explain`. Works as a plain form without JavaScript. |
 | `/catalog` | everyone | Streams with their schemas, event time, lateness and source; registered queries with state, fingerprint, key, retention, sink and the names sharing each computation; sinks with what each accepts and who writes to it. `?tab=` is in the URL. |
@@ -72,8 +72,12 @@ needs it to load and tell them what is wrong.
 | `/views/{name}/live` | everyone | Committed changes as they arrive, each with its `+1`/`−1` weight; the current rows as the running Z-set sum of the view read on connect plus every change since; an ECharts series of a numeric column over time; a tap filter; honest "sampled — N dropped". |
 | `/operations` | operator | A verdict ("is everything healthy, and if not, where?"), findings per query with what to do, node status and plugin health, per-query rows in, rate, state against ceiling, view size and watermark lag, and charts of throughput and state. Live at 1 Hz over one SSE stream. |
 | `/queries`, `/queries/{name}` | operator | The filterable list, and one query's SQL, siblings, lifecycle controls (drop needs the name typed) and raw tail — now with links into the workbench, the plan, the view and its live page. |
-| `/plugins` | operator | Every plugin the node registered, with its version and the health it reports, joined with what binds it: the streams it feeds (from each stream's `source`) and the sinks it writes (with what each accepts and who writes to it). A binding that names a plugin the engine never loaded is shown as *not loaded*, not dropped. What the engine does not publish about plugins is listed on the page. From the account menu and the palette. |
+| `/plugins` | operator | Every plugin the node can load, from `GET /api/v1/plugins` (`Client.plugins()`): version, the plugin API it needs and whether this engine can host it, what its code can be (source, sink, lookup), the capabilities it declares, the setting names its manifest declares, and its health — shown as *not reported* where no live instance said so, never as healthy. Its bindings are the engine's, filtered by what this identity may see; the stream catalogue and the sink list add each binding's details (event time, what a sink accepts, who writes to it). A binding naming a plugin that is not on the classpath is *not loaded*, not dropped. What the engine still does not publish is listed on the page. From the account menu, Admin and the palette. |
+| `/admin/access` | admin | What the engine's policy lets the console's identity do (`GET /api/v1/me/permissions`, `Client.permissions()`): register, read the audit trail, and for every view and stream it can see, full or row-filtered reading and whether it may drop, pause or resume. Read-only — the engine is not where grants live, so there is nothing to edit. `/admin` lands here. |
+| `/admin/audit` | admin | The engine's audit trail (`GET /api/v1/audit`, `Client.audit()`), newest first, 50 to a page: filter by principal, view, action, decision and a UTC time window with a plain GET form, page back by the engine's cursor, click a principal or target to filter by it. Every filter and the page are in the URL. When the engine refuses the console's identity, a **Not permitted** state with the engine's reason (and a 403), not an empty table; with `audit: none`, a state that says nothing is recorded. |
 | `/help/codes/{code}` | everyone, unauthenticated | Everything the shipped documentation says about one `PRV` code. The engine's own help URLs name a host that does not exist. |
+
+**Admin** is in the navigation bar; its screens share a tab strip (Access, Audit trail, Plugins).
 
 **Ctrl-K / ⌘K** opens a command palette on every page: jump to any query, view, stream or page,
 pause or resume a query (only the actions its state allows are offered), open a query in the
@@ -107,12 +111,14 @@ core/
                          a scrape cache so N viewers cost one scrape a second
   snippets.py            client code per view and key, with each language's quoting
   i18n.py                the UI string catalog: t('key', name=value) in templates and islands
+  admin.py               the audit trail and the permissions page, from the engine
   content/               markdown topics, and codes.py for /help/codes/*
 routes/
   base.py                Routes, the brand context, roles, the refusal mapping, the page renderer
   public_routes.py       landing, about, help, tutorials, error codes, health probes
   auth_routes.py         sign-in (with a role choice), sign-out
   api_routes.py          /api/v1 — queries, lifecycle, one-off query, stats, the live tail
+  admin_routes.py        /admin/access, /admin/audit and their JSON
   product_routes.py      the persona screens and their JSON: catalog, sql, views, ops, plugins,
                          palette
   ui_routes.py           overview, queries, detail, workbench
@@ -122,7 +128,7 @@ web/
   static/app/            the islands: lib, palette, workbench, plan-graph, grid, charts, live,
                          ops, views, start, and product.css
   static/vendor/         Bootstrap, Bootstrap Icons, fonts, Monaco, ECharts, elkjs, Preact, htm
-  i18n/en.json           the strings the shell, the plugins screen and the palette show
+  i18n/en.json           every UI string the templates, islands and classic scripts show
 content/
   help/ tutorials/ about/   front matter plus, usually, an `include:` of a repository document
 tests/
@@ -189,7 +195,15 @@ theme changes.
 **Roles pick a landing, not a permission.** Every signed-in person can reach every screen; the
 server checks the session on every call. The shared-secret sign-in names everyone `operator`, so the
 role comes from the person's own choice or `ui.default_role`; a principal from an identity provider
-named `analyst` or `developer` would land there by name.
+named `analyst`, `developer` or `admin` would land there by name.
+
+**The engine decides what the admin screens show.** The console reaches the engine as one identity
+(`engine.token`) for everyone signed in, so the audit trail is readable here exactly when the engine's
+policy lets *that identity* read it (`SecurityPolicy.mayReadAudit`: the `authenticated` policy grants
+it to the roles in `pravaha.security.audit-readers`, `admin` by default). The console adds no rule
+of its own on top — a console-side rule would be enforcing nothing, since the engine is the one
+holding the data — and renders the engine's refusal as a designed *Not permitted* state. Every read,
+allowed or refused, is on the trail itself.
 
 ## What the engine now provides, and what it still does not
 
@@ -208,6 +222,8 @@ it asked for, reached through the Python SDK:
 | Stream page lineage | queries matched by the stream's name in their SQL | the `reads` of each query's description |
 | Operations | no subscribers or checkpoint health | `pravaha_query_subscribers`, `pravaha_query_checkpoint_last_success_timestamp_seconds`, `..._duration_seconds`, `..._failures_total`, and the mean commit latency from `pravaha_query_commit_latency_seconds_count/_sum`; checkpoint failures and a stale checkpoint are findings |
 | Everything HTTP | `core/engine.py` spoke HTTP to the engine itself | the SDK's `streams()`, `validate()`, `explain()`, `status()`, `metrics_text()` and the calls above; `engine.py` touches nothing but the SDK |
+| Plugins | the status endpoint's names and health, joined by the console with each stream's `source` and each sink's `plugin`, and "bound as, never able to be" | `GET /api/v1/plugins` (`Client.plugins()`): manifest version and required API, compatibility, declared kinds and capabilities, setting names, health with whether a live instance reported it, and the bindings this identity may see — never options |
+| An audit screen | no page: the trail was a file the console had no business reading | `GET /api/v1/audit` (`Client.audit()`) behind a new policy question, `mayReadAudit`; reading it is itself audited. And `GET /api/v1/me/permissions` (`Client.permissions()`) for Admin · Access |
 
 Still open, and said so on the screens rather than drawn as zeroes:
 
@@ -217,9 +233,11 @@ Still open, and said so on the screens rather than drawn as zeroes:
 | Lane backpressure | the engine does not sample it |
 | Commit-latency percentiles | the engine publishes a count and a total, so the mean is exact and a p99 would be invented |
 | Time-travel debugger (§23.9) | not started: needs a checkpoint-fork and step protocol |
-| A plugin's declared kinds, required API version and settings | `GET /api/v1/status` names each plugin with version and health only; the manifest (`requiredApiVersion`, `configSchema`) and which roles a plugin can play are not published, so the plugins screen says "bound as", never "able to be" |
+| Live health of a plugin loaded from the classpath | the node holds no long-lived instance of it to ask — each binding configures its own — so `GET /api/v1/plugins` answers `UNKNOWN` with `reported: false`, and the screen says *not reported* |
+| A classpath plugin's setting descriptions | only a plugin registered with the engine carries a manifest `configSchema`; one found by `ServiceLoader` declares none |
 | Per-plugin throughput and errors | no `pravaha_plugin_*` meters |
-| An audit screen | the engine writes its audit trail to a file (`FileAuditSink`, `rw-------`) and deliberately has no read endpoint, because none of the policy's three questions means "may read the audit trail". An admin/audit page needs `GET /api/v1/audit?since=&principal=&view=&decision=` behind a new permission the policy can answer — until then there is no page, rather than one that reads a file the console has no business reading |
+| Editing grants, tenants and quotas (§23.6 screens 20, 21) | the engine enforces a `SecurityPolicy` a deployment implements against its own identity system; the configured policies have no grants to edit and there are no tenants or quotas to allocate. Admin · Access shows the answers read-only |
+| The audit trail across a restart, over HTTP | the engine serves a bounded in-memory window of recent decisions (`pravaha.security.audit-recent`); older ones are in the audit file when `audit: file`, which the console does not read |
 
 ## The §23.20 release gate: where it stands
 
@@ -231,11 +249,11 @@ DevTools protocol by `tests/cdp.py`, about 350 lines of standard-library Python.
 | §23.20 item | Status | Proven by |
 |---|---|---|
 | Every screen implements the eight states of §23.12 | implemented, **not audited** screen by screen | — |
-| Light and dark designed and visually regression-tested; both densities | **light and dark pass**: 20 pages × 2 themes × 2 viewports (1280×800, 390×844), 80 baselines. **Compact density is not photographed.** | `test_browser_visual.py`, `tests/visual/baselines/` |
-| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 24 pages × 2 themes and 7 interaction states (open palette, workbench refusal / plan / register / library / result, live view with changes, drop dialog, each onboarding step); every token pair checked for contrast in all three themes. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would | `test_browser_accessibility.py`, `test_contrast.py` |
-| Every workflow completable by keyboard alone | **partly proven**: skip link, tab order and a visible focus ring on every stop, the palette (open, filter, act, Escape returns focus), a point query from sign-in to answer with keys only, the drop dialog (Escape returns focus), the draft tabs (arrows, Home, End, Delete). Not proven for every workflow: plan-graph node inspection, the register form, onboarding | `test_browser_journeys.py` |
+| Light and dark designed and visually regression-tested; both densities | **light and dark pass**: 23 pages and the audit trail's *not permitted* state × 2 themes × 2 viewports (1280×800, 390×844), 96 baselines. **Compact density is not photographed.** | `test_browser_visual.py`, `tests/visual/baselines/` |
+| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 27 pages × 2 themes and 8 interaction states (open palette, workbench refusal / plan / register / library / result, live view with changes, the audit trail not permitted, drop dialog, each onboarding step); every token pair checked for contrast in all three themes. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would | `test_browser_accessibility.py`, `test_contrast.py` |
+| Every workflow completable by keyboard alone | **partly proven**: skip link, tab order and a visible focus ring on every stop, the palette (open, filter, act, Escape returns focus), a point query from sign-in to answer with keys only, the admin persona from sign-in through the audit trail (palette, cursor paging, the filter form) with keys only, the drop dialog (Escape returns focus), the draft tabs (arrows, Home, End, Delete). Not proven for every workflow: plan-graph node inspection, the register form, onboarding | `test_browser_journeys.py` |
 | Every view deep-linkable; every filter in the URL | implemented (catalog tabs, the queries filter, a view's key and value, workbench `?query=` `?sql=` `?template=` `?panel=`); exercised by the journeys and product tests, **not audited as a whole** | `test_product.py`, `test_browser_journeys.py` |
-| Every destructive action confirmed, audited and reversible where possible | drop is confirmed by the typed name. **Audited is not verifiable here**: the engine has no audit read API (see above) | `test_console.py` |
+| Every destructive action confirmed, audited and reversible where possible | drop is confirmed by the typed name. The engine now serves its audit trail (Admin · Audit), and the product and journey tests read it through the console; **that a drop made from the console appears in it is not asserted end to end** — the real-engine tests reach a Flight-only test server with no HTTP surface | `test_console.py`, `test_product.py` |
 | Every error message names the cause, the fix and a correlation id | cause and code everywhere, fix where one is certain; the correlation id is the console's own — **the engine does not mint one** that travels across its surfaces | — |
 | Every latency chart shows percentiles; no averages | **not met**: the engine publishes a commit-latency count and sum, so the mean is shown and labelled as a mean | — |
 | Stale data visibly stale; partial data visibly partial | implemented (freshness indicator, dimmed stale tail, "sampled — N dropped"); not audited | — |
@@ -282,16 +300,31 @@ are gzipped, except the event streams, which a compressing proxy would otherwise
 ## Strings, and translating them later
 
 UI strings are looked up by key from `web/i18n/en.json` (`core/i18n.py`): `{{ t('nav.catalog') }}` in a
-template, `t("palette.label")` in an island (the `js.*` keys are embedded in every page as JSON, so an
-island needs no request). Parameters are named — `"{n} columns"` — because word order is the first
+template, `t("palette.label")` in an island, and `PravahaApi.t("states.retry")` in a classic script
+under `static/js/` (the `js.*` keys are embedded in every page as JSON, so neither needs a request). Parameters are named — `"{n} columns"` — because word order is the first
 thing a translation changes. `ui.language` picks the file; only `en` exists. A test fails on any key a
 template or island uses that the catalog lacks.
 
-**How far it goes:** the shell (navigation, account menu, engine status, skip link, footer), the
-plugins screen and the command palette. The other screens' prose is still in their templates. The
-approach for them is the same mechanical pass, one template at a time — the catalog, the test and
-the island helper are in place — and it was not done here because it touches every line of every
-page, and the value of the tests above is that they hold still while a change like that is made.
+**How far it goes:** every template, every island but one, and every classic script — about 910
+strings. The pass was mechanical and held to one rule: the English did not change. Each template was
+rendered with the fake engine before and after and compared (byte-identical, or identical once
+whitespace is collapsed and `&#39;` read as an apostrophe), and the visual baselines of every page
+at the narrow viewport — where the navigation bar, which did change, is collapsed — still matched.
+Three things are not in the catalog yet:
+
+- **`static/app/workbench.js`**, the workbench island. Another change was in flight on it when this
+  pass was made; its strings are the next file to move, and `workbench.html` already is.
+- **Strings the server composes in Python** and hands to a template as data: the operations
+  verdict and findings (`core/metrics.py`), the plugins screen's "not published" list
+  (`core/services.py`), the palette's entries and hints, the role labels and blurbs (`ROLES`), and
+  a not-found page's "Back to …" label. They are English in code today; moving them means passing
+  keys, not sentences, across the service boundary.
+- **Documentation**: help topics, tutorials and the about page are repository documents rendered in
+  place, not UI strings.
+
+Some keys are fragments — a sentence split around inline markup, or prose that keeps its line
+breaks so the rendered page stayed identical — and read oddly out of context; a translator will want
+the template beside the file.
 
 ## What ADR-039 item 7 changed (2026-09)
 

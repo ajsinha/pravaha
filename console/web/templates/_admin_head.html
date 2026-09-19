@@ -1,0 +1,17 @@
+{# The admin screens' shared head: kicker, heading, and the section tabs as links, so each
+   section is its own URL and works with scripting off. #}
+{% macro admin_head(tab, heading) %}
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('admin.kicker') }}</p>
+    <h1>{{ heading }}</h1>
+  </div>
+</div>
+<div class="rule"></div>
+<nav class="tabs-bar" aria-label="{{ t('admin.sections') }}">
+  <a href="/admin/access" {% if tab == 'access' %}aria-current="page"{% endif %}>{{ t('admin.tab.access') }}</a>
+  <a href="/admin/audit" {% if tab == 'audit' %}aria-current="page"{% endif %}>{{ t('admin.tab.audit') }}</a>
+  <a href="/plugins">{{ t('admin.tab.plugins') }}</a>
+</nav>
+{% endmacro %}

@@ -19,7 +19,8 @@
     "theme_title": "Theme (t)",
     "density": "Change density",
     "density_title": "Density (d)",
-    "footer_engine": "engine at"
+    "footer_engine": "engine at",
+    "admin": "Admin"
   },
   "nav": {
     "workbench": "Workbench",
@@ -33,33 +34,36 @@
     "queries": "Queries",
     "queries_gloss": "what is registered, and what it costs",
     "help": "Help",
-    "help_gloss": "the documentation that ships with the engine"
+    "help_gloss": "the documentation that ships with the engine",
+    "admin": "Admin",
+    "admin_gloss": "what the policy allows, and the audit trail"
   },
   "plugins": {
     "title": "Plugins",
     "kicker": "PLUGINS",
-    "heading": "What this node loaded, and what binds it",
+    "heading": "What this node can load, and what binds it",
     "node": "node {instance} · {version} · {state}",
-    "lede": "Each plugin the engine registered, with the health it reports, joined with the streams it feeds and the sinks it writes. \"Bound as\" is what the configuration uses a plugin for; what a plugin could do is in its manifest, which the engine does not publish yet.",
+    "lede": "Every plugin the engine can load, as its manifest and its code declare it: the version, the plugin API it needs, what it can be and what it declares it can do, with the bindings you can see. \"Bound as\" is what the configuration uses a plugin for; \"can be\" is what its code implements. Never a binding's options, which is where credentials live.",
     "error": {
-      "status": "The engine's status endpoint is not answering, so loaded plugins and their health are unknown",
-      "streams": "The stream catalog is not answering, so source bindings are not shown",
-      "sinks": "The sink list is not answering, so sink bindings are not shown"
+      "plugins": "The engine's plugin listing is not answering, so what it can load is unknown",
+      "status": "The engine's status endpoint is not answering, so the node line is missing",
+      "streams": "The stream catalog is not answering, so source bindings are shown without their details",
+      "sinks": "The sink list is not answering, so sink bindings are shown without their details"
     },
     "empty": {
       "title": "No plugins to show",
-      "body": "The engine reported no registered plugins and nothing is bound to one. A source or sink plugin is a jar on the node's plugin path, named in pravaha.streams or pravaha.sinks."
+      "body": "The engine reported no plugin it can load and nothing bound to one. A source or sink plugin is a jar on the node's classpath, named in pravaha.sources or pravaha.sinks."
     },
     "not_loaded": "not loaded",
-    "not_loaded_body": "A binding names this plugin, but the engine has not registered a plugin by that name. Anything bound to it cannot run.",
-    "health_unknown": "health unknown",
+    "not_loaded_body": "A binding names this plugin, but it is not on the node's classpath. Anything bound to it cannot run.",
     "version": "Version",
     "bound_as": "Bound as",
     "unbound": "loaded, bound to nothing you can see",
     "detail": "Health detail",
     "kind": {
       "source": "source",
-      "sink": "sink"
+      "sink": "sink",
+      "lookup": "lookup"
     },
     "sources": "Feeds these streams",
     "sinks": "Writes these sinks",
@@ -81,6 +85,21 @@
       "connectors_body": "Every source and sink plugin, and how to configure it.",
       "operations": "Operations",
       "operations_body": "Health, degraded plugins, and what to do about them."
+    },
+    "health_not_reported": "health not reported",
+    "required_api": "Needs plugin API",
+    "compatible": "compatible",
+    "incompatible": "incompatible",
+    "can_be": "Can be",
+    "settings": "Settings",
+    "no_settings": "none declared",
+    "declares": "Declares",
+    "lookups": "Serves these lookup tables",
+    "cap": {
+      "replayable": "replayable offsets",
+      "deletes": "emits deletes",
+      "pushdown": "pushes down {kinds}",
+      "transactional": "transactional"
     }
   },
   "js": {
@@ -102,6 +121,1024 @@
         "lifecycle": "Action",
         "role": "Role"
       }
+    },
+    "ops": {
+      "unlisted": "unlisted",
+      "no_watermark_title": "No row with an event time has arrived",
+      "no_watermark": "no watermark",
+      "unit": {
+        "seconds": "{n} s",
+        "minutes": "{n} min",
+        "hours": "{n} h",
+        "ms": "{n} ms"
+      },
+      "not_checkpointing": "not checkpointing",
+      "ago": "ago",
+      "took": "took {n} s",
+      "failed": "{n} failed",
+      "where": "Where:",
+      "nothing": "Nothing",
+      "nothing_body": "No query is near its state ceiling, stopped, or behind in event time.",
+      "not_published_yet": "not published yet",
+      "gauge_label": "state held as a share of its ceiling",
+      "shared": "shared",
+      "empty": {
+        "title": "No queries registered",
+        "body": "Once one is, its throughput, state and lag are here.",
+        "start": "Get started"
+      },
+      "no_data": "no data",
+      "nothing_to_chart": "No query to chart yet",
+      "axis": {
+        "rate": "rows/s",
+        "ceiling": "% of ceiling"
+      }
+    },
+    "grid": {
+      "caption": "Result",
+      "scrollable": "{caption} (scrollable)"
+    },
+    "plan": {
+      "empty": {
+        "title": "No plan to draw",
+        "body": "Explain a query that validates to see its operators."
+      },
+      "label": "Query plan, {n} operators",
+      "family": {
+        "source": "Source / scan",
+        "filter": "Filter",
+        "project": "Projection",
+        "aggregate": "Aggregate / window",
+        "join": "Join",
+        "sink": "Sink",
+        "other": "Other"
+      }
+    },
+    "live": {
+      "no_numeric": "no numeric column",
+      "empty_title": "The view is empty",
+      "empty_body": "No row is present right now. One appears when the data that makes it arrives.",
+      "empty_body_filtered": "No row is present right now for this filter. One appears when the data that makes it arrives.",
+      "duplicate_title": "This exact row is present {n} times",
+      "rows_note": "the view now, plus every change since",
+      "rows_note_truncated": "the first {n} rows of the view, plus every change since",
+      "rebase_failed": "The view could not be read to start from ({error}); showing only the changes that arrive from now on.",
+      "ended": "The engine ended the subscription: {error}",
+      "state": {
+        "connecting": "connecting…",
+        "live": "live",
+        "live_filtered": "live · {filter}",
+        "sampled": "sampled — {n} dropped by this browser",
+        "stopped": "stopped",
+        "reconnecting": "reconnecting…",
+        "hidden": "paused while hidden",
+        "paused": "paused — changes are not being applied",
+        "quiet": "live · last change {seconds}s ago"
+      },
+      "chart": {
+        "count_label": "current rows",
+        "sum_label": "Σ {column}",
+        "arrivals_label": "{column} (each arrival)",
+        "failed": "The chart library did not load; the tables above are complete."
+      },
+      "announce_filter": "Filtering on {filter}",
+      "announce_all": "Showing every change",
+      "pause": "Pause",
+      "resume": "Resume"
+    },
+    "charts": {
+      "no_data": "no data"
+    },
+    "start": {
+      "progress": "Progress",
+      "step": {
+        "stream": "Pick a stream",
+        "question": "Choose a question",
+        "register": "Register it",
+        "watch": "Watch it change"
+      },
+      "declared": "Stream {name} declared",
+      "stream_intro": "A stream is a named, typed, unbounded sequence of rows. Pick the one to ask about.",
+      "declare": {
+        "title": "Declare a new stream",
+        "name": "Name",
+        "schema_before": "Schema —",
+        "schema_after": ", comma-separated",
+        "event_time": "Event time",
+        "no_event_time": "none — no window will ever close",
+        "lateness": "Out-of-orderness",
+        "help_before": "Event time is the column a window is measured on; out-of-orderness is how late a row may be (ISO-8601) before a window stops waiting for it. This puts the schema in the catalogue; it does not bind a source — rows only arrive once",
+        "help_after": "is configured.",
+        "busy": "Declaring…",
+        "submit": "Declare stream",
+        "instead": "Declare a new stream instead"
+      },
+      "next_question": "Next: choose a question about",
+      "it": "it",
+      "question_before": "Each is written against",
+      "question_after": "'s own columns. Edit it freely — it is validated by the engine's planner as you type.",
+      "the_query": "The query",
+      "query_placeholder": "Pick a question above, or write your own",
+      "valid": "Valid — output:",
+      "unavailable": "Validation unavailable: {error}",
+      "checking": "checking…",
+      "back": "Back",
+      "next_register": "Next: register it",
+      "open_workbench": "Open in the full workbench",
+      "registered": "{name} registered",
+      "register_intro": "Registering turns the question into a computation the engine keeps running, and its answer into a view clients read by name.",
+      "view_name": "View name",
+      "name_rule": "Letters, digits and underscores, starting with a letter.",
+      "key_legend": "Key — what makes a row distinct",
+      "key_help": "For a windowed count, the window and the grouping column together.",
+      "registering": "Registering…",
+      "register": "Register",
+      "is_state": "is {state}",
+      "fingerprint": "fingerprint",
+      "watch_intro": "Open the live view: it shows the view's current rows and every change as the engine commits it, with its weight. If nothing arrives, the usual reasons are that no source is bound to the stream, or — for a windowed question — that the stream has no declared event time, so no window ever closes.",
+      "client_code": "Get client code",
+      "see_operations": "See it on the operations dashboard",
+      "done": "Done",
+      "down_title": "The engine is not answering yet",
+      "down_before": "Start",
+      "down_after": "and reload. Every step below needs it."
+    },
+    "views": {
+      "no_row_title": "No row has that key",
+      "no_row_body": "The view is correct as of its last commit; nothing in it matches. A row appears when the data that makes it arrives.",
+      "grid_caption": "Point query answer",
+      "returned_one": "{n} row in {ms} ms",
+      "returned_other": "{n} rows in {ms} ms",
+      "truncated": " — the first {n} only",
+      "announce": "{n} rows",
+      "correlation": "correlation {id}",
+      "no_correlation": "n/a"
+    },
+    "api": {
+      "failed": "request failed with {status}"
+    },
+    "states": {
+      "never_title": "No {what} yet",
+      "never_body": "A continuous query is registered once and maintained for as long as it is registered. Nothing has been registered on this engine.",
+      "filtered_title": "Nothing matches this filter",
+      "filtered_body": "There are registered queries, but none match what you have typed. The filter is in the URL, so this view is shareable either way.",
+      "filtered_clear": "Clear the filter",
+      "retry": "Try again",
+      "no_retry": "Retrying will not help — the request itself was rejected",
+      "correlation": "correlation",
+      "not_available": "n/a",
+      "partial_title": "Showing partial results",
+      "partial_body": "{missing} did not answer. The numbers below are lower than the truth, not a complete picture of a smaller thing.",
+      "stale_title": "Live updates disconnected",
+      "stale_age": "Showing data from {seconds}s ago.",
+      "reconnecting": "Reconnecting…",
+      "not_reconnecting": "Not reconnecting.",
+      "unauthorized": "You do not have permission to {action}",
+      "refreshing": "refreshing…",
+      "never_loaded": "never loaded",
+      "just_now": "just now",
+      "ago": "{seconds}s ago"
+    },
+    "tail": {
+      "dropped": "{n} rows dropped — this browser is behind the stream"
+    },
+    "theme": {
+      "system": "theme follows the system",
+      "chosen": "{choice} theme",
+      "density": "{choice} density"
+    },
+    "overview": {
+      "registered": "Registered",
+      "registered_note": "continuous queries",
+      "running": "Running",
+      "running_note": "maintaining a view",
+      "shared": "Shared",
+      "shared_note": "names on a shared computation",
+      "feeds": "Live feeds",
+      "feeds_note": "engine subscriptions, however many tabs",
+      "shared_chip": "shared",
+      "queries": "queries",
+      "register_one": "Register one"
+    },
+    "queries": {
+      "shared_title": "Another name shares this computation",
+      "shared": "shared",
+      "open": "Open",
+      "queries": "queries",
+      "register_one": "Register one",
+      "showing": "Showing {n} of {total}"
+    }
+  },
+  "admin": {
+    "kicker": "ADMIN",
+    "sections": "Admin sections",
+    "tab": {
+      "access": "Access",
+      "audit": "Audit trail",
+      "plugins": "Plugins"
+    },
+    "help": {
+      "security": "Security",
+      "security_body": "Who may read what, row filters, and what the audit trail records."
+    },
+    "access": {
+      "title": "Access",
+      "heading": "What this console may do",
+      "lede": "The engine's own answers, asked of its configured policy for the identity this console connects as. Read-only: grants live wherever the policy gets them, not here.",
+      "error": "The engine's permissions endpoint is not answering, so what this identity may do is unknown",
+      "identity": "Identity",
+      "principal": "Principal",
+      "anonymous": "anonymous",
+      "tenant": "Tenant",
+      "roles": "Roles",
+      "no_roles": "none",
+      "policy": "Policy",
+      "may": "May it…",
+      "question": "Question",
+      "answer": "The policy's answer",
+      "q": {
+        "register": "register continuous queries",
+        "audit": "read the audit trail",
+        "read": "read views and streams",
+        "administer": "drop, pause or resume views"
+      },
+      "allowed": "allowed",
+      "refused": "refused",
+      "open_audit": "Open the audit trail",
+      "read_summary": "{views} views and {streams} streams it can see, listed below",
+      "administer_summary": "{n} of the {total} views it can see",
+      "views": "Views",
+      "streams": "Streams",
+      "name": "Name",
+      "read": "Read",
+      "administer": "Drop, pause, resume",
+      "full": "full",
+      "filtered": "row-filtered",
+      "filtered_title": "The policy applies a row filter; the predicate is not shown here",
+      "none_title": "Nothing visible",
+      "none_body": "The policy shows this identity none. Anything it may not see is absent rather than listed with a no, because listing it would disclose that it exists.",
+      "about_title": "What this page is, and is not",
+      "about_identity": "The console reaches the engine as one identity, the token in engine.token, for everyone signed in to it. These are that identity's permissions; a role chosen in the account menu picks a landing, not a permission.",
+      "about_hidden": "Only what the identity could already see is listed: the engine names no view or stream here that its listing would hide.",
+      "about_grants": "There is nothing to edit. The engine enforces a SecurityPolicy that a deployment implements against its own identity system, and the configured policies have no grants to change."
+    },
+    "audit": {
+      "title": "Audit trail",
+      "heading": "Who asked for what, and what they were told",
+      "lede": "Every decision the engine's policy made, allows as well as denials, newest first. Every filter is in the address, so a filtered trail is a link.",
+      "filters": "Filter",
+      "principal": "Principal",
+      "view": "View or target",
+      "action": "Action",
+      "decision": "Decision",
+      "any": "any",
+      "allow": "allowed",
+      "deny": "denied",
+      "since": "Since",
+      "until": "Until",
+      "apply": "Apply",
+      "clear": "Clear filters",
+      "utc": "Times are UTC.",
+      "error": "The audit trail could not be read",
+      "denied": {
+        "title": "Not permitted",
+        "body": "The engine refused to show this console's identity the audit trail. Reading it is a permission of its own, not a consequence of being allowed to read views, and this attempt has itself been recorded.",
+        "fix": "An administrator grants it in the engine's policy: under the authenticated policy, a role listed in pravaha.security.audit-readers.",
+        "access": "See what this identity may do"
+      },
+      "off": {
+        "title": "This engine records no decisions"
+      },
+      "window": "Recorded to {sink}; {retained} of at most {capacity} recent decisions are readable here.",
+      "oldest": "The oldest is from {at}.",
+      "evicted": "{n} older ones have left this window.",
+      "older_page": "an older page",
+      "empty": {
+        "title": "No decision matches",
+        "body": "Nothing the engine recorded in its readable window matches these filters."
+      },
+      "caption": "Recorded decisions, newest first",
+      "col": {
+        "at": "When (UTC)",
+        "principal": "Principal",
+        "action": "Action",
+        "target": "Target",
+        "decision": "Decision",
+        "detail": "Detail"
+      },
+      "allowed": "allowed",
+      "denied_chip": "denied",
+      "pages": "Audit pages",
+      "newest": "Newest",
+      "older": "Older",
+      "end": "The oldest readable decision is on this page.",
+      "about_title": "How the trail is kept",
+      "about_permission": "The engine decides who may read this, with a question of its own (SecurityPolicy.mayReadAudit): being entitled to read every view is not being entitled to learn who else read them.",
+      "about_recorded": "Reading the trail is recorded in it, allowed or refused, with the filter that was asked for.",
+      "about_window": "The engine keeps a bounded window of recent decisions readable here; with audit set to file, everything older is in the audit file on the node."
+    }
+  },
+  "operations": {
+    "title": "Operations",
+    "kicker": "OPERATIONS",
+    "heading": "Is everything healthy — and if not, where?",
+    "as_of_load": "as of page load",
+    "no_watermark_title": "No row with an event time has arrived",
+    "no_watermark": "no watermark",
+    "unit": {
+      "seconds": "{n} s",
+      "minutes": "{n} min",
+      "hours": "{n} h",
+      "ms": "{n} ms",
+      "mb": "MB"
+    },
+    "where": "Where:",
+    "attention": "What needs attention",
+    "nothing": "Nothing",
+    "nothing_body": "No query is near its state ceiling, stopped, or behind in event time.",
+    "tile": {
+      "engine": "Engine",
+      "unreachable": "unreachable",
+      "queries": "Queries",
+      "running": "{n} running",
+      "heap": "Heap",
+      "heap_of": "of {n} MB",
+      "not_published": "not published",
+      "fanout": "Console fan-out",
+      "fanout_note": "engine subscriptions this console holds"
+    },
+    "plugins": "Plugins",
+    "metrics_down": "The engine's metrics endpoint is not answering",
+    "metrics_down_body": "{error} — the per-query numbers below come from the registry alone until it does.",
+    "queries": "Queries",
+    "col": {
+      "query": "Query",
+      "state": "State",
+      "rows_in": "Rows in",
+      "rate": "Rows/s",
+      "ceiling": "State vs ceiling",
+      "view_rows": "View rows",
+      "lag": "Watermark lag",
+      "subscribers": "Subscribers",
+      "commit_title": "Mean time from applying a commit to the last subscriber and sink having it, between two scrapes",
+      "commit": "Commit (mean)",
+      "checkpoint_title": "Age of the last stored checkpoint, and failures",
+      "checkpoint": "Checkpoint"
+    },
+    "shared": "shared",
+    "unlisted": "unlisted",
+    "gauge_label": "state held as a share of its ceiling",
+    "not_published_yet": "not published yet",
+    "ago": "ago",
+    "took": "took {n} s",
+    "not_checkpointing": "not checkpointing",
+    "failed": "{n} failed",
+    "empty": {
+      "title": "No queries registered",
+      "body": "Once one is, its throughput, state and lag are here.",
+      "start": "Get started"
+    },
+    "reconciled": "Per-query meters are reconciled with the registry every 15 s, so a query registered a moment\n  ago shows “not published yet” for up to that long.",
+    "chart": {
+      "rate": "Rows in per second",
+      "rate_label": "Rows in per second, per query",
+      "rate_caption_before": "Rate of",
+      "rate_caption_after": ", per query, from this console's 1 s scrapes. Window: since this page opened, up to 5 min.",
+      "state": "State held, as a share of its ceiling",
+      "state_label": "State held as a fraction of ceiling, per query",
+      "state_caption": ", 0–100 %, fixed scale so queries compare. At 100 % a query is refused (PRV-4001) unless spilling is on."
+    },
+    "not_measured": {
+      "title": "Not measured by the engine",
+      "lede": "Shown as absent rather than as zero: the engine does not measure these, so there is no honest number to draw.",
+      "why": "Not measured: {why}."
+    },
+    "help": {
+      "operations": "Operating it",
+      "operations_body": "What to watch, what survives a restart, what a cluster promises.",
+      "troubleshooting": "When it refuses",
+      "troubleshooting_body": "Every PRV code, what it means, what to do.",
+      "execution": "Lanes and state",
+      "execution_body": "Where a query runs and what it holds."
+    }
+  },
+  "overview": {
+    "title": "Overview",
+    "kicker": "OVERVIEW",
+    "heading": "This engine",
+    "one_engine": "One engine, at",
+    "one_engine_end": ".",
+    "down": {
+      "title": "The engine is not answering",
+      "body_before": "This console is running and this page is current — it is the engine at",
+      "body_after": "that cannot be reached. Check that it is started and\n    that its Flight port matches.",
+      "retry": "Try again"
+    },
+    "stat": {
+      "registered": "Registered",
+      "registered_note": "continuous queries",
+      "running": "Running",
+      "running_note": "maintaining a view",
+      "shared": "Shared",
+      "shared_note": "names on a shared computation",
+      "feeds": "Live feeds",
+      "feeds_note": "engine subscriptions, however many tabs"
+    },
+    "busiest": "Busiest queries",
+    "help": {
+      "quickstart": "Quick start",
+      "quickstart_body": "From nothing to a maintained view, with the refusals included.",
+      "concepts": "Concepts",
+      "concepts_body": "Deltas, event time, watermarks, and why a view is already correct.",
+      "operations": "Operations",
+      "operations_body": "What to watch, what survives a restart, and what a cluster promises."
+    }
+  },
+  "queries": {
+    "title": "Queries",
+    "kicker": "QUERIES",
+    "heading": "Registered continuous queries",
+    "lede": "Every filter is in the URL, so this view can be pasted into a ticket as it is.",
+    "filter": "Filter",
+    "filter_placeholder": "name or SQL  ( / )",
+    "sort": "Sort",
+    "sort_busiest": "Busiest first",
+    "state": {
+      "any": "Any state",
+      "running": "Running",
+      "paused": "Paused",
+      "failed": "Failed"
+    },
+    "apply": "Apply",
+    "register": "Register a query",
+    "col": {
+      "name": "Name",
+      "state": "State",
+      "rows_in": "Rows in",
+      "shared": "Shared"
+    },
+    "down": {
+      "title": "The engine is not answering",
+      "body_before": "Nothing can be listed until it does. The bar above says the same thing, and",
+      "body_after": "is where it is being looked for."
+    },
+    "previous": "Previous",
+    "next": "Next",
+    "showing": "Showing {shown} of {total}",
+    "shared": "shared",
+    "shared_title": "Another name shares this computation",
+    "open": "Open",
+    "empty": {
+      "title": "No queries yet",
+      "body": "A continuous query is registered once and maintained for as long as it is registered.\n         Nothing has been registered on this engine.",
+      "register": "Register one"
+    },
+    "help": {
+      "registering": "Registering",
+      "registering_body": "What a registration is, and what a name costs.",
+      "sharing": "Sharing",
+      "sharing_body": "Why two names can be one computation, and what dropping one does.",
+      "troubleshooting": "When it refuses",
+      "troubleshooting_body": "Every PRV code, what it means, and what to do."
+    }
+  },
+  "query": {
+    "all": "All queries",
+    "kicker": "QUERY",
+    "watch_live": "Watch live",
+    "browse": "Browse view & client code",
+    "plan": "See its plan",
+    "edit_copy": "Edit a copy",
+    "definition": "Definition",
+    "rows_in": "{n} rows in",
+    "fingerprint_title": "The canonical plan this name resolves to. Two names with the same fingerprint are one computation.",
+    "fingerprint": "fingerprint {id}",
+    "keyed_by": "Keyed by",
+    "retention": "Retention",
+    "reads": "Reads",
+    "sink": "Sink",
+    "writing": "writing",
+    "detached": "detached",
+    "rows_written": "{n} rows written",
+    "sink_detached": "The query and its view carry on; the sink receives nothing more until the query is re-registered.",
+    "no_sink": "none — the view only",
+    "failure": "Failure",
+    "withheld": "Counts are withheld: this console's access to the view is row-filtered.",
+    "controls": "Controls",
+    "pause": "Pause",
+    "pause_title": "Stop the work, keep the state",
+    "pause_disabled": "Only a running query can be paused",
+    "resume": "Resume",
+    "resume_title": "Carry on from the frontier it reached",
+    "resume_disabled": "Already running",
+    "drop": "Drop",
+    "controls_note_before": "Pausing keeps the state and stops the work; the view\n          keeps answering at the frontier it reached. Dropping a name releases the computation only\n          when it is the",
+    "controls_note_last": "last",
+    "controls_note_after": "name on it.",
+    "shared": "Shared computation",
+    "shared_body": "{n} other name(s) resolve to the same plan:",
+    "shared_drop": "Dropping this name will not stop the computation.",
+    "confirm": {
+      "title_before": "Drop",
+      "title_after": "?",
+      "cancel": "Cancel",
+      "shared": "This name is one of {n} sharing the same\n          computation, so the state survives this drop.",
+      "last": "This is the last name on its\n          computation: the state goes with it, and it cannot be recovered.",
+      "type_before": "Type the query name,",
+      "type_after": ", to confirm.",
+      "exact": "Case-sensitive, and must match exactly.",
+      "submit": "Drop this query"
+    },
+    "tail": "Live tail",
+    "tail_label": "Live changes",
+    "tail_note": "One engine subscription serves every browser watching this view.\n  Ten tabs are ten connections here and one subscriber on the engine.",
+    "help": {
+      "subscriptions": "Subscriptions",
+      "subscriptions_body": "Tap filters, bounded buffers, and what a dropped row means.",
+      "watermarks": "Watermarks",
+      "watermarks_body": "Why a window closes on data rather than on the clock.",
+      "retention": "Retention",
+      "retention_body": "What a view forgets, when, and how to tell if it is not."
+    }
+  },
+  "refused": {
+    "title": "Refused",
+    "kicker": "REFUSED",
+    "heading": "The engine would not {what}",
+    "what_code_means": "what this code means"
+  },
+  "not_found": {
+    "title": "Not found",
+    "kicker": "NOT FOUND",
+    "heading": "There is no such {what}",
+    "body_before": "Nothing is registered or filed as",
+    "body_after": ". It may have been dropped, or the name may be\n  misspelt."
+  },
+  "workbench": {
+    "title": "Workbench",
+    "kicker": "SQL WORKBENCH",
+    "heading": "Write it, check it, see its plan, register it",
+    "keys": {
+      "run": "run",
+      "explain": "explain",
+      "jump": "jump anywhere"
+    },
+    "refused": "The engine refused this query",
+    "what_code_means": "what this code means",
+    "catalog": "Catalog",
+    "streams": "Streams",
+    "catalog_link": "catalog",
+    "insert": "Insert {name}",
+    "no_streams": "No streams to show. Either none is declared, or the engine's\n          HTTP API at its configured address is not answering — completion and validation need it too.",
+    "declare_one": "Declare one",
+    "library": "Library",
+    "editor": "Editor",
+    "parameters": "Parameters",
+    "parameters_hint": "— comma-separated, one per",
+    "parameters_placeholder": "e.g. 40, ACME",
+    "run_once": "Run once",
+    "register_as": "Register as",
+    "name_placeholder": "a name clients will use in FROM",
+    "key_columns": "Key columns",
+    "sink": "Sink",
+    "optional": "(optional)",
+    "sink_placeholder": "a bound sink",
+    "accepts_revisions": "accepts revisions",
+    "append_only": "append only",
+    "retention": "Retention",
+    "retention_placeholder": "PT24H or forever",
+    "register": "Register",
+    "keys_note": "Key columns by name (or output ordinal). A view with no key is a\n          log, and a point read against it has nothing to look up.",
+    "result": "Result",
+    "truncated": "Showing {n} rows; the result was\n            larger. These are the first rows, not a sample of all of them.",
+    "rows_in_ms": "{n} rows in {ms}ms",
+    "no_rows": "No rows",
+    "no_rows_body": "The query ran in {ms}ms and matched nothing. On a stream this often means\n              the window has not closed yet: a window closes when data says it is over, not when the\n              clock does.",
+    "nothing_run": "Nothing run yet",
+    "nothing_run_body": "Write a query above and run it. Nothing is registered until you ask for it.",
+    "help": {
+      "sql": "What SQL runs",
+      "sql_body": "Every construct, and the reason for each refusal.",
+      "quickstart": "Quick start",
+      "quickstart_body": "The shortest path from a query to a maintained view.",
+      "troubleshooting": "When it refuses",
+      "troubleshooting_body": "Every PRV code, what it means, and what to do."
+    }
+  },
+  "landing": {
+    "tag": "STREAMING SQL, INCREMENTALLY MAINTAINED",
+    "hero_1": "Ask once.",
+    "hero_2": "Answer always.",
+    "lede": "A query you register is a question the engine keeps answering. Not a job you submit and wait on — a view that is already correct when you read it, maintained row by row as the data arrives, and shared by everyone who asked the same thing.",
+    "open_console": "Open the console",
+    "what_this_is": "What this is",
+    "quick_start": "Quick start",
+    "name": {
+      "kicker": "THE NAME",
+      "title": "pravāha — that which flows",
+      "p1_before": "In Sanskrit",
+      "p1_is": "is the",
+      "p1_current": "current",
+      "p1_flow": ": a river's flow, continuous and directional. Not the water, which is always different water — the",
+      "p1_flowing": "flowing",
+      "p1_after": ", which is the thing that persists.",
+      "p2": "Which is what a stream is, and what makes streaming hard to reason about. The rows are gone the moment they pass. What you keep is the answer they changed, and the discipline is knowing which answers a row can still change and which it cannot.",
+      "p3_before": "That question —",
+      "p3_question": "can anything still arrive that changes this?",
+      "p3_after": "— is what watermarks answer, what retention rests on, and what decides when a window may close."
+    },
+    "different": {
+      "kicker": "WHAT MAKES IT DIFFERENT",
+      "incremental": "INCREMENTAL, NOT RECOMPUTED",
+      "incremental_body": "A change is a delta. Z-sets carry weights, so a correction is a retraction and an insert — never a rescan.",
+      "event_time": "EVENT TIME, NOT WALL CLOCK",
+      "event_time_body": "A window closes when the data says it is over, not when the clock does. Late rows correct the answer rather than being lost.",
+      "shared": "SHARED BY FINGERPRINT",
+      "shared_body": "Two people asking the same question get one computation and one copy of the state — matched on the normalised plan, not the SQL text.",
+      "bounded": "BOUNDED BY CONSTRUCTION",
+      "bounded_body": "Every operator that could grow without limit has a bound, and a query with no bound is refused at plan time rather than at 3am."
+    },
+    "does": {
+      "kicker": "WHAT IT DOES",
+      "continuous": "Continuous queries",
+      "continuous_body": "Register SQL under a name. The engine maintains its view for as long as it is registered, and clients read or subscribe.",
+      "joins": "Streaming joins",
+      "joins_body": "Two streams joined on a key and a time bound — including LEFT, where the unmatched row is emitted once the window has passed.",
+      "protocol": "One protocol",
+      "protocol_body": "Arrow Flight SQL for query, prepare, register and subscribe. Both SDKs and the CLI speak it; so does any Flight client.",
+      "answers": "Answers, not jobs",
+      "answers_body": "A view is already computed when you ask. There is no serving database because the serving database is not needed."
+    },
+    "start": {
+      "kicker": "START HERE",
+      "quick_start_body": "From nothing to a maintained view, with the refusals included.",
+      "documentation": "Documentation",
+      "documentation_body": "Concepts, the user guide, operations, security, troubleshooting.",
+      "tutorials": "Tutorials",
+      "tutorials_body": "Worked walkthroughs against a running engine."
+    },
+    "instance": {
+      "kicker": "THIS INSTANCE",
+      "up_before": "The console is connected. Open the",
+      "up_link": "overview",
+      "up_after": "to see what is registered.",
+      "down": "This console is running; the engine it is pointed at is not answering. That is reported rather than hidden — a console that refuses to start when the engine is down cannot tell you the engine is down."
+    }
+  },
+  "about": {
+    "title": "About",
+    "kicker": "ABOUT",
+    "heading": "What {app} is",
+    "lede": "A streaming SQL engine that maintains the answer to a question for as long as the question is registered — and refuses, at plan time and with a reason, anything it cannot keep bounded.",
+    "empty": "No about content found. Expected markdown files under",
+    "docs": {
+      "title": "Documentation",
+      "body": "Concepts, guides and troubleshooting, rendered from the repository's own",
+      "open": "Open help"
+    }
+  },
+  "help": {
+    "empty": "No content found. Expected markdown files under",
+    "open_sibling": "Open {title}",
+    "on_this_page": "On this page",
+    "read_more": "read more",
+    "code": {
+      "every_code": "Every code",
+      "kicker": "ERROR CODE",
+      "lede": "The code is the stable part of a refusal: the message may improve, the code does not change. Everything below is read from the documentation that ships with the engine, so it is the same text a reader of the repository sees.",
+      "unknown_title": "Nothing is written about {code} yet",
+      "unknown_body": "The code is well-formed but no shipped document discusses it. The message that carried it is the best description there is; the full table is on the troubleshooting page.",
+      "open_troubleshooting": "Open troubleshooting",
+      "mentions": "Where else it is mentioned"
+    }
+  },
+  "login": {
+    "kicker": "CONSOLE",
+    "unset": {
+      "title": "No console password is set",
+      "set": "Nobody can sign in, and that is the safe failure. Set",
+      "in": "— in",
+      "or": "or the",
+      "restart": "environment variable — and restart."
+    },
+    "password": "Console password",
+    "purpose": "I am here to",
+    "lands_on": "lands on {path}",
+    "role_note": "Changeable at any time from the account menu. It picks where you land and what the command palette offers first; it grants nothing.",
+    "gate_note": "This gate protects the console's own controls. It is not the engine's identity model — the engine authenticates its clients through the deployment's own provider, and a second, weaker account system beside it would be worse than an honest lock."
+  },
+  "catalog": {
+    "title": "Catalog",
+    "kicker": "CATALOG",
+    "heading": "What exists, and what reads it",
+    "declare_or_write": "Declare a stream or write a query",
+    "sections": "Catalog sections",
+    "tab": {
+      "streams": "Streams",
+      "queries": "Registered queries",
+      "sinks": "Sinks"
+    },
+    "streams_error": {
+      "title": "The stream catalog is not answering",
+      "where": "Streams are read from the engine's REST API at",
+      "unset": "engine.http_url (not set)"
+    },
+    "no_streams": {
+      "title": "No streams declared",
+      "before": "A stream is declared under",
+      "after": "in the engine's configuration, or through its REST API. The get-started guide can declare one.",
+      "action": "Declare a stream"
+    },
+    "stream": {
+      "version": "v{version}",
+      "event_time_title": "Event time, and how late a row may be",
+      "event_time": "event time",
+      "late": "{lateness} late",
+      "no_event_time_title": "No window over this stream can close",
+      "no_event_time": "no event time",
+      "source_title": "The plugin a source binding feeds it from",
+      "not_bound": "not bound",
+      "more": "and {n} more",
+      "query_it": "Query it",
+      "schema": "Schema"
+    },
+    "no_queries": {
+      "title": "Nothing registered",
+      "body": "A continuous query is registered once and maintained until it is dropped.",
+      "action": "Open the workbench"
+    },
+    "queries": {
+      "query": "Query",
+      "state": "State",
+      "fingerprint": "Fingerprint",
+      "shares": "Shares its computation with",
+      "key": "Key",
+      "retention": "Retention",
+      "sink": "Sink",
+      "rows_in": "Rows in",
+      "own_computation": "none — its own computation",
+      "view_only": "view only",
+      "sharing_note": "Two names on one fingerprint are one computation with one copy of the state: the registry matched their normalised plans. Dropping one leaves the other running."
+    },
+    "sinks_error": {
+      "title": "The sink list is not answering",
+      "where": "Sinks are read from the engine's"
+    },
+    "no_sinks": {
+      "title": "No sinks you can see",
+      "before": "A sink is bound in the engine's configuration under",
+      "after": "and named at registration. None is bound, or none is visible to this console's identity."
+    },
+    "sinks": {
+      "sink": "Sink",
+      "plugin": "Plugin",
+      "row_shape": "Row shape",
+      "key": "Key",
+      "accepts": "Accepts",
+      "written_by": "Written by",
+      "any_shape": "any shape",
+      "no_key": "none — append-only",
+      "revisions_title": "A query that revises its answer may write here",
+      "append_only_title": "A revising query pointed here is refused with PRV-2041",
+      "note_promises": "What each sink promises comes from asking its plugin, the question registration asks before it will attach one. A binding's options — where credentials live — are never part of the engine's answer. A query that revises its answer needs a sink that accepts revisions",
+      "note_shape": "a sink's configured row shape and key must match the query's"
+    },
+    "help": {
+      "streams": "Streams and sources",
+      "streams_body": "Declaring a stream, binding a source, and event time.",
+      "connectors": "Connectors",
+      "connectors_body": "Every source and sink plugin, configured.",
+      "sharing": "Sharing",
+      "sharing_body": "Why two names can be one computation."
+    }
+  },
+  "live": {
+    "title": "{name} · live",
+    "kicker": "LIVE",
+    "heading_after": ", as it changes",
+    "not_connected": "not connected",
+    "pause": "Pause",
+    "lede_before": "Every committed change to the view, as the engine publishes it:",
+    "lede_plus": "a row appearing,",
+    "lede_minus": "a row withdrawn. A correction arrives as a withdrawal of the old row and an insert of the new one, so the current rows below are the running sum of both — never a count of messages.",
+    "noscript_before": "Live changes arrive over server-sent events, which need JavaScript. The",
+    "noscript_link": "view browser",
+    "noscript_after": "answers point queries without it.",
+    "tap_filter": "Tap filter",
+    "everything": "everything",
+    "equals": "equals",
+    "value_placeholder": "value",
+    "apply": "Apply",
+    "tap_note": "Applied at the engine's tap, so rows you did not ask for never cross the network.",
+    "counter": {
+      "changes": "changes",
+      "plus": "appeared (+1)",
+      "minus": "withdrawn (−1)",
+      "rows": "current rows",
+      "dropped": "dropped by this browser"
+    },
+    "current_rows": "Current rows",
+    "rows_note": "the view now, plus every change since",
+    "connecting": {
+      "title": "Connecting…",
+      "body": "The current rows appear here, then change as the engine commits."
+    },
+    "change_log": "Change log",
+    "log": {
+      "at": "At",
+      "weight": "Weight",
+      "row": "Row"
+    },
+    "nothing_yet": {
+      "title": "Nothing yet",
+      "body": "Changes land here the moment they commit. A quiet stream and a stopped one look alike, so the connection state is shown above."
+    },
+    "over_time": "Over time",
+    "chart": {
+      "column": "Column",
+      "plot": "Plot",
+      "sum": "total across current rows",
+      "count": "number of current rows",
+      "arrivals": "each arriving value",
+      "label": "Chart of the chosen column over time",
+      "caption": "Sampled once a second in this browser, from the changes above. Gaps are drawn as gaps."
+    },
+    "help": {
+      "weights": "Weights and corrections",
+      "weights_body": "Why the answer can go backwards, and what −1 means.",
+      "subscriptions": "Subscriptions",
+      "subscriptions_body": "Tap filters, bounded buffers, and what a dropped row means.",
+      "retention": "Retention",
+      "retention_body": "What a view forgets, and when."
+    }
+  },
+  "start": {
+    "title": "Get started",
+    "kicker": "GET STARTED",
+    "heading": "From a stream to a view that changes, in a few minutes",
+    "skip": "Skip — take me to my usual screen",
+    "lede": "Four steps: pick the stream to read, choose what to ask of it, register the question, and watch the answer being maintained. Nothing here is a demo — each step is the engine's real API, and what you register keeps running until you drop it.",
+    "progress": "Progress",
+    "step": {
+      "stream": "Pick a stream",
+      "question": "Choose a question",
+      "register": "Register it",
+      "watch": "Watch it change"
+    },
+    "down": {
+      "title": "The engine is not answering yet",
+      "before": "Start it first —",
+      "flight": "Flight on",
+      "after": "— then reload this page."
+    },
+    "no_streams_before": "No stream is declared yet. With JavaScript on, this page can declare one; otherwise declare it under",
+    "no_streams_after": "in the engine's configuration.",
+    "templates_note": "Each opens in the workbench, where it is validated as you type and registered from the Register panel.",
+    "help": {
+      "quickstart": "Quick start",
+      "quickstart_body": "The same path, from the command line.",
+      "declaring": "Declaring a stream",
+      "declaring_body": "Schema, event time, and binding a source.",
+      "view": "What a view is",
+      "view_body": "A question asked once and answered always."
+    }
+  },
+  "stream": {
+    "title": "{name} · stream",
+    "back": "Catalog",
+    "kicker": "STREAM",
+    "write_query": "Write a query against it",
+    "schema": "Schema",
+    "version": "version {version}",
+    "column": "Column",
+    "type": "Type",
+    "nullable": "Nullable",
+    "yes": "yes",
+    "no": "no",
+    "time_and_source": "Time and source",
+    "event_time": "Event time",
+    "none_declared": "none declared",
+    "no_window_closes": "no window over this stream can close",
+    "out_of_orderness": "Out-of-orderness",
+    "lateness_meaning": "how late a row may be before a window stops waiting",
+    "source": "Source",
+    "not_bound": "not bound — rows arrive only if something writes them",
+    "readers": "Registered queries that read it",
+    "lineage_engine": "From the engine: the streams each query's plan reads.",
+    "lineage_name": "Matched by name in each query's SQL — this engine did not say what each query reads.",
+    "no_readers": "None yet.",
+    "from_template": "Start from a template",
+    "help": {
+      "declaring": "Declaring a stream",
+      "declaring_body": "Schema, event time and lateness, and why each matters.",
+      "watermarks": "Watermarks",
+      "watermarks_body": "Why a window closes on data rather than on the clock.",
+      "sources": "Sources",
+      "sources_body": "Where a stream's rows come from."
+    }
+  },
+  "view": {
+    "title": "{name} · view",
+    "back": "All views",
+    "kicker": "VIEW",
+    "watch_live": "Watch live",
+    "open_sql": "Open SQL in workbench",
+    "manage": "Manage query",
+    "rows_in": "{n} rows in",
+    "fingerprint_title": "Two names with one fingerprint are one computation",
+    "fingerprint": "fingerprint {fingerprint}",
+    "shared_with": "shared with {names}",
+    "point_query": "Point query",
+    "column": "Column",
+    "scan": "scan the view",
+    "equals": "Equals",
+    "key_placeholder": "a key value",
+    "look_up": "Look up",
+    "numbers_before": "Numbers stay numbers;",
+    "numbers_middle": "is not",
+    "schema_error": "The view's schema could not be read: {error}",
+    "schema": "Schema",
+    "not_null": "not null",
+    "not_known": "Not known yet.",
+    "shape": "Key, retention and sink",
+    "keyed_by": "Keyed by",
+    "retention": "Retention",
+    "forever": "keeps every key it has seen",
+    "of_event_time": "of event time",
+    "sink": "Sink",
+    "no_sink": "none — the view only",
+    "answer": "Answer",
+    "returned_one": "{n} row in {ms} ms",
+    "returned_other": "{n} rows in {ms} ms",
+    "truncated": "the first {n} only",
+    "no_row": {
+      "title": "No row has that key",
+      "body": "The view is correct as of its last commit; nothing in it matches. A row appears when the data that makes it arrives."
+    },
+    "ask": {
+      "title": "Ask it something",
+      "body": "Pick a column and a value for a point read, or leave the column empty to scan the view. The code to do the same from a service is below."
+    },
+    "client_code": "Client code",
+    "for": "For",
+    "keyed_on": "keyed on",
+    "paste_before": "Paste it into a service. The token is read from",
+    "paste_after": "; no secret is ever written into a snippet.",
+    "read": "Read",
+    "subscribe": "Subscribe to changes",
+    "copy": "Copy",
+    "definition": "Definition",
+    "help": {
+      "clients": "Clients",
+      "clients_body": "The Java and Python SDKs, the CLI and the PostgreSQL gateway.",
+      "weights": "Weights",
+      "weights_body": "Why a subscriber sees -1 as well as +1.",
+      "tokens": "Tokens",
+      "tokens_body": "How a service authenticates, and what a view grant covers."
+    }
+  },
+  "views": {
+    "title": "Views",
+    "kicker": "VIEWS",
+    "heading": "What your services can read",
+    "filter_label": "Filter views",
+    "filter_placeholder": "filter  ( / )",
+    "lede": "Every registered continuous query maintains a view: already correct when it is read, by key or by SQL, over Flight, the SDKs or the PostgreSQL gateway. Pick one to point-query it, watch it change, or copy the client code that reads it.",
+    "down": {
+      "title": "The engine is not answering",
+      "before": "Views are listed from the engine at",
+      "after": ". The bar above says the same; this page fills in when it answers.",
+      "retry": "Try again"
+    },
+    "empty": {
+      "title": "No views yet",
+      "body": "A view exists once a continuous query is registered. The get-started guide gets one running in a few minutes, from a stream to a view that changes as rows arrive.",
+      "start": "Get started",
+      "workbench": "Open the workbench"
+    },
+    "table": {
+      "view": "View",
+      "state": "State",
+      "rows_in": "Rows in",
+      "computation": "Computation",
+      "actions": "Actions",
+      "shared_title": "Another name shares this computation",
+      "shared": "shared",
+      "fingerprint_title": "fingerprint",
+      "browse": "Browse",
+      "live": "Live",
+      "sql": "SQL"
+    },
+    "count_one": "{n} view",
+    "count_other": "{n} views",
+    "count_match": "{shown} of {n} views match “{needle}”",
+    "help": {
+      "reading": "Reading a view",
+      "reading_body": "Point reads, scans, subscriptions and what a weight means.",
+      "correct": "Why it is already correct",
+      "correct_body": "Deltas, event time and watermarks.",
+      "who": "Who may read what",
+      "who_body": "Views are authorised like data."
     }
   }
 }

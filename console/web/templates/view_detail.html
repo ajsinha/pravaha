@@ -1,64 +1,64 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helpcards %}
-{% block title %}{{ query.name }} · view — {{ app_name }}{% endblock %}
+{% block title %}{{ t('view.title', name=query.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
-<p class="text-muted small"><a href="/views">&larr; All views</a></p>
+<p class="text-muted small"><a href="/views">&larr; {{ t('view.back') }}</a></p>
 <div class="page-head">
   <div>
     <div class="accent"></div>
-    <p class="kicker mt-2 mb-1">VIEW</p>
+    <p class="kicker mt-2 mb-1">{{ t('view.kicker') }}</p>
     <h1 class="mono">{{ query.name }}</h1>
   </div>
   <div class="d-flex gap-2 flex-wrap">
-    <a class="btn btn-sm btn-primary" href="/views/{{ query.name }}/live"><i class="bi bi-activity"></i> Watch live</a>
-    <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}">Open SQL in workbench</a>
-    <a class="btn btn-sm btn-outline-secondary" href="/queries/{{ query.name }}">Manage query</a>
+    <a class="btn btn-sm btn-primary" href="/views/{{ query.name }}/live"><i class="bi bi-activity"></i> {{ t('view.watch_live') }}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}">{{ t('view.open_sql') }}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/queries/{{ query.name }}">{{ t('view.manage') }}</a>
   </div>
 </div>
 <div class="rule"></div>
 <div class="d-flex flex-wrap gap-2 mb-3">
   <span class="chip {{ 'ok' if query.state == 'RUNNING' else 'bad' if query.state == 'FAILED' else 'mute' }}"><span class="dot"></span>{{ query.state }}</span>
-  <span class="chip mute">{{ "{:,}".format(query.rows_in) }} rows in</span>
-  <span class="chip info" title="Two names with one fingerprint are one computation">fingerprint {{ query.fingerprint[:12] }}</span>
-  {% if siblings %}<span class="chip warn">shared with {{ siblings|join(', ') }}</span>{% endif %}
+  <span class="chip mute">{{ t('view.rows_in', n="{:,}".format(query.rows_in)) }}</span>
+  <span class="chip info" title="{{ t('view.fingerprint_title') }}">{{ t('view.fingerprint', fingerprint=query.fingerprint[:12]) }}</span>
+  {% if siblings %}<span class="chip warn">{{ t('view.shared_with', names=siblings|join(', ')) }}</span>{% endif %}
 </div>
 
 <div class="row g-3">
   <div class="col-lg-5">
-    <div class="card h-100"><div class="card-header">Point query</div><div class="card-body">
+    <div class="card h-100"><div class="card-header">{{ t('view.point_query') }}</div><div class="card-body">
       {# A plain GET form: the answer is rendered by the server, so it works with no script at all.
          Values are bound as parameters, never spliced into SQL. #}
       <form method="get" action="/views/{{ query.name }}" id="lookup-form" class="row g-2 align-items-end">
         <div class="col-6">
-          <label class="form-label small text-muted mb-1" for="lookup-key">Column</label>
+          <label class="form-label small text-muted mb-1" for="lookup-key">{{ t('view.column') }}</label>
           <select class="form-select form-select-sm" id="lookup-key" name="key">
-            <option value="">— scan the view —</option>
+            <option value="">— {{ t('view.scan') }} —</option>
             {% for f in schema %}<option value="{{ f.name }}" {{ 'selected' if f.name == key else '' }}>{{ f.name }} · {{ f.type }}</option>{% endfor %}
           </select>
         </div>
         <div class="col-6">
-          <label class="form-label small text-muted mb-1" for="lookup-value">Equals</label>
-          <input class="form-control form-control-sm" id="lookup-value" name="value" value="{{ key_value }}" placeholder="a key value">
+          <label class="form-label small text-muted mb-1" for="lookup-value">{{ t('view.equals') }}</label>
+          <input class="form-control form-control-sm" id="lookup-value" name="value" value="{{ key_value }}" placeholder="{{ t('view.key_placeholder') }}">
         </div>
         <input type="hidden" name="client" value="{{ client }}">
-        <div class="col-12 d-flex gap-2"><button class="btn btn-sm btn-primary" type="submit">Look up</button>
-          <span class="small text-muted align-self-center">Numbers stay numbers; <code>40</code> is not <code>'40'</code>.</span></div>
+        <div class="col-12 d-flex gap-2"><button class="btn btn-sm btn-primary" type="submit">{{ t('view.look_up') }}</button>
+          <span class="small text-muted align-self-center">{{ t('view.numbers_before') }} <code>40</code> {{ t('view.numbers_middle') }} <code>'40'</code>.</span></div>
       </form>
-      {% if schema_error %}<div class="alert alert-warning py-2 small mt-3 mb-0">The view's schema could not be read: {{ schema_error }}</div>{% endif %}
-      <div class="section-label">Schema</div>
+      {% if schema_error %}<div class="alert alert-warning py-2 small mt-3 mb-0">{{ t('view.schema_error', error=schema_error) }}</div>{% endif %}
+      <div class="section-label">{{ t('view.schema') }}</div>
       {% if schema %}
-      <ul class="field-list">{% for f in schema %}<li><span class="mono">{{ f.name }}</span><span class="field-type">{{ f.type }}{{ '' if f.nullable else ' not null' }}</span></li>{% endfor %}</ul>
-      {% else %}<p class="small text-muted">Not known yet.</p>{% endif %}
-      <div class="section-label">Key, retention and sink</div>
+      <ul class="field-list">{% for f in schema %}<li><span class="mono">{{ f.name }}</span><span class="field-type">{{ f.type }}{{ '' if f.nullable else ' ' ~ t('view.not_null') }}</span></li>{% endfor %}</ul>
+      {% else %}<p class="small text-muted">{{ t('view.not_known') }}</p>{% endif %}
+      <div class="section-label">{{ t('view.shape') }}</div>
       <dl class="row small mb-0" id="view-shape">
-        <dt class="col-4">Keyed by</dt><dd class="col-8">{% if view and view.keyColumns %}{% for k in view.keyColumns %}<span class="mono">{{ k.name }}</span> <span class="text-muted">(#{{ k.ordinal }})</span>{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="text-muted">—</span>{% endif %}</dd>
-        <dt class="col-4">Retention</dt><dd class="col-8">{% if view and view.retention %}<span class="mono">{{ view.retention }}</span>{% if view.retention == 'forever' %} <span class="text-muted">— keeps every key it has seen</span>{% else %} <span class="text-muted">of event time</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</dd>
-        <dt class="col-4">Sink</dt><dd class="col-8">{% if view and view.sink %}<span class="mono">{{ view.sink }}</span>{% else %}<span class="text-muted">none — the view only</span>{% endif %}</dd>
+        <dt class="col-4">{{ t('view.keyed_by') }}</dt><dd class="col-8">{% if view and view.keyColumns %}{% for k in view.keyColumns %}<span class="mono">{{ k.name }}</span> <span class="text-muted">(#{{ k.ordinal }})</span>{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="text-muted">—</span>{% endif %}</dd>
+        <dt class="col-4">{{ t('view.retention') }}</dt><dd class="col-8">{% if view and view.retention %}<span class="mono">{{ view.retention }}</span>{% if view.retention == 'forever' %} <span class="text-muted">— {{ t('view.forever') }}</span>{% else %} <span class="text-muted">{{ t('view.of_event_time') }}</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</dd>
+        <dt class="col-4">{{ t('view.sink') }}</dt><dd class="col-8">{% if view and view.sink %}<span class="mono">{{ view.sink }}</span>{% else %}<span class="text-muted">{{ t('view.no_sink') }}</span>{% endif %}</dd>
       </dl>
     </div></div>
   </div>
   <div class="col-lg-7">
-    <div class="card h-100"><div class="card-header d-flex justify-content-between"><span>Answer</span>
+    <div class="card h-100"><div class="card-header d-flex justify-content-between"><span>{{ t('view.answer') }}</span>
       <span class="small text-muted mono" id="lookup-sql">{{ result.sql if result else '' }}</span></div>
       <div class="card-body" id="lookup-result">
       {% if lookup_error %}
@@ -69,22 +69,20 @@
           <thead><tr>{% for c in result.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
           <tbody>{% for row in result.rows %}<tr>{% for v in row %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody>
         </table></div>
-        <p class="small text-muted mt-2 mb-0">{{ result.returned }} row{{ '' if result.returned == 1 else 's' }} in {{ result.took_ms }} ms{% if result.truncated %} — the first {{ result.returned }} only{% endif %}</p>
+        <p class="small text-muted mt-2 mb-0">{% if result.returned == 1 %}{{ t('view.returned_one', n=result.returned, ms=result.took_ms) }}{% else %}{{ t('view.returned_other', n=result.returned, ms=result.took_ms) }}{% endif %}{% if result.truncated %} — {{ t('view.truncated', n=result.returned) }}{% endif %}</p>
         {% else %}
-        <div class="state"><h2>No row has that key</h2><p>The view is correct as of its last commit; nothing in it
-          matches. A row appears when the data that makes it arrives.</p></div>
+        <div class="state"><h2>{{ t('view.no_row.title') }}</h2><p>{{ t('view.no_row.body') }}</p></div>
         {% endif %}
       {% else %}
-        <div class="state"><h2>Ask it something</h2><p>Pick a column and a value for a point read, or leave the column empty
-          to scan the view. The code to do the same from a service is below.</p></div>
+        <div class="state"><h2>{{ t('view.ask.title') }}</h2><p>{{ t('view.ask.body') }}</p></div>
       {% endif %}
     </div></div>
   </div>
 </div>
 
-<h2 id="client-code">Client code</h2>
-<p class="small text-muted">For <span class="mono">{{ query.name }}</span>{% if key %}, keyed on <span class="mono">{{ key }} = {{ key_value }}</span>{% endif %}.
-  Paste it into a service. The token is read from <code>PRAVAHA_TOKEN</code>; no secret is ever written into a snippet.</p>
+<h2 id="client-code">{{ t('view.client_code') }}</h2>
+<p class="small text-muted">{{ t('view.for') }} <span class="mono">{{ query.name }}</span>{% if key %}, {{ t('view.keyed_on') }} <span class="mono">{{ key }} = {{ key_value }}</span>{% endif %}.
+  {{ t('view.paste_before') }} <code>PRAVAHA_TOKEN</code>{{ t('view.paste_after') }}</p>
 {% if snippet_error %}
 <div class="alert alert-warning py-2 small">{{ snippet_error }}</div>
 {% else %}
@@ -96,18 +94,18 @@
 </div>
 {% for id, s in snippets.items() %}
 <div class="row g-3 client-panel" data-client="{{ id }}" role="tabpanel" {{ '' if id == client else 'hidden' }}>
-  <div class="col-xl-6"><div class="section-label mt-0">Read</div>
+  <div class="col-xl-6"><div class="section-label mt-0">{{ t('view.read') }}</div>
     <div class="copyable"><pre tabindex="0" id="snippet-{{ id }}-read">{{ s.read }}</pre>
-      <button type="button" class="btn btn-sm btn-outline-secondary copy" data-copy-target="snippet-{{ id }}-read" hidden>Copy</button></div></div>
-  <div class="col-xl-6"><div class="section-label mt-0">Subscribe to changes</div>
+      <button type="button" class="btn btn-sm btn-outline-secondary copy" data-copy-target="snippet-{{ id }}-read" hidden>{{ t('view.copy') }}</button></div></div>
+  <div class="col-xl-6"><div class="section-label mt-0">{{ t('view.subscribe') }}</div>
     <div class="copyable"><pre tabindex="0" id="snippet-{{ id }}-subscribe">{{ s.subscribe }}</pre>
-      <button type="button" class="btn btn-sm btn-outline-secondary copy" data-copy-target="snippet-{{ id }}-subscribe" hidden>Copy</button></div></div>
+      <button type="button" class="btn btn-sm btn-outline-secondary copy" data-copy-target="snippet-{{ id }}-subscribe" hidden>{{ t('view.copy') }}</button></div></div>
 </div>
 {% endfor %}
 {% endif %}
 
-<h2>Definition</h2>
+<h2>{{ t('view.definition') }}</h2>
 <pre>{{ query.sql }}</pre>
-{{ helpcards([('user-guide', 'Clients', 'The Java and Python SDKs, the CLI and the PostgreSQL gateway.'), ('concepts', 'Weights', 'Why a subscriber sees -1 as well as +1.'), ('security', 'Tokens', 'How a service authenticates, and what a view grant covers.')]) }}
+{{ helpcards([('user-guide', t('view.help.clients'), t('view.help.clients_body')), ('concepts', t('view.help.weights'), t('view.help.weights_body')), ('security', t('view.help.tokens'), t('view.help.tokens_body'))]) }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/views.js?v={{ asset_version }}"></script>{% endblock %}

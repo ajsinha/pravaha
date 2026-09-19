@@ -1,56 +1,55 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helpcards %}
-{% block title %}Views — {{ app_name }}{% endblock %}
+{% block title %}{{ t('views.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <div class="accent"></div>
-    <p class="kicker mt-2 mb-1">VIEWS</p>
-    <h1>What your services can read</h1>
+    <p class="kicker mt-2 mb-1">{{ t('views.kicker') }}</p>
+    <h1>{{ t('views.heading') }}</h1>
   </div>
   <form class="d-flex gap-2" method="get" action="/views" role="search" onsubmit="return false">
-    <label class="visually-hidden" for="view-filter">Filter views</label>
-    <input class="form-control form-control-sm" type="search" id="view-filter" placeholder="filter  ( / )"
+    <label class="visually-hidden" for="view-filter">{{ t('views.filter_label') }}</label>
+    <input class="form-control form-control-sm" type="search" id="view-filter" placeholder="{{ t('views.filter_placeholder') }}"
            autocomplete="off" hidden>
   </form>
 </div>
 <div class="rule"></div>
-<p class="lede">Every registered continuous query maintains a view: already correct when it is read, by key or
-  by SQL, over Flight, the SDKs or the PostgreSQL gateway. Pick one to point-query it, watch it change, or copy
-  the client code that reads it.</p>
+<p class="lede">{{ t('views.lede') }}</p>
 
 {% if queries is none %}
-<div class="state"><h2>The engine is not answering</h2>
-  <p>Views are listed from the engine at <span class="mono">{{ engine_url }}</span>. The bar above says the same;
-    this page fills in when it answers.</p>
-  <button type="button" class="btn btn-sm btn-primary" onclick="location.reload()">Try again</button></div>
+<div class="state"><h2>{{ t('views.down.title') }}</h2>
+  <p>{{ t('views.down.before') }} <span class="mono">{{ engine_url }}</span>{{ t('views.down.after') }}</p>
+  <button type="button" class="btn btn-sm btn-primary" onclick="location.reload()">{{ t('views.down.retry') }}</button></div>
 {% elif not queries %}
-<div class="state"><h2>No views yet</h2>
-  <p>A view exists once a continuous query is registered. The get-started guide gets one running in a few
-    minutes, from a stream to a view that changes as rows arrive.</p>
-  <a class="btn btn-sm btn-primary" href="/start">Get started</a>
-  <a class="btn btn-sm btn-outline-secondary ms-1" href="/workbench">Open the workbench</a></div>
+<div class="state"><h2>{{ t('views.empty.title') }}</h2>
+  <p>{{ t('views.empty.body') }}</p>
+  <a class="btn btn-sm btn-primary" href="/start">{{ t('views.empty.start') }}</a>
+  <a class="btn btn-sm btn-outline-secondary ms-1" href="/workbench">{{ t('views.empty.workbench') }}</a></div>
 {% else %}
 <div class="card"><div class="table-responsive"><table class="table mb-0" id="views-table">
-  <thead><tr><th>View</th><th>State</th><th class="num">Rows in</th><th>Computation</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+  <thead><tr><th>{{ t('views.table.view') }}</th><th>{{ t('views.table.state') }}</th><th class="num">{{ t('views.table.rows_in') }}</th><th>{{ t('views.table.computation') }}</th><th><span class="visually-hidden">{{ t('views.table.actions') }}</span></th></tr></thead>
   <tbody>
   {% for q in queries %}
   <tr data-name="{{ q.name|lower }}">
     <td><a class="mono fw-semibold" href="/views/{{ q.name }}">{{ q.name }}</a></td>
     <td><span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}"><span class="dot"></span>{{ q.state }}</span></td>
     <td class="num">{{ "{:,}".format(q.rows_in) }}</td>
-    <td>{% if q.shared %}<span class="chip warn" title="Another name shares this computation">shared</span>{% else %}<span class="mono small text-muted" title="fingerprint">{{ q.fingerprint[:10] }}</span>{% endif %}</td>
+    <td>{% if q.shared %}<span class="chip warn" title="{{ t('views.table.shared_title') }}">{{ t('views.table.shared') }}</span>{% else %}<span class="mono small text-muted" title="{{ t('views.table.fingerprint_title') }}">{{ q.fingerprint[:10] }}</span>{% endif %}</td>
     <td class="text-end text-nowrap">
-      <a class="btn btn-sm btn-outline-secondary" href="/views/{{ q.name }}">Browse</a>
-      <a class="btn btn-sm btn-outline-secondary" href="/views/{{ q.name }}/live">Live</a>
-      <a class="btn btn-sm btn-link" href="/workbench?query={{ q.name }}">SQL</a></td>
+      <a class="btn btn-sm btn-outline-secondary" href="/views/{{ q.name }}">{{ t('views.table.browse') }}</a>
+      <a class="btn btn-sm btn-outline-secondary" href="/views/{{ q.name }}/live">{{ t('views.table.live') }}</a>
+      <a class="btn btn-sm btn-link" href="/workbench?query={{ q.name }}">{{ t('views.table.sql') }}</a></td>
   </tr>
   {% endfor %}
   </tbody>
 </table></div></div>
-<p class="small text-muted mt-2" id="views-count">{{ queries|length }} view{{ '' if queries|length == 1 else 's' }}</p>
+{# The filter's counts are written by the script below; their wording comes from here, with the
+   placeholders left for it to fill, so the island needs no catalog of its own. #}
+<p class="small text-muted mt-2" id="views-count" data-all="{{ t('views.count_other', n='{n}') }}"
+   data-match="{{ t('views.count_match', shown='{shown}', n='{n}', needle='{needle}') }}">{{ t('views.count_one', n=queries|length) if queries|length == 1 else t('views.count_other', n=queries|length) }}</p>
 {% endif %}
-{{ helpcards([('user-guide', 'Reading a view', 'Point reads, scans, subscriptions and what a weight means.'), ('concepts', 'Why it is already correct', 'Deltas, event time and watermarks.'), ('security', 'Who may read what', 'Views are authorised like data.')]) }}
+{{ helpcards([('user-guide', t('views.help.reading'), t('views.help.reading_body')), ('concepts', t('views.help.correct'), t('views.help.correct_body')), ('security', t('views.help.who'), t('views.help.who_body'))]) }}
 {% endblock %}
 {% block scripts %}<script type="module">
 /* Filter as you type. The list is small enough to filter in place; the server already sent it. */
@@ -58,11 +57,14 @@ const input = document.getElementById("view-filter");
 const rows = document.querySelectorAll("#views-table tbody tr");
 if (input && rows.length) {
   input.hidden = false;
+  const count = document.getElementById("views-count");
+  const fill = (text, values) => text.replace(/\{(\w+)\}/g, (whole, name) => (name in values ? String(values[name]) : whole));
   input.addEventListener("input", () => {
     const needle = input.value.trim().toLowerCase();
     let shown = 0;
     rows.forEach((row) => { const hit = row.dataset.name.includes(needle); row.hidden = !hit; if (hit) shown++; });
-    document.getElementById("views-count").textContent = needle ? `${shown} of ${rows.length} views match “${input.value}”` : `${rows.length} views`;
+    count.textContent = needle ? fill(count.dataset.match, { shown, n: rows.length, needle: input.value })
+                               : fill(count.dataset.all, { n: rows.length });
   });
 }
 </script>{% endblock %}

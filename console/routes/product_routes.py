@@ -418,6 +418,10 @@ class ProductRoutes(Routes):
                 {"kind": "page", "title": "Queries", "href": "/queries", "hint": "the full list, filterable"},
                 {"kind": "page", "title": "Get started", "href": "/start", "hint": "first-run onboarding"},
                 {"kind": "page", "title": "Plugins", "href": "/plugins", "hint": "loaded plugins, health, bindings"},
+                {"kind": "page", "title": "Admin · Access", "href": "/admin/access",
+                 "hint": "what the engine's policy lets this console do"},
+                {"kind": "page", "title": "Admin · Audit trail", "href": "/admin/audit",
+                 "hint": "who asked for what, and what they were told"},
                 {"kind": "action", "title": "New query in the workbench", "href": "/workbench?new=1", "hint": "blank tab"},
             ]
             for key, meta in ROLES.items():

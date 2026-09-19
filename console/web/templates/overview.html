@@ -1,32 +1,31 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helpcards %}
 {% from "_queries_table.html" import rows %}
-{% block title %}Overview — {{ app_name }}{% endblock %}
+{% block title %}{{ t('overview.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="accent"></div>
-<p class="kicker mt-2 mb-1">OVERVIEW</p>
-<h1>This engine</h1>
+<p class="kicker mt-2 mb-1">{{ t('overview.kicker') }}</p>
+<h1>{{ t('overview.heading') }}</h1>
 <div class="rule"></div>
-<p class="text-muted">One engine, at <span class="mono">{{ engine_url }}</span>.
+<p class="text-muted">{{ t('overview.one_engine') }} <span class="mono">{{ engine_url }}</span>{{ t('overview.one_engine_end') }}
   <span class="freshness ms-2" id="freshness"></span></p>
 
 {% if not engine_up %}
 <div class="alert alert-danger" role="alert">
-  <div class="fw-semibold">The engine is not answering</div>
+  <div class="fw-semibold">{{ t('overview.down.title') }}</div>
   <pre class="small mt-2 mb-2">{{ engine_error }}</pre>
-  <div class="small">This console is running and this page is current — it is the engine at
-    <span class="mono">{{ engine_url }}</span> that cannot be reached. Check that it is started and
-    that its Flight port matches.</div>
-  <button type="button" class="btn btn-sm btn-primary mt-2" onclick="location.reload()">Try again</button>
+  <div class="small">{{ t('overview.down.body_before') }}
+    <span class="mono">{{ engine_url }}</span> {{ t('overview.down.body_after') }}</div>
+  <button type="button" class="btn btn-sm btn-primary mt-2" onclick="location.reload()">{{ t('overview.down.retry') }}</button>
 </div>
 {% endif %}
 
 <div class="row g-3" id="stats">
   {% for label, note in [
-      ('Registered', 'continuous queries'),
-      ('Running', 'maintaining a view'),
-      ('Shared', 'names on a shared computation'),
-      ('Live feeds', 'engine subscriptions, however many tabs')] %}
+      (t('overview.stat.registered'), t('overview.stat.registered_note')),
+      (t('overview.stat.running'), t('overview.stat.running_note')),
+      (t('overview.stat.shared'), t('overview.stat.shared_note')),
+      (t('overview.stat.feeds'), t('overview.stat.feeds_note'))] %}
   <div class="col-6 col-lg-3"><div class="card stat"><div class="card-body">
     <div class="label">{{ label }}</div>
     <div class="value"><div class="skeleton" style="height:26px;width:3rem"></div></div>
@@ -35,11 +34,11 @@
   {% endfor %}
 </div>
 
-<h2>Busiest queries</h2>
+<h2>{{ t('overview.busiest') }}</h2>
 <div class="card"><div class="table-responsive"><table class="table mb-0" id="recent">
-  <thead><tr><th>Name</th><th>State</th><th class="num">Rows in</th><th>Shared</th></tr></thead>
+  <thead><tr><th>{{ t('queries.col.name') }}</th><th>{{ t('queries.col.state') }}</th><th class="num">{{ t('queries.col.rows_in') }}</th><th>{{ t('queries.col.shared') }}</th></tr></thead>
   <tbody>{{ rows(queries, wide=False) }}</tbody>
 </table></div></div>
-{{ helpcards([   ('quickstart', 'Quick start', 'From nothing to a maintained view, with the refusals included.'),   ('concepts', 'Concepts', 'Deltas, event time, watermarks, and why a view is already correct.'),   ('operations', 'Operations', 'What to watch, what survives a restart, and what a cluster promises.'), ]) }}
+{{ helpcards([   ('quickstart', t('overview.help.quickstart'), t('overview.help.quickstart_body')),   ('concepts', t('overview.help.concepts'), t('overview.help.concepts_body')),   ('operations', t('overview.help.operations'), t('overview.help.operations_body')), ]) }}
 {% endblock %}
 {% block scripts %}<script src="/static/js/overview.js"></script>{% endblock %}

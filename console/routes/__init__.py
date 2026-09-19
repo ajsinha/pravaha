@@ -7,6 +7,7 @@ Each subclasses Routes, which owns the scaffolding they all share: the services,
 the brand context, the refusal mapping, and the page renderer. Routers hold no
 engine logic.
 """
+from routes.admin_routes import AdminRoutes
 from routes.api_routes import ApiRoutes
 from routes.auth_routes import AuthRoutes
 from routes.base import API, Routes
@@ -16,7 +17,7 @@ from routes.ui_routes import UIRoutes
 
 # Order matters: `/queries/{name}` would swallow a literal path registered after
 # it, so the modules with the more specific paths register first.
-ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, ProductRoutes, UIRoutes)
+ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, ProductRoutes, AdminRoutes, UIRoutes)
 
-__all__ = ["ALL_ROUTES", "API", "ApiRoutes", "AuthRoutes", "ProductRoutes", "PublicRoutes", "Routes",
+__all__ = ["ALL_ROUTES", "API", "AdminRoutes", "ApiRoutes", "AuthRoutes", "ProductRoutes", "PublicRoutes", "Routes",
            "UIRoutes"]

@@ -31,7 +31,7 @@
     var response = await fetch(API + path, Object.assign({}, options, {headers: headers}));
     var payload = await response.json().catch(function () { return {}; });
     if (!response.ok) {
-      var error = new Error(payload.error || ("request failed with " + response.status));
+      var error = new Error(payload.error || t("api.failed", {status: response.status}));
       error.status = response.status;
       error.code = payload.code;
       error.correlation = correlation;
@@ -42,6 +42,23 @@
       throw error;
     }
     return payload;
+  }
+
+  /* The `js.*` keys of the UI string catalog, as lib.js gives them to the islands: embedded by
+     the shell as JSON, read on first use (these scripts load before that element is parsed, and
+     call this only later). A key the catalog lacks comes back as itself, which a test prevents. */
+  var messages = null;
+  function t(key, params) {
+    if (messages === null) {
+      try { messages = JSON.parse(document.getElementById("i18n-messages").textContent || "{}"); }
+      catch (e) { messages = {}; }
+    }
+    var template = messages[key];
+    if (template === undefined) { return key; }
+    params = params || {};
+    return template.replace(/\{(\w+)\}/g, function (whole, name) {
+      return Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : whole;
+    });
   }
 
   function escapeHtml(value) {
@@ -71,5 +88,5 @@
     }
   };
 
-  window.PravahaApi = {call: call, escapeHtml: escapeHtml, Url: Url, base: API};
+  window.PravahaApi = {call: call, escapeHtml: escapeHtml, Url: Url, base: API, t: t};
 }());

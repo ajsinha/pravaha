@@ -9,18 +9,18 @@
  * theatre". Plain DOM rather than a component: this is a hot loop on scroll, and the
  * cheapest thing it can do is set textContent on cells it already has.
  */
-import { formatValue, isNumericType } from "pravaha/lib.js";
+import { formatValue, isNumericType, t } from "pravaha/lib.js";
 
 const ROW = 28;
 const MARGIN = 12;
 
 export class Grid {
-  constructor(container, { columns = [], types = [], rows = [], caption = "Result" } = {}) {
+  constructor(container, { columns = [], types = [], rows = [], caption = t("grid.caption") } = {}) {
     this.container = container;
     this.container.classList.add("vgrid");
     this.container.setAttribute("tabindex", "0");
     this.container.setAttribute("role", "region");
-    this.container.setAttribute("aria-label", caption + " (scrollable)");
+    this.container.setAttribute("aria-label", t("grid.scrollable", { caption }));
     this.table = document.createElement("table");
     this.table.setAttribute("aria-rowcount", "0");
     const cap = document.createElement("caption");

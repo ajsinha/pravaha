@@ -837,25 +837,27 @@ class OpsService:
 #: What the engine does not publish about a plugin, named on the plugins screen instead of
 #: guessed. Each entry is (what, the engine API that would answer it).
 PLUGINS_NOT_EXPOSED: list[tuple[str, str]] = [
-    ("What a plugin declares it can be — a source, a sink, both — before anything binds it",
-     "the plugin manifest's declared kinds on GET /api/v1/status (or GET /api/v1/plugins)"),
-    ("The API version a plugin was built against, and whether it is compatible",
-     "PluginManifest.requiredApiVersion in the same answer"),
-    ("The settings a plugin accepts (names and descriptions, never values)",
-     "PluginManifest.configSchema keys in the same answer"),
+    ("Live health of a plugin found on the classpath",
+     ("an instance the node holds and asks; each binding configures its own today, so "
+      "GET /api/v1/plugins answers UNKNOWN with reported: false")),
+    ("The settings a classpath plugin accepts, with their descriptions",
+     ("a manifest for ServiceLoader-discovered plugins; only a plugin registered with the engine "
+      "carries PluginManifest.configSchema")),
     ("Per-plugin throughput, errors and last activity",
      "pravaha_plugin_* meters on /actuator/prometheus"),
 ]
 
 
 class PluginService:
-    """The plugins the engine has loaded, joined with what binds them.
+    """The plugins the engine can load, from the engine's own manifest listing.
 
-    Three published answers, and nothing inferred beyond them: ``GET /api/v1/status`` names each
-    registered plugin with its version and health; each stream in the catalog names the plugin
-    that feeds it (``source``); each sink binding names the plugin that writes it and what that
-    binding accepts. A plugin's *declared* capabilities are in its manifest, which the engine does
-    not publish, so "source" and "sink" here mean "bound as", never "able to be".
+    ``GET /api/v1/plugins`` answers what the console used to assemble by joining three other
+    calls: each plugin with its version, the plugin API it needs and whether this engine can
+    host it, what its code can be (source, sink, lookup), the capabilities it declares, its
+    health and where that came from, and the bindings this identity may see -- never a
+    binding's options. The stream catalogue and the sink list add the details of each binding
+    (a stream's event time, what a sink accepts and who writes to it); they decorate the
+    engine's answer and never decide what is listed.
     """
 
     def __init__(self, engine: Engine, catalog: CatalogService) -> None:
@@ -865,50 +867,71 @@ class PluginService:
     def inventory(self) -> dict:
         errors: dict[str, str] = {}
         try:
-            status = self._engine.status()
+            listed = self._engine.plugins()
         except Exception as exc:  # noqa: BLE001 -- the screen names which call failed
+            listed, errors["plugins"] = [], str(exc)
+        try:
+            status = self._engine.status()
+        except Exception as exc:  # noqa: BLE001
             status, errors["status"] = {}, str(exc)
-        try:
-            streams = self._catalog.streams()
-        except ServiceError as exc:
-            streams, errors["streams"] = [], str(exc)
-        try:
-            sinks = self._catalog.sinks()
-        except ServiceError as exc:
-            sinks, errors["sinks"] = [], str(exc)
+        kinds = {b.get("kind") for p in listed for b in p.get("bindings") or []}
+        streams: dict[str, dict] = {}
+        sinks: dict[str, dict] = {}
+        if "source" in kinds or "plugins" in errors:
+            try:
+                streams = {str(s.get("name")): s for s in self._catalog.streams()}
+            except ServiceError as exc:
+                errors["streams"] = str(exc)
+        if "sink" in kinds or "plugins" in errors:
+            try:
+                sinks = {str(s.get("name")): s for s in self._catalog.sinks()}
+            except ServiceError as exc:
+                errors["sinks"] = str(exc)
 
-        plugins: dict[str, dict[str, Any]] = {}
-
-        def entry(name: str, registered: bool) -> dict[str, Any]:
-            key = name.lower()
-            if key not in plugins:
-                plugins[key] = {"name": name, "version": None, "health": None, "detail": "",
-                                "registered": registered, "sources": [], "sinks": []}
-            return plugins[key]
-
-        for plugin in status.get("plugins") or []:
-            found = entry(str(plugin.get("name", "")), True)
-            found.update(version=plugin.get("version"), health=plugin.get("health"),
-                         detail=plugin.get("detail") or "", registered=True)
-        for stream in streams:
-            if stream.get("source"):
-                entry(str(stream["source"]), False)["sources"].append(
-                    {"name": stream.get("name"), "event_time": stream.get("eventTime"),
-                     "lateness": stream.get("outOfOrderness"),
-                     "columns": len(stream.get("fields") or [])})
-        for sink in sinks:
-            if sink.get("plugin"):
-                entry(str(sink["plugin"]), False)["sinks"].append(
-                    {"name": sink.get("name"), "emit_modes": list(sink.get("emitModes") or []),
-                     "accepts_retractions": bool(sink.get("acceptsRetractions")),
-                     "guarantee": sink.get("guarantee"), "writers": list(sink.get("writers") or []),
-                     "problem": sink.get("problem")})
-        items = sorted(plugins.values(), key=lambda p: (not p["registered"], p["name"].lower()))
-        for item in items:
-            item["bound_as"] = [kind for kind, key in (("source", "sources"), ("sink", "sinks")) if item[key]]
-            item["healthy"] = str(item["health"] or "").upper() in {"HEALTHY", "UP", "OK"}
+        items = []
+        for plugin in listed:
+            health = plugin.get("health") or {}
+            capabilities = plugin.get("capabilities") or {}
+            item: dict[str, Any] = {
+                "name": plugin.get("name"),
+                "version": plugin.get("version"),
+                "required_api": plugin.get("requiredApiVersion"),
+                "compatible": bool(plugin.get("compatible")),
+                "loaded": bool(plugin.get("loaded")),
+                "kinds": list(plugin.get("kinds") or []),
+                "source_capabilities": capabilities.get("source"),
+                "sink_capabilities": capabilities.get("sink"),
+                "capabilities_note": capabilities.get("note"),
+                "settings": list(plugin.get("settings") or []),
+                "health": health.get("state"),
+                "health_reported": bool(health.get("reported")),
+                "detail": health.get("detail") or "",
+                "sources": [], "lookups": [], "sinks": [],
+            }
+            for binding in plugin.get("bindings") or []:
+                name, kind = binding.get("name"), binding.get("kind")
+                if kind == "source":
+                    stream = streams.get(name) or {}
+                    item["sources"].append(
+                        {"name": name, "event_time": stream.get("eventTime"),
+                         "lateness": stream.get("outOfOrderness"),
+                         "columns": len(stream.get("fields") or []) if stream else None})
+                elif kind == "lookup":
+                    item["lookups"].append({"name": name})
+                elif kind == "sink":
+                    sink = sinks.get(name) or {}
+                    item["sinks"].append(
+                        {"name": name, "emit_modes": list(sink.get("emitModes") or []),
+                         "accepts_retractions": bool(sink.get("acceptsRetractions")),
+                         "guarantee": sink.get("guarantee"), "writers": list(sink.get("writers") or []),
+                         "problem": sink.get("problem"), "described": bool(sink)})
+            item["bound_as"] = [k for k, key in (("source", "sources"), ("lookup", "lookups"),
+                                                 ("sink", "sinks")) if item[key]]
+            item["healthy"] = item["health_reported"] and str(item["health"] or "").upper() == "HEALTHY"
+            items.append(item)
+        items.sort(key=lambda p: (not p["loaded"], str(p["name"]).lower()))
         return {
-            "available": "status" not in errors,
+            "available": "plugins" not in errors,
             "node": {"instance": status.get("instanceId"), "version": status.get("version"),
                      "state": status.get("engineState")},
             "plugins": items,
@@ -932,3 +955,6 @@ class Services:
         self.views = ViewService(engine, self.queries, self.authoring, row_limit)
         self.ops = OpsService(engine, self.queries, self.feeds, lag_warn_seconds)
         self.plugins = PluginService(engine, self.catalog)
+        from core.admin import AdminService
+
+        self.admin = AdminService(engine)

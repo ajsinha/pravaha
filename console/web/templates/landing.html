@@ -25,63 +25,51 @@
 
 <div class="hero">
   <img src="/static/img/pravaha-mark.svg" class="mark" alt="">
-  <span class="tag">STREAMING SQL, INCREMENTALLY MAINTAINED</span>
-  <h1 class="serif">Ask once.<br>Answer always.</h1>
+  <span class="tag">{{ t('landing.tag') }}</span>
+  <h1 class="serif">{{ t('landing.hero_1') }}<br>{{ t('landing.hero_2') }}</h1>
   <div class="gold"></div>
-  <p class="lede">A query you register is a question the engine keeps answering. Not a job you
-     submit and wait on — a view that is already correct when you read it, maintained row by
-     row as the data arrives, and shared by everyone who asked the same thing.</p>
+  <p class="lede">{{ t('landing.lede') }}</p>
   <p class="serif" style="font-size:1.25rem;color:var(--on-flow);margin:1.5rem 0 1.7rem">
      <em>{{ slogan }}</em></p>
   <a href="/home" class="btn btn-cta btn-sm px-3">
-     Open the console</a>
-  <a href="/about" class="btn btn-ghost btn-sm px-3 ms-2">What this is</a>
-  <a href="/help/quickstart" class="btn btn-ghost btn-sm px-3 ms-2">Quick start</a>
+     {{ t('landing.open_console') }}</a>
+  <a href="/about" class="btn btn-ghost btn-sm px-3 ms-2">{{ t('landing.what_this_is') }}</a>
+  <a href="/help/quickstart" class="btn btn-ghost btn-sm px-3 ms-2">{{ t('landing.quick_start') }}</a>
 </div>
 
 <div class="row g-4 mb-4">
   <div class="col-md-7">
-    <p class="kicker">THE NAME</p>
-    <h2 class="serif" style="font-size:1.45rem">pravāha — that which flows</h2>
-    <p class="text-muted" style="line-height:1.65">In Sanskrit <em>pravāha</em> is the
-      <strong>current</strong>: a river's flow, continuous and directional. Not the water, which is
-      always different water — the <em>flowing</em>, which is the thing that persists.</p>
-    <p class="text-muted" style="line-height:1.65">Which is what a stream is, and what makes
-      streaming hard to reason about. The rows are gone the moment they pass. What you keep is the
-      answer they changed, and the discipline is knowing which answers a row can still change and
-      which it cannot.</p>
-    <p class="text-muted mb-0" style="line-height:1.65">That question — <em>can anything still
-      arrive that changes this?</em> — is what watermarks answer, what retention rests on, and what
-      decides when a window may close.</p>
+    <p class="kicker">{{ t('landing.name.kicker') }}</p>
+    <h2 class="serif" style="font-size:1.45rem">{{ t('landing.name.title') }}</h2>
+    <p class="text-muted" style="line-height:1.65">{{ t('landing.name.p1_before') }} <em>pravāha</em> {{ t('landing.name.p1_is') }}
+      <strong>{{ t('landing.name.p1_current') }}</strong>{{ t('landing.name.p1_flow') }} <em>{{ t('landing.name.p1_flowing') }}</em>{{ t('landing.name.p1_after') }}</p>
+    <p class="text-muted" style="line-height:1.65">{{ t('landing.name.p2') }}</p>
+    <p class="text-muted mb-0" style="line-height:1.65">{{ t('landing.name.p3_before') }} <em>{{ t('landing.name.p3_question') }}</em> {{ t('landing.name.p3_after') }}</p>
   </div>
   <div class="col-md-5">
-    <p class="kicker">WHAT MAKES IT DIFFERENT</p>
-    <div class="tclass"><div class="code">INCREMENTAL, NOT RECOMPUTED</div>
-      <div class="small text-muted">A change is a delta. Z-sets carry weights, so a correction is a
-        retraction and an insert — never a rescan.</div></div>
-    <div class="tclass"><div class="code">EVENT TIME, NOT WALL CLOCK</div>
-      <div class="small text-muted">A window closes when the data says it is over, not when the
-        clock does. Late rows correct the answer rather than being lost.</div></div>
-    <div class="tclass"><div class="code">SHARED BY FINGERPRINT</div>
-      <div class="small text-muted">Two people asking the same question get one computation and one
-        copy of the state — matched on the normalised plan, not the SQL text.</div></div>
-    <div class="tclass"><div class="code">BOUNDED BY CONSTRUCTION</div>
-      <div class="small text-muted">Every operator that could grow without limit has a bound, and a
-        query with no bound is refused at plan time rather than at 3am.</div></div>
+    <p class="kicker">{{ t('landing.different.kicker') }}</p>
+    <div class="tclass"><div class="code">{{ t('landing.different.incremental') }}</div>
+      <div class="small text-muted">{{ t('landing.different.incremental_body') }}</div></div>
+    <div class="tclass"><div class="code">{{ t('landing.different.event_time') }}</div>
+      <div class="small text-muted">{{ t('landing.different.event_time_body') }}</div></div>
+    <div class="tclass"><div class="code">{{ t('landing.different.shared') }}</div>
+      <div class="small text-muted">{{ t('landing.different.shared_body') }}</div></div>
+    <div class="tclass"><div class="code">{{ t('landing.different.bounded') }}</div>
+      <div class="small text-muted">{{ t('landing.different.bounded_body') }}</div></div>
   </div>
 </div>
 
 <div class="rule"></div>
-<p class="kicker">WHAT IT DOES</p>
+<p class="kicker">{{ t('landing.does.kicker') }}</p>
 <div class="row g-3 mb-4">
-  {% for n, t, d in [
-     ('01','Continuous queries','Register SQL under a name. The engine maintains its view for as long as it is registered, and clients read or subscribe.'),
-     ('02','Streaming joins','Two streams joined on a key and a time bound — including LEFT, where the unmatched row is emitted once the window has passed.'),
-     ('03','One protocol','Arrow Flight SQL for query, prepare, register and subscribe. Both SDKs and the CLI speak it; so does any Flight client.'),
-     ('04','Answers, not jobs','A view is already computed when you ask. There is no serving database because the serving database is not needed.')] %}
+  {% for n, title, d in [
+     ('01', t('landing.does.continuous'), t('landing.does.continuous_body')),
+     ('02', t('landing.does.joins'), t('landing.does.joins_body')),
+     ('03', t('landing.does.protocol'), t('landing.does.protocol_body')),
+     ('04', t('landing.does.answers'), t('landing.does.answers_body'))] %}
   <div class="col-md-3"><div class="pillar">
     <div class="n">{{ n }}</div>
-    <div class="serif" style="font-size:1.02rem;margin:.3rem 0 .45rem">{{ t }}</div>
+    <div class="serif" style="font-size:1.02rem;margin:.3rem 0 .45rem">{{ title }}</div>
     <div class="small text-muted">{{ d }}</div>
   </div></div>
   {% endfor %}
@@ -90,33 +78,31 @@
 <div class="rule"></div>
 <div class="row g-4">
   <div class="col-md-6">
-    <p class="kicker">START HERE</p>
+    <p class="kicker">{{ t('landing.start.kicker') }}</p>
     <div class="list-group list-group-flush">
       <a class="list-group-item list-group-item-action bg-transparent px-0" href="/help/quickstart">
-        <div class="serif fw-semibold">Quick start</div>
-        <div class="small text-muted">From nothing to a maintained view, with the refusals included.</div></a>
+        <div class="serif fw-semibold">{{ t('landing.quick_start') }}</div>
+        <div class="small text-muted">{{ t('landing.start.quick_start_body') }}</div></a>
       <a class="list-group-item list-group-item-action bg-transparent px-0" href="/help">
-        <div class="serif fw-semibold">Documentation</div>
-        <div class="small text-muted">Concepts, the user guide, operations, security, troubleshooting.</div></a>
+        <div class="serif fw-semibold">{{ t('landing.start.documentation') }}</div>
+        <div class="small text-muted">{{ t('landing.start.documentation_body') }}</div></a>
       <a class="list-group-item list-group-item-action bg-transparent px-0" href="/tutorials">
-        <div class="serif fw-semibold">Tutorials</div>
-        <div class="small text-muted">Worked walkthroughs against a running engine.</div></a>
+        <div class="serif fw-semibold">{{ t('landing.start.tutorials') }}</div>
+        <div class="small text-muted">{{ t('landing.start.tutorials_body') }}</div></a>
     </div>
   </div>
   <div class="col-md-6">
-    <p class="kicker">THIS INSTANCE</p>
+    <p class="kicker">{{ t('landing.instance.kicker') }}</p>
     <div class="card"><div class="card-body">
       {% if engine_up %}
-        <span class="chip ok"><span class="dot"></span>engine up</span>
+        <span class="chip ok"><span class="dot"></span>{{ t('shell.engine_up') }}</span>
         <span class="text-muted small ms-2 mono">{{ engine_url }}</span>
-        <p class="small text-muted mt-3 mb-0">The console is connected. Open the
-          <a href="/overview">overview</a> to see what is registered.</p>
+        <p class="small text-muted mt-3 mb-0">{{ t('landing.instance.up_before') }}
+          <a href="/overview">{{ t('landing.instance.up_link') }}</a> {{ t('landing.instance.up_after') }}</p>
       {% else %}
-        <span class="chip bad"><span class="dot"></span>engine unreachable</span>
+        <span class="chip bad"><span class="dot"></span>{{ t('shell.engine_down') }}</span>
         <span class="text-muted small ms-2 mono">{{ engine_url }}</span>
-        <p class="small text-muted mt-3 mb-0">This console is running; the engine it is pointed at
-          is not answering. That is reported rather than hidden — a console that refuses to start
-          when the engine is down cannot tell you the engine is down.</p>
+        <p class="small text-muted mt-3 mb-0">{{ t('landing.instance.down') }}</p>
         <pre class="mt-2 small">{{ engine_error }}</pre>
       {% endif %}
     </div></div>

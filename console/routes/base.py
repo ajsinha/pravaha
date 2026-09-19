@@ -55,9 +55,10 @@ def _correlation(request: Request | None) -> str:
 #: The principal the console's shared-secret sign-in records for everybody.
 SHARED_PRINCIPAL = "operator"
 
-#: The three personas a signed-in person can be (design 23.2), where each lands, and what
-#: the landing is for. Platform administration is the fourth persona and has no screens
-#: yet, so it is not offered: a role whose landing does not exist would be a lie.
+#: The personas a signed-in person can be (design 23.2), where each lands, and what the
+#: landing is for. A role picks a landing, not a permission: the admin persona lands on Access,
+#: and what the audit screen shows is still decided by the engine's policy for the console's
+#: identity, whoever chose which role.
 ROLES: dict[str, dict[str, str]] = {
     "analyst": {"label": "Analyst", "landing": "/workbench",
                 "blurb": "Write and iterate on continuous SQL"},
@@ -65,6 +66,8 @@ ROLES: dict[str, dict[str, str]] = {
                  "blurb": "Keep it running; find what is wrong"},
     "developer": {"label": "Developer", "landing": "/views",
                   "blurb": "Consume views from a service"},
+    "admin": {"label": "Admin", "landing": "/admin/access",
+              "blurb": "See what the policy allows, and who asked for what"},
 }
 
 

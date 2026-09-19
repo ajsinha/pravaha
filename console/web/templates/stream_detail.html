@@ -1,49 +1,49 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helpcards %}
-{% block title %}{{ stream.name }} · stream — {{ app_name }}{% endblock %}
+{% block title %}{{ t('stream.title', name=stream.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
-<p class="text-muted small"><a href="/catalog">&larr; Catalog</a></p>
+<p class="text-muted small"><a href="/catalog">&larr; {{ t('stream.back') }}</a></p>
 <div class="page-head">
   <div>
     <div class="accent"></div>
-    <p class="kicker mt-2 mb-1">STREAM</p>
+    <p class="kicker mt-2 mb-1">{{ t('stream.kicker') }}</p>
     <h1 class="mono">{{ stream.name }}</h1>
   </div>
-  <a class="btn btn-sm btn-primary" href="/workbench?template=tumble&amp;stream={{ stream.name }}">Write a query against it</a>
+  <a class="btn btn-sm btn-primary" href="/workbench?template=tumble&amp;stream={{ stream.name }}">{{ t('stream.write_query') }}</a>
 </div>
 <div class="rule"></div>
 <div class="row g-3">
   <div class="col-lg-6">
-    <div class="card"><div class="card-header d-flex justify-content-between"><span>Schema</span><span class="chip mute">version {{ stream.version }}</span></div>
+    <div class="card"><div class="card-header d-flex justify-content-between"><span>{{ t('stream.schema') }}</span><span class="chip mute">{{ t('stream.version', version=stream.version) }}</span></div>
       <div class="card-body p-0"><table class="table mb-0">
-        <thead><tr><th class="num">#</th><th>Column</th><th>Type</th><th>Nullable</th></tr></thead>
+        <thead><tr><th class="num">#</th><th>{{ t('stream.column') }}</th><th>{{ t('stream.type') }}</th><th>{{ t('stream.nullable') }}</th></tr></thead>
         <tbody>{% for f in stream.fields %}<tr><td class="num">{{ f.ordinal }}</td><td class="mono">{{ f.name }}</td>
-          <td class="mono small">{{ f.type }}</td><td>{{ 'yes' if f.nullable else 'no' }}</td></tr>{% endfor %}</tbody>
+          <td class="mono small">{{ f.type }}</td><td>{{ t('stream.yes') if f.nullable else t('stream.no') }}</td></tr>{% endfor %}</tbody>
       </table></div></div>
-    <div class="card mt-3"><div class="card-header">Time and source</div><div class="card-body p-0"><table class="table mb-0" id="stream-time">
+    <div class="card mt-3"><div class="card-header">{{ t('stream.time_and_source') }}</div><div class="card-body p-0"><table class="table mb-0" id="stream-time">
       <tbody>
-        <tr><th>Event time</th><td>{% if stream.eventTime %}<span class="mono">{{ stream.eventTime }}</span>
-          {% else %}<span class="chip warn">none declared</span> <span class="small text-muted">— no window over this stream can close</span>{% endif %}</td></tr>
-        <tr><th>Out-of-orderness</th><td>{% if stream.eventTime and stream.outOfOrderness %}<span class="mono">{{ stream.outOfOrderness }}</span>
-          <span class="small text-muted">— how late a row may be before a window stops waiting</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
-        <tr><th>Source</th><td>{% if stream.source %}<span class="mono">{{ stream.source }}</span>{% else %}<span class="text-muted">not bound — rows arrive only if something writes them</span>{% endif %}</td></tr>
+        <tr><th>{{ t('stream.event_time') }}</th><td>{% if stream.eventTime %}<span class="mono">{{ stream.eventTime }}</span>
+          {% else %}<span class="chip warn">{{ t('stream.none_declared') }}</span> <span class="small text-muted">— {{ t('stream.no_window_closes') }}</span>{% endif %}</td></tr>
+        <tr><th>{{ t('stream.out_of_orderness') }}</th><td>{% if stream.eventTime and stream.outOfOrderness %}<span class="mono">{{ stream.outOfOrderness }}</span>
+          <span class="small text-muted">— {{ t('stream.lateness_meaning') }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
+        <tr><th>{{ t('stream.source') }}</th><td>{% if stream.source %}<span class="mono">{{ stream.source }}</span>{% else %}<span class="text-muted">{{ t('stream.not_bound') }}</span>{% endif %}</td></tr>
       </tbody></table></div></div>
   </div>
   <div class="col-lg-6">
-    <div class="card"><div class="card-header">Registered queries that read it</div><div class="card-body">
+    <div class="card"><div class="card-header">{{ t('stream.readers') }}</div><div class="card-body">
       {% if readers %}
       <ul class="list-unstyled mb-0">{% for q in readers %}<li class="d-flex justify-content-between py-1">
         <a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a>
         <span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}">{{ q.state }}</span></li>{% endfor %}</ul>
-      <p class="small text-muted mt-2 mb-0">{% if lineage == 'engine' %}From the engine: the streams each query's plan reads.{% else %}Matched by name in each query's SQL — this engine did not say what each query reads.{% endif %}</p>
-      {% else %}<p class="small text-muted mb-0">None yet.</p>{% endif %}
+      <p class="small text-muted mt-2 mb-0">{% if lineage == 'engine' %}{{ t('stream.lineage_engine') }}{% else %}{{ t('stream.lineage_name') }}{% endif %}</p>
+      {% else %}<p class="small text-muted mb-0">{{ t('stream.no_readers') }}</p>{% endif %}
     </div></div>
-    <div class="card mt-3"><div class="card-header">Start from a template</div><div class="card-body">
-      <ul class="list-unstyled mb-0">{% for t in templates %}<li class="mb-2">
-        <a href="/workbench?template={{ t.id }}&amp;stream={{ stream.name }}">{{ t.title }}</a>
-        <div class="small text-muted">{{ t.summary }}</div></li>{% endfor %}</ul>
+    <div class="card mt-3"><div class="card-header">{{ t('stream.from_template') }}</div><div class="card-body">
+      <ul class="list-unstyled mb-0">{% for tpl in templates %}<li class="mb-2">
+        <a href="/workbench?template={{ tpl.id }}&amp;stream={{ stream.name }}">{{ tpl.title }}</a>
+        <div class="small text-muted">{{ tpl.summary }}</div></li>{% endfor %}</ul>
     </div></div>
   </div>
 </div>
-{{ helpcards([('continuous-queries', 'Declaring a stream', 'Schema, event time and lateness, and why each matters.'), ('concepts', 'Watermarks', 'Why a window closes on data rather than on the clock.'), ('connectors', 'Sources', 'Where a stream\'s rows come from.')]) }}
+{{ helpcards([('continuous-queries', t('stream.help.declaring'), t('stream.help.declaring_body')), ('concepts', t('stream.help.watermarks'), t('stream.help.watermarks_body')), ('connectors', t('stream.help.sources'), t('stream.help.sources_body'))]) }}
 {% endblock %}

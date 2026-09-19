@@ -19,16 +19,16 @@
   </div>
   <div class="col-lg-3">
     {% if topic.anchors %}
-    <div class="section-label mt-0">On this page</div>
-    <nav class="toc" aria-label="On this page">
+    <div class="section-label mt-0">{{ t('help.on_this_page') }}</div>
+    <nav class="toc" aria-label="{{ t('help.on_this_page') }}">
       {% for h in topic.anchors %}<a href="#{{ h.id }}">{{ h.name }}</a>{% endfor %}
     </nav>
     {% endif %}
     {% if related|length > 1 %}
     <div class="section-label">{{ topic.section }}</div>
     <nav class="toc" aria-label="{{ topic.section }}">
-      {% for t in related %}{% if t.slug != topic.slug %}
-      <a href="{{ area_path }}/{{ t.slug }}">{{ t.title }}</a>{% endif %}{% endfor %}
+      {% for other in related %}{% if other.slug != topic.slug %}
+      <a href="{{ area_path }}/{{ other.slug }}">{{ other.title }}</a>{% endif %}{% endfor %}
     </nav>
     {% endif %}
   </div>

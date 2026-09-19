@@ -11,7 +11,7 @@
  * text tokens, never a series colour; the grid is recessive; there is never a second
  * y-axis. A gap in the data draws as a gap.
  */
-import { token, onThemeChange } from "pravaha/lib.js";
+import { token, onThemeChange, t } from "pravaha/lib.js";
 import { loadGlobalScript } from "pravaha/plan-graph.js";
 
 /* After the page has loaded and gone idle. The verdict, the tables and the counters are
@@ -53,7 +53,7 @@ export function timeSeriesBase({ yName = "", yFormatter = null } = {}) {
     tooltip: {
       trigger: "axis", axisPointer: { type: "line", lineStyle: { color: muted } },
       backgroundColor: raised, borderColor: rule, textStyle: { color: ink, fontSize: 12 },
-      valueFormatter: yFormatter || ((v) => (v === null || v === undefined ? "no data" : Number(v).toLocaleString())),
+      valueFormatter: yFormatter || ((v) => (v === null || v === undefined ? t("charts.no_data") : Number(v).toLocaleString())),
     },
     legend: { top: 0, right: 0, textStyle: { color: muted, fontSize: 11 }, icon: "roundRect", itemWidth: 12 },
     xAxis: { type: "time", axisLine: { lineStyle: { color: rule } }, axisLabel: { color: muted, fontSize: 11 },

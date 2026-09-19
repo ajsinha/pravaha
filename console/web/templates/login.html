@@ -1,19 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Sign in — {{ app_name }}{% endblock %}
+{% block title %}{{ t('shell.sign_in') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-md-6 col-lg-5">
     <div class="accent"></div>
-    <p class="kicker mt-2 mb-1">CONSOLE</p>
-    <h1>Sign in</h1>
+    <p class="kicker mt-2 mb-1">{{ t('login.kicker') }}</p>
+    <h1>{{ t('shell.sign_in') }}</h1>
     <div class="rule"></div>
 
     {% if not configured %}
     <div class="alert alert-danger" role="alert">
-      <div class="fw-semibold">No console password is set</div>
-      <div class="small">Nobody can sign in, and that is the safe failure. Set
-        <code>console.password</code> — in <code>config/application.local.yaml</code> or the
-        <code>CONSOLE_PASSWORD</code> environment variable — and restart.</div>
+      <div class="fw-semibold">{{ t('login.unset.title') }}</div>
+      <div class="small">{{ t('login.unset.set') }}
+        <code>console.password</code> {{ t('login.unset.in') }} <code>config/application.local.yaml</code> {{ t('login.unset.or') }}
+        <code>CONSOLE_PASSWORD</code> {{ t('login.unset.restart') }}</div>
     </div>
     {% endif %}
 
@@ -24,30 +24,26 @@
     <form method="post" action="/login" class="card"><div class="card-body">
       <input type="hidden" name="next" value="{{ next }}">
       <div class="mb-3">
-        <label class="form-label small text-muted mb-1" for="password">Console password</label>
+        <label class="form-label small text-muted mb-1" for="password">{{ t('login.password') }}</label>
         <input class="form-control" type="password" id="password" name="password"
                autocomplete="current-password" autofocus required>
       </div>
       <fieldset class="mb-3">
-        <legend class="form-label small text-muted mb-1 fs-6">I am here to</legend>
+        <legend class="form-label small text-muted mb-1 fs-6">{{ t('login.purpose') }}</legend>
         {% for key, meta in roles.items() %}
         <div class="form-check">
           <input class="form-check-input" type="radio" name="role" id="role-{{ key }}" value="{{ key }}"
                  {{ 'checked' if key == role else '' }}>
           <label class="form-check-label small" for="role-{{ key }}"><strong>{{ meta.blurb }}</strong>
-            <span class="text-muted">— lands on {{ meta.landing }}</span></label>
+            <span class="text-muted">— {{ t('login.lands_on', path=meta.landing) }}</span></label>
         </div>
         {% endfor %}
-        <div class="form-text small">Changeable at any time from the account menu. It picks where you
-          land and what the command palette offers first; it grants nothing.</div>
+        <div class="form-text small">{{ t('login.role_note') }}</div>
       </fieldset>
-      <button class="btn btn-primary w-100" type="submit" {{ 'disabled' if not configured }}>Sign in</button>
+      <button class="btn btn-primary w-100" type="submit" {{ 'disabled' if not configured }}>{{ t('shell.sign_in') }}</button>
     </div></form>
 
-    <p class="small text-muted mt-3">This gate protects the console's own controls. It is not the
-      engine's identity model — the engine authenticates its clients through the deployment's own
-      provider, and a second, weaker account system beside it would be worse than an honest
-      lock.</p>
+    <p class="small text-muted mt-3">{{ t('login.gate_note') }}</p>
   </div>
 </div>
 {% endblock %}

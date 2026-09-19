@@ -6,7 +6,7 @@
    the two or three topics that answer the question this page provokes. #}
 {% macro helpcards(cards) -%}
 <div class="card mt-4 helpcards"><div class="card-body py-3">
-  <div class="section-label mt-0 mb-2">Help</div>
+  <div class="section-label mt-0 mb-2">{{ t('nav.help') }}</div>
   <div class="row g-2">
     {% for slug, title, why in cards %}
     <div class="col-md-4">
@@ -14,7 +14,7 @@
          style="border-color:var(--rule)!important" href="/help/{{ slug }}">
         <div class="serif fw-semibold small">{{ title }}</div>
         <div class="small text-muted">{{ why }}</div>
-        <div class="small mt-1" style="color:var(--flow)">read more &rarr;</div>
+        <div class="small mt-1" style="color:var(--flow)">{{ t('help.read_more') }} &rarr;</div>
       </a>
     </div>
     {% endfor %}

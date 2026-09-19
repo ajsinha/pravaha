@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% from "_admin_head.html" import admin_head %}
+{% from "_helpcards.html" import helpcards %}
+{% block title %}{{ t('admin.audit.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{{ admin_head('audit', t('admin.audit.heading')) }}
+<p class="lede">{{ t('admin.audit.lede') }}</p>
+
+{% set page = (answer or {}).get('page') or {} %}
+{# A GET form: every filter is in the URL, so a filtered trail is a link. #}
+<form method="get" action="/admin/audit" class="card mb-3" id="audit-filters" aria-labelledby="audit-filters-title"><div class="card-body">
+  <h2 class="section-label mt-0" id="audit-filters-title">{{ t('admin.audit.filters') }}</h2>
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-6 col-lg-2"><label class="form-label small" for="af-principal">{{ t('admin.audit.principal') }}</label>
+      <input class="form-control form-control-sm mono" id="af-principal" name="principal" value="{{ filters.principal }}" autocomplete="off"></div>
+    <div class="col-sm-6 col-lg-2"><label class="form-label small" for="af-view">{{ t('admin.audit.view') }}</label>
+      <input class="form-control form-control-sm mono" id="af-view" name="view" value="{{ filters.view }}" autocomplete="off"></div>
+    <div class="col-sm-6 col-lg-2"><label class="form-label small" for="af-action">{{ t('admin.audit.action') }}</label>
+      <input class="form-control form-control-sm mono" id="af-action" name="action" value="{{ filters.action }}" list="af-actions" autocomplete="off">
+      <datalist id="af-actions">{% for a in page.get('actions') or [] %}<option value="{{ a }}">{% endfor %}</datalist></div>
+    <div class="col-sm-6 col-lg-2"><label class="form-label small" for="af-decision">{{ t('admin.audit.decision') }}</label>
+      <select class="form-select form-select-sm" id="af-decision" name="decision">
+        <option value="" {% if not filters.decision %}selected{% endif %}>{{ t('admin.audit.any') }}</option>
+        <option value="allow" {% if filters.decision == 'allow' %}selected{% endif %}>{{ t('admin.audit.allow') }}</option>
+        <option value="deny" {% if filters.decision == 'deny' %}selected{% endif %}>{{ t('admin.audit.deny') }}</option>
+      </select></div>
+    <div class="col-sm-6 col-lg-2"><label class="form-label small" for="af-since">{{ t('admin.audit.since') }}</label>
+      <input class="form-control form-control-sm" id="af-since" name="since" value="{{ filters.since }}" placeholder="2026-09-19T08:00" aria-describedby="af-utc"></div>
+    <div class="col-sm-6 col-lg-2"><label class="form-label small" for="af-until">{{ t('admin.audit.until') }}</label>
+      <input class="form-control form-control-sm" id="af-until" name="until" value="{{ filters.until }}" placeholder="2026-09-19T09:00" aria-describedby="af-utc"></div>
+  </div>
+  <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+    <button type="submit" class="btn btn-sm btn-primary">{{ t('admin.audit.apply') }}</button>
+    <a class="btn btn-sm btn-link" href="/admin/audit">{{ t('admin.audit.clear') }}</a>
+    <span class="small text-muted" id="af-utc">{{ t('admin.audit.utc') }}</span>
+  </div>
+</div></form>
+
+{% if audit_error %}
+<div class="alert alert-warning small" role="status" id="audit-error"><div class="fw-semibold">{{ t('admin.audit.error') }}</div>
+  {{ audit_error.error }}{% if audit_error.code %} <a class="mono" href="/help/codes/{{ audit_error.code }}">{{ audit_error.code }}</a>{% endif %}</div>
+{% elif answer and not answer.permitted %}
+<div class="state" id="audit-not-permitted">
+  <h2><i class="bi bi-shield-lock" aria-hidden="true"></i> {{ t('admin.audit.denied.title') }}</h2>
+  <p>{{ t('admin.audit.denied.body') }}</p>
+  <p class="mono small">{{ answer.reason }}</p>
+  <p>{{ t('admin.audit.denied.fix') }}</p>
+  <a class="btn btn-sm btn-outline-secondary" href="/admin/access">{{ t('admin.audit.denied.access') }}</a>
+</div>
+{% elif answer %}
+  {% if not page.get('recording') %}
+  <div class="state" id="audit-not-recording"><h2>{{ t('admin.audit.off.title') }}</h2><p>{{ page.get('note') }}</p></div>
+  {% else %}
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <p class="small text-muted mb-0" id="audit-window">{{ t('admin.audit.window', sink=page.sink, retained=page.retained, capacity=page.capacity) }}{% if page.oldestRetained %} {{ t('admin.audit.oldest', at=page.oldestRetained) }}{% endif %}{% if page.evicted %} {{ t('admin.audit.evicted', n=page.evicted) }}{% endif %}</p>
+    {% if cursor %}<span class="chip info">{{ t('admin.audit.older_page') }}</span>{% endif %}
+  </div>
+  {% if not page.events %}
+  <div class="state" id="audit-empty"><h2>{{ t('admin.audit.empty.title') }}</h2><p>{{ t('admin.audit.empty.body') }}</p>
+    <a class="btn btn-sm btn-outline-secondary" href="/admin/audit">{{ t('admin.audit.clear') }}</a></div>
+  {% else %}
+  <div class="card"><div class="table-responsive"><table class="table table-sm mb-0 small" id="audit-events">
+    <caption class="visually-hidden">{{ t('admin.audit.caption') }}</caption>
+    <thead><tr>
+      <th scope="col" class="num">#</th><th scope="col">{{ t('admin.audit.col.at') }}</th><th scope="col">{{ t('admin.audit.col.principal') }}</th>
+      <th scope="col">{{ t('admin.audit.col.action') }}</th><th scope="col">{{ t('admin.audit.col.target') }}</th>
+      <th scope="col">{{ t('admin.audit.col.decision') }}</th><th scope="col">{{ t('admin.audit.col.detail') }}</th></tr></thead>
+    <tbody>{% for e in page.events %}<tr>
+      <td class="num mono text-muted">{{ e.sequence }}</td>
+      <td class="mono text-nowrap">{{ e.at }}</td>
+      <td><a class="mono" href="{{ principal_href(e.principal) }}">{{ e.principal }}</a>{% if e.roles %}<div class="text-muted">{{ e.roles|join(', ') }}</div>{% endif %}</td>
+      <td class="mono">{{ e.action }}</td>
+      <td>{% if e.target %}<a class="mono" href="{{ view_href(e.target) }}">{{ e.target }}</a>{% endif %}</td>
+      <td>{% if e.decision == 'ALLOW' %}<span class="chip ok">{{ t('admin.audit.allowed') }}</span>{% else %}<span class="chip bad">{{ t('admin.audit.denied_chip') }}</span>{% endif %}
+        {% if e.decision != 'ALLOW' and e.reason %}<div class="text-muted">{{ e.reason }}</div>{% endif %}</td>
+      <td>{% if e.detail %}<code class="audit-detail">{{ e.detail }}</code>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div></div>
+  {% endif %}
+  <nav class="d-flex gap-2 mt-2" aria-label="{{ t('admin.audit.pages') }}">
+    {% if newest_href %}<a class="btn btn-sm btn-outline-secondary" href="{{ newest_href }}">&larr; {{ t('admin.audit.newest') }}</a>{% endif %}
+    {% if older_href %}<a class="btn btn-sm btn-outline-secondary" href="{{ older_href }}" rel="next">{{ t('admin.audit.older') }} &rarr;</a>
+    {% else %}<span class="small text-muted align-self-center">{{ t('admin.audit.end') }}</span>{% endif %}
+  </nav>
+  {% endif %}
+{% endif %}
+
+<h2 class="h5 mt-4">{{ t('admin.audit.about_title') }}</h2>
+<ul class="small text-muted">
+  <li>{{ t('admin.audit.about_permission') }}</li>
+  <li>{{ t('admin.audit.about_recorded') }}</li>
+  <li>{{ t('admin.audit.about_window') }}</li>
+</ul>
+{{ helpcards([('security', t('admin.help.security'), t('admin.help.security_body'))]) }}
+{% endblock %}

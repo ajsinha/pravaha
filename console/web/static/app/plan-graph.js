@@ -14,10 +14,10 @@
  * the accessible equivalent.
  */
 
-const FAMILY_LABEL = {
-  source: "Source / scan", filter: "Filter", project: "Projection", aggregate: "Aggregate / window",
-  join: "Join", sink: "Sink", other: "Other",
-};
+import { t } from "pravaha/lib.js";
+
+/* Operator families, labelled from the string catalog (js.plan.family.*). */
+const FAMILIES = ["source", "filter", "project", "aggregate", "join", "sink", "other"];
 const SVG = "http://www.w3.org/2000/svg";
 
 /* ELK and ECharts are UMD bundles. On a page where Monaco's AMD loader has defined
@@ -61,7 +61,7 @@ function el(name, attrs = {}, parent) {
 export async function renderPlan(container, graph, { onSelect } = {}) {
   container.replaceChildren();
   if (!graph || !graph.nodes || !graph.nodes.length) {
-    container.innerHTML = '<div class="state"><h2>No plan to draw</h2><p>Explain a query that validates to see its operators.</p></div>';
+    container.innerHTML = `<div class="state"><h2>${t("plan.empty.title")}</h2><p>${t("plan.empty.body")}</p></div>`;
     return null;
   }
   const layoutGraph = {
@@ -86,7 +86,7 @@ export async function renderPlan(container, graph, { onSelect } = {}) {
   const byId = Object.fromEntries(graph.nodes.map((n) => [n.id, n]));
 
   const svg = el("svg", { width: laid.width, height: laid.height, viewBox: `0 0 ${laid.width} ${laid.height}`,
-                          role: "group", "aria-label": `Query plan, ${graph.nodes.length} operators` });
+                          role: "group", "aria-label": t("plan.label", { n: graph.nodes.length }) });
   const defs = el("defs", {}, svg);
   const marker = el("marker", { id: "plan-arrow", viewBox: "0 0 10 10", refX: 9, refY: 5,
                                 markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs);
@@ -130,7 +130,7 @@ export async function renderPlan(container, graph, { onSelect } = {}) {
 
 export function legend(families) {
   const used = [...new Set(families)];
-  return used.map((f) => `<span><i class="fam-${f}" style="background:var(--${familyVar(f)})"></i>${FAMILY_LABEL[f] || f}</span>`).join("");
+  return used.map((f) => `<span><i class="fam-${f}" style="background:var(--${familyVar(f)})"></i>${FAMILIES.includes(f) ? t("plan.family." + f) : f}</span>`).join("");
 }
 
 function familyVar(family) {
@@ -148,7 +148,7 @@ export function exportSvg(svg, filename = "pravaha-plan.svg") {
     `.plan-node text.detail{fill:${style.getPropertyValue("--muted")};font-family:monospace;font-size:10.5px}`,
     `.plan-edge{fill:none;stroke:${style.getPropertyValue("--edge")};stroke-width:1.5}`,
     `.plan-arrow{fill:${style.getPropertyValue("--edge")}}`,
-    ...["source", "filter", "project", "aggregate", "join", "sink", "other"].map(
+    ...FAMILIES.map(
       (f) => `.plan-node .fam-${f}{fill:${style.getPropertyValue("--" + familyVar(f))}}`),
   ].join("\n");
   const styleEl = document.createElementNS(SVG, "style");

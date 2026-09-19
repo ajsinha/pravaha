@@ -1,48 +1,47 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helpcards %}
-{% block title %}Catalog — {{ app_name }}{% endblock %}
+{% block title %}{{ t('catalog.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <div class="accent"></div>
-    <p class="kicker mt-2 mb-1">CATALOG</p>
-    <h1>What exists, and what reads it</h1>
+    <p class="kicker mt-2 mb-1">{{ t('catalog.kicker') }}</p>
+    <h1>{{ t('catalog.heading') }}</h1>
   </div>
-  <a class="btn btn-sm btn-primary" href="/start">Declare a stream or write a query</a>
+  <a class="btn btn-sm btn-primary" href="/start">{{ t('catalog.declare_or_write') }}</a>
 </div>
 <div class="rule"></div>
 
-<nav class="tabs-bar" aria-label="Catalog sections">
-  <a href="/catalog?tab=streams" {% if tab == 'streams' %}aria-current="page"{% endif %}>Streams<span class="count">{{ streams|length }}</span></a>
-  <a href="/catalog?tab=queries" {% if tab == 'queries' %}aria-current="page"{% endif %}>Registered queries<span class="count">{{ queries|length }}</span></a>
-  <a href="/catalog?tab=sinks" {% if tab == 'sinks' %}aria-current="page"{% endif %}>Sinks</a>
+<nav class="tabs-bar" aria-label="{{ t('catalog.sections') }}">
+  <a href="/catalog?tab=streams" {% if tab == 'streams' %}aria-current="page"{% endif %}>{{ t('catalog.tab.streams') }}<span class="count">{{ streams|length }}</span></a>
+  <a href="/catalog?tab=queries" {% if tab == 'queries' %}aria-current="page"{% endif %}>{{ t('catalog.tab.queries') }}<span class="count">{{ queries|length }}</span></a>
+  <a href="/catalog?tab=sinks" {% if tab == 'sinks' %}aria-current="page"{% endif %}>{{ t('catalog.tab.sinks') }}</a>
 </nav>
 
 {% if tab == 'streams' %}
   {% if streams_error %}
-  <div class="alert alert-warning small" role="status"><div class="fw-semibold">The stream catalog is not answering</div>
-    {{ streams_error }}. Streams are read from the engine's REST API at <span class="mono">{{ engine_http or 'engine.http_url (not set)' }}</span>.</div>
+  <div class="alert alert-warning small" role="status"><div class="fw-semibold">{{ t('catalog.streams_error.title') }}</div>
+    {{ streams_error }}. {{ t('catalog.streams_error.where') }} <span class="mono">{{ engine_http or t('catalog.streams_error.unset') }}</span>.</div>
   {% elif not streams %}
-  <div class="state"><h2>No streams declared</h2><p>A stream is declared under <code>pravaha.streams</code> in the
-    engine's configuration, or through its REST API. The get-started guide can declare one.</p>
-    <a class="btn btn-sm btn-primary" href="/start">Declare a stream</a></div>
+  <div class="state"><h2>{{ t('catalog.no_streams.title') }}</h2><p>{{ t('catalog.no_streams.before') }} <code>pravaha.streams</code> {{ t('catalog.no_streams.after') }}</p>
+    <a class="btn btn-sm btn-primary" href="/start">{{ t('catalog.no_streams.action') }}</a></div>
   {% else %}
   <div class="row g-3">
     {% for s in streams %}
     <div class="col-md-6 col-xl-4"><div class="card h-100"><div class="card-body">
       <div class="d-flex justify-content-between align-items-start">
         <a class="mono fw-semibold fs-6" href="/catalog/streams/{{ s.name }}">{{ s.name }}</a>
-        <span class="chip mute">v{{ s.version }}</span></div>
-      <div class="small mt-1">{% if s.eventTime %}<span class="chip ok" title="Event time, and how late a row may be">event time <span class="mono">{{ s.eventTime }}</span>{% if s.outOfOrderness %} · {{ s.outOfOrderness }} late{% endif %}</span>
-        {% else %}<span class="chip warn" title="No window over this stream can close">no event time</span>{% endif %}
-        {% if s.source %}<span class="chip mute" title="The plugin a source binding feeds it from">{{ s.source }}</span>{% else %}<span class="chip mute">not bound</span>{% endif %}</div>
+        <span class="chip mute">{{ t('catalog.stream.version', version=s.version) }}</span></div>
+      <div class="small mt-1">{% if s.eventTime %}<span class="chip ok" title="{{ t('catalog.stream.event_time_title') }}">{{ t('catalog.stream.event_time') }} <span class="mono">{{ s.eventTime }}</span>{% if s.outOfOrderness %} · {{ t('catalog.stream.late', lateness=s.outOfOrderness) }}{% endif %}</span>
+        {% else %}<span class="chip warn" title="{{ t('catalog.stream.no_event_time_title') }}">{{ t('catalog.stream.no_event_time') }}</span>{% endif %}
+        {% if s.source %}<span class="chip mute" title="{{ t('catalog.stream.source_title') }}">{{ s.source }}</span>{% else %}<span class="chip mute">{{ t('catalog.stream.not_bound') }}</span>{% endif %}</div>
       <ul class="field-list mt-2">
         {% for f in s.fields[:6] %}<li><span class="mono">{{ f.name }}</span><span class="field-type">{{ f.type }}</span></li>{% endfor %}
-        {% if s.fields|length > 6 %}<li class="text-muted small">and {{ s.fields|length - 6 }} more</li>{% endif %}
+        {% if s.fields|length > 6 %}<li class="text-muted small">{{ t('catalog.stream.more', n=s.fields|length - 6) }}</li>{% endif %}
       </ul>
       <div class="d-flex gap-2 mt-2">
-        <a class="btn btn-sm btn-outline-secondary" href="/workbench?template=tumble&amp;stream={{ s.name }}">Query it</a>
-        <a class="btn btn-sm btn-link" href="/catalog/streams/{{ s.name }}">Schema &rarr;</a></div>
+        <a class="btn btn-sm btn-outline-secondary" href="/workbench?template=tumble&amp;stream={{ s.name }}">{{ t('catalog.stream.query_it') }}</a>
+        <a class="btn btn-sm btn-link" href="/catalog/streams/{{ s.name }}">{{ t('catalog.stream.schema') }} &rarr;</a></div>
     </div></div></div>
     {% endfor %}
   </div>
@@ -52,11 +51,11 @@
   {% if queries_error %}
   <div class="alert alert-warning small">{{ queries_error }}</div>
   {% elif not queries %}
-  <div class="state"><h2>Nothing registered</h2><p>A continuous query is registered once and maintained until it is dropped.</p>
-    <a class="btn btn-sm btn-primary" href="/workbench">Open the workbench</a></div>
+  <div class="state"><h2>{{ t('catalog.no_queries.title') }}</h2><p>{{ t('catalog.no_queries.body') }}</p>
+    <a class="btn btn-sm btn-primary" href="/workbench">{{ t('catalog.no_queries.action') }}</a></div>
   {% else %}
   <div class="card"><div class="table-responsive"><table class="table mb-0">
-    <thead><tr><th>Query</th><th>State</th><th>Fingerprint</th><th>Shares its computation with</th><th>Key</th><th>Retention</th><th>Sink</th><th class="num">Rows in</th></tr></thead>
+    <thead><tr><th>{{ t('catalog.queries.query') }}</th><th>{{ t('catalog.queries.state') }}</th><th>{{ t('catalog.queries.fingerprint') }}</th><th>{{ t('catalog.queries.shares') }}</th><th>{{ t('catalog.queries.key') }}</th><th>{{ t('catalog.queries.retention') }}</th><th>{{ t('catalog.queries.sink') }}</th><th class="num">{{ t('catalog.queries.rows_in') }}</th></tr></thead>
     <tbody>
     {% for q in queries %}
     <tr><td><a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a></td>
@@ -64,45 +63,41 @@
       <td class="mono small">{{ q.fingerprint }}</td>
       <td>{% set others = siblings[q.fingerprint]|reject('equalto', q.name)|list %}
         {% if others %}{% for o in others %}<a class="mono small" href="/queries/{{ o }}">{{ o }}</a>{{ ', ' if not loop.last }}{% endfor %}
-        {% else %}<span class="text-muted small">none — its own computation</span>{% endif %}</td>
+        {% else %}<span class="text-muted small">{{ t('catalog.queries.own_computation') }}</span>{% endif %}</td>
       <td class="mono small">{{ q.key_columns|join(', ') if q.key_columns else '—' }}</td>
       <td class="small">{{ q.retention or '—' }}</td>
-      <td>{% if q.sink %}<span class="mono small">{{ q.sink }}</span>{% else %}<span class="text-muted small">view only</span>{% endif %}</td>
+      <td>{% if q.sink %}<span class="mono small">{{ q.sink }}</span>{% else %}<span class="text-muted small">{{ t('catalog.queries.view_only') }}</span>{% endif %}</td>
       <td class="num">{{ "{:,}".format(q.rows_in) if q.rows_in >= 0 else '—' }}</td></tr>
     {% endfor %}
     </tbody></table></div></div>
-  <p class="small text-muted mt-2">Two names on one fingerprint are one computation with one copy of the state: the
-    registry matched their normalised plans. Dropping one leaves the other running.</p>
+  <p class="small text-muted mt-2">{{ t('catalog.queries.sharing_note') }}</p>
   {% endif %}
 
 {% else %}
   {% if sinks_error %}
-  <div class="alert alert-warning small" role="status"><div class="fw-semibold">The sink list is not answering</div>
-    {{ sinks_error }}. Sinks are read from the engine's <code>GET /api/v1/sinks</code>.</div>
+  <div class="alert alert-warning small" role="status"><div class="fw-semibold">{{ t('catalog.sinks_error.title') }}</div>
+    {{ sinks_error }}. {{ t('catalog.sinks_error.where') }} <code>GET /api/v1/sinks</code>.</div>
   {% elif not sinks %}
-  <div class="state"><h2>No sinks you can see</h2><p>A sink is bound in the engine's configuration under
-    <code>pravaha.sinks.&lt;name&gt;</code> and named at registration. None is bound, or none is visible to this console's identity.</p></div>
+  <div class="state"><h2>{{ t('catalog.no_sinks.title') }}</h2><p>{{ t('catalog.no_sinks.before') }}
+    <code>pravaha.sinks.&lt;name&gt;</code> {{ t('catalog.no_sinks.after') }}</p></div>
   {% else %}
   <div class="card"><div class="table-responsive"><table class="table mb-0" id="sinks-table">
-    <thead><tr><th>Sink</th><th>Plugin</th><th>Row shape</th><th>Key</th><th>Accepts</th><th>Written by</th></tr></thead>
+    <thead><tr><th>{{ t('catalog.sinks.sink') }}</th><th>{{ t('catalog.sinks.plugin') }}</th><th>{{ t('catalog.sinks.row_shape') }}</th><th>{{ t('catalog.sinks.key') }}</th><th>{{ t('catalog.sinks.accepts') }}</th><th>{{ t('catalog.sinks.written_by') }}</th></tr></thead>
     <tbody>
     {% for k in sinks %}
     <tr><td class="mono">{{ k.name }}</td><td class="mono small">{{ k.plugin }}</td>
       <td class="small">{% if k.problem %}<span class="chip bad" title="{{ k.problem.message }}">{{ k.problem.code }}</span> <span class="text-muted">{{ k.problem.message }}</span>
         {% elif k.fields %}{% for f in k.fields %}<span class="mono">{{ f.name }}</span> <span class="field-type">{{ f.type }}</span>{{ ', ' if not loop.last }}{% endfor %}
-        {% else %}<span class="text-muted">any shape</span>{% endif %}</td>
-      <td class="small">{% if k.keyColumns %}<span class="mono">{{ k.keyColumns|join(', ') }}</span>{% else %}<span class="text-muted">none — append-only</span>{% endif %}</td>
+        {% else %}<span class="text-muted">{{ t('catalog.sinks.any_shape') }}</span>{% endif %}</td>
+      <td class="small">{% if k.keyColumns %}<span class="mono">{{ k.keyColumns|join(', ') }}</span>{% else %}<span class="text-muted">{{ t('catalog.sinks.no_key') }}</span>{% endif %}</td>
       <td class="small">{% for m in k.emitModes or [] %}<span class="chip mute me-1">{{ m }}</span>{% endfor %}
-        {% if k.acceptsRetractions %}<span class="chip ok" title="A query that revises its answer may write here">revisions</span>
-        {% elif not k.problem %}<span class="chip warn" title="A revising query pointed here is refused with PRV-2041">append only</span>{% endif %}</td>
-      <td class="small">{% for w in k.writers or [] %}<a class="mono" href="/queries/{{ w }}">{{ w }}</a>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">nothing you can see</span>{% endfor %}</td></tr>
+        {% if k.acceptsRetractions %}<span class="chip ok" title="{{ t('catalog.sinks.revisions_title') }}">{{ t('plugins.revisions') }}</span>
+        {% elif not k.problem %}<span class="chip warn" title="{{ t('catalog.sinks.append_only_title') }}">{{ t('plugins.append_only') }}</span>{% endif %}</td>
+      <td class="small">{% for w in k.writers or [] %}<a class="mono" href="/queries/{{ w }}">{{ w }}</a>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">{{ t('plugins.nothing_visible') }}</span>{% endfor %}</td></tr>
     {% endfor %}
     </tbody></table></div></div>
-  <p class="small text-muted mt-2">What each sink promises comes from asking its plugin, the question registration asks before it
-    will attach one. A binding's options — where credentials live — are never part of the engine's answer. A query that revises
-    its answer needs a sink that accepts revisions (<a href="/help/codes/PRV-2041">PRV-2041</a>); a sink's configured row shape
-    and key must match the query's (<a href="/help/codes/PRV-8010">PRV-8010</a>).</p>
+  <p class="small text-muted mt-2">{{ t('catalog.sinks.note_promises') }} (<a href="/help/codes/PRV-2041">PRV-2041</a>); {{ t('catalog.sinks.note_shape') }} (<a href="/help/codes/PRV-8010">PRV-8010</a>).</p>
   {% endif %}
 {% endif %}
-{{ helpcards([('continuous-queries', 'Streams and sources', 'Declaring a stream, binding a source, and event time.'), ('connectors', 'Connectors', 'Every source and sink plugin, configured.'), ('concepts', 'Sharing', 'Why two names can be one computation.')]) }}
+{{ helpcards([('continuous-queries', t('catalog.help.streams'), t('catalog.help.streams_body')), ('connectors', t('catalog.help.connectors'), t('catalog.help.connectors_body')), ('concepts', t('catalog.help.sharing'), t('catalog.help.sharing_body'))]) }}
 {% endblock %}

@@ -266,6 +266,9 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("query", "/queries/big_txn", True, "true"),
     ("overview", "/overview", True, "true"),
     ("plugins", "/plugins", True, "true"),
+    ("admin-access", "/admin/access", True, "true"),
+    ("admin-audit", "/admin/audit", True, "true"),
+    ("admin-audit-filtered", "/admin/audit?principal=carol&decision=deny", True, "true"),
     ("not-found", "/views/no_such_view", True, "true"),
 ]
 

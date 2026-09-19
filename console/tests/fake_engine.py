@@ -76,6 +76,37 @@ class FakeEngine:
         ]
         for q in self._queries:
             object.__setattr__(q, "_shared", q.fingerprint == "fff000")
+        #: Whether the engine's policy lets the console's identity read the audit trail.
+        self.audit_allowed = True
+        self.audit_calls: list[dict] = []
+        self.plugins_list = [
+            {"name": "filesystem", "version": "0.1.0", "requiredApiVersion": "0.1.0", "compatible": True,
+             "loaded": True, "kinds": ["sink", "source"],
+             "capabilities": {
+                 "source": {"replayableOffsets": True, "orderedWithinPartition": True, "emitsDeletes": False,
+                            "emitsBeforeImage": False, "guarantee": "EXACTLY_ONCE", "pushdown": [],
+                            "typicalLatency": "PT0S"},
+                 "sink": {"emitModes": ["APPEND"], "transactional": False, "idempotentUpsert": False,
+                          "maxBatchRows": 0, "guarantee": "AT_LEAST_ONCE"},
+                 "note": "as the plugin declares them before configuration; a binding's configuration can "
+                         "narrow them, and each sink's own are on /api/v1/sinks"},
+             "settings": [],
+             "health": {"state": "UNKNOWN", "reported": False,
+                        "detail": "no instance this node holds reports health; each binding configures its "
+                                  "own, and its failures show on the query or sink that uses it"},
+             "bindings": [{"kind": "sink", "name": "audit_out"}, {"kind": "source", "name": "txn"}]},
+            {"name": "vault", "version": "2.1.0", "requiredApiVersion": "0.1.0", "compatible": True,
+             "loaded": True, "kinds": ["lookup"],
+             "capabilities": {"source": None, "sink": None, "note": None},
+             "settings": ["endpoint", "token"],
+             "health": {"state": "DEGRADED", "reported": True, "detail": "slow to answer"},
+             "bindings": []},
+            {"name": "nope", "version": None, "requiredApiVersion": None, "compatible": False,
+             "loaded": False, "kinds": [], "capabilities": None, "settings": [],
+             "health": {"state": "UNKNOWN", "reported": False,
+                        "detail": "not on this node's classpath, so nothing bound to it can run"},
+             "bindings": [{"kind": "sink", "name": "broken_out"}]},
+        ]
 
     def _check(self):
         if self.down:
@@ -202,6 +233,72 @@ class FakeEngine:
     def prometheus(self):
         self._check()
         return self.metrics_text
+
+    def plugins(self):
+        self._check()
+        return [dict(p) for p in self.plugins_list]
+
+    def permissions(self):
+        self._check()
+        audit = ({"allowed": True, "reason": None} if self.audit_allowed else
+                 {"allowed": False, "reason": AUDIT_REFUSAL})
+        return {"principal": "console", "tenant": "public", "roles": ["admin"] if self.audit_allowed else [],
+                "anonymous": False, "policy": "authenticated",
+                "register": {"allowed": True, "reason": None}, "readAudit": audit,
+                "views": [{"name": q.name, "read": "full", "administer": {"allowed": True, "reason": None}}
+                          for q in self._queries],
+                "streams": [{"name": s["name"], "read": "full", "administer": {"allowed": True, "reason": None}}
+                            for s in self.streams_list]}
+
+    def audit(self, since=None, until=None, principal=None, view=None, action=None, decision=None,
+              limit=100, cursor=None):
+        """The engine's page semantics: newest first, filtered, ``cursor`` continues below a sequence."""
+        self._check()
+        asked = {"since": since, "until": until, "principal": principal, "view": view,
+                 "action": action, "decision": decision, "limit": limit, "cursor": cursor}
+        self.audit_calls.append({k: v for k, v in asked.items() if v is not None})
+        if not self.audit_allowed:
+            raise EngineHttpError(403, "console may not read the audit trail: " + AUDIT_REFUSAL, "PRV-7002")
+        matching = [e for e in reversed(AUDIT_EVENTS)
+                    if (principal is None or e["principal"] == principal)
+                    and (view is None or (e["target"] or "").lower() == view.lower())
+                    and (action is None or e["action"] == action)
+                    and (decision is None or e["decision"] == decision.upper())
+                    and (since is None or e["at"] >= since) and (until is None or e["at"] < until)
+                    and (cursor is None or e["sequence"] < int(cursor))]
+        page = matching[: int(limit or 100)]
+        more = len(matching) > len(page)
+        return {"recording": True, "sink": "file", "capacity": 10000, "retained": len(AUDIT_EVENTS),
+                "evicted": 0, "oldestRetained": AUDIT_EVENTS[0]["at"],
+                "actions": sorted({e["action"] for e in AUDIT_EVENTS}), "events": [dict(e) for e in page],
+                "nextCursor": str(page[-1]["sequence"]) if more and page else None,
+                "note": "The most recent 10000 decisions on this node are readable here; none has been "
+                        "evicted since it started."}
+
+
+AUDIT_REFUSAL = "reading the audit trail needs one of the roles [admin]"
+
+
+def _audit_events() -> list[dict]:
+    """Seventy fixed decisions, oldest first: enough for two pages and a filter to narrow."""
+    people = [("ann", ["analyst"]), ("carol", ["intern"]), ("root", ["admin"])]
+    events = []
+    for i in range(70):
+        who, roles = people[i % 3]
+        denied = who == "carol" and i % 2 == 1
+        target = "payroll" if denied else ("big_txn" if i % 2 else "txn")
+        action = "http.audit.read" if who == "root" and i % 9 == 2 else ("query" if i % 4 else "http.read")
+        events.append({
+            "sequence": i + 1, "at": f"2026-09-19T08:{i // 60:02d}:{i % 60:02d}Z",
+            "principal": who, "tenant": "acme", "roles": roles,
+            "action": action, "target": "audit" if action == "http.audit.read" else target,
+            "decision": "DENY" if denied else "ALLOW",
+            "reason": "not an analyst" if denied else "allowed",
+            "detail": None if action.startswith("http.") else f"SELECT * FROM {target} WHERE id = {i}"})
+    return events
+
+
+AUDIT_EVENTS = _audit_events()
 
 
 PLAN_GRAPH = {

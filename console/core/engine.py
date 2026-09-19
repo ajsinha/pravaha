@@ -275,3 +275,16 @@ class Engine:
     def prometheus(self) -> str:
         """The Prometheus text exposition format, unparsed."""
         return str(self._rest(lambda c: c.metrics_text()) or "")
+
+    def plugins(self) -> list[dict]:
+        """Every plugin the node can load: manifest, declared capabilities, visible bindings."""
+        return list(self._rest(lambda c: c.plugins()) or [])
+
+    def audit(self, **filters) -> dict:
+        """One page of the recorded authorization decisions, newest first; 403 unless permitted."""
+        wanted = {k: v for k, v in filters.items() if v not in (None, "")}
+        return dict(self._rest(lambda c: c.audit(**wanted)) or {})
+
+    def permissions(self) -> dict:
+        """What the engine's policy lets the console's identity do."""
+        return dict(self._rest(lambda c: c.permissions()) or {})

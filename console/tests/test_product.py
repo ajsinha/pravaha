@@ -75,14 +75,16 @@ def engine_down():
 NEW_PAGES = ["/home", "/start", "/catalog", "/catalog?tab=queries", "/catalog?tab=sinks",
              "/catalog/streams/txn", "/views", "/views/big_txn", "/views/big_txn?key=user_id&value=u1",
              "/views/big_txn/live", "/operations", "/workbench", "/workbench?query=big_txn",
-             "/workbench?template=tumble&stream=txn", "/plugins"]
+             "/workbench?template=tumble&stream=txn", "/plugins", "/admin", "/admin/access",
+             "/admin/audit", "/admin/audit?principal=ann&decision=deny"]
 
 NEW_JSON_GETS = ["/api/v1/me", "/api/v1/catalog/streams", "/api/v1/catalog/streams/txn",
                  "/api/v1/catalog/completions", "/api/v1/catalog/templates?stream=txn",
                  "/api/v1/views/big_txn/schema", "/api/v1/views/big_txn/snippets?key=user_id&value=u1",
                  "/api/v1/catalog/sinks", "/api/v1/views/big_txn",
                  "/api/v1/ops/snapshot", "/api/v1/ops/series?metric=rows_in", "/api/v1/ops/stream",
-                 "/api/v1/plugins"]
+                 "/api/v1/plugins", "/api/v1/admin/audit", "/api/v1/admin/audit?principal=ann",
+                 "/api/v1/admin/permissions"]
 
 NEW_JSON_POSTS = [("/api/v1/sql/validate", {"sql": "SELECT * FROM txn"}),
                   ("/api/v1/sql/explain", {"sql": "SELECT * FROM txn"}),
@@ -140,14 +142,17 @@ def test_the_palette_offers_an_anonymous_visitor_only_public_pages(anonymous):
 
 # ============================================================ the pages, signed in
 
-@pytest.mark.parametrize("path", [p for p in NEW_PAGES if p != "/home"])
+RENDERED = [p for p in NEW_PAGES if p not in {"/home", "/admin"}]
+
+
+@pytest.mark.parametrize("path", RENDERED)
 def test_every_new_page_renders_for_a_signed_in_person(signed_in, path):
     page = signed_in.get(path)
     assert page.status_code == 200, path
     assert "<main" in page.text
 
 
-@pytest.mark.parametrize("path", [p for p in NEW_PAGES if p != "/home"])
+@pytest.mark.parametrize("path", RENDERED)
 def test_every_new_page_renders_with_the_engine_down(engine_down, path):
     page = engine_down.get(path)
     # A page about something that cannot be looked up is a clear 404/503; everything else
@@ -231,6 +236,7 @@ def test_an_unknown_view_or_stream_is_a_404(signed_in):
 # ============================================================ role-aware landing
 
 @pytest.mark.parametrize("role,landing", [("analyst", "/workbench"), ("operator", "/operations"),
+                                          ("admin", "/admin/access"),
                                           ("developer", "/views")])
 def test_each_role_lands_on_its_own_screen(engine, role, landing):
     client = _app(engine)
@@ -445,7 +451,7 @@ def test_a_subscribed_row_carries_its_weight(engine):
 # ============================================================ secrets, assets, air gap
 
 def test_no_secret_reaches_any_new_page_or_endpoint(signed_in):
-    responses = [signed_in.get(p) for p in NEW_PAGES if p != "/home"]
+    responses = [signed_in.get(p) for p in RENDERED]
     responses += [signed_in.get(p) for p in NEW_JSON_GETS if p != "/api/v1/ops/stream"]
     responses += [signed_in.post(p, json=b) for p, b in NEW_JSON_POSTS]
     responses.append(signed_in.get("/api/v1/palette"))
@@ -549,7 +555,7 @@ def test_no_template_script_or_stylesheet_of_ours_references_the_network():
 
 
 def test_no_page_asks_the_browser_to_fetch_from_another_host(signed_in):
-    for path in [p for p in NEW_PAGES if p != "/home"] + ["/", "/help", "/login"]:
+    for path in RENDERED + ["/", "/help", "/login"]:
         text = signed_in.get(path).text
         for match in re.finditer(r'<(?:script|link|img|iframe|source)\b[^>]*(?:src|href)="([^"]+)"', text):
             assert match.group(1).startswith("/"), (path, match.group(1))
@@ -768,32 +774,108 @@ def test_every_error_code_in_the_table_resolves():
 
 # ============================================================ the plugins screen
 
-def test_the_plugins_screen_joins_health_with_what_binds_each_plugin(signed_in):
+def test_the_plugins_screen_is_the_engines_manifest_listing_decorated_with_binding_details(signed_in):
     body = signed_in.get("/api/v1/plugins").json()
     by_name = {p["name"]: p for p in body["plugins"]}
     fs = by_name["filesystem"]
-    assert fs["registered"] and fs["healthy"] and fs["version"] == "1"
+    # From GET /api/v1/plugins: the manifest and what the code can be, which the console used
+    # to say the engine did not publish.
+    assert fs["loaded"] and fs["compatible"] and fs["required_api"] == "0.1.0"
+    assert fs["kinds"] == ["sink", "source"]
+    assert fs["source_capabilities"]["guarantee"] == "EXACTLY_ONCE"
+    # Health the engine did not measure is said to be unreported, never drawn as healthy.
+    assert fs["health_reported"] is False and fs["healthy"] is False
     assert fs["bound_as"] == ["source", "sink"]
+    # The binding's details come from the stream catalogue and the sink list.
     assert [s["name"] for s in fs["sources"]] == ["txn"] and fs["sources"][0]["event_time"] == "event_time"
     assert [k["name"] for k in fs["sinks"]] == ["audit_out"] and fs["sinks"][0]["writers"] == ["big_txn"]
-    # A binding naming a plugin the engine never registered is shown, not dropped.
+    # A registered plugin's live health and its manifest's setting names.
+    vault = by_name["vault"]
+    assert vault["health"] == "DEGRADED" and vault["health_reported"] and vault["settings"] == ["endpoint", "token"]
+    # A binding naming a plugin the engine cannot load is shown, not dropped, and listed last.
     nope = by_name["nope"]
-    assert not nope["registered"] and nope["sinks"][0]["problem"]["code"] == "PRV-5093"
-    # Registered plugins first.
-    assert body["plugins"][0]["name"] == "filesystem"
+    assert not nope["loaded"] and nope["sinks"][0]["problem"]["code"] == "PRV-5093"
+    assert body["plugins"][-1]["name"] == "nope"
     page = signed_in.get("/plugins").text
-    assert "not loaded" in page and "Not published by the engine" in page
-    assert "requiredApiVersion" in page and "configSchema" in page
+    assert "not loaded" in page and "health not reported" in page and "Needs plugin API" in page
+    assert "Not published by the engine" in page and "pravaha_plugin_*" in page
+    assert "requiredApiVersion" not in page, "the manifest is published now; the page must not say it is not"
     assert SINK_SECRET not in page and SINK_SECRET not in json.dumps(body)
 
 
 def test_the_plugins_screen_names_the_call_that_failed_with_the_engine_down(engine_down):
     page = engine_down.get("/plugins")
     assert page.status_code == 200
+    assert "plugin listing is not answering" in page.text
     assert "status endpoint is not answering" in page.text
-    assert "stream catalog is not answering" in page.text
     body = engine_down.get("/api/v1/plugins").json()
-    assert body["available"] is False and set(body["errors"]) == {"status", "streams", "sinks"}
+    assert body["available"] is False and {"plugins", "status"} <= set(body["errors"])
+
+
+# ============================================================ admin: access and the audit trail
+
+def test_admin_is_in_the_navigation_the_palette_and_is_the_admin_personas_landing(engine, signed_in):
+    assert 'href="/admin"' in signed_in.get("/catalog").text
+    hrefs = {i.get("href") for i in signed_in.get("/api/v1/palette").json()["items"]}
+    assert {"/admin/access", "/admin/audit"} <= hrefs
+    assert signed_in.get("/admin", follow_redirects=False).headers["location"] == "/admin/access"
+    admin = _app(engine)
+    admin.post("/login", data={"password": PASSWORD, "role": "admin", "next": "/home"})
+    admin.post("/preferences/role", data={"role": "admin", "next": "/home"})
+    assert admin.get("/home", follow_redirects=False).headers["location"] == "/admin/access"
+
+
+def test_the_access_page_shows_the_policys_answers_for_the_consoles_identity(signed_in):
+    page = signed_in.get("/admin/access").text
+    assert "authenticated" in page and "console" in page
+    assert "register continuous queries" in page and "read the audit trail" in page
+    assert 'href="/queries/big_txn"' in page and 'href="/catalog/streams/txn"' in page
+    body = signed_in.get("/api/v1/admin/permissions").json()
+    assert body["readAudit"]["allowed"] is True
+
+
+def test_the_audit_screen_passes_every_filter_to_the_engine_and_pages_by_its_cursor(signed_in, engine):
+    page = signed_in.get("/admin/audit?principal=carol&decision=deny&since=2026-09-19T08:00").text
+    assert engine.audit_calls[-1] == {"since": "2026-09-19T08:00:00Z", "principal": "carol",
+                                      "decision": "deny", "limit": 50}
+    assert "not an analyst" in page and "payroll" in page
+    # The filter survives into the form and into every link, so the page is a URL.
+    assert 'value="carol"' in page and '<option value="deny" selected>' in page
+
+    first = signed_in.get("/admin/audit").text
+    older = re.search(r'href="(/admin/audit\?cursor=\d+)" rel="next"', first)
+    assert older, "a second page is offered as a link"
+    second = signed_in.get(older.group(1).replace("&amp;", "&")).text
+    assert engine.audit_calls[-1]["cursor"] == older.group(1).split("=")[-1]
+    assert "Newest" in second and "The oldest readable decision is on this page." in second
+    sequences = [int(n) for n in re.findall(r'<td class="num mono text-muted">(\d+)</td>', first + second)]
+    assert sequences == sorted(sequences, reverse=True) and len(sequences) == len(set(sequences)) == 70
+
+
+def test_the_audit_screen_says_not_permitted_when_the_engine_refuses_this_identity(signed_in, engine):
+    engine.audit_allowed = False
+    page = signed_in.get("/admin/audit")
+    assert page.status_code == 403
+    assert "Not permitted" in page.text and "audit-readers" in page.text
+    assert "needs one of the roles [admin]" in page.text, "the engine's own reason is shown"
+    assert "<table" not in page.text.split('id="audit-filters"')[1].split("How the trail is kept")[0]
+    api = signed_in.get("/api/v1/admin/audit")
+    assert api.status_code == 403 and api.json()["permitted"] is False
+    access = signed_in.get("/admin/access").text
+    assert "refused" in access
+
+
+def test_a_malformed_time_is_refused_before_the_engine_is_asked(signed_in, engine):
+    page = signed_in.get("/admin/audit?since=yesterday")
+    assert page.status_code == 400 and "is not a time" in page.text
+    assert engine.audit_calls == []
+    api = signed_in.get("/api/v1/admin/audit?decision=maybe")
+    assert api.status_code == 400 and api.json()["code"] == "PRV-1051"
+
+
+def test_the_audit_screen_with_the_engine_down_names_the_failure(engine_down):
+    page = engine_down.get("/admin/audit")
+    assert page.status_code == 503 and "could not be read" in page.text
 
 
 def test_the_plugins_screen_is_reachable_from_the_account_menu_and_the_palette(signed_in):
@@ -815,7 +897,11 @@ def test_every_ui_string_key_a_template_or_island_uses_is_in_the_catalog():
         text = template.read_text(encoding="utf-8")
         used |= set(re.findall(r"""\bt\(\s*["']([a-z0-9_.]+)["']\s*[,)]""", text))
         prefixes |= set(re.findall(r"""\bt\(\s*["']([a-z0-9_.]+\.)["']\s*~""", text))
-    for island in (CONSOLE_ROOT / "web" / "static" / "app").glob("*.js"):
+    # The islands, and the classic per-screen scripts, which reach the same js.* keys through
+    # PravahaApi.t (api.js).
+    scripts = [*(CONSOLE_ROOT / "web" / "static" / "app").glob("*.js"),
+               *(CONSOLE_ROOT / "web" / "static" / "js").glob("*.js")]
+    for island in scripts:
         text = island.read_text(encoding="utf-8")
         used |= {"js." + k for k in re.findall(r"""\bt\(\s*"([a-z0-9_.]+)"\s*[,)]""", text)}
         prefixes |= {"js." + k for k in re.findall(r"""\bt\(\s*"([a-z0-9_.]+\.)"\s*\+""", text)}

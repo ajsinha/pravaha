@@ -11,15 +11,15 @@
  * being maintained. Honest about the two things that stop a first query producing rows:
  * a stream with no source bound, and a stream with no declared event time.
  */
-import { html, render, call, debounce, announce, errorView, store } from "pravaha/lib.js";
+import { html, render, call, debounce, announce, errorView, store, t } from "pravaha/lib.js";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 const root = document.getElementById("start-app");
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function Steps({ step }) {
-  const names = ["Pick a stream", "Choose a question", "Register it", "Watch it change"];
-  return html`<ol class="steps" aria-label="Progress">${names.map((n, i) => html`<li
+  const names = [t("start.step.stream"), t("start.step.question"), t("start.step.register"), t("start.step.watch")];
+  return html`<ol class="steps" aria-label=${t("start.progress")}>${names.map((n, i) => html`<li
     class=${i < step ? "done" : ""} aria-current=${i === step ? "step" : undefined}>${n}</li>`)}</ol>`;
 }
 
@@ -44,44 +44,42 @@ function StreamStep({ streams, setStreams, chosen, setChosen, next }) {
       }
       const stream = await call("/catalog/streams", { json: body });
       setStreams(streams.concat(stream)); setChosen(stream); setDeclaring(false);
-      setState({ status: "idle" }); announce(`Stream ${stream.name} declared`);
+      setState({ status: "idle" }); announce(t("start.declared", { name: stream.name }));
     } catch (err) { setState({ status: "error", err }); }
   }
-  return html`<section aria-labelledby="s1"><h2 id="s1">1 · Pick a stream</h2>
-    <p class="text-muted small">A stream is a named, typed, unbounded sequence of rows. Pick the one to ask about.</p>
+  return html`<section aria-labelledby="s1"><h2 id="s1">1 · ${t("start.step.stream")}</h2>
+    <p class="text-muted small">${t("start.stream_intro")}</p>
     ${streams.length ? html`<div class="row g-2 mb-3">${streams.map((s) => html`<div class="col-md-4">
       <button type="button" class="choice" aria-pressed=${chosen && chosen.name === s.name ? "true" : "false"}
         onClick=${() => setChosen(s)}>
         <div class="t mono">${s.name}</div>
         <div class="s">${(s.fields || []).map((f) => f.name).join(", ")}</div></button></div>`)}</div>` : null}
     ${declaring ? html`<form class="card mb-3" onSubmit=${declare}><div class="card-body">
-      <div class="fw-semibold mb-2">Declare a new stream</div>
+      <div class="fw-semibold mb-2">${t("start.declare.title")}</div>
       <div class="row g-2">
-        <div class="col-md-3"><label class="form-label small text-muted mb-1" for="ds-name">Name</label>
+        <div class="col-md-3"><label class="form-label small text-muted mb-1" for="ds-name">${t("start.declare.name")}</label>
           <input id="ds-name" class="form-control form-control-sm" value=${name} onInput=${(e) => setName(e.target.value.trim())} placeholder="txn" /></div>
-        <div class="col-md-9"><label class="form-label small text-muted mb-1" for="ds-schema">Schema — <code>name:TYPE</code>, comma-separated</label>
+        <div class="col-md-9"><label class="form-label small text-muted mb-1" for="ds-schema">${t("start.declare.schema_before")} <code>name:TYPE</code>${t("start.declare.schema_after")}</label>
           <input id="ds-schema" class="form-control form-control-sm mono" value=${schema} onInput=${(e) => setSchema(e.target.value)} /></div>
       </div>
       <div class="row g-2 mt-1">
-        <div class="col-md-4"><label class="form-label small text-muted mb-1" for="ds-event-time">Event time</label>
+        <div class="col-md-4"><label class="form-label small text-muted mb-1" for="ds-event-time">${t("start.declare.event_time")}</label>
           <select id="ds-event-time" class="form-select form-select-sm" value=${timestampColumns.includes(eventTime) ? eventTime : ""}
             onChange=${(e) => setEventTime(e.target.value)}>
-            <option value="">none — no window will ever close</option>
+            <option value="">${t("start.declare.no_event_time")}</option>
             ${timestampColumns.map((c) => html`<option value=${c}>${c}</option>`)}</select></div>
-        <div class="col-md-4"><label class="form-label small text-muted mb-1" for="ds-lateness">Out-of-orderness</label>
+        <div class="col-md-4"><label class="form-label small text-muted mb-1" for="ds-lateness">${t("start.declare.lateness")}</label>
           <input id="ds-lateness" class="form-control form-control-sm mono" value=${lateness}
             disabled=${!timestampColumns.includes(eventTime)} onInput=${(e) => setLateness(e.target.value.trim())} placeholder="PT10S" /></div>
       </div>
-      <div class="form-text small mt-2">Event time is the column a window is measured on; out-of-orderness is how late a row
-        may be (ISO-8601) before a window stops waiting for it. This puts the schema in the catalogue; it does not bind a
-        source — rows only arrive once <code>pravaha.sources.${name || "<name>"}</code> is configured.</div>
+      <div class="form-text small mt-2">${t("start.declare.help_before")} <code>pravaha.sources.${name || "<name>"}</code> ${t("start.declare.help_after")}</div>
       ${state.status === "error" ? html`<div class="mt-2">${errorView(state.err)}</div>` : null}
       <button type="submit" class="btn btn-sm btn-primary mt-2" disabled=${!IDENT.test(name) || !schema.trim() || state.status === "loading"}>
-        ${state.status === "loading" ? "Declaring…" : "Declare stream"}</button>
+        ${state.status === "loading" ? t("start.declare.busy") : t("start.declare.submit")}</button>
     </div></form>` : html`<button type="button" class="btn btn-sm btn-link px-0 mb-3" onClick=${() => setDeclaring(true)}>
-      Declare a new stream instead</button>`}
+      ${t("start.declare.instead")}</button>`}
     <div><button type="button" class="btn btn-primary" disabled=${!chosen} onClick=${next}>
-      Next: choose a question about ${chosen ? html`<span class="mono">${chosen.name}</span>` : "it"}</button></div>
+      ${t("start.next_question")} ${chosen ? html`<span class="mono">${chosen.name}</span>` : t("start.it")}</button></div>
   </section>`;
 }
 
@@ -90,29 +88,28 @@ function QuestionStep({ chosen, sql, setSql, validation, back, next }) {
   const [picked, setPicked] = useState(null);
   useEffect(() => {
     call("/catalog/templates?stream=" + encodeURIComponent(chosen.name))
-      .then((t) => setTemplates(t.items)).catch(() => setTemplates([]));
+      .then((answer) => setTemplates(answer.items)).catch(() => setTemplates([]));
   }, [chosen.name]);
-  return html`<section aria-labelledby="s2"><h2 id="s2">2 · Choose a question</h2>
-    <p class="text-muted small">Each is written against <span class="mono">${chosen.name}</span>'s own columns. Edit it freely —
-      it is validated by the engine's planner as you type.</p>
-    <div class="row g-2 mb-3">${templates.map((t) => html`<div class="col-md-4">
-      <button type="button" class="choice" aria-pressed=${picked === t.id ? "true" : "false"}
-        onClick=${() => { setPicked(t.id); setSql(t.sql); }}>
-        <div class="t">${t.title}</div><div class="s">${t.summary}</div></button></div>`)}</div>
-    <label class="form-label small text-muted mb-1" for="ob-sql">The query</label>
+  return html`<section aria-labelledby="s2"><h2 id="s2">2 · ${t("start.step.question")}</h2>
+    <p class="text-muted small">${t("start.question_before")} <span class="mono">${chosen.name}</span>${t("start.question_after")}</p>
+    <div class="row g-2 mb-3">${templates.map((tpl) => html`<div class="col-md-4">
+      <button type="button" class="choice" aria-pressed=${picked === tpl.id ? "true" : "false"}
+        onClick=${() => { setPicked(tpl.id); setSql(tpl.sql); }}>
+        <div class="t">${tpl.title}</div><div class="s">${tpl.summary}</div></button></div>`)}</div>
+    <label class="form-label small text-muted mb-1" for="ob-sql">${t("start.the_query")}</label>
     <textarea id="ob-sql" class="form-control mono" rows="6" spellcheck="false" value=${sql}
-      onInput=${(e) => setSql(e.target.value)} placeholder="Pick a question above, or write your own"></textarea>
+      onInput=${(e) => setSql(e.target.value)} placeholder=${t("start.query_placeholder")}></textarea>
     <div class="mt-2" aria-live="polite">
-      ${validation.status === "valid" ? html`<span class="validity ok"><i class="bi bi-check-circle-fill"></i> Valid — output:
+      ${validation.status === "valid" ? html`<span class="validity ok"><i class="bi bi-check-circle-fill"></i> ${t("start.valid")}
         <span class="mono fw-normal">${validation.output_fields.map((f) => f.name).join(", ")}</span></span>` : null}
       ${validation.status === "invalid" ? validation.diagnostics.map((d) => html`<div class="diag"><a class="mono fw-semibold"
         href=${d.help} target="_blank" rel="noopener">${d.code}</a> ${d.message}</div>`) : null}
-      ${validation.status === "unavailable" ? html`<span class="validity idle">Validation unavailable: ${validation.error}</span>` : null}
-      ${validation.status === "checking" ? html`<span class="text-muted small">checking…</span>` : null}
+      ${validation.status === "unavailable" ? html`<span class="validity idle">${t("start.unavailable", { error: validation.error })}</span>` : null}
+      ${validation.status === "checking" ? html`<span class="text-muted small">${t("start.checking")}</span>` : null}
     </div>
-    <div class="d-flex gap-2 mt-3"><button type="button" class="btn btn-outline-secondary" onClick=${back}>Back</button>
-      <button type="button" class="btn btn-primary" disabled=${validation.status !== "valid"} onClick=${next}>Next: register it</button>
-      <a class="btn btn-link" href=${"/workbench?sql=" + encodeURIComponent(sql)}>Open in the full workbench</a></div>
+    <div class="d-flex gap-2 mt-3"><button type="button" class="btn btn-outline-secondary" onClick=${back}>${t("start.back")}</button>
+      <button type="button" class="btn btn-primary" disabled=${validation.status !== "valid"} onClick=${next}>${t("start.next_register")}</button>
+      <a class="btn btn-link" href=${"/workbench?sql=" + encodeURIComponent(sql)}>${t("start.open_workbench")}</a></div>
   </section>`;
 }
 
@@ -130,41 +127,37 @@ function RegisterStep({ chosen, sql, validation, back, done }) {
     try {
       const answer = await call("/queries", { json: { name, sql, key_names: keys } });
       store.set("pravaha.onboarding.done", true);
-      announce(`${answer.name} registered`);
+      announce(t("start.registered", { name: answer.name }));
       done(answer);
     } catch (err) { setState({ status: "error", err }); }
   }
-  return html`<section aria-labelledby="s3"><h2 id="s3">3 · Register it</h2>
-    <p class="text-muted small">Registering turns the question into a computation the engine keeps running, and its answer
-      into a view clients read by name.</p>
+  return html`<section aria-labelledby="s3"><h2 id="s3">3 · ${t("start.step.register")}</h2>
+    <p class="text-muted small">${t("start.register_intro")}</p>
     <form onSubmit=${submit} class="row g-3">
-      <div class="col-md-5"><label class="form-label small text-muted mb-1" for="ob-name">View name</label>
+      <div class="col-md-5"><label class="form-label small text-muted mb-1" for="ob-name">${t("start.view_name")}</label>
         <input id="ob-name" class="form-control" value=${name} onInput=${(e) => setName(e.target.value.trim())} />
-        ${name && !IDENT.test(name) ? html`<div class="small text-danger">Letters, digits and underscores, starting with a letter.</div>` : null}</div>
-      <div class="col-md-7"><fieldset><legend class="form-label small text-muted mb-1 fs-6">Key — what makes a row distinct</legend>
+        ${name && !IDENT.test(name) ? html`<div class="small text-danger">${t("start.name_rule")}</div>` : null}</div>
+      <div class="col-md-7"><fieldset><legend class="form-label small text-muted mb-1 fs-6">${t("start.key_legend")}</legend>
         ${fields.map((f) => html`<div class="form-check form-check-inline"><input class="form-check-input" type="checkbox"
           id=${"ob-key-" + f.name} checked=${keys.includes(f.name)} onChange=${() => toggle(f.name)} />
           <label class="form-check-label small mono" for=${"ob-key-" + f.name}>${f.name}</label></div>`)}
-        <div class="form-text small">For a windowed count, the window and the grouping column together.</div></fieldset></div>
+        <div class="form-text small">${t("start.key_help")}</div></fieldset></div>
       ${state.status === "error" ? html`<div class="col-12">${errorView(state.err)}</div>` : null}
-      <div class="col-12 d-flex gap-2"><button type="button" class="btn btn-outline-secondary" onClick=${back}>Back</button>
+      <div class="col-12 d-flex gap-2"><button type="button" class="btn btn-outline-secondary" onClick=${back}>${t("start.back")}</button>
         <button type="submit" class="btn btn-primary" disabled=${!IDENT.test(name) || !keys.length || state.status === "loading"}>
-          ${state.status === "loading" ? "Registering…" : "Register"}</button></div>
+          ${state.status === "loading" ? t("start.registering") : t("start.register")}</button></div>
     </form></section>`;
 }
 
 function WatchStep({ registered }) {
   const live = "/views/" + encodeURIComponent(registered.name) + "/live";
-  return html`<section aria-labelledby="s4"><h2 id="s4">4 · Watch it change</h2>
-    <div class="alert alert-success" role="status"><strong class="mono">${registered.name}</strong> is ${registered.state.toLowerCase()}
-      (fingerprint <span class="mono">${registered.fingerprint}</span>).</div>
-    <p>Open the live view: it shows the view's current rows and every change as the engine commits it, with its weight.
-      If nothing arrives, the usual reasons are that no source is bound to the stream, or — for a windowed question — that
-      the stream has no declared event time, so no window ever closes.</p>
-    <div class="d-flex gap-2 flex-wrap"><a class="btn btn-primary" href=${live}>Watch it change</a>
-      <a class="btn btn-outline-secondary" href=${"/views/" + encodeURIComponent(registered.name)}>Get client code</a>
-      <a class="btn btn-outline-secondary" href="/operations">See it on the operations dashboard</a>
-      <a class="btn btn-link" href="/home">Done</a></div></section>`;
+  return html`<section aria-labelledby="s4"><h2 id="s4">4 · ${t("start.step.watch")}</h2>
+    <div class="alert alert-success" role="status"><strong class="mono">${registered.name}</strong> ${t("start.is_state", { state: registered.state.toLowerCase() })} (${t("start.fingerprint")} <span class="mono">${registered.fingerprint}</span>).</div>
+    <p>${t("start.watch_intro")}</p>
+    <div class="d-flex gap-2 flex-wrap"><a class="btn btn-primary" href=${live}>${t("start.step.watch")}</a>
+      <a class="btn btn-outline-secondary" href=${"/views/" + encodeURIComponent(registered.name)}>${t("start.client_code")}</a>
+      <a class="btn btn-outline-secondary" href="/operations">${t("start.see_operations")}</a>
+      <a class="btn btn-link" href="/home">${t("start.done")}</a></div></section>`;
 }
 
 function Onboarding({ initialStreams, initialChosen, engineUp }) {
@@ -187,8 +180,8 @@ function Onboarding({ initialStreams, initialChosen, engineUp }) {
 
   return html`<div>
     <${Steps} step=${step} />
-    ${!engineUp ? html`<div class="alert alert-warning" role="status"><div class="fw-semibold">The engine is not answering yet</div>
-      Start <code>pravaha-server</code> and reload. Every step below needs it.</div>` : null}
+    ${!engineUp ? html`<div class="alert alert-warning" role="status"><div class="fw-semibold">${t("start.down_title")}</div>
+      ${t("start.down_before")} <code>pravaha-server</code> ${t("start.down_after")}</div>` : null}
     ${step === 0 ? html`<${StreamStep} streams=${streams} setStreams=${setStreams} chosen=${chosen} setChosen=${setChosen} next=${() => go(1)} />` : null}
     ${step === 1 ? html`<${QuestionStep} chosen=${chosen} sql=${sql} setSql=${setSql} validation=${validation} back=${() => go(0)} next=${() => go(2)} />` : null}
     ${step === 2 ? html`<${RegisterStep} chosen=${chosen} sql=${sql} validation=${validation} back=${() => go(1)} done=${(r) => { setRegistered(r); go(3); }} />` : null}

@@ -165,6 +165,20 @@ def test_every_page_matches_its_baseline(shooters, comparer, console, baseline_c
                 f"({share:.3%}, tolerance {TOLERANCE:.1%}); see tests/visual/failures/{name}-{theme}-{viewport}.*.png")
 
 
+@pytest.mark.parametrize("viewport", list(VIEWPORTS))
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_audit_trail_when_not_permitted_matches_its_baseline(shooters, comparer, console, baseline_chrome,
+                                                                 theme, viewport):
+    """The engine's refusal is a designed state, so it has a baseline like any page."""
+    console.engine.audit_allowed = False
+    try:
+        test_every_page_matches_its_baseline(
+            shooters, comparer, console, baseline_chrome, "admin-audit-denied", "/admin/audit",
+            "document.getElementById('audit-not-permitted')", theme, viewport)
+    finally:
+        console.engine.audit_allowed = True
+
+
 def test_the_comparison_itself_catches_a_change(comparer, shooters, console):
     """A regression test that could never fail would be a picture gallery."""
     page = shooters("light", "wide")

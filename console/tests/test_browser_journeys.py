@@ -296,3 +296,51 @@ def test_the_plugins_page_names_health_bindings_and_what_is_not_published(page, 
     assert "feeds these streams" in body.lower() and "writes these sinks" in body.lower()
     assert "nope" in body and "not loaded" in body
     assert "Not published by the engine" in body
+    assert "Needs plugin API" in body and "health not reported" in body
+
+
+# ============================================================ 6. the admin persona: access and the audit trail
+
+def test_the_admin_persona_lands_on_access_and_searches_the_audit_trail_by_keyboard(page, console):
+    """Sign in as the admin persona, land on Access, reach the audit trail from the palette,
+    page back by its cursor and filter it with the form -- keys only after sign-in -- then see
+    the screen the engine's refusal produces."""
+    sign_in(page, console, role="admin")
+    assert page.url().endswith("/admin/access")
+    assert "read the audit trail" in page.text("#access-decisions")
+
+    page.press("k", "Control")
+    page.wait_for("document.querySelectorAll('#palette-list [role=option]').length > 5")
+    page.type("audit trail")
+    page.wait_for("document.querySelector('#palette-list [aria-selected=true]').textContent.includes('Audit trail')")
+    page.wait_for_navigation(lambda: page.press("Enter"))
+    assert page.url().endswith("/admin/audit")
+    settled(page)
+    assert page.eval("document.querySelectorAll('#audit-events tbody tr').length") == 50
+
+    # The next page is a link carrying the engine's cursor: reachable, and deep-linkable.
+    page.focus("a[rel=next]")
+    page.wait_for_navigation(lambda: page.press("Enter"))
+    assert "cursor=" in page.url()
+    assert page.eval("document.querySelectorAll('#audit-events tbody tr').length") == 20
+    assert "oldest readable decision" in page.text("main")
+
+    # Filter by typing into the form and pressing Enter: the filter lands in the URL.
+    page.focus("#af-principal")
+    page.type("carol")
+    page.wait_for_navigation(lambda: page.press("Enter"))
+    assert "principal=carol" in page.url() and "cursor=" not in page.url()
+    principals = page.eval(
+        "[...document.querySelectorAll('#audit-events tbody tr td:nth-child(3) a')].map(a => a.textContent)")
+    assert principals and set(principals) == {"carol"}
+
+    console.engine.audit_allowed = False
+    try:
+        page.goto(console.url("/admin/audit"))
+        settled(page)
+        assert page.exists("#audit-not-permitted")
+        assert "Not permitted" in page.text("#audit-not-permitted")
+        assert not page.exists("#audit-events")
+    finally:
+        console.engine.audit_allowed = True
+    assert page.exceptions == [], page.exceptions

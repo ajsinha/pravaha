@@ -37,7 +37,7 @@
       var dropped = JSON.parse(event.data).dropped;
       /* Said out loud rather than hidden. A tail that silently drops rows shows
          a reader a sample and lets them believe it is everything. */
-      self.onState("lagging", dropped + " rows dropped — this browser is behind the stream");
+      self.onState("lagging", window.PravahaApi.t("tail.dropped", {n: dropped}));
     });
     this.source.addEventListener("error", function () { self.onState("stale"); });
     this.source.onerror = function () { self.onState("stale"); };

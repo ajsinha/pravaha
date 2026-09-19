@@ -2,16 +2,16 @@
 {% from "_helpcards.html" import helpcards %}
 {% block title %}{{ query.name }} — {{ app_name }}{% endblock %}
 {% block content %}
-<p class="text-muted small"><a href="/queries">&larr; All queries</a></p>
+<p class="text-muted small"><a href="/queries">&larr; {{ t('query.all') }}</a></p>
 <div class="accent"></div>
-<p class="kicker mt-2 mb-1">QUERY</p>
+<p class="kicker mt-2 mb-1">{{ t('query.kicker') }}</p>
 <div class="page-head">
   <h1>{{ query.name }}</h1>
   <div class="d-flex gap-2 flex-wrap">
-    <a class="btn btn-sm btn-primary" href="/views/{{ query.name }}/live"><i class="bi bi-activity"></i> Watch live</a>
-    <a class="btn btn-sm btn-outline-secondary" href="/views/{{ query.name }}">Browse view &amp; client code</a>
-    <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}&amp;panel=explain">See its plan</a>
-    <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}">Edit a copy</a>
+    <a class="btn btn-sm btn-primary" href="/views/{{ query.name }}/live"><i class="bi bi-activity"></i> {{ t('query.watch_live') }}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/views/{{ query.name }}">{{ t('query.browse') }}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}&amp;panel=explain">{{ t('query.plan') }}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}">{{ t('query.edit_copy') }}</a>
   </div>
 </div>
 <div class="rule"></div>
@@ -19,27 +19,27 @@
 <div class="row g-3">
   <div class="col-lg-7">
     <div class="card h-100">
-      <div class="card-header">Definition</div>
+      <div class="card-header">{{ t('query.definition') }}</div>
       <div class="card-body">
         <pre id="sql">{{ query.sql }}</pre>
         <div class="mt-3 d-flex flex-wrap gap-2" id="meta">
           <span class="chip {{ 'ok' if query.state == 'RUNNING' else 'bad' if query.state == 'FAILED' else 'mute' }}">{{ query.state }}</span>
-          <span class="chip mute">{{ "{:,}".format(query.rows_in) }} rows in</span>
-          <span class="chip info" title="The canonical plan this name resolves to. Two names with the same fingerprint are one computation.">fingerprint {{ query.fingerprint[:12] }}</span>
+          <span class="chip mute">{{ t('query.rows_in', n="{:,}".format(query.rows_in)) }}</span>
+          <span class="chip info" title="{{ t('query.fingerprint_title') }}">{{ t('query.fingerprint', id=query.fingerprint[:12]) }}</span>
         </div>
         {% if detail %}
         <dl class="row small mt-3 mb-0" id="registration">
-          <dt class="col-4">Keyed by</dt><dd class="col-8">{% for k in detail.keyColumns or [] %}<span class="mono">{{ k.name }}</span> <span class="text-muted">(#{{ k.ordinal }})</span>{{ ', ' if not loop.last }}{% else %}—{% endfor %}</dd>
-          <dt class="col-4">Retention</dt><dd class="col-8 mono">{{ detail.retention or '—' }}</dd>
-          <dt class="col-4">Reads</dt><dd class="col-8">{% for r in detail.reads or [] %}<a class="mono" href="/catalog/streams/{{ r }}">{{ r }}</a>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">—</span>{% endfor %}</dd>
-          <dt class="col-4">Sink</dt><dd class="col-8">{% if detail.sink %}<span class="mono">{{ detail.sink.name }}</span>
-            {% if detail.sink.attached %}<span class="chip ok">writing</span>{% else %}<span class="chip bad">detached</span>{% endif %}
-            {% if detail.sink.rowsWritten is not none and detail.sink.rowsWritten >= 0 %}<span class="text-muted">{{ "{:,}".format(detail.sink.rowsWritten) }} rows written</span>{% endif %}
+          <dt class="col-4">{{ t('query.keyed_by') }}</dt><dd class="col-8">{% for k in detail.keyColumns or [] %}<span class="mono">{{ k.name }}</span> <span class="text-muted">(#{{ k.ordinal }})</span>{{ ', ' if not loop.last }}{% else %}—{% endfor %}</dd>
+          <dt class="col-4">{{ t('query.retention') }}</dt><dd class="col-8 mono">{{ detail.retention or '—' }}</dd>
+          <dt class="col-4">{{ t('query.reads') }}</dt><dd class="col-8">{% for r in detail.reads or [] %}<a class="mono" href="/catalog/streams/{{ r }}">{{ r }}</a>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">—</span>{% endfor %}</dd>
+          <dt class="col-4">{{ t('query.sink') }}</dt><dd class="col-8">{% if detail.sink %}<span class="mono">{{ detail.sink.name }}</span>
+            {% if detail.sink.attached %}<span class="chip ok">{{ t('query.writing') }}</span>{% else %}<span class="chip bad">{{ t('query.detached') }}</span>{% endif %}
+            {% if detail.sink.rowsWritten is not none and detail.sink.rowsWritten >= 0 %}<span class="text-muted">{{ t('query.rows_written', n="{:,}".format(detail.sink.rowsWritten)) }}</span>{% endif %}
             {% if detail.sink.failure %}<div class="alert alert-danger py-2 small mt-2 mb-0" id="sink-failure"><a href="/help/codes/{{ detail.sink.failure.code }}">{{ detail.sink.failure.code }}</a> {{ detail.sink.failure.message }}
-              The query and its view carry on; the sink receives nothing more until the query is re-registered.</div>{% endif %}
-            {% else %}<span class="text-muted">none — the view only</span>{% endif %}</dd>
-          {% if detail.failure %}<dt class="col-4">Failure</dt><dd class="col-8"><a href="/help/codes/{{ detail.failure.code }}">{{ detail.failure.code }}</a> {{ detail.failure.message }}</dd>{% endif %}
-          {% if detail.countsWithheld %}<dd class="col-12 text-muted">Counts are withheld: this console's access to the view is row-filtered.</dd>{% endif %}
+              {{ t('query.sink_detached') }}</div>{% endif %}
+            {% else %}<span class="text-muted">{{ t('query.no_sink') }}</span>{% endif %}</dd>
+          {% if detail.failure %}<dt class="col-4">{{ t('query.failure') }}</dt><dd class="col-8"><a href="/help/codes/{{ detail.failure.code }}">{{ detail.failure.code }}</a> {{ detail.failure.message }}</dd>{% endif %}
+          {% if detail.countsWithheld %}<dd class="col-12 text-muted">{{ t('query.withheld') }}</dd>{% endif %}
         </dl>
         {% endif %}
       </div>
@@ -47,7 +47,7 @@
   </div>
   <div class="col-lg-5">
     <div class="card h-100">
-      <div class="card-header">Controls</div>
+      <div class="card-header">{{ t('query.controls') }}</div>
       <div class="card-body">
         <div class="d-flex gap-2">
           {# Real forms, so the controls work with scripting off; the module
@@ -55,12 +55,12 @@
           <form method="post" action="/queries/{{ query.name }}/pause">
             <button class="btn btn-sm btn-outline-secondary" id="pause" type="submit"
                     {{ 'disabled' if query.state != 'RUNNING' else '' }}
-                    title="{{ 'Only a running query can be paused' if query.state != 'RUNNING' else 'Stop the work, keep the state' }}">Pause</button>
+                    title="{{ t('query.pause_disabled') if query.state != 'RUNNING' else t('query.pause_title') }}">{{ t('query.pause') }}</button>
           </form>
           <form method="post" action="/queries/{{ query.name }}/resume">
             <button class="btn btn-sm btn-outline-secondary" id="resume" type="submit"
                     {{ 'disabled' if query.state == 'RUNNING' else '' }}
-                    title="{{ 'Already running' if query.state == 'RUNNING' else 'Carry on from the frontier it reached' }}">Resume</button>
+                    title="{{ t('query.resume_disabled') if query.state == 'RUNNING' else t('query.resume_title') }}">{{ t('query.resume') }}</button>
           </form>
           {# A destructive action needs typed confirmation of the object's name (§23.16), not a
              plain OK/Cancel a hurried click clears without reading -- but the console's own
@@ -72,20 +72,18 @@
              the modal. Neither control is worse than what existed; the enhanced one is
              strictly better. #}
           <form method="post" action="/queries/{{ query.name }}/drop" id="dropForm">
-            <button class="btn btn-sm btn-outline-danger" id="dropPlain" type="submit">Drop</button>
+            <button class="btn btn-sm btn-outline-danger" id="dropPlain" type="submit">{{ t('query.drop') }}</button>
           </form>
           <button type="button" class="btn btn-sm btn-outline-danger d-none" id="dropModalTrigger"
-                  data-bs-toggle="modal" data-bs-target="#dropConfirmModal">Drop</button>
+                  data-bs-toggle="modal" data-bs-target="#dropConfirmModal">{{ t('query.drop') }}</button>
         </div>
-        <p class="small text-muted mt-3 mb-0">Pausing keeps the state and stops the work; the view
-          keeps answering at the frontier it reached. Dropping a name releases the computation only
-          when it is the <strong>last</strong> name on it.</p>
+        <p class="small text-muted mt-3 mb-0">{{ t('query.controls_note_before') }} <strong>{{ t('query.controls_note_last') }}</strong> {{ t('query.controls_note_after') }}</p>
         {% if siblings %}
         <div class="alert alert-info mt-3 mb-0 py-2">
-          <div class="fw-semibold small">Shared computation</div>
-          <div class="small">{{ siblings|length }} other name(s) resolve to the same plan:
+          <div class="fw-semibold small">{{ t('query.shared') }}</div>
+          <div class="small">{{ t('query.shared_body', n=siblings|length) }}
             {% for s in siblings %}<a href="/queries/{{ s }}">{{ s }}</a>{{ ", " if not loop.last }}{% endfor %}.
-            Dropping this name will not stop the computation.</div>
+            {{ t('query.shared_drop') }}</div>
         </div>
         {% endif %}
       </div>
@@ -97,34 +95,31 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h2 class="modal-title h5" id="dropConfirmLabel">Drop &ldquo;{{ query.name }}&rdquo;?</h2>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cancel"></button>
+        <h2 class="modal-title h5" id="dropConfirmLabel">{{ t('query.confirm.title_before') }} &ldquo;{{ query.name }}&rdquo;{{ t('query.confirm.title_after') }}</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('query.confirm.cancel') }}"></button>
       </div>
       <div class="modal-body">
-        <p>{% if siblings %}This name is one of {{ siblings|length + 1 }} sharing the same
-          computation, so the state survives this drop.{% else %}This is the last name on its
-          computation: the state goes with it, and it cannot be recovered.{% endif %}</p>
-        <label for="dropConfirmInput" class="form-label small">Type the query name,
-          <code>{{ query.name }}</code>, to confirm.</label>
+        <p>{% if siblings %}{{ t('query.confirm.shared', n=siblings|length + 1) }}{% else %}{{ t('query.confirm.last') }}{% endif %}</p>
+        <label for="dropConfirmInput" class="form-label small">{{ t('query.confirm.type_before') }}
+          <code>{{ query.name }}</code>{{ t('query.confirm.type_after') }}</label>
         <input type="text" class="form-control" id="dropConfirmInput" autocomplete="off"
                aria-describedby="dropConfirmHelp" data-expected="{{ query.name }}">
-        <div id="dropConfirmHelp" class="form-text">Case-sensitive, and must match exactly.</div>
+        <div id="dropConfirmHelp" class="form-text">{{ t('query.confirm.exact') }}</div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ t('query.confirm.cancel') }}</button>
         <button type="submit" class="btn btn-danger" id="dropConfirmSubmit" disabled
-                form="dropForm">Drop this query</button>
+                form="dropForm">{{ t('query.confirm.submit') }}</button>
       </div>
     </div>
   </div>
 </div>
 
-<h2>Live tail <span class="freshness ms-2" id="tail-state"></span></h2>
-<div class="tail" id="tail" role="log" aria-live="polite" aria-label="Live changes"
+<h2>{{ t('query.tail') }} <span class="freshness ms-2" id="tail-state"></span></h2>
+<div class="tail" id="tail" role="log" aria-live="polite" aria-label="{{ t('query.tail_label') }}"
      data-view="{{ query.name }}"></div>
-<p class="small text-muted mt-2">One engine subscription serves every browser watching this view.
-  Ten tabs are ten connections here and one subscriber on the engine.</p>
-{{ helpcards([   ('user-guide', 'Subscriptions', 'Tap filters, bounded buffers, and what a dropped row means.'),   ('concepts', 'Watermarks', 'Why a window closes on data rather than on the clock.'),   ('operations', 'Retention', 'What a view forgets, when, and how to tell if it is not.'), ]) }}
+<p class="small text-muted mt-2">{{ t('query.tail_note') }}</p>
+{{ helpcards([   ('user-guide', t('query.help.subscriptions'), t('query.help.subscriptions_body')),   ('concepts', t('query.help.watermarks'), t('query.help.watermarks_body')),   ('operations', t('query.help.retention'), t('query.help.retention_body')), ]) }}
 {% endblock %}
 {# tail.js defines window.PravahaLiveTail, which query-detail.js constructs. It was never
    included, so on every query page the script threw before it wired the live tail or the

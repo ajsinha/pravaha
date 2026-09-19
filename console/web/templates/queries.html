@@ -1,53 +1,53 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helpcards %}
 {% from "_queries_table.html" import rows %}
-{% block title %}Queries — {{ app_name }}{% endblock %}
+{% block title %}{{ t('queries.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="accent"></div>
-<p class="kicker mt-2 mb-1">QUERIES</p>
-<h1>Registered continuous queries</h1>
+<p class="kicker mt-2 mb-1">{{ t('queries.kicker') }}</p>
+<h1>{{ t('queries.heading') }}</h1>
 <div class="rule"></div>
-<p class="text-muted">Every filter is in the URL, so this view can be pasted into a ticket as it is.
+<p class="text-muted">{{ t('queries.lede') }}
   <span class="freshness ms-2" id="freshness"></span></p>
 
 {# A real form, so filtering works with scripting off. The module intercepts it
    and filters without a reload when it is on. #}
 <form class="row g-2 align-items-end mb-3" method="get" action="/queries" id="filters">
   <div class="col-sm-5 col-lg-4">
-    <label class="form-label small text-muted mb-1" for="search">Filter</label>
+    <label class="form-label small text-muted mb-1" for="search">{{ t('queries.filter') }}</label>
     <input class="form-control form-control-sm" type="search" id="search" name="search"
-           value="{{ search }}" placeholder="name or SQL  ( / )">
+           value="{{ search }}" placeholder="{{ t('queries.filter_placeholder') }}">
   </div>
   <div class="col-auto">
-    <label class="form-label small text-muted mb-1" for="state">State</label>
+    <label class="form-label small text-muted mb-1" for="state">{{ t('queries.col.state') }}</label>
     <select class="form-select form-select-sm" id="state" name="state">
-      {% for value, label in [('', 'Any state'), ('RUNNING', 'Running'), ('PAUSED', 'Paused'), ('FAILED', 'Failed')] %}
+      {% for value, label in [('', t('queries.state.any')), ('RUNNING', t('queries.state.running')), ('PAUSED', t('queries.state.paused')), ('FAILED', t('queries.state.failed'))] %}
       <option value="{{ value }}" {{ 'selected' if state_filter == value else '' }}>{{ label }}</option>
       {% endfor %}
     </select>
   </div>
   <div class="col-auto">
-    <label class="form-label small text-muted mb-1" for="sort">Sort</label>
+    <label class="form-label small text-muted mb-1" for="sort">{{ t('queries.sort') }}</label>
     <select class="form-select form-select-sm" id="sort" name="sort">
-      {% for value, label in [('name', 'Name'), ('-rows_in', 'Busiest first'), ('state', 'State')] %}
+      {% for value, label in [('name', t('queries.col.name')), ('-rows_in', t('queries.sort_busiest')), ('state', t('queries.col.state'))] %}
       <option value="{{ value }}" {{ 'selected' if sort == value else '' }}>{{ label }}</option>
       {% endfor %}
     </select>
   </div>
-  <div class="col-auto"><button class="btn btn-sm btn-outline-secondary" type="submit">Apply</button></div>
-  <div class="col-auto ms-auto"><a class="btn btn-sm btn-primary" href="/workbench">Register a query</a></div>
+  <div class="col-auto"><button class="btn btn-sm btn-outline-secondary" type="submit">{{ t('queries.apply') }}</button></div>
+  <div class="col-auto ms-auto"><a class="btn btn-sm btn-primary" href="/workbench">{{ t('queries.register') }}</a></div>
 </form>
 
 <div id="banner"></div>
 <div class="card"><div class="table-responsive"><table class="table mb-0" id="table">
-  <thead><tr><th>Name</th><th>State</th><th class="num">Rows in</th><th>Shared</th><th>SQL</th><th></th></tr></thead>
+  <thead><tr><th>{{ t('queries.col.name') }}</th><th>{{ t('queries.col.state') }}</th><th class="num">{{ t('queries.col.rows_in') }}</th><th>{{ t('queries.col.shared') }}</th><th>SQL</th><th></th></tr></thead>
   <tbody>
     {% if page %}{{ rows(page.items) }}
     {% else %}
     <tr><td colspan="6"><div class="state">
-      <h3>The engine is not answering</h3>
-      <p>Nothing can be listed until it does. The bar above says the same thing, and
-         <span class="mono">{{ engine_url }}</span> is where it is being looked for.</p>
+      <h3>{{ t('queries.down.title') }}</h3>
+      <p>{{ t('queries.down.body_before') }}
+         <span class="mono">{{ engine_url }}</span> {{ t('queries.down.body_after') }}</p>
     </div></td></tr>
     {% endif %}
   </tbody>
@@ -56,12 +56,12 @@
 {% if page %}
 <div class="d-flex align-items-center gap-3 mt-3">
   <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if offset == 0 else '' }}"{% if offset == 0 %} aria-disabled="true" tabindex="-1"{% endif %}
-     href="/queries?search={{ search }}&state={{ state_filter }}&sort={{ sort }}&offset={{ [offset - page_size, 0]|max }}">Previous</a>
-  <span class="freshness" id="count">Showing {{ page.items|length }} of {{ page.total }}</span>
+     href="/queries?search={{ search }}&state={{ state_filter }}&sort={{ sort }}&offset={{ [offset - page_size, 0]|max }}">{{ t('queries.previous') }}</a>
+  <span class="freshness" id="count">{{ t('queries.showing', shown=page.items|length, total=page.total) }}</span>
   <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if offset + page_size >= page.total else '' }}"{% if offset + page_size >= page.total %} aria-disabled="true" tabindex="-1"{% endif %}
-     href="/queries?search={{ search }}&state={{ state_filter }}&sort={{ sort }}&offset={{ offset + page_size }}">Next</a>
+     href="/queries?search={{ search }}&state={{ state_filter }}&sort={{ sort }}&offset={{ offset + page_size }}">{{ t('queries.next') }}</a>
 </div>
 {% endif %}
-{{ helpcards([   ('user-guide', 'Registering', 'What a registration is, and what a name costs.'),   ('concepts', 'Sharing', 'Why two names can be one computation, and what dropping one does.'),   ('troubleshooting', 'When it refuses', 'Every PRV code, what it means, and what to do.'), ]) }}
+{{ helpcards([   ('user-guide', t('queries.help.registering'), t('queries.help.registering_body')),   ('concepts', t('queries.help.sharing'), t('queries.help.sharing_body')),   ('troubleshooting', t('queries.help.troubleshooting'), t('queries.help.troubleshooting_body')), ]) }}
 {% endblock %}
 {% block scripts %}<script src="/static/js/queries.js"></script>{% endblock %}

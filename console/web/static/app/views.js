@@ -9,7 +9,7 @@
  * about, switches client tabs in place, and keeps all of it in the URL so the exact
  * screen can be pasted to a colleague.
  */
-import { call, esc, wireCopyButtons, announce } from "pravaha/lib.js";
+import { call, esc, wireCopyButtons, announce, t } from "pravaha/lib.js";
 import { Grid } from "pravaha/grid.js";
 
 const form = document.getElementById("lookup-form");
@@ -62,18 +62,20 @@ if (form) {
         { json: { filters: key ? { [key]: value } : {} } });
       document.getElementById("lookup-sql").textContent = answer.sql;
       if (!answer.rows.length) {
-        target.innerHTML = '<div class="state"><h2>No row has that key</h2><p>The view is correct as of its last commit; ' +
-          "nothing in it matches. A row appears when the data that makes it arrives.</p></div>";
+        target.innerHTML = `<div class="state"><h2>${esc(t("views.no_row_title"))}</h2><p>${esc(t("views.no_row_body"))}</p></div>`;
       } else {
         target.innerHTML = "";
         const host = document.createElement("div");
         target.appendChild(host);
-        new Grid(host, { columns: answer.columns, types: answer.types, rows: answer.rows, caption: "Point query answer" });
-        target.insertAdjacentHTML("beforeend", `<p class="small text-muted mt-2 mb-0">${answer.returned} row${answer.returned === 1 ? "" : "s"} in ${answer.took_ms} ms${answer.truncated ? " — the first " + answer.returned + " only" : ""}</p>`);
+        new Grid(host, { columns: answer.columns, types: answer.types, rows: answer.rows, caption: t("views.grid_caption") });
+        const counts = { n: answer.returned, ms: answer.took_ms };
+        const returned = (answer.returned === 1 ? t("views.returned_one", counts) : t("views.returned_other", counts))
+          + (answer.truncated ? t("views.truncated", { n: answer.returned }) : "");
+        target.insertAdjacentHTML("beforeend", `<p class="small text-muted mt-2 mb-0">${esc(returned)}</p>`);
       }
-      announce(`${answer.returned} rows`);
+      announce(t("views.announce", { n: answer.returned }));
     } catch (err) {
-      target.innerHTML = `<div class="alert alert-danger py-2 small" role="alert">${esc(err.message)}${err.code ? ` <a href="/help/codes/${esc(err.code)}">${esc(err.code)}</a>` : ""}<div class="mono text-muted">correlation ${esc(err.correlation || "n/a")}</div></div>`;
+      target.innerHTML = `<div class="alert alert-danger py-2 small" role="alert">${esc(err.message)}${err.code ? ` <a href="/help/codes/${esc(err.code)}">${esc(err.code)}</a>` : ""}<div class="mono text-muted">${esc(t("views.correlation", { id: err.correlation || t("views.no_correlation") }))}</div></div>`;
     }
     try {
       const code = await call(`/views/${encodeURIComponent(view)}/snippets?` + new URLSearchParams(key ? { key, value } : {}));

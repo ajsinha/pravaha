@@ -25,6 +25,11 @@
 (function () {
   "use strict";
 
+  /* The catalog helper lives in api.js, which loads after this; it is looked up when used. */
+  function t(key, params) {
+    return window.PravahaApi ? window.PravahaApi.t(key, params) : key;
+  }
+
   var KEY = "pravaha.theme";
   /* The single source of truth for which themes exist. `system` is not a
      palette — it is the absence of a choice, so it removes the attribute and
@@ -51,7 +56,7 @@
       document.documentElement.setAttribute("data-theme", choice);
     }
     try { window.localStorage.setItem(KEY, choice); } catch (e) {}
-    announce(choice === "system" ? "theme follows the system" : choice + " theme");
+    announce(choice === "system" ? t("theme.system") : t("theme.chosen", {choice: choice}));
   }
 
   function applyDensity(choice) {
@@ -61,7 +66,7 @@
       document.documentElement.setAttribute("data-density", choice);
     }
     try { window.localStorage.setItem(DENSITY_KEY, choice); } catch (e) {}
-    announce(choice + " density");
+    announce(t("theme.density", {choice: choice}));
   }
 
   /* Spoken to a screen reader without stealing focus. A control that changes

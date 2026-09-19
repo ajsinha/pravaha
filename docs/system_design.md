@@ -3340,10 +3340,10 @@ class QueryController {
 > **Status (2026-09).** The tools in the table are replaced by what runs without a Node toolchain
 > (§23.3): the console's tests drive a real headless Chrome over the DevTools protocol from
 > Python (`console/tests/cdp.py`), against the real console with the engine adapter faked, and
-> skip with their reason where no Chrome is installed. **Visual regression**: 20 pages, light and
-> dark, 1280×800 and 390×844, against committed baselines with a pixel tolerance and a diff image
+> skip with their reason where no Chrome is installed. **Visual regression**: 23 pages and one
+> designed refusal state, light and dark, 1280×800 and 390×844, against committed baselines with a pixel tolerance and a diff image
 > on failure — compact density not yet photographed. **Accessibility**: vendored axe-core, zero
-> violations blocking, on every page in both themes and in seven interaction states, plus a
+> violations blocking, on every page in both themes and in eight interaction states, plus a
 > token-level contrast test in all three themes. **E2E**: two of the eight journeys
 > (first run to a live view that changes; author-validate-fix-explain-run-register) and the
 > keyboard paths; the other six need engine features that do not exist yet. **Performance**:
@@ -3392,9 +3392,10 @@ Not a feeling. A release gate.
 > light and dark visual regression (not density); the §23.15 budgets that can be measured on the
 > build machine; two of the eight journeys; keyboard paths for the palette, dialogs, draft tabs and
 > a point query; no secret serialised. Not met for want of engine support: percentiles (the engine
-> publishes a latency count and sum), a correlation id that crosses the engine's surfaces, an audit
-> read API, and the six journeys that need a DLQ, backfill, blue/green, backpressure sampling, the
-> debugger and role grants. Not attempted: the eight-states audit, onboarding timed with real
+> publishes a latency count and sum), a correlation id that crosses the engine's surfaces, and the
+> six journeys that need a DLQ, backfill, blue/green, backpressure sampling, the debugger and role
+> grants. The audit read API now exists (`GET /api/v1/audit`, behind `SecurityPolicy.mayReadAudit`)
+> and the console has Admin · Audit and Admin · Access (screens 21 read-only, 22). Not attempted: the eight-states audit, onboarding timed with real
 > people, Storybook. Item by item, with the test that proves each: `console/README.md`.
 
 - [ ] Every screen implements all eight states of §23.12

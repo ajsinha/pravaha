@@ -1,30 +1,28 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helpcards %}
-{% block title %}Get started — {{ app_name }}{% endblock %}
+{% block title %}{{ t('start.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <div class="accent"></div>
-    <p class="kicker mt-2 mb-1">GET STARTED</p>
-    <h1>From a stream to a view that changes, in a few minutes</h1>
+    <p class="kicker mt-2 mb-1">{{ t('start.kicker') }}</p>
+    <h1>{{ t('start.heading') }}</h1>
   </div>
-  <a class="small" href="{{ roles[role].landing }}" id="skip-onboarding">Skip — take me to my usual screen</a>
+  <a class="small" href="{{ roles[role].landing }}" id="skip-onboarding">{{ t('start.skip') }}</a>
 </div>
 <div class="rule"></div>
-<p class="lede">Four steps: pick the stream to read, choose what to ask of it, register the question, and watch the
-  answer being maintained. Nothing here is a demo — each step is the engine's real API, and what you register keeps
-  running until you drop it.</p>
+<p class="lede">{{ t('start.lede') }}</p>
 
 <div id="start-app" data-engine-up="{{ 'true' if engine_up else 'false' }}"
      data-streams='{{ streams|tojson }}' data-chosen="{{ chosen.name if chosen else '' }}">
-  <ol class="steps" aria-label="Progress">
-    <li aria-current="step">Pick a stream</li><li>Choose a question</li><li>Register it</li><li>Watch it change</li>
+  <ol class="steps" aria-label="{{ t('start.progress') }}">
+    <li aria-current="step">{{ t('start.step.stream') }}</li><li>{{ t('start.step.question') }}</li><li>{{ t('start.step.register') }}</li><li>{{ t('start.step.watch') }}</li>
   </ol>
   {% if not engine_up %}
-  <div class="alert alert-warning" role="status"><div class="fw-semibold">The engine is not answering yet</div>
-    Start it first — <code>pravaha-server</code>, Flight on <span class="mono">{{ engine_url }}</span> — then reload this page.</div>
+  <div class="alert alert-warning" role="status"><div class="fw-semibold">{{ t('start.down.title') }}</div>
+    {{ t('start.down.before') }} <code>pravaha-server</code>, {{ t('start.down.flight') }} <span class="mono">{{ engine_url }}</span> {{ t('start.down.after') }}</div>
   {% endif %}
-  <h2>1 · Pick a stream</h2>
+  <h2>1 · {{ t('start.step.stream') }}</h2>
   {% if streams_error %}<div class="alert alert-warning small">{{ streams_error }}</div>{% endif %}
   {% if streams %}
   <div class="row g-2 mb-3">
@@ -35,19 +33,18 @@
     {% endfor %}
   </div>
   {% else %}
-  <p class="text-muted small">No stream is declared yet. With JavaScript on, this page can declare one; otherwise declare it
-    under <code>pravaha.streams</code> in the engine's configuration.</p>
+  <p class="text-muted small">{{ t('start.no_streams_before') }}
+    <code>pravaha.streams</code> {{ t('start.no_streams_after') }}</p>
   {% endif %}
-  <h2>2 · Choose a question</h2>
+  <h2>2 · {{ t('start.step.question') }}</h2>
   <div class="row g-2">
-    {% for t in templates %}
-    <div class="col-md-4"><a class="choice text-decoration-none" href="/workbench?template={{ t.id }}{% if chosen %}&amp;stream={{ chosen.name }}{% endif %}">
-      <div class="t">{{ t.title }}</div><div class="s">{{ t.summary }}</div></a></div>
+    {% for tpl in templates %}
+    <div class="col-md-4"><a class="choice text-decoration-none" href="/workbench?template={{ tpl.id }}{% if chosen %}&amp;stream={{ chosen.name }}{% endif %}">
+      <div class="t">{{ tpl.title }}</div><div class="s">{{ tpl.summary }}</div></a></div>
     {% endfor %}
   </div>
-  <p class="small text-muted mt-2">Each opens in the workbench, where it is validated as you type and registered from the
-    Register panel.</p>
+  <p class="small text-muted mt-2">{{ t('start.templates_note') }}</p>
 </div>
-{{ helpcards([('quickstart', 'Quick start', 'The same path, from the command line.'), ('continuous-queries', 'Declaring a stream', 'Schema, event time, and binding a source.'), ('concepts', 'What a view is', 'A question asked once and answered always.')]) }}
+{{ helpcards([('quickstart', t('start.help.quickstart'), t('start.help.quickstart_body')), ('continuous-queries', t('start.help.declaring'), t('start.help.declaring_body')), ('concepts', t('start.help.view'), t('start.help.view_body'))]) }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/start.js?v={{ asset_version }}"></script>{% endblock %}

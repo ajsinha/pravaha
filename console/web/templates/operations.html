@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helpcards %}
-{% block title %}Operations — {{ app_name }}{% endblock %}
+{% block title %}{{ t('operations.title') }} — {{ app_name }}{% endblock %}
 {% macro pct(v) %}{% if v is none %}—{% else %}{{ '%.0f'|format(v * 100) }}%{% endif %}{% endmacro %}
-{% macro lag(v) %}{% if v is none %}<span class="text-muted" title="No row with an event time has arrived">no watermark</span>{% elif v < 90 %}{{ '%.0f'|format(v) }} s{% elif v < 5400 %}{{ '%.0f'|format(v / 60) }} min{% else %}{{ '%.1f'|format(v / 3600) }} h{% endif %}{% endmacro %}
+{% macro lag(v) %}{% if v is none %}<span class="text-muted" title="{{ t('operations.no_watermark_title') }}">{{ t('operations.no_watermark') }}</span>{% elif v < 90 %}{{ t('operations.unit.seconds', n='%.0f'|format(v)) }}{% elif v < 5400 %}{{ t('operations.unit.minutes', n='%.0f'|format(v / 60)) }}{% else %}{{ t('operations.unit.hours', n='%.1f'|format(v / 3600)) }}{% endif %}{% endmacro %}
 {% block content %}
 <div class="page-head">
   <div>
     <div class="accent"></div>
-    <p class="kicker mt-2 mb-1">OPERATIONS</p>
-    <h1>Is everything healthy — and if not, where?</h1>
+    <p class="kicker mt-2 mb-1">{{ t('operations.kicker') }}</p>
+    <h1>{{ t('operations.heading') }}</h1>
   </div>
-  <span class="freshness" id="ops-freshness" data-state="fresh"><span class="dot"></span><span>as of page load</span></span>
+  <span class="freshness" id="ops-freshness" data-state="fresh"><span class="dot"></span><span>{{ t('operations.as_of_load') }}</span></span>
 </div>
 <div class="rule"></div>
 
@@ -19,18 +19,18 @@
 <div class="verdict {{ v.status }} mb-3" id="verdict" role="status">
   <i class="icon bi {{ 'bi-check-circle-fill' if v.status == 'ok' else 'bi-exclamation-triangle-fill' if v.status == 'warn' else 'bi-x-octagon-fill' }}" aria-hidden="true"></i>
   <div><div class="headline">{{ v.headline }}</div>
-    {% if v.where %}<div class="small text-muted">Where: <span class="mono">{{ v.where }}</span></div>{% endif %}</div>
+    {% if v.where %}<div class="small text-muted">{{ t('operations.where') }} <span class="mono">{{ v.where }}</span></div>{% endif %}</div>
 </div>
 
 <div class="row g-3">
   <div class="col-lg-5">
-    <div class="card h-100"><div class="card-header">What needs attention</div><div class="card-body py-1" id="findings">
+    <div class="card h-100"><div class="card-header">{{ t('operations.attention') }}</div><div class="card-body py-1" id="findings">
       {% for f in snapshot.findings %}
       <div class="finding"><span class="sev chip {{ 'bad' if f.severity == 'critical' else 'warn' if f.severity == 'warn' else 'info' }}">{{ f.severity }}</span>
         <div><div class="fw-semibold">{% if f.query %}<a class="mono" href="/queries/{{ f.query }}">{{ f.query }}</a> — {% endif %}{{ f.title }}</div>
           <div class="small text-muted">{{ f.detail }}</div></div></div>
       {% else %}
-      <div class="state py-4"><h3>Nothing</h3><p>No query is near its state ceiling, stopped, or behind in event time.</p></div>
+      <div class="state py-4"><h3>{{ t('operations.nothing') }}</h3><p>{{ t('operations.nothing_body') }}</p></div>
       {% endfor %}
     </div></div>
   </div>
@@ -38,20 +38,20 @@
     <div class="row g-3" id="tiles">
       {% set st = snapshot.node.status %}
       <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
-        <div class="label">Engine</div><div class="value" style="font-size:1.1rem">{{ st.engineState if st.available else 'unreachable' }}</div>
+        <div class="label">{{ t('operations.tile.engine') }}</div><div class="value" style="font-size:1.1rem">{{ st.engineState if st.available else t('operations.tile.unreachable') }}</div>
         <div class="note">{{ ('v' ~ st.version) if st.available and st.version else (st.error or '')[:60] }}</div></div></div></div>
       <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
-        <div class="label">Queries</div><div class="value">{{ snapshot.queries|length }}</div>
-        <div class="note">{{ snapshot.queries|selectattr('state', 'equalto', 'RUNNING')|list|length }} running</div></div></div></div>
+        <div class="label">{{ t('operations.tile.queries') }}</div><div class="value">{{ snapshot.queries|length }}</div>
+        <div class="note">{{ t('operations.tile.running', n=snapshot.queries|selectattr('state', 'equalto', 'RUNNING')|list|length) }}</div></div></div></div>
       <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
-        <div class="label">Heap</div><div class="value">{% if snapshot.node.heap_used_bytes %}{{ '%.0f'|format(snapshot.node.heap_used_bytes / 1048576) }}<small class="fs-6"> MB</small>{% else %}—{% endif %}</div>
-        <div class="note">{% if snapshot.node.heap_max_bytes %}of {{ '%.0f'|format(snapshot.node.heap_max_bytes / 1048576) }} MB{% else %}not published{% endif %}</div></div></div></div>
+        <div class="label">{{ t('operations.tile.heap') }}</div><div class="value">{% if snapshot.node.heap_used_bytes %}{{ '%.0f'|format(snapshot.node.heap_used_bytes / 1048576) }}<small class="fs-6"> {{ t('operations.unit.mb') }}</small>{% else %}—{% endif %}</div>
+        <div class="note">{% if snapshot.node.heap_max_bytes %}{{ t('operations.tile.heap_of', n='%.0f'|format(snapshot.node.heap_max_bytes / 1048576)) }}{% else %}{{ t('operations.tile.not_published') }}{% endif %}</div></div></div></div>
       <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
-        <div class="label">Console fan-out</div><div class="value">{{ snapshot.console.upstream_subscriptions }}</div>
-        <div class="note">engine subscriptions this console holds</div></div></div></div>
+        <div class="label">{{ t('operations.tile.fanout') }}</div><div class="value">{{ snapshot.console.upstream_subscriptions }}</div>
+        <div class="note">{{ t('operations.tile.fanout_note') }}</div></div></div></div>
       {% if st.available and st.plugins %}
       <div class="col-12"><div class="card"><div class="card-body py-2 small">
-        <span class="text-muted me-2">Plugins</span>
+        <span class="text-muted me-2">{{ t('operations.plugins') }}</span>
         {% for p in st.plugins %}<span class="chip {{ 'ok' if p.health in ('UP', 'HEALTHY', 'OK') else 'warn' }} me-1" title="{{ p.detail }}">{{ p.name }} · {{ p.health }}</span>{% endfor %}
       </div></div></div>
       {% endif %}
@@ -60,56 +60,55 @@
 </div>
 
 {% if not snapshot.metrics.reachable %}
-<div class="alert alert-warning mt-3 small" role="status"><div class="fw-semibold">The engine's metrics endpoint is not answering</div>
-  {{ snapshot.metrics.error }} — the per-query numbers below come from the registry alone until it does.</div>
+<div class="alert alert-warning mt-3 small" role="status"><div class="fw-semibold">{{ t('operations.metrics_down') }}</div>
+  {{ t('operations.metrics_down_body', error=snapshot.metrics.error) }}</div>
 {% endif %}
 
-<h2>Queries</h2>
+<h2>{{ t('operations.queries') }}</h2>
 <div class="card"><div class="table-responsive"><table class="table mb-0" id="ops-queries">
-  <thead><tr><th>Query</th><th>State</th><th class="num">Rows in</th><th class="num">Rows/s</th><th>State vs ceiling</th>
-    <th class="num">View rows</th><th class="num">Watermark lag</th><th class="num">Subscribers</th>
-    <th class="num" title="Mean time from applying a commit to the last subscriber and sink having it, between two scrapes">Commit (mean)</th>
-    <th title="Age of the last stored checkpoint, and failures">Checkpoint</th></tr></thead>
+  <thead><tr><th>{{ t('operations.col.query') }}</th><th>{{ t('operations.col.state') }}</th><th class="num">{{ t('operations.col.rows_in') }}</th><th class="num">{{ t('operations.col.rate') }}</th><th>{{ t('operations.col.ceiling') }}</th>
+    <th class="num">{{ t('operations.col.view_rows') }}</th><th class="num">{{ t('operations.col.lag') }}</th><th class="num">{{ t('operations.col.subscribers') }}</th>
+    <th class="num" title="{{ t('operations.col.commit_title') }}">{{ t('operations.col.commit') }}</th>
+    <th title="{{ t('operations.col.checkpoint_title') }}">{{ t('operations.col.checkpoint') }}</th></tr></thead>
   <tbody>
   {% for q in snapshot.queries %}
   {% set frac = q.state_fraction %}
-  <tr><td><a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a>{% if q.shared %} <span class="chip warn">shared</span>{% endif %}</td>
-    <td>{% if q.state %}<span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}"><span class="dot"></span>{{ q.state }}</span>{% else %}<span class="chip mute">unlisted</span>{% endif %}</td>
+  <tr><td><a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a>{% if q.shared %} <span class="chip warn">{{ t('operations.shared') }}</span>{% endif %}</td>
+    <td>{% if q.state %}<span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}"><span class="dot"></span>{{ q.state }}</span>{% else %}<span class="chip mute">{{ t('operations.unlisted') }}</span>{% endif %}</td>
     <td class="num">{{ '{:,.0f}'.format(q.rows_in) if q.rows_in is not none else '—' }}</td>
     <td class="num">{{ '{:,.1f}'.format(q.rows_in_rate) if q.rows_in_rate is not none else '—' }}</td>
-    <td>{% if frac is not none %}<div class="d-flex align-items-center gap-2"><div class="gauge {{ 'critical' if frac >= 0.9 else 'warn' if frac >= 0.75 else '' }}" style="width:7rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (frac * 100)|round|int }}" aria-label="state held as a share of its ceiling"><span style="width:{{ [frac * 100, 100]|min }}%"></span></div><span class="small">{{ pct(frac) }}</span></div>{% else %}<span class="text-muted small">{{ 'not published yet' if not q.metrics_published else '—' }}</span>{% endif %}</td>
+    <td>{% if frac is not none %}<div class="d-flex align-items-center gap-2"><div class="gauge {{ 'critical' if frac >= 0.9 else 'warn' if frac >= 0.75 else '' }}" style="width:7rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (frac * 100)|round|int }}" aria-label="{{ t('operations.gauge_label') }}"><span style="width:{{ [frac * 100, 100]|min }}%"></span></div><span class="small">{{ pct(frac) }}</span></div>{% else %}<span class="text-muted small">{{ t('operations.not_published_yet') if not q.metrics_published else '—' }}</span>{% endif %}</td>
     <td class="num">{{ '{:,.0f}'.format(q.view_size) if q.view_size is not none else '—' }}</td>
     <td class="num">{{ lag(q.watermark_lag_seconds) if q.metrics_published else '—' }}</td>
     <td class="num">{{ '{:,.0f}'.format(q.subscribers) if q.subscribers is not none else '—' }}</td>
-    <td class="num">{{ '{:,.1f} ms'.format(q.commit_latency_mean_seconds * 1000) if q.commit_latency_mean_seconds is not none else '—' }}</td>
-    <td class="small">{% if q.checkpoint_age_seconds is not none %}{{ lag(q.checkpoint_age_seconds) }} ago{% if q.checkpoint_duration_seconds is not none %} · took {{ '%.2f'|format(q.checkpoint_duration_seconds) }} s{% endif %}{% else %}<span class="text-muted">not checkpointing</span>{% endif %}{% if q.checkpoint_failures %} · <span class="chip warn">{{ q.checkpoint_failures|int }} failed</span>{% endif %}</td></tr>
+    <td class="num">{{ t('operations.unit.ms', n='{:,.1f}'.format(q.commit_latency_mean_seconds * 1000)) if q.commit_latency_mean_seconds is not none else '—' }}</td>
+    <td class="small">{% if q.checkpoint_age_seconds is not none %}{{ lag(q.checkpoint_age_seconds) }} {{ t('operations.ago') }}{% if q.checkpoint_duration_seconds is not none %} · {{ t('operations.took', n='%.2f'|format(q.checkpoint_duration_seconds)) }}{% endif %}{% else %}<span class="text-muted">{{ t('operations.not_checkpointing') }}</span>{% endif %}{% if q.checkpoint_failures %} · <span class="chip warn">{{ t('operations.failed', n=q.checkpoint_failures|int) }}</span>{% endif %}</td></tr>
   {% else %}
-  <tr><td colspan="10"><div class="state"><h2>No queries registered</h2><p>Once one is, its throughput, state and lag are here.</p>
-    <a class="btn btn-sm btn-primary" href="/start">Get started</a></div></td></tr>
+  <tr><td colspan="10"><div class="state"><h2>{{ t('operations.empty.title') }}</h2><p>{{ t('operations.empty.body') }}</p>
+    <a class="btn btn-sm btn-primary" href="/start">{{ t('operations.empty.start') }}</a></div></td></tr>
   {% endfor %}
   </tbody></table></div></div>
-<p class="small text-muted mt-1">Per-query meters are reconciled with the registry every 15 s, so a query registered a moment
-  ago shows “not published yet” for up to that long.</p>
+<p class="small text-muted mt-1">{{ t('operations.reconciled') }}</p>
 
 <div class="row g-3 mt-1">
-  <div class="col-xl-6"><div class="card"><div class="card-header">Rows in per second</div><div class="card-body">
-    <div class="chart-box" id="chart-rate" role="img" aria-label="Rows in per second, per query"></div>
-    <p class="chart-caption mb-0">Rate of <code>pravaha_query_rows_in</code>, per query, from this console's 1 s scrapes. Window: since this page opened, up to 5 min.</p></div></div></div>
-  <div class="col-xl-6"><div class="card"><div class="card-header">State held, as a share of its ceiling</div><div class="card-body">
-    <div class="chart-box" id="chart-state" role="img" aria-label="State held as a fraction of ceiling, per query"></div>
-    <p class="chart-caption mb-0"><code>pravaha_query_state_fraction</code>, 0–100 %, fixed scale so queries compare. At 100 % a query is refused (PRV-4001) unless spilling is on.</p></div></div></div>
+  <div class="col-xl-6"><div class="card"><div class="card-header">{{ t('operations.chart.rate') }}</div><div class="card-body">
+    <div class="chart-box" id="chart-rate" role="img" aria-label="{{ t('operations.chart.rate_label') }}"></div>
+    <p class="chart-caption mb-0">{{ t('operations.chart.rate_caption_before') }} <code>pravaha_query_rows_in</code>{{ t('operations.chart.rate_caption_after') }}</p></div></div></div>
+  <div class="col-xl-6"><div class="card"><div class="card-header">{{ t('operations.chart.state') }}</div><div class="card-body">
+    <div class="chart-box" id="chart-state" role="img" aria-label="{{ t('operations.chart.state_label') }}"></div>
+    <p class="chart-caption mb-0"><code>pravaha_query_state_fraction</code>{{ t('operations.chart.state_caption') }}</p></div></div></div>
 </div>
 
-<h2>Not measured by the engine</h2>
-<p class="small text-muted">Shown as absent rather than as zero: the engine does not measure these, so there is no honest number to draw.</p>
+<h2>{{ t('operations.not_measured.title') }}</h2>
+<p class="small text-muted">{{ t('operations.not_measured.lede') }}</p>
 <div class="row g-3">
   {% for n in snapshot.not_exposed %}
   <div class="col-md-6 col-xl-4"><div class="card h-100"><div class="card-body small"><div class="fw-semibold"><i class="bi bi-slash-circle me-1" aria-hidden="true"></i>{{ n.label }}</div>
-    <div class="mt-1 text-muted">Not measured: {{ n.why }}.</div></div></div></div>
+    <div class="mt-1 text-muted">{{ t('operations.not_measured.why', why=n.why) }}</div></div></div></div>
   {% endfor %}
 </div>
 </div>
 <script type="application/json" id="ops-initial">{{ snapshot_data|tojson }}</script>
-{{ helpcards([('operations', 'Operating it', 'What to watch, what survives a restart, what a cluster promises.'), ('troubleshooting', 'When it refuses', 'Every PRV code, what it means, what to do.'), ('execution-model', 'Lanes and state', 'Where a query runs and what it holds.')]) }}
+{{ helpcards([('operations', t('operations.help.operations'), t('operations.help.operations_body')), ('troubleshooting', t('operations.help.troubleshooting'), t('operations.help.troubleshooting_body')), ('execution-model', t('operations.help.execution'), t('operations.help.execution_body'))]) }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/ops.js?v={{ asset_version }}"></script>{% endblock %}

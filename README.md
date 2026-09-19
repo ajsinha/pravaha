@@ -143,11 +143,12 @@ corrected by late data arrives as a retraction of the old answer followed by the
 - **Blue/green query updates and backfill splicing** are built in `pravaha-backfill` and reachable
   from no running path.
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
-  views, live results, operations and a plugins screen are built, and a headless-Chrome suite now
-  holds zero axe violations, light/dark visual baselines, the measurable §23.15 budgets and two of
-  the eight journeys. Not done: the manual WCAG 2.2 AA audit, density baselines, the other six
-  journeys and Storybook; the time-travel debugger, backfill and cutover control, cluster and admin
-  screens (an audit screen waits on an engine audit read API).
+  views, live results, operations, a plugins screen built on the engine's manifest listing, and
+  admin screens for access and the audit trail are built, and a headless-Chrome suite holds zero axe
+  violations, light/dark visual baselines, the measurable §23.15 budgets and two of the eight
+  journeys. Not done: the manual WCAG 2.2 AA audit, density baselines, the other six journeys and
+  Storybook; the time-travel debugger, backfill and cutover control, cluster screens, tenants and
+  quotas, and editing grants (the engine is not where grants live).
 
 ## Performance: what is measured, and what cannot be here
 
@@ -216,7 +217,10 @@ and if not, where — with per-query throughput, state against ceiling and water
 be watched **live**, every committed change shown with its `+1`/`−1` weight. A **catalog**, a Ctrl-K
 command palette, a first-run guide from a stream to a live view, and every `PRV` code resolved to
 its documentation complete it. Everything but the landing page, the documentation and the health
-probes needs a session. Where a screen needs an API the engine does not have yet, it says which.
+probes needs a session. An administrator gets **Admin**: what the engine's policy lets the console's
+identity do, and the **audit trail** — filterable, paged, every filter in the URL — which the engine
+serves only to a principal its policy lets read it (`SecurityPolicy.mayReadAudit`), recording every
+attempt. Where a screen needs an API the engine does not have yet, it says which.
 The time-travel debugger and the §23.20 release gate — Storybook, visual regression, a WCAG 2.2 AA
 audit — are not done. [How it is built →](console/README.md)
 

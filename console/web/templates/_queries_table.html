@@ -7,20 +7,19 @@
     <td><a href="/queries/{{ q.name }}">{{ q.name }}</a></td>
     <td><span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}">{{ q.state }}</span></td>
     <td class="num">{{ "{:,}".format(q.rows_in) }}</td>
-    <td>{% if q.shared %}<span class="chip warn" title="Another name shares this computation">shared</span>{% endif %}</td>
+    <td>{% if q.shared %}<span class="chip warn" title="{{ t('queries.shared_title') }}">{{ t('queries.shared') }}</span>{% endif %}</td>
     {% if wide %}
     <td><code>{{ q.sql[:64] }}{{ '…' if q.sql|length > 64 else '' }}</code></td>
-    <td><a href="/queries/{{ q.name }}">Open</a></td>
+    <td><a href="/queries/{{ q.name }}">{{ t('queries.open') }}</a></td>
     {% endif %}
   </tr>
   {% endfor %}
 {% else %}
   <tr><td colspan="{{ 6 if wide else 4 }}">
     <div class="state">
-      <h3>No queries yet</h3>
-      <p>A continuous query is registered once and maintained for as long as it is registered.
-         Nothing has been registered on this engine.</p>
-      <a class="btn btn-sm btn-primary" href="/workbench">Register one</a>
+      <h3>{{ t('queries.empty.title') }}</h3>
+      <p>{{ t('queries.empty.body') }}</p>
+      <a class="btn btn-sm btn-primary" href="/workbench">{{ t('queries.empty.register') }}</a>
     </div>
   </td></tr>
 {% endif %}

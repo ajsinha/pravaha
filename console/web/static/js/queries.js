@@ -11,7 +11,7 @@
  */
 (function () {
   "use strict";
-  var api = window.PravahaApi, States = window.PravahaStates;
+  var api = window.PravahaApi, States = window.PravahaStates, t = api.t;
   var fresh = new window.PravahaFreshness(document.getElementById("freshness"));
   var tbody = document.querySelector("#table tbody");
   var form = document.getElementById("filters");
@@ -38,10 +38,12 @@
       '<td><span class="chip ' + tone + '">' + api.escapeHtml(q.state) + "</span></td>" +
       '<td class="num">' + q.rows_in.toLocaleString() + "</td>" +
       "<td>" + (q.shared
-        ? '<span class="chip warn" title="Another name shares this computation">shared</span>'
+        ? '<span class="chip warn" title="' + api.escapeHtml(t("queries.shared_title")) + '">' +
+          api.escapeHtml(t("queries.shared")) + "</span>"
         : "") + "</td>" +
       "<td><code>" + api.escapeHtml(sql) + "</code></td>" +
-      "<td><a href=\"/queries/" + encodeURIComponent(q.name) + "\">Open</a></td></tr>";
+      "<td><a href=\"/queries/" + encodeURIComponent(q.name) + "\">" + api.escapeHtml(t("queries.open")) +
+      "</a></td></tr>";
   }
 
   async function load() {
@@ -59,14 +61,15 @@
         tbody.innerHTML = '<tr><td colspan="6">' +
           ((state.search || state.state)
             ? States.emptyFiltered("clearQueryFilter()")
-            : States.emptyNever("queries",
-                '<a class="btn btn-sm btn-primary" href="/workbench">Register one</a>')) +
+            : States.emptyNever(t("queries.queries"),
+                '<a class="btn btn-sm btn-primary" href="/workbench">' +
+                api.escapeHtml(t("queries.register_one")) + "</a>")) +
           "</td></tr>";
       } else {
         tbody.innerHTML = page.items.map(row).join("");
       }
       var count = document.getElementById("count");
-      if (count) { count.textContent = "Showing " + page.items.length + " of " + page.total; }
+      if (count) { count.textContent = t("queries.showing", {n: page.items.length, total: page.total}); }
       fresh.updated();
     } catch (err) {
       fresh.stale();

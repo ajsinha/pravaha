@@ -125,6 +125,18 @@ def test_a_live_view_with_changes_has_no_axe_violations(themed, console, theme):
 
 
 @pytest.mark.parametrize("theme", THEMES)
+def test_the_audit_trail_when_not_permitted_has_no_axe_violations(themed, console, theme):
+    """The state the engine's refusal produces is a screen of its own, audited like one."""
+    page = themed(theme)
+    console.engine.audit_allowed = False
+    try:
+        open_page(page, console, "/admin/audit", "document.getElementById('audit-not-permitted')")
+        _assert_clean(page, f"the audit trail, not permitted ({theme})")
+    finally:
+        console.engine.audit_allowed = True
+
+
+@pytest.mark.parametrize("theme", THEMES)
 def test_the_drop_confirmation_has_no_axe_violations(themed, console, theme):
     page = themed(theme)
     open_page(page, console, "/queries/hot", "!document.getElementById('dropModalTrigger').classList.contains('d-none')")

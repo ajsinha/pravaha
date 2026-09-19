@@ -746,6 +746,40 @@ def test_reading_what_is_registered_is_not_open_to_an_anonymous_visitor(anonymou
         client.post("/queries/guarded_read/drop")
 
 
+@pytest.mark.parametrize("path", ["/admin", "/admin/access", "/admin/audit",
+                                  "/admin/audit?principal=ann&decision=deny", "/plugins"])
+def test_the_admin_screens_are_behind_the_sign_in_gate(anonymous, path):
+    # The audit trail names every principal that read anything and the SQL they read it with.
+    # The engine authorizes reading it; the console must not become a door that asks nobody.
+    refused = anonymous.get(path, follow_redirects=False)
+    assert refused.status_code == 303, path
+    assert "/login" in refused.headers["location"], path
+
+
+@pytest.mark.parametrize("path", ["/api/v1/admin/audit", "/api/v1/admin/audit?principal=ann",
+                                  "/api/v1/admin/permissions", "/api/v1/plugins"])
+def test_the_admin_json_refuses_an_anonymous_caller_with_401(anonymous, path):
+    refused = anonymous.get(path)
+    assert refused.status_code == 401, path
+    assert "sign in" in refused.json()["error"], path
+
+
+def test_the_audit_screen_names_the_missing_http_url_rather_than_showing_an_empty_trail(engine_url):
+    # This engine is reached over Flight only, and the audit trail is an HTTP endpoint: with no
+    # engine.http_url the screen says which setting is missing, and is not an empty table.
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("engine.url", engine_url)
+    config.set("engine.http_url", "")
+    config.set("console.password", CONSOLE_PASSWORD)
+    config.set("console.session_secret", "test-only-secret")
+    client = fastapi_testclient.TestClient(create_app(config))
+    client.post("/login", data={"password": CONSOLE_PASSWORD, "next": "/overview"})
+    page = client.get("/admin/audit")
+    assert page.status_code == 503
+    assert "could not be read" in page.text and "engine.http_url" in page.text
+    assert 'id="audit-events"' not in page.text
+
+
 def test_a_wrong_password_is_refused(anonymous):
     response = anonymous.post("/login", data={"password": "not it", "next": "/overview"})
 

@@ -20,39 +20,67 @@
 {% endfor %}
 
 {% if not inventory.plugins %}
+  {% if inventory.available %}
   <div class="state"><h2>{{ t('plugins.empty.title') }}</h2>
     <p>{{ t('plugins.empty.body') }}</p></div>
+  {% endif %}
 {% else %}
 <div class="row g-3" id="plugin-cards">
   {% for p in inventory.plugins %}
   <div class="col-lg-6"><section class="card h-100" aria-labelledby="plugin-{{ loop.index }}"><div class="card-body">
     <div class="d-flex justify-content-between align-items-start gap-2">
       <h2 class="h5 m-0 mono" id="plugin-{{ loop.index }}">{{ p.name }}</h2>
-      {% if not p.registered %}
+      {% if not p.loaded %}
         <span class="chip bad"><i class="bi bi-x-octagon" aria-hidden="true"></i>{{ t('plugins.not_loaded') }}</span>
+      {% elif not p.health_reported %}
+        <span class="chip mute" title="{{ p.detail }}">{{ t('plugins.health_not_reported') }}</span>
       {% elif p.healthy %}
         <span class="chip ok"><i class="bi bi-check-circle" aria-hidden="true"></i>{{ p.health|lower }}</span>
-      {% elif p.health %}
-        <span class="chip warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ p.health|lower }}</span>
       {% else %}
-        <span class="chip mute">{{ t('plugins.health_unknown') }}</span>
+        <span class="chip warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ p.health|lower }}</span>
       {% endif %}
     </div>
     <dl class="plugin-facts small mt-2 mb-2">
       <dt>{{ t('plugins.version') }}</dt><dd class="mono">{{ p.version or '—' }}</dd>
+      {% if p.loaded %}
+      <dt>{{ t('plugins.required_api') }}</dt><dd><span class="mono">{{ p.required_api or '—' }}</span>
+        {% if p.compatible %}<span class="chip ok ms-1">{{ t('plugins.compatible') }}</span>{% else %}<span class="chip bad ms-1">{{ t('plugins.incompatible') }}</span>{% endif %}</dd>
+      <dt>{{ t('plugins.can_be') }}</dt><dd>{% for kind in p.kinds %}<span class="chip info me-1">{{ t('plugins.kind.' ~ kind) }}</span>{% else %}<span class="text-muted">—</span>{% endfor %}</dd>
+      {% endif %}
       <dt>{{ t('plugins.bound_as') }}</dt><dd>{% for kind in p.bound_as %}<span class="chip info me-1">{{ t('plugins.kind.' ~ kind) }}</span>{% else %}<span class="text-muted">{{ t('plugins.unbound') }}</span>{% endfor %}</dd>
-      {% if p.detail %}<dt>{{ t('plugins.detail') }}</dt><dd>{{ p.detail }}</dd>{% endif %}
+      {% if p.loaded %}
+      <dt>{{ t('plugins.settings') }}</dt><dd>{% for s in p.settings %}<span class="chip mute mono me-1">{{ s }}</span>{% else %}<span class="text-muted">{{ t('plugins.no_settings') }}</span>{% endfor %}</dd>
+      {% endif %}
+      {% if p.detail and p.health_reported %}<dt>{{ t('plugins.detail') }}</dt><dd>{{ p.detail }}</dd>{% endif %}
     </dl>
-    {% if not p.registered %}<p class="small mb-2">{{ t('plugins.not_loaded_body') }}</p>{% endif %}
+    {% if not p.loaded %}<p class="small mb-2">{{ t('plugins.not_loaded_body') }}</p>{% endif %}
+
+    {% if p.source_capabilities or p.sink_capabilities %}
+    <h3 class="section-label">{{ t('plugins.declares') }}</h3>
+    <ul class="list-unstyled small mb-2">
+      {% set sc = p.source_capabilities %}
+      {% if sc %}<li><span class="text-muted">{{ t('plugins.kind.source') }}:</span>
+        {{ sc.guarantee|replace('_', ' ')|lower }}{% if sc.replayableOffsets %} · {{ t('plugins.cap.replayable') }}{% endif %}{% if sc.emitsDeletes %} · {{ t('plugins.cap.deletes') }}{% endif %}{% if sc.pushdown %} · {{ t('plugins.cap.pushdown', kinds=sc.pushdown|join(', ')|lower) }}{% endif %}</li>{% endif %}
+      {% set kc = p.sink_capabilities %}
+      {% if kc %}<li><span class="text-muted">{{ t('plugins.kind.sink') }}:</span>
+        {% for m in kc.emitModes %}<span class="chip mute me-1">{{ m }}</span>{% endfor %}{{ kc.guarantee|replace('_', ' ')|lower }}{% if kc.transactional %} · {{ t('plugins.cap.transactional') }}{% endif %}</li>{% endif %}
+    </ul>
+    {% if p.capabilities_note %}<p class="small text-muted mb-2">{{ p.capabilities_note }}</p>{% endif %}
+    {% endif %}
 
     {% if p.sources %}
     <h3 class="section-label">{{ t('plugins.sources') }}</h3>
     <ul class="list-unstyled small mb-2">
       {% for s in p.sources %}
       <li><a class="mono" href="/catalog/streams/{{ s.name }}">{{ s.name }}</a>
-        <span class="text-muted">— {{ t('plugins.columns', n=s.columns) }}{% if s.event_time %}, {{ t('plugins.event_time', column=s.event_time) }}{% if s.lateness %} ({{ s.lateness }}){% endif %}{% else %}, {{ t('plugins.no_event_time') }}{% endif %}</span></li>
+        {% if s.columns is not none %}<span class="text-muted">— {{ t('plugins.columns', n=s.columns) }}{% if s.event_time %}, {{ t('plugins.event_time', column=s.event_time) }}{% if s.lateness %} ({{ s.lateness }}){% endif %}{% else %}, {{ t('plugins.no_event_time') }}{% endif %}</span>{% endif %}</li>
       {% endfor %}
     </ul>
+    {% endif %}
+
+    {% if p.lookups %}
+    <h3 class="section-label">{{ t('plugins.lookups') }}</h3>
+    <ul class="list-unstyled small mb-2">{% for l in p.lookups %}<li class="mono">{{ l.name }}</li>{% endfor %}</ul>
     {% endif %}
 
     {% if p.sinks %}
@@ -61,12 +89,12 @@
       {% for k in p.sinks %}
       <li class="mb-1"><span class="mono">{{ k.name }}</span>
         {% if k.problem %}<span class="chip bad"><i class="bi bi-x-octagon" aria-hidden="true"></i>{{ k.problem.code }}</span> <span class="text-muted">{{ k.problem.message }}</span>
-        {% else %}
+        {% elif k.described %}
           {% for m in k.emit_modes %}<span class="chip mute me-1">{{ m }}</span>{% endfor %}
           {% if k.accepts_retractions %}<span class="chip ok">{{ t('plugins.revisions') }}</span>{% else %}<span class="chip warn">{{ t('plugins.append_only') }}</span>{% endif %}
           {% if k.guarantee %}<span class="text-muted">· {{ k.guarantee|replace('_', ' ')|lower }}</span>{% endif %}
         {% endif %}
-        <div class="text-muted">{{ t('plugins.written_by') }} {% for w in k.writers %}<a class="mono" href="/queries/{{ w }}">{{ w }}</a>{{ ', ' if not loop.last }}{% else %}{{ t('plugins.nothing_visible') }}{% endfor %}</div></li>
+        {% if k.described %}<div class="text-muted">{{ t('plugins.written_by') }} {% for w in k.writers %}<a class="mono" href="/queries/{{ w }}">{{ w }}</a>{{ ', ' if not loop.last }}{% else %}{{ t('plugins.nothing_visible') }}{% endfor %}</div>{% endif %}</li>
       {% endfor %}
     </ul>
     {% endif %}

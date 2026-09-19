@@ -10,7 +10,7 @@
  */
 (function () {
   "use strict";
-  var api = window.PravahaApi, States = window.PravahaStates;
+  var api = window.PravahaApi, States = window.PravahaStates, t = api.t;
   var fresh = new window.PravahaFreshness(document.getElementById("freshness"));
 
   function statCard(label, value, note) {
@@ -26,11 +26,10 @@
       var stats = await api.call("/stats");
       var queries = await api.call("/queries?limit=8&sort=-rows_in");
       document.getElementById("stats").innerHTML = [
-        statCard("Registered", stats.queries, "continuous queries"),
-        statCard("Running", stats.states.RUNNING || 0, "maintaining a view"),
-        statCard("Shared", stats.shared, "names on a shared computation"),
-        statCard("Live feeds", stats.upstream_subscriptions,
-                 "engine subscriptions, however many tabs")
+        statCard(t("overview.registered"), stats.queries, t("overview.registered_note")),
+        statCard(t("overview.running"), stats.states.RUNNING || 0, t("overview.running_note")),
+        statCard(t("overview.shared"), stats.shared, t("overview.shared_note")),
+        statCard(t("overview.feeds"), stats.upstream_subscriptions, t("overview.feeds_note"))
       ].join("");
 
       var body = document.querySelector("#recent tbody");
@@ -41,11 +40,13 @@
             api.escapeHtml(q.name) + "</a></td>" +
             '<td><span class="chip ' + tone + '">' + api.escapeHtml(q.state) + "</span></td>" +
             '<td class="num">' + q.rows_in.toLocaleString() + "</td>" +
-            "<td>" + (q.shared ? '<span class="chip warn">shared</span>' : "") + "</td></tr>";
+            "<td>" + (q.shared ? '<span class="chip warn">' + api.escapeHtml(t("overview.shared_chip")) +
+              "</span>" : "") + "</td></tr>";
         }).join("");
       } else {
         body.innerHTML = '<tr><td colspan="4">' +
-          States.emptyNever("queries", '<a class="btn btn-sm btn-primary" href="/workbench">Register one</a>') +
+          States.emptyNever(t("overview.queries"), '<a class="btn btn-sm btn-primary" href="/workbench">' +
+            api.escapeHtml(t("overview.register_one")) + "</a>") +
           "</td></tr>";
       }
       fresh.updated();

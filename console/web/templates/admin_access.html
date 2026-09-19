@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_admin_head.html" import admin_head %}
+{% from "_helpcards.html" import helpcards %}
+{% block title %}{{ t('admin.access.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{{ admin_head('access', t('admin.access.heading')) }}
+<p class="lede">{{ t('admin.access.lede') }}</p>
+
+{% if permissions_error %}
+<div class="alert alert-warning small" role="status"><div class="fw-semibold">{{ t('admin.access.error') }}</div>{{ permissions_error }}</div>
+{% elif permissions %}
+{% set p = permissions %}
+<div class="row g-3 mb-3" id="access-summary">
+  <div class="col-lg-4"><section class="card h-100" aria-labelledby="access-who"><div class="card-body">
+    <h2 class="h6" id="access-who">{{ t('admin.access.identity') }}</h2>
+    <dl class="plugin-facts small mb-0">
+      <dt>{{ t('admin.access.principal') }}</dt><dd class="mono">{{ p.principal }}{% if p.anonymous %} <span class="chip warn">{{ t('admin.access.anonymous') }}</span>{% endif %}</dd>
+      <dt>{{ t('admin.access.tenant') }}</dt><dd class="mono">{{ p.tenant }}</dd>
+      <dt>{{ t('admin.access.roles') }}</dt><dd>{% for r in p.roles %}<span class="chip mute me-1">{{ r }}</span>{% else %}<span class="text-muted">{{ t('admin.access.no_roles') }}</span>{% endfor %}</dd>
+      <dt>{{ t('admin.access.policy') }}</dt><dd class="mono">{{ p.policy }}</dd>
+    </dl>
+  </div></section></div>
+  <div class="col-lg-8"><section class="card h-100" aria-labelledby="access-may"><div class="card-body">
+    <h2 class="h6" id="access-may">{{ t('admin.access.may') }}</h2>
+    <table class="table table-sm mb-0 small" id="access-decisions">
+      <thead><tr><th scope="col">{{ t('admin.access.question') }}</th><th scope="col">{{ t('admin.access.answer') }}</th></tr></thead>
+      <tbody>
+      {% for key, decision in [('register', p.register), ('audit', p.readAudit)] %}
+        <tr><th scope="row" class="fw-normal">{{ t('admin.access.q.' ~ key) }}</th>
+          <td>{% if decision.allowed %}<span class="chip ok"><i class="bi bi-check-circle" aria-hidden="true"></i>{{ t('admin.access.allowed') }}</span>
+              {% if key == 'audit' %} <a href="/admin/audit">{{ t('admin.access.open_audit') }}</a>{% endif %}
+            {% else %}<span class="chip bad"><i class="bi bi-x-octagon" aria-hidden="true"></i>{{ t('admin.access.refused') }}</span>
+              <span class="text-muted">{{ decision.reason }}</span>{% endif %}</td></tr>
+      {% endfor %}
+        <tr><th scope="row" class="fw-normal">{{ t('admin.access.q.read') }}</th>
+          <td>{{ t('admin.access.read_summary', views=p.views|length, streams=p.streams|length) }}</td></tr>
+        <tr><th scope="row" class="fw-normal">{{ t('admin.access.q.administer') }}</th>
+          <td>{{ t('admin.access.administer_summary', n=p.views|selectattr('administer.allowed')|list|length, total=p.views|length) }}</td></tr>
+      </tbody>
+    </table>
+  </div></section></div>
+</div>
+
+{% for section, items in [('views', p.views), ('streams', p.streams)] %}
+<h2 class="h5 mt-4">{{ t('admin.access.' ~ section) }}</h2>
+{% if not items %}
+  <div class="state"><h3>{{ t('admin.access.none_title') }}</h3><p>{{ t('admin.access.none_body') }}</p></div>
+{% else %}
+<div class="card"><div class="table-responsive"><table class="table mb-0 small" id="access-{{ section }}">
+  <thead><tr><th scope="col">{{ t('admin.access.name') }}</th><th scope="col">{{ t('admin.access.read') }}</th><th scope="col">{{ t('admin.access.administer') }}</th></tr></thead>
+  <tbody>{% for o in items %}<tr>
+    <td>{% if section == 'views' %}<a class="mono" href="/queries/{{ o.name }}">{{ o.name }}</a>{% else %}<a class="mono" href="/catalog/streams/{{ o.name }}">{{ o.name }}</a>{% endif %}</td>
+    <td>{% if o.read == 'filtered' %}<span class="chip warn" title="{{ t('admin.access.filtered_title') }}">{{ t('admin.access.filtered') }}</span>{% else %}<span class="chip ok">{{ t('admin.access.full') }}</span>{% endif %}</td>
+    <td>{% if o.administer.allowed %}<span class="chip ok">{{ t('admin.access.allowed') }}</span>{% else %}<span class="chip mute">{{ t('admin.access.refused') }}</span> <span class="text-muted">{{ o.administer.reason }}</span>{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div></div>
+{% endif %}
+{% endfor %}
+{% endif %}
+
+<h2 class="h5 mt-4">{{ t('admin.access.about_title') }}</h2>
+<ul class="small text-muted">
+  <li>{{ t('admin.access.about_identity') }}</li>
+  <li>{{ t('admin.access.about_hidden') }}</li>
+  <li>{{ t('admin.access.about_grants') }}</li>
+</ul>
+{{ helpcards([('security', t('admin.help.security'), t('admin.help.security_body'))]) }}
+{% endblock %}

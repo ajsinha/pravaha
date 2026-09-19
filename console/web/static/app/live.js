@@ -15,7 +15,7 @@
  * Hidden tab: the stream is closed and reopened on return, rebased on a fresh read of the
  * view (design 23.11: document.hidden suspends every subscription).
  */
-import { call, esc, announce, formatValue, isNumericType } from "pravaha/lib.js";
+import { call, esc, announce, formatValue, isNumericType, t } from "pravaha/lib.js";
 import { themedChart, timeSeriesBase, lineSeries } from "pravaha/charts.js";
 
 const app = document.getElementById("live-app");
@@ -65,7 +65,7 @@ function start(root) {
     const chosen = params.get("chart") || measure || numeric[0] || "";
     chartColumn.innerHTML = numeric.length
       ? numeric.map((c) => `<option value="${esc(c)}" ${c === chosen ? "selected" : ""}>${esc(c)}</option>`).join("")
-      : '<option value="">no numeric column</option>';
+      : `<option value="">${esc(t("live.no_numeric"))}</option>`;
     chartColumn.disabled = !numeric.length;
     if (!numeric.length) chartMode.value = "count";
   }
@@ -84,14 +84,14 @@ function start(root) {
     const live = [...current.values()].filter((r) => r.weight > 0);
     document.getElementById("c-rows").textContent = live.length.toLocaleString();
     if (!live.length) {
-      rowsBody.innerHTML = `<tr><td colspan="${Math.max(1, columns.length)}"><div class="state"><h2>The view is empty</h2>
-        <p>No row is present right now${filter ? " for this filter" : ""}. One appears when the data that makes it arrives.</p></div></td></tr>`;
+      rowsBody.innerHTML = `<tr><td colspan="${Math.max(1, columns.length)}"><div class="state"><h2>${esc(t("live.empty_title"))}</h2>
+        <p>${esc(filter ? t("live.empty_body_filtered") : t("live.empty_body"))}</p></div></td></tr>`;
       return;
     }
     const shown = live.sort((a, b) => b.at - a.at).slice(0, 500);
     rowsBody.innerHTML = shown.map((r) => `<tr class="${changed && changed.has(identity(r.values)) ? "changed" : ""}">` +
       r.values.map((v, i) => `<td class="${isNumericType(types[i]) ? "num" : ""}">${esc(formatValue(v))}</td>`).join("") +
-      (r.weight > 1 ? `<td><span class="chip info" title="This exact row is present ${r.weight} times">×${r.weight}</span></td>` : "") +
+      (r.weight > 1 ? `<td><span class="chip info" title="${esc(t("live.duplicate_title", { n: r.weight }))}">×${r.weight}</span></td>` : "") +
       "</tr>").join("");
   }
   function renderLog() {
@@ -123,11 +123,10 @@ function start(root) {
         current.set(id, { values, weight: (existing ? existing.weight : 0) + 1, at: 0 });
       });
       document.getElementById("rows-note").textContent = answer.truncated
-        ? `the first ${answer.returned} rows of the view, plus every change since` : "the view now, plus every change since";
+        ? t("live.rows_note_truncated", { n: answer.returned }) : t("live.rows_note");
       renderRows();
     } catch (err) {
-      banner.innerHTML = `<div class="alert alert-warning py-2 small">The view could not be read to start from (${esc(err.message)});
-        showing only the changes that arrive from now on.</div>`;
+      banner.innerHTML = `<div class="alert alert-warning py-2 small">${esc(t("live.rebase_failed", { error: err.message }))}</div>`;
     }
   }
 
@@ -153,27 +152,27 @@ function start(root) {
   function connect() {
     if (source) source.close();
     const query = filter.includes("=") ? "?" + new URLSearchParams([filter.split(/=(.*)/s).slice(0, 2)]) : "";
-    setState("refreshing", "connecting…");
+    setState("refreshing", t("live.state.connecting"));
     source = new EventSource(`/api/v1/views/${encodeURIComponent(view)}/stream${query}`);
-    source.addEventListener("open", () => { setState("fresh", filter ? `live · ${filter}` : "live"); banner.innerHTML = ""; });
+    source.addEventListener("open", () => { setState("fresh", filter ? t("live.state.live_filtered", { filter }) : t("live.state.live")); banner.innerHTML = ""; });
     source.addEventListener("row", (event) => { if (!paused) apply(JSON.parse(event.data)); });
     source.addEventListener("lag", (event) => {
       counts.dropped = JSON.parse(event.data).dropped;
       /* Said out loud: a tail that silently drops shows a sample and lets it pass as everything. */
-      setState("refreshing", `sampled — ${counts.dropped} dropped by this browser`);
+      setState("refreshing", t("live.state.sampled", { n: counts.dropped }));
       renderCounters();
     });
     source.addEventListener("error", (event) => {
       let message = "";
       try { message = JSON.parse(event.data).message; } catch (e) { message = ""; }
       if (message) {
-        banner.innerHTML = `<div class="alert alert-danger py-2 small" role="alert">The engine ended the subscription: ${esc(message)}</div>`;
+        banner.innerHTML = `<div class="alert alert-danger py-2 small" role="alert">${esc(t("live.ended", { error: message }))}</div>`;
         source.close();
       }
-      setState("stale", message ? "stopped" : "reconnecting…");
+      setState("stale", message ? t("live.state.stopped") : t("live.state.reconnecting"));
     });
   }
-  function disconnect() { if (source) { source.close(); source = null; } setState("stale", "paused while hidden"); }
+  function disconnect() { if (source) { source.close(); source = null; } setState("stale", t("live.state.hidden")); }
 
   /* ------------------------------------------------------------- chart */
   let chart = null;
@@ -196,7 +195,9 @@ function start(root) {
   }
   function chartOptions() {
     const mode = chartMode.value;
-    const label = mode === "count" ? "current rows" : mode === "sum" ? `Σ ${chartColumn.value}` : `${chartColumn.value} (each arrival)`;
+    const label = mode === "count" ? t("live.chart.count_label")
+      : mode === "sum" ? t("live.chart.sum_label", { column: chartColumn.value })
+        : t("live.chart.arrivals_label", { column: chartColumn.value });
     const base = timeSeriesBase({ yName: label });
     base.legend.show = false;   /* one series: the axis name says what it is */
     const s = lineSeries(label, series(), 0);
@@ -217,7 +218,7 @@ function start(root) {
     log = []; counts = { changes: 0, plus: 0, minus: 0, dropped: 0 }; samples = []; arrivals = [];
     renderCounters();
     rebase().then(connect);
-    announce(filter ? `Filtering on ${filter}` : "Showing every change");
+    announce(filter ? t("live.announce_filter", { filter }) : t("live.announce_all"));
   });
   if (filter.includes("=")) {
     const [c, v] = filter.split(/=(.*)/s);
@@ -227,9 +228,9 @@ function start(root) {
   pauseBtn.hidden = false;
   pauseBtn.addEventListener("click", () => {
     paused = !paused;
-    pauseBtn.textContent = paused ? "Resume" : "Pause";
+    pauseBtn.textContent = paused ? t("live.resume") : t("live.pause");
     pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
-    if (paused) setState("refreshing", "paused — changes are not being applied");
+    if (paused) setState("refreshing", t("live.state.paused"));
     else rebase().then(connect);
   });
   chartColumn.addEventListener("change", () => { samples = []; arrivals = []; if (chart) chart.redraw(); });
@@ -242,7 +243,7 @@ function start(root) {
 
   fillChartColumns();
   themedChart(document.getElementById("live-chart"), chartOptions).then((c) => { chart = c; })
-    .catch(() => { document.getElementById("chart-caption").textContent = "The chart library did not load; the tables above are complete."; });
+    .catch(() => { document.getElementById("chart-caption").textContent = t("live.chart.failed"); });
 
   /* Painting is conflated to at most five frames a second however fast rows arrive: the
      tables show state, and state read at 5 Hz is not state missed. */
@@ -262,7 +263,7 @@ function start(root) {
     }
     if (source && stateEl.dataset.state === "fresh" && lastEvent) {
       const quiet = Math.round((Date.now() - lastEvent) / 1000);
-      if (quiet >= 5) setState("fresh", `live · last change ${quiet}s ago`);
+      if (quiet >= 5) setState("fresh", t("live.state.quiet", { seconds: quiet }));
     }
   }, 1000);
 

@@ -12,6 +12,7 @@
   "use strict";
 
   var esc = window.PravahaApi.escapeHtml;
+  var t = window.PravahaApi.t;
 
   var States = {
     /* Loading, first time: a skeleton the shape of the answer, never a spinner
@@ -27,20 +28,18 @@
     /* Never had any. Explains what this is and offers the action that makes the
        first one. */
     emptyNever: function (what, action) {
-      return '<div class="state"><h2>No ' + esc(what) + ' yet</h2>' +
-        "<p>A continuous query is registered once and maintained for as long as it is " +
-        "registered. Nothing has been registered on this engine.</p>" + (action || "") + "</div>";
+      return '<div class="state"><h2>' + esc(t("states.never_title", {what: what})) + "</h2>" +
+        "<p>" + esc(t("states.never_body")) + "</p>" + (action || "") + "</div>";
     },
 
     /* Filtered to nothing, which is a different thing and offers a different way
        out. Conflating the two tells somebody there is no data when there is
        plenty and their filter is wrong. */
     emptyFiltered: function (onClear) {
-      return '<div class="state"><h2>Nothing matches this filter</h2>' +
-        "<p>There are registered queries, but none match what you have typed. The filter is in " +
-        "the URL, so this view is shareable either way.</p>" +
+      return '<div class="state"><h2>' + esc(t("states.filtered_title")) + "</h2>" +
+        "<p>" + esc(t("states.filtered_body")) + "</p>" +
         '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="' +
-        onClear + '">Clear the filter</button></div>';
+        onClear + '">' + esc(t("states.filtered_clear")) + "</button></div>";
     },
 
     /* What failed, whether retrying is worth it, and an id to paste into a ticket. */
@@ -48,11 +47,13 @@
       var code = err.code
         ? ' <a href="/help/troubleshooting">' + esc(err.code) + "</a>" : "";
       var button = err.retryable && retry
-        ? '<button type="button" class="btn btn-sm btn-primary" onclick="' + retry + '">Try again</button>'
-        : '<span class="chip mute">Retrying will not help — the request itself was rejected</span>';
+        ? '<button type="button" class="btn btn-sm btn-primary" onclick="' + retry + '">' +
+          esc(t("states.retry")) + "</button>"
+        : '<span class="chip mute">' + esc(t("states.no_retry")) + "</span>";
       return '<div class="alert alert-danger" role="alert">' +
         '<div class="fw-semibold">' + esc(err.message) + code + "</div>" +
-        '<div class="small mono text-muted">correlation ' + esc(err.correlation || "n/a") + "</div>" +
+        '<div class="small mono text-muted">' + esc(t("states.correlation")) + " " +
+        esc(err.correlation || t("states.not_available")) + "</div>" +
         '<div class="mt-2">' + button + "</div></div>";
     },
 
@@ -60,25 +61,24 @@
        silence, which reads as a smaller but complete picture. */
     partial: function (missing) {
       return '<div class="alert alert-warning py-2" role="status">' +
-        '<div class="fw-semibold small">Showing partial results</div>' +
-        '<div class="small">' + esc(missing) + " did not answer. The numbers below are lower " +
-        "than the truth, not a complete picture of a smaller thing.</div></div>";
+        '<div class="fw-semibold small">' + esc(t("states.partial_title")) + "</div>" +
+        '<div class="small">' + esc(t("states.partial_body", {missing: missing})) + "</div></div>";
     },
 
     /* Disconnected. The data dims and says how old it is; it is never presented
        as live. */
     stale: function (ageSeconds, reconnecting) {
       return '<div class="alert alert-warning py-2" role="status">' +
-        '<div class="fw-semibold small">Live updates disconnected</div>' +
-        '<div class="small">Showing data from ' + esc(ageSeconds) + "s ago. " +
-        (reconnecting ? "Reconnecting…" : "Not reconnecting.") + "</div></div>";
+        '<div class="fw-semibold small">' + esc(t("states.stale_title")) + "</div>" +
+        '<div class="small">' + esc(t("states.stale_age", {seconds: ageSeconds})) + " " +
+        esc(reconnecting ? t("states.reconnecting") : t("states.not_reconnecting")) + "</div></div>";
     },
 
     /* No permission. The affordance is disabled with the reason in its title,
        never a button that fails on click. */
     unauthorized: function (action) {
-      return '<button type="button" class="btn btn-sm" disabled title="You do not have ' +
-        'permission to ' + esc(action) + '">' + esc(action) + "</button>";
+      return '<button type="button" class="btn btn-sm" disabled title="' +
+        esc(t("states.unauthorized", {action: action})) + '">' + esc(action) + "</button>";
     }
   };
 
@@ -104,9 +104,9 @@
   Freshness.prototype.render = function () {
     if (!this.element) return;
     var age = this.age();
-    var label = this.state === "refreshing" ? "refreshing…"
-      : age === null ? "never loaded"
-      : age < 2 ? "just now" : age + "s ago";
+    var label = this.state === "refreshing" ? t("states.refreshing")
+      : age === null ? t("states.never_loaded")
+      : age < 2 ? t("states.just_now") : t("states.ago", {seconds: age});
     this.element.setAttribute("data-state", this.state);
     this.element.innerHTML = '<span class="dot"></span><span>' + label + "</span>";
   };
