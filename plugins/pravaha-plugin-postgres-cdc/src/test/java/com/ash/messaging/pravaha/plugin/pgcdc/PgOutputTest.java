@@ -323,6 +323,96 @@ class PgOutputTest {
     }
 
     @Test
+    void snapshotOffsetsRoundTripAndAnOffsetWrittenBeforeSnapshotsExistedStillReads() {
+        CdcOffset start = CdcOffset.at(0x10).withSnapshot(CdcOffset.Snapshot.START);
+        assertThat(start.toSourceOffset().token()).isEqualTo("lsn=0/10;snapshot=start");
+        assertThat(CdcOffset.parse(start.toSourceOffset())).isEqualTo(start);
+
+        // Every character the token uses as punctuation, in key values: they must survive the trip.
+        CdcOffset.Snapshot awkward = new CdcOffset.Snapshot(20_000, List.of("a,b;c@d=e%f+g h", "", "\u00e9\u00df"));
+        CdcOffset mid = new CdcOffset(0x10, 0x20, 4, awkward);
+        CdcOffset parsed = CdcOffset.parse(mid.toSourceOffset());
+        assertThat(parsed).isEqualTo(mid);
+        assertThat(parsed.snapshot().after()).containsExactly("a,b;c@d=e%f+g h", "", "\u00e9\u00df");
+        assertThat(CdcOffset.parse(new SourceOffset("lsn=0/10;snapshot=20000@20417"))
+                        .snapshot())
+                .isEqualTo(new CdcOffset.Snapshot(20_000, List.of("20417")));
+
+        CdcOffset old = CdcOffset.parse(new SourceOffset("lsn=0/16B3748"));
+        assertThat(old.inSnapshot())
+                .as("written before snapshots existed: finished, or never asked for")
+                .isFalse();
+        assertThat(CdcOffset.parse(new SourceOffset("lsn=0/10;partial=0/20+4")).inSnapshot())
+                .isFalse();
+        for (String bad : List.of(
+                "lsn=0/10;snapshot=",
+                "lsn=0/10;snapshot=0@5",
+                "lsn=0/10;snapshot=5",
+                "lsn=0/10;snapshot=start;partial=0/20+4",
+                "lsn=0/10;snapshot=start;snapshot=start")) {
+            assertThatThrownBy(() -> CdcOffset.parse(new SourceOffset(bad)))
+                    .as(bad)
+                    .hasMessageContaining("PRV-5114");
+        }
+    }
+
+    /** A frontier of "id at or below 5", decided here in Java; against a server, PostgreSQL decides. */
+    private record FrontierAtFive(long until) implements TransactionAssembler.CatchUp {
+        @Override
+        public List<String> keyColumns() {
+            return List.of("id");
+        }
+
+        @Override
+        public boolean[] atOrBelow(List<List<String>> keys) {
+            boolean[] below = new boolean[keys.size()];
+            for (int i = 0; i < below.length; i++) {
+                below[i] = Long.parseLong(keys.get(i).get(0)) <= 5;
+            }
+            return below;
+        }
+    }
+
+    @Test
+    void beforeTheSnapshotsPointAChangeIsKeptOnlyAtOrBelowTheFrontierEachImageByItsOwnKey() {
+        TransactionAssembler assembler = new TransactionAssembler(
+                OPTIONS, MAPPING, OID, CdcOffset.BEGINNING, out::add, content -> {}, new FrontierAtFive(0x300));
+        assembler.accept(begin());
+        assembler.accept(relation('f'));
+        assembler.accept(insert("3", "a", null));
+        assembler.accept(insert("7", "b", null));
+        // A key moving across the frontier: the old row's retraction is below it, the new row above.
+        assembler.accept(update('O', new String[] {"4", "c", null}, new String[] {"9", "c", null}));
+        assembler.accept(commit(0x300));
+        assertThat(rows(out.get(0)))
+                .as("7 and 9 are above the frontier: the snapshot at the point reads them as this left them")
+                .containsExactly("+1 [3, a, null]", "-1 [4, c, null]");
+
+        assembler.accept(begin());
+        assembler.accept(insert("8", "d", null));
+        assembler.accept(commit(0x400));
+        assertThat(rows(out.get(1)))
+                .as("after the snapshot's point everything is delivered")
+                .containsExactly("+1 [8, d, null]");
+    }
+
+    @Test
+    void aPartialTransactionBeforeTheSnapshotsPointSkipsWhatWasDeliveredOfItsFilteredChanges() {
+        CdcOffset resume = new CdcOffset(0x100, 0x300, 1, new CdcOffset.Snapshot(10, List.of("5")));
+        TransactionAssembler assembler = new TransactionAssembler(
+                OPTIONS, MAPPING, OID, resume, out::add, content -> {}, new FrontierAtFive(0x300));
+        assembler.accept(begin());
+        assembler.accept(relation('f'));
+        assembler.accept(insert("3", "a", null));
+        assembler.accept(insert("7", "b", null));
+        assembler.accept(insert("5", "c", null));
+        assembler.accept(commit(0x300));
+        assertThat(rows(out.get(0)))
+                .as("the engine held the first of the two kept changes, 3; only 5 is left")
+                .containsExactly("+1 [5, c, null]");
+    }
+
+    @Test
     void textValuesConvertAsPostgresWritesThem() {
         assertThat(PgValues.parse("2026-09-19 10:00:00.5+05:30", PgValues.TIMESTAMPTZ, Types.timestamp()))
                 .isEqualTo(java.time.Instant.parse("2026-09-19T04:30:00.5Z").getEpochSecond() * 1_000_000_000L
@@ -356,5 +446,23 @@ class PgOutputTest {
         assertThat(options.heartbeat()).isEqualTo(java.time.Duration.ofMillis(250));
         assertThat(options.slot()).as("defaulted from the table").isEqualTo("pravaha_t");
         assertThat(options.qualifiedTable()).isEqualTo("public.t");
+        assertThat(options.snapshotInitial())
+                .as("never by default: no existing binding starts reading whole tables unasked")
+                .isFalse();
+        config.put("snapshot.mode", "always");
+        assertThatThrownBy(() -> CdcOptions.from(new PgServer.Ctx("cdc", config)))
+                .hasMessageContaining("PRV-5110")
+                .hasMessageContaining("snapshot.mode must be 'initial'");
+        config.put("snapshot.mode", "Initial");
+        config.put("snapshot.chunk.rows", "0");
+        assertThatThrownBy(() -> CdcOptions.from(new PgServer.Ctx("cdc", config)))
+                .hasMessageContaining("snapshot.chunk.rows must be at least 1");
+        config.put("snapshot.chunk.rows", "500");
+        CdcOptions snapshotting = CdcOptions.from(new PgServer.Ctx("cdc", config));
+        assertThat(snapshotting.snapshotInitial()).isTrue();
+        assertThat(snapshotting.snapshotChunkRows()).isEqualTo(500);
+        assertThat(InitialSnapshot.temporarySlotName("x".repeat(63)))
+                .hasSizeLessThanOrEqualTo(63)
+                .matches("[a-z0-9_]+");
     }
 }

@@ -17,11 +17,11 @@ package com.ash.messaging.pravaha.plugin.pgcdc;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
 import com.ash.messaging.pravaha.api.PravahaException;
-import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
@@ -74,6 +74,33 @@ final class TransactionAssembler {
     /** How many unchanged TOAST placeholders were filled from a before-image. Read by tests. */
     private final java.util.concurrent.atomic.AtomicLong carriedForward = new java.util.concurrent.atomic.AtomicLong();
 
+    /** While an initial snapshot is unfinished: which changes before its point the engine keeps. */
+    private final CatchUp catchUp;
+
+    /** Key column to column index in the current Relation message, when {@link #catchUp} needs keys. */
+    private int[] keyOf;
+
+    /**
+     * The log between a resumed position and an initial snapshot's consistent point, seen through the
+     * snapshot's key frontier (see {@link InitialSnapshot}).
+     *
+     * <p>What the engine holds is the table's rows keyed at or below the frontier. A change in that
+     * stretch of log is delivered when its row's key is at or below the frontier, and dropped when it
+     * is above: the snapshot, read at the consistent point, will deliver the row as that change left
+     * it. Transactions ending after the consistent point are not filtered at all.
+     */
+    interface CatchUp {
+
+        /** The snapshot's consistent point. */
+        long until();
+
+        /** The key columns, by name, whose text {@link #atOrBelow} is given. */
+        List<String> keyColumns();
+
+        /** Which of these keys are at or below the frontier; all false when nothing is snapshotted yet. */
+        boolean[] atOrBelow(List<List<String>> keys);
+    }
+
     /**
      * @param resume where the engine's state stands; transactions it already holds are dropped
      * @param onMessage told the content of each of this source's own logical messages
@@ -85,6 +112,17 @@ final class TransactionAssembler {
             CdcOffset resume,
             Consumer<CdcTransaction> out,
             Consumer<String> onMessage) {
+        this(options, mapping, tableOid, resume, out, onMessage, null);
+    }
+
+    TransactionAssembler(
+            CdcOptions options,
+            CdcSchema.Mapping mapping,
+            int tableOid,
+            CdcOffset resume,
+            Consumer<CdcTransaction> out,
+            Consumer<String> onMessage,
+            CatchUp catchUp) {
         this.options = options;
         this.mapping = mapping;
         this.tableOid = tableOid;
@@ -93,6 +131,7 @@ final class TransactionAssembler {
         this.delivered = resume.lsn();
         this.partialEnd = resume.partialEnd();
         this.partialDelivered = resume.partialDelivered();
+        this.catchUp = catchUp;
     }
 
     /** Where a new replication connection should start so that nothing handed on is sent again. */
@@ -189,6 +228,11 @@ final class TransactionAssembler {
             // was asked, and this is the second line of defence against a repeat.
             return;
         }
+        if (catchUp != null && endLsn <= catchUp.until() && !committed.isEmpty() && refused == null) {
+            // Before the snapshot's point. Filtered before a partial is skipped: the engine's count of
+            // this transaction's changes was taken of the filtered list, which is deterministic.
+            committed = belowFrontier(committed);
+        }
         int skip = 0;
         if (partialEnd != 0) {
             if (endLsn != partialEnd || partialDelivered > committed.size()) {
@@ -208,6 +252,18 @@ final class TransactionAssembler {
         delivered = endLsn;
         List<CdcTransaction.Change> remaining = committed.subList(skip, committed.size());
         out.accept(new CdcTransaction(endLsn, skip, List.copyOf(remaining), refused));
+    }
+
+    private List<CdcTransaction.Change> belowFrontier(List<CdcTransaction.Change> changes) {
+        boolean[] keep = catchUp.atOrBelow(
+                changes.stream().map(CdcTransaction.Change::key).toList());
+        List<CdcTransaction.Change> kept = new ArrayList<>();
+        for (int i = 0; i < keep.length; i++) {
+            if (keep[i]) {
+                kept.add(changes.get(i));
+            }
+        }
+        return kept;
     }
 
     private void relation(PgOutput.Relation relation) {
@@ -252,6 +308,27 @@ final class TransactionAssembler {
             }
             map[field] = found;
         }
+        if (catchUp != null) {
+            List<String> keys = catchUp.keyColumns();
+            int[] keyMap = new int[keys.size()];
+            for (int part = 0; part < keyMap.length; part++) {
+                keyMap[part] = -1;
+                for (int column = 0; column < relation.columns().size(); column++) {
+                    if (relation.columns().get(column).name().equals(keys.get(part))) {
+                        keyMap[part] = column;
+                    }
+                }
+                if (keyMap[part] < 0) {
+                    refuse(new PravahaException(
+                            CdcErrors.SCHEMA_MISMATCH,
+                            "primary key column '" + keys.get(part) + "' of " + options.qualifiedTable()
+                                    + " was dropped while its initial snapshot was being read; the snapshot cannot "
+                                    + "be resumed in an order that no longer exists. Register the query again."));
+                    return;
+                }
+            }
+            keyOf = keyMap;
+        }
         columnOf = map;
     }
 
@@ -286,46 +363,39 @@ final class TransactionAssembler {
     }
 
     private CdcTransaction.Change change(PgOutput.Tuple tuple, PgOutput.Tuple before, long weight) {
-        StreamSchema schema = mapping.schema();
-        Object[] values = new Object[schema.fieldCount()];
-        StringBuilder raw = new StringBuilder();
-        String rejected = null;
-        for (int field = 0; field < values.length; field++) {
+        String[] texts = new String[columnOf.length];
+        for (int field = 0; field < texts.length; field++) {
             int column = columnOf[field];
-            String text;
-            if (tuple.isUnchangedToast(column)) {
-                if (before == null || before.isUnchangedToast(column)) {
-                    refuse(new PravahaException(
-                            CdcErrors.UNREPRESENTABLE_CHANGE,
-                            "column '" + mapping.columnNames().get(field) + "' of " + options.qualifiedTable()
-                                    + " arrived as an unchanged TOAST placeholder with no before-image holding its "
-                                    + "value. Writing the placeholder would corrupt that column in the view."));
-                    return new CdcTransaction.Change(values, weight, 0L, null, new byte[0]);
-                }
-                text = before.value(column);
-                carriedForward.incrementAndGet();
-            } else {
-                text = tuple.value(column);
+            if (tuple.isUnchangedToast(column) && (before == null || before.isUnchangedToast(column))) {
+                refuse(new PravahaException(
+                        CdcErrors.UNREPRESENTABLE_CHANGE,
+                        "column '" + mapping.columnNames().get(field) + "' of " + options.qualifiedTable()
+                                + " arrived as an unchanged TOAST placeholder with no before-image holding its "
+                                + "value. Writing the placeholder would corrupt that column in the view."));
+                return new CdcTransaction.Change(new Object[texts.length], weight, 0L, null, new byte[0], null);
             }
-            Field target = schema.field(field);
-            raw.append(field == 0 ? "" : "|").append(target.name()).append('=').append(text);
-            if (text != null && rejected == null) {
-                try {
-                    values[field] = PgValues.parse(text, mapping.typeOids()[field], target.type());
-                } catch (RuntimeException e) {
-                    rejected = "column '" + target.name() + "': '" + text + "' cannot be read as "
-                            + target.type().sqlName() + " (" + e.getMessage() + ")";
-                }
-            } else if (text == null && !target.type().nullable()) {
-                rejected = "column '" + target.name() + "' is NULL and the stream declares it NOT NULL";
+            texts[field] = text(tuple, before, column);
+        }
+        List<String> key = null;
+        if (keyOf != null) {
+            String[] keyTexts = new String[keyOf.length];
+            for (int part = 0; part < keyOf.length; part++) {
+                // A key column is never an unchanged TOAST value without a before-image: a key is in
+                // every before-image PostgreSQL writes.
+                keyTexts[part] = text(tuple, before, keyOf[part]);
             }
+            key = Arrays.asList(keyTexts);
         }
-        long eventTime = (commitMicros + POSTGRES_EPOCH_MICROS) * 1_000L;
-        if (schema.eventTimeOrdinal().isPresent()
-                && values[schema.eventTimeOrdinal().getAsInt()] instanceof Long at) {
-            eventTime = at;
+        return CdcTransaction.Change.fromText(
+                mapping, texts, weight, (commitMicros + POSTGRES_EPOCH_MICROS) * 1_000L, key);
+    }
+
+    /** A column's text; an unchanged TOAST value is taken from the before-image, which holds it in full. */
+    private String text(PgOutput.Tuple tuple, PgOutput.Tuple before, int column) {
+        if (tuple.isUnchangedToast(column)) {
+            carriedForward.incrementAndGet();
+            return before.value(column);
         }
-        return new CdcTransaction.Change(
-                values, weight, eventTime, rejected, raw.toString().getBytes(StandardCharsets.UTF_8));
+        return tuple.value(column);
     }
 }

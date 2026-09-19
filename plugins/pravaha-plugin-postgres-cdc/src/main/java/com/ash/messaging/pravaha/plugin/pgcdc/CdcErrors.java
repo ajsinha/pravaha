@@ -55,5 +55,12 @@ public final class CdcErrors {
     /** The replication stream failed and could not be resumed. */
     public static final ErrorCode STREAM_FAILED = new ErrorCode(5117, "PGCDC_STREAM_FAILED");
 
+    /**
+     * The initial snapshot could not be started or read: the temporary slot that pins its point in
+     * the log was not created in time (a transaction open since before it blocks that), or the
+     * snapshot's own connection or query failed.
+     */
+    public static final ErrorCode SNAPSHOT_FAILED = new ErrorCode(5118, "PGCDC_SNAPSHOT_FAILED");
+
     private CdcErrors() {}
 }

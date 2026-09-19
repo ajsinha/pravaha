@@ -83,6 +83,7 @@ final class CdcStream implements AutoCloseable {
     private volatile String syncSeen = "";
     private volatile String lastProblem = "";
     private volatile long confirmed;
+    private volatile boolean markerRequested;
 
     private Connection replication;
     private PGReplicationStream stream;
@@ -92,8 +93,24 @@ final class CdcStream implements AutoCloseable {
     private Thread thread;
 
     CdcStream(CdcOptions options, CdcSchema.Mapping mapping, int tableOid, CdcOffset resume) {
+        this(options, mapping, tableOid, resume, null);
+    }
+
+    /** @param catchUp the key frontier an unfinished initial snapshot filters the log by, or null */
+    CdcStream(
+            CdcOptions options,
+            CdcSchema.Mapping mapping,
+            int tableOid,
+            CdcOffset resume,
+            TransactionAssembler.CatchUp catchUp) {
         this.options = options;
-        this.assembler = new TransactionAssembler(options, mapping, tableOid, resume, this::enqueue, this::sawMessage);
+        this.assembler =
+                new TransactionAssembler(options, mapping, tableOid, resume, this::enqueue, this::sawMessage, catchUp);
+    }
+
+    /** Asks for a position marker now rather than at the next heartbeat. */
+    void requestMarker() {
+        markerRequested = true;
     }
 
     /** Connects and starts reading. Throws when the stream cannot be started at all. */
@@ -190,7 +207,8 @@ final class CdcStream implements AutoCloseable {
             try {
                 long now = System.nanoTime();
                 acknowledge();
-                if (heartbeatNanos > 0 && now - lastHeartbeat >= heartbeatNanos) {
+                if ((heartbeatNanos > 0 && now - lastHeartbeat >= heartbeatNanos) || markerRequested) {
+                    markerRequested = false;
                     lastHeartbeat = now;
                     heartbeat();
                 }
@@ -282,7 +300,7 @@ final class CdcStream implements AutoCloseable {
         long deadline = System.nanoTime() + waitForSlot.toNanos();
         while (true) {
             try {
-                replication = connectForReplication();
+                replication = connectForReplication(options);
                 ChainedLogicalStreamBuilder builder = replication
                         .unwrap(PGConnection.class)
                         .getReplicationAPI()
@@ -313,7 +331,7 @@ final class CdcStream implements AutoCloseable {
         }
     }
 
-    private Connection connectForReplication() throws SQLException {
+    static Connection connectForReplication(CdcOptions options) throws SQLException {
         Properties properties = PostgresCdcSourcePlugin.credentials(options);
         PGProperty.REPLICATION.set(properties, "database");
         PGProperty.ASSUME_MIN_SERVER_VERSION.set(properties, "9.4");

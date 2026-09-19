@@ -15,9 +15,12 @@
  */
 package com.ash.messaging.pravaha.plugin.pgcdc;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.data.Field;
+import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
  * One committed transaction's changes to the captured table, as the reader hands them over.
@@ -43,8 +46,48 @@ record CdcTransaction(long endLsn, int alreadyDelivered, List<Change> changes, P
      * @param values one value per stream field, in the form {@link PgValues#write} takes
      * @param rejected why the row could not be converted, or null; offered to the dead-letter queue
      * @param raw the row's text as it arrived, for the dead-letter queue
+     * @param key the row's primary key as text, when an initial snapshot needs it; otherwise null
      */
-    record Change(Object[] values, long weight, long eventTimeNanos, String rejected, byte[] raw) {}
+    record Change(Object[] values, long weight, long eventTimeNanos, String rejected, byte[] raw, List<String> key) {
+
+        /**
+         * A row from its columns' text, one per stream field, as {@code pgoutput} and a snapshot
+         * query both deliver it. A value that cannot be read makes the row a rejected one, offered to
+         * the dead-letter queue with its text, rather than a guess.
+         */
+        static Change fromText(
+                CdcSchema.Mapping mapping, String[] texts, long weight, long defaultEventNanos, List<String> key) {
+            StreamSchema schema = mapping.schema();
+            Object[] values = new Object[schema.fieldCount()];
+            StringBuilder raw = new StringBuilder();
+            String rejected = null;
+            for (int field = 0; field < values.length; field++) {
+                String text = texts[field];
+                Field target = schema.field(field);
+                raw.append(field == 0 ? "" : "|")
+                        .append(target.name())
+                        .append('=')
+                        .append(text);
+                if (text != null && rejected == null) {
+                    try {
+                        values[field] = PgValues.parse(text, mapping.typeOids()[field], target.type());
+                    } catch (RuntimeException e) {
+                        rejected = "column '" + target.name() + "': '" + text + "' cannot be read as "
+                                + target.type().sqlName() + " (" + e.getMessage() + ")";
+                    }
+                } else if (text == null && !target.type().nullable()) {
+                    rejected = "column '" + target.name() + "' is NULL and the stream declares it NOT NULL";
+                }
+            }
+            long eventTime = defaultEventNanos;
+            if (schema.eventTimeOrdinal().isPresent()
+                    && values[schema.eventTimeOrdinal().getAsInt()] instanceof Long at) {
+                eventTime = at;
+            }
+            return new Change(
+                    values, weight, eventTime, rejected, raw.toString().getBytes(StandardCharsets.UTF_8), key);
+        }
+    }
 
     static CdcTransaction marker(long lsn) {
         return new CdcTransaction(lsn, 0, List.of(), null);

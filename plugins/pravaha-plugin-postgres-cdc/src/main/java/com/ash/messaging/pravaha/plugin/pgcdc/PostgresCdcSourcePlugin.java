@@ -77,8 +77,13 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * between queries ({@code EXACTLY_ONCE} and ordered sources never are), so each registration reading
  * this binding needs a slot of its own.
  *
- * <p>Changes only, from the moment the slot was created: rows already in the table are not replayed.
- * An initial snapshot is not built; see {@code docs/CONNECTORS.md}.
+ * <p><strong>Rows already in the table</strong> are delivered first when {@code snapshot.mode} is
+ * {@code initial}: read under a snapshot pinned to a point in the log, spliced into the stream at
+ * that point, and resumable exactly from a checkpoint taken half-way through ({@link
+ * InitialSnapshot}). With {@code never}, the default, a registration sees changes from the moment
+ * its slot was created -- what this source did before snapshots existed, kept as the default so that
+ * no existing binding starts reading whole tables, or starts being refused for a table without a
+ * primary key, without having asked to.
  */
 public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
 
@@ -88,6 +93,7 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
     private Connection control;
     private CdcSchema.Mapping mapping;
     private int tableOid;
+    private SnapshotKey snapshotKey;
     private volatile HealthStatus cachedHealth;
     private volatile long cachedAt;
 
@@ -128,6 +134,9 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
             Preflight.check(control, options);
             tableOid = Preflight.tableOid(control, options);
             mapping = CdcSchema.resolve(options, CdcSchema.load(control, options));
+            if (options.snapshotInitial()) {
+                snapshotKey = SnapshotKey.load(control, options);
+            }
             Preflight.ensurePublication(control, options);
             Preflight.ensureSlot(control, options);
         } catch (SQLException e) {
@@ -181,16 +190,27 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
     @Override
     public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
         requireOpen();
+        CdcOffset requested = CdcOffset.parse(resumeFrom);
         CdcOffset start;
+        SnapshotKey key = snapshotKey;
         try {
-            start = Preflight.requireResumable(control, options, CdcOffset.parse(resumeFrom));
+            start = Preflight.requireResumable(control, options, requested);
+            if (requested.isBeginning() && options.snapshotInitial()) {
+                // From nothing: the rows already there first.
+                start = start.withSnapshot(CdcOffset.Snapshot.START);
+            }
+            if (start.inSnapshot() && key == null) {
+                // A checkpoint taken mid-snapshot is finished as a snapshot whatever snapshot.mode now
+                // says: the engine holds part of the table, and only the rest of it makes that whole.
+                key = SnapshotKey.load(control, options);
+            }
         } catch (SQLException e) {
             throw new PravahaException(
                     CdcErrors.CONNECT_FAILED,
                     "cannot read the state of slot '" + options.slot() + "': " + e.getMessage(),
                     e);
         }
-        PostgresCdcReader reader = PostgresCdcReader.open(options, mapping, tableOid, start);
+        PostgresCdcReader reader = PostgresCdcReader.open(options, mapping, tableOid, start, key);
         readers.removeIf(PostgresCdcReader::isClosed);
         readers.add(reader);
         return reader;
@@ -253,6 +273,10 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
                 if (!trouble.isEmpty() && fresh.state() == HealthStatus.State.HEALTHY) {
                     fresh = HealthStatus.degraded(detail + ". " + trouble);
                 }
+                String progress = snapshotProgress();
+                if (!progress.isEmpty()) {
+                    fresh = new HealthStatus(fresh.state(), fresh.detail() + ". " + progress);
+                }
             }
         } catch (SQLException e) {
             fresh = HealthStatus.unhealthy("cannot read the slot's state: " + e.getMessage());
@@ -292,6 +316,16 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
             if (!reader.stream().lastProblem().isEmpty()) {
                 return "The reader is " + reader.stream().lastProblem() + " ("
                         + reader.stream().reconnects() + " reconnects so far)";
+            }
+        }
+        return "";
+    }
+
+    /** How far an open reader's initial snapshot has got, or empty. */
+    private String snapshotProgress() {
+        for (PostgresCdcReader reader : readers) {
+            if (!reader.isClosed() && !reader.snapshotProgress().isEmpty()) {
+                return reader.snapshotProgress();
             }
         }
         return "";

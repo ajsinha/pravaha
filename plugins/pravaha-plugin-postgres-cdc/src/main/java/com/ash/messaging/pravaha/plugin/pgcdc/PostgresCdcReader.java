@@ -36,31 +36,82 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
  * transaction delivered, and to each heartbeat with nothing undelivered before it. The slot is
  * confirmed only from {@link #checkpointed}, so what PostgreSQL may discard is never more than what a
  * restore could ask for again.
+ *
+ * <p><strong>An initial snapshot is spliced in at its consistent point</strong> ({@link
+ * InitialSnapshot}). Until the stream has delivered everything before that point, nothing of the
+ * snapshot is delivered; then its rows, in key order, the position recording the last key handed
+ * over; then the stream again. A checkpoint may fall anywhere in that, including between two rows
+ * of one chunk, and every one of those positions resumes exactly.
  */
 final class PostgresCdcReader implements PartitionReader {
 
     private final CdcStream stream;
     private final StreamSchema schema;
+    private final InitialSnapshot.CatchUp catchUp;
 
     private volatile CdcOffset position;
     private volatile boolean paused;
+    private volatile InitialSnapshot snapshot;
+    private volatile long snapshotEstimate = -1L;
     private int headTaken;
     private int largestOffered;
     private long sequence;
+    private long markerAskedAt;
     private volatile boolean closed;
 
-    private PostgresCdcReader(CdcStream stream, StreamSchema schema, CdcOffset start) {
+    private PostgresCdcReader(
+            CdcStream stream,
+            StreamSchema schema,
+            CdcOffset start,
+            InitialSnapshot snapshot,
+            InitialSnapshot.CatchUp catchUp) {
         this.stream = stream;
         this.schema = schema;
         this.position = start;
+        this.snapshot = snapshot;
+        this.catchUp = catchUp;
+        if (snapshot != null) {
+            this.snapshotEstimate = snapshot.estimate();
+        }
     }
 
     /** Starts streaming from {@code start} and waits, bounded, to have read the log as it stands. */
     static PostgresCdcReader open(CdcOptions options, CdcSchema.Mapping mapping, int tableOid, CdcOffset start) {
-        CdcStream stream = new CdcStream(options, mapping, tableOid, start);
-        stream.start();
+        return open(options, mapping, tableOid, start, null);
+    }
+
+    /**
+     * As above; when {@code start} is inside an unfinished initial snapshot, first pins a new one to
+     * the log and filters the log before it by the key {@code start} reached.
+     *
+     * @param key the table's primary key; needed only when {@code start} is inside a snapshot
+     */
+    static PostgresCdcReader open(
+            CdcOptions options, CdcSchema.Mapping mapping, int tableOid, CdcOffset start, SnapshotKey key) {
+        InitialSnapshot snapshot = null;
+        InitialSnapshot.CatchUp catchUp = null;
+        if (start.inSnapshot()) {
+            snapshot = InitialSnapshot.begin(
+                    options, mapping, key, start.snapshot().after());
+            catchUp = new InitialSnapshot.CatchUp(
+                    options, key, snapshot.consistentPoint(), start.snapshot().after());
+        }
+        CdcStream stream = new CdcStream(options, mapping, tableOid, start, catchUp);
+        try {
+            stream.start();
+        } catch (RuntimeException e) {
+            if (snapshot != null) {
+                snapshot.close();
+                catchUp.close();
+            }
+            throw e;
+        }
         stream.awaitCaughtUp(options.startTimeout());
-        return new PostgresCdcReader(stream, mapping.schema(), start);
+        if (snapshot != null) {
+            snapshot.start();
+            snapshot.awaitFirstChunk(options.startTimeout());
+        }
+        return new PostgresCdcReader(stream, mapping.schema(), start, snapshot, catchUp);
     }
 
     @Override
@@ -73,6 +124,45 @@ final class PostgresCdcReader implements PartitionReader {
         int taken = 0;
         while (true) {
             CdcTransaction head = stream.peek();
+            InitialSnapshot reading = snapshot;
+            if (reading != null) {
+                if (head == null) {
+                    askForMarker();
+                } else if (head.endLsn() > reading.consistentPoint()) {
+                    // Everything before the snapshot's point is delivered: its rows go next.
+                    if (reading.failure() != null) {
+                        if (taken > 0) {
+                            return written;
+                        }
+                        throw reading.failure();
+                    }
+                    long point = reading.consistentPoint();
+                    while (taken < maxRecords) {
+                        CdcTransaction.Change row = reading.peek();
+                        if (row == null) {
+                            break;
+                        }
+                        CdcOffset.Snapshot reached = position.snapshot();
+                        written += deliver(sink, row, "snapshot@" + row.key());
+                        reading.take();
+                        taken++;
+                        position = new CdcOffset(point, 0L, 0L, new CdcOffset.Snapshot(reached.rows() + 1, row.key()));
+                    }
+                    if (reading.finished()) {
+                        // The whole table is in the engine, as of the point: from here, the stream.
+                        position = CdcOffset.at(point);
+                        snapshot = null;
+                        reading.close();
+                        continue;
+                    }
+                    if (position.lsn() < point) {
+                        // At the point, with nothing of the snapshot delivered yet: an empty poll
+                        // still leaves a position the next one can resume from.
+                        position = new CdcOffset(point, 0L, 0L, position.snapshot());
+                    }
+                    return written;
+                }
+            }
             if (head == null) {
                 break;
             }
@@ -85,7 +175,7 @@ final class PostgresCdcReader implements PartitionReader {
             }
             int remaining = head.size() - headTaken;
             if (remaining == 0) {
-                position = CdcOffset.at(head.endLsn());
+                position = CdcOffset.at(head.endLsn()).withSnapshot(position.snapshot());
                 stream.remove(0);
                 headTaken = 0;
                 continue;
@@ -96,7 +186,7 @@ final class PostgresCdcReader implements PartitionReader {
                 taken += remaining;
                 stream.remove(remaining);
                 headTaken = 0;
-                position = CdcOffset.at(head.endLsn());
+                position = CdcOffset.at(head.endLsn()).withSnapshot(position.snapshot());
                 continue;
             }
             if (taken == 0 && remaining > largestOffered) {
@@ -104,7 +194,8 @@ final class PostgresCdcReader implements PartitionReader {
                 written += deliver(sink, head, headTaken, room);
                 stream.consumed(room);
                 headTaken += room;
-                position = new CdcOffset(position.lsn(), head.endLsn(), (long) head.alreadyDelivered() + headTaken);
+                position = new CdcOffset(
+                        position.lsn(), head.endLsn(), (long) head.alreadyDelivered() + headTaken, position.snapshot());
             }
             break;
         }
@@ -114,37 +205,54 @@ final class PostgresCdcReader implements PartitionReader {
         return written;
     }
 
+    /**
+     * With a snapshot waiting on the stream to reach its point and nothing queued, asks for a
+     * marker: on a quiet table with the heartbeat off, nothing else would ever arrive to say the
+     * point has been passed.
+     */
+    private void askForMarker() {
+        long now = System.nanoTime();
+        if (now - markerAskedAt > 1_000_000_000L) {
+            markerAskedAt = now;
+            stream.requestMarker();
+        }
+    }
+
     private int deliver(RecordSink sink, CdcTransaction transaction, int from, int count) {
         int written = 0;
         for (int index = from; index < from + count; index++) {
-            CdcTransaction.Change change = transaction.changes().get(index);
-            if (change.rejected() != null) {
-                String at = CdcOffset.format(transaction.endLsn()) + "#" + (transaction.alreadyDelivered() + index);
-                if (!sink.reject(change.raw(), at, change.rejected())) {
-                    throw new PravahaException(
-                            CdcErrors.UNREPRESENTABLE_CHANGE,
-                            "a change in the transaction ending at " + at + " cannot be read: " + change.rejected()
-                                    + ". Configure a dead-letter queue to set such rows aside, or fix the value.");
-                }
-                continue;
-            }
-            RowWriter writer = sink.beginRow();
-            try {
-                Object[] values = change.values();
-                for (int field = 0; field < values.length; field++) {
-                    PgValues.write(writer, field, schema.field(field).type(), values[field]);
-                }
-                writer.weight(change.weight())
-                        .eventTimestampNanos(change.eventTimeNanos())
-                        .sequence(sequence++)
-                        .commit();
-            } catch (RuntimeException e) {
-                writer.abort();
-                throw e;
-            }
-            written++;
+            int at = transaction.alreadyDelivered() + index;
+            written +=
+                    deliver(sink, transaction.changes().get(index), CdcOffset.format(transaction.endLsn()) + "#" + at);
         }
         return written;
+    }
+
+    private int deliver(RecordSink sink, CdcTransaction.Change change, String at) {
+        if (change.rejected() != null) {
+            if (!sink.reject(change.raw(), at, change.rejected())) {
+                throw new PravahaException(
+                        CdcErrors.UNREPRESENTABLE_CHANGE,
+                        "a change at " + at + " cannot be read: " + change.rejected()
+                                + ". Configure a dead-letter queue to set such rows aside, or fix the value.");
+            }
+            return 0;
+        }
+        RowWriter writer = sink.beginRow();
+        try {
+            Object[] values = change.values();
+            for (int field = 0; field < values.length; field++) {
+                PgValues.write(writer, field, schema.field(field).type(), values[field]);
+            }
+            writer.weight(change.weight())
+                    .eventTimestampNanos(change.eventTimeNanos())
+                    .sequence(sequence++)
+                    .commit();
+        } catch (RuntimeException e) {
+            writer.abort();
+            throw e;
+        }
+        return 1;
     }
 
     @Override
@@ -173,6 +281,25 @@ final class PostgresCdcReader implements PartitionReader {
         return stream;
     }
 
+    /** The unfinished initial snapshot, or null. For tests of its memory bound. */
+    InitialSnapshot snapshot() {
+        return snapshot;
+    }
+
+    /** How far an unfinished initial snapshot has got, for health; empty when there is none. */
+    String snapshotProgress() {
+        CdcOffset.Snapshot reached = position.snapshot();
+        if (reached == null) {
+            return "";
+        }
+        InitialSnapshot reading = snapshot;
+        String of = snapshotEstimate > 0 ? " of about " + snapshotEstimate : "";
+        String failed = reading != null && reading.failure() != null
+                ? " -- stopped: " + reading.failure().getMessage()
+                : "";
+        return "initial snapshot in progress: " + reached.rows() + " rows delivered" + of + failed;
+    }
+
     @Override
     public void pause() {
         paused = true;
@@ -188,6 +315,13 @@ final class PostgresCdcReader implements PartitionReader {
         if (!closed) {
             closed = true;
             stream.close();
+            InitialSnapshot reading = snapshot;
+            if (reading != null) {
+                reading.close();
+            }
+            if (catchUp != null) {
+                catchUp.close();
+            }
         }
     }
 }

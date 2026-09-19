@@ -38,6 +38,11 @@ import com.ash.messaging.pravaha.api.plugin.PluginTls;
  * @param bufferRows how many decoded rows may wait for the engine before the reader stops reading
  * @param startTimeout how long opening a reader waits to have read the log as far as it stood
  * @param lagWarnBytes retained WAL past which the source reports itself degraded
+ * @param snapshotInitial whether a registration starting from nothing first reads the rows already in
+ *     the table ({@code snapshot.mode: initial}) or only changes made after its slot ({@code never},
+ *     the default -- see {@link InitialSnapshot})
+ * @param snapshotChunkRows how many rows one snapshot query reads, and so roughly how many are held
+ *     in memory at once
  */
 record CdcOptions(
         String instanceName,
@@ -58,7 +63,9 @@ record CdcOptions(
         int bufferRows,
         Duration startTimeout,
         long lagWarnBytes,
-        boolean dropSlotOnClose) {
+        boolean dropSlotOnClose,
+        boolean snapshotInitial,
+        int snapshotChunkRows) {
 
     /** PostgreSQL's own rule for a slot name, applied to publications too so both need no quoting. */
     private static final Pattern NAME = Pattern.compile("[a-z0-9_]{1,63}");
@@ -102,6 +109,17 @@ record CdcOptions(
                     "status.interval must be positive: PostgreSQL ends a replication connection "
                             + "that stops reporting (wal_sender_timeout, 60s by default).");
         }
+        String mode = context.get("snapshot.mode", "never").strip().toLowerCase(Locale.ROOT);
+        if (!mode.equals("never") && !mode.equals("initial")) {
+            throw bad(
+                    instance,
+                    "snapshot.mode must be 'initial' (read the rows already in the table, then stream "
+                            + "changes) or 'never' (changes after the slot was created only), got '" + mode + "'");
+        }
+        int chunkRows = integer(instance, context, "snapshot.chunk.rows", 10_000);
+        if (chunkRows < 1) {
+            throw bad(instance, "snapshot.chunk.rows must be at least 1, got " + chunkRows);
+        }
         return new CdcOptions(
                 instance,
                 url,
@@ -121,7 +139,9 @@ record CdcOptions(
                 bufferRows,
                 duration(instance, context, "start.timeout", Duration.ofSeconds(30)),
                 lagWarn,
-                bool(instance, context, "drop.slot.on.close", false));
+                bool(instance, context, "drop.slot.on.close", false),
+                mode.equals("initial"),
+                chunkRows);
     }
 
     /** The table as the operator wrote it, for messages and for statements an operator will paste. */
