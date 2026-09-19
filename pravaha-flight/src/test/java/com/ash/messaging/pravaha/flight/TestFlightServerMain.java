@@ -65,6 +65,61 @@ public final class TestFlightServerMain {
      * what lets a client in another language see a retraction, which is otherwise unreachable from
      * outside the engine.
      */
+    /**
+     * FEED-1, for a client in another language: a query registered under a name starting {@code
+     * stalled_} gets a feed whose source has already stopped with {@code PRV-5040} at {@code
+     * trade#0}, so an SDK's listing can be checked against a real server. Every other name has no
+     * feed of its own and is fed by {@link #startFeeding}, as before.
+     */
+    private static com.ash.messaging.pravaha.registry.SourceFeed stalledFeeds(
+            String name,
+            com.ash.messaging.pravaha.runtime.exec.QueryExecution execution,
+            List<String> streams,
+            Runnable afterDelivery,
+            Map<String, String> resumeFrom) {
+        if (!name.startsWith("stalled_")) {
+            return com.ash.messaging.pravaha.registry.SourceFeed.NONE;
+        }
+        com.ash.messaging.pravaha.registry.FeedStatus status = com.ash.messaging.pravaha.registry.FeedStatus.of(
+                "reading trade (1 partition)",
+                List.of(new com.ash.messaging.pravaha.registry.FeedStatus.Source(
+                        "trade",
+                        0,
+                        false,
+                        com.ash.messaging.pravaha.registry.FeedStatus.SourceState.STOPPED,
+                        new com.ash.messaging.pravaha.registry.FeedStatus.Stop(
+                                new com.ash.messaging.pravaha.api.PravahaException(
+                                        new com.ash.messaging.pravaha.api.ErrorCode(5040, "FILESYSTEM_DECODE_FAILED"),
+                                        "line 3: 'abc' is not an INT64"),
+                                java.time.Instant.parse("2026-09-19T08:00:00Z"),
+                                true))));
+        return new com.ash.messaging.pravaha.registry.SourceFeed() {
+            @Override
+            public com.ash.messaging.pravaha.registry.FeedStatus status() {
+                return status;
+            }
+
+            @Override
+            public String describe() {
+                return status.description();
+            }
+
+            @Override
+            public void pause() {}
+
+            @Override
+            public void resume() {}
+
+            @Override
+            public long rowsFed() {
+                return 0;
+            }
+
+            @Override
+            public void close() {}
+        };
+    }
+
     private static void startFeeding(QueryRegistry registry, StreamSchema schema, java.nio.file.Path feedFile) {
         Thread feeder = new Thread(
                 () -> {
@@ -185,7 +240,8 @@ public final class TestFlightServerMain {
                                 "tier = '" + principal.claim("tier").orElse("none") + "'")
                         : AccessDecision.deny("only analysts read " + viewName)
                 : SecurityPolicy.PERMISSIVE;
-        QueryRegistry registry = new QueryRegistry(catalog, policy, AuditSink.NONE, tradeSchema);
+        QueryRegistry registry = new QueryRegistry(catalog, policy, AuditSink.NONE, tradeSchema)
+                .feedingFrom(TestFlightServerMain::stalledFeeds);
 
         PravahaFlightServer configured = new PravahaFlightServer(catalog).hosting(registry);
         if (authenticated) {

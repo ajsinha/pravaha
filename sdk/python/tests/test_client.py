@@ -291,6 +291,33 @@ def test_a_continuous_query_can_be_registered_and_listed(client):
         client.drop("py_feed")
 
 
+def test_a_healthy_query_has_no_stopped_source(client):
+    client.register("py_fed", TRADE_SQL, [0])
+    try:
+        listed = [q for q in client.queries() if q.name == "py_fed"][0]
+        # Nothing of the server's own is bound to this query: the fixture pushes its rows.
+        assert listed.feed == "NONE"
+        assert not listed.is_source_stopped
+        assert listed.feed_stop is None
+    finally:
+        client.drop("py_fed")
+
+
+def test_a_stopped_source_is_listed_with_its_code_where_and_when(client):
+    # The fixture server stops the feed of any query named stalled_* with PRV-5040 (FEED-1).
+    client.register("stalled_py", TRADE_SQL, [0])
+    try:
+        listed = [q for q in client.queries() if q.name == "stalled_py"][0]
+        assert listed.state == "RUNNING" and listed.is_running
+        assert listed.feed == "STOPPED" and listed.is_source_stopped
+        assert listed.feed_stop.code == "PRV-5040"
+        assert listed.feed_stop.message.endswith("line 3: 'abc' is not an INT64")
+        assert listed.feed_stop.where == "trade#0"
+        assert listed.feed_stop.at == "2026-09-19T08:00:00Z"
+    finally:
+        client.drop("stalled_py")
+
+
 def test_a_retention_chosen_at_registration_is_listed_with_the_key(client):
     client.register("py_hourly", TRADE_SQL, [0, 1], retention="PT1H")
     try:

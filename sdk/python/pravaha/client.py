@@ -524,7 +524,8 @@ class Client:
                 rows_in = 0
             # Fields 5-7 were added after the first five and trail them, so a server that
             # predates them sends five and these read as "unknown": an empty key, no sink,
-            # no retention.
+            # no retention. 8-12 are the feed (FEED-1), trailing for the same reason.
+            code = _at(row, 9)
             out.append(
                 RegisteredQuery(
                     name=_at(row, 0),
@@ -535,6 +536,9 @@ class Client:
                     key_columns=_ordinals(_at(row, 5)),
                     sink=_at(row, 6) or None,
                     retention=_at(row, 7) or None,
+                    feed=_at(row, 8) or None,
+                    feed_stop=(FeedStop(code=code, message=_at(row, 10), where=_at(row, 11),
+                                        at=_at(row, 12)) if code else None),
                 )
             )
         return out
@@ -712,7 +716,8 @@ class Client:
     def describe_queries(self) -> "list[dict]":
         """Every registered query this principal may see, described in full: keys by name and
         ordinal, retention, sink and whether it is still attached, rows in, the other names
-        sharing the computation. Visibility is exactly :meth:`queries`'s. ``GET /api/v1/queries``."""
+        sharing the computation, and ``feed`` -- each source partition's state and, for one
+        that stopped, its ``failure`` (code, message, help URL) and ``stoppedAt``. Visibility is exactly :meth:`queries`'s. ``GET /api/v1/queries``."""
         return list(self._http().get("/api/v1/queries") or [])
 
     def describe_query(self, name: str) -> dict:
@@ -918,6 +923,22 @@ def _segment(name: str) -> str:
 
 
 @dataclass(frozen=True)
+class FeedStop:
+    """Why a registered query's source stopped (FEED-1).
+
+    A source that fails mid-read is not retried: the query stays ``RUNNING`` and its view
+    answers at the frontier it reached. ``code`` is ``PRV-5092`` or the source's own;
+    ``message`` is what it said, or a note that the server withheld it from a row-filtered
+    caller; ``where`` is ``stream#partition``; ``at`` is when, ISO-8601.
+    """
+
+    code: str
+    message: str = ""
+    where: str = ""
+    at: str = ""
+
+
+@dataclass(frozen=True)
 class RegisteredQuery:
     """What a server says about one registered continuous query."""
 
@@ -933,10 +954,20 @@ class RegisteredQuery:
     sink: Optional[str] = None
     #: How much event time the view keeps (ISO-8601, or ``"forever"``); ``None`` if unknown.
     retention: Optional[str] = None
+    #: Whether rows still reach it: ``RUNNING``, ``PAUSED``, ``STOPPED`` (a source failed and is
+    #: not retried) or ``NONE`` (nothing bound); ``None`` from a server that predates it.
+    feed: Optional[str] = None
+    #: Why the first stopped source stopped, or ``None`` while every source reads.
+    feed_stop: Optional[FeedStop] = None
 
     @property
     def is_running(self) -> bool:
         return self.state == "RUNNING"
+
+    @property
+    def is_source_stopped(self) -> bool:
+        """``RUNNING`` and not moving: a source stopped mid-read. :attr:`feed_stop` says why."""
+        return self.feed == "STOPPED"
 
     def __str__(self) -> str:
         return f"{self.name} [{self.state}, {self.fingerprint}, {self.rows_in} rows]"
