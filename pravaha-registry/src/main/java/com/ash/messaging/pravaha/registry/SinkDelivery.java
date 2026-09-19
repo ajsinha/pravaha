@@ -366,21 +366,48 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * at least once, whatever the sink could do with them.
      */
     String guarantee() {
+        return label(transactional, idempotent, checkpointed)
+                        .toLowerCase(java.util.Locale.ROOT)
+                        .replace('_', '-') + ": " + why();
+    }
+
+    /**
+     * The guarantee in one word, as a listing shows it: {@code EXACTLY_ONCE}, {@code
+     * EFFECTIVELY_ONCE} or {@code AT_LEAST_ONCE}. The SPI's {@code SinkCapabilities.guarantee()}
+     * cannot say this -- it calls idempotent upsert exactly once and knows nothing of checkpoints
+     * (HLP-4) -- so anything reporting a sink's guarantee asks here.
+     */
+    static String label(boolean transactional, boolean idempotent, boolean checkpointed) {
         if (transactional && checkpointed) {
-            return "exactly-once: the sink is transactional, so what is written between checkpoints is "
+            return "EXACTLY_ONCE";
+        }
+        if (idempotent) {
+            // Transactional without checkpoints lands here too: each commit is its own transaction
+            // and a restart repeats it, but an upsert repeated rewrites the values already there.
+            return "EFFECTIVELY_ONCE";
+        }
+        return "AT_LEAST_ONCE";
+    }
+
+    private String why() {
+        if (transactional && checkpointed) {
+            return "the sink is transactional, so what is written between checkpoints is "
                     + "prepared at each checkpoint's cut, recorded in the checkpoint, and committed once the "
                     + "checkpoint is durable";
         }
         if (transactional) {
-            return "at-least-once: the sink is transactional, but this query takes no checkpoints "
+            return "the sink is transactional, but this query takes no checkpoints "
                     + "(pravaha.checkpoint.directory is unset), so each commit is its own transaction and a "
-                    + "restart delivers again";
+                    + "restart delivers again"
+                    + (idempotent
+                            ? "; the sink upserts idempotently, so the repeat rewrites the values already there"
+                            : "");
         }
         if (idempotent) {
-            return "effectively-once: the sink upserts idempotently, so what a restart delivers again "
+            return "the sink upserts idempotently, so what a restart delivers again "
                     + "rewrites records with the values they already hold";
         }
-        return "at-least-once: the sink appends and is not transactional, so a restart delivers again what "
+        return "the sink appends and is not transactional, so a restart delivers again what "
                 + "was written after the last checkpoint; a view commit carries no sequence to "
                 + "deduplicate the repeat on";
     }

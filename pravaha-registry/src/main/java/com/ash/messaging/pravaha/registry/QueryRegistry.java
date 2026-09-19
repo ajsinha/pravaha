@@ -748,6 +748,16 @@ public final class QueryRegistry implements AutoCloseable {
         return java.util.Optional.ofNullable(deliveries.get(queryName)).map(SinkDelivery::guarantee);
     }
 
+    /**
+     * What a sink with these capabilities would be promised on this registry, in one word: {@code
+     * EXACTLY_ONCE}, {@code EFFECTIVELY_ONCE} or {@code AT_LEAST_ONCE} (HLP-4). What the sink
+     * listing shows, and the same decision the registration log states.
+     */
+    public String sinkGuaranteeFor(com.ash.messaging.pravaha.api.plugin.SinkCapabilities capabilities) {
+        return SinkDelivery.label(
+                capabilities.transactional(), capabilities.idempotentUpsert(), checkpointRoot != null);
+    }
+
     private SinkDelivery openDelivery(String name, String sinkName, StreamSchema schema) {
         SinkFactory factory = sinks;
         return new SinkDelivery(name, sinkName, factory.open(sinkName), schema, access, factory::release);

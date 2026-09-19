@@ -907,10 +907,14 @@ What an operator should know about that delivery:
   | Sink declares | Guarantee | Why |
   |---|---|---|
   | `transactional` (`jdbc-sink`, `kafka-sink`), and `pravaha.checkpoint.directory` is set | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | Writes between checkpoints go into a transaction, prepared at each checkpoint's cut and recorded in the checkpoint, committed once the checkpoint is durable. A restore commits what the checkpoint recorded and has the sink abandon the rest, which the replay writes again |
-  | `transactional`, no checkpoint directory | at least once | Nothing to tie a transaction to, so each commit is its own |
+  | `transactional`, no checkpoint directory | at least once; effectively once when it also upserts (`jdbc-sink` and `kafka-sink` in their default `upsert` mode) | Nothing to tie a transaction to, so each commit is its own, and a restart repeats it; an upsert repeated rewrites the values already there |
   | `idempotentUpsert` (`aerospike-sink`) | effectively once | The replay rewrites records with the values they already hold |
   | neither (`filesystem`) | at least once | Expect duplicates in the file after a restart: the rows written after the last checkpoint are written again below them. A view commit carries no sequence a replay would repeat, so there is nothing to deduplicate on |
 
+  `GET /api/v1/sinks` reports the same decision for each bound sink, as `EXACTLY_ONCE`,
+  `EFFECTIVELY_ONCE` or `AT_LEAST_ONCE` for this node; until HLP-4 it showed the plugin's own
+  claim, which calls an idempotent upsert exactly once and cannot know whether the node checkpoints,
+  so `aerospike-sink` and an uncheckpointed `jdbc-sink` were both listed `EXACTLY_ONCE`.
   `jdbc-sink` and `kafka-sink` are transactional by default (`transactional: false` makes them
   idempotent upsert, or a plain append or changelog); `aerospike-sink` and `filesystem` are not. The source caps it too: one that cannot
   rewind to a checkpoint's offsets is at least once end to end.

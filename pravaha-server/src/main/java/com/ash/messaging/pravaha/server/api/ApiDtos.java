@@ -214,7 +214,9 @@ public final class ApiDtos {
      * @param emitModes what it accepts: {@code APPEND}, {@code UPSERT}, {@code RETRACT}
      * @param acceptsRetractions whether a query that revises its answer may write to it; a revising
      *     query pointed at a sink that cannot take a retraction is refused with {@code PRV-2041}
-     * @param guarantee the strongest delivery it can support
+     * @param guarantee what a query writing to it is promised on this node: {@code EXACTLY_ONCE}
+     *     (transactional, and the node checkpoints), {@code EFFECTIVELY_ONCE} (idempotent upsert) or
+     *     {@code AT_LEAST_ONCE}; the same decision the registration log states
      * @param writers the registered queries writing to it that this caller may see
      * @param problem why it could not be described, when its plugin refused its configuration; the
      *     plugin's own text is not repeated, because it can quote the options

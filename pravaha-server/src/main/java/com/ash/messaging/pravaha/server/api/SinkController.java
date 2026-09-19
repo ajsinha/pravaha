@@ -126,7 +126,11 @@ public class SinkController {
                 capabilities.emitModes().stream().map(Enum::name).sorted().toList(),
                 // The question PRV-2041 asks: can this sink take a query that revises its answer?
                 capabilities.accepts(EmitMode.UPSERT) || capabilities.accepts(EmitMode.RETRACT),
-                capabilities.guarantee().name(),
+                // What this node would give, not the SPI's best case: capabilities.guarantee() calls
+                // idempotent upsert exactly once and cannot know whether the node checkpoints (HLP-4).
+                registry.registry()
+                        .map(r -> r.sinkGuaranteeFor(capabilities))
+                        .orElse(capabilities.guarantee().name()),
                 List.copyOf(writers),
                 null);
     }
