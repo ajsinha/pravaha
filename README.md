@@ -169,10 +169,13 @@ corrected by late data arrives as a retraction of the old answer followed by the
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
   views, live results, operations, a plugins screen built on the engine's manifest listing, and
   admin screens for access and the audit trail are built, and a headless-Chrome suite holds zero axe
-  violations, light/dark visual baselines, the measurable §23.15 budgets and two of the eight
-  journeys. Not done: the manual WCAG 2.2 AA audit, density baselines, the other six journeys and
-  Storybook; the time-travel debugger, backfill and cutover control, cluster screens, tenants and
-  quotas, and editing grants (the engine is not where grants live).
+  violations, visual baselines in light and dark at both densities, the measurable §23.15 budgets,
+  and all eight journeys — two end to end, six as far as the engine goes, each stopping where an
+  engine feature is missing. A component gallery the console renders itself stands in for
+  Storybook, which is not adopted (it needs Node). Not done: the manual WCAG 2.2 AA audit, the
+  eight-states audit screen by screen, and the engine features the six journeys wait on — the
+  time-travel debugger, a readable DLQ, backfill and cutover control, backpressure sampling — plus
+  cluster screens, tenants and quotas, and editing grants (the engine is not where grants live).
 
 ## Performance: what is measured, and what cannot be here
 

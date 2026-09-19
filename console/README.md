@@ -50,6 +50,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 | `ui.query_row_limit` | — | `500` | Rows a one-off query or a point query returns to a browser. |
 | `ui.lag_warn_seconds` | — | `300` | A watermark further behind than this is a finding on the operations dashboard. |
 | `ui.page_size` | — | `25` | Rows per page in the query list. |
+| `ui.component_gallery` | `CONSOLE_COMPONENT_GALLERY` | `false` | Serves `/_components`, the component gallery (below). A development aid: off, the route is a 404. |
 | `ui.language` | `CONSOLE_LANGUAGE` | `en` | The UI string catalog, `web/i18n/<language>.json`. Only `en` exists; an unknown language falls back to it. |
 | `logging.level` | `LOG_LEVEL` | `INFO` | |
 
@@ -83,7 +84,15 @@ needs it to load and tell them what is wrong.
 | `/help/decisions/{nnn-…}` | everyone, unauthenticated | One architecture decision record, rendered in place; `/help/decisions` is the index |
 | `/about` | everyone, unauthenticated | What Pravaha is and the problem it solves, how it works (a theme-aware diagram), what is built and what is not (read from the README), the measured numbers with where each was measured, the decisions and principles, the worked systems, this installation's console and engine versions, and the author and licence (read from the README and `LICENSE`) |
 
+| `/_components` | whoever changes the look | The component gallery, only where `ui.component_gallery` is set, and behind the sign-in: status chips, verdicts, stat tiles, buttons and a refused one, alerts, a table that follows the density, and the eight states of §23.12, each drawn by the `states.js` function the screens call. Review it in each theme (`t`) and density (`d`). It stands in for Storybook — see the §23.20 table |
+
 **Admin** is in the navigation bar; its screens share a tab strip (Access, Audit trail, Plugins).
+
+**Density.** `d`, or the toolbar button beside the theme, switches between comfortable and
+compact (design §23.4), kept per viewer in `localStorage` like the theme and applied before the
+first paint. Like a theme it is one block of tokens in `base.html` — row height, cell padding,
+cell text, card padding, gutters, section spacing — not a zoom: text stays at reading size and
+no control shrinks below a 24px target.
 
 **Ctrl-K / ⌘K** opens a command palette on every page: jump to any query, view, stream or page,
 pause or resume a query (only the actions its state allows are offered), open a query in the
@@ -217,6 +226,15 @@ of its own on top — a console-side rule would be enforcing nothing, since the 
 holding the data — and renders the engine's refusal as a designed *Not permitted* state. Every read,
 allowed or refused, is on the trail itself.
 
+**The engine's policy decides which actions are offered** (§23.16, "RBAC drives affordances").
+The same `GET /api/v1/me/permissions` answer that Admin · Access shows is read when a page with
+an action renders: a view the policy refuses to administer shows Pause, Resume and Drop disabled
+with the policy's reason on the page, and the palette leaves them out; a refused registration
+disables Register in the workbench and in onboarding, with the reason. A grant made in the
+deployment's identity system shows on the next page load. An engine that does not answer the
+permissions call is an unknown, not a refusal: the controls stay, and the engine — which
+re-checks every action anyway — gives its own answer.
+
 ## What the engine now provides, and what it still does not
 
 Every *needs engine support* box the console used to draw has been replaced by the engine API
@@ -244,7 +262,9 @@ Still open, and said so on the screens rather than drawn as zeroes:
 | Per-operator rows, state and watermarks on the plan | the runtime counts per query, not per operator; the plan endpoint says so (`metricsNote`) |
 | Lane backpressure | the engine does not sample it |
 | Commit-latency percentiles | the engine publishes a count and a total, so the mean is exact and a p99 would be invented |
-| Time-travel debugger (§23.9) | not started: needs a checkpoint-fork and step protocol |
+| Time-travel debugger (§23.9, screen 10) | not started: needs a retained checkpoint forked into an isolated instance with sinks disabled, a step protocol (record, batch, watermark; breakpoints on state), each step's operator state and generated source line, and a fixture export |
+| Dead letters on a query (screen 8) | the engine writes `<query>.dlq` under `pravaha.dlq.directory` and nothing reads it: no API lists, returns or replays a dead letter, and no meter counts them (`DeadLetterRate` is wired to nothing). The help's dead-letters topic says how to read the file |
+| Backfill and blue/green cutover (§23.10, screens 14, 15) | built in `pravaha-backfill` and reachable from no running path: no job to start, throttle or abort, no progress stream, no cutover; `CREATE OR REPLACE` is refused (`PRV-2072`). The storage cluster's latency is not a metric |
 | Live health of a plugin loaded from the classpath | the node holds no long-lived instance of it to ask — each binding configures its own — so `GET /api/v1/plugins` answers `UNKNOWN` with `reported: false`, and the screen says *not reported* |
 | A classpath plugin's setting descriptions | only a plugin registered with the engine carries a manifest `configSchema`; one found by `ServiceLoader` declares none |
 | Per-plugin throughput and errors | no `pravaha_plugin_*` meters |
@@ -260,20 +280,33 @@ DevTools protocol by `tests/cdp.py`, about 350 lines of standard-library Python.
 
 | §23.20 item | Status | Proven by |
 |---|---|---|
-| Every screen implements the eight states of §23.12 | implemented, **not audited** screen by screen | — |
-| Light and dark designed and visually regression-tested; both densities | **light and dark pass**: 28 pages — among them the help index, a topic, a connector topic, help search, the guides browser and About — and the audit trail's *not permitted* state × 2 themes × 2 viewports (1280×800, 390×844), 116 baselines. **Compact density is not photographed.** | `test_browser_visual.py`, `tests/visual/baselines/` |
-| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 32 pages × 2 themes (the help index, a topic, a connector topic, search, the code and guide browsers and About among them) and 8 interaction states (open palette, workbench refusal / plan / register / library / result, live view with changes, the audit trail not permitted, drop dialog, each onboarding step); every token pair checked for contrast in all three themes. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would | `test_browser_accessibility.py`, `test_contrast.py` |
+| Every screen implements the eight states of §23.12 | implemented, **not audited** screen by screen. The eight state components themselves are on the component gallery, audited by axe and photographed in both themes and densities — which found two of them failing WCAG (below) | `test_browser_accessibility.py`, `test_browser_visual.py` |
+| Light and dark designed and visually regression-tested; both densities | **met, for the pages photographed**: 29 pages — among them the help index, a topic, a connector topic, help search, the guides browser, About and the component gallery (whole page) — and the audit trail's *not permitted* state × 2 themes × 2 viewports (1280×800, 390×844) × 2 densities (comfortable, compact), **240 baselines**. Documents included verbatim are not photographed | `test_browser_visual.py`, `tests/visual/baselines/` |
+| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 33 pages × 2 themes and again in compact density (the help index, a topic, a connector topic, search, the code and guide browsers, About and the component gallery among them), and 9 interaction states (open palette, workbench refusal / plan / register / library / result, live view with changes, the audit trail not permitted, controls the policy refuses, drop dialog, each onboarding step); every token pair checked for contrast in all three themes, and again as the stale state draws it. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would | `test_browser_accessibility.py`, `test_contrast.py` |
 | Every workflow completable by keyboard alone | **partly proven**: skip link, tab order and a visible focus ring on every stop, the palette (open, filter, act, Escape returns focus), a point query from sign-in to answer with keys only, the admin persona from sign-in through the audit trail (palette, cursor paging, the filter form) with keys only, the drop dialog (Escape returns focus), the draft tabs (arrows, Home, End, Delete), the help from a word to its full reference (filter, search, open a topic, follow a related one by keyboard, open the guide at its section). Not proven for every workflow: plan-graph node inspection, the register form, onboarding | `test_browser_journeys.py` |
 | Every view deep-linkable; every filter in the URL | implemented (catalog tabs, the queries filter, a view's key and value, workbench `?query=` `?sql=` `?template=` `?panel=`); exercised by the journeys and product tests, **not audited as a whole** | `test_product.py`, `test_browser_journeys.py` |
 | Every destructive action confirmed, audited and reversible where possible | drop is confirmed by the typed name. The engine now serves its audit trail (Admin · Audit), and the product and journey tests read it through the console; **that a drop made from the console appears in it is not asserted end to end** — the real-engine tests reach a Flight-only test server with no HTTP surface | `test_console.py`, `test_product.py` |
 | Every error message names the cause, the fix and a correlation id | cause and code everywhere, fix where one is certain; the correlation id is the console's own — **the engine does not mint one** that travels across its surfaces | — |
 | Every latency chart shows percentiles; no averages | **not met**: the engine publishes a commit-latency count and sum, so the mean is shown and labelled as a mean | — |
-| Stale data visibly stale; partial data visibly partial | implemented (freshness indicator, dimmed stale tail, "sampled — N dropped"); not audited | — |
+| Stale data visibly stale; partial data visibly partial | implemented (freshness indicator, greyed and fenced stale data, "sampled — N dropped"); the states themselves audited on the gallery, the screens not audited | `test_contrast.py` |
 | §23.15 budgets met and gated | **met and gated for what can be measured here** (numbers below). Not measured: a mid-range laptop over a real network, frame times while streaming, memory over hours | `test_browser_performance.py` |
 | Onboarding in under five minutes, with real people | **not measured** — it needs people. The journey itself is automated and passes | `test_browser_journeys.py` |
-| The eight critical journeys on every PR | **2 of 8 automated**: first run to a live view that changes; author, validate, fix, explain, run, register. The other six need engine features that do not exist yet (backpressure sampling, a DLQ, backfill control, blue/green, the time-travel debugger, and a role grant: the console's roles pick a landing, and granting one is not an engine API) | `test_browser_journeys.py` |
+| The eight critical journeys on every PR | **8 of 8 automated; 2 end to end, 6 as far as the engine goes.** End to end: first run to a live view that changes; author, validate, fix, explain, run, register. The other six drive the console as their persona would and stop, with an assertion that the console offers nothing it cannot honour, where an engine feature is missing — table below | `test_browser_journeys.py` |
 | No secret serialised to the browser | met | `test_console.py`, `test_product.py` |
-| Storybook covers every component | **not built**, and not planned in that form: there is no component library to host, and no Node toolchain to run it | — |
+| Storybook covers every component | **not adopted, and replaced**: Storybook is a Node tool, and the console is no-build and air-gapped by decision (§23.3) — there is no Node toolchain and no component library to host. `/_components`, rendered by the console itself (behind `ui.component_gallery` and the sign-in), shows every design-system component and the eight states from the same `states.js` the screens call, and is axe-audited and photographed like a screen. What Storybook also gives and this does not: an interactive knob per prop, and a per-component test runner (§23.18's Vitest has no equivalent without a build) | `test_browser_visual.py`, `test_browser_accessibility.py` |
+
+### The eight journeys, and what each waits on
+
+| §23.18 journey | What the test drives | Waits on (engine) |
+|---|---|---|
+| First-run onboarding → first query | end to end: declare a stream, pick a question, register, watch it change, find it in the catalog and healthy on operations | — |
+| Author, validate, explain, deploy | end to end: type, see the refusal, apply the fix, explain the plan, run, register with a key | — |
+| Diagnose a backpressured query from the dashboard | verdict → finding → the query → its plan with the measured totals → pause, see it paused, resume; asserts the dashboard lists backpressure as not measured and the plan says per-operator numbers are not published | lane backpressure sampling; per-operator rows, state and watermarks (§23.8's edge colour, the bottleneck operator) |
+| Inspect and act on a DLQ record | help search to the dead-letters topic: the setting, the `<query>.dlq` file, reading and decoding one, `PRV-4090`; asserts no page or palette entry offers a dead letter | an API that lists, returns and replays a query's dead letters, and a meter counting them |
+| Start and throttle a backfill | the stream, what feeds it, whether its source can replay (the plugin's capabilities), the queries a reload reaches; asserts nothing offers a backfill | `pravaha-backfill` reachable from a running path, with a job API (start, throttle, pause, abort) and progress over SSE; the storage cluster's latency as a metric |
+| Blue/green update with rollback | open v1 in the workbench, edit it, explain it (no measured totals: they belong to v1's SQL), register v2 beside it, compare the two views with the same point query, roll back by dropping v2 by its typed name, v1 running throughout; asserts nothing offers a cutover | a cutover path (moving a view name or sink from v1 to v2 at an aligned frontier, v1 kept for rollback); `CREATE OR REPLACE` is refused. Console-side and not built: the workbench's SQL and plan diff (§23.7) |
+| Debug a wrong result and export the fixture | point-query the row, filter the live view to its key (the filter reaches the engine's subscription), watch a correction arrive as −1 and +1, see the current row as the sum, open the plan; asserts no debugger or export is offered | the time-travel debugger: checkpoint fork, step protocol, operator state, generated source, fixture export |
+| Grant a role and verify the affordance appears | Access shows the refusal; the query's controls are disabled with the policy's reason and absent from the palette; after the grant, Access says allowed, the controls return and Pause reaches the engine | nothing for what it proves. The grant itself is made where grants live — the deployment's identity system behind `SecurityPolicy` — so the test changes the fake engine's policy; editing grants, tenants and quotas in the console (screens 20, 21) would need an engine API for them |
 
 ### Performance, as measured here (loopback, cold cache, Chrome 153)
 
@@ -306,6 +339,14 @@ are gzipped, except the event streams, which a compressing proxy would otherwise
   skipped from h1 to h3; scrollable code blocks and snippets could not be reached by keyboard;
   the editor's syntax colours came from the data palette (2.7:1 as text); the landing hero put white
   text on the dark theme's light blue; disabled pager links were exposed as enabled.
+- **The query page, the palette, the workbench and onboarding offered actions the engine's
+  policy refused** — Pause, Resume, Drop and Register whatever `GET /api/v1/me/permissions` said,
+  so each failed on click with a 403 (§23.16 says absent or disabled with a reason). Found by the
+  grant-a-role journey; they now follow the policy.
+- **Stale data fell below 4.5:1** — it faded to 55% opacity, every word in it under AA in both
+  themes. It now goes grey (luminance, and so contrast, kept) inside a dashed outline. And the
+  *unauthorized* state hid its reason in a disabled button's title, which nobody can reach. Both
+  found by the component gallery, the first place those states were in front of axe.
 - Arrow keys on the draft tabs could not reach the second draft: the editor took focus back on
   every selection.
 
