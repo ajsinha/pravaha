@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('start.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <div class="accent"></div>
     <p class="kicker mt-2 mb-1">{{ t('start.kicker') }}</p>
-    <h1>{{ t('start.heading') }}</h1>
+    <h1>{{ t('start.heading') }}{{ helplink('start') }}</h1>
   </div>
   <a class="small" href="{{ roles[role].landing }}" id="skip-onboarding">{{ t('start.skip') }}</a>
 </div>
@@ -45,6 +45,6 @@
   </div>
   <p class="small text-muted mt-2">{{ t('start.templates_note') }}</p>
 </div>
-{{ helpcards([('quickstart', t('start.help.quickstart'), t('start.help.quickstart_body')), ('continuous-queries', t('start.help.declaring'), t('start.help.declaring_body')), ('concepts', t('start.help.view'), t('start.help.view_body'))]) }}
+{{ screenhelp('start') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/start.js?v={{ asset_version }}"></script>{% endblock %}

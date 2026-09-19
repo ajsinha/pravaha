@@ -1,41 +1,267 @@
 {% extends "base.html" %}
+{# About Pravaha. Public, like the help.
+
+   Where the repository already states a thing, it is read from there (core/about.py): what is
+   built and what is not (README), the decision summaries (docs/adr/README.md), the legal
+   wording (README "Legal", LICENSE). The measured numbers each carry where and on what they were
+   taken. Nothing about the running node beyond its version and state is shown here. #}
 {% block title %}{{ t('about.title') }} — {{ app_name }}{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
 {% block content %}
-<div class="accent"></div>
-<p class="kicker mt-2 mb-1">{{ t('about.kicker') }}</p>
-<h1>{{ t('about.heading', app=app_name) }}</h1>
-<div class="rule"></div>
-<p class="text-muted" style="max-width:46rem;line-height:1.65">
-  {{ principle }} {{ t('about.lede') }}</p>
-
-{% if topics %}
-<div class="row g-3 mt-2">
-  {% for topic in topics %}
-  <div class="col-md-6 col-lg-4">
-    <a class="card h-100 text-decoration-none" href="/about#{{ topic.slug }}">
-      <div class="card-body">
-        <i class="bi bi-{{ topic.icon }}" style="color:var(--flow)"></i>
-        <div class="serif fw-semibold mt-1">{{ topic.title }}</div>
-        <div class="small text-muted">{{ topic.summary }}</div>
-      </div>
-    </a>
+<div class="about-hero">
+  <div class="accent"></div>
+  <p class="kicker mt-2 mb-1">{{ t('about.kicker') }}</p>
+  <h1>{{ app_name }} <span class="text-muted" lang="sa" style="font-weight:400">· प्रवाह</span></h1>
+  <p class="lede">{{ t('about.lede') }}</p>
+  <div class="d-flex flex-wrap gap-2 mt-3">
+    <a class="btn btn-primary btn-sm px-3" href="/help/topics/start-here">{{ t('about.nav.start') }}</a>
+    <a class="btn btn-outline-secondary btn-sm px-3" href="/help/topics/first-view">{{ t('about.nav.first_view') }}</a>
+    <a class="btn btn-outline-secondary btn-sm px-3" href="/help">{{ t('about.docs.open') }}</a>
+    <a class="btn btn-outline-secondary btn-sm px-3" href="/help/decisions">{{ t('about.nav.decisions') }}</a>
+    <a class="btn btn-outline-secondary btn-sm px-3" href="/tutorials">{{ t('about.nav.tutorials') }}</a>
   </div>
-  {% endfor %}
 </div>
-{% for topic in topics %}
-<div class="card mt-4" id="{{ topic.slug }}"><div class="card-body doc">{{ topic.html|safe }}</div></div>
-{% endfor %}
-{% else %}
-<div class="card"><div class="card-body text-muted small">
-  {{ t('about.empty') }}
-  <span class="mono">content/about/</span>.</div></div>
-{% endif %}
 
-<div class="card mt-4"><div class="card-body py-3 d-flex flex-wrap align-items-center gap-3">
-  <div class="flex-grow-1" style="min-width:18rem">
-    <div class="serif fw-semibold">{{ t('about.docs.title') }}</div>
-    <div class="text-muted small">{{ t('about.docs.body') }} <span class="mono">docs/</span>.</div>
+<nav class="card mt-3" aria-label="{{ t('about.contents') }}"><div class="card-body py-2">
+  <ul class="chip-links mb-0">
+    {% for id, label in [('what', t('about.s.what')), ('problem', t('about.s.problem')), ('how', t('about.s.how')),
+       ('built', t('about.s.built')), ('numbers', t('about.s.numbers')), ('decisions', t('about.s.decisions')),
+       ('principles', t('about.s.principles')), ('uses', t('about.s.uses')), ('stack', t('about.s.stack')),
+       ('name', t('about.s.name')), ('console', t('about.s.console')), ('install', t('about.s.install')),
+       ('author', t('about.s.author'))] %}
+    <li><a href="#{{ id }}">{{ label }}</a></li>
+    {% endfor %}
+  </ul>
+</div></nav>
+
+{# ---------------------------------------------------------------- what it is #}
+<section class="mt-4" id="what" aria-labelledby="h-what">
+  <h2 id="h-what">{{ t('about.s.what') }}</h2>
+  {% if status_line %}<div class="alert alert-info small">{{ status_line|safe }}</div>{% endif %}
+  {% if topics['what-it-is'] %}<div class="card"><div class="card-body doc">{{ topics['what-it-is'].html|safe }}</div></div>{% endif %}
+</section>
+
+<section class="mt-4" id="problem" aria-labelledby="h-problem">
+  <h2 id="h-problem">{{ t('about.s.problem') }}</h2>
+  {% if topics['the-problem'] %}<div class="card"><div class="card-body doc">{{ topics['the-problem'].html|safe }}</div></div>{% endif %}
+</section>
+
+{# ---------------------------------------------------------------- how it works #}
+<section class="mt-4" id="how" aria-labelledby="h-how">
+  <h2 id="h-how">{{ t('about.s.how') }}</h2>
+  <div class="card"><div class="card-body">
+    <svg class="about-diagram" viewBox="0 0 980 380" role="img" aria-labelledby="dg-title dg-desc">
+      <title id="dg-title">{{ t('about.diagram.title') }}</title>
+      <desc id="dg-desc">{{ t('about.diagram.desc') }}</desc>
+      <defs>
+        <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="arrow" d="M0,0 L10,5 L0,10 z"/>
+        </marker>
+      </defs>
+      {# sources #}
+      <rect class="box" x="10" y="40" width="170" height="220" rx="10"/>
+      <text class="lbl" x="95" y="68" text-anchor="middle">Your stores</text>
+      <text class="sub" x="95" y="96" text-anchor="middle">Aerospike</text>
+      <text class="sub" x="95" y="118" text-anchor="middle">Cassandra</text>
+      <text class="sub" x="95" y="140" text-anchor="middle">PostgreSQL · any JDBC</text>
+      <text class="sub" x="95" y="162" text-anchor="middle">Delta Lake</text>
+      <text class="sub" x="95" y="184" text-anchor="middle">files · feed directories</text>
+      <text class="sub" x="95" y="226" text-anchor="middle">polled, scanned or followed</text>
+      <text class="sub" x="95" y="244" text-anchor="middle">filters pushed down</text>
+      {# streams #}
+      <path class="edge" d="M180 150 H222" marker-end="url(#arrowhead)"/>
+      <rect class="box" x="226" y="95" width="140" height="110" rx="10"/>
+      <text class="lbl" x="296" y="125" text-anchor="middle">Streams</text>
+      <text class="sub" x="296" y="148" text-anchor="middle">typed schema</text>
+      <text class="sub" x="296" y="166" text-anchor="middle">event-time column</text>
+      <text class="sub" x="296" y="184" text-anchor="middle">out-of-orderness</text>
+      {# the query #}
+      <path class="edge" d="M366 150 H408" marker-end="url(#arrowhead)"/>
+      <rect class="box core" x="412" y="40" width="230" height="220" rx="12"/>
+      <text class="lbl" x="527" y="68" text-anchor="middle">Continuous query</text>
+      <text class="sub" x="527" y="92" text-anchor="middle">registered once, by name</text>
+      <text class="sub" x="527" y="120" text-anchor="middle">Calcite plans · Pravaha runs</text>
+      <text class="sub" x="527" y="140" text-anchor="middle">generated code on a lane</text>
+      <text class="sub" x="527" y="168" text-anchor="middle">every change a Z-set delta:</text>
+      <text class="sub" x="527" y="186" text-anchor="middle">+1 inserted · −1 retracted</text>
+      <text class="sub" x="527" y="214" text-anchor="middle">watermarks close windows;</text>
+      <text class="sub" x="527" y="232" text-anchor="middle">late rows correct them</text>
+      {# the view #}
+      <path class="edge" d="M642 150 H684" marker-end="url(#arrowhead)"/>
+      <rect class="box" x="688" y="95" width="120" height="110" rx="10"/>
+      <text class="lbl" x="748" y="125" text-anchor="middle">View</text>
+      <text class="sub" x="748" y="148" text-anchor="middle">maintained</text>
+      <text class="sub" x="748" y="166" text-anchor="middle">keyed · retained</text>
+      <text class="sub" x="748" y="184" text-anchor="middle">shared by fingerprint</text>
+      {# readers #}
+      <path class="edge" d="M808 130 C840 130 840 70 872 70" marker-end="url(#arrowhead)"/>
+      <path class="edge" d="M808 150 H872" marker-end="url(#arrowhead)"/>
+      <path class="edge" d="M808 170 C840 170 840 230 872 230" marker-end="url(#arrowhead)"/>
+      <rect class="box" x="876" y="42" width="98" height="56" rx="8"/>
+      <text class="lbl" x="925" y="64" text-anchor="middle">Read</text>
+      <text class="sub" x="925" y="84" text-anchor="middle">by key · SQL</text>
+      <rect class="box" x="876" y="122" width="98" height="56" rx="8"/>
+      <text class="lbl" x="925" y="144" text-anchor="middle">Subscribe</text>
+      <text class="sub" x="925" y="164" text-anchor="middle">each commit</text>
+      <rect class="box" x="876" y="202" width="98" height="56" rx="8"/>
+      <text class="lbl" x="925" y="224" text-anchor="middle">Sink</text>
+      <text class="sub" x="925" y="244" text-anchor="middle">JDBC · Aerospike</text>
+      {# durability #}
+      <path class="edge" d="M527 260 V300" marker-end="url(#arrowhead)"/>
+      <path class="edge" d="M748 205 V300" marker-end="url(#arrowhead)"/>
+      <rect class="box" x="412" y="304" width="396" height="62" rx="10"/>
+      <text class="lbl" x="610" y="328" text-anchor="middle">Checkpoints and the registry journal</text>
+      <text class="sub" x="610" y="350" text-anchor="middle">one cut across every input · a restart resumes, it does not replay from scratch</text>
+      <text class="edge-lbl" x="200" y="140" text-anchor="middle">rows</text>
+      <text class="edge-lbl" x="387" y="140" text-anchor="middle">deltas</text>
+      <text class="edge-lbl" x="663" y="140" text-anchor="middle">commit</text>
+    </svg>
+    <ol class="mt-3 mb-0 small" style="line-height:1.7;color:var(--slate)">
+      <li>{{ t('about.how.1') }}</li>
+      <li>{{ t('about.how.2') }}</li>
+      <li>{{ t('about.how.3') }}</li>
+      <li>{{ t('about.how.4') }}</li>
+      <li>{{ t('about.how.5') }}</li>
+    </ol>
+    <p class="small mt-2 mb-0"><a href="/help/topics/zset-weights">{{ t('about.how.more_weights') }} &rarr;</a> ·
+      <a href="/help/architecture">{{ t('about.how.more_architecture') }} &rarr;</a></p>
+  </div></div>
+</section>
+
+{# ---------------------------------------------------------------- what is built #}
+<section class="mt-4" id="built" aria-labelledby="h-built">
+  <h2 id="h-built">{{ t('about.s.built') }}</h2>
+  <p class="text-muted small">{{ t('about.built.lede') }}</p>
+  <div class="row g-3">
+    {% for row in built %}
+    <div class="col-md-6 col-xl-4"><div class="stat">
+      <h3 class="h6 mb-1">{{ row.area }}</h3>
+      <div class="small doc">{{ row.html|safe }}</div>
+    </div></div>
+    {% endfor %}
   </div>
-  <a class="btn btn-sm btn-primary py-1 px-3" href="/help">{{ t('about.docs.open') }}</a>
-</div></div>
+  <details class="card mt-3"><summary class="card-body py-2 fw-semibold">{{ t('about.built.not_built') }}</summary>
+    <div class="card-body pt-0 doc small">{{ not_built|safe }}</div></details>
+</section>
+
+{# ---------------------------------------------------------------- measured #}
+<section class="mt-4" id="numbers" aria-labelledby="h-numbers">
+  <h2 id="h-numbers">{{ t('about.s.numbers') }}</h2>
+  <p class="text-muted small" style="max-width:52rem">{{ t('about.numbers.lede') }}</p>
+  <div class="row g-3">
+    {% for m in measured %}
+    <div class="col-md-6 col-xl-4"><div class="stat">
+      <div class="v">{{ m.value }}</div>
+      <div class="k fw-semibold">{{ m.label }}</div>
+      <p class="small mt-2 mb-0" style="color:var(--slate)">{{ m.caveat }}</p>
+      <div class="where"><strong>{{ t('about.numbers.where') }}</strong> {{ m.where }}<br>
+        <a href="{{ m.href }}">{{ m.source }}</a></div>
+    </div></div>
+    {% endfor %}
+  </div>
+</section>
+
+{# ---------------------------------------------------------------- decisions #}
+<section class="mt-4" id="decisions" aria-labelledby="h-decisions">
+  <h2 id="h-decisions">{{ t('about.s.decisions') }}</h2>
+  <p class="text-muted small">{{ t('about.decisions.lede') }}</p>
+  <div class="row g-2">
+    {% for d in decisions %}
+    <div class="col-md-6">
+      <a class="help-card" href="/help/decisions/{{ d.stem }}">
+        <span class="t"><span class="mono">ADR-{{ d.number }}</span></span>
+        <span class="s">{{ d.summary }}</span>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="small mt-2"><a href="/help/decisions">{{ t('about.decisions.all') }} &rarr;</a></p>
+</section>
+
+{# ---------------------------------------------------------------- principles #}
+<section class="mt-4" id="principles" aria-labelledby="h-principles">
+  <h2 id="h-principles">{{ t('about.s.principles') }}</h2>
+  <div class="row">
+    {% for p in principles %}
+    <div class="col-md-6 col-xl-4"><div class="principle-card">
+      <h3>{{ p.title }}</h3>
+      <p>{{ p.body }} <a href="{{ p.href }}" class="small">{{ p.label }}</a></p>
+    </div></div>
+    {% endfor %}
+  </div>
+</section>
+
+{# ---------------------------------------------------------------- use cases #}
+<section class="mt-4" id="uses" aria-labelledby="h-uses">
+  <h2 id="h-uses">{{ t('about.s.uses') }}</h2>
+  <p class="text-muted small">{{ t('about.uses.lede') }}</p>
+  <div class="row g-3">
+    {% for s in case_studies %}
+    <div class="col-md-6 col-xl-4">
+      <a class="help-card" href="/tutorials/{{ s.slug }}">
+        <span class="t"><i class="bi bi-{{ s.icon }}" aria-hidden="true"></i>{{ s.title }}<span class="badge-help">{{ s.section|upper }}</span></span>
+        <span class="s">{{ s.summary }}</span>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+{# ---------------------------------------------------------------- stack #}
+<section class="mt-4" id="stack" aria-labelledby="h-stack">
+  <h2 id="h-stack">{{ t('about.s.stack') }}</h2>
+  <div class="card"><div class="card-body">
+    <dl class="row mb-0 small">
+      {% for row in how_built %}
+      <dt class="col-md-2">{{ row.area }}</dt><dd class="col-md-10 doc">{{ row.html|safe }}</dd>
+      {% endfor %}
+    </dl>
+  </div></div>
+</section>
+
+{# ---------------------------------------------------------------- the name, the console #}
+<section class="mt-4" id="name" aria-labelledby="h-name">
+  <h2 id="h-name">{{ t('about.s.name') }}</h2>
+  {% if topics['the-name'] %}<div class="card"><div class="card-body doc">{{ topics['the-name'].html|safe }}</div></div>{% endif %}
+</section>
+<section class="mt-4" id="console" aria-labelledby="h-console">
+  <h2 id="h-console">{{ t('about.s.console') }}</h2>
+  {% if topics['this-console'] %}<div class="card"><div class="card-body doc">{{ topics['this-console'].html|safe }}</div></div>{% endif %}
+</section>
+
+{# ---------------------------------------------------------------- this installation #}
+<section class="mt-4" id="install" aria-labelledby="h-install">
+  <h2 id="h-install">{{ t('about.s.install') }}</h2>
+  <div class="card"><div class="card-body">
+    <dl class="row mb-0">
+      <dt class="col-sm-3">{{ t('about.install.console') }}</dt><dd class="col-sm-9 mono">{{ console_version }}</dd>
+      <dt class="col-sm-3">{{ t('about.install.engine') }}</dt>
+      <dd class="col-sm-9" id="engine-status">
+        {% if engine_status.reachable %}
+          <span class="mono">{{ engine_status.version or '—' }}</span>
+          <span class="chip ok ms-2">{{ engine_status.state or '—' }}</span>
+        {% else %}
+          <span class="chip bad">{{ t('shell.engine_down') }}</span>
+          <span class="small text-muted ms-2">{{ t('about.install.engine_down') }}</span>
+        {% endif %}
+      </dd>
+      <dt class="col-sm-3">{{ t('about.install.help') }}</dt>
+      <dd class="col-sm-9">{{ t('about.install.help_count', n=topic_count) }}</dd>
+    </dl>
+  </div></div>
+</section>
+
+{# ---------------------------------------------------------------- author, legal #}
+<section class="mt-4" id="author" aria-labelledby="h-author">
+  <h2 id="h-author">{{ t('about.s.author') }}</h2>
+  <div class="card"><div class="card-body">
+    <p class="mb-1"><strong>Ashutosh Sinha</strong> · <a href="mailto:ajsinha@gmail.com">ajsinha@gmail.com</a></p>
+    <p class="small text-muted">{{ t('about.author.role') }}</p>
+    <div class="legal doc">{{ legal|safe }}</div>
+    {% if licence %}
+    <details class="mt-2"><summary class="small fw-semibold">{{ t('about.author.licence') }}</summary>
+      <pre tabindex="0" class="small mt-2" style="white-space:pre-wrap">{{ licence }}</pre></details>
+    {% endif %}
+  </div></div>
+</section>
 {% endblock %}

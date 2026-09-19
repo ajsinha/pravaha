@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('operations.title') }} — {{ app_name }}{% endblock %}
 {% macro pct(v) %}{% if v is none %}—{% else %}{{ '%.0f'|format(v * 100) }}%{% endif %}{% endmacro %}
 {% macro lag(v) %}{% if v is none %}<span class="text-muted" title="{{ t('operations.no_watermark_title') }}">{{ t('operations.no_watermark') }}</span>{% elif v < 90 %}{{ t('operations.unit.seconds', n='%.0f'|format(v)) }}{% elif v < 5400 %}{{ t('operations.unit.minutes', n='%.0f'|format(v / 60)) }}{% else %}{{ t('operations.unit.hours', n='%.1f'|format(v / 3600)) }}{% endif %}{% endmacro %}
@@ -8,7 +8,7 @@
   <div>
     <div class="accent"></div>
     <p class="kicker mt-2 mb-1">{{ t('operations.kicker') }}</p>
-    <h1>{{ t('operations.heading') }}</h1>
+    <h1>{{ t('operations.heading') }}{{ helplink('operations') }}</h1>
   </div>
   <span class="freshness" id="ops-freshness" data-state="fresh"><span class="dot"></span><span>{{ t('operations.as_of_load') }}</span></span>
 </div>
@@ -109,6 +109,6 @@
 </div>
 </div>
 <script type="application/json" id="ops-initial">{{ snapshot_data|tojson }}</script>
-{{ helpcards([('operations', t('operations.help.operations'), t('operations.help.operations_body')), ('troubleshooting', t('operations.help.troubleshooting'), t('operations.help.troubleshooting_body')), ('execution-model', t('operations.help.execution'), t('operations.help.execution_body'))]) }}
+{{ screenhelp('operations') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/ops.js?v={{ asset_version }}"></script>{% endblock %}

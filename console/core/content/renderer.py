@@ -60,38 +60,98 @@ class MarkdownRenderer:
         "OPERATIONS.md": "/help/operations",
         "SECURITY.md": "/help/security",
         "TROUBLESHOOTING.md": "/help/troubleshooting",
+        "CONNECTOR_TLS.md": "/help/connector-tls",
+        "system_design.md": "/help/system-design",
     }
+
+    #: An ADR, linked as ``adr/043-how-a-continuous-query-names-its-sink.md`` from docs/ or
+    #: as ``043-....md`` from inside docs/adr/, is served at /help/decisions/<its stem>.
+    _ADR = re.compile(r"^(\d{3}-[a-z0-9-]+)\.md$")
+    _CODE = re.compile(r"\bPRV-\d{4}\b")
+    _TAG = re.compile(r"(<[^>]+>)")
+    _GITHUB_RUN = re.compile(r"-{2,}")
 
     _LINK = re.compile(r'(href=")([^"]+)(")')
 
     def render(self, text: str) -> tuple[str, list[dict[str, Any]]]:
         engine = markdown.Markdown(extensions=EXTENSIONS, extension_configs=CONFIG)
-        html = self._relink(engine.convert(text))
+        html = self.link_codes(self._relink(engine.convert(self._brackets(text))))
         # A code block wider than its card scrolls, and a region that scrolls must be reachable
         # by keyboard (WCAG 2.1.1; axe's scrollable-region-focusable), so every <pre> is a tab stop.
         html = html.replace("<pre>", '<pre tabindex="0">')
         return html, self._headings(getattr(engine, "toc_tokens", []))
 
+    @staticmethod
+    def _brackets(text: str) -> str:
+        """``\\<`` and ``\\>`` outside code, as the entities GitHub reads them as.
+
+        The documents write an address as ``\\<ajsinha@gmail.com\\>`` so GitHub does not take it
+        for a tag; Python-Markdown does not treat ``<`` as escapable and printed the backslash.
+        Code blocks are left alone -- there a backslash is the author's.
+        """
+        out, fenced = [], False
+        for line in text.split("\n"):
+            if line.lstrip().startswith(("```", "~~~")):
+                fenced = not fenced
+            elif not fenced and "\\<" in line or not fenced and "\\>" in line:
+                line = line.replace("\\<", "&lt;").replace("\\>", "&gt;")
+            out.append(line)
+        return "\n".join(out)
+
     def _relink(self, html: str) -> str:
         """Points cross-references at the console rather than at files on disk."""
         def fix(match):
             prefix, target, suffix = match.groups()
-            if target.startswith(("http://", "https://", "#", "/", "mailto:")):
+            if target.startswith("#"):
+                # GitHub keeps "--" where a heading had " & " or " — "; the toc extension collapses
+                # it to one hyphen. Written for GitHub, read here: point at the id this page has.
+                return prefix + "#" + self._GITHUB_RUN.sub("-", target[1:]) + suffix
+            if target.startswith(("http://", "https://", "/", "mailto:")):
                 return match.group(0)
             name = target.split("/")[-1]
             anchor = ""
             if "#" in name:
                 name, anchor = name.split("#", 1)
-                anchor = "#" + anchor
+                anchor = "#" + self._GITHUB_RUN.sub("-", anchor)
             route = self.ROUTES.get(name)
             if route:
                 return prefix + route + anchor + suffix
+            adr = self._ADR.match(name)
+            if adr and ("adr/" in target or "/" not in target):
+                return prefix + "/help/decisions/" + adr.group(1) + anchor + suffix
             # A relative link to something the console does not serve -- an ADR,
             # a source file, an example. Left as text rather than pointed at a
             # route that does not exist: a link that 404s is worse than one that
             # does not invite the click.
             return prefix + "#" + suffix
         return self._LINK.sub(fix, html)
+
+    @classmethod
+    def link_codes(cls, html: str) -> str:
+        """Every ``PRV-nnnn`` in running text becomes a link to its page (design 23.4b).
+
+        Not inside a link already, and not inside ``<pre>``: a code sample is copied, and a
+        link in the middle of one is a surprise to whoever selects it.
+        """
+        out: list[str] = []
+        in_link = in_pre = 0
+        for part in cls._TAG.split(html):
+            if part.startswith("<"):
+                tag = part[1:].split(None, 1)[0].rstrip(">").lower() if len(part) > 2 else ""
+                if tag == "a":
+                    in_link += 1
+                elif tag == "/a":
+                    in_link = max(0, in_link - 1)
+                elif tag == "pre":
+                    in_pre += 1
+                elif tag == "/pre":
+                    in_pre = max(0, in_pre - 1)
+                out.append(part)
+            elif in_link or in_pre:
+                out.append(part)
+            else:
+                out.append(cls._CODE.sub(lambda m: f'<a class="prv" href="/help/codes/{m.group(0)}">{m.group(0)}</a>', part))
+        return "".join(out)
 
     def _headings(self, tokens) -> list[dict[str, Any]]:
         """Flatten the nested toc into a list a template can iterate."""

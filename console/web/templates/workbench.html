@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('workbench.title') }} — {{ app_name }}{% endblock %}
 {% block main_class %}container-fluid px-lg-4{% endblock %}
 {% block head %}
@@ -10,7 +10,7 @@
   <div>
     <div class="accent"></div>
     <p class="kicker mt-2 mb-1">{{ t('workbench.kicker') }}</p>
-    <h1>{{ t('workbench.heading') }}</h1>
+    <h1>{{ t('workbench.heading') }}{{ helplink('workbench') }}</h1>
   </div>
   <div class="small text-muted">
     <kbd>Ctrl</kbd>+<kbd>Enter</kbd> {{ t('workbench.keys.run') }} · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> {{ t('workbench.keys.explain') }} ·
@@ -137,6 +137,6 @@
   </section>
 </div>
 <script type="application/json" id="wb-library">{{ library|tojson }}</script>
-{{ helpcards([   ('continuous-queries', t('workbench.help.sql'), t('workbench.help.sql_body')),   ('quickstart', t('workbench.help.quickstart'), t('workbench.help.quickstart_body')),   ('troubleshooting', t('workbench.help.troubleshooting'), t('workbench.help.troubleshooting_body')), ]) }}
+{{ screenhelp('workbench') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/workbench.js?v={{ asset_version }}"></script>{% endblock %}

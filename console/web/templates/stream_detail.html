@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('stream.title', name=stream.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/catalog">&larr; {{ t('stream.back') }}</a></p>
@@ -7,7 +7,7 @@
   <div>
     <div class="accent"></div>
     <p class="kicker mt-2 mb-1">{{ t('stream.kicker') }}</p>
-    <h1 class="mono">{{ stream.name }}</h1>
+    <h1 class="mono">{{ stream.name }}{{ helplink('stream') }}</h1>
   </div>
   <a class="btn btn-sm btn-primary" href="/workbench?template=tumble&amp;stream={{ stream.name }}">{{ t('stream.write_query') }}</a>
 </div>
@@ -45,5 +45,5 @@
     </div></div>
   </div>
 </div>
-{{ helpcards([('continuous-queries', t('stream.help.declaring'), t('stream.help.declaring_body')), ('concepts', t('stream.help.watermarks'), t('stream.help.watermarks_body')), ('connectors', t('stream.help.sources'), t('stream.help.sources_body'))]) }}
+{{ screenhelp('stream') }}
 {% endblock %}

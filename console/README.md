@@ -37,7 +37,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 
 | Setting | Environment variable | Default | What it does |
 |---|---|---|---|
-| `console.password` | `CONSOLE_PASSWORD` | *empty* | **The sign-in gate. Set it or nobody can sign in** — the safe failure, because the console can drop queries and a default password is a public one. Only the landing page, the documentation (including `/help/codes/*`) and the health probes are open, so an operator can open the console during an incident and see what is wrong before they find a password. Every screen and endpoint that names a registered query, reads a view, shows the catalog or reaches the engine needs a session. |
+| `console.password` | `CONSOLE_PASSWORD` | *empty* | **The sign-in gate. Set it or nobody can sign in** — the safe failure, because the console can drop queries and a default password is a public one. Only the landing page, About, the help (topics, guides, search, `/help/codes/*`, decision records) and the health probes are open, so an operator can open the console during an incident and see what is wrong before they find a password. Every screen and endpoint that names a registered query, reads a view, shows the catalog or reaches the engine needs a session. |
 | `console.session_secret` | `CONSOLE_SESSION_SECRET` | *empty* | Signs the session cookie. Set it where sessions should survive a restart. |
 | `server.host` | `CONSOLE_HOST` | `127.0.0.1` | Loopback by default; set `0.0.0.0` only behind something that authenticates. |
 | `server.port` | `CONSOLE_PORT` | `8090` | |
@@ -75,7 +75,13 @@ needs it to load and tell them what is wrong.
 | `/plugins` | operator | Every plugin the node can load, from `GET /api/v1/plugins` (`Client.plugins()`): version, the plugin API it needs and whether this engine can host it, what its code can be (source, sink, lookup), the capabilities it declares, the setting names its manifest declares, and its health — shown as *not reported* where no live instance said so, never as healthy. Its bindings are the engine's, filtered by what this identity may see; the stream catalogue and the sink list add each binding's details (event time, what a sink accepts, who writes to it). A binding naming a plugin that is not on the classpath is *not loaded*, not dropped. What the engine still does not publish is listed on the page. From the account menu, Admin and the palette. |
 | `/admin/access` | admin | What the engine's policy lets the console's identity do (`GET /api/v1/me/permissions`, `Client.permissions()`): register, read the audit trail, and for every view and stream it can see, full or row-filtered reading and whether it may drop, pause or resume. Read-only — the engine is not where grants live, so there is nothing to edit. `/admin` lands here. |
 | `/admin/audit` | admin | The engine's audit trail (`GET /api/v1/audit`, `Client.audit()`), newest first, 50 to a page: filter by principal, view, action, decision and a UTC time window with a plain GET form, page back by the engine's cursor, click a principal or target to filter by it. Every filter and the page are in the URL. When the engine refuses the console's identity, a **Not permitted** state with the engine's reason (and a 403), not an empty table; with `audit: none`, a state that says nothing is recorded. |
-| `/help/codes/{code}` | everyone, unauthenticated | Everything the shipped documentation says about one `PRV` code. The engine's own help URLs name a host that does not exist. |
+| `/help` | everyone, unauthenticated | The help index: a collapsible tile per category, a card per topic, rendered from `core/help_catalog.py`. Typing in the search box filters the cards in place (every word must match a card's title, summary, headings, codes or keywords); Enter searches every page. Works as a plain page without JavaScript |
+| `/help/topics/{slug}` | everyone, unauthenticated | One help topic: options tables, complete worked examples with their output, the pitfalls, and the shared footer — **Full reference** (the long-form guide behind it), the topics it names, the rest of its category, previous and next |
+| `/help/search?q=` | everyone, unauthenticated | Full-text search over every topic and guide, best first (title, then headings, then summary and keywords, then body); a `PRV` code goes straight to its page |
+| `/help/{guide}`, `/help/guides` | everyone, unauthenticated | The long-form guides — `docs/*.md`, the Python SDK's README — rendered in place, and a browser of all of them and the worked systems |
+| `/help/codes`, `/help/codes/{code}` | everyone, unauthenticated | Every `PRV` code the engine can raise, by range, each linking to everything the shipped documentation says about it and to the errors topic for its range. The engine's own help URLs name a host that does not exist |
+| `/help/decisions/{nnn-…}` | everyone, unauthenticated | One architecture decision record, rendered in place; `/help/decisions` is the index |
+| `/about` | everyone, unauthenticated | What Pravaha is and the problem it solves, how it works (a theme-aware diagram), what is built and what is not (read from the README), the measured numbers with where each was measured, the decisions and principles, the worked systems, this installation's console and engine versions, and the author and licence (read from the README and `LICENSE`) |
 
 **Admin** is in the navigation bar; its screens share a tab strip (Access, Audit trail, Plugins).
 
@@ -111,6 +117,9 @@ core/
                          a scrape cache so N viewers cost one scrape a second
   snippets.py            client code per view and key, with each language's quoting
   i18n.py                the UI string catalog: t('key', name=value) in templates and islands
+  help_catalog.py        the help: categories, their extra cards, which topics each screen offers,
+                         the footer, reading order, search
+  about.py               what the About page says, and which document each part is read from
   admin.py               the audit trail and the permissions page, from the engine
   content/               markdown topics, and codes.py for /help/codes/*
 routes/
@@ -130,6 +139,9 @@ web/
   static/vendor/         Bootstrap, Bootstrap Icons, fonts, Monaco, ECharts, elkjs, Preact, htm
   i18n/en.json           every UI string the templates, islands and classic scripts show
 content/
+  topics/                the help topics: front matter (category, order, icon, summary, guide,
+                         related, keywords) and the page, in markdown
+  examples/              the streams and views every SQL example in topics/ is planned against
   help/ tutorials/ about/   front matter plus, usually, an `include:` of a repository document
 tests/
   cdp.py                 a Chrome DevTools Protocol driver over --remote-debugging-pipe, stdlib only
@@ -249,9 +261,9 @@ DevTools protocol by `tests/cdp.py`, about 350 lines of standard-library Python.
 | §23.20 item | Status | Proven by |
 |---|---|---|
 | Every screen implements the eight states of §23.12 | implemented, **not audited** screen by screen | — |
-| Light and dark designed and visually regression-tested; both densities | **light and dark pass**: 23 pages and the audit trail's *not permitted* state × 2 themes × 2 viewports (1280×800, 390×844), 96 baselines. **Compact density is not photographed.** | `test_browser_visual.py`, `tests/visual/baselines/` |
-| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 27 pages × 2 themes and 8 interaction states (open palette, workbench refusal / plan / register / library / result, live view with changes, the audit trail not permitted, drop dialog, each onboarding step); every token pair checked for contrast in all three themes. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would | `test_browser_accessibility.py`, `test_contrast.py` |
-| Every workflow completable by keyboard alone | **partly proven**: skip link, tab order and a visible focus ring on every stop, the palette (open, filter, act, Escape returns focus), a point query from sign-in to answer with keys only, the admin persona from sign-in through the audit trail (palette, cursor paging, the filter form) with keys only, the drop dialog (Escape returns focus), the draft tabs (arrows, Home, End, Delete). Not proven for every workflow: plan-graph node inspection, the register form, onboarding | `test_browser_journeys.py` |
+| Light and dark designed and visually regression-tested; both densities | **light and dark pass**: 28 pages — among them the help index, a topic, a connector topic, help search, the guides browser and About — and the audit trail's *not permitted* state × 2 themes × 2 viewports (1280×800, 390×844), 116 baselines. **Compact density is not photographed.** | `test_browser_visual.py`, `tests/visual/baselines/` |
+| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 32 pages × 2 themes (the help index, a topic, a connector topic, search, the code and guide browsers and About among them) and 8 interaction states (open palette, workbench refusal / plan / register / library / result, live view with changes, the audit trail not permitted, drop dialog, each onboarding step); every token pair checked for contrast in all three themes. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would | `test_browser_accessibility.py`, `test_contrast.py` |
+| Every workflow completable by keyboard alone | **partly proven**: skip link, tab order and a visible focus ring on every stop, the palette (open, filter, act, Escape returns focus), a point query from sign-in to answer with keys only, the admin persona from sign-in through the audit trail (palette, cursor paging, the filter form) with keys only, the drop dialog (Escape returns focus), the draft tabs (arrows, Home, End, Delete), the help from a word to its full reference (filter, search, open a topic, follow a related one by keyboard, open the guide at its section). Not proven for every workflow: plan-graph node inspection, the register form, onboarding | `test_browser_journeys.py` |
 | Every view deep-linkable; every filter in the URL | implemented (catalog tabs, the queries filter, a view's key and value, workbench `?query=` `?sql=` `?template=` `?panel=`); exercised by the journeys and product tests, **not audited as a whole** | `test_product.py`, `test_browser_journeys.py` |
 | Every destructive action confirmed, audited and reversible where possible | drop is confirmed by the typed name. The engine now serves its audit trail (Admin · Audit), and the product and journey tests read it through the console; **that a drop made from the console appears in it is not asserted end to end** — the real-engine tests reach a Flight-only test server with no HTTP surface | `test_console.py`, `test_product.py` |
 | Every error message names the cause, the fix and a correlation id | cause and code everywhere, fix where one is certain; the correlation id is the console's own — **the engine does not mint one** that travels across its surfaces | — |
@@ -319,12 +331,61 @@ Three things are not in the catalog yet:
   (`core/services.py`), the palette's entries and hints, the role labels and blurbs (`ROLES`), and
   a not-found page's "Back to …" label. They are English in code today; moving them means passing
   keys, not sentences, across the service boundary.
-- **Documentation**: help topics, tutorials and the about page are repository documents rendered in
-  place, not UI strings.
+- **Documentation**: help topics, guides, tutorials and the About page's prose are authored English
+  — markdown under `content/`, the repository's own documents, and the README sections About quotes
+  — and stay English. Everything around them is in the catalog: the help index, search, the guides
+  and codes browsers, the topic page's chrome and footer, the contextual help cards, and every
+  heading, label and caption on About (`help.*`, `about.*`). A topic's title and summary are content
+  too, so the contextual cards on a screen show them in English.
 
 Some keys are fragments — a sentence split around inline markup, or prose that keeps its line
 breaks so the rendered page stayed identical — and read oddly out of context; a translator will want
 the template beside the file.
+
+## The help system
+
+Three kinds of help, each with one home, and the index built from them:
+
+- **Topics** — `content/topics/<slug>.md`, one file per topic. A topic registers itself: its front
+  matter names its `category`, `order`, `icon`, `summary`, optional `badge`, `keywords` (extra words
+  the index search matches), `related` topics and its companion `guide`. Nothing lists topics by
+  name, so adding one is adding a file. Each is meant to be enough on its own — an options or
+  settings table, complete worked examples (a whole `pravaha:` binding, the SQL, the CLI, SDK or
+  `psql` call) each followed by the output it produces, and the pitfalls.
+- **Guides** — `content/help/*.md`, each an `include:` of a document in `docs/` (or the Python SDK's
+  README). The long form, rendered in place. A topic's `guide:` (a guide and, optionally, a section
+  anchor) becomes the **Full reference** link in the footer every topic shares; a category supplies
+  the default.
+- **Codes** — `/help/codes/{code}`, gathered from the documents, and `/help/codes`, every code in
+  `TROUBLESHOOTING.md`'s generated table, grouped by range, each range linking to its errors topic.
+
+`core/help_catalog.py` owns the categories and their order, the cards a category carries that are
+not topics (a guide, the code browser), the topics each product screen offers (`SCREEN_HELP`) —
+rendered as the cards at the foot of the screen and the **?** beside its heading — and the search.
+Every `PRV-nnnn` in a rendered page links to its own page, outside code blocks. A relative link to
+an ADR opens it at `/help/decisions/…`.
+
+**How the examples are kept true.** Every ` ```sql ` block in a topic is planned by the real
+engine: `pravaha-it`'s `HelpExamplesSqlTest` — the mechanism `CaseStudySqlTest` uses for the case
+studies, extended — declares the streams and views in `content/examples/*.properties` exactly as a
+node would (the schema grammar, event time, out-of-orderness, lookups) and runs each block through
+the planner and plan builder `POST /api/v1/queries/validate` uses. A `CREATE CONTINUOUS QUERY` is
+recognised as the engine recognises it, its `KEYED BY` resolved against the plan, and the view it
+creates becomes readable by the page's read examples. A comment on the line above a block says what
+else it is: `<!-- sql: read -->` (prepared against the views, the path a point read or a `psql`
+`SELECT` takes), `<!-- sql: refused PRV-2050 -->` (must be refused with exactly that code),
+`<!-- sql: read-refused … -->`, `<!-- sql: parameterised -->` (planned, its placeholders counted).
+Run it with `./mvnw -o -pl pravaha-it -am test -Dtest=HelpExamplesSqlTest`.
+
+`tests/test_help.py` checks the rest: a topic whose category does not exist (a page no card links
+to), a screen, footer or code range naming a topic that does not exist, every topic being a card
+that opens, every internal link on every help page and About resolving — anchors included — every
+code mentioned being a link, every code the engine can raise being explained on its range's page,
+every SQL block being marked, every `pravaha.*` setting a topic names existing in the engine's
+`application.yaml` (commented keys count, as `DocumentationFreshnessTest` counts them) or being
+read by name in its source, every YAML example parsing and every connector option in one being a
+name that plugin's code reads, search ranking and code lookup, and the gate — help and About public,
+nothing secret on them, the screens still behind it.
 
 ## What ADR-039 item 7 changed (2026-09)
 
@@ -354,7 +415,7 @@ Three kinds, and each skips with its reason when what it needs is missing:
 - `tests/test_browser_*.py` run the same application on a loopback port and drive a real headless
   Chrome through it: the journeys, the axe audit, the screenshots and the performance budget. They
   need Chrome or Chromium; `PRAVAHA_CHROME=/path/to/chrome` names one, `PRAVAHA_BROWSER_TESTS=0`
-  (or `make test-fast`) switches them off. About three minutes.
+  (or `make test-fast`) switches them off. About six minutes.
 
 A screenshot that no longer matches fails with the actual image and a diff (changed pixels in red)
 in `tests/visual/failures/`. If the change is intended, look at the diff, then `make baselines` and

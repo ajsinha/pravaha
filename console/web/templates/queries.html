@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% from "_queries_table.html" import rows %}
 {% block title %}{{ t('queries.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="accent"></div>
 <p class="kicker mt-2 mb-1">{{ t('queries.kicker') }}</p>
-<h1>{{ t('queries.heading') }}</h1>
+<h1>{{ t('queries.heading') }}{{ helplink('queries') }}</h1>
 <div class="rule"></div>
 <p class="text-muted">{{ t('queries.lede') }}
   <span class="freshness ms-2" id="freshness"></span></p>
@@ -62,6 +62,6 @@
      href="/queries?search={{ search }}&state={{ state_filter }}&sort={{ sort }}&offset={{ offset + page_size }}">{{ t('queries.next') }}</a>
 </div>
 {% endif %}
-{{ helpcards([   ('user-guide', t('queries.help.registering'), t('queries.help.registering_body')),   ('concepts', t('queries.help.sharing'), t('queries.help.sharing_body')),   ('troubleshooting', t('queries.help.troubleshooting'), t('queries.help.troubleshooting_body')), ]) }}
+{{ screenhelp('queries') }}
 {% endblock %}
 {% block scripts %}<script src="/static/js/queries.js"></script>{% endblock %}

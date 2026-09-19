@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{# One help topic: content/topics/<slug>.md rendered, with its category, its on-page contents,
+   and the shared footer (full reference, related topics, the rest of its category). #}
+{% block title %}{{ topic.title }} — {{ t('help.index.title') }} — {{ app_name }}{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
+{% block content %}
+{% set category = footer.category %}
+<nav class="crumbs" aria-label="{{ t('help.topic.breadcrumb') }}">
+  <a href="/help">{{ t('help.index.title') }}</a>
+  {% if category %} / <a href="/help#cat-{{ category.id }}">{{ category.name }}</a>{% endif %}
+</nav>
+<div class="row g-4">
+  <div class="col-lg-9">
+    <header class="topic-head mb-3">
+      <div class="accent"></div>
+      <p class="kicker mt-2 mb-1">{% if category %}{{ category.name|upper }}{% else %}{{ t('help.index.kicker') }}{% endif %}</p>
+      <h1>{{ topic.title }}</h1>
+      <p class="lede">{{ topic.summary }}</p>
+      {% if topic.meta.badge or topic.audience %}
+      <div class="topic-meta">
+        {% if topic.meta.badge %}<span class="badge-help">{{ topic.meta.badge }}</span>{% endif %}
+        {% if topic.audience %}<span class="chip mute">{{ topic.audience }}</span>{% endif %}
+      </div>
+      {% endif %}
+    </header>
+    <article class="card"><div class="card-body doc">{{ topic.html|safe }}</div></article>
+    {% include "_help_footer.html" %}
+    {% if before or after %}
+    <nav class="pager-topics" aria-label="{{ t('help.topic.reading_order') }}">
+      {% if before %}<a href="{{ before.href }}"><span class="dir">&larr; {{ t('help.topic.previous') }}</span>{{ before.title }}</a>{% else %}<span></span>{% endif %}
+      {% if after %}<a class="next" href="{{ after.href }}"><span class="dir">{{ t('help.topic.next') }} &rarr;</span>{{ after.title }}</a>{% endif %}
+    </nav>
+    {% endif %}
+  </div>
+  <div class="col-lg-3">
+    <div class="toc-side">
+      <form class="help-search mb-3" action="/help/search" method="get" role="search" aria-label="{{ t('help.search.label') }}">
+        <label class="visually-hidden" for="topic-search">{{ t('help.search.label') }}</label>
+        <input id="topic-search" name="q" type="search" placeholder="{{ t('help.search.short') }}">
+      </form>
+      {% if topic.anchors %}
+      <div class="section-label mt-0">{{ t('help.on_this_page') }}</div>
+      <nav class="toc" aria-label="{{ t('help.on_this_page') }}">
+        {% for h in topic.anchors %}<a href="#{{ h.id }}">{{ h.name }}</a>{% endfor %}
+      </nav>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

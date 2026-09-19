@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{# The help index, rendered from core/help_catalog.py: a searchable, collapsible tile per
+   category, a card per topic. Server-rendered and complete without JavaScript -- the search box
+   is a GET form to /help/search; help.js only filters these cards in place as you type. #}
+{% block title %}{{ t('help.index.title') }} — {{ app_name }}{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
+{% block content %}
+<div class="help-hero">
+  <div class="accent"></div>
+  <p class="kicker mt-2 mb-1">{{ t('help.index.kicker') }}</p>
+  <h1>{{ t('help.index.heading') }}</h1>
+  <p class="lede">{{ t('help.index.lede', topics=topic_count, guides=guide_count) }}</p>
+</div>
+
+<div class="help-toolbar">
+  <form class="help-search" action="/help/search" method="get" role="search" aria-label="{{ t('help.search.label') }}">
+    <label class="visually-hidden" for="help-search">{{ t('help.search.label') }}</label>
+    <input id="help-search" name="q" type="search" autocomplete="off"
+           placeholder="{{ t('help.search.placeholder') }}">
+    <button class="btn btn-primary" type="submit">{{ t('help.search.button') }}</button>
+  </form>
+  <nav aria-label="{{ t('help.index.categories') }}">
+    <ul class="cat-chips">
+      {% for entry in index %}{% set c = entry.category %}
+      <li><a href="#cat-{{ c.id }}" data-cat="{{ c.id }}"><i class="bi bi-{{ c.icon }}" aria-hidden="true"></i>{{ c.name }}
+        <span class="n">{{ entry.cards|length }}</span></a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+</div>
+
+{% for entry in index %}{% set c = entry.category %}
+<details class="help-cat" id="cat-{{ c.id }}" open>
+  <summary>
+    <h2><i class="bi bi-{{ c.icon }}" aria-hidden="true"></i>{{ c.name }}</h2>
+    <span class="count">{{ t('help.index.count', n=entry.cards|length) }}</span>
+    <i class="bi bi-chevron-down caret" aria-hidden="true"></i>
+  </summary>
+  <p class="blurb">{{ c.blurb }}</p>
+  <div class="cards"><div class="row g-3">
+    {% for card in entry.cards %}
+    <div class="col-md-6 col-xl-4 help-item"
+         data-search="{{ (card.title ~ ' ' ~ card.summary ~ ' ' ~ card.keywords ~ ' ' ~ c.name)|lower }}">
+      <a class="help-card" href="{{ card.href }}">
+        <span class="t"><i class="bi bi-{{ card.icon }}" aria-hidden="true"></i>{{ card.title }}
+          {% if card.badge %}<span class="badge-help">{{ card.badge }}</span>{% endif %}</span>
+        <span class="s">{{ card.summary }}</span>
+        <span class="go">{% if card.kind == 'guide' %}{{ t('help.index.open_guide') }}{% else %}{{ t('help.index.open_topic') }}{% endif %} &rarr;</span>
+      </a>
+    </div>
+    {% endfor %}
+  </div></div>
+</details>
+{% endfor %}
+
+<div class="help-nohits" id="help-nohits" role="status">
+  {{ t('help.index.no_hits') }} <a href="/help/search" id="help-nohits-search">{{ t('help.index.search_everything') }}</a>
+</div>
+
+<section class="card mt-4 help-quick" aria-labelledby="quick-ref">
+  <div class="card-body">
+    <h2 id="quick-ref" class="h6 mb-3">{{ t('help.quick.heading') }}</h2>
+    <div class="row">
+      <dl class="col-md-4">
+        <dt>{{ t('help.quick.ports') }}</dt>
+        <dd><span class="mono">9090</span> — {{ t('help.quick.port_flight') }}<br>
+            <span class="mono">8080</span> — {{ t('help.quick.port_http') }}<br>
+            <span class="mono">5432</span> — {{ t('help.quick.port_pg') }}<br>
+            <span class="mono">8090</span> — {{ t('help.quick.port_console') }}</dd>
+      </dl>
+      <dl class="col-md-4">
+        <dt>{{ t('help.quick.first') }}</dt>
+        <dd><a href="/help/topics/first-view">{{ t('help.quick.first_view') }}</a><br>
+            <a href="/help/topics/sql-refusals">{{ t('help.quick.refusals') }}</a><br>
+            <a href="/help/codes">{{ t('help.quick.codes') }}</a></dd>
+      </dl>
+      <dl class="col-md-4">
+        <dt>{{ t('help.quick.more') }}</dt>
+        <dd><a href="/help/guides">{{ t('help.quick.guides') }}</a><br>
+            <a href="/tutorials">{{ t('help.quick.tutorials') }}</a><br>
+            <a href="/about">{{ t('help.quick.about') }}</a></dd>
+      </dl>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/help.js?v={{ asset_version }}" defer></script>{% endblock %}

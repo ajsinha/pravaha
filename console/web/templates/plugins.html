@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('plugins.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <div class="accent"></div>
     <p class="kicker mt-2 mb-1">{{ t('plugins.kicker') }}</p>
-    <h1>{{ t('plugins.heading') }}</h1>
+    <h1>{{ t('plugins.heading') }}{{ helplink('plugins') }}</h1>
   </div>
   {% if inventory.node.instance %}
   <div class="small text-muted">{{ t('plugins.node', instance=inventory.node.instance, version=inventory.node.version or '?', state=inventory.node.state or '?') }}</div>
@@ -109,5 +109,5 @@
   <thead><tr><th scope="col">{{ t('plugins.not_exposed.what') }}</th><th scope="col">{{ t('plugins.not_exposed.needs') }}</th></tr></thead>
   <tbody>{% for item in inventory.not_exposed %}<tr><td>{{ item.what }}</td><td class="mono">{{ item.needs }}</td></tr>{% endfor %}</tbody>
 </table></div></div>
-{{ helpcards([('connectors', t('plugins.help.connectors'), t('plugins.help.connectors_body')), ('operations', t('plugins.help.operations'), t('plugins.help.operations_body'))]) }}
+{{ screenhelp('plugins') }}
 {% endblock %}

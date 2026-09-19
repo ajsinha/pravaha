@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{# Full-text search over every topic and guide (HelpCatalog.search). The index's live filter
+   narrows cards; this reads every page, and it is what Enter does and what works with no script. #}
+{% block title %}{{ t('help.search.title') }} — {{ app_name }}{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="{{ t('help.topic.breadcrumb') }}"><a href="/help">{{ t('help.index.title') }}</a></nav>
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">{{ t('help.index.kicker') }}</p>
+<h1>{{ t('help.search.title') }}</h1>
+<form class="help-search my-3" action="/help/search" method="get" role="search" aria-label="{{ t('help.search.label') }}">
+  <label class="visually-hidden" for="search-q">{{ t('help.search.label') }}</label>
+  <input id="search-q" name="q" type="search" value="{{ query }}" placeholder="{{ t('help.search.placeholder') }}">
+  <button class="btn btn-primary" type="submit">{{ t('help.search.button') }}</button>
+</form>
+{% if query %}
+<p class="text-muted" role="status" id="search-summary">{{ t('help.search.found', n=results|length, query=query) }}</p>
+{% if results %}
+<ol class="list-unstyled" id="search-results">
+  {% for r in results %}
+  <li class="result">
+    <div class="where">{{ r.category }}{% if r.kind == 'guide' %} · {{ t('help.search.guide') }}{% endif %}</div>
+    <a class="fw-semibold" href="{{ r.href }}">{{ r.title }}</a>
+    <p class="snip">{{ r.snippet or r.summary }}</p>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<div class="state"><h2>{{ t('help.search.none_title') }}</h2>
+  <p>{{ t('help.search.none_body') }}</p>
+  <a class="btn btn-sm btn-primary" href="/help">{{ t('help.search.browse') }}</a></div>
+{% endif %}
+{% else %}
+<p class="text-muted">{{ t('help.search.empty') }}</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,348 @@
+---
+title: Plugin codes (PRV-5xxx)
+slug: errors-plugins
+category: errors
+order: 60
+icon: plug
+summary: "PRV-5001 to PRV-5094: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra — and attaching a source or a sink to a registered query."
+badge: PRV-5XXX
+audience: Operators
+keywords: [plugin, classpath, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, offset, sink, source, connect failed, schema]
+guide: connectors
+related: [sources-overview, sinks-overview, source-jdbc, source-delta, connector-security, errors-overview]
+---
+
+Every source, lookup and sink is a **plugin**, found on the classpath by its name
+(`ServiceLoader`), configured by the `options:` under its binding, and asked to read or write. The
+5xxx range covers each of those steps. It is the largest range because every connector has its own
+block, so a code says not only *what* failed but *which* connector — "which 5001?" is not a question
+a support conversation should have to start with.
+
+**Two rules hold for every connector**, and many of the codes below are them being kept:
+
+1. **Refuse at configuration, never silently downgrade.** A strategy that is declared and not built, a
+   TLS setting a driver cannot honour, a table feature whose semantics cannot be kept — each is
+   refused by name when the binding is opened, not replaced by something with different delivery
+   properties.
+2. **Never serve rows that are wrong without being obviously wrong.** A file vacuumed from under a
+   Delta table, a feed file rotated away mid-read, an offset this plugin did not write — each stops
+   the feed rather than skipping data nobody would notice was skipped.
+
+| Block | Area |
+|---|---|
+| PRV-5001, PRV-5010 – PRV-5013, PRV-5030 | Loading and naming plugins |
+| PRV-5040 | `filesystem` |
+| PRV-5050 – PRV-5055 | `delta` |
+| PRV-5060 – PRV-5065 | `feedfile` |
+| PRV-5070 – PRV-5076 | `jdbc`, `jdbc-lookup`, `jdbc-sink` |
+| PRV-5080 – PRV-5084 | `aerospike`, `aerospike-lookup`, `aerospike-sink` |
+| PRV-5085 – PRV-5089 | `cassandra` |
+| PRV-5090 – PRV-5094 | Attaching a source or sink to a registered query |
+
+## Loading and naming plugins
+
+### PRV-5001 — plugin missing setting
+
+A plugin asked for an option its binding does not give — or gave one that should be a number and is
+not. The message names the plugin instance and the key.
+
+!!! warning "Pitfall: options belong under options:"
+    A key written one level too high — directly under the source instead of under its `options:` — is
+    not read and not reported, and the plugin then says a required setting is missing. If the option
+    is plainly in your file, check its indentation first.
+
+```yaml
+pravaha:
+  sources:
+    txn:
+      plugin: filesystem
+      options:
+        path: /var/lib/pravaha/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,currency:STRING,status:STRING?,event_time:TIMESTAMP"
+        event.time: event_time
+```
+
+### PRV-5010 — plugin not found
+
+No plugin on the classpath answers to the name. The message lists the names that *are* available.
+Only `filesystem` is inside the server jar; `feedfile`, `jdbc`, `delta`, `aerospike` and `cassandra`
+are separate modules, added by dropping the jar on the classpath. Discovery happens when a query is
+first registered against the stream, **not at startup** — so a binding naming a missing plugin starts
+a server cleanly and fails at the registration that needs it.
+
+### PRV-5011 — plugin incompatible API
+
+The plugin's manifest says it was built against a plugin API this engine cannot host. The message
+names both versions: rebuild the plugin against this engine's API. The console's **Plugins** screen
+shows each plugin's required API and whether this engine can host it.
+
+### PRV-5012 — plugin load failed
+
+The plugin was found and could not be loaded — a missing dependency of its own, a class that failed
+to initialise. The cause follows in the message; it is usually a jar missing beside the plugin's.
+
+### PRV-5013 — plugin duplicate name
+
+Two plugins both call themselves the same name. Names are how configuration refers to a plugin, so
+they must be unique; remove one of the jars (usually two versions of the same plugin).
+
+### PRV-5030 — plugin capability mismatch
+
+The plugin named is not the kind the binding needs: a source configured where a sink was meant, or the
+reverse — `plugin: jdbc` under `pravaha.sinks` instead of `jdbc-sink`. Each connector's source, lookup
+and sink are separate plugins with separate names.
+
+## filesystem
+
+### PRV-5040 — filesystem decode failed
+
+A line of a delimited file does not match the declared schema — a value that does not parse as its
+column's type, the wrong number of fields — or the schema itself cannot be declared. Three causes are
+worth knowing because the message alone will not tell you:
+
+- **`unknown type 'DECIMAL(10'` when you wrote `DECIMAL(10,2)`.** The `name:TYPE,name:TYPE` grammar is
+  split on commas, and a decimal cannot be declared through any schema string today (TY-7). Declare
+  it programmatically, or carry integer cents in an `INT64`.
+- **`read failed at line 0` on a file that is plainly there.** Some byte in the file is not valid
+  UTF-8. The reader decodes whole lines as UTF-8 before any column, so one invalid sequence ends the
+  read — including one inside a `BYTES` column (TY-12). Base64 binary into a `STRING` instead.
+- **Too many open files.** One bound source costs about one descriptor; near the process's ceiling a
+  source that fails to open can surface under this decode code. The node logs its descriptor ceiling
+  at startup; raise `ulimit -n` / `LimitNOFILE`.
+
+Without `pravaha.dlq.directory`, one undecodable record stops the source — loudly, on purpose. With
+it, the record is written to the dead-letter queue with its bytes and reason, and reading continues.
+See [Dead letters](/help/topics/dead-letters).
+
+## delta
+
+### PRV-5050 — Delta table unreadable
+
+The path is not there, or is not a Delta table at all (no `_delta_log`). Check `path` and the process
+user's permissions.
+
+### PRV-5051 — Delta unsupported type
+
+A column of a Delta type this plugin does not map. Named, with the column — never silently dropped.
+
+### PRV-5052 — Delta malformed offset
+
+A stored offset this plugin did not write, or wrote in an older format — so it cannot say where in the
+table's history reading should resume. Resume from a version you choose with `start.version`.
+
+### PRV-5053 — Delta file vacuumed
+
+A data file the Delta log still references has been **removed from disk** — typically by `VACUUM`.
+Its retractions cannot be reconstructed, and the rows it removed would otherwise keep being served as
+though still live. **Do:** keep the table's `VACUUM` retention longer than the longest a query may be
+behind the table, and restart the query from a version that still has its files.
+
+### PRV-5054 — Delta read failed
+
+Reading the table failed for a reason the Delta Kernel library reported; the message carries it.
+
+### PRV-5055 — Delta unsupported feature
+
+A table feature whose semantics this plugin cannot honour — **deletion vectors**, today. Changes are
+derived by diffing each version's file list, and a deletion vector deletes rows *without rewriting
+the file*, so the deleted rows would keep being served as live, silently. Set
+`delta.enableDeletionVectors=false` on the table.
+
+## feedfile
+
+### PRV-5060 — feedfile directory unreadable
+
+The feed directory (`dir`) is missing or cannot be read by the process user.
+
+### PRV-5061 — feedfile bad schema
+
+The `schema` option cannot be parsed. The grammar is `name:TYPE,name:TYPE`, with `?` after a type for
+nullable.
+
+### PRV-5062 — feedfile decode failed
+
+A record does not match the declared schema. The message names the **file and the line**. As with
+`filesystem`, `pravaha.dlq.directory` decides whether this stops the feed or writes the record aside.
+
+### PRV-5063 — feedfile malformed offset
+
+A stored offset this plugin did not write, or wrote in an older format.
+
+### PRV-5064 — feedfile file gone
+
+A file an offset points into is **no longer in the feed directory** while the reader was part-way
+through it — so continuing would skip the rest of it without anybody noticing. Feed files must outlive
+the readers still in them: raise the retention on whatever rotates them, or let the query finish the
+file before it is moved. (`archive.dir` does this correctly: a file is archived after it is read.)
+
+### PRV-5065 — feedfile bad configuration
+
+An option value the plugin cannot honour, named in the message: `completion` must be `marker`,
+`stable` or `immediate`; `order` must be `name` or `mtime`; `format` must be `csv` or `parquet`;
+`delimiter` must be a single character. A valid binding, for comparison:
+
+```yaml
+pravaha:
+  sources:
+    orders:
+      plugin: feedfile
+      options:
+        dir: /var/feeds/orders
+        glob: "orders-*.csv"
+        schema: "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+        completion: marker
+        completion.marker.suffix: .done
+        archive.dir: /var/feeds/orders-done
+```
+
+## jdbc
+
+### PRV-5070 — JDBC connect failed
+
+The database could not be reached, or the credentials were refused. Check `url`, `user`, `password`,
+and that the JDBC driver jar is on the classpath.
+
+### PRV-5071 — JDBC query failed
+
+A poll or a lookup failed at the database, or a result could not be read. The database's own message
+follows.
+
+### PRV-5072 — JDBC unsupported type
+
+A SQL type this plugin does not map to a Pravaha type; the column is named. `DECIMAL`/`NUMERIC` is the
+usual one — the engine refuses decimal arithmetic rather than rounding silently, so cast to integer
+cents in the database with a `query:` instead of `table:`.
+
+### PRV-5073 — JDBC malformed offset
+
+A stored offset this plugin did not write.
+
+### PRV-5074 — JDBC bad configuration
+
+A configuration that cannot be honoured. The commonest: **both `table` and `query`, or neither** —
+exactly one is required, and the refusal says which does what. And **`tls.*` options on a JDBC
+binding** are refused: a JDBC driver's TLS is configured in its URL, and accepting the shared `tls.*`
+options would promise an encrypted connection the driver never made. Put TLS in the `url`, or set
+`tls.enabled: false` to say the plaintext connection is deliberate.
+
+```yaml
+pravaha:
+  sources:
+    orders:
+      plugin: jdbc
+      options:
+        url: "jdbc:postgresql://db-1:5432/sales?sslmode=verify-full"
+        user: pravaha
+        password: "${PRAVAHA_DB_PASSWORD}"
+        table: orders
+        watermark.column: updated_at
+        key.column: order_id
+```
+
+### PRV-5075 — JDBC sink table mismatch
+
+A `jdbc-sink`'s table disagrees with its declaration: the table or a column does not exist (or this
+user cannot see it), a column's type cannot hold the declared type, the key has nothing in the table
+to enforce it, or the table has a `NOT NULL` column with no default that the sink's schema does not
+write — so every insert would fail. The sink **writes into a table you create**; it does not create
+one, because the column types, the key and the indexes are decisions about your database. The message
+names the table and the column. Checked when the sink is opened, before any row is written.
+
+### PRV-5076 — JDBC write failed
+
+A sink's write, staging, commit or abort failed at the database. The sink is then **detached** from
+its query with PRV-8009 — see [Registry codes](/help/topics/errors-registry) — and the view carries on.
+
+## aerospike
+
+### PRV-5080 — Aerospike connect failed
+
+The cluster could not be reached or refused the connection. Two causes that look like others: a
+containerised Aerospike reports its *bridge* address to clients, so the client connects to the seed
+and is redirected somewhere it cannot reach — run it with `--network host`; and running out of file
+descriptors surfaces here too, because the client's exception carries no cause to tell them apart
+(SRC-4).
+
+### PRV-5081 — Aerospike operation failed
+
+A scan, read or write failed at the cluster; the client's message follows.
+
+### PRV-5082 — Aerospike unsupported type
+
+A bin holds a type this plugin will not guess at. Declare the bin's type in `schema`, or store it as
+one of the supported types.
+
+### PRV-5083 — Aerospike bad configuration
+
+A configuration that cannot be honoured — including **a `strategy` this build cannot run**. `strategy`
+declares four values and implements one, `lut-scan`; `xdr-kafka`, `xdr-http` and `write-intercept`
+are refused here rather than silently replaced by a strategy with different delivery properties.
+
+### PRV-5084 — Aerospike malformed offset
+
+A stored offset this plugin did not write.
+
+## cassandra
+
+### PRV-5085 — Cassandra connect failed
+
+The cluster could not be reached or refused the connection. Name `local.datacenter` when the cluster
+has more than one.
+
+### PRV-5086 — Cassandra operation failed
+
+A CQL statement failed against the server; the driver's message follows.
+
+### PRV-5087 — Cassandra unsupported type
+
+A column of a CQL type this plugin will not guess at; the column is named.
+
+### PRV-5088 — Cassandra bad configuration
+
+A configuration that cannot be honoured — including a `strategy` that is declared and not built:
+`writetime-incremental` and `commitlog-cdc` are refused; `token-range-scan` is the one implemented.
+**A full periodic scan that says what it is beats an incremental one that quietly misses rows.**
+
+### PRV-5089 — Cassandra malformed offset
+
+A stored offset this plugin did not write.
+
+## Attaching sources and sinks to a query
+
+These are raised by the engine's binding layer, between the registry and a plugin: resolving the
+plugin a `pravaha.sources.*`, `pravaha.lookups.*` or `pravaha.sinks.*` binding names, opening it, and
+keeping it fed.
+
+### PRV-5090 — ingest: no such plugin
+
+No source or lookup plugin on the classpath answers to the name a binding gave. The message lists what
+is available — or says that no plugin jar of that kind is on the classpath at all.
+
+### PRV-5091 — ingest: binding failed
+
+The plugin refused its configuration, or could not open what it was pointed at, when a query was
+registered against the stream. The message carries the plugin's own reason (often one of the connector
+codes above) and, where the process is short of file descriptors, a hint naming `ulimit -n`.
+
+### PRV-5092 — ingest: feed failed
+
+A source failed **after the query was already running**: the feed stopped part-way. The plugin's error
+follows. The query stops receiving rows; fix the source, then drop and register the query to reattach
+it.
+
+### PRV-5093 — egress: no such sink plugin
+
+No sink plugin answers to the name a `pravaha.sinks.*` binding gave. The shipped sinks are
+`filesystem`, `jdbc-sink` and `aerospike-sink`.
+
+### PRV-5094 — egress: sink binding failed
+
+The sink plugin refused its configuration or could not open its target at registration — before the
+query's first commit, so nothing is half-written.
+
+## Where next
+
+- [Sources](/help/topics/sources-overview) and [Sinks](/help/topics/sinks-overview), and each
+  connector's own page
+- [Connector security](/help/topics/connector-security) — credentials and TLS per connector
+- [Dead letters](/help/topics/dead-letters)

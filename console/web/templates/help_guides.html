@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{# Every long-form guide -- each an include of a document in docs/ -- and the worked systems,
+   grouped the way the documents group themselves. #}
+{% block title %}{{ t('help.guides.title') }} — {{ app_name }}{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="{{ t('help.topic.breadcrumb') }}"><a href="/help">{{ t('help.index.title') }}</a></nav>
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">{{ t('help.index.kicker') }}</p>
+<h1>{{ t('help.guides.title') }}</h1>
+<div class="rule"></div>
+<p class="text-muted" style="max-width:48rem;line-height:1.6">{{ t('help.guides.lede') }}</p>
+
+{% for section, guides in sections %}
+<h2 class="section-label">{{ section }}</h2>
+<div class="row g-3 mb-2">
+  {% for g in guides %}
+  <div class="col-md-6 col-xl-4">
+    <a class="help-card" href="/help/{{ g.slug }}">
+      <span class="t"><i class="bi bi-{{ g.icon }}" aria-hidden="true"></i>{{ g.title }}
+        {% if g.audience %}<span class="badge-help">{{ g.audience|upper }}</span>{% endif %}</span>
+      <span class="s">{{ g.summary }}</span>
+      <span class="go">{{ t('help.index.open_guide') }} &rarr;</span>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<h2 class="section-label">{{ t('help.guides.worked') }}</h2>
+{% for section, guides in tutorials %}
+<div class="row g-3 mb-2">
+  {% for g in guides %}
+  <div class="col-md-6 col-xl-4">
+    <a class="help-card" href="/tutorials/{{ g.slug }}">
+      <span class="t"><i class="bi bi-{{ g.icon }}" aria-hidden="true"></i>{{ g.title }}
+        <span class="badge-help">{{ section|upper }}</span></span>
+      <span class="s">{{ g.summary }}</span>
+      <span class="go">{{ t('help.index.open_guide') }} &rarr;</span>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+{% endblock %}

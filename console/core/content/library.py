@@ -49,6 +49,12 @@ class Topic:
     html: str = ""
     headings: list[dict[str, Any]] = field(default_factory=list)
     source: str = ""
+    #: Every front-matter key, including the ones only one area reads -- a help topic's
+    #: ``category``, ``badge``, ``guide`` and ``keywords`` -- so an area can add a field
+    #: without this class learning about it.
+    meta: dict[str, Any] = field(default_factory=dict)
+    #: The markdown the page was rendered from, for search and for the checks that read it.
+    body: str = ""
 
     @property
     def anchors(self) -> list[dict[str, Any]]:
@@ -122,7 +128,7 @@ class ContentLibrary:
             order=int(meta.get("order", 500)), icon=meta.get("icon", "file-text"),
             audience=meta.get("audience", ""), html=html, headings=headings,
             source=str(path.relative_to(self.root)) if self.root in path.parents
-            else path.name)
+            else path.name, meta=meta, body=body)
         self._cache[path] = (stamp, topic)
         return topic
 

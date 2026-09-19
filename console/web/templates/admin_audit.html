@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_admin_head.html" import admin_head %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('admin.audit.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 {{ admin_head('audit', t('admin.audit.heading')) }}
@@ -91,5 +91,5 @@
   <li>{{ t('admin.audit.about_recorded') }}</li>
   <li>{{ t('admin.audit.about_window') }}</li>
 </ul>
-{{ helpcards([('security', t('admin.help.security'), t('admin.help.security_body'))]) }}
+{{ screenhelp('admin') }}
 {% endblock %}

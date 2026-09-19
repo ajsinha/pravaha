@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('catalog.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <div class="accent"></div>
     <p class="kicker mt-2 mb-1">{{ t('catalog.kicker') }}</p>
-    <h1>{{ t('catalog.heading') }}</h1>
+    <h1>{{ t('catalog.heading') }}{{ helplink('catalog') }}</h1>
   </div>
   <a class="btn btn-sm btn-primary" href="/start">{{ t('catalog.declare_or_write') }}</a>
 </div>
@@ -99,5 +99,5 @@
   <p class="small text-muted mt-2">{{ t('catalog.sinks.note_promises') }} (<a href="/help/codes/PRV-2041">PRV-2041</a>); {{ t('catalog.sinks.note_shape') }} (<a href="/help/codes/PRV-8010">PRV-8010</a>).</p>
   {% endif %}
 {% endif %}
-{{ helpcards([('continuous-queries', t('catalog.help.streams'), t('catalog.help.streams_body')), ('connectors', t('catalog.help.connectors'), t('catalog.help.connectors_body')), ('concepts', t('catalog.help.sharing'), t('catalog.help.sharing_body'))]) }}
+{{ screenhelp('catalog') }}
 {% endblock %}

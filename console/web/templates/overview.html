@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% from "_queries_table.html" import rows %}
 {% block title %}{{ t('overview.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="accent"></div>
 <p class="kicker mt-2 mb-1">{{ t('overview.kicker') }}</p>
-<h1>{{ t('overview.heading') }}</h1>
+<h1>{{ t('overview.heading') }}{{ helplink('overview') }}</h1>
 <div class="rule"></div>
 <p class="text-muted">{{ t('overview.one_engine') }} <span class="mono">{{ engine_url }}</span>{{ t('overview.one_engine_end') }}
   <span class="freshness ms-2" id="freshness"></span></p>
@@ -39,6 +39,6 @@
   <thead><tr><th>{{ t('queries.col.name') }}</th><th>{{ t('queries.col.state') }}</th><th class="num">{{ t('queries.col.rows_in') }}</th><th>{{ t('queries.col.shared') }}</th></tr></thead>
   <tbody>{{ rows(queries, wide=False) }}</tbody>
 </table></div></div>
-{{ helpcards([   ('quickstart', t('overview.help.quickstart'), t('overview.help.quickstart_body')),   ('concepts', t('overview.help.concepts'), t('overview.help.concepts_body')),   ('operations', t('overview.help.operations'), t('overview.help.operations_body')), ]) }}
+{{ screenhelp('overview') }}
 {% endblock %}
 {% block scripts %}<script src="/static/js/overview.js"></script>{% endblock %}

@@ -39,6 +39,7 @@ if str(ROOT) not in sys.path:
 from core.config.properties_configurator import PropertiesConfigurator
 from core.content.library import ContentLibrary
 from core.engine import Engine
+from core.help_catalog import HelpCatalog
 from core.i18n import Messages
 from core.services import Services
 from routes import ALL_ROUTES
@@ -110,13 +111,19 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     templates.env.filters["truncate_sql"] = _truncate
     # UI strings by key from web/i18n/<language>.json; one language today, a file per language later.
     templates.env.globals["t"] = Messages(config.get("ui.language", "en"))
-
+    content = ContentLibrary(ROOT / "content")
+    help_catalog = HelpCatalog(content)
+    content = ContentLibrary(ROOT / "content")
     ctx = {
         "config": config,
         "engine": engine,
         "services": services,
-        "content": ContentLibrary(ROOT / "content"),
+        "content": content,
+        "help": help_catalog,
     }
+    # Contextual help: a screen asks the catalog which topics answer the question it provokes,
+    # so the cards and the screen's "?" link cannot name a page the help does not have.
+    templates.env.globals["help_for"] = help_catalog.for_screen
 
     @app.exception_handler(HTTPException)
     async def problem(_request: Request, exc: HTTPException):

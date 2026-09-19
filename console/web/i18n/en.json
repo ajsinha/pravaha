@@ -80,12 +80,6 @@
       "what": "What",
       "needs": "The engine API that would answer it"
     },
-    "help": {
-      "connectors": "Connectors",
-      "connectors_body": "Every source and sink plugin, and how to configure it.",
-      "operations": "Operations",
-      "operations_body": "Health, degraded plugins, and what to do about them."
-    },
     "health_not_reported": "health not reported",
     "required_api": "Needs plugin API",
     "compatible": "compatible",
@@ -337,10 +331,6 @@
       "audit": "Audit trail",
       "plugins": "Plugins"
     },
-    "help": {
-      "security": "Security",
-      "security_body": "Who may read what, row filters, and what the audit trail records."
-    },
     "access": {
       "title": "Access",
       "heading": "What this console may do",
@@ -512,14 +502,6 @@
       "title": "Not measured by the engine",
       "lede": "Shown as absent rather than as zero: the engine does not measure these, so there is no honest number to draw.",
       "why": "Not measured: {why}."
-    },
-    "help": {
-      "operations": "Operating it",
-      "operations_body": "What to watch, what survives a restart, what a cluster promises.",
-      "troubleshooting": "When it refuses",
-      "troubleshooting_body": "Every PRV code, what it means, what to do.",
-      "execution": "Lanes and state",
-      "execution_body": "Where a query runs and what it holds."
     }
   },
   "overview": {
@@ -544,15 +526,7 @@
       "feeds": "Live feeds",
       "feeds_note": "engine subscriptions, however many tabs"
     },
-    "busiest": "Busiest queries",
-    "help": {
-      "quickstart": "Quick start",
-      "quickstart_body": "From nothing to a maintained view, with the refusals included.",
-      "concepts": "Concepts",
-      "concepts_body": "Deltas, event time, watermarks, and why a view is already correct.",
-      "operations": "Operations",
-      "operations_body": "What to watch, what survives a restart, and what a cluster promises."
-    }
+    "busiest": "Busiest queries"
   },
   "queries": {
     "title": "Queries",
@@ -592,14 +566,6 @@
       "title": "No queries yet",
       "body": "A continuous query is registered once and maintained for as long as it is registered.\n         Nothing has been registered on this engine.",
       "register": "Register one"
-    },
-    "help": {
-      "registering": "Registering",
-      "registering_body": "What a registration is, and what a name costs.",
-      "sharing": "Sharing",
-      "sharing_body": "Why two names can be one computation, and what dropping one does.",
-      "troubleshooting": "When it refuses",
-      "troubleshooting_body": "Every PRV code, what it means, and what to do."
     }
   },
   "query": {
@@ -651,15 +617,7 @@
     },
     "tail": "Live tail",
     "tail_label": "Live changes",
-    "tail_note": "One engine subscription serves every browser watching this view.\n  Ten tabs are ten connections here and one subscriber on the engine.",
-    "help": {
-      "subscriptions": "Subscriptions",
-      "subscriptions_body": "Tap filters, bounded buffers, and what a dropped row means.",
-      "watermarks": "Watermarks",
-      "watermarks_body": "Why a window closes on data rather than on the clock.",
-      "retention": "Retention",
-      "retention_body": "What a view forgets, when, and how to tell if it is not."
-    }
+    "tail_note": "One engine subscription serves every browser watching this view.\n  Ten tabs are ten connections here and one subscriber on the engine."
   },
   "refused": {
     "title": "Refused",
@@ -715,15 +673,7 @@
     "no_rows": "No rows",
     "no_rows_body": "The query ran in {ms}ms and matched nothing. On a stream this often means\n              the window has not closed yet: a window closes when data says it is over, not when the\n              clock does.",
     "nothing_run": "Nothing run yet",
-    "nothing_run_body": "Write a query above and run it. Nothing is registered until you ask for it.",
-    "help": {
-      "sql": "What SQL runs",
-      "sql_body": "Every construct, and the reason for each refusal.",
-      "quickstart": "Quick start",
-      "quickstart_body": "The shortest path from a query to a maintained view.",
-      "troubleshooting": "When it refuses",
-      "troubleshooting_body": "Every PRV code, what it means, and what to do."
-    }
+    "nothing_run_body": "Write a query above and run it. Nothing is registered until you ask for it."
   },
   "landing": {
     "tag": "STREAMING SQL, INCREMENTALLY MAINTAINED",
@@ -789,12 +739,73 @@
     "title": "About",
     "kicker": "ABOUT",
     "heading": "What {app} is",
-    "lede": "A streaming SQL engine that maintains the answer to a question for as long as the question is registered — and refuses, at plan time and with a reason, anything it cannot keep bounded.",
+    "lede": "An embeddable, store-native, incrementally-maintained SQL engine: register a question once, and Pravaha keeps its answer current as the data changes, serves it back by key, and refuses — at plan time, with a reason — anything it cannot keep bounded.",
     "empty": "No about content found. Expected markdown files under",
     "docs": {
       "title": "Documentation",
       "body": "Concepts, guides and troubleshooting, rendered from the repository's own",
       "open": "Open help"
+    },
+    "contents": "On this page",
+    "nav": {
+      "start": "Start here",
+      "first_view": "Your first view",
+      "decisions": "Decision records",
+      "tutorials": "Worked systems"
+    },
+    "s": {
+      "what": "What Pravaha is",
+      "problem": "The problem it solves",
+      "how": "How it works, at a glance",
+      "built": "What is built",
+      "numbers": "Measured, with the caveats",
+      "decisions": "Decisions that shaped it",
+      "principles": "Design principles",
+      "uses": "Where it is used",
+      "stack": "How it is built",
+      "name": "The name",
+      "console": "This console",
+      "install": "This installation",
+      "author": "Author, ownership and licence"
+    },
+    "diagram": {
+      "title": "How Pravaha works",
+      "desc": "Rows from your stores feed declared streams. A continuous query, registered once, turns every change into a Z-set delta and maintains a keyed view. The view is read by key, subscribed to commit by commit, or written to a sink. Checkpoints and the registry journal let a restart resume."
+    },
+    "how": {
+      "1": "A stream is declared — its schema, which column is event time, how late its rows may arrive — and bound to a source plugin that reads one of your stores.",
+      "2": "A continuous query is registered once, under a name and a key. Calcite parses and plans it; Pravaha's own operators run it, as generated code, on a lane — and identical questions share one computation.",
+      "3": "Every row becomes a change with a weight: +1 for a row appearing, −1 for one withdrawn. Operators transform changes into changes, so the work is proportional to what changed.",
+      "4": "The watermark — how far event time has certainly advanced — closes windows. A late row inside the allowed lateness reopens a window as a retraction of the old answer and the corrected one, in one commit.",
+      "5": "The view is the answer, maintained and keyed. Applications read it by key over Flight SQL or the PostgreSQL wire protocol, subscribe to its commits, or have the node write each commit to a sink. Checkpoints cut every input at one point, so a restart resumes.",
+      "more_weights": "Weights and retractions",
+      "more_architecture": "The architecture"
+    },
+    "built": {
+      "lede": "Read from the repository's README, which the build keeps honest — so this list cannot claim more than the code does.",
+      "not_built": "What is not built, or not finished"
+    },
+    "numbers": {
+      "lede": "Every figure here says what it is and what it is not, and where it was taken. None is a benchmark on reference hardware: the gates that ask for one stay unmeasured, and no number from the development machine is quoted as if it were one.",
+      "where": "Where:"
+    },
+    "decisions": {
+      "lede": "Every architectural decision is recorded, numbered and never renumbered — including the ones later reversed. These are the ones that explain the product; each opens in place.",
+      "all": "Every decision record"
+    },
+    "uses": {
+      "lede": "Five worked systems ship with the engine, each with a data model, its continuous SQL — planned by the build — and application code."
+    },
+    "install": {
+      "console": "Console",
+      "engine": "Engine",
+      "engine_down": "The engine did not answer, so its version is not known.",
+      "help": "Help",
+      "help_count": "{n} topics, plus the long-form guides"
+    },
+    "author": {
+      "role": "Designer and author of Pravaha, its engine, its SDKs and this console.",
+      "licence": "The licence, in full"
     }
   },
   "help": {
@@ -809,8 +820,79 @@
       "unknown_title": "Nothing is written about {code} yet",
       "unknown_body": "The code is well-formed but no shipped document discusses it. The message that carried it is the best description there is; the full table is on the troubleshooting page.",
       "open_troubleshooting": "Open troubleshooting",
-      "mentions": "Where else it is mentioned"
-    }
+      "mentions": "Where else it is mentioned",
+      "family": "Every {family} code, explained"
+    },
+    "index": {
+      "title": "Help",
+      "kicker": "HELP",
+      "heading": "Help and documentation",
+      "lede": "{topics} topics, each with its options, complete worked examples and the ways it goes wrong, and {guides} long-form guides behind them. Search, or open a category.",
+      "categories": "Help categories",
+      "count": "{n}",
+      "open_topic": "Open",
+      "open_guide": "Read the guide",
+      "no_hits": "No card matches that.",
+      "search_everything": "Search every page for it"
+    },
+    "search": {
+      "label": "Search the help",
+      "placeholder": "Search help — e.g. watermark, jdbc-sink, PRV-2050, retention",
+      "short": "Search help",
+      "button": "Search",
+      "title": "Search the help",
+      "found": "{n} result(s) for “{query}”.",
+      "guide": "long-form guide",
+      "none_title": "Nothing matched",
+      "none_body": "Every word has to appear somewhere on a page for it to match. Try fewer words, or the name of a setting, a function or a code.",
+      "browse": "Browse the help",
+      "empty": "Type a word, a setting, a SQL keyword or a PRV code."
+    },
+    "topic": {
+      "breadcrumb": "Breadcrumb",
+      "reading_order": "Reading order",
+      "previous": "Previous",
+      "next": "Next"
+    },
+    "footer": {
+      "full_reference": "Full reference:",
+      "related": "Related help",
+      "see_also": "See also",
+      "more_in": "More in {category}",
+      "all_help": "All help"
+    },
+    "guides": {
+      "title": "Guides",
+      "lede": "The long-form documents the engine ships with, rendered in place from the repository's docs/ -- the same text a reader of the source sees, so the two cannot drift. Each topic in the help links to the guide behind it.",
+      "worked": "Worked systems"
+    },
+    "codes": {
+      "title": "Every error code",
+      "errors": "Errors",
+      "lede": "All {n} PRV codes the engine can raise, from the table the troubleshooting guide generates from the source. The code is the stable part of a refusal: the message may improve, the code does not change.",
+      "find": "Find a code",
+      "code": "Code",
+      "name": "Name",
+      "area": "Area",
+      "explained": "What the {family} codes mean, and what to do"
+    },
+    "quick": {
+      "heading": "Quick reference",
+      "ports": "Four ports",
+      "port_flight": "the engine's Flight SQL endpoint",
+      "port_http": "the engine's HTTP API and Prometheus",
+      "port_pg": "the PostgreSQL gateway, when enabled",
+      "port_console": "this console",
+      "first": "Start here",
+      "first_view": "Your first maintained view",
+      "refusals": "What the engine refuses, and why",
+      "codes": "Every error code",
+      "more": "Go further",
+      "guides": "All long-form guides",
+      "tutorials": "Five worked systems",
+      "about": "About Pravaha"
+    },
+    "screen_help": "Help for this screen"
   },
   "login": {
     "kicker": "CONSOLE",
@@ -902,14 +984,6 @@
       "append_only_title": "A revising query pointed here is refused with PRV-2041",
       "note_promises": "What each sink promises comes from asking its plugin, the question registration asks before it will attach one. A binding's options — where credentials live — are never part of the engine's answer. A query that revises its answer needs a sink that accepts revisions",
       "note_shape": "a sink's configured row shape and key must match the query's"
-    },
-    "help": {
-      "streams": "Streams and sources",
-      "streams_body": "Declaring a stream, binding a source, and event time.",
-      "connectors": "Connectors",
-      "connectors_body": "Every source and sink plugin, configured.",
-      "sharing": "Sharing",
-      "sharing_body": "Why two names can be one computation."
     }
   },
   "live": {
@@ -962,14 +1036,6 @@
       "arrivals": "each arriving value",
       "label": "Chart of the chosen column over time",
       "caption": "Sampled once a second in this browser, from the changes above. Gaps are drawn as gaps."
-    },
-    "help": {
-      "weights": "Weights and corrections",
-      "weights_body": "Why the answer can go backwards, and what −1 means.",
-      "subscriptions": "Subscriptions",
-      "subscriptions_body": "Tap filters, bounded buffers, and what a dropped row means.",
-      "retention": "Retention",
-      "retention_body": "What a view forgets, and when."
     }
   },
   "start": {
@@ -993,15 +1059,7 @@
     },
     "no_streams_before": "No stream is declared yet. With JavaScript on, this page can declare one; otherwise declare it under",
     "no_streams_after": "in the engine's configuration.",
-    "templates_note": "Each opens in the workbench, where it is validated as you type and registered from the Register panel.",
-    "help": {
-      "quickstart": "Quick start",
-      "quickstart_body": "The same path, from the command line.",
-      "declaring": "Declaring a stream",
-      "declaring_body": "Schema, event time, and binding a source.",
-      "view": "What a view is",
-      "view_body": "A question asked once and answered always."
-    }
+    "templates_note": "Each opens in the workbench, where it is validated as you type and registered from the Register panel."
   },
   "stream": {
     "title": "{name} · stream",
@@ -1027,15 +1085,7 @@
     "lineage_engine": "From the engine: the streams each query's plan reads.",
     "lineage_name": "Matched by name in each query's SQL — this engine did not say what each query reads.",
     "no_readers": "None yet.",
-    "from_template": "Start from a template",
-    "help": {
-      "declaring": "Declaring a stream",
-      "declaring_body": "Schema, event time and lateness, and why each matters.",
-      "watermarks": "Watermarks",
-      "watermarks_body": "Why a window closes on data rather than on the clock.",
-      "sources": "Sources",
-      "sources_body": "Where a stream's rows come from."
-    }
+    "from_template": "Start from a template"
   },
   "view": {
     "title": "{name} · view",
@@ -1087,15 +1137,7 @@
     "read": "Read",
     "subscribe": "Subscribe to changes",
     "copy": "Copy",
-    "definition": "Definition",
-    "help": {
-      "clients": "Clients",
-      "clients_body": "The Java and Python SDKs, the CLI and the PostgreSQL gateway.",
-      "weights": "Weights",
-      "weights_body": "Why a subscriber sees -1 as well as +1.",
-      "tokens": "Tokens",
-      "tokens_body": "How a service authenticates, and what a view grant covers."
-    }
+    "definition": "Definition"
   },
   "views": {
     "title": "Views",
@@ -1131,14 +1173,6 @@
     },
     "count_one": "{n} view",
     "count_other": "{n} views",
-    "count_match": "{shown} of {n} views match “{needle}”",
-    "help": {
-      "reading": "Reading a view",
-      "reading_body": "Point reads, scans, subscriptions and what a weight means.",
-      "correct": "Why it is already correct",
-      "correct_body": "Deltas, event time and watermarks.",
-      "who": "Who may read what",
-      "who_body": "Views are authorised like data."
-    }
+    "count_match": "{shown} of {n} views match “{needle}”"
   }
 }

@@ -7,7 +7,7 @@
 .mention p{margin:0}
 </style>{% endblock %}
 {% block content %}
-<p class="text-muted small"><a href="/help/troubleshooting">&larr; {{ t('help.code.every_code') }}</a></p>
+<p class="text-muted small"><a href="/help/codes">&larr; {{ t('help.code.every_code') }}</a>{% if family_topic %} · <a href="/help/topics/{{ family_topic }}">{{ t('help.code.family', family=entry.code[:5] ~ 'xxx') }}</a>{% endif %}</p>
 <div class="accent"></div>
 <p class="kicker mt-2 mb-1">{{ t('help.code.kicker') }}</p>
 <h1 class="mono" style="font-size:1.6rem">{{ entry.code }}</h1>

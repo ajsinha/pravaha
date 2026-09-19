@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_admin_head.html" import admin_head %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('admin.access.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 {{ admin_head('access', t('admin.access.heading')) }}
@@ -64,5 +64,5 @@
   <li>{{ t('admin.access.about_hidden') }}</li>
   <li>{{ t('admin.access.about_grants') }}</li>
 </ul>
-{{ helpcards([('security', t('admin.help.security'), t('admin.help.security_body'))]) }}
+{{ screenhelp('admin') }}
 {% endblock %}

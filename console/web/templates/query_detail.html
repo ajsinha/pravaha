@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ query.name }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/queries">&larr; {{ t('query.all') }}</a></p>
 <div class="accent"></div>
 <p class="kicker mt-2 mb-1">{{ t('query.kicker') }}</p>
 <div class="page-head">
-  <h1>{{ query.name }}</h1>
+  <h1>{{ query.name }}{{ helplink('query') }}</h1>
   <div class="d-flex gap-2 flex-wrap">
     <a class="btn btn-sm btn-primary" href="/views/{{ query.name }}/live"><i class="bi bi-activity"></i> {{ t('query.watch_live') }}</a>
     <a class="btn btn-sm btn-outline-secondary" href="/views/{{ query.name }}">{{ t('query.browse') }}</a>
@@ -119,7 +119,7 @@
 <div class="tail" id="tail" role="log" aria-live="polite" aria-label="{{ t('query.tail_label') }}"
      data-view="{{ query.name }}"></div>
 <p class="small text-muted mt-2">{{ t('query.tail_note') }}</p>
-{{ helpcards([   ('user-guide', t('query.help.subscriptions'), t('query.help.subscriptions_body')),   ('concepts', t('query.help.watermarks'), t('query.help.watermarks_body')),   ('operations', t('query.help.retention'), t('query.help.retention_body')), ]) }}
+{{ screenhelp('query') }}
 {% endblock %}
 {# tail.js defines window.PravahaLiveTail, which query-detail.js constructs. It was never
    included, so on every query page the script threw before it wired the live tail or the

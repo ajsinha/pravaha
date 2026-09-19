@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helpcards %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('live.title', name=query.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/views/{{ query.name }}">&larr; {{ query.name }}</a></p>
@@ -7,7 +7,7 @@
   <div>
     <div class="accent"></div>
     <p class="kicker mt-2 mb-1">{{ t('live.kicker') }}</p>
-    <h1><span class="mono">{{ query.name }}</span>{{ t('live.heading_after') }}</h1>
+    <h1><span class="mono">{{ query.name }}</span>{{ t('live.heading_after') }}{{ helplink('live') }}</h1>
   </div>
   <div class="d-flex gap-2 align-items-center">
     <span class="freshness" id="live-state" data-state="stale"><span class="dot"></span><span>{{ t('live.not_connected') }}</span></span>
@@ -86,6 +86,6 @@
       <p class="chart-caption mb-0" id="chart-caption">{{ t('live.chart.caption') }}</p>
     </div></div>
 </div>
-{{ helpcards([('concepts', t('live.help.weights'), t('live.help.weights_body')), ('user-guide', t('live.help.subscriptions'), t('live.help.subscriptions_body')), ('operations', t('live.help.retention'), t('live.help.retention_body'))]) }}
+{{ screenhelp('live') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/live.js?v={{ asset_version }}"></script>{% endblock %}

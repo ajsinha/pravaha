@@ -195,3 +195,7 @@ tr.retracted td{text-decoration:line-through;color:var(--muted);}
 .plugin-facts{display:grid;grid-template-columns:max-content 1fr;gap:.25rem .9rem;align-items:baseline;}
 .plugin-facts dt{font-weight:600;color:var(--muted);}
 .plugin-facts dd{margin:0;}
+
+/* The "?" beside a screen heading: that screen's first help topic (core/help_catalog.py SCREEN_HELP). */
+.screen-help{font-size:.9rem;margin-left:.5rem;vertical-align:middle;text-decoration:none;color:var(--flow)}
+.screen-help:hover,.screen-help:focus{color:var(--flow-d)}

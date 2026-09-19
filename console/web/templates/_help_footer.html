@@ -1,0 +1,34 @@
+{# The shared help footer, for every topic page: the long-form guide behind the topic ("Full
+   reference"), the topics this one names as related, the rest of its category, and all help.
+   Expects `footer` = HelpCatalog.related(topic). #}
+<div class="help-footer">
+  {% if footer.companion %}
+  <a class="help-companion" href="{{ footer.companion.href }}">
+    <i class="bi bi-journal-richtext" aria-hidden="true"></i>
+    <span><strong>{{ t('help.footer.full_reference') }}</strong> {{ footer.companion.title }}
+      <span class="d-block sub">{{ footer.companion.summary }}</span></span>
+    <i class="bi bi-arrow-right ms-auto" aria-hidden="true"></i>
+  </a>
+  {% endif %}
+  <nav class="help-related" aria-label="{{ t('help.footer.related') }}">
+    {% if footer.named %}
+    <h2>{{ t('help.footer.see_also') }}</h2>
+    <ul class="chip-links">
+      {% for card in footer.named %}
+      <li><a href="{{ card.href }}"><i class="bi bi-{{ card.icon }}" aria-hidden="true"></i>{{ card.title }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if footer.category and footer.siblings %}
+    <h2>{{ t('help.footer.more_in', category=footer.category.name) }}</h2>
+    <ul class="chip-links">
+      {% for card in footer.siblings %}
+      <li><a href="{{ card.href }}"><i class="bi bi-{{ card.icon }}" aria-hidden="true"></i>{{ card.title }}</a></li>
+      {% endfor %}
+      <li><a href="/help"><i class="bi bi-grid" aria-hidden="true"></i>{{ t('help.footer.all_help') }}</a></li>
+    </ul>
+    {% else %}
+    <ul class="chip-links"><li><a href="/help"><i class="bi bi-grid" aria-hidden="true"></i>{{ t('help.footer.all_help') }}</a></li></ul>
+    {% endif %}
+  </nav>
+</div>

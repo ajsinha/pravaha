@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{# Every PRV code, from the table TROUBLESHOOTING.md generates from the source, grouped by range;
+   each opens /help/codes/{code}. #}
+{% block title %}{{ t('help.codes.title') }} — {{ app_name }}{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="{{ t('help.topic.breadcrumb') }}"><a href="/help">{{ t('help.index.title') }}</a> / <a href="/help#cat-errors">{{ t('help.codes.errors') }}</a></nav>
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">{{ t('help.code.kicker') }}</p>
+<h1>{{ t('help.codes.title') }}</h1>
+<div class="rule"></div>
+<p class="text-muted" style="max-width:48rem;line-height:1.6">{{ t('help.codes.lede', n=codes|length) }}</p>
+<form class="help-search my-3" action="/help/search" method="get" role="search" aria-label="{{ t('help.search.label') }}">
+  <label class="visually-hidden" for="code-q">{{ t('help.codes.find') }}</label>
+  <input id="code-q" name="q" type="search" placeholder="PRV-2050">
+  <button class="btn btn-primary" type="submit">{{ t('help.search.button') }}</button>
+</form>
+{% for g in groups %}
+<h2 class="h5 mt-4" id="{{ g.family|lower }}">{{ g.family }} — {{ g.label }} <span class="text-muted small">({{ g.codes|length }})</span></h2>
+{% if g.topic %}<p class="small"><a href="/help/topics/{{ g.topic }}">{{ t('help.codes.explained', family=g.family) }} &rarr;</a></p>{% endif %}
+<div class="table-responsive" tabindex="0" role="region" aria-label="{{ g.family }}">
+<table class="table table-sm codes">
+  <thead><tr><th scope="col">{{ t('help.codes.code') }}</th><th scope="col">{{ t('help.codes.name') }}</th><th scope="col">{{ t('help.codes.area') }}</th></tr></thead>
+  <tbody>
+  {% for e in g.codes %}
+    <tr><td><a href="/help/codes/{{ e.code }}">{{ e.code }}</a></td><td class="mono small">{{ e.constant }}</td><td class="small text-muted">{{ e.range }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endfor %}
+{% endblock %}

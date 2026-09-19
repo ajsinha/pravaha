@@ -76,3 +76,25 @@ def lookup(code: str, docs_root: Path) -> CodeEntry | None:
                 if len(entry.mentions) < 12 and not already:
                     entry.mentions.append((name, stripped))
     return entry
+
+
+_ROW = re.compile(r"^\|\s*`(PRV-\d{4})`\s*\|\s*([A-Z0-9_]+)\s*\|\s*([^|]+?)\s*\|", re.MULTILINE)
+
+
+def every_code(docs_root: Path) -> list[dict[str, str]]:
+    """Every code in TROUBLESHOOTING.md's generated table, in code order.
+
+    That table is written from the source's own error-code constants, so a code the engine can
+    raise is a row there; the browser at /help/codes lists exactly these, each linking to its page.
+    """
+    path = docs_root / "TROUBLESHOOTING.md"
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    start = text.find("## Every code")
+    table = text[start:] if start >= 0 else text
+    seen: dict[str, dict[str, str]] = {}
+    for code, constant, area in _ROW.findall(table):
+        seen.setdefault(code, {"code": code, "constant": constant, "range": area.strip(),
+                               "family": code[4] + "xxx"})
+    return sorted(seen.values(), key=lambda e: e["code"])
