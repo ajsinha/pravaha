@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 import com.ash.messaging.pravaha.common.row.RowLayout;
@@ -35,22 +36,27 @@ import com.ash.messaging.pravaha.common.row.RowLayout;
  * {@link LaneProcessor} and knows nothing about queries, which keeps the loop, the arena discipline
  * and the exchange exactly as they were. Multiplexing is what that one processor does.
  *
- * <p><strong>Dispatch is by stream, never a scan.</strong> A lane iterating three hundred pipelines
+ * <p><strong>Dispatch is by route, never a scan.</strong> A lane iterating three hundred pipelines
  * to ask each whether this batch is for it would spend its entire budget on the two hundred and
- * ninety-nine that it is not. Rows carry a schema id in their header (design section 8.3), so the
- * batch is grouped by that and handed only to the pipelines subscribed to it. An idle query -- one
- * whose stream has no rows in this batch -- is not consulted at all, and that is what makes a
+ * ninety-nine that it is not. Every row carries an identity in its header (design section 8.3), and
+ * the batch is grouped by that and handed only to the pipelines subscribed to it. An idle query --
+ * one whose routes have no rows in this batch -- is not consulted at all, and that is what makes a
  * thousand mostly-quiet queries cost a lane almost nothing.
  *
- * <p><strong>Fan-out is zero-copy.</strong> Every pipeline subscribed to a stream is handed the same
- * region and the same offsets. A row is copied into the lane once, by the ingest pump, and never
- * again -- copying per subscribed query would make ingest cost O(queries), which is the same mistake
- * as encoding per subscriber (section 20.3b) somewhere far less visible.
+ * <p><strong>A route is either one query's or a shared ingest's (LANE-2).</strong> The identity a
+ * row carried was its stream's, which assumed one ingest per stream per lane -- and each registered
+ * query was fed separately, so two queries over one stream on one lane each counted the other's rows
+ * (LANE-1). Now a hosted query is given a private route per input by {@link #newRoute}, and what it
+ * is fed on its own -- rows pushed by an embedder, a reader of its own, a catch-up read -- is stamped
+ * with that route and reaches it alone. A reader shared by several queries on this lane writes each
+ * row once, stamped with a route of its own that each of those queries {@link #subscribe}s to, and
+ * the fan-out below hands that one copy to all of them. A pipeline registered by stream id, as
+ * before, subscribes to that id and nothing else; nothing about that case changed.
  *
- * <p><strong>Which assumes one ingest per stream per lane, and the feed layer does not provide
- * one.</strong> Each registered query is fed by its own feed, so two queries over one stream on one
- * lane would each copy every row in and each pipeline would be handed both copies. The registry's
- * placement keeps a lane to one pipeline per stream until ingest is shared (W9-8).
+ * <p><strong>Fan-out is zero-copy.</strong> Every pipeline subscribed to a route is handed the same
+ * region and the same offsets. A row is copied into the lane once and never again -- copying per
+ * subscribed query would make ingest cost O(queries), which is the same mistake as encoding per
+ * subscriber (section 20.3b) somewhere far less visible.
  *
  * <p><strong>On quotas, a correction.</strong> The story this implements asked that a hot query be
  * held to a quota of lane batches. It cannot be, not without either dropping its rows -- which is a
@@ -58,19 +64,18 @@ import com.ash.messaging.pravaha.common.row.RowLayout;
  * per-query buffer the density budget rules out. What is achievable, and what is here, is that no
  * pipeline is systematically served last: pipelines run in ascending order of the lane time they
  * have already consumed, so a heavy query yields its position to lighter ones rather than
- * accumulating an advantage. Combined with per-pipeline timing, a hot query becomes identifiable and
- * bounded in its effect on latency ordering, which is what the requirement was actually protecting
- * against. A hard ceiling is admission control at registration -- deciding which lane a query lands
- * on -- and it lives with the query lifecycle: the registry's {@code SharedLanes}, bounded by
- * {@code pravaha.lane.multiplex.max-queries-per-lane} (W9-8).
+ * accumulating an advantage. A hard ceiling is admission control at registration -- the registry's
+ * {@code SharedLanes}, bounded by {@code pravaha.lane.multiplex.max-queries-per-lane} (W9-8).
  *
- * <p>Confined to the lane thread, like everything a lane owns, except {@link #register} and
- * {@link #drop}, which a control-plane thread calls and which are therefore synchronised. Those are
- * rare; the dispatch path takes no lock.
+ * <p>Confined to the lane thread, like everything a lane owns, except the registration methods --
+ * {@link #register}, {@link #subscribe}, {@link #unsubscribe}, {@link #drop} -- which may be called
+ * from any thread and are therefore synchronised. A caller that needs a subscription to take effect
+ * at an exact row calls it from a control task on the lane, which runs after every row claimed
+ * before its marker and before every row claimed after it. The dispatch path takes no lock.
  */
 public final class LaneMultiplexer implements LaneProcessor {
 
-    /** One query's work on one lane. */
+    /** One query's work on one lane, subscribed to rows carrying {@code schemaId} on its input 0. */
     public record Pipeline(String queryId, int schemaId, LaneProcessor processor) {}
 
     /** What one pipeline has cost this lane. */
@@ -83,19 +88,36 @@ public final class LaneMultiplexer implements LaneProcessor {
     }
 
     private static final class Entry {
-        final Pipeline pipeline;
+        final String queryId;
+        final LaneProcessor processor;
+
+        /** Route to the input its rows arrive on. Guarded by the registration lock. */
+        final Map<Integer, Integer> routes = new HashMap<>();
+
         long rowsIn;
         long rowsOut;
         long batches;
         long nanos;
 
-        Entry(Pipeline pipeline) {
-            this.pipeline = pipeline;
+        Entry(String queryId, LaneProcessor processor) {
+            this.queryId = queryId;
+            this.processor = processor;
         }
     }
 
-    /** Subscribers by schema id. The dispatch index, and the reason nothing is scanned. */
-    private volatile Map<Integer, List<Entry>> byStream = Map.of();
+    /** One subscriber of one route: which pipeline, and which of its inputs the rows arrive on. */
+    private record Target(Entry entry, int input) {}
+
+    /**
+     * The next private route. Counts down from -1: stream ids count up from 1, zero means unassigned
+     * and {@code Integer.MIN_VALUE} marks a pre-combined partial aggregate, so none of them is ever
+     * handed out here. Process-wide rather than per lane, so a route cannot mean two things on one
+     * lane however it was obtained.
+     */
+    private static final AtomicInteger NEXT_ROUTE = new AtomicInteger(-1);
+
+    /** Subscribers by route. The dispatch index, and the reason nothing is scanned. */
+    private volatile Map<Integer, List<Target>> byRoute = Map.of();
 
     private final Map<String, Entry> byQuery = new HashMap<>();
     private final Object registrationLock = new Object();
@@ -105,22 +127,79 @@ public final class LaneMultiplexer implements LaneProcessor {
 
     private final Map<Integer, Integer> groupSizes = new HashMap<>();
 
-    /** Adds a query's pipeline to this lane. Called from the control plane, not the lane thread. */
+    /**
+     * A route no stream and no other caller will ever be given: what a hosted query stamps on the
+     * rows fed to it alone, and what a reader shared between queries on one lane stamps on its own.
+     */
+    public static int newRoute() {
+        int route = NEXT_ROUTE.getAndDecrement();
+        if (route <= Integer.MIN_VALUE + 1) {
+            throw new IllegalStateException("this process has handed out every lane route there is");
+        }
+        return route;
+    }
+
+    /** Adds a query's pipeline to this lane, by stream id. Called from the control plane. */
     public void register(Pipeline pipeline) {
-        if (pipeline.schemaId() == com.ash.messaging.pravaha.api.data.StreamSchema.UNASSIGNED_STREAM_ID) {
-            // Refused rather than accepted and mis-dispatched. Zero means no stream id was ever
-            // assigned, and every row whose writer had none carries zero too -- so accepting this
-            // would put one pipeline in a group with every stream that is equally anonymous, and
-            // hand it their rows. That is the failure W9-9 found before it could happen, and the
-            // whole reason this check is louder than a log line.
-            throw new IllegalArgumentException("query '" + pipeline.queryId()
-                    + "' has no stream id, so this lane cannot tell which rows are its own. A stream is "
-                    + "given an id when it joins a registry's catalogue; a schema built by hand has none.");
+        register(pipeline.queryId(), pipeline.processor(), new int[] {pipeline.schemaId()});
+    }
+
+    /**
+     * Adds a query's pipeline to this lane, subscribed to one route per input.
+     *
+     * @param routeOfInput the route each input's rows carry: index {@code i} is input {@code i}
+     */
+    public void register(String queryId, LaneProcessor processor, int[] routeOfInput) {
+        for (int route : routeOfInput) {
+            if (route == com.ash.messaging.pravaha.api.data.StreamSchema.UNASSIGNED_STREAM_ID) {
+                // Refused rather than accepted and mis-dispatched. Zero means no stream id was ever
+                // assigned, and every row whose writer had none carries zero too -- so accepting
+                // this would put one pipeline in a group with every stream that is equally
+                // anonymous, and hand it their rows. That is the failure W9-9 found before it could
+                // happen, and the whole reason this check is louder than a log line.
+                throw new IllegalArgumentException("query '" + queryId
+                        + "' has no stream id, so this lane cannot tell which rows are its own. A stream is "
+                        + "given an id when it joins a registry's catalogue; a schema built by hand has none.");
+            }
         }
         synchronized (registrationLock) {
-            Entry entry = new Entry(pipeline);
-            byQuery.put(pipeline.queryId(), entry);
+            Entry entry = new Entry(queryId, processor);
+            for (int input = 0; input < routeOfInput.length; input++) {
+                entry.routes.put(routeOfInput[input], input);
+            }
+            byQuery.put(queryId, entry);
             rebuildIndex();
+        }
+    }
+
+    /**
+     * Hands a registered query the rows carrying {@code route} too, on {@code input}.
+     *
+     * <p>Takes effect for the next batch the lane dispatches. Where the exact row matters -- a query
+     * joining a reader it now shares, or pausing on one -- call it from a control task on the lane.
+     *
+     * @return false when no such query is on this lane, which is not an error: it may have been
+     *     dropped between the caller deciding to subscribe it and this running
+     */
+    public boolean subscribe(String queryId, int route, int input) {
+        synchronized (registrationLock) {
+            Entry entry = byQuery.get(queryId);
+            if (entry == null) {
+                return false;
+            }
+            entry.routes.put(route, input);
+            rebuildIndex();
+            return true;
+        }
+    }
+
+    /** Stops handing a query the rows carrying {@code route}. Its other routes are untouched. */
+    public void unsubscribe(String queryId, int route) {
+        synchronized (registrationLock) {
+            Entry entry = byQuery.get(queryId);
+            if (entry != null && entry.routes.remove(route) != null) {
+                rebuildIndex();
+            }
         }
     }
 
@@ -141,12 +220,13 @@ public final class LaneMultiplexer implements LaneProcessor {
      * snapshot cannot observe a half-applied registration, which a mutable structure would allow.
      */
     private void rebuildIndex() {
-        Map<Integer, List<Entry>> rebuilt = new HashMap<>();
+        Map<Integer, List<Target>> rebuilt = new HashMap<>();
         for (Entry entry : byQuery.values()) {
-            rebuilt.computeIfAbsent(entry.pipeline.schemaId(), key -> new ArrayList<>())
-                    .add(entry);
+            entry.routes.forEach((route, input) ->
+                    rebuilt.computeIfAbsent(route, key -> new ArrayList<>()).add(new Target(entry, input)));
         }
-        byStream = Map.copyOf(rebuilt);
+        rebuilt.replaceAll((route, targets) -> List.copyOf(targets));
+        byRoute = Map.copyOf(rebuilt);
     }
 
     public int pipelineCount() {
@@ -155,45 +235,43 @@ public final class LaneMultiplexer implements LaneProcessor {
         }
     }
 
-    /**
-     * The streams some pipeline on this lane is subscribed to, by stream id.
-     *
-     * <p>What placement has to ask before it adds a query here. Dispatch is by stream, so a second
-     * pipeline over a stream already on this lane is handed every row the first one's ingest
-     * copies in -- and each query is fed separately, so both see every row twice. Admission control
-     * keeps a lane to one pipeline per stream for that reason (W9-8).
-     */
-    public java.util.Set<Integer> streamIds() {
-        return byStream.keySet();
+    /** How many pipelines are subscribed to {@code route}: a shared reader's fan-out on this lane. */
+    public int subscribers(int route) {
+        List<Target> targets = byRoute.get(route);
+        return targets == null ? 0 : targets.size();
     }
 
     @Override
     public int onBatch(MemoryRegion region, long[] rowOffsets, int count) {
-        Map<Integer, List<Entry>> index = byStream;
+        Map<Integer, List<Target>> index = byRoute;
         if (index.isEmpty()) {
             return 0;
         }
 
         int emitted = 0;
-        // The common case by a wide margin: one batch is one stream's rows, because a lane's inbox
-        // is fed per stream. Handling it without grouping keeps the usual path free of the map.
-        int firstSchema = schemaIdOf(region, rowOffsets[0]);
-        if (isUniform(region, rowOffsets, count, firstSchema)) {
-            return dispatch(index.get(firstSchema), region, rowOffsets, count);
+        // The common case by a wide margin: one batch is one route's rows. Handling it without
+        // grouping keeps the usual path free of the map.
+        int firstRoute = routeOf(region, rowOffsets[0]);
+        if (isUniform(region, rowOffsets, count, firstRoute)) {
+            return dispatch(index.get(firstRoute), region, rowOffsets, count);
         }
 
         groupSizes.clear();
         for (int i = 0; i < count; i++) {
-            int schemaId = schemaIdOf(region, rowOffsets[i]);
-            long[] slot = grouped.computeIfAbsent(schemaId, key -> new long[rowOffsets.length]);
+            int route = routeOf(region, rowOffsets[i]);
+            long[] slot = grouped.computeIfAbsent(route, key -> new long[rowOffsets.length]);
             if (slot.length < count) {
                 slot = new long[count];
-                grouped.put(schemaId, slot);
+                grouped.put(route, slot);
             }
-            int size = groupSizes.getOrDefault(schemaId, 0);
+            int size = groupSizes.getOrDefault(route, 0);
             slot[size] = rowOffsets[i];
-            groupSizes.put(schemaId, size + 1);
+            groupSizes.put(route, size + 1);
         }
+        // Rows of one route keep their order. Across routes a pipeline sees each route's group in
+        // turn, which reorders only rows it receives on two routes of one batch -- a shared reader's
+        // and its own catch-up's, which SharedPartitionFeed already interleaves by design and offers
+        // only to sources that promise no order.
         for (Map.Entry<Integer, Integer> group : groupSizes.entrySet()) {
             emitted += dispatch(index.get(group.getKey()), region, grouped.get(group.getKey()), group.getValue());
         }
@@ -201,27 +279,31 @@ public final class LaneMultiplexer implements LaneProcessor {
     }
 
     /**
-     * Hands one stream's rows to every pipeline subscribed to it.
+     * Hands one route's rows to every pipeline subscribed to it.
      *
      * <p>Ordered by lane time already consumed, so a heavy pipeline yields its position rather than
      * keeping it. Sorting a handful of entries per batch is cheaper than the alternative it prevents:
      * one expensive query permanently ahead of every other query on its lane.
      */
-    private int dispatch(List<Entry> subscribers, MemoryRegion region, long[] offsets, int count) {
+    private int dispatch(List<Target> subscribers, MemoryRegion region, long[] offsets, int count) {
         if (subscribers == null || subscribers.isEmpty()) {
-            // Rows for a stream nothing on this lane subscribes to. Not an error: a lane receives
-            // what its partitions route to it, and a query may have been dropped a moment ago.
+            // Rows for a route nothing on this lane subscribes to. Not an error: a query may have
+            // been dropped, or paused off a shared reader, a moment ago.
             return 0;
         }
-        List<Entry> ordered = new ArrayList<>(subscribers);
-        ordered.sort(Comparator.comparingLong(entry -> entry.nanos));
+        List<Target> ordered = subscribers;
+        if (subscribers.size() > 1) {
+            ordered = new ArrayList<>(subscribers);
+            ordered.sort(Comparator.comparingLong(target -> target.entry().nanos));
+        }
 
         int emitted = 0;
-        for (Entry entry : ordered) {
+        for (Target target : ordered) {
+            Entry entry = target.entry();
             long start = System.nanoTime();
             // Every subscriber sees the same region and the same offsets: one copy into the lane,
             // never one per query.
-            int produced = entry.pipeline.processor().onBatch(region, offsets, count);
+            int produced = entry.processor.onBatch(target.input(), region, offsets, count);
             entry.nanos += System.nanoTime() - start;
             entry.rowsIn += count;
             entry.rowsOut += produced;
@@ -231,16 +313,16 @@ public final class LaneMultiplexer implements LaneProcessor {
         return emitted;
     }
 
-    private static boolean isUniform(MemoryRegion region, long[] offsets, int count, int schemaId) {
+    private static boolean isUniform(MemoryRegion region, long[] offsets, int count, int route) {
         for (int i = 1; i < count; i++) {
-            if (schemaIdOf(region, offsets[i]) != schemaId) {
+            if (routeOf(region, offsets[i]) != route) {
                 return false;
             }
         }
         return true;
     }
 
-    private static int schemaIdOf(MemoryRegion region, long rowOffset) {
+    private static int routeOf(MemoryRegion region, long rowOffset) {
         return region.getInt((int) rowOffset + RowLayout.OFFSET_SCHEMA_ID);
     }
 
@@ -248,8 +330,8 @@ public final class LaneMultiplexer implements LaneProcessor {
     public List<PipelineMetrics> metrics() {
         synchronized (registrationLock) {
             return byQuery.values().stream()
-                    .map(entry -> new PipelineMetrics(
-                            entry.pipeline.queryId(), entry.rowsIn, entry.rowsOut, entry.batches, entry.nanos))
+                    .map(entry ->
+                            new PipelineMetrics(entry.queryId, entry.rowsIn, entry.rowsOut, entry.batches, entry.nanos))
                     .sorted(Comparator.comparingLong(PipelineMetrics::nanos).reversed())
                     .toList();
         }
@@ -260,19 +342,19 @@ public final class LaneMultiplexer implements LaneProcessor {
         synchronized (registrationLock) {
             for (Entry entry : byQuery.values()) {
                 try {
-                    entry.pipeline.processor().close();
+                    entry.processor.close();
                 } catch (Exception e) {
                     // One query's teardown must not strand the others' resources.
                     continue;
                 }
             }
             byQuery.clear();
-            byStream = Map.of();
+            byRoute = Map.of();
         }
     }
 
     @Override
     public String toString() {
-        return "LaneMultiplexer[" + pipelineCount() + " pipelines over " + byStream.size() + " streams]";
+        return "LaneMultiplexer[" + pipelineCount() + " pipelines over " + byRoute.size() + " routes]";
     }
 }

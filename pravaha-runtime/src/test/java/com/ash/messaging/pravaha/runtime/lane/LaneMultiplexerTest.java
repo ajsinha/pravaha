@@ -262,4 +262,87 @@ class LaneMultiplexerTest {
             assertThat(multiplexer.onBatch(region, offsets, 4)).isZero();
         }
     }
+
+    /** A processor recording which input each row arrived on. */
+    private static LaneProcessor recording(List<Integer> inputs) {
+        return new LaneProcessor() {
+            @Override
+            public int onBatch(MemoryRegion region, long[] offsets, int count) {
+                return onBatch(0, region, offsets, count);
+            }
+
+            @Override
+            public int onBatch(int input, MemoryRegion region, long[] offsets, int count) {
+                for (int i = 0; i < count; i++) {
+                    inputs.add(input);
+                }
+                return count;
+            }
+        };
+    }
+
+    @Test
+    void aPrivateRouteReachesItsOwnQueryAloneAndASharedRouteReachesEveryListener() {
+        // LANE-2. Two queries over one stream on one lane: what each is fed on its own carries its
+        // own route and reaches it alone, and the one copy a shared reader writes reaches both.
+        MemoryAccess access = MemoryAccess.best();
+        List<Integer> first = new ArrayList<>();
+        List<Integer> second = new ArrayList<>();
+        int firstOwn = LaneMultiplexer.newRoute();
+        int secondOwn = LaneMultiplexer.newRoute();
+        int shared = LaneMultiplexer.newRoute();
+
+        LaneMultiplexer multiplexer = new LaneMultiplexer();
+        multiplexer.register("first", recording(first), new int[] {firstOwn});
+        multiplexer.register("second", recording(second), new int[] {secondOwn});
+        assertThat(multiplexer.subscribe("first", shared, 0)).isTrue();
+        assertThat(multiplexer.subscribe("second", shared, 0)).isTrue();
+        assertThat(multiplexer.subscribers(shared)).isEqualTo(2);
+
+        try (MemoryRegion region = access.allocate(8192)) {
+            multiplexer.onBatch(region, rows(region, firstOwn, 3, 0), 3);
+            assertThat(first).hasSize(3);
+            assertThat(second)
+                    .as("the other query's own rows are not this one's")
+                    .isEmpty();
+
+            multiplexer.onBatch(region, rows(region, shared, 5, 0), 5);
+            assertThat(first).hasSize(8);
+            assertThat(second).as("one copy, handed to every listener").hasSize(5);
+
+            multiplexer.unsubscribe("second", shared);
+            multiplexer.onBatch(region, rows(region, shared, 2, 0), 2);
+            assertThat(first).hasSize(10);
+            assertThat(second)
+                    .as("stopped listening, so no longer handed the shared copy")
+                    .hasSize(5);
+        }
+        assertThat(multiplexer.subscribe("gone", shared, 0))
+                .as("a query dropped before its subscription ran is not an error")
+                .isFalse();
+    }
+
+    @Test
+    void aJoinsTwoInputsArriveOnTheirOwnInputsThroughOneInbox() {
+        MemoryAccess access = MemoryAccess.best();
+        List<Integer> inputs = new ArrayList<>();
+        int left = LaneMultiplexer.newRoute();
+        int right = LaneMultiplexer.newRoute();
+        LaneMultiplexer multiplexer = new LaneMultiplexer();
+        multiplexer.register("join", recording(inputs), new int[] {left, right});
+
+        try (MemoryRegion region = access.allocate(8192)) {
+            multiplexer.onBatch(region, rows(region, right, 2, 0), 2);
+            multiplexer.onBatch(region, rows(region, left, 1, 0), 1);
+        }
+        assertThat(inputs).containsExactly(1, 1, 0);
+    }
+
+    @Test
+    void routesAreNeverAStreamIdNorTheUnassignedIdNorAPartialsMarker() {
+        for (int i = 0; i < 100; i++) {
+            int route = LaneMultiplexer.newRoute();
+            assertThat(route).isNegative().isNotEqualTo(Integer.MIN_VALUE);
+        }
+    }
 }

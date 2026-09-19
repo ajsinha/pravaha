@@ -85,8 +85,14 @@ public final class QueryExecution implements AutoCloseable {
      */
     private final String hostedQueryId;
 
+    /**
+     * The route each input's rows carry on a shared lane, or null when the lanes are this query's
+     * own (LANE-2). What this execution is fed on its own is stamped with these, so a shared lane
+     * hands it to this query alone. See {@link com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer}.
+     */
+    private final int[] hostedRoutes;
+
     private final List<InterpretedPipeline> pipelines;
-    private final StreamSchema inputSchema;
     private final List<String> streams;
     private final List<IngestPump> pumps = new ArrayList<>();
 
@@ -126,28 +132,27 @@ public final class QueryExecution implements AutoCloseable {
     private QueryExecution(
             LaneGroup lanes,
             List<InterpretedPipeline> pipelines,
-            StreamSchema inputSchema,
             List<String> streams,
             PhysicalOperator plan,
             MemoryAccess access) {
-        this(lanes, pipelines, inputSchema, streams, plan, access, null);
+        this(lanes, pipelines, streams, plan, access, null, null);
     }
 
     private QueryExecution(
             LaneGroup lanes,
             List<InterpretedPipeline> pipelines,
-            StreamSchema inputSchema,
             List<String> streams,
             PhysicalOperator plan,
             MemoryAccess access,
-            String hostedQueryId) {
+            String hostedQueryId,
+            int[] hostedRoutes) {
         this.hostedQueryId = hostedQueryId;
+        this.hostedRoutes = hostedRoutes;
         this.streams = List.copyOf(streams);
         this.plan = plan;
         this.access = access;
         this.lanes = lanes;
         this.pipelines = pipelines;
-        this.inputSchema = inputSchema;
     }
 
     /**
@@ -203,7 +208,6 @@ public final class QueryExecution implements AutoCloseable {
 
         List<InterpretedPipeline> pipelines = new ArrayList<>(laneCount);
         List<String> streams = PlanShape.streamsOf(plan);
-        StreamSchema[] inputSchema = new StreamSchema[1];
 
         LaneGroup group = new LaneGroup(
                 laneCount,
@@ -213,7 +217,6 @@ public final class QueryExecution implements AutoCloseable {
                 context -> {
                     InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups);
                     pipelines.add(pipeline);
-                    inputSchema[0] = pipeline.inputSchema(streams.get(0));
 
                     // One view per input, because the two sides of a join have different layouts and
                     // a shared view would decode the right side's bytes against the left's schema.
@@ -229,7 +232,7 @@ public final class QueryExecution implements AutoCloseable {
         } else {
             group.startOn(runner);
         }
-        return new QueryExecution(group, pipelines, inputSchema[0], streams, plan, access);
+        return new QueryExecution(group, pipelines, streams, plan, access);
     }
 
     /**
@@ -252,13 +255,14 @@ public final class QueryExecution implements AutoCloseable {
      * (W9-9), and a watermark advance is a level rather than a cut, so it no longer clamps the
      * lane's batch (W9-10).
      *
-     * <p><strong>Dispatch is by stream, and this execution's rows are not its own.</strong> Rows
-     * handed to {@link #accept} go into the shared inbox and are dispatched to every pipeline on the
-     * lane subscribed to their stream. Two executions over one stream on one lane therefore each
-     * receive the other's rows, and since each registration is fed separately, each counts every row
-     * twice. The caller must not put two queries over one stream on one group; the registry's
-     * placement refuses to, and a join (two streams, where a shared lane has one inbox) is never
-     * hosted at all.
+     * <p><strong>What this execution is fed is its own (LANE-2).</strong> Each input is given a
+     * private route, and rows handed to {@link #accept} or written by a pump from {@link #pumpInto}
+     * are stamped with it, so the lane's multiplexer hands them to this pipeline alone -- however
+     * many other queries on the lane read the same stream. It used to dispatch by stream, and two
+     * queries over one stream on one lane, each fed separately, each counted the other's rows
+     * (LANE-1). A join's two inputs are two routes into the lane's one inbox. A reader shared by
+     * several queries on the lane writes one copy for all of them instead, through {@link
+     * #sharedLaneInput}.
      */
     public static QueryExecution startOn(
             LaneGroup group,
@@ -270,7 +274,10 @@ public final class QueryExecution implements AutoCloseable {
         java.util.Objects.requireNonNull(queryId, "queryId");
         List<String> streams = PlanShape.streamsOf(plan);
         List<InterpretedPipeline> pipelines = new ArrayList<>(group.laneCount());
-        StreamSchema inputSchema = null;
+        int[] routes = new int[streams.size()];
+        for (int input = 0; input < routes.length; input++) {
+            routes[input] = com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer.newRoute();
+        }
 
         for (com.ash.messaging.pravaha.runtime.lane.Lane lane : group.lanes()) {
             if (!(lane.processor() instanceof com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer multiplexer)) {
@@ -281,7 +288,6 @@ public final class QueryExecution implements AutoCloseable {
             }
             InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups);
             pipelines.add(pipeline);
-            inputSchema = pipeline.inputSchema(streams.get(0));
 
             // One view per input: the two sides of a join have different layouts, and a shared view
             // would decode the right side's bytes against the left's schema.
@@ -289,10 +295,28 @@ public final class QueryExecution implements AutoCloseable {
             for (int i = 0; i < views.length; i++) {
                 views[i] = new BinaryRowView(RowLayout.of(pipeline.inputSchema(streams.get(i))));
             }
-            multiplexer.register(new com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer.Pipeline(
-                    queryId, inputSchema.streamId(), new LanePipeline(pipeline, views, null, streams)));
+            multiplexer.register(queryId, new LanePipeline(pipeline, views, null, streams), routes);
         }
-        return new QueryExecution(group, pipelines, inputSchema, streams, plan, access, queryId);
+        return new QueryExecution(group, pipelines, streams, plan, access, queryId, routes);
+    }
+
+    /**
+     * How a reader shared with other queries on this execution's lane feeds {@code streamName}, or
+     * null when the lanes are this query's own and a shared reader writes into them as it always did
+     * (LANE-2). See {@link SharedLaneInput}.
+     */
+    public SharedLaneInput sharedLaneInput(String streamName) {
+        int input = streams.indexOf(streamName);
+        if (hostedRoutes == null || input < 0 || lanes.laneCount() != 1) {
+            return null;
+        }
+        Lane lane = lanes.lane(0);
+        return new SharedLaneInput(
+                lane,
+                (com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer) lane.processor(),
+                hostedQueryId,
+                input,
+                pipelines.get(0).inputSchema(streamName));
     }
 
     /**
@@ -385,6 +409,12 @@ public final class QueryExecution implements AutoCloseable {
         // anything reaching here with several lanes is a join, which is fed through a partitioned
         // pump rather than through this method.
         Lane lane = lanes.lane(0);
+        if (hostedRoutes != null) {
+            // A shared lane: stamped with this query's route, or every query on the lane reading
+            // this stream would be handed it (LANE-1).
+            return SharedLaneInput.offerStamped(
+                    lane, binary.region(), binary.offset(), binary.length(), hostedRoutes[input]);
+        }
         return lane.offer(input, binary.region(), binary.offset(), binary.length());
     }
 
@@ -414,7 +444,15 @@ public final class QueryExecution implements AutoCloseable {
             }
             layout = pipelines.get(laneIndex).partialAggregateSchema(streamName).withStreamId(PARTIAL_AGGREGATE_ROW_ID);
         }
-        IngestPump pump = new IngestPump(reader, lanes.lane(laneIndex), input, layout, policy);
+        IngestPump pump;
+        if (hostedRoutes != null) {
+            // A shared lane has one inbox, several producers and a multiplexer that dispatches by the
+            // route in each row's header: this query's rows carry its own (LANE-2).
+            pump = new IngestPump(reader, lanes.lane(laneIndex), 0, layout.withStreamId(hostedRoutes[input]), policy)
+                    .sharingItsInbox();
+        } else {
+            pump = new IngestPump(reader, lanes.lane(laneIndex), input, layout, policy);
+        }
         trackEventTimeOf(streamName, laneIndex, pump::observeEventTimeWith);
         pumps.add(pump);
         return pump;

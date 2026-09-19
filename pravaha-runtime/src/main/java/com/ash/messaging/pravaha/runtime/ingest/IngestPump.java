@@ -333,7 +333,7 @@ public final class IngestPump implements AutoCloseable {
     };
 
     private RowWriter beginRow() {
-        if (deadLetters != null) {
+        if (deadLetters != null || sharedInbox) {
             // Decode into staging; the row reaches the inbox only if it decodes.
             stagingWriter.begin(staging, 0, lane.inboxCellBytes());
             // Abandoning a staged row is free: nothing has been claimed, so there is nothing to
@@ -353,12 +353,81 @@ public final class IngestPump implements AutoCloseable {
     }
 
     private void publishStagedRow() {
+        if (sharedInbox) {
+            offerWhenThereIsRoom();
+            return;
+        }
         if (!lane.offer(input, staging, 0, stagingWriter.sizeSoFar())) {
             throw new PravahaException(
                     RuntimeErrors.BACKPRESSURED,
                     "lane " + lane.laneId() + "'s inbox filled during a poll that was sized to fit. Either "
                             + "another producer is writing to this lane's inbox, which the single-writer ingest "
                             + "path does not allow, or the free-cell calculation is wrong.");
+        }
+    }
+
+    /**
+     * How long a row decoded for a shared lane waits for a cell before the pump gives up.
+     *
+     * <p>A shared lane's inbox has many producers, so the room a poll was sized to can be taken by
+     * another one before this pump's rows arrive. Waiting is backpressure; giving up after this long
+     * is a lane that is not draining at all, and saying so beats a feed that hangs.
+     */
+    private static final Duration SHARED_INBOX_WAIT = Duration.ofSeconds(30);
+
+    /** Whether other producers write into this pump's inbox. See {@link #sharingItsInbox}. */
+    private boolean sharedInbox;
+
+    private volatile boolean closed;
+
+    /**
+     * Declares that this pump is one of several producers into its lane's inbox (LANE-2).
+     *
+     * <p>A lane per query has one producer per inbox, so a poll sized to the free cells always fits
+     * and a claim that fails part way through is a bookkeeping bug. A shared lane's inbox is written
+     * by every query hosted on it, and two pumps that each sized a poll to the same free cells can
+     * together ask for twice what is there. A claim cannot be given back once a reader is writing
+     * into it, so this pump decodes into a staging buffer, as it does for a dead-letter queue, and
+     * copies the finished row in when a cell is free -- waiting for one rather than failing. A row
+     * waiting in staging holds no cell, so no lane can be kept from draining by a producer that is
+     * waiting on another lane, which is the deadlock a claimed-but-unpublished cell would allow.
+     *
+     * <p>The price is one copy per row on a shared lane, the same one a dead-letter queue already
+     * costs. Set once, at wiring time, before the pump is first polled.
+     */
+    public IngestPump sharingItsInbox() {
+        if (staging == null) {
+            this.staging = MemoryAccess.best().allocate(lane.inboxCellBytes());
+            this.stagingWriter = new BinaryRowWriter(layout);
+        }
+        this.sharedInbox = true;
+        return this;
+    }
+
+    private void offerWhenThereIsRoom() {
+        int size = stagingWriter.sizeSoFar();
+        long deadline = System.nanoTime() + SHARED_INBOX_WAIT.toNanos();
+        while (true) {
+            if (lane.inboxFill(input) < 1.0 && lane.offer(input, staging, 0, size)) {
+                return;
+            }
+            Lane.State state = lane.state();
+            if (closed || state == Lane.State.FAILED || state == Lane.State.STOPPED) {
+                throw new PravahaException(
+                        RuntimeErrors.BACKPRESSURED,
+                        "lane " + lane.laneId() + " is "
+                                + (closed ? "closing" : state.name().toLowerCase())
+                                + " and a row decoded for it has nowhere to go");
+            }
+            if (System.nanoTime() > deadline) {
+                throw new PravahaException(
+                        RuntimeErrors.BACKPRESSURED,
+                        "lane " + lane.laneId() + "'s inbox, which several queries share, has had no free cell for "
+                                + SHARED_INBOX_WAIT + ". The lane is not draining: a query on it is too slow for "
+                                + "its share of the lane, or the lane is stuck. Raise pravaha.lane.multiplex.lanes "
+                                + "or lower pravaha.lane.multiplex.max-queries-per-lane.");
+            }
+            java.util.concurrent.locks.LockSupport.parkNanos(50_000L);
         }
     }
 
@@ -379,7 +448,9 @@ public final class IngestPump implements AutoCloseable {
      */
     public void deadLetteringTo(DeadLetterQueue queue, String queryId) {
         if (queue == null) {
-            closeStaging();
+            if (!sharedInbox) {
+                closeStaging();
+            }
             this.deadLetters = null;
             this.deadLetterQueryId = "";
             return;
@@ -416,6 +487,15 @@ public final class IngestPump implements AutoCloseable {
      */
     public void observeEventTimeWith(LongConsumer observer) {
         this.eventTimeObserver = observer == null ? nanos -> {} : observer;
+    }
+
+    /**
+     * What this pump tells about each row's event time. For a reader shared on a lane (LANE-2): the
+     * rows reach this query through the lane's one copy rather than through this pump, and whoever
+     * writes that copy tells this observer instead, so the query's watermark still moves.
+     */
+    public LongConsumer eventTimeObserver() {
+        return eventTimeObserver;
     }
 
     /** Where the reader is, for the checkpoint. */
@@ -457,6 +537,7 @@ public final class IngestPump implements AutoCloseable {
 
     @Override
     public void close() {
+        closed = true;
         try {
             reader.close();
         } finally {

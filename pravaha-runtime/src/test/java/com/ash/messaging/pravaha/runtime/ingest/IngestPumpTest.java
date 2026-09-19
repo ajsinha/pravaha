@@ -255,4 +255,45 @@ class IngestPumpTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new BackpressurePolicy(0.4, 0.9))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    /**
+     * LANE-2. On a shared lane several pumps write into one inbox, each sizing its poll to the free
+     * cells it saw -- which the others may take first. A pump that claimed straight into cells then
+     * found none mid-poll and failed its feed with BACKPRESSURED; one sharing its inbox stages each
+     * row and waits for a cell, so every row arrives and nothing fails.
+     */
+    @Test
+    void pumpsSharingOneInboxWaitForRoomRatherThanFailingMidPoll() throws Exception {
+        MemoryAccess access = MemoryAccess.best();
+        java.util.concurrent.atomic.AtomicLong seen = new java.util.concurrent.atomic.AtomicLong();
+        try (Lane lane = new Lane(0, config(), access, context -> (region, offsets, count) -> {
+            java.util.concurrent.locks.LockSupport.parkNanos(200_000L);
+            seen.addAndGet(count);
+            return count;
+        })) {
+            lane.start();
+            List<Thread> producers = new ArrayList<>();
+            List<Throwable> failures = new java.util.concurrent.CopyOnWriteArrayList<>();
+            for (int p = 0; p < 4; p++) {
+                IngestPump pump = new IngestPump(new ScriptedReader(300), lane, schema(), BackpressurePolicy.defaults())
+                        .sharingItsInbox();
+                producers.add(Thread.ofPlatform().start(() -> {
+                    try {
+                        int moved = 0;
+                        while (moved < 300) {
+                            moved += pump.pumpOnce(64);
+                        }
+                    } catch (Throwable t) {
+                        failures.add(t);
+                    }
+                }));
+            }
+            for (Thread producer : producers) {
+                producer.join(Duration.ofSeconds(30).toMillis());
+            }
+            assertThat(failures).isEmpty();
+            assertThat(lane.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
+            assertThat(seen.get()).isEqualTo(1_200);
+        }
+    }
 }
