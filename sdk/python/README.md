@@ -44,7 +44,27 @@ tests and sidecar-terminated TLS.
 The tests here run against the **actual Java server**, started by the test fixture, rather than a
 Python imitation of it — so what passes here is what an application sees.
 
-`query` is request/response; `subscribe` opens a live feed of changes to a view.
+`query` is request/response; `subscribe` opens a live feed of changes to a view. Each batch is a
+`ChangeBatch` — a `list` of rows, one commit — with `.snapshot` and `.frontier`.
+
+A plain `subscribe` starts at the next commit and is **gapful** for a client keeping a copy of the
+view: reading the view beside it, before or after, can miss the commit in flight at that moment
+(SUB-1). `subscribe(view, filters, snapshot=True)` sends the view first — one batch with
+`batch.snapshot` set, every row at a commit with its multiplicity as its weight, even when empty —
+and then every commit after it, with nothing between:
+
+```python
+for batch in client.subscribe("trade_feed", snapshot=True):
+    if batch.snapshot:
+        copy = {row["trade_id"]: row.to_dict() for row in batch}
+    else:
+        for row in batch:
+            ...  # apply by row.weight
+```
+
+A snapshot subscriber that falls more than 64 commits behind is ended with `PRV-6105` rather than
+skipped past a commit; subscribe again. A server older than the SDK refuses `snapshot=True` with
+`PRV-6102`.
 
 The surface deliberately mirrors the Java SDK: same concepts, same names, same defaults, so a
 team running both does not have to hold two mental models.

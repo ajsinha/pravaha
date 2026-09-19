@@ -269,7 +269,7 @@ pravaha subscribe --view user_volume --filter user_id=u1
 
 > **Nothing appearing?** Almost certainly correct. A window closes when *data* says the window is
 > over, not when the clock does, and a subscription starts from *now* rather than from the beginning
-> of time. Send an event past the window's end. This is [Concepts §2](CONCEPTS.md#2-event-time-not-clock-time).
+> of time (`pravaha subscribe --snapshot` prints the view's rows first). Send an event past the window's end. This is [Concepts §2](CONCEPTS.md#2-event-time-not-clock-time).
 
 ## 7. Open the console
 

@@ -241,6 +241,62 @@ nothing.
 **Rows are flyweights.** In Java they point into the Arrow buffer that carried them, and that buffer
 is reused for the next commit. Copy anything you keep past the callback.
 
+### Keeping a copy: subscribe from a snapshot
+
+A plain subscription starts at the **next** commit and carries no state, so it is **gapful** for a
+client that mirrors a view: subscribe and then read the view, or read and then subscribe, and the
+commit in flight at that moment can reach you by neither path — it is not in the rows you read, and
+your subscription was not in its audience — with nothing to say so (SUB-1). Subscribe *from a
+snapshot* instead:
+
+```java
+try (Subscription subscription = client.subscribeFromSnapshot("trade_feed", batch -> {
+        if (batch.isSnapshot()) {
+            batch.forEach(row -> copy.put(row.getString("trade_id"), row.toArray()));
+        } else {
+            batch.forEach(row -> apply(copy, row));   // by weight, as above
+        }
+    })) {
+    subscription.run();
+}
+```
+```python
+for batch in client.subscribe("trade_feed", snapshot=True):
+    if batch.snapshot:
+        copy = {row["trade_id"]: row.to_dict() for row in batch}
+    else:
+        for row in batch:
+            apply(copy, row)
+```
+```bash
+pravaha subscribe --view trade_feed --snapshot     # rows, "-- snapshot at frontier F", then commits
+```
+```java
+engine.subscribeFromSnapshot("trade_feed", new RowChangeListener() {   // embedded
+    public void onSnapshot(List<RowChange> rows, long frontier) { /* load */ }
+    public void onCommit(List<RowChange> changes, long frontier) { /* apply */ }
+});
+```
+
+The first batch is the view as some commit left it — every row, filtered, each with its multiplicity
+as its weight, sent even when there are none, with that commit's frontier — and every batch after it
+is a later commit, whole and in order. Applying the snapshot and then each commit by weight gives the
+view: nothing between the two is missed and nothing is counted twice.
+
+How the engine keeps that promise, briefly: subscribing takes the lock every batch and every commit
+takes. If nothing has been applied since the last commit, the committed rows *are* the view, and the
+snapshot is taken and the subscriber registered in that one step, so the next commit includes it. If a
+commit is in flight, the subscriber waits for it: that commit takes the snapshot, which now contains
+its rows, and registers the subscriber inside its own critical section — and the subscription draws
+that commit boundary at once rather than waiting for the feed's timer. Nothing is logged to do it: a
+snapshot is a copy of the committed rows, bounded by the view's ceiling.
+
+The snapshot is never conflated or dropped. Over Flight, a snapshot subscriber that falls more than 64
+commits behind has its stream ended with `PRV-6105` rather than skipped past a commit; subscribe
+again to start from a fresh snapshot. A plain subscription is unchanged, on the wire and in every
+SDK, and a server older than the client refuses a snapshot subscription with `PRV-6102`. The Spring
+starter's `PravahaTester.awaitView` and the console's live page are built on this.
+
 ### When you cannot keep up
 
 Every subscription has a bounded buffer, and blocking is deliberately not on the menu — a subscriber
@@ -595,7 +651,8 @@ class DashboardTest {
 Nothing in it sleeps. A push is applied and committed before it returns; `awaitListeners` queues a
 marker behind each listener's pending work and returns when every marker has run; `awaitView` checks
 the view, then checks again on each commit to it, which is how a test waits for rows a bound source
-delivers on its own schedule. A wait that runs out (30 s, or `withTimeout`) fails naming what it
+delivers on its own schedule. It is woken by a snapshot subscription, so a commit in flight as it
+starts wakes it too; it used to force a commit of its own to cover that gap (SUB-1). A wait that runs out (30 s, or `withTimeout`) fails naming what it
 waited for and the last answer it saw. The slice needs Boot's test stack
 (`spring-boot-starter-test`), which the starter does not bring.
 

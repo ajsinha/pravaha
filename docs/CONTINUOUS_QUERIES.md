@@ -864,6 +864,14 @@ retraction and its insert arrive in the same commit, never the retraction alone 
 `pravaha subscribe` prints each change with its weight first — `+1` a row arriving, `-1` a row
 withdrawn — and a `-- commit` line after each commit.
 
+**A plain subscription starts at the next commit, and is gapful for a client keeping a copy.** It
+carries none of what the view already holds, and reading the view beside it — before or after — can
+miss the commit in flight at that moment, silently (SUB-1). `pravaha subscribe --snapshot`
+(`subscribeFromSnapshot` in Java and the embedded engine, `subscribe(..., snapshot=True)` in Python)
+sends the view's rows at a commit first, closed by `-- snapshot at frontier F, N rows`, and then
+every commit after it, with nothing between. [`USER_GUIDE.md` §4](USER_GUIDE.md#4-subscribe) says
+how it is kept gapless.
+
 Or have the node write every commit to a sink it binds under `pravaha.sinks.<name>`
 ([`OPERATIONS.md`](OPERATIONS.md) has the binding), by naming it at registration:
 

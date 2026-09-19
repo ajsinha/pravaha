@@ -365,6 +365,19 @@ mechanism exists to make visible.
 A consumer that throws is detached rather than called again — otherwise one broken subscriber becomes
 a stream of exceptions on the engine's own thread.
 
+**A subscription can start from the view's state (SUB-1).** A plain one joins at the next commit
+boundary — a commit's audience is fixed when its first batch is applied (STRM-11) — and carries no
+state, so a client that mirrors the view by reading it beside the subscription can lose the commit in
+flight. `ViewSink.onCommitFromSnapshot` makes the two one step under the publish lock that every batch
+and every commit take: with no commit in flight the committed rows are the snapshot and the listener
+joins the audience of the next commit in the same critical section; with one in flight the listener
+waits, and that commit takes the snapshot after publishing and registers the listener inside its own
+critical section. Either way the snapshot is the view at a commit C and the listener hears every
+commit after C and none before — no log, just a copy of the committed rows. `RegisteredQuery`,
+Flight (the `subscribe.snapshot` ticket, batches marked `pravaha:<kind>:<frontier>`), both SDKs, the
+CLI's `--snapshot`, the embedded engine, the starter's `awaitView` and the console's live page are
+built on it.
+
 ## How a join stays incremental
 
 A stream-to-stream join is where an incremental engine either earns its keep or falls over, so it is
