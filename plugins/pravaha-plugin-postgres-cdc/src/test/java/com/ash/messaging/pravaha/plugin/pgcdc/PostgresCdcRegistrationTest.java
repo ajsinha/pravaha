@@ -150,8 +150,26 @@ class PostgresCdcRegistrationTest {
         assertThat(restarted.view().scan()).as("one answer, revised in place").hasSize(1);
     }
 
+    @Test
+    void withSnapshotModeInitialTheCustomersAlreadyThereAreCountedAndThenRevised() {
+        // Before the registration, and before its slot: only a snapshot can deliver these.
+        PgServer.sql("INSERT INTO " + table + " SELECT g, CASE WHEN g <= 900 THEN 'silver' ELSE 'gold' END, 'EU' "
+                + "FROM generate_series(1, 1000) g");
+        QueryRegistry registry = registry(Map.of("snapshot.mode", "initial", "snapshot.chunk.rows", "64"));
+        RegisteredQuery query = registry.register("per_tier", PER_TIER, List.of(0), Principal.ANONYMOUS);
+        awaitTiers(query, 900, 100);
+
+        PgServer.sql("UPDATE " + table + " SET tier = 'gold' WHERE id = 42");
+        awaitTiers(query, 899, 101);
+    }
+
     private QueryRegistry registry() {
+        return registry(Map.of());
+    }
+
+    private QueryRegistry registry(Map<String, String> extra) {
         Map<String, String> options = PgServer.options(table);
+        options.putAll(extra);
         options.put("stream", "customers");
         PluginSourceFeeds feeds = new PluginSourceFeeds().bind(new SourceBinding("customers", "postgres-cdc", options));
         QueryRegistry registry = new QueryRegistry(new ViewCatalog(), CUSTOMERS)
