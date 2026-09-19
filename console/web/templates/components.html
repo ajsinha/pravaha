@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{#- The component gallery (ui.component_gallery): the no-build stand-in for Storybook.
+    Each component is the markup the screens themselves render -- the same classes, the same
+    tokens -- and the eight states come from states.js, the functions every screen calls, so
+    a change to any of them shows here. Sample values are data, not UI strings. -#}
+{% block title %}{{ t('components.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">{{ t('components.kicker') }}</p>
+<h1>{{ t('components.heading') }}</h1>
+<p class="small text-muted mb-0">{{ t('components.lede') }}</p>
+<div class="rule"></div>
+
+<h2 id="g-status">{{ t('components.status') }}</h2>
+<p class="small text-muted">{{ t('components.status_note') }}</p>
+<div class="d-flex flex-wrap gap-2" id="g-chips">
+  <span class="chip ok"><span class="dot"></span>RUNNING</span>
+  <span class="chip mute"><span class="dot"></span>PAUSED</span>
+  <span class="chip bad"><span class="dot"></span>FAILED</span>
+  <span class="chip warn">shared</span>
+  <span class="chip info">fingerprint abc123def456</span>
+  <span class="chip bad">critical</span><span class="chip warn">warn</span><span class="chip info">info</span>
+  <span class="chip ok">filesystem · UP</span><span class="chip warn">vault · DEGRADED</span>
+</div>
+
+<h2 id="g-verdict">{{ t('components.verdict') }}</h2>
+<div class="d-flex flex-column gap-2">
+  <div class="verdict ok"><i class="icon bi bi-check-circle-fill" aria-hidden="true"></i>
+    <div><div class="headline">{{ t('components.verdict_ok') }}</div></div></div>
+  <div class="verdict warn"><i class="icon bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+    <div><div class="headline">{{ t('components.verdict_warn') }}</div>
+      <div class="small text-muted">{{ t('operations.where') }} <span class="mono">hot</span></div></div></div>
+  <div class="verdict critical"><i class="icon bi bi-x-octagon-fill" aria-hidden="true"></i>
+    <div><div class="headline">{{ t('components.verdict_critical') }}</div>
+      <div class="small text-muted">{{ t('operations.where') }} <span class="mono">hot</span></div></div></div>
+</div>
+
+<h2 id="g-tiles">{{ t('components.tiles') }}</h2>
+<div class="row g-3">
+  <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
+    <div class="label">{{ t('operations.tile.queries') }}</div><div class="value">3</div>
+    <div class="note">{{ t('operations.tile.running', n=2) }}</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card stat"><div class="card-body">
+    <div class="label">{{ t('operations.tile.heap') }}</div><div class="value">1<small class="fs-6"> {{ t('operations.unit.mb') }}</small></div>
+    <div class="note">{{ t('operations.tile.heap_of', n=4) }}</div></div></div></div>
+</div>
+
+<h2 id="g-buttons">{{ t('components.buttons') }}</h2>
+<div class="d-flex flex-wrap gap-2 align-items-center">
+  <button type="button" class="btn btn-sm btn-primary">{{ t('query.watch_live') }}</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary">{{ t('query.browse') }}</button>
+  <button type="button" class="btn btn-sm btn-outline-danger">{{ t('query.drop') }}</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" disabled aria-describedby="g-refused">{{ t('query.pause') }}</button>
+</div>
+<div class="alert alert-info py-2 small mt-2" id="g-refused" role="note">
+  <div class="fw-semibold">{{ t('query.refused_title') }}</div>
+  {{ t('query.refused_body', reason="administering 'hot' needs one of the roles [ops]") }}</div>
+
+<h2 id="g-alerts">{{ t('components.alerts') }}</h2>
+<div class="alert alert-info py-2 small">{{ t('components.alert_info') }}</div>
+<div class="alert alert-success py-2 small">{{ t('components.alert_success') }}</div>
+<div class="alert alert-warning py-2 small">{{ t('components.alert_warning') }}</div>
+<div class="alert alert-danger py-2 small"><a href="/help/codes/PRV-8009">PRV-8009</a> {{ t('components.alert_danger') }}</div>
+
+<h2 id="g-table">{{ t('components.table') }}</h2>
+<p class="small text-muted">{{ t('components.table_note') }}</p>
+<div class="card"><div class="table-responsive"><table class="table mb-0" id="g-sample-table">
+  <thead><tr><th scope="col">{{ t('operations.col.query') }}</th><th scope="col">{{ t('operations.col.state') }}</th>
+    <th scope="col" class="num">{{ t('operations.col.rows_in') }}</th><th scope="col">{{ t('operations.col.ceiling') }}</th></tr></thead>
+  <tbody>
+  {% for name, state, rows, frac in [('big_txn', 'RUNNING', '1,200', 0.2), ('hot', 'RUNNING', '50', 0.95), ('hot_alias', 'PAUSED', '50', none)] %}
+  <tr><td class="mono">{{ name }}</td>
+    <td><span class="chip {{ 'ok' if state == 'RUNNING' else 'mute' }}"><span class="dot"></span>{{ state }}</span></td>
+    <td class="num">{{ rows }}</td>
+    <td>{% if frac is not none %}<div class="d-flex align-items-center gap-2"><div class="gauge {{ 'critical' if frac >= 0.9 else '' }}" style="width:7rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (frac * 100)|round|int }}" aria-label="{{ t('operations.gauge_label') }}"><span style="width:{{ frac * 100 }}%"></span></div><span class="small">{{ (frac * 100)|round|int }}%</span></div>{% else %}<span class="text-muted small">{{ t('operations.not_published_yet') }}</span>{% endif %}</td></tr>
+  {% endfor %}
+  </tbody></table></div></div>
+
+<h2 id="g-states">{{ t('components.states') }}</h2>
+<p class="small text-muted">{{ t('components.states_note') }}</p>
+<div class="row g-3" id="g-state-grid">
+  {% for key in ['loading_first', 'loading_refresh', 'empty_never', 'empty_filtered', 'error', 'partial', 'stale', 'unauthorized'] %}
+  <div class="col-md-6"><div class="card h-100"><div class="card-header">{{ loop.index }} · {{ t('components.state.' ~ key) }}</div>
+    <div class="card-body" id="state-{{ key }}" data-state="{{ key }}"><noscript><p class="small text-muted mb-0">{{ t('components.needs_script') }}</p></noscript></div></div></div>
+  {% endfor %}
+</div>
+<script type="application/json" id="g-samples">{{ {
+  'what': t('components.sample.what'),
+  'error': t('components.sample.error'),
+  'missing': t('components.sample.missing'),
+  'action': t('query.drop'),
+  'reason': "administering 'hot' needs one of the roles [ops]",
+  'create': t('operations.empty.start')
+}|tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="/static/js/components.js"></script>{% endblock %}

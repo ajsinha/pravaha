@@ -898,6 +898,25 @@ def test_an_action_the_policy_refuses_is_disabled_with_its_reason_not_offered(si
     assert "data-register-refused" not in signed_in.get("/workbench").text
 
 
+def test_the_component_gallery_is_off_unless_set_and_gated_when_on(engine, signed_in, anonymous):
+    """A development aid: a 404 in a deployment that did not ask for it, and behind the sign-in
+    in one that did."""
+    assert signed_in.get("/_components").status_code == 404
+    assert anonymous.get("/_components", follow_redirects=False).status_code == 404
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("console.password", PASSWORD)
+    config.set("console.session_secret", SESSION_SECRET)
+    config.set("ui.component_gallery", "true")
+    on = fastapi_testclient.TestClient(create_app(config, engine=engine))
+    refused = on.get("/_components", follow_redirects=False)
+    assert refused.status_code == 303 and refused.headers["location"].startswith("/login")
+    on.post("/login", data={"password": PASSWORD, "next": "/home"})
+    page = on.get("/_components")
+    assert page.status_code == 200
+    assert len(re.findall(r'id="state-[a-z_]+" data-state=', page.text)) == 8, "a card for each state of 23.12"
+    assert "/static/js/components.js" in page.text
+
+
 def test_an_unknown_policy_keeps_the_controls():
     """An engine that did not answer the permissions call is not a refusal: the engine re-checks
     every action anyway, so the control stays and the engine's own answer is what fails."""

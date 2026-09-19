@@ -172,6 +172,8 @@ class Console:
         config.set("console.session_secret", "browser-test-session-secret")
         config.set("engine.token", "browser-test-engine-token")
         config.set("ui.default_role", default_role)
+        # The component gallery is a page the audit and the screenshots cover like any other.
+        config.set("ui.component_gallery", "true")
         self.app = create_app(config, engine=engine)
         self.port = _free_port()
         self.base = f"http://127.0.0.1:{self.port}"
@@ -317,6 +319,7 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("admin-audit", "/admin/audit", True, "true"),
     ("admin-audit-filtered", "/admin/audit?principal=carol&decision=deny", True, "true"),
     ("not-found", "/views/no_such_view", True, "true"),
+    ("components", "/_components", True, "document.querySelector('#state-unauthorized button')"),
 ]
 
 #: Pages whose body is a repository document included verbatim. They are audited like every

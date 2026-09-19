@@ -1180,5 +1180,44 @@
     "count_one": "{n} view",
     "count_other": "{n} views",
     "count_match": "{shown} of {n} views match “{needle}”"
+  },
+  "components": {
+    "title": "Components",
+    "kicker": "DESIGN SYSTEM",
+    "heading": "Components and their states",
+    "lede": "Every component the screens are built from, drawn by the console itself with the same classes, tokens and state functions the screens use. Switch the theme (t) and the density (d) to review each. A development aid: shown only where ui.component_gallery is set.",
+    "status": "Status vocabulary",
+    "status_note": "A state is a chip with a fixed colour and a fixed label, identical on every screen (design 23.4).",
+    "verdict": "Verdict",
+    "verdict_ok": "Everything is healthy",
+    "verdict_warn": "1 thing to watch",
+    "verdict_critical": "1 problem needs attention",
+    "tiles": "Stat tiles",
+    "buttons": "Buttons, and one the policy refuses",
+    "alerts": "Alerts",
+    "alert_info": "Information: nothing is wrong, and this is worth knowing.",
+    "alert_success": "Done: the query is registered and running.",
+    "alert_warning": "Partial: one of the engine's surfaces did not answer.",
+    "alert_danger": "sink 'audit_out' failed and has been detached.",
+    "table": "Table",
+    "table_note": "Rows, cells, cards and gutters follow the density tokens; compare comfortable and compact with d.",
+    "states": "The eight states",
+    "states_note": "Design 23.12: every data-bearing component implements all eight. Each card is drawn by the function in states.js that the screens call.",
+    "state": {
+      "loading_first": "Loading, first time",
+      "loading_refresh": "Loading, refresh",
+      "empty_never": "Empty, never had data",
+      "empty_filtered": "Empty, filtered to nothing",
+      "error": "Error",
+      "partial": "Partial",
+      "stale": "Stale",
+      "unauthorized": "Unauthorized"
+    },
+    "needs_script": "Drawn by states.js; this card needs scripting.",
+    "sample": {
+      "what": "query",
+      "error": "no registered query named 'hot' that you may see",
+      "missing": "node n2's metrics"
+    }
   }
 }

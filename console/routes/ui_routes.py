@@ -151,6 +151,27 @@ class UIRoutes(Routes):
             return RedirectResponse("/queries" if action == "drop" else f"/queries/{name}",
                                     status_code=303)
 
+        # ------------------------------------------------ the component gallery
+        gallery = self.ctx["config"].get_bool("ui.component_gallery", False)
+
+        @self.app.get("/_components", response_class=HTMLResponse, tags=["ui"])
+        def components(request: Request):
+            """Every design-system component, and the eight states of design 23.12, on one page.
+
+            The no-build stand-in for Storybook (23.20): the console renders it with its own
+            templates, tokens and ``states.js``, so what is reviewed here is what the screens
+            use, and the browser tests audit and photograph it like any screen. A development
+            aid -- off unless ``ui.component_gallery`` is set, when it is a 404 that does not
+            say it exists -- and behind the sign-in when on.
+            """
+            if not gallery:
+                return self.page(request, "not_found.html", http_status=404, current="",
+                                 what="page", identifier="/_components", back_href="/",
+                                 back_label="Back to the start", detail="")
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            return self.page(request, "components.html", current="/_components")
+
         # --------------------------------------------------------- workbench
         @self.app.get("/workbench", response_class=HTMLResponse, tags=["ui"])
         def workbench(request: Request, query: str = "", sql: str = "", template: str = "",

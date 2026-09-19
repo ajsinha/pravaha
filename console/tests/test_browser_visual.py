@@ -74,6 +74,10 @@ canvas, .freshness, #ops-freshness, #count, .monaco-editor .cursors-layer,
 
 SHOTS = [(name, path, ready) for name, path, _, ready in PAGES if name not in DOCUMENT_PAGES]
 
+#: Photographed whole rather than to the first screen: the component gallery is a fixed page
+#: with no data or prose to churn, and its eight states are below the fold.
+FULL_PAGE = {"components"}
+
 
 @pytest.fixture(scope="module")
 def console():
@@ -131,7 +135,7 @@ def baseline_chrome(chrome: Browser):
     return recorded, current
 
 
-def _shoot(page: Page, console: Console, path: str, ready: str) -> bytes:
+def _shoot(page: Page, console: Console, path: str, ready: str, full_page: bool = False) -> bytes:
     open_page(page, console, path, ready)
     page.eval("""(() => { let s = document.getElementById('visual-mask');
         if (!s) { s = document.createElement('style'); s.id = 'visual-mask'; document.head.appendChild(s); }
@@ -139,7 +143,7 @@ def _shoot(page: Page, console: Console, path: str, ready: str) -> bytes:
         if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
         return true; })()""".replace("__MASK__", json.dumps(MASK)))
     page.settle(quiet_ms=150)
-    return page.screenshot()
+    return page.screenshot(full_page=full_page)
 
 
 def _baseline_name(name: str, theme: str, viewport: str, density: str) -> str:
@@ -154,7 +158,7 @@ def test_every_page_matches_its_baseline(shooters, comparer, console, baseline_c
                                          name, path, ready, theme, viewport, density):
     recorded, current = baseline_chrome
     page = shooters(theme, viewport, density)
-    shot = _shoot(page, console, path, ready)
+    shot = _shoot(page, console, path, ready, full_page=name in FULL_PAGE)
     expected_density = None if density == "comfortable" else density
     assert page.eval("document.documentElement.getAttribute('data-density')") == expected_density
     stem = _baseline_name(name, theme, viewport, density)
