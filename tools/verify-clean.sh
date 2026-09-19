@@ -86,8 +86,11 @@ fi
 
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
 
-echo "installing from the working tree"
-./mvnw -q -o -T1C install -DskipTests 9>&-
+echo "cleaning and installing from the working tree"
+# clean as well: a resource deleted from src/ stays in target/ until something removes it, and a
+# stale META-INF/services file there once named a test plugin that no longer existed, failing a
+# registration that looked the classpath up. A gate is only a gate over what the source says.
+./mvnw -q -o -T1C clean install -DskipTests 9>&-
 
 # Released here rather than at exit. The delete and the install are what needed
 # protecting; the tests that follow take minutes and read nothing another run
