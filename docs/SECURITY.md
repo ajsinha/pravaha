@@ -139,17 +139,16 @@ with the filter applied *before* aggregating, which is a different query with it
 state per principal is available and explicit; it is not automatic, because a per-user filter would
 otherwise multiply engine state by the number of users and you would learn that from a memory alarm.
 
-**A second, more severe soundness failure exists and is not yet fixed: a filter that plans to no
-`FilterOperator` at all fails open.** `withRowFilter` plans the filter predicate and walks the tree
-for the first `FilterOperator` to inject above the scan; when Calcite's own optimizer reduces the
-predicate to a compile-time constant (confirmed for `TRUE` and `1 = 1`, and plausibly for any
-equivalent tautology), there is no `FilterOperator` anywhere in the plan, and the read proceeds
-**completely unrestricted, with no error**, recorded in the audit only as "allowed with a row
-filter." Unlike the column-not-carried case above, there is no refusal and no message — a policy
-author whose filter predicate happens to be tautological for a given principal (for example, a
-filter built from a claim that is empty or absent for some tenant) gets silent, total over-service
-for that principal, not a `PRV-7003`. There is no configuration or authoring guidance yet that avoids
-this; it is a defect, not a documented limitation. See `docs/qa/FINDINGS.md`'s SX-15.
+**A filter that plans to no `FilterOperator` at all is refused too, the same way (`PRV-7003`).**
+`withRowFilter` plans the filter predicate and looks for the `FilterOperator` to inject above the
+scan. When Calcite's optimizer folds the predicate to a constant — `TRUE`, `1 = 1`, a column compared
+to itself — there is none, and the read used to proceed **completely unrestricted**, recorded in the
+audit as "allowed with a row filter" (SX-15; confirmed live: a principal entitled to two of four rows,
+his filter set to `TRUE`, received all four). It now fails closed: the read is refused with a
+message saying the filter left no predicate in the plan, and that a principal who may read the whole
+view should be given an unrestricted `allow()` rather than a filter that restricts nothing
+(`ViewQueryAuthorizationTest`). A policy author whose filter is built from a claim that can be empty
+or absent for some tenant therefore sees refusals for that tenant, not silent over-service.
 
 ## Metadata is data
 
