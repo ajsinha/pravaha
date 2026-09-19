@@ -102,7 +102,29 @@ public class StreamCatalog {
      *     refused, without an event-time column
      */
     public static StreamSchema withEventTime(StreamSchema parsed, String column, java.time.Duration outOfOrderness) {
+        return withEventTime(parsed, column, outOfOrderness, null);
+    }
+
+    /**
+     * As {@link #withEventTime(StreamSchema, String, java.time.Duration)}, with the stream's allowed
+     * lateness too (HLP-7).
+     *
+     * @param allowedLateness how long after a window closes a late row may still correct it, or null
+     *     for none; refused without an event-time column, and refused negative
+     */
+    public static StreamSchema withEventTime(
+            StreamSchema parsed, String column, java.time.Duration outOfOrderness, java.time.Duration allowedLateness) {
+        if (allowedLateness != null && allowedLateness.isNegative()) {
+            throw new IllegalArgumentException("stream '" + parsed.name() + "' gives a negative allowed lateness, "
+                    + allowedLateness + ". It is how long a closed window stays open to a late correction; "
+                    + "zero means none.");
+        }
         if (column == null || column.isBlank()) {
+            if (allowedLateness != null) {
+                throw new IllegalArgumentException("stream '" + parsed.name() + "' gives an allowed lateness and "
+                        + "no event-time column. Allowed lateness is how long a window stays open to a late "
+                        + "row after it closes, so it needs an event time to be about.");
+            }
             if (outOfOrderness != null) {
                 throw new IllegalArgumentException("stream '" + parsed.name() + "' gives an out-of-orderness and no "
                         + "event-time column. Out-of-orderness is how late a row's event time may be, so it "
@@ -126,6 +148,9 @@ public class StreamCatalog {
         builder.eventTime(eventTime);
         if (outOfOrderness != null) {
             builder.outOfOrderness(outOfOrderness);
+        }
+        if (allowedLateness != null) {
+            builder.allowedLateness(allowedLateness);
         }
         return builder.build();
     }

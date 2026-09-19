@@ -459,6 +459,7 @@ pravaha:
       schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
       event-time: event_time    # without this no watermark advances and no window closes
       out-of-orderness: 10s     # how late this stream's rows may be
+      allowed-lateness: 0s      # how long a closed window still takes a correction; 0 = final
   watermark:
     idle-after: 30s
     tick: 1s
@@ -470,6 +471,16 @@ them is a matter of taste.
 *Out-of-orderness* is how late a row may be and still be waited for. Larger tolerates messier
 sources and holds every window open longer, so state is larger. Smaller closes sooner and treats
 more rows as late corrections.
+
+*Allowed lateness* is what happens to a row later than that. At zero, the default, a window is
+final when the watermark passes it and a later row is dropped. Above zero the window's state is
+kept that much longer, and a late row within it corrects the published answer: a retraction of the
+old result and the corrected one (see [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §6). That
+makes every windowed query over the stream one that revises, so it can no longer write to an
+append-only sink (`PRV-2041`), and it holds each window's state for the extra time. Until HLP-7 no
+server setting reached it — `pravaha.streams.<name>.allowed-lateness` and `POST /api/v1/streams`'s
+`allowedLateness` are the two ways now; an embedder sets `StreamSchema.allowedLateness`. It needs
+an `event-time` and cannot be negative.
 
 Set it **per stream** — lateness is a property of the source, and a query reading three streams
 should get three tolerances rather than the worst of them. Configuration does that with

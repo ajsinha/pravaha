@@ -42,6 +42,8 @@ public final class ApiDtos {
      *     as ISO-8601 (such as {@code PT10S}); null when there is no event time for it to be about
      * @param source the plugin a {@code pravaha.sources.<stream>} binding feeds it from, or null when
      *     nothing does. The plugin's name only: a binding's options can hold credentials
+     * @param allowedLateness how long after a window closes a late row may still correct it, as
+     *     ISO-8601; null when there is no event time, {@code PT0S} when windows are final at close
      */
     public record StreamSummary(
             String name,
@@ -50,10 +52,11 @@ public final class ApiDtos {
             List<FieldInfo> fields,
             String eventTime,
             String outOfOrderness,
-            String source) {
+            String source,
+            String allowedLateness) {
 
         public StreamSummary(String name, int version, int fieldCount, List<FieldInfo> fields) {
-            this(name, version, fieldCount, fields, null, null, null);
+            this(name, version, fieldCount, fields, null, null, null, null);
         }
     }
 

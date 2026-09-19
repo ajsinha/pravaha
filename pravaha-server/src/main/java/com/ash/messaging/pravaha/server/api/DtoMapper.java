@@ -53,7 +53,8 @@ public class DtoMapper {
                 // The schema always holds a lateness, defaulted when nothing declared one, and it means
                 // nothing without an event time for it to be about -- so it is only said beside one.
                 eventTime.isPresent() ? schema.outOfOrderness().toString() : null,
-                sourcePlugin);
+                sourcePlugin,
+                eventTime.isPresent() ? schema.allowedLateness().toString() : null);
     }
 
     /** A view's key, by name and by the ordinal registration took. */

@@ -491,13 +491,15 @@ public class PravahaNode implements SmartLifecycle {
      */
     private static StreamSchema withEventTime(
             String name, StreamSchema parsed, StreamDeclarationProperties.Declaration declaration) {
-        if (declaration.getEventTime() == null || declaration.getEventTime().isBlank()) {
+        if ((declaration.getEventTime() == null || declaration.getEventTime().isBlank())
+                && declaration.getAllowedLateness() == null) {
             return parsed;
         }
         // One implementation, shared with POST /api/v1/streams, so a stream declared by file and one
-        // declared over HTTP cannot disagree about what an event-time declaration means.
+        // declared over HTTP cannot disagree about what an event-time declaration means. An allowed
+        // lateness with no event time reaches it, and is refused there by name.
         return com.ash.messaging.pravaha.server.catalog.StreamCatalog.withEventTime(
-                parsed, declaration.getEventTime(), declaration.getOutOfOrderness());
+                parsed, declaration.getEventTime(), declaration.getOutOfOrderness(), declaration.getAllowedLateness());
     }
 
     /**

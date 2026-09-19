@@ -57,6 +57,7 @@ public class StreamDeclarationProperties {
         private String schema;
         private String eventTime;
         private java.time.Duration outOfOrderness;
+        private java.time.Duration allowedLateness;
 
         public String getSchema() {
             return schema;
@@ -90,6 +91,24 @@ public class StreamDeclarationProperties {
 
         public void setOutOfOrderness(java.time.Duration outOfOrderness) {
             this.outOfOrderness = outOfOrderness;
+        }
+
+        /**
+         * How long after a window closes a late row may still correct it (HLP-7).
+         *
+         * <p>{@code StreamSchema.allowedLateness}, which the planner hands every windowed aggregate
+         * over the stream, and which nothing on a server could set: a late row was always dropped,
+         * though the correction path -- a retraction of the published window and the corrected one
+         * -- was built. Zero, the default, keeps a window final when it closes. Non-zero makes a
+         * windowed query revise its answers, so it can no longer write to an append-only sink
+         * ({@code PRV-2041}).
+         */
+        public java.time.Duration getAllowedLateness() {
+            return allowedLateness;
+        }
+
+        public void setAllowedLateness(java.time.Duration allowedLateness) {
+            this.allowedLateness = allowedLateness;
         }
     }
 }

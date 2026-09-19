@@ -902,6 +902,11 @@ window [10,20) COUNT=5   -1 ← retracted
 window [10,20) COUNT=6   +1 ← corrected
 ```
 
+Allowed lateness is the stream's: `allowed-lateness` under `pravaha.streams.<name>` (or
+`allowedLateness` on `POST /api/v1/streams`), zero by default, which makes a window final when it
+closes and drops a row that arrives after. Until HLP-7 a server had no way to set it, so the
+correction above could only happen in an embedded engine.
+
 This is what `weight` means, and it is why the engine can be incremental at all
 ([`CONCEPTS.md`](CONCEPTS.md) §4).
 

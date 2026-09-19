@@ -130,11 +130,12 @@ public class StreamController {
         var schema = StreamCatalog.withEventTime(
                 FilesystemSourcePlugin.parseSchema(request.name(), request.schema()),
                 request.eventTime(),
-                outOfOrdernessOf(request.outOfOrderness()));
+                durationOf("outOfOrderness", request.outOfOrderness()),
+                durationOf("allowedLateness", request.allowedLateness()));
         return ResponseEntity.status(HttpStatus.CREATED).body(summaryOf(catalog.register(schema)));
     }
 
-    private static java.time.Duration outOfOrdernessOf(String text) {
+    private static java.time.Duration durationOf(String setting, String text) {
         if (text == null || text.isBlank()) {
             return null;
         }
@@ -142,7 +143,7 @@ public class StreamController {
             return java.time.Duration.parse(text.strip().toUpperCase(java.util.Locale.ROOT));
         } catch (java.time.format.DateTimeParseException e) {
             throw new IllegalArgumentException(
-                    "outOfOrderness must be an ISO-8601 duration such as PT10S, got '" + text + "'");
+                    setting + " must be an ISO-8601 duration such as PT10S, got '" + text + "'");
         }
     }
 
@@ -152,11 +153,18 @@ public class StreamController {
      *     stream can ever close
      * @param outOfOrderness how late a row may be, as ISO-8601 such as {@code PT10S}; optional, and
      *     refused without an event time for it to be about
+     * @param allowedLateness how long after a window closes a late row may still correct it, as
+     *     ISO-8601; optional, zero when absent, and refused without an event time (HLP-7)
      */
-    public record RegisterStreamRequest(String name, String schema, String eventTime, String outOfOrderness) {
+    public record RegisterStreamRequest(
+            String name, String schema, String eventTime, String outOfOrderness, String allowedLateness) {
 
         public RegisterStreamRequest(String name, String schema) {
-            this(name, schema, null, null);
+            this(name, schema, null, null, null);
+        }
+
+        public RegisterStreamRequest(String name, String schema, String eventTime, String outOfOrderness) {
+            this(name, schema, eventTime, outOfOrderness, null);
         }
     }
 }
