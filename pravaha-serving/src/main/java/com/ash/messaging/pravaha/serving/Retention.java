@@ -39,12 +39,15 @@ import java.time.Duration;
  *       <td>the view refuses — the capacity plan was wrong</td></tr>
  * </table>
  *
- * <p><strong>A default applies unless a registration chooses otherwise</strong> ({@link #DEFAULT},
- * a day). {@link #forever()} exists and has to be asked for by name, because a view is bounded only
- * if its <em>key space</em> is bounded, and nothing can tell in advance whether it is. Keying a
- * windowed aggregate on a customer bounds it at the number of customers; keying a pass-through feed
- * on an event id does not bound it at all, and the two are one word apart in the SQL. Defaulting to
- * forever would make every registration a leak nobody had decided to accept.
+ * <p><strong>A registration that does not choose keeps its rows forever</strong> ({@link
+ * #forever()}, since TY-21; {@code QueryRegistry}'s default retention says why). It used to be
+ * {@link #DEFAULT}, a day of event time, and that silently shortened any view whose data spans
+ * longer: one row near "now" evicted everything a day behind it, and a short answer looks exactly
+ * like a complete one. Forever is not unbounded -- the view's key ceiling still refuses loudly
+ * ({@code PRV-4001}) -- so a view whose key space grows is stopped rather than quietly trimmed. A
+ * bound is still worth stating whenever the key space is not bounded by construction: keying a
+ * windowed aggregate on a customer bounds it at the number of customers, keying a pass-through
+ * feed on an event id does not bound it at all, and the two are one word apart in the SQL.
  *
  * <p><strong>Eviction is forgetting, not retraction.</strong> An evicted row is not published to
  * subscribers as a {@code -1}: the trade was not cancelled, it aged out of a cache. A consumer
@@ -56,7 +59,11 @@ public record Retention(Duration maxAge) {
 
     private static final Retention FOREVER = new Retention(null);
 
-    /** The default when a registration does not choose: a day of event time. */
+    /**
+     * A day of event time: the default before TY-21, and no longer what a registration gets when it
+     * does not choose ({@link #forever()} is). Kept because a journal record written without a
+     * retention decodes to it -- the retention such a registration had when it was written.
+     */
     public static final Retention DEFAULT = new Retention(Duration.ofHours(24));
 
     public Retention {

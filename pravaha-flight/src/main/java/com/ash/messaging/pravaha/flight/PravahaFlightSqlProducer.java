@@ -385,8 +385,12 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     private static PravahaException noParameters(ContinuousStatement statement) {
         return new PravahaException(
                 com.ash.messaging.pravaha.sql.SqlErrors.STATEMENT_MALFORMED,
-                statement.verb() + " takes no parameters. Write the values into the statement, or register a "
-                        + "parameterised query through the register action, which binds them.");
+                // HLP-14(e). This sent clients to "the register action, which binds them"; the action
+                // has no parameters field, and nothing over Flight binds a registration's parameters.
+                statement.verb() + " takes no parameters. Write the values into the statement. A continuous "
+                        + "query with bound parameters can only be registered in an embedded engine, through "
+                        + "QueryRegistry.register(..., BoundParameters); neither this statement nor the register "
+                        + "action binds any.");
     }
 
     @Override

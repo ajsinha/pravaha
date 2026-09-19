@@ -314,6 +314,33 @@ class FlightContinuousStatementTest {
     }
 
     @Test
+    void parametersBoundToAContinuousStatementAreRefusedWithAdviceThatExists() throws Exception {
+        // HLP-14(e). The refusal told a client to register a parameterised query "through the
+        // register action, which binds them". The action has no parameters field; only an embedded
+        // QueryRegistry.register(..., BoundParameters) binds any.
+        FlightSqlClient.PreparedStatement prepared = sql.prepare(
+                "CREATE CONTINUOUS QUERY trade_feed KEYED BY (trade_id) AS SELECT trade_id FROM trade", bearing(ADMIN));
+        try (org.apache.arrow.vector.IntVector value = new org.apache.arrow.vector.IntVector("p", allocator)) {
+            value.allocateNew(1);
+            value.set(0, 1);
+            value.setValueCount(1);
+            try (VectorSchemaRoot parameters = VectorSchemaRoot.of(value)) {
+                parameters.setRowCount(1);
+                prepared.setParameters(parameters);
+                FlightRuntimeException refusal = refused(() -> prepared.execute(bearing(ADMIN)));
+
+                assertThat(refusal.getMessage())
+                        .contains("takes no parameters")
+                        .contains("embedded")
+                        .doesNotContain("through the register action, which binds them");
+            }
+        } finally {
+            prepared.close(bearing(ADMIN));
+        }
+        assertThat(registry.names()).isEmpty();
+    }
+
+    @Test
     void aMalformedStatementIsRefusedWithItsShapeBeforeAnythingRuns() {
         FlightRuntimeException refusal = refused(
                 () -> sql.execute("CREATE CONTINUOUS QUERY trade_feed AS SELECT trade_id FROM trade", bearing(ADMIN)));

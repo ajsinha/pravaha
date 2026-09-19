@@ -185,4 +185,17 @@ class RetentionTest {
         assertThat(view.evicted()).isPositive();
         assertThat(view.size()).isLessThan(10);
     }
+
+    @Test
+    void theClassDocumentationNamesTheDefaultARegistrationActuallyGets() throws Exception {
+        // HLP-14(d). The javadoc still called a day the default after TY-21 made it forever, and a
+        // reader choosing whether to set a retention reads this class, not QueryRegistry's field.
+        String source = java.nio.file.Files.readString(
+                java.nio.file.Path.of("src/main/java/com/ash/messaging/pravaha/serving/Retention.java"));
+
+        assertThat(source)
+                .contains("A registration that does not choose keeps its rows forever")
+                .doesNotContain("A default applies unless a registration chooses otherwise</strong> ({@link #DEFAULT}")
+                .doesNotContain("The default when a registration does not choose: a day");
+    }
 }
