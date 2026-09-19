@@ -73,17 +73,71 @@ public interface StreamSinkPlugin extends PravahaPlugin {
     /** Ensures everything written so far is durable at the sink. */
     void flush();
 
-    /** Begins a transaction for a checkpoint. No-op unless transactional. */
+    /**
+     * Begins the transaction that the writes after it go into. No-op unless transactional.
+     *
+     * <p><strong>The protocol, for a sink declaring {@link SinkCapabilities#transactional()}.</strong>
+     * The engine makes these calls one at a time, never concurrently with {@link #write}.
+     *
+     * <ol>
+     *   <li>{@code beginTransaction(n)}, then any number of {@link #write} and {@link #flush} calls.
+     *   <li>At a checkpoint's cut, {@link #prepare prepare(id)}: make everything written since the
+     *       begin durable <em>without making it visible</em>, and return a handle naming it. The
+     *       engine stores the handle in the checkpoint and begins the next transaction at once.
+     *   <li>Once that checkpoint is durable, {@link #commit commit(handle)}.
+     *   <li>After a restart, the engine restores the newest checkpoint, calls {@code commit} for every
+     *       handle it recorded -- the process may have died after the checkpoint was stored and
+     *       before the commit was sent -- and then {@link #abortAfter abortAfter(id)} for everything
+     *       else, which the replay is about to write again.
+     * </ol>
+     *
+     * <p>A query that takes no checkpoints has nothing to tie a transaction to, and the engine
+     * prepares and commits one per view commit instead: atomic per commit, at least once across a
+     * restart.
+     *
+     * @param checkpointId a label: one more than the newest checkpoint cut before this transaction
+     *     began. A checkpoint that fails does not end a transaction, so the one that finally prepares
+     *     it may carry a larger id. Labels only increase, across restarts too
+     */
     default void beginTransaction(long checkpointId) {}
 
-    /** Prepares to commit. Returns a handle the engine stores in the checkpoint. */
+    /**
+     * Makes the open transaction durable and not yet visible, and names it.
+     *
+     * @return a handle the engine stores in the checkpoint and later passes to {@link #commit},
+     *     possibly from another process after a restart -- so it must name the transaction, not an
+     *     object in this one's memory
+     */
     default String prepare(long checkpointId) {
         return "";
     }
 
-    /** Commits a prepared transaction after the checkpoint is durable. */
+    /**
+     * Commits a prepared transaction once the checkpoint recording it is durable.
+     *
+     * <p><strong>Must be idempotent.</strong> A process that dies after sending this and before a
+     * newer checkpoint exists is restored from the checkpoint that recorded the handle, and the engine
+     * commits it again, because it cannot know the first commit arrived.
+     */
     default void commit(String handle) {}
 
     /** Abandons a prepared transaction. */
     default void abort(String handle) {}
+
+    /**
+     * Abandons every uncommitted transaction begun with a label greater than {@code checkpointId},
+     * open or prepared.
+     *
+     * <p>Called once after a restore, when the handles the restored checkpoint recorded have been
+     * committed. Anything this sink holds beyond them was written after that checkpoint's cut and is
+     * about to be written again by the replay, so committing it later would be a duplicate. The
+     * engine cannot name these transactions itself: the handles of any prepared at a checkpoint that
+     * never became durable died with the process that prepared them.
+     *
+     * <p>No-op by default, which is right for a sink whose uncommitted transactions die with the
+     * connection that opened them. A sink whose prepared transactions outlive its process -- XA, a
+     * database's {@code PREPARE TRANSACTION} -- must implement it, or they hold their locks for ever.
+     * They are never committed either way; this is about the locks, not the data.
+     */
+    default void abortAfter(long checkpointId) {}
 }

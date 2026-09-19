@@ -48,6 +48,16 @@ import com.ash.messaging.pravaha.runtime.RuntimeErrors;
  * <p>What this does not do is make an <em>arbitrary</em> sink exactly-once. A row written and then
  * lost by the sink itself is gone; the mark says it was written. That is the honest boundary of
  * dedup-on-the-writer-side, and a sink that needs more has to be transactional.
+ *
+ * <p><strong>Not wired, and why.</strong> A registered query's sink is written from the view's
+ * commits ({@code SinkDelivery}), and a commit's changes carry no sequence: they are a row's values
+ * and a weight, and the row it hands a plugin has no sequence written into it. Nor could one be
+ * invented there -- the rows of an aggregate derive from many inputs, and a commit's boundaries are
+ * wherever the feed happened to commit, which a replay does not reproduce -- so a mark taken before
+ * a crash would name nothing the replay could be compared with, and would drop live rows. The
+ * engine instead ties a transactional sink to its checkpoints (exactly once), and says that a plain
+ * appending sink is at least once rather than fake this. What would make it usable is a stable,
+ * replay-reproducible sequence on each output row, which the view's changes do not have.
  */
 public final class DeduplicatingSink implements StreamSinkPlugin {
 

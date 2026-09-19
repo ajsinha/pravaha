@@ -143,6 +143,23 @@ public final class PeriodicCheckpointer implements AutoCloseable {
         return this;
     }
 
+    private volatile Consumer<Checkpoint> onDurable = checkpoint -> {};
+
+    /**
+     * Tells {@code consumer} about each checkpoint once it is durable, and only then.
+     *
+     * <p>The second phase of a two-phase-commit sink: what it prepared at a checkpoint's cut may be
+     * committed only once a restart is certain to find that checkpoint, or a crash in between leaves
+     * the sink holding output the restored state will produce again. Called on the checkpointing
+     * thread after {@link CheckpointStore#store} returns. A consumer that throws undoes nothing that
+     * was stored; the throw reaches the caller of {@link #checkpointNow}, and on the schedule is
+     * reported as a checkpoint failure so it is seen.
+     */
+    public PeriodicCheckpointer tellingWhenDurable(Consumer<Checkpoint> consumer) {
+        this.onDurable = consumer == null ? checkpoint -> {} : consumer;
+        return this;
+    }
+
     public void start() {
         if (!running.compareAndSet(false, true)) {
             return;
@@ -165,9 +182,17 @@ public final class PeriodicCheckpointer implements AutoCloseable {
         Checkpoint checkpoint = execution.checkpoint(id, timeout);
         store.store(checkpoint);
         taken.incrementAndGet();
-        int removed = store.prune(keep);
-        if (removed > 0) {
-            pruned.addAndGet(removed);
+        try {
+            // After store() has returned and not before: store returns only once the checkpoint is
+            // durable and complete, and what this tells -- a transactional sink, to commit what it
+            // prepared at the cut -- must never happen for a checkpoint a restart might not find.
+            onDurable.accept(checkpoint);
+        } finally {
+            // Pruned whatever the listener did: the checkpoint is stored either way.
+            int removed = store.prune(keep);
+            if (removed > 0) {
+                pruned.addAndGet(removed);
+            }
         }
         return checkpoint;
     }

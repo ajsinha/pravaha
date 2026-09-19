@@ -129,7 +129,13 @@ pravaha queries        # state column
 refuses a batch: the sink is detached with `PRV-8009` and an `ERROR` line names it, and nothing more
 is written to it, because writing past a lost batch would leave the sink missing a change with
 nothing to say so. The view still answering is not evidence the sink is receiving. Fix what the sink
-refused, then drop and re-register the query; it is sent the view's contents first.
+refused, then drop and re-register the query; it is sent the view's contents first. A transactional
+sink is detached the same way when a prepare or a commit fails.
+
+**Is the sink transactional?** Then nothing it is written is visible until the next checkpoint is
+stored — up to `pravaha.checkpoint.interval` behind the view — and without
+`pravaha.checkpoint.directory` each commit is its own transaction. The registration's `INFO` line
+(`query '…' writes to sink '…', exactly-once: …`) says which the node is doing.
 
 **Did a filter silently match nothing?** `WHERE tier = ?` bound to `NULL` matches **no rows**, because
 `x = NULL` is UNKNOWN under SQL's three-valued logic. `IS NULL` is what finds the empty ones.

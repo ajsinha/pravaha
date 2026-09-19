@@ -125,8 +125,32 @@ Recorded after the code, so it describes what exists.
   in order, name or type — or, for a keyed sink, whose key columns are not the sink's — is refused
   with `PRV-8010` before the sink opens. `StreamSinkPlugin.schema()` and `keyColumns()` are how a
   sink declares them (SINK-1).
-- **The guarantee is at-least-once.** A restart replays from the last checkpoint, and seeding a
-  joining sink can repeat rows it already holds. A sink declaring `idempotentUpsert` makes that
-  effectively-once; the transactional half of the SPI is not called, because tying a sink's commit
-  to a checkpoint is a change to what a checkpoint commits. That is the remaining step to
-  exactly-once, and it is not built.
+- **The guarantee is the sink's, stated at registration.** Tying a sink's commit to a checkpoint
+  was a change to what a checkpoint commits, and it has been made:
+  - *Where the cut is.* The checkpoint used to snapshot the view from the checkpointing thread after
+    the lanes had answered — whatever had been committed by then, which is not the cut: a row
+    applied before the marker and not yet committed was in neither the snapshot nor the replay.
+    Now the lane's control task, at the marker, also runs `RegisteredQuery.cutOutput`
+    (`QueryExecution.cuttingOutputWith`): under a lock every view commit holds, it commits the view
+    (so every sink is written exactly the rows before the marker), snapshots it, and prepares each
+    transactional sink, beginning its next transaction before any later commit can reach it. One
+    lane only, which every registered query is; more is refused rather than cut wrongly.
+  - *The two phases.* Each sink's handles — the one just prepared and any left by a checkpoint that
+    failed after its cut — go into the checkpoint under `sink:<registration>`. Once
+    `CheckpointStore.store` has returned, `PeriodicCheckpointer.tellingWhenDurable` commits them.
+  - *The restore* commits every handle the checkpoint recorded (the SPI now requires `commit` to be
+    idempotent, since the crash may have followed it) and calls the new SPI default
+    `abortAfter(checkpointId)`, since the handles of transactions prepared after that checkpoint
+    died with the process. A sink the checkpoint recorded is not re-seeded; a second name registered
+    after the restored computation has moved on is sent `ServedView.changesSince` the checkpoint's
+    view rather than the whole view.
+  - *So:* transactional on a checkpointed node, **exactly once**; transactional without checkpoints,
+    each commit its own transaction, at least once; `idempotentUpsert`, effectively once; neither,
+    at least once. `QueryRegistry` logs which at registration and `sinkGuarantee(name)` answers it.
+    `DeduplicatingSink` is not the answer for the last case and stays unwired: a view commit's
+    changes carry no sequence, and a commit's boundaries are not reproduced by a replay.
+  - *Not covered:* neither shipped sink is transactional; a `PRV-8009` detach ends the guarantee
+    (re-attaching seeds the whole view); a node stopped and never restarted leaves its transactional
+    sinks' tail since the last checkpoint uncommitted, where a drop commits it; and the view is only
+    as right as the checkpoint — the sink matches the view, exactly.
+    `TransactionalSinkDeliveryTest` holds the protocol, crash cases included.

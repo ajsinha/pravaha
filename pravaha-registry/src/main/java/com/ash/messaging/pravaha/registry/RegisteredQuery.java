@@ -309,7 +309,7 @@ public final class RegisteredQuery implements AutoCloseable {
         try {
             execution.advanceWatermark(nanos);
             watermarkNanos.accumulateAndGet(nanos, Math::max);
-            sink.commit(sink.appliedFrontier());
+            commitView();
         } catch (PravahaException e) {
             fail(e);
             throw e;
@@ -396,13 +396,15 @@ public final class RegisteredQuery implements AutoCloseable {
      * <p>The same hook a subscription uses, so a sink sees exactly what a subscriber sees: whole
      * commits, inserts and retractions in the order they were applied, never a half-applied window.
      */
-    AutoCloseable attachSink(com.ash.messaging.pravaha.serving.ViewChangeListener listener) {
-        AutoCloseable detach = sink.onCommit(listener);
+    AutoCloseable attachSink(SinkDelivery delivery) {
+        AutoCloseable detach = sink.onCommit(delivery);
+        sinkDeliveries.add(delivery);
         sinksAttached.incrementAndGet();
         java.util.concurrent.atomic.AtomicBoolean detached = new java.util.concurrent.atomic.AtomicBoolean();
         return () -> {
             if (detached.compareAndSet(false, true)) {
                 detach.close();
+                sinkDeliveries.remove(delivery);
                 sinksAttached.decrementAndGet();
             }
         };
@@ -418,8 +420,130 @@ public final class RegisteredQuery implements AutoCloseable {
         // asks it to publish. The emission runs on the lane's thread and the commit picks it up on
         // the next pass, which is why a caller may see the previous answer once.
         execution.publishContinuousAggregates();
-        sink.commit(sink.appliedFrontier());
+        commitView();
     }
+
+    /**
+     * Held for the whole of a view commit, including its delivery to every listener, and by a
+     * checkpoint's output cut.
+     *
+     * <p>A view commit is two steps -- publish, then hand the batch to each listener -- and a sink
+     * hears a commit only in the second. Without this, a checkpoint could snapshot a view that
+     * already holds commit C while a sink has not yet been handed C, and prepare the sink's
+     * transaction without it: after a restore the sink would lack C and nothing would replay it.
+     *
+     * <p>Never held while waiting for the lane. {@link #commit} publishes continuous aggregates
+     * <em>before</em> taking it, because that waits for a task on the lane, and the lane may be
+     * inside {@link #cutOutput} waiting for this.
+     */
+    private final Object commitLock = new Object();
+
+    private void commitView() {
+        synchronized (commitLock) {
+            sink.commit(sink.appliedFrontier());
+        }
+    }
+
+    /**
+     * Cuts this computation's output for checkpoint {@code checkpointId}: on the lane's thread, at
+     * the checkpoint's marker (see {@code QueryExecution.cuttingOutputWith}).
+     *
+     * <p><strong>The ordering argument, which is the whole of exactly-once output.</strong>
+     *
+     * <ol>
+     *   <li>The lane is holding its input at the marker, so every row the checkpoint's offsets
+     *       exclude has been applied to the view and none after has. The lane state snapshotted in
+     *       the same task describes the same position.
+     *   <li>Under {@link #commitLock}, the view is committed. That publishes exactly the rows before
+     *       the marker and hands them to every listener, so each sink has now been
+     *       <em>written</em> everything up to the cut and nothing past it. No other commit can be
+     *       half-delivered, because every commit holds the same lock.
+     *   <li>The view is snapshotted, still under the lock: the checkpoint's view is the view at the
+     *       cut, not at whatever moment the checkpointing thread got round to it.
+     *   <li>Each transactional sink is prepared, and its handle -- with every earlier one not yet
+     *       committed -- goes into the checkpoint beside the view. The sink's next transaction is
+     *       begun before the lock is released, so the next commit's rows go into it.
+     *   <li>The checkpoint is stored, and only once {@code store} has returned is each handle
+     *       committed ({@link #checkpointDurable}). A crash before that leaves a prepared transaction
+     *       nobody commits except a restore from this checkpoint.
+     *   <li>A restore puts back the view and the lane state from 2 and 3, commits every handle the
+     *       checkpoint recorded -- idempotently, since the crash may have come after the commit --
+     *       and tells the sink to abandon everything after it, which the replay writes again.
+     * </ol>
+     *
+     * <p>So the sink's committed contents are, at every moment, the checkpointed view's, and the
+     * replay after a restore starts from exactly that view. Neither a duplicate nor a gap has
+     * anywhere to come from. What this does not do is make the view itself more right than the
+     * checkpoint is: a sink matches the view, exactly.
+     *
+     * @return the view's snapshot and each attached sink's section, for the checkpoint
+     */
+    java.util.Map<String, byte[]> cutOutput(long checkpointId) {
+        synchronized (commitLock) {
+            sink.commit(sink.appliedFrontier());
+            java.util.Map<String, byte[]> entries = new java.util.HashMap<>();
+            byte[] contents = view.snapshot();
+            entries.put(QueryExecution.SERVED_VIEW_STATE, contents);
+            for (SinkDelivery delivery : sinkDeliveries) {
+                delivery.cut(checkpointId).ifPresent(section -> entries.put(SinkDelivery.stateKey(delivery), section));
+            }
+            // A sink the restored checkpoint knew and no registration has claimed yet: still owed its
+            // recorded handles and still holding the restored view's contents, so it is carried as it
+            // was rather than forgotten by the first checkpoint after a restart.
+            restoredSinks.forEach(
+                    (name, restored) -> entries.putIfAbsent(SinkDelivery.STATE_PREFIX + name, restored.carried()));
+            lastCut = Math.max(lastCut, checkpointId);
+            return entries;
+        }
+    }
+
+    /** Tells every attached sink that a checkpoint is durable, so it may commit what it prepared. */
+    void checkpointDurable(com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint) {
+        for (SinkDelivery delivery : sinkDeliveries) {
+            delivery.durable(checkpoint.id());
+        }
+    }
+
+    /**
+     * Remembers what a restored checkpoint recorded about sinks, for the registrations that will
+     * claim it -- the first as this computation starts, any other when its name is registered again.
+     */
+    void restoredFrom(com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint) {
+        lastCut = Math.max(lastCut, checkpoint.id());
+        byte[] contents = checkpoint.operatorState().get(QueryExecution.SERVED_VIEW_STATE);
+        checkpoint.operatorState().forEach((key, bytes) -> {
+            if (key.startsWith(SinkDelivery.STATE_PREFIX)) {
+                restoredSinks.put(
+                        key.substring(SinkDelivery.STATE_PREFIX.length()),
+                        SinkDelivery.Restored.decode(checkpoint.id(), bytes, contents));
+            }
+        });
+    }
+
+    /** What the restored checkpoint recorded for the sink of registration {@code name}, taken once. */
+    java.util.Optional<SinkDelivery.Restored> claimRestoredSink(String name) {
+        return java.util.Optional.ofNullable(restoredSinks.remove(name));
+    }
+
+    /** Forgets restored sinks no registration claimed: names refused at recovery, or dropped. */
+    void forgetUnclaimedSinks() {
+        restoredSinks.clear();
+    }
+
+    /** The label a sink's next transaction begins with: one more than the newest cut known. */
+    long nextTransactionLabel() {
+        return lastCut + 1;
+    }
+
+    /** Whether this computation takes checkpoints at all, which a transactional sink needs. */
+    boolean checkpointed() {
+        return checkpointDirectory != null;
+    }
+
+    private final java.util.Map<String, SinkDelivery.Restored> restoredSinks =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.List<SinkDelivery> sinkDeliveries = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private volatile long lastCut;
 
     synchronized void addName(String name) {
         names.add(name);
@@ -526,7 +650,7 @@ public final class RegisteredQuery implements AutoCloseable {
             // and by here it is DROPPED by design -- no new work may be accepted, but what the
             // engine already produced still has to reach the view.
             try {
-                sink.commit(sink.appliedFrontier());
+                commitView();
             } catch (RuntimeException e) {
                 // A close must not throw on its way out. The query is going; a view that cannot
                 // take its final commit is worth a line, not an exception nobody can act on.

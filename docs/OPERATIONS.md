@@ -610,20 +610,39 @@ What an operator should know about that delivery:
   it takes filters, projections and tumbling windows without lateness, and nothing that retracts.
 - **Rows arrive per commit**, retractions included as rows with a negative weight, never as half a
   window. The feed commits on its own timer, so a sink trails the source by about one commit.
-- **At least once, not exactly once.** A restart resumes from the last checkpoint and replays what
-  came after it, and a sink added to a computation that was already running (a second name for the
-  same query) is first sent the view's whole contents — at the query's next change, not at once. A sink declaring `idempotentUpsert` absorbs
-  both; an append-only file does not, so expect duplicates in it after a restart.
+- **The guarantee depends on the sink, and is logged at registration** as `query 'q' writes to sink
+  's', <guarantee>: <why>` (INFO, logger `QueryRegistry`). A restart resumes from the last checkpoint
+  and replays what came after it; what that does to the sink is:
+
+  | Sink declares | Guarantee | Why |
+  |---|---|---|
+  | `transactional`, and `pravaha.checkpoint.directory` is set | **exactly once** | Writes between checkpoints go into a transaction, prepared at each checkpoint's cut and recorded in the checkpoint, committed once the checkpoint is durable. A restore commits what the checkpoint recorded and has the sink abandon the rest, which the replay writes again |
+  | `transactional`, no checkpoint directory | at least once | Nothing to tie a transaction to, so each commit is its own |
+  | `idempotentUpsert` (`aerospike-sink`) | effectively once | The replay rewrites records with the values they already hold |
+  | neither (`filesystem`) | at least once | Expect duplicates in the file after a restart. A view commit carries no sequence a replay would repeat, so there is nothing to deduplicate on |
+
+  Neither shipped sink is transactional. The source caps it too: one that cannot rewind to a
+  checkpoint's offsets is at least once end to end.
+- **A sink added to a running computation** (a second name for the same query) is first sent the
+  view's whole contents — at the query's next change or checkpoint, not at once — inside its first
+  transaction when it is transactional. After a restart, a second name whose sink the restored
+  checkpoint recorded is sent only what changed since that checkpoint.
+- **A drop commits; a shutdown does not.** Dropping a registration commits what its transactional
+  sink was written, since nothing will replay it. Stopping the node leaves the tail since the last
+  checkpoint uncommitted, as a crash would, and the restart writes it again — so a node that is
+  stopped and never restarted leaves that tail out of the sink.
 - **A sink that fails is detached, not retried.** The first refused batch stops that sink with
   `PRV-8009`, logged at `ERROR`; the query, its view and its subscribers carry on. Writing later
   batches past a lost one would leave the sink missing a change with nothing to say so. Drop and
-  re-register the query to start the sink again from the view's contents.
+  re-register the query to start the sink again from the view's contents — which, for any kind of
+  sink, repeats what it already held: the guarantee above ends at `PRV-8009`.
 - **The journal records the sink.** A restart re-attaches it — which is why sinks are bound before
   the registry recovers — and a journalled registration whose sink is no longer bound is refused by
   name in the recovery report rather than recovered writing to nothing.
 - **Delivery runs on the query's commit.** A slow sink slows the query that feeds it and nothing
-  else. It does not call the SPI's transactional methods: tying a sink's commit to a checkpoint is
-  what exactly-once needs, and it is not built.
+  else. A checkpoint also commits the view on the query's lane and prepares each transactional sink
+  there, so a sink slow to prepare lengthens that query's checkpoint pause (and, on a shared lane,
+  its neighbours'); `pravaha.checkpoint.timeout` bounds it.
 
 ## Starting a node
 

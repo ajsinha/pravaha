@@ -64,10 +64,13 @@ exchange, so the case is unreachable today, and `QueryExecution.refuseWhileRowsC
 refuses rather than storing a checkpoint that silently drops rows in flight — so the first pipeline
 that does send finds an error and not a wrong answer.
 
-**Output is still effectively-once, and that is the ceiling here.** `DeduplicatingSink` exists as a
-class and is not wired into the checkpoint path, so a row emitted before the cut and re-emitted after
-a restore is a duplicate the engine does not suppress. ADR-029 independently caps anything sourced
-from Aerospike at at-least-once end to end, regardless of what the engine does.
+**Output is cut at the same marker (amended 2026-09-19, ADR-043 "As built").** A registered query's
+view is committed and snapshotted on the lane at the marker, and a transactional sink is prepared
+there and committed once the checkpoint is durable, so output to a transactional sink is exactly
+once; to an idempotent upsert sink effectively once; to a plain append sink at least once.
+`DeduplicatingSink` is not wired and has nothing to work from: a view commit's changes carry no
+sequence. ADR-029 independently caps anything sourced from Aerospike at at-least-once end to end,
+regardless of what the engine does.
 
 Earlier gap, since closed: registered continuous queries were not checkpointed at all. `QueryRegistry`
 now constructs a `QueryExecution` and a `PeriodicCheckpointer` per registration, restores before the

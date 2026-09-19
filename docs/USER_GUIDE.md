@@ -91,8 +91,10 @@ pravaha register --name spend_by_user --sql-file spend.sql --keys 0,1 --sink spe
 
 Refused at registration, before the sink opens: a query that revises its answer against a sink that
 can only append (`PRV-2041`), and a query whose output columns, or whose `--keys`, differ from the
-sink's configured schema or key (`PRV-8010`). Delivery is at least once, and a sink that refuses a
-batch is detached with `PRV-8009` while the view carries on.
+sink's configured schema or key (`PRV-8010`). Delivery is exactly once to a transactional sink,
+effectively once to an idempotent upsert sink and at least once to a plain append — the node logs
+which at registration — and a sink that refuses a batch is detached with `PRV-8009` while the view
+carries on.
 [Streams, queries and SQL §4](CONTINUOUS_QUERIES.md) has the whole contract.
 
 ### Retention

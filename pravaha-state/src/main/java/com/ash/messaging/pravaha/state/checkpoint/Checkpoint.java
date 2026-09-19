@@ -29,8 +29,10 @@ import java.util.Map;
  * <p>Exactly-once is a property of <em>state</em>, not of output. On recovery the engine rewinds its
  * sources and replays; records between the checkpoint and the failure are processed a second time,
  * and the state is correct because it was rewound with them. Output written before the failure was
- * still written -- which is why sinks have to be idempotent for the end-to-end story to hold, and
- * why the design says "effectively-once output" rather than borrowing the stronger word.
+ * still written -- unless the sink is transactional, in which case what it was written after the
+ * cut was never committed: its handle is recorded in {@link #operatorState} beside the view, and
+ * only a durable checkpoint commits it (ADR-043 "As built"). So output is exactly once to a
+ * transactional sink, effectively once to an idempotent one, and at least once to anything else.
  *
  * @param id monotonic, and the tiebreak when two checkpoints are found
  * @param timestampNanos when it was taken, for humans rather than for logic

@@ -964,9 +964,11 @@ public final class QueryExecution implements AutoCloseable {
      * finishing the batch it was in, so the state it snapshots covers exactly the rows the recorded
      * offsets exclude -- which is what "exactly-once state" has to mean to be worth saying.
      *
-     * <p>Sinks are a different matter and unchanged: a row emitted before the cut and re-emitted
-     * after a restore is a duplicate this cannot prevent, which is why the guarantee is
-     * effectively-once output (ADR-008, design section 14.4).
+     * <p>Output is cut here too when {@link #cuttingOutputWith} gave it a hook: on the lane, in the
+     * same task, at the same marker. That is what lets a transactional sink be prepared at exactly
+     * the point the checkpoint describes, and it is the registry's to arrange, since the execution
+     * knows nothing of views or sinks. Without the hook a row emitted before the cut and re-emitted
+     * after a restore is a duplicate this cannot prevent (ADR-008, design section 14.4).
      *
      * <p>What is still not cut is the exchange. See {@link #refuseWhileRowsCrossTheExchange}.
      */
@@ -996,11 +998,63 @@ public final class QueryExecution implements AutoCloseable {
         return this;
     }
 
+    /**
+     * What a checkpoint asks of a query's output, at the cut and on the lane's own thread.
+     *
+     * <p>Run inside the same control task that snapshots the lane, so it sees the output exactly as
+     * the input the checkpoint's offsets exclude left it: every row before the marker has been
+     * applied and none after it has. Whatever it returns is stored in the checkpoint beside the
+     * lane's state.
+     */
+    @FunctionalInterface
+    public interface OutputCut {
+
+        /**
+         * @param checkpointId the checkpoint being cut
+         * @return entries for the checkpoint's operator state. Keys must not begin with {@code lane-}
+         */
+        Map<String, byte[]> cut(long checkpointId);
+    }
+
+    private OutputCut outputCut;
+
+    /**
+     * Cuts this query's output at the checkpoint's marker rather than wherever the view's commits
+     * happen to have reached (ADR-043, exactly-once output).
+     *
+     * <p>Without this the view is snapshotted after the lanes have answered, from the checkpointing
+     * thread: it holds whatever had been <em>committed</em> by then, which is not the cut. Rows
+     * applied before the marker and not yet committed were in neither the snapshot nor the replay,
+     * and rows after the marker that a commit had already published were in both. A sink tied to
+     * that snapshot inherits both errors. Given this hook, the snapshot is replaced by whatever
+     * {@code cut} returns, taken on the lane at the marker.
+     *
+     * <p>One lane only: the marker is one position in one lane's input, and with several lanes
+     * writing into one view there is no single point in the view's changes that corresponds to it.
+     * Every registered query runs on one lane; a checkpoint of an execution with more is refused
+     * rather than stored with a cut that is not one.
+     */
+    public QueryExecution cuttingOutputWith(OutputCut cut) {
+        this.outputCut = cut;
+        return this;
+    }
+
     /** The key a shuffling pump's source offset travels under. Keeps "partition-N" for the plain ones. */
     private static final String SHUFFLED_OFFSET_PREFIX = "shuffled-partition-";
 
     public com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint(long id, Duration timeout) {
         refuseWhileRowsCrossTheExchange();
+        OutputCut cut = outputCut;
+        if (cut != null && pipelines.size() != 1) {
+            throw new IllegalStateException("this query's output is cut at the checkpoint's marker, and it runs on "
+                    + pipelines.size() + " lanes: a marker is one position in one lane's input, and several lanes "
+                    + "writing into one view have no single point in its changes that matches it. The checkpoint "
+                    + "is refused rather than stored with a cut that is not one.");
+        }
+        java.util.concurrent.atomic.AtomicReference<Map<String, byte[]>> cutEntries =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<RuntimeException> cutFailure =
+                new java.util.concurrent.atomic.AtomicReference<>();
 
         java.util.Map<String, byte[]> state = new java.util.HashMap<>();
         java.util.Map<String, String> offsets = new java.util.HashMap<>();
@@ -1028,7 +1082,8 @@ public final class QueryExecution implements AutoCloseable {
             }
             for (int index = 0; index < pipelines.size(); index++) {
                 InterpretedPipeline pipeline = pipelines.get(index);
-                if (!pipeline.isStateful()) {
+                boolean stateful = pipeline.isStateful();
+                if (!stateful && cut == null) {
                     continue;
                 }
                 byte[][] captured = new byte[1][];
@@ -1036,9 +1091,29 @@ public final class QueryExecution implements AutoCloseable {
                 // waiting for it, and only then submitting to lane 1 is what made a multi-lane
                 // checkpoint a set of unrelated snapshots: lane 1's cut was taken however long lane
                 // 0's snapshot took, and a whole query's worth of rows, later.
-                long ticket = lanes.lane(index).submitControlTask(() -> captured[0] = pipeline.snapshotState());
+                //
+                // The output is cut in the same task, after the state: the lane is holding its input
+                // at the marker for both, so the two describe one position. A stateless lane is
+                // given the task for the output's sake alone.
+                long ticket = lanes.lane(index).submitControlTask(() -> {
+                    if (stateful) {
+                        captured[0] = pipeline.snapshotState();
+                    }
+                    if (cut != null) {
+                        try {
+                            cutEntries.set(cut.cut(id));
+                        } catch (RuntimeException failed) {
+                            // Caught here, not left to the lane: a control task that throws kills
+                            // the lane, and a checkpoint that could not cut its output is a failed
+                            // checkpoint, not a failed query.
+                            cutFailure.set(failed);
+                        }
+                    }
+                });
                 tickets.add(new long[] {index, ticket});
-                captures.put(index, captured);
+                if (stateful) {
+                    captures.put(index, captured);
+                }
             }
         } finally {
             thawSources(frozen);
@@ -1056,6 +1131,10 @@ public final class QueryExecution implements AutoCloseable {
                         + "this one is abandoned rather than stored partially complete.");
             }
             lane.checkHealth();
+            if (!captures.containsKey(index)) {
+                // A stateless lane, marked for the output cut alone.
+                continue;
+            }
             byte[] captured = captures.remove(index)[0];
             if (captured == null) {
                 // The wait said the task had run and it had not produced a snapshot. Storing the
@@ -1068,7 +1147,25 @@ public final class QueryExecution implements AutoCloseable {
             state.put("lane-" + index, captured);
         }
 
-        if (viewSnapshot != null) {
+        if (cut != null) {
+            RuntimeException failed = cutFailure.get();
+            if (failed != null) {
+                throw new IllegalStateException(
+                        "the query's output could not be cut at checkpoint " + id + ": " + failed.getMessage(), failed);
+            }
+            Map<String, byte[]> entries = cutEntries.get();
+            if (entries == null) {
+                throw new IllegalStateException("the lane reported checkpoint " + id + "'s output cut as taken and "
+                        + "it produced nothing; storing the checkpoint without it would restore a view the offsets "
+                        + "do not match");
+            }
+            entries.forEach((key, bytes) -> {
+                if (key.startsWith("lane-")) {
+                    throw new IllegalStateException("an output cut may not write '" + key + "', which is lane state");
+                }
+                state.put(key, bytes);
+            });
+        } else if (viewSnapshot != null) {
             state.put(SERVED_VIEW_STATE, viewSnapshot.get());
         }
 

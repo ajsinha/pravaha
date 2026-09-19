@@ -30,7 +30,13 @@ a library it is real. Otherwise:
 Sinks are real now: a registration can name one, every commit reaches it (ADR-043), a sink
 declares its schema and key and a registration that does not match is refused (`PRV-8010`), and
 `aerospike-sink` — upsert and delete by key — is nameable alongside `filesystem`. `SINK-3` records
-the gap left: no per-sink authorization.
+the gap left: no per-sink authorization. Output is exactly once to a transactional sink: the
+checkpoint commits the view on the lane at its marker, prepares each transactional sink there,
+records the handle in the checkpoint, and commits it once the checkpoint is durable; a restore
+commits what it recorded and has the sink abandon the rest (`RegisteredQuery.cutOutput` holds the
+ordering argument, `TransactionalSinkDeliveryTest` the crash cases). No shipped sink is
+transactional, so a deployment gets effectively once from `aerospike-sink` and at least once from
+`filesystem`; the registry logs which at registration.
 `SX-5` closed by measurement on 2026-09-16 (denied and absent reads now cost the same, 0.033 against
 0.036 ms), and `E-1`'s last code, `PRV-8007`, has a throw site. The register's header carries the current counts and
 `FindingsRegisterTest` holds it to them. What is left is ADR-039's road — its progress note says
@@ -292,7 +298,7 @@ unmeasured on this hardware.
 | Filter pushdown to sources | ✅ `Pushdown` extracts the pushable conjunction, `ReadRequest` carries it, the JDBC plugin turns it into a bound `WHERE`. The engine keeps its own filter regardless, which is what makes a plugin's partial or absent support harmless |
 | Pushdown equivalence, as a property | ✅ `PushdownEquivalenceTest` — a source honouring every pushed filter must return exactly what one honouring none returns |
 | Lookup join (enrichment) | ✅ `JOIN dim FOR SYSTEM_TIME AS OF t.ts`, `LookupJoinOperator`, `LookupJoin`, with `JdbcLookupPlugin` so it works against any database with a driver. Lookups overlap on virtual threads, in-flight bounded by what the source declares, output kept in arrival order |
-| Idempotent sink | ✅ `DeduplicatingSink` — remembers the highest sequence written, stores it in the checkpoint, drops replays at or below it. Turns an at-least-once sink into effectively-once without asking the sink for anything. **Not yet wired into `QueryExecution`'s checkpoint** |
+| Idempotent sink | ⚠️ `DeduplicatingSink` — remembers the highest sequence written and drops replays at or below it. **Not wired, and cannot be as things stand:** a registered query's sink is written from the view's commits, whose changes carry no sequence, and a commit's boundaries are not reproduced by a replay, so there is nothing stable to deduplicate on. A plain append sink is at least once and says so at registration; a transactional one is exactly once through the checkpoint instead (ADR-043 "As built") |
 | Projection / partial-aggregate pushdown | ⚠️ built and equivalence-tested in the planner (`SourcePushdown`) and the engine (`InterpretedPipeline.acceptPartialAggregate`), `COUNT`/`SUM` only; **no shipped plugin declares either, and no ingest path delivers a partial**, so only filters are pushed in a deployment (ADR-039 item 6) |
 
 `abort()` versus `close()` is worth knowing before writing any recovery test: `close()` is a
@@ -398,7 +404,8 @@ surviving its own restart, its own operator's mistakes, and its own half-finishe
 
 **What Wave 8 did not do.** Membership, assignment, rebalance, elastic rescale, multi-tenancy,
 Ratis, any multi-node execution: all still E7's and still deferred. The exchange is still not cut by
-a barrier. `DeduplicatingSink` is still not wired. The windowed aggregate still keys state by a digest — 128 bits
+a barrier. `DeduplicatingSink` is still not wired (and, since, found to have no sequence to work
+from; see the table above). The windowed aggregate still keys state by a digest — 128 bits
 now, the 64-bit fold is gone (W8-14, narrowed and open).
 
 **Gate pack:** [`gates/wave-8`](gates/wave-8/). Written retrospectively on 2026-09-15. **Gate P7

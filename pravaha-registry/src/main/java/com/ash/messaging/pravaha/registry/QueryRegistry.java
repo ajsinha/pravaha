@@ -69,6 +69,8 @@ import com.ash.messaging.pravaha.sql.plan.PreparedContinuousQuery;
  */
 public final class QueryRegistry implements AutoCloseable {
 
+    private static final System.Logger LOG = System.getLogger(QueryRegistry.class.getName());
+
     /** The default ceiling on keys in a view a registration creates. */
     public static final int DEFAULT_MAX_KEYS = 1_000_000;
 
@@ -762,6 +764,27 @@ public final class QueryRegistry implements AutoCloseable {
         return "(" + String.join(", ", columns) + ")";
     }
 
+    /**
+     * Says what a registration's sink is promised, where an operator will see it.
+     *
+     * <p>At registration and once, because the answer depends on the sink's declaration and on
+     * whether this node checkpoints, and neither changes while the query runs. An operator who reads
+     * "at-least-once" here knows before the first reconciliation that duplicates are possible.
+     */
+    private static void announce(String name, SinkDelivery delivery) {
+        LOG.log(
+                System.Logger.Level.INFO,
+                "query '" + name + "' writes to sink '" + delivery.sinkName() + "', " + delivery.guarantee());
+    }
+
+    /**
+     * What a registration's sink is promised -- exactly-once, effectively-once or at-least-once, and
+     * why -- or empty when it writes only to its view. The same words {@link #announce} logs.
+     */
+    public synchronized java.util.Optional<String> sinkGuarantee(String queryName) {
+        return java.util.Optional.ofNullable(deliveries.get(queryName)).map(SinkDelivery::guarantee);
+    }
+
     private SinkDelivery openDelivery(String name, String sinkName, StreamSchema schema) {
         SinkFactory factory = sinks;
         return new SinkDelivery(name, sinkName, factory.open(sinkName), schema, access, factory::release);
@@ -795,6 +818,7 @@ public final class QueryRegistry implements AutoCloseable {
                 // before this sink existed.
                 delivery.attachTo(existing, true);
                 deliveries.put(name, delivery);
+                announce(name, delivery);
             }
             try {
                 journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
@@ -817,6 +841,7 @@ public final class QueryRegistry implements AutoCloseable {
         views.register(query.view());
         if (delivery != null) {
             deliveries.put(name, delivery);
+            announce(name, delivery);
         }
         try {
             journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
@@ -902,7 +927,7 @@ public final class QueryRegistry implements AutoCloseable {
      * being written when the process died. Falling back to the previous one costs reprocessing;
      * failing the registration costs the query.
      */
-    private Map<String, String> restoreFrom(String name, QueryExecution execution) {
+    private Map<String, String> restoreFrom(String name, QueryExecution execution, RegisteredQuery query) {
         if (checkpointRoot == null) {
             return Map.of();
         }
@@ -915,6 +940,9 @@ public final class QueryRegistry implements AutoCloseable {
                 return Map.of();
             }
             execution.restore(latest.get(), Duration.ofSeconds(30));
+            // What it recorded about sinks, for each registration to claim as it attaches: the
+            // handles to commit, and the view each sink holds once they are.
+            query.restoredFrom(latest.get());
             return latest.get().offsets();
         } catch (RuntimeException e) {
             // A query that starts from nothing is worse than one that starts from an older
@@ -949,7 +977,10 @@ public final class QueryRegistry implements AutoCloseable {
                         // not look like one that has -- and the registry used to throw each report away,
                         // which produced exactly that. Recorded on the query, so an operator asking about
                         // it gets an answer.
-                        .reportingFailuresTo(query::recordCheckpointFailure);
+                        .reportingFailuresTo(query::recordCheckpointFailure)
+                        // The second phase: what each transactional sink prepared at the cut is
+                        // committed once, and only once, the checkpoint recording it is durable.
+                        .tellingWhenDurable(query::checkpointDurable);
         checkpointer.start();
         query.checkpointWith(checkpointer, checkpointDirectory);
     }
@@ -1064,6 +1095,10 @@ public final class QueryRegistry implements AutoCloseable {
         }
         RegisteredQuery query =
                 new RegisteredQuery(fingerprint, sql, name, view, sink, execution, Instant.now(), placements);
+        // The view -- and every sink on it -- is cut on the lane at the checkpoint's marker, not
+        // snapshotted from the checkpointing thread whenever it gets there. See
+        // RegisteredQuery.cutOutput for why that is the whole of exactly-once output.
+        execution.cuttingOutputWith(query::cutOutput);
 
         // Last, and after the watermark generator: a feed may deliver its first row on the way out
         // of open(), and a row that arrives before the watermark partitions exist is a row whose
@@ -1077,7 +1112,7 @@ public final class QueryRegistry implements AutoCloseable {
             // Restore before anything is fed. State without rewound sources double-counts every
             // record between the checkpoint and the failure; rewound sources without state replays
             // them into an empty query. Both halves or neither.
-            Map<String, String> resumeFrom = restoreFrom(name, execution);
+            Map<String, String> resumeFrom = restoreFrom(name, execution, query);
 
             // Before the feed, so the first rows a source delivers are already inside a query that
             // is being checkpointed. Started after the execution exists and before anything can
@@ -1181,6 +1216,9 @@ public final class QueryRegistry implements AutoCloseable {
                 refused.add(new Recovery.Refusal(entry.name(), replayRefusalCode(failure), failure.getMessage()));
             }
         }
+        // Every name the journal knows has now been registered or refused, so a sink a restored
+        // checkpoint recorded and nobody claimed belongs to a name that is not coming back.
+        byFingerprint.values().forEach(RegisteredQuery::forgetUnclaimedSinks);
         return new Recovery(recovered, refused);
     }
 
@@ -1331,10 +1369,11 @@ public final class QueryRegistry implements AutoCloseable {
         }
         byName.remove(name);
         // This name's sink alone. Another name on the same computation may write to a sink of its
-        // own, and keeps doing so.
+        // own, and keeps doing so. Finished rather than closed: nothing will restore this name, so a
+        // transactional sink's open transaction is committed now or never.
         SinkDelivery delivery = deliveries.remove(name);
         if (delivery != null) {
-            delivery.close();
+            delivery.finish();
         }
         // The view goes with the name. A dropped view that keeps answering serves whatever the
         // closed computation last committed, for ever, to a caller with no way to know that nothing

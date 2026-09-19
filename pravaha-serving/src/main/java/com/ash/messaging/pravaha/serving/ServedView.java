@@ -435,6 +435,91 @@ public final class ServedView {
     }
 
     /**
+     * The changes that take a reader holding {@code snapshot}'s contents to this view's committed
+     * contents now: a retraction for every row that has gone or changed, then an insert for every
+     * row that is new or changed.
+     *
+     * <p>What a sink needs when it resumes from a checkpoint after the view has moved on without it
+     * -- a second name on a computation a restart has already started, whose sink holds exactly
+     * what the checkpoint's view held. Sending it the whole view would repeat every row it has;
+     * sending it nothing would lose what changed while it was away.
+     *
+     * <p>Rows are compared as a snapshot writes them, not as objects: a restored view holds the
+     * classes a snapshot reads back, a live one the classes the engine wrote, and comparing those
+     * would call every restored row changed.
+     *
+     * @param snapshot an earlier {@link #snapshot()} of this same view
+     * @param withRetractions false for a reader that can only append, which is sent the inserts
+     */
+    public synchronized List<ViewChange> changesSince(byte[] snapshot, boolean withRetractions) {
+        Map<List<Byte>, Object[]> then = new java.util.LinkedHashMap<>();
+        if (snapshot != null && snapshot.length > 0) {
+            try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(snapshot))) {
+                in.readLong();
+                int rows = in.readInt();
+                for (int i = 0; i < rows; i++) {
+                    Object[] values = new Object[in.readInt()];
+                    for (int v = 0; v < values.length; v++) {
+                        values[v] = readValue(in);
+                    }
+                    in.readLong();
+                    in.readLong();
+                    then.put(encodedKey(values), values);
+                }
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException("could not read a snapshot of view '" + name + "'", e);
+            }
+        }
+        List<ViewChange> retractions = new ArrayList<>();
+        List<ViewChange> inserts = new ArrayList<>();
+        java.util.Set<List<Byte>> present = new java.util.HashSet<>();
+        for (Object[] now : visible.values()) {
+            List<Byte> key = encodedKey(now);
+            present.add(key);
+            Object[] before = then.get(key);
+            if (before == null) {
+                inserts.add(new ViewChange(now.clone(), 1));
+            } else if (!Arrays.equals(encoded(before), encoded(now))) {
+                retractions.add(new ViewChange(before, -1));
+                inserts.add(new ViewChange(now.clone(), 1));
+            }
+        }
+        for (Map.Entry<List<Byte>, Object[]> gone : then.entrySet()) {
+            if (!present.contains(gone.getKey())) {
+                retractions.add(new ViewChange(gone.getValue(), -1));
+            }
+        }
+        List<ViewChange> changes = new ArrayList<>(withRetractions ? retractions : List.of());
+        changes.addAll(inserts);
+        return changes;
+    }
+
+    private List<Byte> encodedKey(Object[] values) {
+        Object[] key = new Object[keyOrdinals.length];
+        for (int i = 0; i < keyOrdinals.length; i++) {
+            key[i] = values[keyOrdinals[i]];
+        }
+        byte[] bytes = encoded(key);
+        List<Byte> boxed = new ArrayList<>(bytes.length);
+        for (byte b : bytes) {
+            boxed.add(b);
+        }
+        return boxed;
+    }
+
+    private static byte[] encoded(Object[] values) {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {
+            for (Object value : values) {
+                writeValue(out, value);
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+        return bytes.toByteArray();
+    }
+
+    /**
      * Replaces this view's contents with a snapshot's.
      *
      * <p>Replaces rather than merges: a restore happens into a view that has just been built and is
