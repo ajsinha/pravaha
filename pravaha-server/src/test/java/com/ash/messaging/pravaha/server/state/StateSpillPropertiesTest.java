@@ -88,6 +88,33 @@ class StateSpillPropertiesTest {
     }
 
     @Test
+    void maxBytesBindsFromASizeAndReachesTheRuntimeBesideTheSlabCeiling() {
+        // Bound the way Spring binds application.yaml, so "20GB" is proven to parse rather than
+        // assumed to.
+        var source =
+                new org.springframework.boot.context.properties.source.MapConfigurationPropertySource(java.util.Map.of(
+                        "pravaha.state.spill.directory", "/var/lib/pravaha/spill",
+                        "pravaha.state.spill.max-bytes", "20GB",
+                        "pravaha.state.spill.max-overflow-slabs", "64"));
+        StateSpillProperties properties = new org.springframework.boot.context.properties.bind.Binder(source)
+                .bind("pravaha.state.spill", StateSpillProperties.class)
+                .get();
+
+        SpillSettings settings = properties.toSpillSettings();
+        assertThat(settings.maxBytes()).isEqualTo(20L * 1024 * 1024 * 1024);
+        assertThat(settings.maxOverflowSlabs())
+                .as("the per-store slab ceiling still works beside the node's byte quota")
+                .isEqualTo(64);
+    }
+
+    @Test
+    void noMaxBytesMeansNoQuota() {
+        StateSpillProperties properties = new StateSpillProperties();
+        properties.setDirectory("/var/lib/pravaha/spill");
+        assertThat(properties.toSpillSettings().maxBytes()).isZero();
+    }
+
+    @Test
     void theCompactionThresholdDefaultsToHalfAndReachesTheRuntime() {
         StateSpillProperties properties = new StateSpillProperties();
         properties.setDirectory("/var/lib/pravaha/spill");

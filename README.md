@@ -128,7 +128,8 @@ corrected by late data arrives as a retraction of the old answer followed by the
 - **The spill tier's last four pieces.** There is no RocksDB, by decision
   ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
   the on-disk tier. It spills `COUNT(DISTINCT)` like everything else and compacts churned slabs
-  away; it does not yet budget in bytes, or have a measurement at several times RAM.
+  away, and budgets its disk in bytes (`max-bytes`, refusing by code before the disk fills); it
+  does not yet have a measurement at several times RAM.
 - **The rest of the design's `CREATE CONTINUOUS QUERY` grammar.** The statement registers, and
   `DROP`, `PAUSE`, `RESUME CONTINUOUS QUERY` and `SHOW CONTINUOUS QUERIES` manage, over Flight SQL
   and in the embedded engine; the PostgreSQL gateway stays read-only and refuses them (`PRV-6211`).

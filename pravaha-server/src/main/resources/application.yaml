@@ -101,12 +101,19 @@ pravaha:
   # a store's carved overflow space is free, its sparse slabs are emptied into the rest and their
   # files truncated and deleted, between batches on the lane thread (ADR-044). 0.5 = compact when
   # half is free; 1.0 = only when a slab is entirely free.
+  #
+  # max-bytes: the NODE's disk budget for spilled state, across every query (20GB, 512MB, or bytes);
+  # 0 = no quota. A query whose state needs a slab past it stops with PRV-4005. Separately, before
+  # every slab the directory's free space is checked, and a slab that would not fit is refused with
+  # PRV-4006 -- rather than the disk filling inside a write to a mapped file. Both bounds are kept:
+  # max-overflow-slabs stops one runaway store taking the whole budget; max-bytes is the budget.
 # state:
 #   spill:
 #     enabled: false
 #     directory: ""
 #     max-overflow-slabs: 512
 #     compaction-threshold: 0.5
+#     max-bytes: 0
 
 # pgwire:
 #   enabled: false

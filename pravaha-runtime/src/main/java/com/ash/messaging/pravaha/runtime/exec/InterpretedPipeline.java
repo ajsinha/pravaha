@@ -91,7 +91,7 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     private static volatile SpillSettings spillSettings = SpillSettings.DISABLED;
 
-    private static volatile MemoryAccess overflowAccess;
+    private static volatile com.ash.messaging.pravaha.state.spill.MappedFileMemoryAccess overflowAccess;
 
     /**
      * Configures ADR-037 item B2's overflow tier for every join compiled from this call onward.
@@ -103,10 +103,21 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     public static synchronized void configureSpill(SpillSettings settings) {
         spillSettings = java.util.Objects.requireNonNull(settings, "settings");
+        // One access for the whole node, so its byte quota (ADR-044) is the node's disk budget
+        // across every query rather than a per-query one that multiplies with the query count.
         overflowAccess = settings.enabled()
                 ? new com.ash.messaging.pravaha.state.spill.MappedFileMemoryAccess(
-                        java.nio.file.Path.of(settings.directory()))
+                        java.nio.file.Path.of(settings.directory()), settings.maxBytes())
                 : null;
+    }
+
+    /**
+     * Bytes of overflow slab mapped on this node now, across every query -- what counts against
+     * {@code pravaha.state.spill.max-bytes}. Zero with spilling off.
+     */
+    public static long spillBytesMapped() {
+        var access = overflowAccess;
+        return access == null ? 0 : access.bytesMapped();
     }
 
     /** The settings {@link #configureSpill} was last called with, or {@link SpillSettings#DISABLED}. */

@@ -76,11 +76,15 @@ public final class MappedFileMemoryRegion implements MemoryRegion {
     private MappedByteBuffer buffer;
     private boolean closed;
 
-    MappedFileMemoryRegion(MappedByteBuffer buffer, Path file, int capacity) {
+    /** Told once, when the region closes: how the access that mapped it gives its bytes back to the quota. */
+    private final Runnable onClose;
+
+    MappedFileMemoryRegion(MappedByteBuffer buffer, Path file, int capacity, Runnable onClose) {
         buffer.order(ORDER);
         this.buffer = buffer;
         this.file = file;
         this.capacity = capacity;
+        this.onClose = onClose;
     }
 
     private MappedByteBuffer buf() {
@@ -221,6 +225,7 @@ public final class MappedFileMemoryRegion implements MemoryRegion {
         }
         closed = true;
         buffer = null;
+        onClose.run();
         // Truncated before it is deleted. Java cannot unmap the buffer, and a deleted file's blocks
         // stay allocated for as long as any mapping of it lives -- which is until the collector
         // finds the buffer, however long that is. Truncating frees them now: compaction releases a

@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — **supersedes the RocksDB tier of [ADR-006](006-tiered-state.md) and design D5**. The mapped tier exists (ADR-037 B2); of the four improvements below, `COUNT(DISTINCT)` spilling and slab compaction are built and the other two are not |
+| Status | Accepted — **supersedes the RocksDB tier of [ADR-006](006-tiered-state.md) and design D5**. The mapped tier exists (ADR-037 B2); of the four improvements below, `COUNT(DISTINCT)` spilling, slab compaction and the byte quota are built, and the measurement is not |
 | Date | 2026-09-19 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-006 (tiered state), ADR-037 (state that degrades), design D5 and §14 |
@@ -42,7 +42,7 @@ RocksDB is not added, and design D5's "L1 = RocksDB for spill/recovery" no longe
 | RocksDB gives | The mapped tier when this was decided | What closes it | Status |
 |---|---|---|---|
 | Compaction: space reclaimed as keys churn | Freed blocks are reused within their size class and never defragmented, so a churning query's files can outgrow its live state | **Slab compaction**: move live blocks out of sparse slabs and release them | **Built** 2026-09-19: `RowStore.compactOverflow`, driven by each state's owner between batches, triggered by `pravaha.state.spill.compaction-threshold` |
-| A disk budget in bytes | A ceiling in slabs (`max-overflow-slabs`); a full disk surfaces as an I/O failure | **A byte quota**, and a coded refusal before the directory runs out rather than after | Not built |
+| A disk budget in bytes | A ceiling in slabs (`max-overflow-slabs`); a full disk surfaces as an I/O failure | **A byte quota**, and a coded refusal before the directory runs out rather than after | **Built** 2026-09-19: `pravaha.state.spill.max-bytes`, the node's budget across every query (`PRV-4005`), and a free-space check before every slab (`PRV-4006`); `max-overflow-slabs` kept as the per-store ceiling |
 | Every state shape spills | `COUNT(DISTINCT)` keeps an on-heap set per group and is refused with the tier on (`PRV-3023`) | **Distinct sets in `RowStore`**, so they spill like everything else | **Built** 2026-09-19: one off-heap entry per `(group, slice, column, value)` with a count, in a `RowStore` that takes the overflow tier (`DistinctValueCounts`); `PRV-3023` retired |
 | Years of production measurement | Correctness-tested, never measured with state much larger than RAM | **A measurement** at several multiples of RAM, and a decision from it on whether the tier should be on by default | Not built |
 
@@ -107,6 +107,34 @@ part: a join with four rows per key, seven in eight retracted from heads, middle
 compacts, checkpoints byte-for-byte as it did before, and every surviving row is matched from the
 other side; a windowed aggregate with distinct values fires identically and checkpoints identically
 after compacting away its discarded slices.
+
+### A byte quota, and a refusal before the disk is full
+
+`pravaha.state.spill.max-bytes` (a size, `20GB`; default `0`, no quota) is the **node's** budget for
+spilled state. There is one `MappedFileMemoryAccess` per node, so every query's overflow slab counts
+against it from the moment it is mapped until its region closes — compaction's releases included.
+A slab past it is refused with `PRV-4005 STATE_SPILL_QUOTA_REACHED` before a file exists; the store
+that asked is unchanged and can still reuse its own free blocks. The reservation is a compare-and-set
+on one counter, because lanes share the access.
+
+`max-overflow-slabs` is **kept**, not replaced, and not deprecated: it bounds one state store in its
+own slab size, so a single runaway join cannot take the node's whole budget, where `max-bytes` is the
+budget in the unit a disk is sized in. Both keys are declared in `application.yaml` and documented in
+OPERATIONS.
+
+Independently of the quota, the spill directory's filesystem is asked for its usable space before
+every slab, and a slab that would not fit is refused with `PRV-4006 STATE_SPILL_DISK_FULL`. Slabs are
+sparse files that take disk page by page as state is written, so the failure this replaces was not an
+`IOException` but a fault inside a write to mapped memory. The check is per slab and not a
+reservation — another process can fill the filesystem between two slabs — which is why `max-bytes`
+below what the filesystem holds is the setting to rely on. Exposed as
+`pravaha_state_spill_bytes_mapped`.
+
+Proven by `SpillQuotaTest`: three slabs fit a three-slab quota and the fourth is refused with
+`PRV-4005` and no file; closing one gives its bytes back and the next fits; with the filesystem's free
+space stubbed below a slab, the slab is refused with `PRV-4006`, no file, and its quota reservation
+returned; a `RowStore` over a two-slab quota stops with `PRV-4005` holding exactly two overflow slabs
+and carries on through its free list.
 
 ## What would make this wrong
 

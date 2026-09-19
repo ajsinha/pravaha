@@ -33,8 +33,12 @@ import com.ash.messaging.pravaha.state.RowStore;
  *     and validated, when {@code enabled}
  * @param compactionThreshold how much of a store's overflow tier must be free before its sparse slabs
  *     are compacted away and their files released (ADR-044): a fraction above 0 and at most 1
+ * @param maxBytes the node's disk budget for spilled state, across every query (ADR-044): the most
+ *     bytes of overflow slab mapped at once, or {@code 0} for no quota beyond the filesystem's own
+ *     free space, which is checked before every slab either way
  */
-public record SpillSettings(boolean enabled, String directory, int maxOverflowSlabs, double compactionThreshold) {
+public record SpillSettings(
+        boolean enabled, String directory, int maxOverflowSlabs, double compactionThreshold, long maxBytes) {
 
     /** No overflow tier: every join refuses at its in-memory ceiling, exactly as it always has. */
     public static final SpillSettings DISABLED = new SpillSettings(false, "", 0);
@@ -42,6 +46,11 @@ public record SpillSettings(boolean enabled, String directory, int maxOverflowSl
     /** With the default compaction threshold, {@link RowStore#DEFAULT_COMPACTION_THRESHOLD}. */
     public SpillSettings(boolean enabled, String directory, int maxOverflowSlabs) {
         this(enabled, directory, maxOverflowSlabs, RowStore.DEFAULT_COMPACTION_THRESHOLD);
+    }
+
+    /** With no byte quota. */
+    public SpillSettings(boolean enabled, String directory, int maxOverflowSlabs, double compactionThreshold) {
+        this(enabled, directory, maxOverflowSlabs, compactionThreshold, 0);
     }
 
     public SpillSettings {
@@ -58,6 +67,10 @@ public record SpillSettings(boolean enabled, String directory, int maxOverflowSl
         if (enabled && maxOverflowSlabs < 1) {
             throw new IllegalArgumentException("pravaha.state.spill.max-overflow-slabs must be at least 1 when "
                     + "spilling is enabled, got " + maxOverflowSlabs);
+        }
+        if (maxBytes < 0) {
+            throw new IllegalArgumentException("pravaha.state.spill.max-bytes is the spill tier's disk budget in "
+                    + "bytes, or 0 for none; it cannot be negative, got " + maxBytes);
         }
         directory = directory == null ? "" : directory;
     }

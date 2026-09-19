@@ -59,6 +59,16 @@ class SpillSettingsTest {
     }
 
     @Test
+    void aNegativeByteQuotaIsRefusedByNameAndZeroMeansNone() {
+        assertThatThrownBy(() -> new SpillSettings(true, "/tmp/spill", 512, 0.5, -1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("pravaha.state.spill.max-bytes");
+        assertThat(new SpillSettings(true, "/tmp/spill", 512).maxBytes()).isZero();
+        assertThat(new SpillSettings(true, "/tmp/spill", 512, 0.5, 1L << 34).maxBytes())
+                .isEqualTo(1L << 34);
+    }
+
+    @Test
     void aCompactionThresholdOutsideZeroToOneIsRefusedByName() {
         for (double threshold : new double[] {0, -0.1, 1.5, Double.NaN}) {
             assertThatThrownBy(() -> new SpillSettings(true, "/tmp/spill", 512, threshold))

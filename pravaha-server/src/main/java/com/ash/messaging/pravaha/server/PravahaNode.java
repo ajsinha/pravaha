@@ -809,11 +809,12 @@ public class PravahaNode implements SmartLifecycle {
         com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.configureSpill(stateSpill.toSpillSettings());
         if (stateSpill.resolvedEnabled()) {
             log.info(
-                    "state spills to {} past its memory tier, up to {} overflow slabs per store, compacted "
-                            + "once {} of a store's overflow is free; a query that outgrows memory degrades "
-                            + "instead of being refused",
+                    "state spills to {} past its memory tier, up to {} overflow slabs per store and {} on the "
+                            + "node, compacted once {} of a store's overflow is free; a query that outgrows "
+                            + "memory degrades instead of being refused",
                     stateSpill.getDirectory(),
                     stateSpill.getMaxOverflowSlabs(),
+                    stateSpill.getMaxBytes().toBytes() == 0 ? "no byte quota" : stateSpill.getMaxBytes(),
                     stateSpill.getCompactionThreshold());
         }
         pluginSinks = new com.ash.messaging.pravaha.bindings.egress.PluginSinks();

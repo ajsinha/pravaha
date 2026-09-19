@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.server.state;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
+import org.springframework.util.unit.DataSize;
 
 import com.ash.messaging.pravaha.runtime.exec.SpillSettings;
 
@@ -31,6 +32,7 @@ import com.ash.messaging.pravaha.runtime.exec.SpillSettings;
  *       directory: /var/lib/pravaha/spill
  *       max-overflow-slabs: 512
  *       compaction-threshold: 0.5
+ *       max-bytes: 20GB
  * </pre>
  *
  * <p>{@code prefix = "pravaha.state.spill"} directly, the way {@code LaneProperties} binds {@code
@@ -76,6 +78,18 @@ public class StateSpillProperties {
      */
     private double compactionThreshold = com.ash.messaging.pravaha.state.RowStore.DEFAULT_COMPACTION_THRESHOLD;
 
+    /**
+     * The node's disk budget for spilled state, across every query (ADR-044): the most overflow slab
+     * mapped at once. {@code 0}, the default, is no quota beyond the filesystem's own free space,
+     * which is checked before every slab either way. A size -- {@code 20GB}, {@code 512MB} -- or a
+     * plain number of bytes.
+     *
+     * <p>Alongside {@link #maxOverflowSlabs}, not instead of it. The two bound different things: that
+     * one is a ceiling per state store, in its own slab size, so that one runaway join cannot take the
+     * whole budget; this one is the directory's, in the unit a disk is sized in.
+     */
+    private DataSize maxBytes = DataSize.ofBytes(0);
+
     public Boolean getEnabled() {
         return enabled;
     }
@@ -100,6 +114,14 @@ public class StateSpillProperties {
         this.maxOverflowSlabs = maxOverflowSlabs;
     }
 
+    public DataSize getMaxBytes() {
+        return maxBytes;
+    }
+
+    public void setMaxBytes(DataSize maxBytes) {
+        this.maxBytes = maxBytes == null ? DataSize.ofBytes(0) : maxBytes;
+    }
+
     public double getCompactionThreshold() {
         return compactionThreshold;
     }
@@ -122,7 +144,7 @@ public class StateSpillProperties {
     /** This configuration, resolved into the plain settings {@code pravaha-runtime} consumes. */
     public SpillSettings toSpillSettings() {
         return resolvedEnabled()
-                ? new SpillSettings(true, directory, maxOverflowSlabs, compactionThreshold)
+                ? new SpillSettings(true, directory, maxOverflowSlabs, compactionThreshold, maxBytes.toBytes())
                 : SpillSettings.DISABLED;
     }
 }

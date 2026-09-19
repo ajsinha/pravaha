@@ -225,6 +225,14 @@ public class PravahaMetrics implements AutoCloseable {
         laneMeters.add(Gauge.builder("pravaha.lane.own.queries", node, PravahaMetrics::queriesOnOwnLanes)
                 .register(meters)
                 .getId());
+        // The node's spilled state against pravaha.state.spill.max-bytes (ADR-044): every query's
+        // overflow slabs together, which is what the quota counts. Zero with spilling off.
+        laneMeters.add(Gauge.builder(
+                        "pravaha.state.spill.bytes.mapped",
+                        node,
+                        n -> com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.spillBytesMapped())
+                .register(meters)
+                .getId());
         int sharedLanes = registry.pipelinesPerSharedLane().size();
         for (int i = 0; i < sharedLanes; i++) {
             int lane = i;

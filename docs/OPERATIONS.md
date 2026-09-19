@@ -70,8 +70,22 @@ pravaha:
       directory: /var/lib/pravaha/spill   # a directory alone switches it on
       max-overflow-slabs: 512             # per state store: the most overflow slabs it holds at once
       compaction-threshold: 0.5           # compact a store once this much of its overflow is free
+      max-bytes: 20GB                     # the node's disk budget for spilled state; 0 = none
       # enabled: false                    # explicit, and wins in both directions
 ```
+
+**A byte quota, and a disk that is checked before it is full.** `pravaha.state.spill.max-bytes` is the
+node's budget for spilled state, in the unit a disk is sized in, across every query on the node
+(default `0`: no quota). A query whose state needs an overflow slab past it stops with `PRV-4005`,
+before anything is written. It sits beside `max-overflow-slabs`, which is kept and still bounds
+**one** state store in its own slab size, so that one runaway join cannot take the whole budget.
+Independently, before every slab is created the spill directory's filesystem is asked how much space
+it has, and a slab that would not fit is refused with `PRV-4006`. Slabs are sparse files that take
+their disk as state is written into them, so without that check a full disk would surface as a fault
+inside a write to mapped memory rather than as an error with a name. The check is per slab, not a
+reservation: another process filling the same filesystem between two slabs can still get there
+first, which is why `max-bytes` below what the filesystem holds is the setting to rely on. Watch
+`pravaha_state_spill_bytes_mapped` against it.
 
 **Compaction.** Released state is reused within its size class, but a slab is never handed back
 by reuse alone, so a churning query — windows expiring, join rows retracted — would hold every file it
@@ -768,12 +782,13 @@ Not published, because the engine does not measure them: per-operator rows, stat
 (the runtime counts per query; `GET /api/v1/queries/{name}/plan` says so rather than splitting a
 query's totals across its operators), and lane backpressure.
 
-And per node, for lane sharing (`pravaha.lane.multiplex.*`):
+And per node, for lane sharing (`pravaha.lane.multiplex.*`) and the spill tier:
 
 | Metric | Question it answers |
 |---|---|
 | `pravaha_lane_shared_queries{lane=}` | How many queries each shared lane carries, against `max-queries-per-lane`. Absent with sharing off |
 | `pravaha_lane_own_queries` | How many queries hold a lane — and an inbox — of their own. All of them with sharing off; with it on, the ones no shared lane would take |
+| `pravaha_state_spill_bytes_mapped` | Overflow slab mapped on the node, across every query — what `pravaha.state.spill.max-bytes` counts. Alert well before it reaches the quota: at the quota the next query to need a slab stops with `PRV-4005` |
 
 `state_held` and `state_ceiling` are counted in the units the ceiling is expressed in —
 accumulators for a windowed aggregate, rows for a join — **not in bytes**. They are what

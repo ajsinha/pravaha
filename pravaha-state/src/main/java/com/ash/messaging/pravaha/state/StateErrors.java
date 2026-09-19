@@ -32,6 +32,25 @@ public final class StateErrors {
     public static final ErrorCode STATE_UNREADABLE = new ErrorCode(4002, "STATE_UNREADABLE");
 
     /**
+     * The spill tier's byte quota, {@code pravaha.state.spill.max-bytes}, would be passed by the next
+     * overflow slab.
+     *
+     * <p>ADR-044. The node's disk budget for spilled state, across every query on it: a query whose
+     * state needs a slab past it stops, as it would at its memory ceiling without a tier -- a bound
+     * has to exist somewhere, and eviction is not one a Z-set can have.
+     */
+    public static final ErrorCode SPILL_QUOTA_REACHED = new ErrorCode(4005, "STATE_SPILL_QUOTA_REACHED");
+
+    /**
+     * The spill directory's filesystem has less free space than the next overflow slab needs.
+     *
+     * <p>ADR-044. Refused before the slab is created. A sparse mapped file takes its disk page by page
+     * as it is written, so the alternative is finding the full disk inside a write to mapped memory --
+     * a fault from whichever operator touched the page, not an error with a name.
+     */
+    public static final ErrorCode SPILL_DISK_FULL = new ErrorCode(4006, "STATE_SPILL_DISK_FULL");
+
+    /**
      * {@code pravaha.dlq.directory} is set and this node cannot write there.
      *
      * <p>TIME-4. Refused rather than degraded: an operator who configured a dead-letter queue asked
