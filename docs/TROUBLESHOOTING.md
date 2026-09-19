@@ -266,6 +266,16 @@ mapping (leave it out of a declared schema). `PRV-5111` is the database unreacha
 refused, or the PostgreSQL driver not on the classpath — the plugin uses the driver the deployment
 supplies, as `jdbc` does.
 
+**A `postgres-cdc` source with `snapshot.mode: initial` is refused with `PRV-5118`.** The initial
+snapshot could not start or could not be read. At start it is almost always a transaction left open
+since before the registration: PostgreSQL creates the temporary slot that pins the snapshot only once
+every transaction already running has ended, and `start.timeout` (30s) bounds the wait. Find it with
+`SELECT pid, xact_start, state FROM pg_stat_activity WHERE backend_xid IS NOT NULL ORDER BY
+xact_start;`, end it, and register again. The other causes are `max_replication_slots` with no room
+for the temporary slot, and the snapshot's connection failing mid-read — which a restart from the
+last checkpoint recovers from exactly, resuming after the last key delivered. `PRV-5112` with
+"needs a primary key" is `snapshot.mode: initial` on a table without one: add one, or use `never`.
+
 **A `postgres-cdc` query stopped with `PRV-5116`.** The change stream carried something that cannot
 become rows: a `TRUNCATE` of the captured table (it carries no rows, so there is nothing to retract),
 or a before-image with only the key (the table's replica identity was changed while it was being
@@ -487,6 +497,7 @@ way it was registered.
 | `PRV-5115` | PGCDC_RESUME_POINT_RELEASED | plugins |
 | `PRV-5116` | PGCDC_UNREPRESENTABLE_CHANGE | plugins |
 | `PRV-5117` | PGCDC_STREAM_FAILED | plugins |
+| `PRV-5118` | PGCDC_SNAPSHOT_FAILED | plugins |
 | `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |

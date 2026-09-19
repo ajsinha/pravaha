@@ -137,9 +137,10 @@ corrected by late data arrives as a retraction of the old answer followed by the
   broker tests, like the sink's, need Docker.
 - **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
   ([ADR-041](docs/adr/041-change-data-capture-without-debezium.md)) streams one table per binding
-  from PostgreSQL 14 or later, with a slot per registration. It has **no initial snapshot**: rows in
-  the table before its slot was created are not delivered. A `TRUNCATE` of the captured table stops
-  it (`PRV-5116`) rather than being guessed into retractions, and no other database has a change
+  from PostgreSQL 14 or later, with a slot per registration. Rows already in the table are delivered
+  only with `snapshot.mode: initial` (it needs a primary key; `never`, changes only, is the default),
+  and that snapshot is exact across a restart half-way through it. A `TRUNCATE` of the captured
+  table stops it (`PRV-5116`) rather than being guessed into retractions, and no other database has a change
   feed here — the other sources poll or scan, and Aerospike and Cassandra scans cannot see deletes.
   Its replication slot retains WAL on the database until a checkpoint confirms it
   ([`OPERATIONS.md`](docs/OPERATIONS.md)).

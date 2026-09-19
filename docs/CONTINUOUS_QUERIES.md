@@ -483,6 +483,8 @@ pravaha:
         start.timeout: 30s                # how long opening a reader waits to catch up with the log
         slot.lag.warn.bytes: "1073741824" # retained WAL past which health is DEGRADED
         drop.slot.on.close: "false"       # true only for a throwaway slot: see below
+        snapshot.mode: initial            # initial: rows already there, then changes; never (default): changes only
+        snapshot.chunk.rows: "10000"      # rows one snapshot query reads; about how many are held at once
 ```
 
 | Option | Required | Default |
@@ -501,6 +503,8 @@ pravaha:
 | `start.timeout` | no | `30s` |
 | `slot.lag.warn.bytes` | no | `1073741824` (1 GiB) |
 | `drop.slot.on.close` | no | `false` |
+| `snapshot.mode` | no | `never`; `initial` needs a primary key |
+| `snapshot.chunk.rows` | no | `10000` |
 
 **What the database must allow**, each refused at open with its fix named (`PRV-5112`): PostgreSQL
 14 or later; `wal_level = logical` (a restart, not a reload); the table `REPLICA IDENTITY FULL`
@@ -516,9 +520,19 @@ widen an integer or a float, and must mark a nullable column `?`. Mapped: `boole
 `char`, `name`, `uuid` and enums as `STRING`, `bytea`, `date`, `timestamp` (read as UTC) and
 `timestamptz`.
 
-**Changes only, from the slot's creation.** There is no initial snapshot yet: rows already in the
-table when the slot was created are not delivered. Register the query before loading the table, or
-load its history another way ([`CONNECTORS.md`](CONNECTORS.md) §5 says why the snapshot is not built).
+**Rows already in the table: `snapshot.mode`.** With `never`, the default, the source delivers
+changes from its slot's creation and nothing before, as it always has. With `initial`, a
+registration that starts from nothing first reads the table as it stood at one point in the log —
+under a snapshot PostgreSQL exports with a temporary slot — delivers every row at `+1` in
+primary-key order, and streams every change after that point. A checkpoint taken half-way through
+records the last key delivered (`lsn=…;snapshot=N@key`), and a restore from it takes a new snapshot
+and delivers exactly the rest: no row twice, none missing, whatever changed while it was down
+([`CONNECTORS.md`](CONNECTORS.md) §5 has the argument). It needs a primary key (refused without
+one, `PRV-5112`), `SELECT` on the table, and no transaction left open from before it starts: the
+temporary slot waits for every transaction already running, bounded by `start.timeout` (`PRV-5118`).
+Health reports the progress — `initial snapshot in progress: N rows delivered of about M`, the
+estimate from `pg_class.reltuples`. `never` stays the default because `initial` reads whole tables
+and needs a primary key, which no existing binding asked for.
 
 **One slot per registration.** A slot has one reader at a time, and an exactly-once source is never
 shared between queries, so two registrations reading the same binding need two bindings with two

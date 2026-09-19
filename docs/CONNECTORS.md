@@ -502,6 +502,7 @@ PostgreSQL 16 with `wal_level=logical` (Testcontainers).
 | Publication | Created `FOR TABLE <table>` before the slot (a slot created first would decode changes from before the publication existed); an existing one must publish insert, update and delete and include the table, or is refused naming the `ALTER PUBLICATION` |
 | `TRUNCATE` | **Refused**, `PRV-5116`: the stream stops after delivering everything before it. A truncate carries no rows, so there is nothing to retract, and retracting "what the view holds" would need the table's contents at that LSN, which the log does not have. The remedy is to drop the slot and re-register; use `DELETE FROM` on a captured table to have its rows retracted |
 | The offset is the LSN | The slot is confirmed only from `checkpointed`, at the newest durable checkpoint's LSN, never backwards. `theSlotIsConfirmedOnlyAtCheckpointedPositions…`, `restartingFromACheckpointedPosition…` |
+| The snapshot, and its seam | `snapshot.mode: initial` reads the rows already there under an exported snapshot and splices them in at its consistent point; a checkpoint half-way through resumes exactly, from a new snapshot (below). `PostgresCdcSnapshotTest`, and the TCK run again in that mode |
 
 **Declared capabilities**: `replayableOffsets`, `orderedWithinPartition`, `emitsDeletes` and
 `emitsBeforeImage` all true; **`EXACTLY_ONCE`**; no pushdown. Exactly once because the position is a
@@ -613,6 +614,7 @@ pravaha:
         table: public.customers          # must be REPLICA IDENTITY FULL
         slot: pravaha_customers
         publication: pravaha_customers
+        snapshot.mode: initial           # rows already there first; never (the default) is changes only
 ```
 
 Every option, with its default, is in [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1; the
@@ -662,14 +664,50 @@ keys rather than on every key in the snapshot, which is what makes it survivable
 could hold in memory. `BackfillThrottle` governs the history scan only, because throttling the change
 feed would make the query fall behind the present in order to protect the store from the past.
 
-**`postgres-cdc` does not snapshot yet.** It delivers changes from the moment its slot was created
-and nothing before, so a view over a table that already holds rows starts without them. Register the
-query before the table is loaded, or load the history some other way. The exact seam for PostgreSQL
-is known — create the slot with an exported snapshot, read the table under `SET TRANSACTION SNAPSHOT`,
-stream from the slot's consistent point — and what is not solved is a checkpoint cut *during* that
-read: the exported snapshot dies with the connection, so a restore mid-snapshot has nothing exact to
-resume from. Until that is designed, not shipping a snapshot is more honest than shipping one that is
-exact only when nothing restarts.
+**`postgres-cdc` snapshots with `snapshot.mode: initial`**, and does not use `SplicedReader` to do
+it: PostgreSQL offers an exact seam of its own, and the part that seam leaves open — a checkpoint
+cut half-way through the read — has an exact answer too. `InitialSnapshot` in the plugin carries the
+argument; in short:
+
+- **The seam is PostgreSQL's.** A temporary logical slot is created with `EXPORT_SNAPSHOT`, and the
+  table is read in a `REPEATABLE READ` transaction that imports it (`SET TRANSACTION SNAPSHOT`).
+  That snapshot sees exactly the transactions committed before the slot's consistent point `C`, and
+  none after. The reader streams the registration's own slot up to `C`, dropping every change to the
+  table (the snapshot has them all), delivers the table in primary-key order at `+1`, and streams on
+  from `C`. No watermarks, no de-duplication window, no reasoning about which commits a snapshot
+  happened to see.
+- **The checkpoint is `(L, K)`.** While the snapshot is unfinished, the offset — `lsn=L;snapshot=N@K`
+  — means one thing: the engine holds the table's rows whose key is at or below `K`, as of log
+  position `L`, and nothing else. That statement does not mention the snapshot it came from, which
+  is why it survives that snapshot's connection.
+- **A restart re-establishes it.** It takes a *new* exported snapshot at a new point `C'`, streams
+  from `L` to `C'` delivering a change only when its row's key is at or below `K` — each image of an
+  update judged by its own key, so a row whose key moves across `K` is retracted on one side and
+  inserted on the other — and then reads the rows keyed above `K` at `C'`. A change above `K` is
+  dropped because the snapshot at `C'` reads the row as that change left it. Every comparison with
+  `K` is made by PostgreSQL, in the key's own type and collation, the same comparison the chunk
+  query's `ORDER BY` makes: a Java comparison of a `text` key would disagree with an ICU or libc
+  collation about exactly the rows at the boundary.
+- **Memory is bounded.** Chunks of `snapshot.chunk.rows` (10,000) by keyset — `WHERE key > last
+  ORDER BY key LIMIT n` on the primary key's index — read on a thread of their own, never more than
+  two ahead of the engine. While the snapshot is read the stream waits, holding at most
+  `buffer.rows`, and the slot retains the WAL from `C` on.
+
+What it needs: a **primary key** (the order a resume continues in; without one, `snapshot.mode:
+initial` is refused, `PRV-5112`), `SELECT` on the table, room for one more slot in
+`max_replication_slots` while the snapshot starts, and no transaction left open from before it —
+PostgreSQL creates the temporary slot only once every transaction running at that moment has ended,
+and a snapshot that cannot start within `start.timeout` is refused, `PRV-5118`. The snapshot's
+`REPEATABLE READ` transaction is open for as long as the table takes to read, and holds back vacuum
+for that long. Snapshot rows carry the snapshot's own time as their event time, or the `event.time`
+column when one is set.
+
+`never` stays the default: `initial` reads whole tables and needs a primary key, and an existing
+binding should not start doing either without asking. An offset written before snapshots existed has
+no `;snapshot=` part and resumes as the stream it always was; one taken mid-snapshot finishes the
+snapshot whatever `snapshot.mode` now says, because the engine holds part of the table and only the
+rest of it makes that whole. There is no `initial_only`: a source here has no way to say it has
+finished, and a table read once is the `jdbc` source's job.
 
 ### Retractions you can have today, without CDC
 

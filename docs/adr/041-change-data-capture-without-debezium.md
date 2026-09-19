@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — built: `postgres-cdc`, `plugins/pravaha-plugin-postgres-cdc` (no initial snapshot yet) |
+| Status | Accepted — built: `postgres-cdc`, `plugins/pravaha-plugin-postgres-cdc`, with an initial snapshot (`snapshot.mode: initial`) |
 | Date | 2026-09-16 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-013 (Z-sets), ADR-030 (scope tiers), ADR-039 (GA order), ADR-040 (remote connector), `../CONNECTORS.md` §5 |
@@ -107,10 +107,24 @@ the code does:
 - **The heartbeat** is a non-transactional `pg_logical_emit_message`, read back through the slot
   as a position marker; `heartbeat.interval`, 10s.
 - **`EXACTLY_ONCE`**, and the source TCK passes against a real PostgreSQL.
-- **Not built: the initial snapshot.** The `SplicedReader` seam below is key-versioned upsert
-  splicing; the exact PostgreSQL seam is an exported snapshot at slot creation, and a checkpoint cut
-  during that read has nothing exact to resume from once the snapshot's connection is gone. Until
-  that is designed the source delivers changes from the slot's creation only, and says so.
+- **The initial snapshot, `snapshot.mode: initial`** (`InitialSnapshot`), built on PostgreSQL's own
+  seam rather than `SplicedReader`. A temporary logical slot is created with `EXPORT_SNAPSHOT` and
+  the table read in a `REPEATABLE READ` transaction that imports it, so the rows read are the table
+  at the slot's consistent point `C`; the reader streams the registration's slot to `C` dropping the
+  table's changes, delivers the snapshot in primary-key order, and streams on from `C`. The problem
+  this entry used to stop at -- a checkpoint cut during the read, once the exported snapshot's
+  connection is gone -- is answered by what the checkpoint records: `(L, K)`, *the table's rows keyed
+  at or below `K`, as of `L`*, which does not depend on the snapshot it came from. A restart takes a
+  new exported snapshot at `C'`, streams `L..C'` keeping only changes whose row key is at or below
+  `K` (each image of an update by its own key), and reads the rows above `K` at `C'`. Every
+  comparison with `K` is PostgreSQL's, in the key's type and collation. Chunks by keyset, at most
+  two ahead of the engine. A watermark design in the style of DBLog was considered and not used: it
+  needs a snapshot read to line up with a window of the log, which PostgreSQL guarantees only for an
+  exported snapshot (a transaction can be in the WAL before it is visible, under synchronous
+  replication for as long as a standby takes), and with the exported snapshot the window is not
+  needed. Requires a primary key; `never`, the old behaviour, stays the default so that no existing
+  binding starts reading whole tables unasked. `PostgresCdcSnapshotTest` runs writers and crashes
+  against it across seeds, and the TCK passes in both modes.
 - **`TRUNCATE` is refused** rather than turned into retractions: it carries no rows, and "retract
   what the view holds" needs the table's contents at that LSN, which the log does not have.
 

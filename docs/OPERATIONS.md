@@ -648,8 +648,28 @@ A slot dropped under a running registration cannot be recovered from: the next r
 (`PRV-5112`) and the changes since the last checkpoint are gone. The recovery for that — and for an
 invalidated slot, and for a `TRUNCATE` of the captured table (`PRV-5116`) — is the same: stop the
 registration, delete its checkpoint directory, drop the slot, and register it again. The view is
-then rebuilt from the table's changes from that moment; rows already in the table are not replayed,
-because the source has no initial snapshot yet.
+then rebuilt from the table's changes from that moment — and, with `snapshot.mode: initial`, from the
+rows already in the table first; with `never` (the default) those rows are not replayed.
+
+**An initial snapshot** (`snapshot.mode: initial`) adds three things to watch. It starts by creating
+a **temporary** slot, `<slot>_snap_<random>`, which pins the snapshot to a point in the log and is
+dropped as soon as the snapshot has been imported: `max_replication_slots` needs room for it, and
+PostgreSQL creates it only once every transaction running at that moment has ended — a session left
+idle in a transaction holds the start up, and past `start.timeout` the source is refused with
+`PRV-5118`:
+
+```sql
+SELECT pid, usename, xact_start, state, left(query, 60)
+FROM pg_stat_activity WHERE backend_xid IS NOT NULL OR backend_xmin IS NOT NULL ORDER BY xact_start;
+```
+
+While the table is read, a `REPEATABLE READ` transaction stays open on the database (application
+name `pravaha-cdc <slot>`), holding back vacuum for the table's whole read, and the registration's
+slot retains WAL from the snapshot's point until the last row is delivered and checkpointed: size
+`max_slot_wal_keep_size` for the longest snapshot as well as the longest outage. Progress is in the
+source's health — `initial snapshot in progress: N rows delivered of about M`. A restart part-way
+through does not start over: the checkpoint records the last key delivered, and the rest is read
+under a new snapshot, exactly once.
 
 **A restore the slot has overtaken** is refused with `PRV-5115`. It happens when recovery falls back
 to an older checkpoint than the one the slot was confirmed at — the newest being unreadable — or when
