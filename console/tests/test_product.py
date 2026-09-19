@@ -44,6 +44,8 @@ def _app(engine: FakeEngine, **overrides):
     config.set("console.session_secret", SESSION_SECRET)
     config.set("engine.token", ENGINE_TOKEN)
     config.set("ui.default_role", overrides.get("default_role", "operator"))
+    # The configurator is a process-wide singleton, and the browser harness turns the gallery on.
+    config.set("ui.component_gallery", "false")
     return fastapi_testclient.TestClient(create_app(config, engine=engine))
 
 
