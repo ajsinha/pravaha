@@ -3,24 +3,31 @@
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
 
-Design 23.18 names eight critical journeys. Four of them are journeys the console can already
-walk end to end, and are here; the other four need engine features that do not exist yet
-(a DLQ, backfill control, blue/green, the time-travel debugger) and are listed in the
-console README rather than simulated.
+Design 23.18 names eight critical journeys, and all eight are here. Two walk end to end:
+first run to a live view that changes, and author-validate-explain-deploy. The other six walk
+as far as the console and the engine go today and stop where an engine feature that does not
+exist would take over -- backpressure sampling, a readable DLQ, backfill jobs, blue/green
+cutover, the time-travel debugger, an API for grants. Each stop is asserted (the console says
+what is missing, or offers nothing), never simulated, and each test's docstring names what it
+waits on; the README's 23.20 table lists them.
 
 Each journey drives Chrome the way a person would: typing into fields, clicking with the
 mouse or pressing keys, and reading what the page then shows. Nothing is called on the
 server behind the page's back, except that the fake engine is told to commit a change when
-the journey needs one to arrive -- the one thing a person could not do from a browser.
+the journey needs one to arrive, or to answer with a policy a grant has changed -- the things
+a person could not do from a browser.
 
 Skipped, with the reason, when this machine has no Chrome (see ``browser_harness``).
 """
 from __future__ import annotations
 
+import time
+
 import pytest
 from browser_harness import (
     PASSWORD,
     fresh_console,
+    own_console,
     settled,
     sign_in,
 )
@@ -413,3 +420,331 @@ def test_a_screen_s_question_mark_opens_its_help(page, console):
     assert len(cards) == 3 and all(c.startswith("/help/topics/") for c in cards)
     page.wait_for_navigation(lambda: page.click("h1 .screen-help"))
     assert page.url().endswith(href)
+
+
+# ============================================================ the other six journeys of design 23.18
+#
+# Each walks as far as the console and the engine can go today, and stops where an engine
+# feature that does not exist would have to take over. The stop is asserted, not assumed: the
+# console must say what is missing, or offer nothing, rather than draw a control that fails.
+# What each waits on is in its docstring and in the README's 23.20 table.
+
+def _palette_titles(page, text: str) -> list[str]:
+    """The palette's options after typing ``text``; the palette is closed again after."""
+    page.press("k", "Control")
+    page.wait_for("document.querySelectorAll('#palette-list [role=option]').length > 5")
+    page.type(text)
+    page.settle(quiet_ms=150)
+    # An option is its kind, its title and a hint; the title is the middle one.
+    titles = page.eval("[...document.querySelectorAll('#palette-list [role=option]')]"
+                       ".map(o => o.children[1].textContent)")
+    page.press("Escape")
+    page.wait_for("!document.querySelector('.palette')")
+    return list(titles)
+
+
+def _access_row(page, name: str) -> str:
+    return str(page.eval(f"""[...document.querySelectorAll('#access-views tbody tr')]
+        .find(r => r.querySelector('a').textContent.trim() === {name!r}).textContent"""))
+
+
+def test_journey_diagnose_a_struggling_query_from_the_dashboard(page):
+    """Design 23.18 journey 3, "diagnose a backpressured query from the dashboard": the operator
+    lands on the verdict, follows the finding to the query, reads its plan and measured totals,
+    and acts on it -- pauses it, sees it paused, resumes it.
+
+    Waits on the engine for the half the name promises. The engine does not sample lane
+    backpressure, so no finding can say "backpressured" and the plan cannot colour its edges by
+    it (23.8); and it counts rows, state and watermarks per query, not per operator, so the plan
+    cannot name the operator that is the bottleneck. The journey diagnoses what the engine does
+    measure -- state against its ceiling, watermark lag -- and asserts both screens say what is
+    not measured.
+    """
+    with own_console() as ops:
+        sign_in(page, ops)
+        assert page.url().endswith("/operations")
+        settled(page)
+        assert "State ceiling nearly reached" in page.text("#findings")
+        # What is not measured is on the dashboard, not left for the operator to infer.
+        unmeasured = page.text("main")
+        assert "Backpressure" in unmeasured and "does not sample lane backpressure" in unmeasured
+
+        # The finding is a link to the query it is about.
+        page.wait_for_navigation(lambda: page.click("#findings a[href='/queries/hot']"))
+        assert page.url().endswith("/queries/hot")
+        assert "RUNNING" in page.text("#meta")
+        assert "hot_alias" in page.text("main"), "the page says another name shares the computation"
+
+        # Its plan, with the totals the engine measured for the query as a whole.
+        page.wait_for_navigation(lambda: page.click("a[href='/workbench?query=hot&panel=explain']"))
+        page.wait_for("document.querySelectorAll('svg g.plan-node').length === 3", timeout=20)
+        page.wait_for("document.getElementById('query-metrics')")
+        assert "state 3 of 100" in page.text("#query-metrics")
+        page.click("svg g.plan-node")
+        page.wait_for("[...document.querySelectorAll('.card-body')]"
+                      ".some(c => c.textContent.includes('Per-operator numbers are not shown'))")
+
+        # Act: pause it, see it paused, resume it.
+        page.goto(ops.url("/queries/hot"))
+        settled(page)
+        page.wait_for_navigation(lambda: page.click("#pause"))
+        settled(page)
+        assert "PAUSED" in page.text("#meta")
+        assert page.eval("document.getElementById('pause').disabled") is True
+        page.wait_for_navigation(lambda: page.click("#resume"))
+        settled(page)
+        assert "RUNNING" in page.text("#meta")
+        assert ops.engine.lifecycle_calls == [("pause", "hot"), ("resume", "hot")]
+        assert page.exceptions == [], page.exceptions
+
+
+def test_journey_find_a_querys_dead_letters(page, console):
+    """Design 23.18 journey 4, "inspect and act on a DLQ record": the operator looks for where a
+    query's undecodable records went, from the console, and finds the setting, the file, how to
+    read one, and how to put a corrected one back.
+
+    Waits on the engine for inspecting and acting in the console. The dead-letter queue is a file
+    per query under ``pravaha.dlq.directory``, written by the node and read by nothing: no API
+    lists a query's dead letters or returns one, nothing replays one, and no ``pravaha_*`` meter
+    counts them for the dashboard to find (``DeadLetterRate`` is in the runtime, wired to
+    nothing). So there is no screen 8 (Query - Errors / DLQ), and the journey asserts no page and
+    no palette entry pretends there is.
+    """
+    sign_in(page, console)
+    page.goto(console.url("/help"))
+    settled(page)
+    page.focus("#help-search")
+    page.type("dead letter")
+    page.wait_for_navigation(lambda: page.press("Enter"))
+    assert "/help/search?q=dead" in page.url()
+    hrefs = page.eval("[...document.querySelectorAll('#search-results a')].map(a => a.getAttribute('href'))")
+    assert "/help/topics/dead-letters" in hrefs[:3], hrefs
+    page.wait_for_navigation(lambda: page.click("#search-results a[href='/help/topics/dead-letters']"))
+    topic = page.text("main")
+    assert "pravaha.dlq.directory" in topic and "<query>.dlq" in topic
+    assert "correlationId" in topic and "jq -r .raw" in topic, "how to read one, and its original bytes"
+
+    # The code an unwritable queue raises opens its own page.
+    page.wait_for_navigation(lambda: page.click(".doc a.prv[href='/help/codes/PRV-4090']"))
+    assert "PRV-4090" in page.text("h1")
+
+    # Nowhere in the console is a dead letter offered, so nothing fails on click.
+    page.goto(console.url("/queries/big_txn"))
+    settled(page)
+    assert "dead letter" not in page.text("main").lower()
+    assert not [t for t in _palette_titles(page, "dead") if "dead" in t.lower()]
+
+
+def test_journey_prepare_a_backfill(page, console):
+    """Design 23.18 journey 5, "start and throttle a backfill", up to the start: the operator
+    finds the stream to reload, what feeds it, whether that source can replay, and which queries
+    a reload would reach.
+
+    Waits on the engine for starting and throttling. ``pravaha-backfill`` is built as a library
+    and reachable from no running path: there is no job to start, pause or abort, no throttle,
+    no progress stream (23.10; 23.11's "long jobs"), and the storage cluster's own latency is
+    not a metric. So there is no screen 14, and the journey asserts nothing offers a backfill.
+    """
+    sign_in(page, console)
+    page.goto(console.url("/catalog"))
+    settled(page)
+    page.wait_for_navigation(lambda: page.click("main a[href='/catalog/streams/txn']"))
+    assert "filesystem" in page.text("#stream-time"), "what feeds it"
+    readers = page.eval("[...document.querySelectorAll('main a[href^=\"/queries/\"]')].map(a => a.textContent.trim())")
+    assert {"big_txn", "hot"} <= set(readers), readers
+
+    # Whether the source can rewind to an offset: its plugin's declared capabilities.
+    page.goto(console.url("/plugins"))
+    settled(page)
+    plugin = page.eval("[...document.querySelectorAll('#plugin-cards .card')]"
+                       ".find(c => c.textContent.includes('filesystem')).textContent")
+    assert "replayable" in plugin.lower(), plugin
+
+    assert not [t for t in _palette_titles(page, "backfill") if "backfill" in t.lower()]
+
+
+def test_journey_blue_green_update_and_roll_back(page):
+    """Design 23.18 journey 6, "blue/green update with rollback", as far as registration goes:
+    open v1 in the workbench, change it, validate and explain the change, register it beside v1
+    as v2, compare the two views with the same point query, and roll back by dropping v2 --
+    confirmed by its typed name -- with v1 running throughout.
+
+    Waits on the engine for the cutover. Moving a view's name (or a sink) from v1 to v2 at an
+    aligned frontier, with v1 kept for rollback through its retention, is built in
+    ``pravaha-backfill`` and reachable from no running path, and ``CREATE OR REPLACE`` is refused
+    (PRV-2072). So there is no screen 15 and no cutover button: v1 and v2 stay two names a
+    client switches between itself. Not built, and the console's own: the workbench's SQL and
+    plan diff against the registered version (23.7).
+    """
+    with own_console(default_role="analyst") as bg:
+        bg.engine.view_rows["big_txn_v2"] = [[2, "u2", 900]]
+        sign_in(page, bg, role="analyst")
+        page.goto(bg.url("/queries/big_txn"))
+        settled(page)
+        page.wait_for_navigation(lambda: page.click("a[href='/workbench?query=big_txn']"))
+        page.wait_for("document.querySelector('.monaco-editor .view-line') && document.querySelector('.validity.ok')",
+                      timeout=20)
+
+        # Change the threshold: to the end of the text, three characters out, three in.
+        page.click(".monaco-editor .view-lines")
+        page.press("End", "Control")
+        for _ in range(3):
+            page.press("Backspace")
+        page.type("500")
+        page.wait_for("document.querySelector('.monaco-editor .view-lines').textContent"
+                      ".replace(/\\u00a0/g, ' ').includes('amount > 500')")
+        page.wait_for("document.querySelector('.validity.ok')", timeout=10)
+
+        # Its plan. The engine's measured totals belong to v1's SQL, so none are shown for v2's.
+        page.eval("[...document.querySelectorAll('.wb-toolbar button')].find(b => b.textContent.includes('Explain'))"
+                  ".setAttribute('data-test', 'explain')")
+        page.click("[data-test=explain]")
+        page.wait_for("document.querySelectorAll('svg g.plan-node').length === 3", timeout=20)
+        assert not page.exists("#query-metrics")
+
+        # Register v2 beside v1.
+        page.eval("[...document.querySelectorAll('.wb-toolbar button')].find(b => b.textContent.includes('Register'))"
+                  ".setAttribute('data-test', 'register')")
+        page.click("[data-test=register]")
+        page.wait_for("document.querySelector('#reg-name')")
+        page.click("#reg-name")
+        page.type("big_txn_v2")
+        page.click("#key-txn_id")
+        page.eval("[...document.querySelectorAll('form button[type=submit]')]"
+                  ".find(b => b.textContent.includes('Register continuous')).setAttribute('data-test', 'submit')")
+        page.wait_for("!document.querySelector('[data-test=submit]').disabled")
+        page.click("[data-test=submit]")
+        page.wait_for("document.querySelector('.alert-success') && "
+                      "document.querySelector('.alert-success').textContent.includes('big_txn_v2')")
+        assert bg.engine.registered[-1]["sql"].endswith("amount > 500")
+
+        # Compare: the same point query against each version.
+        page.goto(bg.url("/views/big_txn?key=user_id&value=u1"))
+        assert "u1" in page.text("#lookup-result")
+        page.goto(bg.url("/views/big_txn_v2?key=user_id&value=u1"))
+        v2 = page.text("#lookup-result")
+        assert "u1" not in v2 and "u2" in v2
+
+        # Roll back: drop v2, by its typed name. v1 never stopped.
+        page.goto(bg.url("/queries/big_txn_v2"))
+        settled(page)
+        page.wait_for("!document.getElementById('dropModalTrigger').classList.contains('d-none')")
+        page.click("#dropModalTrigger")
+        page.wait_for("document.querySelector('#dropConfirmModal.show')")
+        page.wait_for("document.activeElement && document.activeElement.id === 'dropConfirmInput'")
+        page.type("big_txn_v2")
+        page.wait_for("!document.getElementById('dropConfirmSubmit').disabled")
+        page.wait_for_navigation(lambda: page.click("#dropConfirmSubmit"))
+        assert page.url().endswith("/queries")
+        assert ("drop", "big_txn_v2") in bg.engine.lifecycle_calls
+        listed = page.eval("[...document.querySelectorAll('main a[href^=\"/queries/\"]')].map(a => a.textContent.trim())")
+        assert "big_txn_v2" not in listed and "big_txn" in listed, listed
+        assert ("drop", "big_txn") not in bg.engine.lifecycle_calls
+        assert not [t for t in _palette_titles(page, "cutover") if "cutover" in t.lower()]
+        assert page.exceptions == [], page.exceptions
+
+
+def test_journey_trace_a_wrong_looking_row(page, console):
+    """Design 23.18 journey 7, "debug a wrong result and export the fixture", up to where the
+    debugger would take over: a developer point-queries the row that looks wrong, filters the
+    live view to that key, watches a correction arrive as a -1 and a +1, sees the current row as
+    the running sum of the weights, and opens the plan that produced it.
+
+    Waits on the engine for the debugging. The time-travel debugger (23.9, screen 10) needs a
+    retained checkpoint forked into an isolated instance with sinks disabled, a step protocol
+    (by record, batch and watermark, with breakpoints on state), each step's operator state and
+    generated source line, and an export of the step as a JUnit fixture. None of it exists, so
+    the console offers no debugger and no fixture export, and the journey asserts it does not.
+    """
+    sign_in(page, console, role="developer")
+    page.goto(console.url("/views/big_txn?key=user_id&value=u2"))
+    settled(page)
+    assert "900" in page.text("#lookup-result")
+
+    # That key's changes, live, through the tap filter's form.
+    page.wait_for_navigation(lambda: page.click("main a[href='/views/big_txn/live']"))
+    page.wait_for("document.getElementById('live-state') && document.getElementById('live-state').dataset.state === 'fresh'",
+                  timeout=15)
+    page.eval("document.getElementById('tap-column').value = 'user_id'")
+    page.focus("#tap-value")
+    page.type("u2")
+    page.press("Enter")
+    page.wait_for("document.getElementById('live-state').dataset.state === 'fresh' && "
+                  "document.getElementById('c-rows').textContent !== '—'", timeout=15)
+    assert "filter=user_id" in page.url(), "the tap filter is in the URL"
+    # The filter reaches the engine as the subscription's own; the changes are committed once
+    # that subscription is open, as they would be to it and not to the one it replaced.
+    deadline = time.monotonic() + 10
+    while not any("u2" in str(filters) for _, filters in console.engine.tails_opened):
+        assert time.monotonic() < deadline, console.engine.tails_opened
+        time.sleep(0.05)
+    before = int(page.eval("Number(document.getElementById('c-changes').textContent) || 0"))
+    console.engine.commit({"txn_id": 2, "user_id": "u2", "amount": 900, "_weight": -1})
+    console.engine.commit({"txn_id": 2, "user_id": "u2", "amount": 90, "_weight": 1})
+    page.wait_for(f"Number(document.getElementById('c-changes').textContent) >= {before + 2}", timeout=10)
+    log = page.text("#change-log")
+    assert "−1" in log and "+1" in log and "900" in log, log
+    current = page.eval("[...document.querySelectorAll('#current-rows tbody tr')]"
+                        ".map(r => [...r.querySelectorAll('td')].map(td => td.textContent.trim()))")
+    assert any("90" in cells for cells in current), current
+    assert not any("900" in cells for cells in current), "the corrected row is gone from the sum"
+
+    # The plan that produced it.
+    page.goto(console.url("/queries/big_txn"))
+    settled(page)
+    page.wait_for_navigation(lambda: page.click("a[href='/workbench?query=big_txn&panel=explain']"))
+    page.wait_for("document.querySelectorAll('svg g.plan-node').length === 3", timeout=20)
+
+    # And no debugger: nothing offers one, so nothing fails when pressed.
+    assert not [t for t in _palette_titles(page, "debug") if "debug" in t.lower()]
+    assert not page.exists("a[href*='/debug']")
+    assert page.exceptions == [], page.exceptions
+
+
+def test_journey_a_grant_makes_the_affordance_appear(page):
+    """Design 23.18 journey 8, "grant a role and verify the affordance appears": the admin sees
+    what the engine's policy refuses the console's identity, finds the refused actions disabled
+    with the policy's reason (not offered and then failing), and -- once the grant is made --
+    sees them appear and work.
+
+    The grant is not a console step and cannot be one: the engine is not where grants live.
+    ``SecurityPolicy`` is an SPI a deployment implements against its own identity system, and no
+    API changes one (SECURITY.md). The journey makes the grant where it would be made -- in the
+    fake engine's policy, as other journeys have the engine commit a change -- and verifies all
+    the console owns: the refusal on Access, the controls disabled with its reason, the palette
+    leaving the actions out, and each following the engine's next answer. Editing grants, and
+    tenants and quotas (screens 20, 21), wait on an engine API for them.
+
+    Against the console before the change that came with it, this journey fails at its second
+    step: the query page offered Pause, Resume and Drop whatever the policy said.
+    """
+    with own_console() as adm:
+        adm.engine.administer_refused["hot"] = "administering 'hot' needs one of the roles [ops]"
+        sign_in(page, adm, role="admin")
+        assert page.url().endswith("/admin/access")
+        row = _access_row(page, "hot")
+        assert "refused" in row and "needs one of the roles [ops]" in row
+
+        # The refused actions are disabled, with the reason on the page...
+        page.wait_for_navigation(lambda: page.click("#access-views a[href='/queries/hot']"))
+        assert "needs one of the roles [ops]" in page.text("#controls-refused")
+        assert page.eval("['pause', 'resume', 'drop'].every(id => document.getElementById(id).disabled)")
+        assert not page.exists("#dropModalTrigger")
+        # ...and the palette does not offer them at all.
+        titles = _palette_titles(page, "hot")
+        assert "hot — browse view" in titles, titles
+        assert not {"Pause hot", "Resume hot", "Drop hot…"} & set(titles), titles
+
+        # The grant, made in the deployment's identity system: the engine answers differently.
+        adm.engine.administer_refused.clear()
+
+        page.goto(adm.url("/admin/access"))
+        assert "allowed" in _access_row(page, "hot")
+        page.goto(adm.url("/queries/hot"))
+        settled(page)
+        assert not page.exists("#controls-refused")
+        page.wait_for("!document.getElementById('dropModalTrigger').classList.contains('d-none')")
+        assert "Pause hot" in _palette_titles(page, "Pause hot")
+        page.wait_for_navigation(lambda: page.click("#pause"))
+        assert ("pause", "hot") in adm.engine.lifecycle_calls
+        assert page.exceptions == [], page.exceptions

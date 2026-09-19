@@ -137,6 +137,18 @@ def test_the_audit_trail_when_not_permitted_has_no_axe_violations(themed, consol
 
 
 @pytest.mark.parametrize("theme", THEMES)
+def test_controls_the_policy_refuses_have_no_axe_violations(themed, console, theme):
+    """The unauthorized state (23.12): disabled controls with the policy's reason beside them."""
+    page = themed(theme)
+    console.engine.administer_refused["hot"] = "administering 'hot' needs one of the roles [ops]"
+    try:
+        open_page(page, console, "/queries/hot", "document.getElementById('controls-refused')")
+        _assert_clean(page, f"a query whose controls the policy refuses ({theme})")
+    finally:
+        console.engine.administer_refused.clear()
+
+
+@pytest.mark.parametrize("theme", THEMES)
 def test_the_drop_confirmation_has_no_axe_violations(themed, console, theme):
     page = themed(theme)
     open_page(page, console, "/queries/hot", "!document.getElementById('dropModalTrigger').classList.contains('d-none')")

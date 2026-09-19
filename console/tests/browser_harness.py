@@ -17,10 +17,12 @@ are *about* the passage of time -- chart canvases, "updated 3 s ago" -- are mask
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import json
 import os
 import pathlib
 import queue
+import re
 import socket
 import threading
 import time
@@ -70,12 +72,20 @@ class BrowserEngine(FakeEngine):
     which is what sends a signed-in person to onboarding.
     """
 
-    def __init__(self, fresh: bool = False) -> None:
+    def __init__(self, fresh: bool = False, follow_lifecycle: bool = False) -> None:
         super().__init__()
         self._tails: list[queue.Queue] = []
         self._tails_lock = threading.Lock()
         self.closed = threading.Event()
         self.lifecycle_calls: list[tuple[str, str]] = []
+        #: Whether pause, resume and drop change what the engine then lists, as the real one's
+        #: do. Off for the shared console, whose screens the audit and the budget expect fixed.
+        self.follow_lifecycle = follow_lifecycle
+        #: What a view answers, by name, when a journey needs two views to differ; any other
+        #: view answers ``rows``.
+        self.view_rows: dict[str, list[list]] = {}
+        #: Every subscription the console opened, as (view, filters), in order.
+        self.tails_opened: list[tuple[str, object]] = []
         if fresh:
             self._queries = []
             self.streams_list = []
@@ -90,11 +100,26 @@ class BrowserEngine(FakeEngine):
     def lifecycle(self, action, name):
         super().lifecycle(action, name)
         self.lifecycle_calls.append((action, name))
+        if not self.follow_lifecycle:
+            return
+        for i, q in enumerate(self._queries):
+            if q.name != name:
+                continue
+            if action == "drop":
+                del self._queries[i]
+            else:
+                shared = getattr(q, "_shared", False)
+                row = dataclasses.replace(q, state="PAUSED" if action == "pause" else "RUNNING")
+                object.__setattr__(row, "_shared", shared)
+                self._queries[i] = row
+            return
 
     def query_typed(self, sql, parameters=None):
         self._check()
         self.queries_seen.append((sql, parameters))
-        return ["txn_id", "user_id", "amount"], [list(r) for r in self.rows], ["int64", "string", "int64"]
+        named = re.search(r"\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)", sql, re.IGNORECASE)
+        rows = self.view_rows.get(named.group(1), self.rows) if named else self.rows
+        return ["txn_id", "user_id", "amount"], [list(r) for r in rows], ["int64", "string", "int64"]
 
     def commit(self, change: dict) -> None:
         """What the engine would publish when a view changes: to every open subscription.
@@ -117,6 +142,7 @@ class BrowserEngine(FakeEngine):
         mine: queue.Queue = queue.Queue()
         with self._tails_lock:
             self._tails.append(mine)
+            self.tails_opened.append((view, filters))
         try:
             while not self.closed.is_set():
                 try:
@@ -214,6 +240,17 @@ def console() -> Iterator[Console]:
 @contextlib.contextmanager
 def fresh_console(**kwargs) -> Iterator[Console]:
     server = Console(BrowserEngine(fresh=True), **kwargs)
+    try:
+        yield server
+    finally:
+        server.close()
+
+
+@contextlib.contextmanager
+def own_console(**kwargs) -> Iterator[Console]:
+    """The standard fake, for one journey alone, with pause, resume and drop taking effect:
+    a journey that changes what is registered must not change the screens other tests see."""
+    server = Console(BrowserEngine(follow_lifecycle=True), **kwargs)
     try:
         yield server
     finally:
