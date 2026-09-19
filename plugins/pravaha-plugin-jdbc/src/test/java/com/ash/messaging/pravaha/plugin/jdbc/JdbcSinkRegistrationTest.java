@@ -237,8 +237,12 @@ class JdbcSinkRegistrationTest {
         feed(query, "u1", 1L);
         commitUntilTable(query, "2|301");
         assertThat(table()).containsExactly("2|301");
+        // Not exactly once without checkpoints -- each commit is its own transaction and a restart
+        // repeats it -- but the default mode upserts, and a repeated upsert rewrites the values
+        // already there: effectively once (HLP-4).
         assertThat(registry.sinkGuarantee("spend_so_far"))
-                .hasValueSatisfying(text -> assertThat(text).startsWith("at-least-once"));
+                .hasValueSatisfying(
+                        text -> assertThat(text).startsWith("effectively-once").contains("takes no checkpoints"));
     }
 
     @Test

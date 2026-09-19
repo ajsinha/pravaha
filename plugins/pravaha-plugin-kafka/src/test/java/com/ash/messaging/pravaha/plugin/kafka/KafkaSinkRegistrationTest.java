@@ -215,8 +215,10 @@ class KafkaSinkRegistrationTest {
             query.commit();
         }
         assertThat(table(KafkaBroker.readCommitted(topic))).containsExactly(Map.entry("{\"n\":2}", "301"));
+        // Keyed upserts: a restart repeats a commit, which rewrites each key with the value it
+        // already holds -- effectively once without checkpoints (HLP-4).
         assertThat(registry.sinkGuarantee("spend_so_far"))
-                .hasValueSatisfying(text -> assertThat(text).startsWith("at-least-once"));
+                .hasValueSatisfying(text -> assertThat(text).startsWith("effectively-once"));
     }
 
     @Test
