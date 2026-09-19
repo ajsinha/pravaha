@@ -221,6 +221,9 @@ class AerospikeContinuousQueryIT {
                 new Bin("event_time", eventTime));
     }
 
+    @org.junit.jupiter.api.io.TempDir
+    java.nio.file.Path deleteState;
+
     @Test
     void theReadmesQueryRunsOverAerospikeThroughTheDeploymentPath() {
         // The test below drives the engine through its own API: it compiles a pipeline by hand,
@@ -250,7 +253,14 @@ class AerospikeContinuousQueryIT {
                                         "event_time",
                                         "schema",
                                         "txn_id:INT64,user_id:STRING,amount:INT64,"
-                                                + "status:STRING,event_time:TIMESTAMP")));
+                                                + "status:STRING,event_time:TIMESTAMP",
+                                        // A COUNT and a SUM: over the default lut-scan a record read
+                                        // twice would be counted twice, so the registry refuses the
+                                        // query without this (PRV-2042, SCAN-1).
+                                        "deletes",
+                                        "detect",
+                                        "deletes.state.dir",
+                                        deleteState.toString())));
 
         AerospikeLookupPlugin profiles = new AerospikeLookupPlugin();
         profiles.configure(new Ctx(

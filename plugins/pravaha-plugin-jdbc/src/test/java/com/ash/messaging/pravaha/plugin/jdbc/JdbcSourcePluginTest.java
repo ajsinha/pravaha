@@ -267,6 +267,54 @@ class JdbcSourcePluginTest {
     }
 
     @Test
+    void anUpdatedRowIsReadAgainAndTheSourceSaysItRepeatsRows() throws SQLException {
+        // SCAN-1. A watermark column an update moves brings the row back as a second +1 with nothing
+        // retracting the first: a COUNT over it counts two. The plugin cannot tell such a column from
+        // one set once on insert, so it declares the repeat unless told otherwise.
+        insert(1, "ann", 10.5, 100);
+        JdbcSourcePlugin plugin = open(Map.of());
+        try (JdbcCollector collector = new JdbcCollector(plugin.schema());
+                PartitionReader reader =
+                        plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
+            assertThat(drain(reader, collector)).hasSize(1);
+            execute("UPDATE orders SET amount = 11.5, updated_at = 150 WHERE id = 1");
+            assertThat(drain(reader, collector).stream().map(r -> r.getLong(0)))
+                    .as("the same row, read twice")
+                    .containsExactly(1L, 1L);
+        }
+        assertThat(plugin.capabilities().repeatsRows()).isTrue();
+    }
+
+    @Test
+    void onlyAnInsertOnlyWatermarkWithAKeyDeclaresThatNoRowRepeats() throws SQLException {
+        insert(1, "ann", 10.5, 100);
+        assertThat(open(Map.of("watermark.moves.on.update", "false"))
+                        .capabilities()
+                        .repeatsRows())
+                .as("the operator vouches the column is set once, and the key makes the resume exact")
+                .isFalse();
+
+        JdbcSourcePlugin keyless = new JdbcSourcePlugin();
+        keyless.configure(new Ctx(
+                "orders",
+                Map.of(
+                        "url", url,
+                        "table", "orders",
+                        "watermark.column", "UPDATED_AT",
+                        "stream", "orders",
+                        "watermark.moves.on.update", "false")));
+        assertThat(keyless.capabilities().repeatsRows())
+                .as("without a key, rows tied on the watermark are resumed by counting, and re-read when the "
+                        + "database returns them in another order")
+                .isTrue();
+
+        assertThatThrownBy(() -> open(Map.of("watermark.moves.on.update", "flase")))
+                .isInstanceOf(com.ash.messaging.pravaha.api.ConfigurationException.class)
+                .hasMessageContaining("PRV-5074")
+                .hasMessageContaining("true or false");
+    }
+
+    @Test
     void aNullTextColumnIsReadAsNullRatherThanThrowing() {
         // The polling source had this bug too and no test had ever fed it a null string: JDBC
         // returns null for a text column, the row writer will not take one, and the "write it, then

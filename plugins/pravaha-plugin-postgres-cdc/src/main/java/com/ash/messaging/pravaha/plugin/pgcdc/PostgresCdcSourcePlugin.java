@@ -171,7 +171,10 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
                 // publication row filter, which is the operator's to set (PostgreSQL 15 and later).
                 EnumSet.noneOf(PushdownKind.class),
                 // As fast as the log is read and a transaction commits: tens of milliseconds.
-                Duration.ofMillis(50));
+                Duration.ofMillis(50),
+                // Never repeats: an update is a retraction of the old row and an insertion of the new,
+                // and the initial snapshot hands over to the slot at one LSN.
+                false);
     }
 
     @Override

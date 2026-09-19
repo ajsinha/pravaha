@@ -214,7 +214,10 @@ public final class FeedFileSourcePlugin implements StreamSourcePlugin {
                 false,
                 replayable ? DeliveryGuarantee.EXACTLY_ONCE : DeliveryGuarantee.AT_LEAST_ONCE,
                 EnumSet.noneOf(PushdownKind.class),
-                Duration.ofSeconds(1));
+                Duration.ofSeconds(1),
+                // Never repeats in running: each file is read once. What at-least-once allows after a
+                // failure is the guarantee's to say, not this flag's.
+                false);
     }
 
     @Override

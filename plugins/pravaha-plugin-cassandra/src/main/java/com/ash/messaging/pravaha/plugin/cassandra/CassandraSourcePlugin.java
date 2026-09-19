@@ -392,7 +392,9 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
                     true,
                     DeliveryGuarantee.EXACTLY_ONCE,
                     EnumSet.of(com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT),
-                    Duration.ofMillis(scanIntervalMillis));
+                    Duration.ofMillis(scanIntervalMillis),
+                    // An exact changelog: an unchanged row is not emitted again (SCAN-1).
+                    false);
         }
         return new SourceCapabilities(
                 // The offset is a token cursor within the assigned range, and resuming from it
@@ -414,7 +416,12 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
                 // aggregates are per partition, and every pass here is a full re-read with no
                 // retraction of the previous one, so no partial could be "the new rows only".
                 EnumSet.of(com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT),
-                Duration.ofMillis(scanIntervalMillis));
+                Duration.ofMillis(scanIntervalMillis),
+                // Every pass emits every row of the range again at +1, changed or not (SCAN-1). A
+                // keyed view of the rows survives that -- each copy overwrites its own key -- and an
+                // aggregate, a join or an append-only sink does not, so the registry refuses those
+                // with PRV-2042 and names deletes: detect as the fix.
+                true);
     }
 
     @Override

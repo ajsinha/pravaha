@@ -152,7 +152,11 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
                 // Kafka has no server-side filter or projection; every record is fetched whole.
                 EnumSet.noneOf(PushdownKind.class),
                 // A record is fetched within a fetch wait of being committed: tens of milliseconds.
-                Duration.ofMillis(100));
+                Duration.ofMillis(100),
+                // Never repeats: each record is read once, at its offset. A json topic whose producer
+                // re-publishes a key is a log of events by declaration -- format: changelog is how a
+                // topic that revises its rows says so.
+                false);
     }
 
     @Override

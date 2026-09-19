@@ -267,7 +267,9 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
                 false,
                 DeliveryGuarantee.EXACTLY_ONCE,
                 EnumSet.noneOf(com.ash.messaging.pravaha.api.plugin.PushdownKind.class),
-                Duration.ZERO);
+                Duration.ZERO,
+                // Never repeats: each line is read once, from a byte offset.
+                false);
     }
 
     @Override

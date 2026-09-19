@@ -241,7 +241,14 @@ class PartialAggregatePushdownEquivalenceTest {
                                 .bind(new com.ash.messaging.pravaha.bindings.ingest.SourceBinding(
                                         "txn",
                                         "jdbc",
-                                        h2.binding(Map.of("pushdown.partial.aggregate", String.valueOf(partials)))));
+                                        // This table is only ever inserted into, so its updated_at is
+                                        // set once and no poll reads a row twice; without saying so the
+                                        // aggregate is refused (PRV-2042, SCAN-1).
+                                        h2.binding(Map.of(
+                                                "pushdown.partial.aggregate",
+                                                String.valueOf(partials),
+                                                "watermark.moves.on.update",
+                                                "false"))));
                 com.ash.messaging.pravaha.serving.ViewCatalog views =
                         new com.ash.messaging.pravaha.serving.ViewCatalog();
                 try (com.ash.messaging.pravaha.registry.QueryRegistry registry =

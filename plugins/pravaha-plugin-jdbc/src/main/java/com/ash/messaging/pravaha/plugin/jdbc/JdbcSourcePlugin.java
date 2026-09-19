@@ -75,7 +75,8 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * DB2 and SQL Server), {@code pushdown.partial.aggregate} (default {@code true}; see {@link
  * #capabilities()}), {@code collation.binary} (default {@code false}: set it only when the database
  * compares and groups text byte for byte, case-sensitively, as the engine does -- it is what lets a
- * partial aggregate filter or group on a text column).
+ * partial aggregate filter or group on a text column), {@code watermark.moves.on.update} (default
+ * {@code true}; see {@link #capabilities()}).
  */
 public final class JdbcSourcePlugin implements StreamSourcePlugin {
 
@@ -93,6 +94,12 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
     private int fetchSize;
     private boolean partialAggregates;
     private boolean binaryCollation;
+
+    /**
+     * Whether an update can move a row's watermark column, so that a poll reads the row again. True
+     * unless the operator says the column is set once, on insert (SCAN-1).
+     */
+    private boolean watermarkMovesOnUpdate;
 
     private Connection connection;
     private StreamSchema schema;
@@ -120,6 +127,16 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
         this.fetchSize = Integer.parseInt(context.get("fetch.size", "500"));
         this.partialAggregates = Boolean.parseBoolean(context.get("pushdown.partial.aggregate", "true"));
         this.binaryCollation = Boolean.parseBoolean(context.get("collation.binary", "false"));
+        // Strict, because a misspelt "flase" read as false would vouch for something nobody said.
+        String moves = context.get("watermark.moves.on.update", "true").strip().toLowerCase(java.util.Locale.ROOT);
+        if (!moves.equals("true") && !moves.equals("false")) {
+            throw new ConfigurationException(
+                    JdbcErrors.BAD_CONFIGURATION,
+                    "plugin '" + instanceName + "' watermark.moves.on.update must be true or false, got '" + moves
+                            + "'. Set it false only when the watermark column is written once, when a row is "
+                            + "inserted (a sequence, a created_at), and never by an update.");
+        }
+        this.watermarkMovesOnUpdate = moves.equals("true");
 
         String table = context.get("table", "");
         String query = context.get("query", "");
@@ -297,7 +314,24 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
                 replayable && partialAggregates
                         ? EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT, PushdownKind.PARTIAL_AGGREGATE)
                         : EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT),
-                Duration.ofSeconds(1));
+                Duration.ofSeconds(1),
+                repeatsRows());
+    }
+
+    /**
+     * Whether a poll can read a row it has already read (SCAN-1).
+     *
+     * <p>Two ways, and only the operator can rule out the first. A watermark column an update moves
+     * -- the usual {@code updated_at} -- brings an updated row back as the new row at {@code +1} with
+     * nothing retracting the old, so a {@code COUNT} counts it twice. The plugin cannot tell such a
+     * column from one set once on insert, so it assumes the former unless {@code
+     * watermark.moves.on.update: false} says otherwise. And without {@code key.column}, rows tied on
+     * the watermark are resumed by counting them, which re-reads a row whenever the database returns
+     * tied rows in another order. Either way the registry refuses an aggregate, a join or an
+     * append-only sink over the stream (PRV-2042); a keyed view of the rows is unaffected.
+     */
+    private boolean repeatsRows() {
+        return watermarkMovesOnUpdate || keyColumn.isBlank();
     }
 
     @Override

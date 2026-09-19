@@ -178,7 +178,10 @@ public final class DeltaSourcePlugin implements StreamSourcePlugin {
                 // is the obvious next step. Declaring pushdown before implementing it would make the
                 // planner believe filtering had happened when it had not.
                 EnumSet.noneOf(PushdownKind.class),
-                Duration.ofSeconds(1));
+                Duration.ofSeconds(1),
+                // Never repeats: a rewritten file's rows are retracted when its replacement's arrive,
+                // so a row that survives a rewrite nets to one.
+                false);
     }
 
     @Override

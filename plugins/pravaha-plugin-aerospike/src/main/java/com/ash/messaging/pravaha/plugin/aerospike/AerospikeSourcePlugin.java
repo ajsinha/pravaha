@@ -298,7 +298,15 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
                 // record as a new row with no retraction of the old one, so a partial over a scan
                 // would be exactly as wrong as the rows are, while costing a UDF to be so.
                 EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT),
-                Duration.ofSeconds(1));
+                Duration.ofSeconds(1),
+                // Repeats rows (SCAN-1), and not only on update. An updated record is read again as
+                // the new row at +1 with nothing retracting the old; and the filter is
+                // greater-or-equal on a watermark set to when the previous scan started, so a record
+                // written while a scan ran is read by that scan and again by the next. An insert-only
+                // workload still meets the second, and the source cannot know the workload anyway.
+                // A keyed view of the records survives both; an aggregate, a join or an append-only
+                // sink does not, and the registry refuses those with PRV-2042.
+                true);
     }
 
     /**
@@ -329,7 +337,10 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
                 true,
                 DeliveryGuarantee.EXACTLY_ONCE,
                 EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT),
-                Duration.ofMillis(Math.max(1000, scanIntervalMillis)));
+                Duration.ofMillis(Math.max(1000, scanIntervalMillis)),
+                // An exact changelog: an unchanged record is not emitted again, and an update
+                // retracts the row it replaces (SCAN-1).
+                false);
     }
 
     @Override
