@@ -42,7 +42,9 @@ an `INT64` column.
 
 **No queue configured.** The decode failure ends the poll and stops the source for that query, and
 with it every other row in the file. The query goes on reporting `RUNNING`; its view simply stops
-growing, and its source feed says why in the query's description. This used to be the only
+growing. The feed records why it stopped (`PRV-5092` or the source's own code), but no API, CLI
+command or console screen shows that record yet (FEED-1): look for the source's error in the
+node's log. This used to be the only
 behaviour a server had: one malformed field could take a whole file to zero rows with nothing in the
 query's state to show it (TIME-4).
 

@@ -3342,11 +3342,15 @@ class QueryController {
 > Python (`console/tests/cdp.py`), against the real console with the engine adapter faked, and
 > skip with their reason where no Chrome is installed. **Visual regression**: 23 pages and one
 > designed refusal state, light and dark, 1280×800 and 390×844, against committed baselines with a pixel tolerance and a diff image
-> on failure — compact density not yet photographed. **Accessibility**: vendored axe-core, zero
+> on failure, and compact density photographed the same way (240 baselines in all). **Accessibility**: vendored axe-core, zero
 > violations blocking, on every page in both themes and in eight interaction states, plus a
-> token-level contrast test in all three themes. **E2E**: two of the eight journeys
-> (first run to a live view that changes; author-validate-fix-explain-run-register) and the
-> keyboard paths; the other six need engine features that do not exist yet. **Performance**:
+> token-level contrast test in all three themes, and every page again in compact. **E2E**: all
+> eight journeys and the keyboard paths. Two run end to end; the other six run as far as the
+> engine goes (backpressure sampling, a dead-letter API, a reachable backfill, a cutover path and
+> the time-travel debugger do not exist yet) and assert that the console offers nothing the engine
+> cannot do. **Component coverage**: Storybook needs Node, so a no-build `/_components` gallery,
+> off unless configured, renders every shared component and the eight §23.12 states for axe and
+> the baselines. **Performance**:
 > initial JavaScript, time to interactive, route transitions, main-thread blocking and lazy
 > loading of Monaco and ECharts, asserted per page. **Unit / component** (Vitest) and
 > **contract** (generated types) have no equivalent: there is no build step to generate into.

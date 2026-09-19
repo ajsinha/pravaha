@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **334 findings carrying a
-status — 218 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **1 is
-GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **338 findings carrying a
+status — 221 FIXED, 104 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 104 open, **1 is
+GA-BLOCKER, 1 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 1 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -6759,3 +6759,20 @@ runs is how a default becomes folklore, and this project has already found two o
 ### LANE-5 (MEDIUM) — one query's failed commit ended the shared reader's thread, recording nothing
 
 > **Status:** FIXED — `bc3212b`: the failure is now recorded on that query (its describe line shows it) and the reader carries on for the rest. The reader also takes its lock per query rather than for a whole round of commits, which made each join wait seconds with 1,000 queries.
+
+### FEED-1 (MEDIUM) — a query whose source feed stopped reports RUNNING, and nothing shows why
+
+> **Status:** OPEN — when a source fails mid-read `PumpingFeed` records the failure (`PRV-5092`, or the source's own code) and stops, deliberately, rather than spinning; the query stays `RUNNING` and its view answers at the frontier it reached. The record is reachable through `SourceFeed.describe()`, and nothing an operator uses calls it: not `GET /api/v1/queries/{name}` (`QueryDetail` has no feed field), not `pravaha queries`, not `/status`, not the console. Only the Spring starter's `PravahaTester` reads it. Found by the console's journeys agent checking a help page that claimed the description says why.
+> **Disposition:** GA-REQUIRED — the product is not diagnosable without it on a path an operator will certainly hit (a deleted file, a revoked credential, a schema change); the fix is the feed's state and failure in the query's detail, the CLI listing, the metrics and the console's query page
+
+### CON-5 (MEDIUM) — the console offered Pause, Resume, Drop and Register whatever the engine's policy said
+
+> **Status:** FIXED — `04acd3c`: each control failed on click with a 403 instead of being withheld (§23.16). They are now disabled with the policy's reason on the query page, left out of the palette, and disabled with the reason in the workbench and onboarding, from `GET /api/v1/me/permissions`; if the engine does not answer that, the controls stay. Found by §23.18 journey 8 (grant a role, see the affordance appear), which now drives it both ways.
+
+### CON-6 (MEDIUM) — stale data faded below WCAG contrast in both themes
+
+> **Status:** FIXED — `545af26`: stale values faded to 55% opacity, taking every word below 4.5:1. They now turn grey inside a dashed outline, and `test_contrast.py` checks every token pair after the grey filter in all three themes. Found by the new `/_components` gallery, the first audit to put that state in front of axe.
+
+### CON-7 (LOW) — an unauthorized control hid its reason in a disabled button's title
+
+> **Status:** FIXED — `545af26`: `PravahaStates.unauthorized` put the reason where neither a pointer nor a screen reader reaches it; it is now on the page, linked by `aria-describedby`. Found by the gallery.

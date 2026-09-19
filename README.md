@@ -248,8 +248,9 @@ probes needs a session. An administrator gets **Admin**: what the engine's polic
 identity do, and the **audit trail** — filterable, paged, every filter in the URL — which the engine
 serves only to a principal its policy lets read it (`SecurityPolicy.mayReadAudit`), recording every
 attempt. Where a screen needs an API the engine does not have yet, it says which.
-The time-travel debugger and the §23.20 release gate — Storybook, visual regression, a WCAG 2.2 AA
-audit — are not done. [How it is built →](console/README.md)
+All eight §23.18 journeys run in headless Chrome, six of them as far as the engine goes; light, dark
+and compact density are photographed and audited by axe. The time-travel debugger, backfill and
+cutover control, and the manual WCAG 2.2 AA audit are not done. [How it is built →](console/README.md)
 
 ## Documentation
 
