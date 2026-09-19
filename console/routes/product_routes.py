@@ -115,9 +115,11 @@ class ProductRoutes(Routes):
             siblings: dict[str, list[str]] = {}
             for q in queries:
                 siblings.setdefault(q.fingerprint, []).append(q.name)
+            sinks, sinks_error = (safe(services.catalog.sinks, []) if tab == "sinks" else ([], None))
             return self.page(request, "catalog.html", current="/catalog", tab=tab,
                              streams=streams, streams_error=streams_error, queries=queries,
                              queries_error=queries_error, siblings=siblings,
+                             sinks=sinks, sinks_error=sinks_error,
                              engine_http=services.engine.http_url)
 
         @self.app.get("/catalog/streams/{name}", response_class=HTMLResponse, tags=["ui"])
@@ -132,9 +134,19 @@ class ProductRoutes(Routes):
                                  back_href="/catalog", back_label="Back to the catalog",
                                  detail=str(exc))
             queries, _ = safe(lambda: services.queries.find(limit=services.queries.MAX_LIMIT).items, [])
-            readers = [q for q in queries if _names(q.sql, stream["name"])]
+            # Lineage from the engine -- the streams each query's plan reads -- when it says;
+            # a name match in the SQL text only for an engine that does not.
+            reads, _ = safe(services.queries.reads, None)
+            if reads is not None:
+                wanted = stream["name"].lower()
+                readers = [q for q in queries
+                           if wanted in {r.lower() for r in reads.get(q.name, [])}]
+                lineage = "engine"
+            else:
+                readers = [q for q in queries if _names(q.sql, stream["name"])]
+                lineage = "name"
             return self.page(request, "stream_detail.html", current="/catalog", stream=stream,
-                             readers=readers, templates=authoring.templates(stream))
+                             readers=readers, lineage=lineage, templates=authoring.templates(stream))
 
         @self.app.get("/views", response_class=HTMLResponse, tags=["ui"])
         def views(request: Request):
@@ -158,21 +170,24 @@ class ProductRoutes(Routes):
                 return self.page(request, "not_found.html", http_status=404 if exc.status == 404 else 503,
                                  current="/views", what="view", identifier=name,
                                  back_href="/views", back_label="Back to views", detail=str(exc))
-            schema, schema_error = safe(lambda: services.views.schema(name), [])
+            # The engine's own description of the view: schema, key, retention, sink.
+            view, schema_error = safe(lambda: services.views.describe(name), {})
+            schema = list((view or {}).get("schema") or [])
+            keys = [k.get("name") for k in (view or {}).get("keyColumns") or [] if k.get("name")]
             result, lookup_error = (None, None)
             if key:
                 result, lookup_error = safe(lambda: services.views.lookup(name, {key: value}), None)
             try:
                 code = snippets(name, engine_url=services.engine.url,
                                 pgwire=config.get("engine.pgwire", "localhost:5432"),
-                                key_column=key or (schema[0]["name"] if schema else None),
+                                key_column=key or (keys[0] if keys else schema[0]["name"] if schema else None),
                                 key_value=value if key else None)
                 snippet_error = None
             except SnippetError as exc:
                 code, snippet_error = {}, str(exc)
             siblings, _ = safe(lambda: services.queries.siblings(name), [])
             return self.page(request, "view_detail.html", current="/views", query=query,
-                             schema=schema, schema_error=schema_error, key=key, key_value=value,
+                             schema=schema, schema_error=schema_error, view=view, key=key, key_value=value,
                              result=result, lookup_error=lookup_error, snippets=code,
                              snippet_error=snippet_error, client=client, siblings=siblings)
 
@@ -221,13 +236,30 @@ class ProductRoutes(Routes):
             body = await _body(request)
             logger.info("%s declared stream '%s'", current_user(request), body.get("name"))
             return self.json_guard(lambda: services.catalog.declare(
-                str(body.get("name", "")), str(body.get("schema", ""))), request=request)
+                str(body.get("name", "")), str(body.get("schema", "")),
+                event_time=str(body.get("event_time") or body.get("eventTime") or "") or None,
+                out_of_orderness=str(body.get("out_of_orderness") or body.get("outOfOrderness") or "")
+                or None), request=request)
 
         @self.app.get(f"{api}/catalog/streams/{{name}}", tags=["api"])
         def api_stream(request: Request, name: str):
             if (refusal := _refuse_anonymous(request)) is not None:
                 return refusal
             return self.json_guard(lambda: services.catalog.stream(name), request=request)
+
+        @self.app.get(f"{api}/catalog/sinks", tags=["api"])
+        def api_sinks(request: Request):
+            """The sink bindings the engine lists for this console's identity -- never options."""
+            if (refusal := _refuse_anonymous(request)) is not None:
+                return refusal
+            return self.json_guard(lambda: {"items": services.catalog.sinks()}, request=request)
+
+        @self.app.get(f"{api}/views/{{name}}", tags=["api"])
+        def api_view(request: Request, name: str):
+            """A view described by the engine: schema, key, retention, sink, fingerprint."""
+            if (refusal := _refuse_anonymous(request)) is not None:
+                return refusal
+            return self.json_guard(lambda: services.views.describe(name), request=request)
 
         @self.app.get(f"{api}/catalog/completions", tags=["api"])
         def api_completions(request: Request):
@@ -260,8 +292,23 @@ class ProductRoutes(Routes):
             if (refusal := _refuse_anonymous(request)) is not None:
                 return refusal
             body = await _body(request)
-            return self.json_guard(lambda: services.authoring.explain(
-                str(body.get("sql", "")), str(body.get("level") or "physical")), request=request)
+            sql = str(body.get("sql", ""))
+            query = str(body.get("query") or "").strip()
+
+            def explain():
+                answer = services.authoring.explain(sql, str(body.get("level") or "physical"))
+                if query:
+                    # The registered query's measured totals, attached only while the SQL being
+                    # explained is still that query's own: under an edited query they would be
+                    # numbers about a different plan.
+                    try:
+                        registered = services.queries.get(query)
+                        if registered.sql.strip() == sql.strip():
+                            answer["query_metrics"] = services.authoring.plan(query).get("query_metrics")
+                    except ServiceError:
+                        pass
+                return answer
+            return self.json_guard(explain, request=request)
 
         @self.app.get(f"{api}/views/{{name}}/schema", tags=["api"])
         def api_view_schema(request: Request, name: str):

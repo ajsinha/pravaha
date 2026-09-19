@@ -1,32 +1,32 @@
-"""The console's only way of reaching the engine: the published SDK and the public REST API.
+"""The console's only way of reaching the engine: the published Python SDK.
 
-Every Flight call in here goes through ``pravaha``, the same client an integrator uses. That is
-the point of ADR-024 rather than an incidental choice -- a console that reached into the
-engine would be a console whose API boundary is enforced by a test, and a test can be
-waived by whoever is under deadline pressure that week. A separate process simply cannot.
+Every call in here goes through ``pravaha``, the same client an integrator uses -- Flight for
+queries, registration, lifecycle and subscriptions, and the SDK's own calls to the engine's
+published, versioned REST endpoints for the catalogue, validation, plans, sinks, per-query
+and per-view descriptions, node status and the Prometheus text. That is the point of
+ADR-024 rather than an incidental choice: a console that reached into the engine would be a
+console whose API boundary is enforced by a test, and a test can be waived by whoever is
+under deadline pressure that week. A separate process speaking only the SDK simply cannot.
 
-The second benefit is that the console is the SDK's first real consumer: an awkward
-corner of the client API becomes an awkward corner of the console, where somebody
-notices, instead of being discovered by an integrator.
-
-The handful of HTTP calls at the bottom are to the engine's *published* REST surface --
-``/api/v1/streams``, ``/api/v1/queries/validate``, ``/api/v1/queries/explain``,
-``/api/v1/status`` and the Prometheus endpoint -- the same documented, versioned endpoints a
-third party calls (design 23.2a). The Python SDK speaks Flight only, so they live here, in
-the one adapter that would be replaced when the SDK grows them.
+The console is also the SDK's first real consumer: an awkward corner of the client API
+becomes an awkward corner of the console, where somebody notices, instead of being
+discovered by an integrator. This module used to hold its own ``urllib`` client for the
+REST half because the SDK spoke Flight only; the SDK grew those calls, and the console
+stopped being the one place that spoke HTTP to the engine.
 """
 from __future__ import annotations
 
 import dataclasses
-import json
 import threading
-import urllib.error
-import urllib.parse
-import urllib.request
 from collections.abc import Iterator, Sequence
 
 from pravaha import connect
 from pravaha.client import QueryError
+
+try:  # the SDK's REST error; absent only from an SDK older than this console
+    from pravaha import ApiError
+except ImportError:  # pragma: no cover
+    ApiError = None  # type: ignore[assignment,misc]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -38,6 +38,12 @@ class QueryRow:
     sql: str
     fingerprint: str
     rows_in: int
+    #: The view's key as output ordinals; empty when the engine did not say.
+    key_columns: tuple = ()
+    #: The sink binding the query also writes to, or ``None``.
+    sink: str | None = None
+    #: The view's retention, ISO-8601 or ``"forever"``; ``None`` when the engine did not say.
+    retention: str | None = None
 
     @property
     def shared(self) -> bool:
@@ -51,12 +57,25 @@ class QueryRow:
 
 
 class EngineHttpError(Exception):
-    """The engine's HTTP API refused (``status`` is its HTTP status), or did not answer (0)."""
+    """The engine's HTTP API refused (``status`` is its HTTP status), or did not answer (0).
+
+    ``code`` is the engine's ``PRV-nnnn`` when it gave one. The console's own error type, so
+    nothing above this module needs to know which SDK exception carried the refusal.
+    """
 
     def __init__(self, status: int, message: str, code: str | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
+
+
+def _translated(exc: Exception) -> Exception:
+    """An SDK REST refusal as an :class:`EngineHttpError`; anything else unchanged."""
+    if ApiError is not None and isinstance(exc, ApiError):
+        return EngineHttpError(int(getattr(exc, "status", 0) or 0),
+                               str(getattr(exc, "message", None) or exc),
+                               getattr(exc, "engine_code", None))
+    return exc
 
 
 class Engine:
@@ -86,15 +105,33 @@ class Engine:
         return self._http
 
     def _client(self):
-        if self._token:
-            from pravaha.options import ClientOptions
+        from pravaha.options import ClientOptions
 
-            return connect(
-                options=ClientOptions.create(
-                    self._url, token=self._token, allow_insecure_token=True
-                )
-            )
-        return connect(self._url)
+        kwargs: dict = {}
+        if self._token:
+            kwargs["token"] = self._token
+            kwargs["allow_insecure_token"] = True
+        if self._http:
+            kwargs["http_url"] = self._http
+            kwargs["request_timeout_seconds"] = self._http_timeout
+        if not kwargs:
+            return connect(self._url)
+        return connect(options=ClientOptions.create(self._url, **kwargs))
+
+    def _rest(self, call):
+        """Runs ``call(client)`` against the engine's REST surface through the SDK."""
+        if not self._http:
+            raise EngineHttpError(0, "no engine HTTP URL is configured (engine.http_url)")
+        try:
+            with self._client() as client:
+                return call(client)
+        except Exception as exc:
+            translated = _translated(exc)
+            if translated is exc:
+                raise
+            raise translated from exc
+
+    # ------------------------------------------------------------------ Flight
 
     def health(self) -> dict:
         """Whether the engine answers at all, and what it is running."""
@@ -123,6 +160,9 @@ class Engine:
                 sql=query.sql,
                 fingerprint=query.fingerprint,
                 rows_in=query.rows_in,
+                key_columns=tuple(getattr(query, "key_columns", ()) or ()),
+                sink=getattr(query, "sink", None),
+                retention=getattr(query, "retention", None),
             )
             # Two names on one fingerprint are one computation with one copy of the state.
             object.__setattr__(row, "_shared", counts[query.fingerprint] > 1)
@@ -130,15 +170,19 @@ class Engine:
         return rows
 
     def register(self, name: str, sql: str, keys: Sequence[int],
-                 sink: str | None = None) -> QueryRow:
+                 sink: str | None = None, retention: str | None = None) -> QueryRow:
         with self._client() as client:
-            registered = client.register(name, sql, list(keys), sink=sink or None)
+            registered = client.register(name, sql, list(keys), sink=sink or None,
+                                         retention=retention or None)
         return QueryRow(
             name=registered.name,
             state=registered.state,
             sql=sql,
             fingerprint=registered.fingerprint,
             rows_in=0,
+            key_columns=tuple(keys),
+            sink=sink or None,
+            retention=retention or None,
         )
 
     def lifecycle(self, action: str, name: str) -> None:
@@ -183,80 +227,51 @@ class Engine:
                     values["_weight"] = row.weight
                     yield values
 
-    # ------------------------------------------------------------------ public REST
-
-    def _http_call(self, method: str, path: str, body: object | None = None,
-                   accept: str = "application/json") -> bytes:
-        if not self._http:
-            raise EngineHttpError(0, "no engine HTTP URL is configured (engine.http_url)")
-        data = None if body is None else json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(self._http + path, data=data, method=method)
-        request.add_header("Accept", accept)
-        if data is not None:
-            request.add_header("Content-Type", "application/json")
-        if self._token:
-            # Sent to the engine, never to a browser: the token is the console's service
-            # credential and stays on this side of the process boundary.
-            request.add_header("Authorization", "Bearer " + self._token)
-        try:
-            with urllib.request.urlopen(request, timeout=self._http_timeout) as response:
-                return response.read()
-        except urllib.error.HTTPError as exc:
-            payload = exc.read()
-            raise EngineHttpError(exc.code, _message_of(payload) or str(exc),
-                                  _code_of(payload)) from exc
-        except (urllib.error.URLError, OSError) as exc:
-            reason = getattr(exc, "reason", exc)
-            raise EngineHttpError(
-                0, f"the engine's HTTP API at {self._http} did not answer: {reason}") from exc
-
-    def _json(self, method: str, path: str, body: object | None = None):
-        payload = self._http_call(method, path, body)
-        return json.loads(payload.decode("utf-8") or "null")
+    # ------------------------------------------------------------------ the SDK's REST calls
 
     def streams(self) -> list[dict]:
-        """``GET /api/v1/streams``: every stream this principal may read, with its fields."""
-        return list(self._json("GET", "/api/v1/streams") or [])
+        """Every stream this principal may read, with fields, event time, lateness and source."""
+        return list(self._rest(lambda c: c.streams()) or [])
 
-    def declare_stream(self, name: str, schema: str) -> dict:
-        """``POST /api/v1/streams``: a schema in the ``name:TYPE,...`` form configuration uses."""
-        return dict(self._json("POST", "/api/v1/streams", {"name": name, "schema": schema}) or {})
+    def declare_stream(self, name: str, schema: str, event_time: str | None = None,
+                       out_of_orderness: str | None = None) -> dict:
+        """Declares a stream from ``name:TYPE,...``, optionally with its event time and lateness."""
+        return dict(self._rest(lambda c: c.declare_stream(
+            name, schema, event_time=event_time or None,
+            out_of_orderness=out_of_orderness or None)) or {})
 
     def validate(self, sql: str) -> dict:
-        """``POST /api/v1/queries/validate``: valid, diagnostics, output fields, elapsed."""
-        return dict(self._json("POST", "/api/v1/queries/validate", {"sql": sql}) or {})
+        """Valid, diagnostics (with the parser's own positions), output fields, elapsed."""
+        return dict(self._rest(lambda c: c.validate(sql)) or {})
 
     def explain(self, sql: str, level: str = "physical") -> dict:
-        """``POST /api/v1/queries/explain``: the plan as indented text, and its output schema."""
-        query = urllib.parse.urlencode({"level": level})
-        return dict(self._json("POST", f"/api/v1/queries/explain?{query}", {"sql": sql}) or {})
+        """The plan as text, and as the engine's own graph of operators."""
+        return dict(self._rest(lambda c: c.explain(sql, level, graph=True)) or {})
+
+    def sinks(self) -> list[dict]:
+        """The sink bindings this principal may see: what each accepts, and who writes to it."""
+        return list(self._rest(lambda c: c.sinks()) or [])
+
+    def describe_queries(self) -> list[dict]:
+        """Every registered query this identity may see, described in full."""
+        return list(self._rest(lambda c: c.describe_queries()) or [])
+
+    def describe_query(self, name: str) -> dict:
+        """One registered query: keys, retention, sink state, shared names, counts."""
+        return dict(self._rest(lambda c: c.describe_query(name)) or {})
+
+    def query_plan(self, name: str) -> dict:
+        """The plan a registered query is running, with the totals the engine measures."""
+        return dict(self._rest(lambda c: c.query_plan(name)) or {})
+
+    def describe_view(self, name: str) -> dict:
+        """A view's schema, key, retention, sink and fingerprint, without reading it."""
+        return dict(self._rest(lambda c: c.describe_view(name)) or {})
 
     def status(self) -> dict:
-        """``GET /api/v1/status``: node, version, engine state, plugin health."""
-        return dict(self._json("GET", "/api/v1/status") or {})
+        """Node, version, engine state, plugin health."""
+        return dict(self._rest(lambda c: c.status()) or {})
 
     def prometheus(self) -> str:
-        """``GET /actuator/prometheus``: the text exposition format, unparsed."""
-        return self._http_call("GET", "/actuator/prometheus", accept="text/plain").decode(
-            "utf-8", errors="replace")
-
-
-def _decoded(payload: bytes):
-    try:
-        return json.loads(payload.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return None
-
-
-def _message_of(payload: bytes) -> str:
-    body = _decoded(payload)
-    if isinstance(body, dict):
-        return str(body.get("message") or body.get("error") or "")
-    return payload.decode("utf-8", errors="replace")[:500]
-
-
-def _code_of(payload: bytes) -> str | None:
-    body = _decoded(payload)
-    if isinstance(body, dict) and body.get("code"):
-        return str(body["code"])
-    return None
+        """The Prometheus text exposition format, unparsed."""
+        return str(self._rest(lambda c: c.metrics_text()) or "")

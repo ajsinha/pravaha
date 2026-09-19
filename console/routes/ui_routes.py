@@ -118,8 +118,11 @@ class UIRoutes(Routes):
                                  current="/queries", what="query", identifier=name,
                                  back_href="/queries", back_label="Back to queries",
                                  detail=str(exc))
+            # The engine's description: keys by name, retention, the sink and whether it is still
+            # attached. Rendered without it (older engine, HTTP port down) rather than refused.
+            detail = _safe(lambda: services.queries.detail(name), None)
             return self.page(request, "query_detail.html", current="/queries",
-                             query=query, siblings=siblings)
+                             query=query, siblings=siblings, detail=detail)
 
         # The lifecycle actions as ordinary form posts. The module intercepts
         # them so the page does not reload, but they work without it: a control
@@ -173,7 +176,8 @@ class UIRoutes(Routes):
                         prefill = item["sql"]
             return self.page(request, "workbench.html", current="/workbench",
                              result=None, sql=prefill, params="", origin=origin,
-                             streams=streams, library=authoring.templates(streams[0] if streams else None))
+                             streams=streams, sinks=services.catalog.sinks_or_empty(),
+                             library=authoring.templates(streams[0] if streams else None))
 
         @self.app.post("/workbench", response_class=HTMLResponse, tags=["ui"])
         def run(request: Request, sql: str = Form(...), params: str = Form("")):
@@ -200,7 +204,7 @@ class UIRoutes(Routes):
 
         @self.app.post("/queries", tags=["ui"])
         def register_query(request: Request, name: str = Form(...), sql: str = Form(...),
-                           keys: str = Form("0"), sink: str = Form("")):
+                           keys: str = Form("0"), sink: str = Form(""), retention: str = Form("")):
             if (refusal := login_required(request)) is not None:
                 return refusal
             logger.info("%s registered '%s'", current_user(request), name)
@@ -212,7 +216,8 @@ class UIRoutes(Routes):
                     ordinals, _fields = services.authoring.key_ordinals(sql, parts)
                 else:
                     ordinals = [int(p) for p in parts]
-                services.queries.register(name, sql, ordinals, sink=sink or None)
+                services.queries.register(name, sql, ordinals, sink=sink or None,
+                                          retention=retention or None)
             except ServiceError as exc:
                 return self.page(request, "refused.html", http_status=400,
                                  current="/workbench", what=f"register '{name}'",

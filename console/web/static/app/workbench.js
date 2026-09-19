@@ -286,7 +286,7 @@ function Diagnostics({ validation, onFix }) {
       engine's own planner, and every refusal lands here with its code and, where one is known, a fix.</p></div>`;
   }
   if (validation.status === "unavailable") {
-    return html`<div class="needs-engine" role="status"><div class="title"><i class="bi bi-plug"></i>
+    return html`<div class="alert alert-warning small" role="status"><div class="fw-semibold"><i class="bi bi-wifi-off"></i>
       Validation is unavailable</div><p class="mb-0 mt-1">${String(validation.error || "").replace(/^./, (c) => c.toUpperCase())}. The editor still edits and
       your drafts still save; validation resumes when the engine's HTTP API answers.</p></div>`;
   }
@@ -309,7 +309,7 @@ function Diagnostics({ validation, onFix }) {
     </div></div>`)}</div>`;
 }
 
-function ExplainPanel({ sql, valid }) {
+function ExplainPanel({ sql, valid, origin }) {
   const [level, setLevel] = useState("physical");
   const [state, setState] = useState({ status: "idle" });
   const [selected, setSelected] = useState(null);
@@ -320,11 +320,13 @@ function ExplainPanel({ sql, valid }) {
     const chosen = lvl || level;
     setState({ status: "loading" }); setSelected(null);
     try {
-      const answer = await call("/sql/explain", { json: { sql, level: chosen } });
+      /* `query` names the registered query this tab was opened from: the console attaches
+         the engine's measured totals only while the SQL is still that query's own. */
+      const answer = await call("/sql/explain", { json: { sql, level: chosen, query: origin || null } });
       setState({ status: "ok", answer });
       announce("Plan ready");
     } catch (err) { setState({ status: "error", err }); }
-  }, [sql, level]);
+  }, [sql, level, origin]);
 
   useEffect(() => { window.__wbExplain = run; }, [run]);
   useEffect(() => {
@@ -364,13 +366,17 @@ function ExplainPanel({ sql, valid }) {
           ${selected ? html`<div class="card"><div class="card-body small">
               <div class="fw-semibold">${selected.op}</div>
               <pre class="small mt-1" style="white-space:pre-wrap">${selected.label}</pre>
-              <div class="needs-engine mt-2"><div class="title">Live operator metrics</div>
-                Rows in and out, state size and watermark per operator need a structured plan with per-operator
-                metrics from the engine — <code>GET /api/v1/queries/{name}/plan</code>.</div></div></div>`
+              ${selected.fields && selected.fields.length ? html`<div class="small text-muted">Emits: <span class="mono">${selected.fields.join(", ")}</span></div>` : null}
+              ${selected.stateful ? html`<div class="chip warn mt-1">keeps state</div>` : null}
+              <div class="small text-muted mt-2">Per-operator numbers are not shown: ${state.answer.metrics_note || "the engine does not count rows or state per operator."}</div></div></div>`
             : html`<p class="small text-muted">Select an operator (click, or Tab to it and press Enter) for its detail.
                  Arrow keys move between operators.</p>`}
         </div>
       </div>
+      ${state.answer.query_metrics ? html`<div class="small mt-2" id="query-metrics"><span class="text-muted">Measured for the registered query as a whole:</span>
+        ${" "}${fmtCount(state.answer.query_metrics.rowsIn)} rows in · state ${fmtCount(state.answer.query_metrics.stateHeld)} of ${fmtCount(state.answer.query_metrics.stateCeiling)}
+        · view ${fmtCount(state.answer.query_metrics.viewSize)} rows · ${state.answer.query_metrics.subscribers} subscriber${state.answer.query_metrics.subscribers === 1 ? "" : "s"}
+        · watermark ${state.answer.query_metrics.watermark || "none yet"}</div>` : null}
       <details class="mt-2"><summary class="small">The plan as text</summary><pre class="small mt-1">${state.answer.plan}</pre></details>
     </div>` : null}
   </div>`;
@@ -431,8 +437,18 @@ function RunPanel({ sql, params, setParams, paramsRef }) {
   </div>`;
 }
 
+/* A count the engine may withhold (-1: row-filtered access) or not know. */
+const fmtCount = (v) => (v === null || v === undefined ? "—" : v < 0 ? "withheld" : Number(v).toLocaleString());
+
 function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {
   const [name, setName] = useState("");
+  const [retention, setRetention] = useState("");
+  const [sinks, setSinks] = useState({ status: "loading", items: [] });
+  useEffect(() => {
+    call("/catalog/sinks").then((a) => setSinks({ status: "ok", items: a.items || [] }))
+      .catch((err) => setSinks({ status: "error", items: [], error: err.message || String(err) }));
+  }, []);
+  const chosenSink = sinks.items.find((k) => k.name === sink);
   const [keys, setKeys] = useState([]);
   const [state, setState] = useState({ status: "idle" });
   const fields = validation.status === "valid" ? validation.output_fields : [];
@@ -445,7 +461,7 @@ function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {
     if (!ready) return;
     setState({ status: "loading" });
     try {
-      const answer = await call("/queries", { json: { name, sql, key_names: keys, sink: sink || null } });
+      const answer = await call("/queries", { json: { name, sql, key_names: keys, sink: sink || null, retention: retention || null } });
       setState({ status: "ok", answer });
       announce(`${answer.name} registered`);
     } catch (err) { setState({ status: "error", err }); }
@@ -459,12 +475,19 @@ function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {
         value=${name} onInput=${(e) => setName(e.target.value.trim())} placeholder="hourly_spend" autocomplete="off" />
       ${name && !nameOk ? html`<div class="invalid-feedback">Letters, digits and underscores, starting with a letter.</div>` : null}
       <label class="form-label small text-muted mb-1 mt-3" for="reg-sink">Sink — optional</label>
-      <input id="reg-sink" ref=${sinkRef} class="form-control form-control-sm" value=${sink}
-        onInput=${(e) => setSink(e.target.value.trim())} placeholder="a binding under pravaha.sinks" autocomplete="off" />
+      <select id="reg-sink" ref=${sinkRef} class="form-select form-select-sm" value=${sink}
+        onChange=${(e) => setSink(e.target.value)}>
+        <option value="">none — the view only</option>
+        ${sinks.items.map((k) => html`<option value=${k.name} disabled=${!!k.problem}>${k.name} · ${k.plugin}${k.acceptsRetractions ? " · accepts revisions" : " · append only"}</option>`)}
+        ${sink && !chosenSink ? html`<option value=${sink}>${sink}</option>` : null}
+      </select>
+      ${sinks.status === "error" ? html`<div class="small text-muted mt-1">The sink list did not load (${sinks.error}).</div>` : null}
+      ${chosenSink ? html`<div class="small mt-1">${chosenSink.fields && chosenSink.fields.length
+          ? html`Row shape: <span class="mono">${chosenSink.fields.map((f) => f.name).join(", ")}</span>` : "Takes any row shape"}${chosenSink.keyColumns && chosenSink.keyColumns.length
+          ? html` · keyed by <span class="mono">${chosenSink.keyColumns.join(", ")}</span>` : ""}.
+        ${chosenSink.acceptsRetractions ? "" : html` <span class="chip warn">append only</span> a query that revises its answer is refused here.`}</div>` : null}
       <div class="form-text small">Its changes are also written there, retractions included, at least once. A query that
         revises its answer needs a sink that accepts updates (<a href="/help/codes/PRV-2041">PRV-2041</a>).</div>
-      <div class="needs-engine mt-2"><div class="title">Sinks cannot be listed yet</div>The engine has no API that lists
-        its <code>pravaha.sinks</code> bindings, so the name is typed. Needed: <code>GET /api/v1/sinks</code>.</div>
     </div>
     <div class="col-lg-4">
       <fieldset>
@@ -482,10 +505,11 @@ function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {
     </div>
     <div class="col-lg-4">
       <label class="form-label small text-muted mb-1" for="reg-retention">Retention</label>
-      <input id="reg-retention" class="form-control form-control-sm" disabled placeholder="forever (the default)" />
-      <div class="needs-engine mt-2"><div class="title">Retention cannot be set here yet</div>The register action
-        (<code>pravaha.register</code>) takes a name, SQL, key ordinals and a sink — no retention. Needed: a fifth,
-        optional field carrying an event-time retention such as <code>PT24H</code>.</div>
+      <input id="reg-retention" class="form-control form-control-sm" value=${retention}
+        onInput=${(e) => setRetention(e.target.value.trim())} placeholder="the engine's default" autocomplete="off" />
+      <div class="form-text small">How much <em>event time</em> the view keeps: an ISO-8601 duration such as
+        <code>PT24H</code> or <code>P7D</code>, or <code>forever</code>. Empty takes the engine's default. The engine refuses
+        what it cannot read rather than keeping something else.</div>
       <button type="submit" class="btn btn-primary btn-sm mt-3" disabled=${!ready || state.status === "loading"}>
         ${state.status === "loading" ? "Registering…" : "Register continuous query"}</button>
       ${!ready ? html`<div class="small text-muted mt-1">${validation.status !== "valid" ? "Needs a valid query. " : ""}${!nameOk ? "Needs a name. " : ""}${!keys.length ? "Needs at least one key." : ""}</div>` : null}
@@ -494,7 +518,7 @@ function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {
       ${state.status === "error" ? errorView(state.err) : null}
       ${state.status === "ok" ? html`<div class="alert alert-success py-2" role="status">
         <strong>${state.answer.name}</strong> is ${state.answer.state.toLowerCase()} — fingerprint${" "}
-        <span class="mono">${state.answer.fingerprint}</span>, keys [${state.answer.keys.join(", ")}]${state.answer.sink ? ", writing to " + state.answer.sink : ""}.
+        <span class="mono">${state.answer.fingerprint}</span>, keys [${state.answer.keys.join(", ")}]${state.answer.sink ? ", writing to " + state.answer.sink : ""}${state.answer.retention ? ", keeping " + state.answer.retention : ""}.
         <div class="mt-1 d-flex gap-2 flex-wrap">
           <a class="btn btn-sm btn-primary" href=${"/views/" + encodeURIComponent(state.answer.name) + "/live"}>Watch it change</a>
           <a class="btn btn-sm btn-outline-secondary" href=${"/views/" + encodeURIComponent(state.answer.name)}>Browse the view</a>
@@ -753,7 +777,7 @@ function Workbench() {
       </div>
       <div class="panel-body" role="tabpanel">
         <div hidden=${panel !== "diagnostics"}><${Diagnostics} validation=${validation} onFix=${applyFix} /></div>
-        <div hidden=${panel !== "explain"}><${ExplainPanel} sql=${tab ? tab.sql : ""} valid=${validation.status === "valid"} /></div>
+        <div hidden=${panel !== "explain"}><${ExplainPanel} sql=${tab ? tab.sql : ""} valid=${validation.status === "valid"} origin=${tab ? tab.origin || "" : ""} /></div>
         <div hidden=${panel !== "run"}><${RunPanel} sql=${tab ? tab.sql : ""} params=${tab ? tab.params || "" : ""}
           setParams=${(p) => update(tab.id, { params: p })} paramsRef=${paramsRef} /></div>
         <div hidden=${panel !== "register"}><${RegisterPanel} sql=${tab ? tab.sql : ""} validation=${validation}

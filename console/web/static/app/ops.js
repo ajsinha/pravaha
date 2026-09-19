@@ -52,6 +52,16 @@ function start() {
     return `${(v / 3600).toFixed(1)} h`;
   }
 
+  /* Checkpoint health as the engine publishes it: the age of the last stored one, how long
+     it took, and failures. "not checkpointing" when there is no last success to age. */
+  function checkpoint(q) {
+    let out = q.checkpoint_age_seconds === null || q.checkpoint_age_seconds === undefined
+      ? '<span class="text-muted">not checkpointing</span>'
+      : `${lag(q.checkpoint_age_seconds)} ago${q.checkpoint_duration_seconds != null ? ` · took ${q.checkpoint_duration_seconds.toFixed(2)} s` : ""}`;
+    if (q.checkpoint_failures) out += ` · <span class="chip warn">${fmt(q.checkpoint_failures)} failed</span>`;
+    return out;
+  }
+
   function render(s) {
     const v = s.verdict;
     const verdict = document.getElementById("verdict");
@@ -76,8 +86,11 @@ function start() {
         : `<div class="d-flex align-items-center gap-2"><div class="gauge ${f >= 0.9 ? "critical" : f >= 0.75 ? "warn" : ""}" style="width:7rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(f * 100)}" aria-label="state held as a share of its ceiling"><span style="width:${Math.min(100, f * 100)}%"></span></div><span class="small">${Math.round(f * 100)}%</span></div>`;
       return `<tr><td><a class="mono" href="/queries/${encodeURIComponent(q.name)}">${esc(q.name)}</a>${q.shared ? ' <span class="chip warn">shared</span>' : ""}</td>
         <td>${chip(q.state)}</td><td class="num">${fmt(q.rows_in)}</td><td class="num">${fmt(q.rows_in_rate, 1)}</td>
-        <td>${gauge}</td><td class="num">${fmt(q.view_size)}</td><td class="num">${q.metrics_published ? lag(q.watermark_lag_seconds) : "—"}</td></tr>`;
-    }).join("") : '<tr><td colspan="7"><div class="state"><h3>No queries registered</h3><p>Once one is, its throughput, state and lag are here.</p><a class="btn btn-sm btn-primary" href="/start">Get started</a></div></td></tr>';
+        <td>${gauge}</td><td class="num">${fmt(q.view_size)}</td><td class="num">${q.metrics_published ? lag(q.watermark_lag_seconds) : "—"}</td>
+        <td class="num">${fmt(q.subscribers)}</td>
+        <td class="num">${q.commit_latency_mean_seconds === null || q.commit_latency_mean_seconds === undefined ? "—" : (q.commit_latency_mean_seconds * 1000).toFixed(1) + " ms"}</td>
+        <td class="small">${checkpoint(q)}</td></tr>`;
+    }).join("") : '<tr><td colspan="10"><div class="state"><h3>No queries registered</h3><p>Once one is, its throughput, state and lag are here.</p><a class="btn btn-sm btn-primary" href="/start">Get started</a></div></td></tr>';
   }
 
   function build(table, { yName, fixed100 }) {

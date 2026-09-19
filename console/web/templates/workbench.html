@@ -96,9 +96,14 @@
             <label class="form-label small text-muted mb-1" for="keys">Key columns</label>
             <input class="form-control form-control-sm" id="keys" name="keys" value="" placeholder="user_id, window_end">
           </div>
-          <div class="col-sm-3">
+          <div class="col-sm-2">
             <label class="form-label small text-muted mb-1" for="sink">Sink <span class="fw-normal">(optional)</span></label>
-            <input class="form-control form-control-sm" id="sink" name="sink" placeholder="pravaha.sinks.&lt;name&gt;">
+            <input class="form-control form-control-sm" id="sink" name="sink" list="sink-names" placeholder="a bound sink">
+            <datalist id="sink-names">{% for k in sinks or [] %}<option value="{{ k.name }}">{{ k.plugin }}{{ ' · accepts revisions' if k.acceptsRetractions else ' · append only' }}</option>{% endfor %}</datalist>
+          </div>
+          <div class="col-sm-2">
+            <label class="form-label small text-muted mb-1" for="retention">Retention <span class="fw-normal">(optional)</span></label>
+            <input class="form-control form-control-sm" id="retention" name="retention" placeholder="PT24H or forever">
           </div>
           <div class="col-auto">
             <button class="btn btn-sm btn-outline-secondary" type="submit">Register</button>

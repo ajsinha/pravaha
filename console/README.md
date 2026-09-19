@@ -42,7 +42,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 | `server.host` | `CONSOLE_HOST` | `127.0.0.1` | Loopback by default; set `0.0.0.0` only behind something that authenticates. |
 | `server.port` | `CONSOLE_PORT` | `8090` | |
 | `engine.url` | `PRAVAHA_ENGINE` | `grpc://localhost:9090` | The engine's Flight endpoint. `grpc://` is plaintext and spelled out. |
-| `engine.http_url` | `PRAVAHA_ENGINE_HTTP` | `http://localhost:8080` | The engine's HTTP surface: the catalog, `/validate`, `/explain`, `/status`, Prometheus. Without it the workbench still edits and runs, and says validation is unavailable. |
+| `engine.http_url` | `PRAVAHA_ENGINE_HTTP` | `http://localhost:8080` | The engine's HTTP surface, handed to the SDK as `ClientOptions.http_url`: the catalog, sinks, query and view descriptions, validation, plans, status, Prometheus. Without it the workbench still edits and runs, and says validation is unavailable. |
 | `engine.token` | `PRAVAHA_TOKEN` | *empty* | Bearer token, sent to both engine surfaces and never to a browser. One identity for the whole console. |
 | `engine.pgwire` | `PRAVAHA_PGWIRE` | `localhost:5432` | Shown in the view browser's `psql` snippet. The console never connects to it. |
 | `ui.default_role` | `CONSOLE_DEFAULT_ROLE` | `operator` | Where a signed-in person lands until they choose: `analyst`, `operator` or `developer`. |
@@ -65,7 +65,7 @@ needs it to load and tell them what is wrong.
 | `/home` | everyone | Role-aware landing: analyst → workbench, operator → operations, developer → views. On an engine with nothing registered, `/start` instead. |
 | `/start` | a first-time user | Pick or declare a stream, pick a question from templates written against that stream's own columns, register it with keys chosen by name, watch it change. |
 | `/workbench` | analyst | Monaco with Pravaha SQL: catalog-aware completion (streams, columns with types, functions with signatures, scoped to what the statement reads), validation as you type (300 ms debounce) with squiggles and a diagnostics panel in which each `PRV-nnnn` links to its help and offers its fix when the fix is certain, Explain as a plan graph (ELK layout, SVG, operators as nodes, exportable), Run over a virtualised grid, Register with keys picked by name and an optional sink, several draft tabs kept in `localStorage`, a snippet library. Deep links: `?query=`, `?sql=`, `?template=&stream=`, `?panel=explain`. Works as a plain form without JavaScript. |
-| `/catalog` | everyone | Streams and their schemas; registered queries with state, fingerprint and the names sharing each computation; sinks (see *needs engine support*). `?tab=` is in the URL. |
+| `/catalog` | everyone | Streams with their schemas, event time, lateness and source; registered queries with state, fingerprint, key, retention, sink and the names sharing each computation; sinks with what each accepts and who writes to it. `?tab=` is in the URL. |
 | `/catalog/streams/{name}` | everyone | One stream's schema, the queries that read it, and templates against it. |
 | `/views`, `/views/{name}` | developer | Every view; for one, a point query (a GET form, value bound as a parameter, answered by the server), its schema, and copy-paste client code — Java SDK, Python SDK, `psql`, CLI — for the view and key being looked at. |
 | `/views/{name}/live` | everyone | Committed changes as they arrive, each with its `+1`/`−1` weight; the current rows as the running Z-set sum of the view read on connect plus every change since; an ECharts series of a numeric column over time; a tap filter; honest "sampled — N dropped". |
@@ -95,8 +95,8 @@ Python wheel carries `web/**` as it is. Design §23.3 records the decision.
 run_pravaha_web.py       entry point: config, services, routes, serve
 config/application.yaml  every setting, with ${VAR:default} and a git-ignored .local overlay
 core/
-  engine.py              the ONLY thing that touches the engine: the SDK over Flight, and the
-                         engine's published REST endpoints and Prometheus text over HTTP
+  engine.py              the ONLY thing that touches the engine: the Python SDK, over Flight and
+                         through the SDK's calls to the engine's published REST endpoints
   services.py            typed calls, the subscription broadcaster, catalog / authoring / view /
                          ops services; no HTTP and no HTML
   authoring.py           plan text → graph, diagnostics → positions and fixes, templates, the
@@ -154,10 +154,10 @@ work. The workbench is a working form, a point query is a GET form, the catalog'
 the role switch is a form. A page that is blank until a module loads is blank exactly when somebody
 is looking at it because something is not loading.
 
-**The console uses only the engine's public API** (design §23.2a). Flight through the SDK; the
-REST endpoints and the Prometheus text any client could call. When a screen needs something the
-engine does not publish, the screen says so — a dashed *needs engine support* box naming the exact
-call — rather than approximating it. The list is below.
+**The console uses only the engine's public API** (design §23.2a), and only through the Python
+SDK: Flight, and the SDK's calls to the REST endpoints and Prometheus text any client could call.
+When a screen wants something the engine does not measure, the screen says so rather than
+approximating it. The list is below.
 
 **Judgements live on the server.** Where a diagnostic belongs, which fix is safe, whether a query
 is healthy: written once in `core/`, so the workbench, onboarding and operations cannot disagree.
@@ -177,24 +177,32 @@ server checks the session on every call. The shared-secret sign-in names everyon
 role comes from the person's own choice or `ui.default_role`; a principal from an identity provider
 named `analyst` or `developer` would land there by name.
 
-## What the console needs from the engine next
+## What the engine now provides, and what it still does not
 
-Each of these is rendered today as a *needs engine support* state on the screen that wants it.
+Every *needs engine support* box the console used to draw has been replaced by the engine API
+it asked for, reached through the Python SDK:
 
-| Screen | Needs | Shape |
+| Screen | Was | Now |
 |---|---|---|
-| Catalog · sinks; Register panel | List the sink bindings | `GET /api/v1/sinks` → `[{name, plugin, fields:[{name,type}], keyColumns, acceptsRetractions, writers:[query]}]` |
-| Catalog · queries; view browser | A query's sink, keys and retention in the listing | the `pravaha.list` action (and a REST twin) carrying `keyColumns`, `sink`, `retention` per query |
-| View browser | Describe a view without reading it | `GET /api/v1/views/{name}` → `{schema:[FieldInfo], keyColumns:[int], retention, sink, fingerprint}` |
-| Register panel | Retention at registration | a fifth, optional field on `pravaha.register`: an ISO-8601 event-time retention such as `PT24H` |
-| Catalog · streams; onboarding | Event time and lateness | `StreamSummary` gaining `eventTime`, `outOfOrderness` and `source` (plugin or none); `POST /api/v1/streams` accepting `eventTime` and `outOfOrderness` |
-| Workbench diagnostics | Positions | `Diagnostic` gaining `{startLine, startColumn, endLine, endColumn}` (today they are parsed from Calcite's message, or guessed from a quoted identifier) |
-| Workbench plan; query plan | A structured plan with per-operator telemetry | `GET /api/v1/queries/{name}/plan` → `{nodes:[{id, operator, detail, stage}], edges:[{from,to}], metrics:{nodeId:{rowsIn, rowsOut, stateBytes, watermark}}}`, plus `/explain?format=graph` for unregistered SQL |
-| Operations | Subscribers per view | gauge `pravaha_query_subscribers{query}` |
-| Operations | Checkpoint health | `pravaha_checkpoint_last_success_timestamp_seconds`, `pravaha_checkpoint_duration_seconds`, `pravaha_checkpoint_failures_total` |
-| Operations | Backpressure and latency | `pravaha_lane_backpressure_ratio{lane,query}`; histogram `pravaha_query_commit_latency_seconds{query}` |
-| Everything HTTP | The REST calls in the SDK | `Client.streams()`, `validate()`, `explain()`, `status()` in the Python SDK, so `core/engine.py` stops being the one place the console speaks HTTP to the engine |
-| Time-travel debugger (§23.9) | Everything | not started: needs a checkpoint-fork and step protocol |
+| Catalog · sinks; register panel | a typed sink name, nothing listed | `GET /api/v1/sinks` (`Client.sinks()`): plugin, row shape, key, emit modes, `acceptsRetractions`, visible writers — never a binding's options. The register panel picks from it |
+| Catalog · queries; query page | no key, sink or retention anywhere | `pravaha.list` carries key ordinals, sink and retention as trailing fields (`RegisteredQuery.key_columns/sink/retention`); `GET /api/v1/queries/{name}` (`Client.describe_query`) adds keys by name, the sink's state and its `PRV-8009` failure, shared names and the streams it reads |
+| View browser | the query's SQL re-validated to guess the columns, or the view read to keep its header | `GET /api/v1/views/{name}` (`Client.describe_view`): schema, key, retention, sink, fingerprint |
+| Register panel | no retention | the optional fifth field of `pravaha.register`: `PT24H`, `P7D`, `forever` |
+| Catalog · streams; onboarding | no event time or lateness | `StreamSummary.eventTime`, `outOfOrderness`, `source`; `POST /api/v1/streams` accepts `eventTime` and `outOfOrderness` |
+| Workbench diagnostics | positions parsed out of Calcite's English, or guessed from a quoted identifier | `Diagnostic.range`, read by the engine from the parser's own fields; without one the whole first line, and no replacement fix is guessed |
+| Workbench plan | the plan rebuilt by counting the text plan's indentation | `POST /api/v1/queries/explain?format=graph` and `GET /api/v1/queries/{name}/plan`: nodes and edges from the engine, and the registered query's measured totals |
+| Stream page lineage | queries matched by the stream's name in their SQL | the `reads` of each query's description |
+| Operations | no subscribers or checkpoint health | `pravaha_query_subscribers`, `pravaha_query_checkpoint_last_success_timestamp_seconds`, `..._duration_seconds`, `..._failures_total`, and the mean commit latency from `pravaha_query_commit_latency_seconds_count/_sum`; checkpoint failures and a stale checkpoint are findings |
+| Everything HTTP | `core/engine.py` spoke HTTP to the engine itself | the SDK's `streams()`, `validate()`, `explain()`, `status()`, `metrics_text()` and the calls above; `engine.py` touches nothing but the SDK |
+
+Still open, and said so on the screens rather than drawn as zeroes:
+
+| What | Why |
+|---|---|
+| Per-operator rows, state and watermarks on the plan | the runtime counts per query, not per operator; the plan endpoint says so (`metricsNote`) |
+| Lane backpressure | the engine does not sample it |
+| Commit-latency percentiles | the engine publishes a count and a total, so the mean is exact and a p99 would be invented |
+| Time-travel debugger (§23.9) | not started: needs a checkpoint-fork and step protocol |
 
 ## What is still open
 

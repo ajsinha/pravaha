@@ -460,6 +460,21 @@ def test_the_api_lists_queries_as_json(client):
         client.post("/queries/api_a/drop")
 
 
+def test_a_retention_chosen_in_the_console_reaches_the_engine_and_comes_back_in_its_listing(client):
+    # End to end over Flight: the register form's retention travels as the fifth field of
+    # pravaha.register, and the engine's listing reports it with the key as trailing fields.
+    client.post("/queries", data={"name": "kept_6h", "sql": TRADE_SQL, "keys": "0", "retention": "PT6H"})
+    try:
+        items = client.get("/api/v1/queries").json()["items"]
+        kept = [item for item in items if item["name"] == "kept_6h"]
+        assert kept, items
+        assert kept[0]["retention"] == "PT6H"
+        assert kept[0]["key_columns"] == [0]
+        assert kept[0]["sink"] is None
+    finally:
+        client.post("/queries/kept_6h/drop")
+
+
 def test_the_api_filters_and_the_filter_is_the_url(client):
     client.post("/queries", data={"name": "findme", "sql": TRADE_SQL, "keys": "0"})
     try:

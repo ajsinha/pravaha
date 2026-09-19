@@ -86,6 +86,9 @@ class ApiRoutes(Routes):
                 keys = [int(part) for part in keys.replace(" ", "").split(",") if part]
             key_names = body.get("key_names") or []
             sink = str(body.get("sink") or "").strip() or None
+            # How much event time the view keeps: ISO-8601 (PT24H) or "forever"; the engine
+            # checks it and refuses what it cannot read rather than keeping something else.
+            retention = str(body.get("retention") or "").strip() or None
             sql = str(body.get("sql", ""))
 
             def register_it():
@@ -96,9 +99,11 @@ class ApiRoutes(Routes):
                     # one the engine will use, whatever order the SELECT list is in.
                     ordinals, _fields = services.authoring.key_ordinals(sql, list(key_names))
                 payload = services.queries.register(
-                    str(body.get("name", "")), sql, ordinals, sink=sink).as_dict()
+                    str(body.get("name", "")), sql, ordinals, sink=sink,
+                    retention=retention).as_dict()
                 payload["keys"] = ordinals
                 payload["sink"] = sink
+                payload["retention"] = retention
                 return payload
 
             logger.info("%s registered '%s'%s", current_user(request), body.get("name"),

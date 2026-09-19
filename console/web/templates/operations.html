@@ -67,7 +67,9 @@
 <h2>Queries</h2>
 <div class="card"><div class="table-responsive"><table class="table mb-0" id="ops-queries">
   <thead><tr><th>Query</th><th>State</th><th class="num">Rows in</th><th class="num">Rows/s</th><th>State vs ceiling</th>
-    <th class="num">View rows</th><th class="num">Watermark lag</th></tr></thead>
+    <th class="num">View rows</th><th class="num">Watermark lag</th><th class="num">Subscribers</th>
+    <th class="num" title="Mean time from applying a commit to the last subscriber and sink having it, between two scrapes">Commit (mean)</th>
+    <th title="Age of the last stored checkpoint, and failures">Checkpoint</th></tr></thead>
   <tbody>
   {% for q in snapshot.queries %}
   {% set frac = q.state_fraction %}
@@ -77,9 +79,12 @@
     <td class="num">{{ '{:,.1f}'.format(q.rows_in_rate) if q.rows_in_rate is not none else '—' }}</td>
     <td>{% if frac is not none %}<div class="d-flex align-items-center gap-2"><div class="gauge {{ 'critical' if frac >= 0.9 else 'warn' if frac >= 0.75 else '' }}" style="width:7rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (frac * 100)|round|int }}" aria-label="state held as a share of its ceiling"><span style="width:{{ [frac * 100, 100]|min }}%"></span></div><span class="small">{{ pct(frac) }}</span></div>{% else %}<span class="text-muted small">{{ 'not published yet' if not q.metrics_published else '—' }}</span>{% endif %}</td>
     <td class="num">{{ '{:,.0f}'.format(q.view_size) if q.view_size is not none else '—' }}</td>
-    <td class="num">{{ lag(q.watermark_lag_seconds) if q.metrics_published else '—' }}</td></tr>
+    <td class="num">{{ lag(q.watermark_lag_seconds) if q.metrics_published else '—' }}</td>
+    <td class="num">{{ '{:,.0f}'.format(q.subscribers) if q.subscribers is not none else '—' }}</td>
+    <td class="num">{{ '{:,.1f} ms'.format(q.commit_latency_mean_seconds * 1000) if q.commit_latency_mean_seconds is not none else '—' }}</td>
+    <td class="small">{% if q.checkpoint_age_seconds is not none %}{{ lag(q.checkpoint_age_seconds) }} ago{% if q.checkpoint_duration_seconds is not none %} · took {{ '%.2f'|format(q.checkpoint_duration_seconds) }} s{% endif %}{% else %}<span class="text-muted">not checkpointing</span>{% endif %}{% if q.checkpoint_failures %} · <span class="chip warn">{{ q.checkpoint_failures|int }} failed</span>{% endif %}</td></tr>
   {% else %}
-  <tr><td colspan="7"><div class="state"><h3>No queries registered</h3><p>Once one is, its throughput, state and lag are here.</p>
+  <tr><td colspan="10"><div class="state"><h3>No queries registered</h3><p>Once one is, its throughput, state and lag are here.</p>
     <a class="btn btn-sm btn-primary" href="/start">Get started</a></div></td></tr>
   {% endfor %}
   </tbody></table></div></div>
@@ -95,11 +100,12 @@
     <p class="chart-caption mb-0"><code>pravaha_query_state_fraction</code>, 0–100 %, fixed scale so queries compare. At 100 % a query is refused (PRV-4001) unless spilling is on.</p></div></div></div>
 </div>
 
-<h2>Not published by the engine yet</h2>
+<h2>Not measured by the engine</h2>
+<p class="small text-muted">Shown as absent rather than as zero: the engine does not measure these, so there is no honest number to draw.</p>
 <div class="row g-3">
   {% for n in snapshot.not_exposed %}
-  <div class="col-md-6 col-xl-3"><div class="needs-engine h-100"><div class="title"><i class="bi bi-plug"></i>{{ n.label }}</div>
-    <div class="mt-1">Needs {{ n.needs }}.</div></div></div>
+  <div class="col-md-6 col-xl-4"><div class="card h-100"><div class="card-body small"><div class="fw-semibold"><i class="bi bi-slash-circle me-1" aria-hidden="true"></i>{{ n.label }}</div>
+    <div class="mt-1 text-muted">Not measured: {{ n.why }}.</div></div></div></div>
   {% endfor %}
 </div>
 </div>

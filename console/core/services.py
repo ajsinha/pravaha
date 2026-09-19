@@ -64,9 +64,14 @@ class Query:
     fingerprint: str
     rows_in: int
     shared: bool
+    key_columns: tuple = ()
+    sink: str | None = None
+    retention: str | None = None
 
     def as_dict(self) -> dict:
-        return dataclasses.asdict(self)
+        out = dataclasses.asdict(self)
+        out["key_columns"] = list(self.key_columns)
+        return out
 
 
 @dataclasses.dataclass(frozen=True)
@@ -215,7 +220,33 @@ class QueryService:
             if row.fingerprint == target.fingerprint and row.name != name
         )
 
-    def register(self, name: str, sql: str, keys: list[int], sink: str | None = None) -> Query:
+    def detail(self, name: str) -> dict:
+        """What the engine says about one query beyond the listing: keys by name, retention,
+        the sink and whether it is still attached (``PRV-8009``), the names sharing it and the
+        streams it reads. ``GET /api/v1/queries/{name}`` through the SDK, so the engine decides
+        what this identity may see of it."""
+        try:
+            return self._engine.describe_query(name)
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+
+    def reads(self) -> dict[str, list[str]] | None:
+        """The streams each visible query reads, by name, from the engine's descriptions.
+
+        ``None`` when the engine's descriptions do not carry it (an older engine), so a
+        caller can say it fell back to matching names rather than claim a lineage it
+        guessed.
+        """
+        try:
+            described = self._engine.describe_queries()
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+        if described and all("reads" not in d for d in described):
+            return None
+        return {str(d.get("name")): list(d.get("reads") or []) for d in described}
+
+    def register(self, name: str, sql: str, keys: list[int], sink: str | None = None,
+                 retention: str | None = None) -> Query:
         if not name.strip():
             raise ServiceError("a registration needs a name", status=400)
         if not sql.strip():
@@ -227,10 +258,12 @@ class QueryService:
                 status=400,
             )
         try:
+            extra: dict = {}
             if sink and sink.strip():
-                row = self._engine.register(name.strip(), sql.strip(), keys, sink=sink.strip())
-            else:
-                row = self._engine.register(name.strip(), sql.strip(), keys)
+                extra["sink"] = sink.strip()
+            if retention and retention.strip():
+                extra["retention"] = retention.strip()
+            row = self._engine.register(name.strip(), sql.strip(), keys, **extra)
         except Exception as exc:
             raise ServiceError(str(exc), status=400, code=_code_in(str(exc))) from exc
         return self._of(row)
@@ -260,6 +293,9 @@ class QueryService:
             fingerprint=row.fingerprint,
             rows_in=row.rows_in,
             shared=row.shared,
+            key_columns=tuple(getattr(row, "key_columns", ()) or ()),
+            sink=getattr(row, "sink", None),
+            retention=getattr(row, "retention", None),
         )
 
 
@@ -524,7 +560,27 @@ class CatalogService:
         raise ServiceError(f"no stream named '{name}' is declared on this engine, or this "
                            "console's identity may not read it", status=404)
 
-    def declare(self, name: str, schema: str) -> dict:
+    def sinks(self) -> list[dict]:
+        """The sink bindings this identity may see (``GET /api/v1/sinks`` via the SDK).
+
+        Only what the engine publishes: plugin, row shape, key, emit modes, whether a revising
+        query may write there, and the visible writers. A binding's options -- where its
+        credentials live -- are never part of the engine's answer, so they cannot be part of
+        this one.
+        """
+        try:
+            return sorted(self._engine.sinks(), key=lambda s: str(s.get("name", "")))
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+
+    def sinks_or_empty(self) -> list[dict]:
+        try:
+            return self.sinks()
+        except ServiceError:
+            return []
+
+    def declare(self, name: str, schema: str, event_time: str | None = None,
+                out_of_orderness: str | None = None) -> dict:
         from core.snippets import IDENTIFIER
 
         if not IDENTIFIER.match(name or ""):
@@ -533,7 +589,9 @@ class CatalogService:
             raise ServiceError("a stream needs a schema, as name:TYPE pairs separated by commas",
                                status=400)
         try:
-            declared = self._engine.declare_stream(name, schema.strip())
+            declared = self._engine.declare_stream(
+                name, schema.strip(), event_time=(event_time or "").strip() or None,
+                out_of_orderness=(out_of_orderness or "").strip() or None)
         except Exception as exc:
             raise _refusal(exc) from exc
         with self._lock:
@@ -583,15 +641,36 @@ class AuthoringService:
         except Exception as exc:
             raise _refusal(exc) from exc
         text = str(raw.get("plan") or "")
+        engine_graph = raw.get("graph") or {}
         return {
             "level": raw.get("level", level),
             "plan": text,
-            "graph": authoring.plan_graph(text) if level != "codegen" else {"nodes": [], "edges": []},
+            # The engine's own structure, renamed for the island -- not a parse of the text.
+            "graph": authoring.plan_graph(engine_graph),
             "output_fields": list(raw.get("outputFields") or []),
-            # Said by the answer, not left to the reader to notice: the plan is the engine's
-            # structure only. Per-operator rates, state and lag need an engine API that
-            # does not exist yet.
-            "operator_metrics": None,
+            # The engine does not count per operator, and says so; the console repeats it
+            # rather than drawing zeroes.
+            "operator_metrics": engine_graph.get("operatorMetrics"),
+            "metrics_note": engine_graph.get("metricsNote"),
+            "query_metrics": None,
+        }
+
+    def plan(self, name: str) -> dict:
+        """The plan a registered query is running, with the totals the engine measures for it."""
+        from core import authoring
+
+        try:
+            raw = self._engine.query_plan(name)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+        return {
+            "level": "physical",
+            "plan": "",
+            "graph": authoring.plan_graph(raw),
+            "output_fields": [],
+            "operator_metrics": raw.get("operatorMetrics"),
+            "metrics_note": raw.get("metricsNote"),
+            "query_metrics": raw.get("query"),
         }
 
     def key_ordinals(self, sql: str, names: list[str]) -> tuple[list[int], list[dict]]:
@@ -619,27 +698,22 @@ class ViewService:
         self._authoring = authoring
         self._limit = row_limit
 
-    def schema(self, name: str) -> list[dict]:
-        """The view's columns: its query's validated output schema.
+    def describe(self, name: str) -> dict:
+        """The view as the engine describes it, without reading it: schema, key, retention,
+        sink and fingerprint (``GET /api/v1/views/{name}`` via the SDK).
 
-        Validation plans the query's own SQL against the catalog without reading a row. If
-        that is unavailable the view is read and only its schema kept -- correct, and more
-        expensive, which is why it is the fallback. The engine has no "describe view"
-        endpoint yet (see the console README's list of engine APIs it needs).
+        This replaced re-validating the query's SQL to guess the view's columns -- which
+        answered "what would this SQL produce now", not "what does the running view hold" --
+        and, failing that, reading the whole view to keep only its header.
         """
-        query = self._queries.get(name)
         try:
-            checked = self._authoring.validate(query.sql)
-            if checked["valid"] and checked["output_fields"]:
-                return checked["output_fields"]
-        except ServiceError:
-            pass
-        try:
-            columns, _rows, types = self._engine.query_typed(f"SELECT * FROM {name}")
+            return self._engine.describe_view(name)
         except Exception as exc:
             raise _refusal(exc) from exc
-        return [{"name": c, "type": t, "nullable": True, "ordinal": i}
-                for i, (c, t) in enumerate(zip(columns, types))]
+
+    def schema(self, name: str) -> list[dict]:
+        """The view's columns, from the engine's description of the view itself."""
+        return list(self.describe(name).get("schema") or [])
 
     def lookup(self, name: str, filters: dict[str, Any]) -> dict:
         """A point query: ``SELECT * FROM view WHERE col = ? AND ...``, parameterised.
@@ -717,7 +791,8 @@ class OpsService:
             # Every meter present as a key, None when unpublished, so a screen can tell
             # "not published" from "zero" without guarding each lookup.
             numbers: dict[str, Any] = {key: None for key in QUERY_METERS.values()}
-            numbers["rows_in_rate"] = None
+            for derived in metrics.DERIVED_METERS:
+                numbers[derived] = None
             numbers.update(scraped["queries"].get(name) or {})
             numbers["name"] = name
             query = registered.get(name)
@@ -750,9 +825,9 @@ class OpsService:
         }
 
     def series(self, metric: str) -> dict:
-        from core.metrics import QUERY_METERS
+        from core.metrics import DERIVED_METERS, QUERY_METERS
 
-        allowed = set(QUERY_METERS.values()) | {"rows_in_rate"}
+        allowed = set(QUERY_METERS.values()) | set(DERIVED_METERS)
         if metric not in allowed:
             raise ServiceError(f"'{metric}' is not a per-query metric this console charts",
                                status=400)

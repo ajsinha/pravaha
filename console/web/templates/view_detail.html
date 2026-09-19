@@ -49,10 +49,12 @@
       {% if schema %}
       <ul class="field-list">{% for f in schema %}<li><span class="mono">{{ f.name }}</span><span class="field-type">{{ f.type }}{{ '' if f.nullable else ' not null' }}</span></li>{% endfor %}</ul>
       {% else %}<p class="small text-muted">Not known yet.</p>{% endif %}
-      <div class="needs-engine mt-3"><div class="title">Key, retention and sink are not shown</div>
-        The engine's listing carries a query's name, state, SQL, fingerprint and rows in — not its key columns,
-        retention or sink. Needed: <code>GET /api/v1/views/{name}</code> returning schema, key ordinals, retention and
-        sink.</div>
+      <div class="section-label">Key, retention and sink</div>
+      <dl class="row small mb-0" id="view-shape">
+        <dt class="col-4">Keyed by</dt><dd class="col-8">{% if view and view.keyColumns %}{% for k in view.keyColumns %}<span class="mono">{{ k.name }}</span> <span class="text-muted">(#{{ k.ordinal }})</span>{{ ', ' if not loop.last }}{% endfor %}{% else %}<span class="text-muted">—</span>{% endif %}</dd>
+        <dt class="col-4">Retention</dt><dd class="col-8">{% if view and view.retention %}<span class="mono">{{ view.retention }}</span>{% if view.retention == 'forever' %} <span class="text-muted">— keeps every key it has seen</span>{% else %} <span class="text-muted">of event time</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</dd>
+        <dt class="col-4">Sink</dt><dd class="col-8">{% if view and view.sink %}<span class="mono">{{ view.sink }}</span>{% else %}<span class="text-muted">none — the view only</span>{% endif %}</dd>
+      </dl>
     </div></div>
   </div>
   <div class="col-lg-7">

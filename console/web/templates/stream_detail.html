@@ -20,10 +20,14 @@
         <tbody>{% for f in stream.fields %}<tr><td class="num">{{ f.ordinal }}</td><td class="mono">{{ f.name }}</td>
           <td class="mono small">{{ f.type }}</td><td>{{ 'yes' if f.nullable else 'no' }}</td></tr>{% endfor %}</tbody>
       </table></div></div>
-    <div class="needs-engine mt-3"><div class="title"><i class="bi bi-plug"></i>Event time, lateness and source</div>
-      Not published by <code>GET /api/v1/streams/{{ stream.name }}</code>. Needed on the summary: <code>eventTime</code>,
-      <code>outOfOrderness</code> and <code>source</code> (plugin name, or none). A column of type TIMESTAMP is only the
-      event time if the configuration says so.</div>
+    <div class="card mt-3"><div class="card-header">Time and source</div><div class="card-body p-0"><table class="table mb-0" id="stream-time">
+      <tbody>
+        <tr><th>Event time</th><td>{% if stream.eventTime %}<span class="mono">{{ stream.eventTime }}</span>
+          {% else %}<span class="chip warn">none declared</span> <span class="small text-muted">— no window over this stream can close</span>{% endif %}</td></tr>
+        <tr><th>Out-of-orderness</th><td>{% if stream.eventTime and stream.outOfOrderness %}<span class="mono">{{ stream.outOfOrderness }}</span>
+          <span class="small text-muted">— how late a row may be before a window stops waiting</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
+        <tr><th>Source</th><td>{% if stream.source %}<span class="mono">{{ stream.source }}</span>{% else %}<span class="text-muted">not bound — rows arrive only if something writes them</span>{% endif %}</td></tr>
+      </tbody></table></div></div>
   </div>
   <div class="col-lg-6">
     <div class="card"><div class="card-header">Registered queries that read it</div><div class="card-body">
@@ -31,7 +35,7 @@
       <ul class="list-unstyled mb-0">{% for q in readers %}<li class="d-flex justify-content-between py-1">
         <a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a>
         <span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}">{{ q.state }}</span></li>{% endfor %}</ul>
-      <p class="small text-muted mt-2 mb-0">Matched by name in each query's SQL — lineage from the plan needs engine support.</p>
+      <p class="small text-muted mt-2 mb-0">{% if lineage == 'engine' %}From the engine: the streams each query's plan reads.{% else %}Matched by name in each query's SQL — this engine did not say what each query reads.{% endif %}</p>
       {% else %}<p class="small text-muted mb-0">None yet.</p>{% endif %}
     </div></div>
     <div class="card mt-3"><div class="card-header">Start from a template</div><div class="card-body">

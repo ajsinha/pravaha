@@ -10,9 +10,10 @@ not a second engine). Three reasons:
 - The health verdict is a judgement ("nine tenths of the state ceiling is worth a look")
   and a judgement written once is one that two screens cannot disagree about.
 
-Nothing here invents a number the engine does not publish. Where a screen wants one that
-does not exist yet -- subscriber counts, checkpoint health -- the snapshot says so by
-name, and the screen renders "needs engine support" rather than a zero.
+Nothing here invents a number the engine does not publish. Where a screen wants one the
+engine does not measure -- per-operator telemetry, lane backpressure, latency percentiles
+-- the snapshot says so by name, and the screen says the engine does not measure it rather
+than drawing a zero.
 """
 from __future__ import annotations
 
@@ -93,7 +94,17 @@ QUERY_METERS = {
     "pravaha_query_view_removals": "view_removals",
     "pravaha_query_watermark_lag_seconds": "watermark_lag_seconds",
     "pravaha_query_running": "running",
+    "pravaha_query_subscribers": "subscribers",
+    "pravaha_query_checkpoint_last_success_timestamp_seconds": "checkpoint_last_success",
+    "pravaha_query_checkpoint_duration_seconds": "checkpoint_duration_seconds",
+    "pravaha_query_checkpoint_failures_total": "checkpoint_failures",
+    "pravaha_query_commit_latency_seconds_count": "commit_count",
+    "pravaha_query_commit_latency_seconds_sum": "commit_seconds_sum",
 }
+
+#: Derived per query from two scrapes, not published by the engine as such.
+DERIVED_METERS = ("rows_in_rate", "commit_latency_mean_seconds", "checkpoint_age_seconds",
+                  "checkpoint_failures_new")
 
 #: Node-level meters worth a tile, when the engine exposes them (Spring Boot's defaults).
 NODE_METERS = {
@@ -162,6 +173,7 @@ SEVERITY_ORDER = {"critical": 0, "warn": 1, "info": 2}
 
 def findings(queries: dict[str, dict[str, Any]], *, state_warn: float = 0.75,
              state_critical: float = 0.9, lag_warn_seconds: float = 300.0,
+             checkpoint_warn_seconds: float = 900.0,
              registered_states: dict[str, str] | None = None) -> list[Finding]:
     """The health rules, written once.
 
@@ -194,6 +206,21 @@ def findings(queries: dict[str, dict[str, Any]], *, state_warn: float = 0.75,
             out.append(Finding("warn", name, "Event time is behind",
                                f"{name}'s watermark is {_duration(lag)} behind the wall clock: the "
                                "data is late, or its source has stopped."))
+        # Checkpoint health: only for a query that is checkpointing at all, which the engine
+        # says by publishing a last-success time (NaN, so None here, while it has none).
+        new_failures = q.get("checkpoint_failures_new")
+        if new_failures:
+            out.append(Finding("warn", name, "Checkpoints are failing",
+                               f"{name} failed {int(new_failures)} checkpoint"
+                               f"{'s' if new_failures != 1 else ''} since the last look "
+                               f"({int(q.get('checkpoint_failures') or 0)} in all). Recovery falls "
+                               "back to the newest stored checkpoint, which is getting older. "
+                               "Check the node's log and the checkpoint directory's disk."))
+        age = q.get("checkpoint_age_seconds")
+        if age is not None and age > checkpoint_warn_seconds and state != "PAUSED":
+            out.append(Finding("warn", name, "No recent checkpoint",
+                               f"{name} last stored a checkpoint {_duration(age)} ago; a restart "
+                               "now would replay everything since."))
     out.sort(key=lambda f: (SEVERITY_ORDER.get(f.severity, 9), f.query or ""))
     return out
 
@@ -234,15 +261,13 @@ def _duration(seconds: float) -> str:
 #: What the dashboard would show and the engine does not publish yet. Named precisely so the
 #: screen can say which API is missing, rather than drawing a zero.
 NOT_EXPOSED = [
-    {"metric": "subscribers", "label": "Subscribers per view",
-     "needs": "a gauge pravaha_query_subscribers{query} from the Flight subscription registry"},
-    {"metric": "checkpoints", "label": "Checkpoint health",
-     "needs": "pravaha_checkpoint_last_success_timestamp_seconds, pravaha_checkpoint_duration_seconds "
-              "and pravaha_checkpoint_failures_total, per node"},
     {"metric": "backpressure", "label": "Backpressure",
-     "needs": "pravaha_lane_backpressure_ratio{lane,query}, sampled per lane"},
+     "why": "the engine does not sample lane backpressure, so there is no number to show"},
     {"metric": "latency", "label": "Commit latency percentiles",
-     "needs": "a histogram pravaha_query_commit_latency_seconds{query} (p50/p99/p99.9)"},
+     "why": "the engine keeps a count and a total per query, not each commit's duration, so "
+            "the mean below is exact and a p99 would be invented"},
+    {"metric": "operators", "label": "Per-operator telemetry",
+     "why": "the runtime counts rows and state per query, not per operator"},
 ]
 
 
@@ -279,6 +304,10 @@ class MetricsHistory:
                 for name, q in summary["queries"].items():
                     before = previous["queries"].get(name) if previous else None
                     q["rows_in_rate"] = _rate(before, q, previous["at"] if previous else None, now)
+                    q["commit_latency_mean_seconds"] = _mean_latency(before, q)
+                    last = q.get("checkpoint_last_success")
+                    q["checkpoint_age_seconds"] = max(0.0, now - last) if last else None
+                    q["checkpoint_failures_new"] = _increase(before, q, "checkpoint_failures")
                 self._points.append({"at": now, "queries": {
                     n: {k: v for k, v in q.items() if k != "name"} for n, q in summary["queries"].items()}})
             self._last = {"at": now, "reachable": reachable, "error": error, **summary}
@@ -293,6 +322,29 @@ class MetricsHistory:
                 for name, values in point["queries"].items():
                     out.setdefault(name, []).append([int(point["at"] * 1000), values.get(metric)])
             return out
+
+
+def _increase(before: dict | None, now_values: dict, key: str) -> float | None:
+    """How much a counter rose between two scrapes; None when either is missing or it reset."""
+    if not before:
+        return None
+    a, b = before.get(key), now_values.get(key)
+    if a is None or b is None or b < a:
+        return None
+    return b - a
+
+
+def _mean_latency(before: dict | None, now_values: dict) -> float | None:
+    """Mean commit latency between two scrapes: delta of the total over delta of the count.
+
+    Exact, because the engine publishes both totals; None when nothing committed in between,
+    rather than a zero that would read as instantaneous.
+    """
+    commits = _increase(before, now_values, "commit_count")
+    seconds = _increase(before, now_values, "commit_seconds_sum")
+    if not commits or seconds is None:
+        return None
+    return round(seconds / commits, 6)
 
 
 def _rate(before: dict | None, now_values: dict, then: float | None, now: float) -> float | None:

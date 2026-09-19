@@ -27,12 +27,22 @@ function StreamStep({ streams, setStreams, chosen, setChosen, next }) {
   const [declaring, setDeclaring] = useState(!streams.length);
   const [name, setName] = useState("");
   const [schema, setSchema] = useState("txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP");
+  const [eventTime, setEventTime] = useState("event_time");
+  const [lateness, setLateness] = useState("PT10S");
   const [state, setState] = useState({ status: "idle" });
+  /* Offered from the schema being typed: only TIMESTAMP columns can carry event time. */
+  const timestampColumns = schema.split(",").map((p) => p.trim().split(":"))
+    .filter((p) => p.length === 2 && /TIMESTAMP/i.test(p[1])).map((p) => p[0].trim());
   async function declare(event) {
     event.preventDefault();
     setState({ status: "loading" });
     try {
-      const stream = await call("/catalog/streams", { json: { name, schema } });
+      const body = { name, schema };
+      if (eventTime && timestampColumns.includes(eventTime)) {
+        body.event_time = eventTime;
+        if (lateness) body.out_of_orderness = lateness;
+      }
+      const stream = await call("/catalog/streams", { json: body });
       setStreams(streams.concat(stream)); setChosen(stream); setDeclaring(false);
       setState({ status: "idle" }); announce(`Stream ${stream.name} declared`);
     } catch (err) { setState({ status: "error", err }); }
@@ -52,10 +62,19 @@ function StreamStep({ streams, setStreams, chosen, setChosen, next }) {
         <div class="col-md-9"><label class="form-label small text-muted mb-1" for="ds-schema">Schema — <code>name:TYPE</code>, comma-separated</label>
           <input id="ds-schema" class="form-control form-control-sm mono" value=${schema} onInput=${(e) => setSchema(e.target.value)} /></div>
       </div>
-      <div class="needs-engine mt-2"><div class="title">What this does not do</div>This puts the schema in the catalogue, so
-        queries can be written and validated against it. It does not bind a source — rows only arrive once
-        <code>pravaha.sources.${name || "<name>"}</code> is configured — and the API has no field for the event-time column,
-        without which a windowed query never emits (<code>pravaha.streams.&lt;name&gt;.event-time</code> in configuration).</div>
+      <div class="row g-2 mt-1">
+        <div class="col-md-4"><label class="form-label small text-muted mb-1" for="ds-event-time">Event time</label>
+          <select id="ds-event-time" class="form-select form-select-sm" value=${timestampColumns.includes(eventTime) ? eventTime : ""}
+            onChange=${(e) => setEventTime(e.target.value)}>
+            <option value="">none — no window will ever close</option>
+            ${timestampColumns.map((c) => html`<option value=${c}>${c}</option>`)}</select></div>
+        <div class="col-md-4"><label class="form-label small text-muted mb-1" for="ds-lateness">Out-of-orderness</label>
+          <input id="ds-lateness" class="form-control form-control-sm mono" value=${lateness}
+            disabled=${!timestampColumns.includes(eventTime)} onInput=${(e) => setLateness(e.target.value.trim())} placeholder="PT10S" /></div>
+      </div>
+      <div class="form-text small mt-2">Event time is the column a window is measured on; out-of-orderness is how late a row
+        may be (ISO-8601) before a window stops waiting for it. This puts the schema in the catalogue; it does not bind a
+        source — rows only arrive once <code>pravaha.sources.${name || "<name>"}</code> is configured.</div>
       ${state.status === "error" ? html`<div class="mt-2">${errorView(state.err)}</div>` : null}
       <button type="submit" class="btn btn-sm btn-primary mt-2" disabled=${!IDENT.test(name) || !schema.trim() || state.status === "loading"}>
         ${state.status === "loading" ? "Declaring…" : "Declare stream"}</button>
