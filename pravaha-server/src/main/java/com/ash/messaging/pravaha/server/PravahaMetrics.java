@@ -219,7 +219,106 @@ public class PravahaMetrics implements AutoCloseable {
                 .register(meters)
                 .getId());
 
+        // A blue/green replacement of this name, when there is one (ADR-046). Published for every
+        // query rather than only for the ones being replaced, because a gauge that appears when an
+        // operation starts is a gauge nothing was alerting on when it did: these read zero while
+        // nothing is happening, and a dashboard's panel exists before the cutover it is watching.
+        ids.add(Gauge.builder("pravaha.query.replacement.state", node, n -> replacementState(n, name))
+                .tags(tags)
+                .register(meters)
+                .getId());
+        ids.add(Gauge.builder(
+                        "pravaha.query.backfill.history.rows",
+                        node,
+                        n -> replacementValue(
+                                n, name, status -> status.progress().historyRows()))
+                .tags(tags)
+                .register(meters)
+                .getId());
+        ids.add(Gauge.builder(
+                        "pravaha.query.backfill.rows.per.second",
+                        node,
+                        n -> replacementValue(
+                                n, name, status -> status.progress().rowsPerSecond()))
+                .tags(tags)
+                .register(meters)
+                .getId());
+        ids.add(Gauge.builder(
+                        "pravaha.query.backfill.rate.limit",
+                        node,
+                        n -> replacementValue(
+                                n, name, status -> status.progress().rateLimit()))
+                .tags(tags)
+                .register(meters)
+                .getId());
+        ids.add(Gauge.builder(
+                        "pravaha.query.backfill.partitions.live",
+                        node,
+                        n -> replacementValue(
+                                n, name, status -> status.progress().partitionsLive()))
+                .tags(tags)
+                .register(meters)
+                .getId());
+        ids.add(Gauge.builder(
+                        "pravaha.query.backfill.partitions",
+                        node,
+                        n -> replacementValue(
+                                n, name, status -> status.progress().partitions()))
+                .tags(tags)
+                .register(meters)
+                .getId());
+        ids.add(Gauge.builder(
+                        "pravaha.query.backfill.paused",
+                        node,
+                        n -> replacementValue(
+                                n, name, status -> status.progress().paused() ? 1 : 0))
+                .tags(tags)
+                .register(meters)
+                .getId());
+        // How far behind the running version the candidate's event time is, in seconds. What an
+        // operator watches to decide whether a cutover is close; zero when there is no replacement.
+        ids.add(Gauge.builder(
+                        "pravaha.query.backfill.lag.seconds",
+                        node,
+                        n -> replacementValue(n, name, status -> status.lagNanos() / 1_000_000_000d))
+                .tags(tags)
+                .register(meters)
+                .getId());
+
         published.put(name, ids);
+    }
+
+    /**
+     * A replacement's state as a number, so it can be alerted on: 0 none, 1 backfilling, 2 caught
+     * up, 3 cut over and retaining, 4 rolled back, 5 abandoned, 6 failed, 7 finished.
+     *
+     * <p>An ordinal rather than a tag per state, because a gauge whose tag changes is a new series:
+     * a panel following the replacement of one query would lose its history at every transition,
+     * which is exactly when somebody is looking at it.
+     */
+    private static double replacementState(PravahaNode node, String name) {
+        return node.registry()
+                .flatMap(registry -> registry.replacements().of(name))
+                .map(status -> switch (status.state()) {
+                    case BACKFILLING -> 1d;
+                    case CAUGHT_UP -> 2d;
+                    case CUT_OVER -> 3d;
+                    case ROLLED_BACK -> 4d;
+                    case ABANDONED -> 5d;
+                    case FAILED -> 6d;
+                    case FINISHED -> 7d;
+                })
+                .orElse(0d);
+    }
+
+    private static double replacementValue(
+            PravahaNode node,
+            String name,
+            java.util.function.ToDoubleFunction<com.ash.messaging.pravaha.registry.QueryReplacement.Status> value) {
+        return node.registry()
+                .flatMap(registry -> registry.replacements().of(name))
+                .map(value::applyAsDouble)
+                .orElse(0d);
     }
 
     /**

@@ -63,6 +63,16 @@ public class HttpAuthorizer {
     }
 
     /**
+     * Whether this caller may administer {@code name}: change it, replace it, drop it.
+     *
+     * <p>For a listing that filters rather than refuses -- a replacement a caller may not
+     * administer is not shown to them, and its absence is the same answer as there being none.
+     */
+    public boolean mayAdminister(HttpServletRequest request, String name) {
+        return policy.mayAdminister(principalOf(request), name).allowed();
+    }
+
+    /**
      * Refuses unless this caller may read {@code name}, recording the decision either way.
      *
      * <p>The refusal says only that the name is not readable, which is deliberately the same answer

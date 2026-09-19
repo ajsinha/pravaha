@@ -87,6 +87,48 @@ public class DtoMapper {
     }
 
     /** A refusal or failure, as the API shows one. */
+    /**
+     * A replacement as the API renders it.
+     *
+     * <p>Static, because it maps one immutable answer onto another and needs nothing of the node:
+     * the engine already decided everything in it.
+     */
+    public static ApiDtos.ReplacementStatus replacement(
+            com.ash.messaging.pravaha.registry.QueryReplacement.Status status) {
+        com.ash.messaging.pravaha.backfill.BackfillJob.Progress progress = status.progress();
+        return new ApiDtos.ReplacementStatus(
+                status.name(),
+                status.state().name(),
+                status.sql(),
+                status.candidate(),
+                status.replacing(),
+                status.sink(),
+                status.options().toString(),
+                status.owner(),
+                status.startedAt(),
+                status.cutOverAt(),
+                status.rollbackUntil(),
+                status.rollbackAvailable(),
+                new ApiDtos.BackfillProgress(
+                        progress.historyRows(),
+                        progress.liveRows(),
+                        progress.rowsPerSecond(),
+                        progress.partitions(),
+                        progress.partitionsLive(),
+                        progress.historyComplete(),
+                        progress.rateLimit(),
+                        progress.paused(),
+                        status.lagNanos() / 1_000_000_000.0),
+                status.history(),
+                status.failureCode() == null
+                        ? null
+                        : new ApiDtos.Problem(
+                                status.failureCode(),
+                                status.failure(),
+                                "https://docs.pravaha.io/errors/"
+                                        + status.failureCode().toLowerCase(java.util.Locale.ROOT)));
+    }
+
     public ApiDtos.Problem toProblem(com.ash.messaging.pravaha.api.PravahaException failure, String message) {
         return new ApiDtos.Problem(failure.errorCode().code(), message, failure.helpUrl());
     }

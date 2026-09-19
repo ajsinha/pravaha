@@ -87,6 +87,7 @@ class OrphanedClassTest {
             Map.entry("AuditController", "Spring @RestController"),
             Map.entry("PluginController", "Spring @RestController"),
             Map.entry("PermissionsController", "Spring @RestController"),
+            Map.entry("ReplacementController", "Spring @RestController"),
             Map.entry("StatusController", "Spring @RestController"),
             Map.entry("PravahaMetrics", "Spring @Component"),
             Map.entry("EngineHealthIndicator", "Spring @Component, contributed to /actuator/health"),
@@ -120,8 +121,12 @@ class OrphanedClassTest {
      * growing in the meantime.
      */
     private static final java.util.Set<String> KNOWN = java.util.Set.of(
+            // SplicedReader joins a table SNAPSHOT to a change feed and deduplicates by key and
+            // version. Every source plugin here reads an ordered log whose positions name records,
+            // so the seam a replacement actually has is an offset (OffsetSplicedReader, ADR-046)
+            // and this one waits for a plugin that exposes a snapshot read separately from its
+            // change feed. ShadowDeployment came off this list when it was wired.
             "SplicedReader",
-            "ShadowDeployment",
             "Rebalancer",
             "FileCheckpointStore",
             "Lift",

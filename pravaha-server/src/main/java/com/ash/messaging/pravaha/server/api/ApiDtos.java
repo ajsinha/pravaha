@@ -197,6 +197,66 @@ public final class ApiDtos {
             Problem failure,
             Instant stoppedAt) {}
 
+     * How a backfill is getting on (design section 16.2).
+     *
+     * <p>No estimate and no ETA: a source does not say how much history it holds, and a progress
+     * bar that invents a denominator is a promise the engine cannot keep. What is here is what is
+     * known -- rows read, the rate, how many partitions have reached the live stream, and how far
+     * behind the running version the candidate's event time is.
+     *
+     * @param historyRows records of history read so far
+     * @param liveRows records read from the live stream since the seam
+     * @param rowsPerSecond what the backfill is reading at, over the last sample
+     * @param partitions partitions the backfill has
+     * @param partitionsLive how many of them have reached the live stream
+     * @param historyComplete whether every one has: the seam is behind all of them
+     * @param rateLimit the ceiling in records a second, or zero for none
+     * @param paused whether the backfill is paused
+     * @param lagSeconds how far behind the running version the candidate's event time is
+     */
+    public record BackfillProgress(
+            long historyRows,
+            long liveRows,
+            double rowsPerSecond,
+            int partitions,
+            int partitionsLive,
+            boolean historyComplete,
+            long rateLimit,
+            boolean paused,
+            double lagSeconds) {}
+
+    /**
+     * A blue/green replacement, whole (ADR-046).
+     *
+     * <p>One answer rather than three calls: the console's cutover screen shows the state, the
+     * progress and the rollback window together, and a screen that has to ask separately shows
+     * three moments instead of one.
+     *
+     * @param state {@code BACKFILLING}, {@code CAUGHT_UP}, {@code CUT_OVER}, {@code ROLLED_BACK},
+     *     {@code ABANDONED}, {@code FAILED} or {@code FINISHED}
+     * @param candidate the fingerprint of the computation being prepared
+     * @param replacing the fingerprint of the one serving the name
+     * @param history who served this name from which seam, oldest first: the audit trail a cutover
+     *     leaves behind
+     * @param rollbackAvailable whether the replaced version is still retained
+     */
+    public record ReplacementStatus(
+            String name,
+            String state,
+            String sql,
+            String candidate,
+            String replacing,
+            String sink,
+            String options,
+            String owner,
+            Instant startedAt,
+            Instant cutOverAt,
+            Instant rollbackUntil,
+            boolean rollbackAvailable,
+            BackfillProgress backfill,
+            List<String> history,
+            Problem failure) {}
+
     /**
      * One registered query, as the caller may see it.
      *
