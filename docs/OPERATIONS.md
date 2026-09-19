@@ -572,7 +572,7 @@ pravaha:
         schema: "id:INT64,user:STRING,amount:INT64"
 ```
 
-Two plugins ship. `filesystem` appends delimited rows to a file and cannot take a retraction.
+Three plugins ship. `filesystem` appends delimited rows to a file and cannot take a retraction.
 `aerospike-sink` upserts into a set by key and deletes on a retraction, so it takes a query that
 revises its answer:
 
@@ -594,6 +594,57 @@ A single key column becomes the record's key as itself; several become one blob 
 columns are then also written as bins so a reader can see them. The connection takes the same
 `tls.*` options as the Aerospike source ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)).
 
+`jdbc-sink` maintains the query's answer in a relational table — PostgreSQL, H2, or anything else
+with a JDBC driver the deployment supplies — and is the one shipped sink that is **transactional**:
+
+```yaml
+pravaha:
+  sinks:
+    spend_table:
+      plugin: jdbc-sink
+      options:
+        url: "jdbc:postgresql://pg.internal:5432/analytics?sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        user: pravaha
+        password: ${PG_PASSWORD}
+        table: spend_by_user              # or schema.table; you create it, the sink never does
+        schema: "user_id:STRING,window_end:INT64,total:INT64"
+        key.columns: user_id,window_end   # must be the registration's --keys, as columns
+        mode: upsert                      # default; `append` inserts every row and takes no retraction
+        transactional: true               # default; false writes each batch straight to the table
+        # transaction.id: spend_table     # default: this binding's name; one writer per id
+        # staging.table: pravaha_sink_staging
+        # dialect: auto                   # postgresql | h2 | portable, from the driver's product name
+```
+
+- **Upsert** is `INSERT ... ON CONFLICT (key) DO UPDATE` on PostgreSQL (the table needs a primary
+  key or unique index on exactly `key.columns`, checked when the sink opens), `MERGE INTO ... KEY`
+  on H2, and `UPDATE` then `INSERT` for the rows it did not find everywhere else. A retraction
+  deletes the row its key names. Every statement is prepared, every identifier is found in the
+  catalogue — so `orders` finds PostgreSQL's `orders` and H2's `ORDERS` — and quoted.
+- **The table is checked against `schema` when the sink opens**, and a table or column that does
+  not exist, a column whose type cannot hold the declared one (an `INTEGER` for `INT64`, a `REAL`
+  for `FLOAT64`, a `NUMERIC(10,2)` for `DECIMAL(12,4)`), a nullable declaration over a `NOT NULL`
+  column, or a `NOT NULL` column with no default that the schema does not write is refused with
+  `PRV-5075`, naming the column. The shared `tls.*` options are refused (`PRV-5074`); TLS goes in
+  `url`.
+- **Exactly once, through a staging table.** A write goes to `staging.table` (created if missing:
+  `sink_id`, `label`, `seq`, a byte-string `payload`), not to the target. Once the checkpoint that
+  recorded it is durable, the commit applies everything staged for that checkpoint to the target
+  table and deletes it from staging **in one database transaction** — so readers see a checkpoint's
+  changes all at once, and a commit repeated after a crash finds nothing staged and does nothing. A
+  restore deletes what was staged after the restored checkpoint, which the replay writes again. The
+  cost: each row is written twice, and the table trails the view by up to one
+  `pravaha.checkpoint.interval`. Not `PREPARE TRANSACTION`, which PostgreSQL disables by default
+  (`max_prepared_transactions = 0`) and which would hold the target's row locks until each
+  checkpoint is stored.
+- **What that guarantee assumes:** one sink per `transaction.id` (two registrations naming one
+  binding at once would share staging rows — give each its own binding), and nothing else writing
+  the target's keys. Staged rows a failed or never-restored run left behind are never applied; they
+  can be deleted by `sink_id`. With `transactional: false` an upsert sink is effectively once and
+  an append sink at least once.
+- **`PRV-5076`** is a write, staging, commit or abort the database refused; the delivery then
+  detaches the sink with `PRV-8009`.
+
 A registration names the sink, not the configuration: `pravaha register --name big_txn --sql-file
 q.sql --sink audit_trail`, or the `sink` argument of either SDK's `register`. The query's view is
 maintained exactly as before, and every commit of it is also written to the sink.
@@ -602,7 +653,8 @@ What an operator should know about that delivery:
 
 - **The query must produce the sink's row shape.** The sink reads each row through its binding's
   `schema`, so a `SELECT` list in another order, or with another name or type, is refused with
-  `PRV-8010`, as is a keyed sink whose `key.bins` are not the registration's key columns. Refused
+  `PRV-8010`, as is a keyed sink whose `key.bins` (or `key.columns`) are not the registration's key
+  columns. Refused
   before the sink is opened, because the alternative is plausible nonsense and no error.
 - **A bad pair is refused before anything runs.** A query that revises its answer — a running
   aggregate, a window with allowed lateness — pointed at a sink that can only append is refused
@@ -616,13 +668,14 @@ What an operator should know about that delivery:
 
   | Sink declares | Guarantee | Why |
   |---|---|---|
-  | `transactional`, and `pravaha.checkpoint.directory` is set | **exactly once** | Writes between checkpoints go into a transaction, prepared at each checkpoint's cut and recorded in the checkpoint, committed once the checkpoint is durable. A restore commits what the checkpoint recorded and has the sink abandon the rest, which the replay writes again |
+  | `transactional` (`jdbc-sink`), and `pravaha.checkpoint.directory` is set | **exactly once** | Writes between checkpoints go into a transaction, prepared at each checkpoint's cut and recorded in the checkpoint, committed once the checkpoint is durable. A restore commits what the checkpoint recorded and has the sink abandon the rest, which the replay writes again |
   | `transactional`, no checkpoint directory | at least once | Nothing to tie a transaction to, so each commit is its own |
   | `idempotentUpsert` (`aerospike-sink`) | effectively once | The replay rewrites records with the values they already hold |
   | neither (`filesystem`) | at least once | Expect duplicates in the file after a restart. A view commit carries no sequence a replay would repeat, so there is nothing to deduplicate on |
 
-  Neither shipped sink is transactional. The source caps it too: one that cannot rewind to a
-  checkpoint's offsets is at least once end to end.
+  `jdbc-sink` is transactional by default (`transactional: false` makes it idempotent upsert, or a
+  plain append); the other two shipped sinks are not. The source caps it too: one that cannot
+  rewind to a checkpoint's offsets is at least once end to end.
 - **A sink added to a running computation** (a second name for the same query) is first sent the
   view's whole contents — at the query's next change or checkpoint, not at once — inside its first
   transaction when it is transactional. After a restart, a second name whose sink the restored

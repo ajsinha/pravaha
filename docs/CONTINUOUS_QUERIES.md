@@ -583,8 +583,10 @@ does, retractions included as rows with a negative weight. Three things to know
   the only one committed. A sink that upserts idempotently is **effectively once** — the replay
   rewrites what is already there. A plain file is **at least once**: it keeps the repeats. A second
   name registered with its own sink on a query that is already running is first sent the view's
-  whole contents, inside its first transaction if it has transactions. Neither shipped sink is
-  transactional.
+  whole contents, inside its first transaction if it has transactions. Of the shipped sinks,
+  `jdbc-sink` — which maintains the answer in a relational table, upserting and deleting by key —
+  is transactional, so exactly once on a node that checkpoints, with the table trailing the view by
+  up to a checkpoint interval; `aerospike-sink` is effectively once and `filesystem` at least once.
 - **A sink that refuses a batch is detached** (`PRV-8009`) rather than written past, and the query
   carries on serving its view. Drop and re-register to start the sink again from the view's
   contents; whatever the sink already held, it will hold twice.

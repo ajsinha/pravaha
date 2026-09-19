@@ -338,7 +338,7 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
      * plaintext connection behind a configuration that says otherwise, which is the one outcome
      * worth refusing outright.
      */
-    private static void refuseSharedTlsOptions(PluginContext context) {
+    static void refuseSharedTlsOptions(PluginContext context) {
         if (!PluginTls.isConfigured(context)) {
             return;
         }

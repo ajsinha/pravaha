@@ -11,7 +11,8 @@
   <name>Pravaha :: plugin :: jdbc</name>
   <description>Incremental-poll source over any JDBC database: a high-water-mark column, a bounded
     query, replayable offsets. The universal fallback for a database with no change feed — and it
-    declares what that costs rather than implying a fidelity it does not have.</description>
+    declares what that costs rather than implying a fidelity it does not have. Also a lookup source,
+    and a sink that maintains a query's answer in a table, exactly once through a staging table.</description>
 
   <properties>
     <h2.version>2.3.232</h2.version>
@@ -32,9 +33,18 @@
       <version>${h2.version}</version>
       <scope>test</scope>
     </dependency>
+    <!-- Compile scope for the sink: a BYTES column is copied out of the engine's binary row, and a
+         DECIMAL's two limbs are reassembled the way the engine wrote them. -->
     <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- The sink's end-to-end tests register a real continuous query writing into H2, with
+         checkpoints, through the registry that delivers to sinks in production. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-registry</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
     </dependency>

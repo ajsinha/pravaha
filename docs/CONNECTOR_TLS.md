@@ -183,6 +183,9 @@ Server each have their own spelling; check the driver's documentation.
 If a plaintext JDBC connection is deliberate — a database on a loopback socket, say — write
 `tls.enabled: false`. That is accepted, because it is a statement rather than a mistake.
 
+The same holds for every JDBC connector: the `jdbc` source, the JDBC lookup, and the `jdbc-sink`
+under `pravaha.sinks.<name>` — each refuses `tls.*` with `PRV-5074` and takes its TLS in `url`.
+
 ---
 
 ## 4. The server and the SDK

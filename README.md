@@ -86,7 +86,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 | **Joins** | Stream-to-stream, and temporal lookup joins against a JDBC or Aerospike dimension table |
 | **Sources** | Filesystem (bounded, or followed like `tail -f`), feedfile directories (CSV, Parquet), Delta Lake, JDBC polling, Aerospike scans, Cassandra `token()`-range scans. Filters are pushed into JDBC and Aerospike. One reader per source binding feeds every query bound to it. Connections to JDBC, Aerospike and Cassandra can be encrypted ([`CONNECTOR_TLS.md`](docs/CONNECTOR_TLS.md)) |
 | **Serving** | The maintained view is read by key or scanned with SQL, and subscribed to per commit. Over **Arrow Flight SQL** (Java SDK, Python SDK, CLI, console), and over the **PostgreSQL wire protocol** (`pravaha.pgwire.enabled`, off by default) so `psql`, DBeaver, Grafana and any Postgres driver can read a view — simple and extended protocol, `\d`, TLS |
-| **Sinks** | A registration can also name a sink (`pravaha register --sink`), and every commit of its view is written there, retractions included. Refused at registration, before the sink opens: a query that revises its answer against an append-only sink (`PRV-2041`), and a sink whose configured columns or key differ from the query's (`PRV-8010`). Shipped: `filesystem` (append-only) and `aerospike-sink` (upsert and delete by key). Delivery is stated per sink at registration: a transactional sink is prepared at each checkpoint's cut and committed once the checkpoint is durable — exactly once; an idempotent upsert sink such as `aerospike-sink` is effectively once; a plain append sink such as `filesystem` is at least once |
+| **Sinks** | A registration can also name a sink (`pravaha register --sink`), and every commit of its view is written there, retractions included. Refused at registration, before the sink opens: a query that revises its answer against an append-only sink (`PRV-2041`), and a sink whose configured columns or key differ from the query's (`PRV-8010`). Shipped: `filesystem` (append-only), `aerospike-sink` (upsert and delete by key) and `jdbc-sink` (a table in any JDBC database: upsert and delete by key, or append). Delivery is stated per sink at registration: a transactional sink such as `jdbc-sink` is prepared at each checkpoint's cut and committed once the checkpoint is durable — exactly once; an idempotent upsert sink such as `aerospike-sink` is effectively once; a plain append sink such as `filesystem` is at least once |
 | **State** | Off-heap: join indexes and windowed-aggregate accumulators live in `RowStore` blocks behind open-addressed tables, except `COUNT(DISTINCT)`, which stays on-heap. With `pravaha.state.spill.*` set, state past its memory ceiling spills to memory-mapped files and the query slows instead of stopping. Per-query gauges show state approaching its ceiling |
 | **Recovery** | Checkpoints hold operator state, source offsets and the served view, cut at one point across every input (ADR-008), so a restart resumes rather than replaying from scratch or starting empty. The registry journal brings back every registration, and its sink |
 | **Survival** | A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query |
@@ -109,13 +109,15 @@ corrected by late data arrives as a retraction of the old answer followed by the
   the planner and the engine and declared by no shipped plugin, so a deployment only pushes filters.
   And when one shared reader serves queries with different filters, it reads unfiltered;
   `share.reader: false` keeps a query's pushdown at the cost of its own read.
-- **A transactional sink.** The engine ties the transactional half of the sink SPI to checkpoints,
-  which makes a transactional sink exactly once — but neither shipped sink is one, so a deployment
-  today gets effectively once from `aerospike-sink` and at least once from `filesystem`, whose
-  repeats after a restart stay in the file. End to end is still capped by the source: one that
-  cannot rewind to a checkpoint's offsets (ADR-029) is at least once whatever the sink does.
-- **Sinks beyond two.** No Kafka, no JDBC sink. `aerospike-sink` is unit-tested without a server here;
-  its real-server test needs Docker.
+- **A transactional sink beyond JDBC.** `jdbc-sink` is the one transactional sink, and it gets
+  there with a staging table rather than the database's own two-phase commit: each checkpoint's
+  changes are staged, then applied and unstaged in one database transaction once the checkpoint is
+  durable — so every row is written twice and the table trails the view by up to a checkpoint
+  interval. `aerospike-sink` stays effectively once and `filesystem` at least once, whose repeats
+  after a restart stay in the file. End to end is still capped by the source: one that cannot
+  rewind to a checkpoint's offsets (ADR-029) is at least once whatever the sink does.
+- **Sinks beyond three.** No Kafka sink. `aerospike-sink` is unit-tested without a server here, and
+  `jdbc-sink` against H2; their real-server tests (Aerospike, PostgreSQL) need Docker.
 - **Change data capture.** A PostgreSQL logical-replication source is designed
   ([ADR-041](docs/adr/041-change-data-capture-without-debezium.md)) and not started. Sources poll or
   scan; Aerospike and Cassandra scans cannot see deletes.

@@ -20,5 +20,9 @@
  * bounded ordered query, and an offset that counts rows at the boundary value so the boundary is
  * neither duplicated nor lost. What polling cannot do -- see a delete, carry a before-image -- is
  * declared in the capabilities rather than implied away (design section 19.8).
+ *
+ * <p>Also a lookup table for temporal joins ({@code JdbcLookupPlugin}) and a sink, {@code jdbc-sink}
+ * ({@code JdbcSinkPlugin}), that maintains a query's answer in a table -- upsert and delete by key,
+ * or append -- exactly once through a staging table tied to the engine's checkpoints.
  */
 package com.ash.messaging.pravaha.plugin.jdbc;

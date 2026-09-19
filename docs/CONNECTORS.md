@@ -37,7 +37,7 @@ Three kinds, and a connector may be more than one:
 | Interface | What it does | Shipped examples |
 |---|---|---|
 | `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra |
-| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys) |
+| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, so exactly once on a checkpointed node) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | aerospike, jdbc |
 
 ---
@@ -712,7 +712,7 @@ Stated so nobody discovers it mid-build:
 
 | | |
 |---|---|
-| A sink TCK and a lookup TCK | Only sources have one |
+| A sink TCK and a lookup TCK | Only sources have one. The transactional sink protocol is tested per sink — `TransactionalSinkDeliveryTest` against a model, `JdbcSinkPluginTest` and `JdbcSinkRegistrationTest` against H2 — not by a kit a new sink can run |
 | Capability verification in the TCK | Replay and exactly-once are tested; ordering, deletes and pushdown claims are believed, not tested |
 | An SPI stability statement | `Version` exists; nothing says what change breaks a plugin |
 | Plugin isolation | A connector shares the engine's classpath; a dependency clash is yours to resolve |

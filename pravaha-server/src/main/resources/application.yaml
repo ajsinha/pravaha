@@ -229,6 +229,13 @@ pravaha:
   #   plugin: aerospike-sink
   #   options: {hosts: "aerospike-1:3000", namespace: analytics, set: spend,
   #             schema: "user_id:STRING,total:INT64", key.bins: user_id}
+  # `jdbc-sink` maintains the answer in a table you create, upserting and deleting by key.column(s)
+  # (or `mode: append`). It is transactional: writes are staged per checkpoint and applied in one
+  # database transaction once the checkpoint is durable -- exactly once with
+  # pravaha.checkpoint.directory set. TLS goes in the url; tls.* is refused. See OPERATIONS.md.
+  #   plugin: jdbc-sink
+  #   options: {url: "jdbc:postgresql://pg-1:5432/analytics", user: pravaha, password: "${PG_PASSWORD}",
+  #             table: spend, schema: "user_id:STRING,total:INT64", key.columns: user_id}
   #
   # sinks:
   #   audit_trail:

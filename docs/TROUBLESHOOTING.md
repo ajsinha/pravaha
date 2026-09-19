@@ -367,6 +367,8 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-5072` | JDBC_UNSUPPORTED_TYPE | plugins |
 | `PRV-5073` | JDBC_MALFORMED_OFFSET | plugins |
 | `PRV-5074` | JDBC_BAD_CONFIGURATION | plugins |
+| `PRV-5075` | JDBC_SINK_TABLE_MISMATCH | plugins |
+| `PRV-5076` | JDBC_WRITE_FAILED | plugins |
 | `PRV-5080` | AEROSPIKE_CONNECT_FAILED | plugins |
 | `PRV-5081` | AEROSPIKE_OPERATION_FAILED | plugins |
 | `PRV-5082` | AEROSPIKE_UNSUPPORTED_TYPE | plugins |

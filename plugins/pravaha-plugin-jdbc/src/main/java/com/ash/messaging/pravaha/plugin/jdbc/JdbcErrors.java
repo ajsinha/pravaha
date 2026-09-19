@@ -35,5 +35,15 @@ public final class JdbcErrors {
     /** A configuration that cannot be honoured. */
     public static final ErrorCode BAD_CONFIGURATION = new ErrorCode(5074, "JDBC_BAD_CONFIGURATION");
 
+    /**
+     * A sink's table disagrees with its declaration: the table or a column does not exist, a
+     * column's type cannot hold the declared type, or the key has nothing in the table to enforce it.
+     * Names the table and the column.
+     */
+    public static final ErrorCode SINK_TABLE_MISMATCH = new ErrorCode(5075, "JDBC_SINK_TABLE_MISMATCH");
+
+    /** A sink's write, staging, commit or abort failed at the database. */
+    public static final ErrorCode WRITE_FAILED = new ErrorCode(5076, "JDBC_WRITE_FAILED");
+
     private JdbcErrors() {}
 }
