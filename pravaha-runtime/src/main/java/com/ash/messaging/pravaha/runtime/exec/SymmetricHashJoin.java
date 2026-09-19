@@ -117,8 +117,11 @@ final class SymmetricHashJoin implements AutoCloseable {
         }
         MemoryAccess access = MemoryAccess.best();
         this.store = new RowStore(access, STATE_SLAB_BYTES, maxStateSlabs, overflowAccess, maxOverflowSlabs);
-        this.leftState = new JoinSide(store, access, leftSchema, leftKeys);
-        this.rightState = new JoinSide(store, access, rightSchema, rightKeys);
+        // The key index spills with the rows when there is a tier, under the same RAM ceiling (ADR-044).
+        this.leftState =
+                new JoinSide(store, access, leftSchema, leftKeys, maxStateSlabs, overflowAccess, maxOverflowSlabs);
+        this.rightState =
+                new JoinSide(store, access, rightSchema, rightKeys, maxStateSlabs, overflowAccess, maxOverflowSlabs);
         this.outputLayout = RowLayout.of(plan.outputSchema());
         this.writer = new BinaryRowWriter(outputLayout);
         this.view = new BinaryRowView(outputLayout);
@@ -302,7 +305,7 @@ final class SymmetricHashJoin implements AutoCloseable {
 
     /** Whether this join has spilled any state to its overflow tier. */
     boolean hasSpilled() {
-        return store.hasSpilled();
+        return store.hasSpilled() || leftState.indexHasSpilled() || rightState.indexHasSpilled();
     }
 
     /** How many overflow-tier slabs this join has used. */
@@ -319,17 +322,32 @@ final class SymmetricHashJoin implements AutoCloseable {
      * @return how many overflow slabs were released
      */
     int compactIfFragmented(double threshold) {
+        // Each side's key index is a store of its own, which its map compacts; the rows are shared.
+        int released = leftState.compactIndexIfFragmented(threshold) + rightState.compactIndexIfFragmented(threshold);
         if (!store.needsCompaction(threshold)) {
-            return 0;
+            return released;
         }
-        return store.compactOverflow(threshold, relocation -> {
-            leftState.relocateRows(relocation);
-            rightState.relocateRows(relocation);
-        });
+        return released
+                + store.compactOverflow(threshold, relocation -> {
+                    leftState.relocateRows(relocation);
+                    rightState.relocateRows(relocation);
+                });
+    }
+
+    /** RAM both sides' key indexes hold -- their slot tables, and their stores up to the RAM ceiling. */
+    long indexRamBytes() {
+        return leftState.indexRamBytes() + rightState.indexRamBytes();
     }
 
     /** The overflow tier's numbers for this join's row store. */
     com.ash.messaging.pravaha.state.SpillStatistics spillStatistics() {
+        return com.ash.messaging.pravaha.state.SpillStatistics.of(store)
+                .plus(leftState.indexSpillStatistics())
+                .plus(rightState.indexSpillStatistics());
+    }
+
+    /** The overflow tier's numbers for the rows alone, without the key indexes. */
+    com.ash.messaging.pravaha.state.SpillStatistics rowSpillStatistics() {
         return com.ash.messaging.pravaha.state.SpillStatistics.of(store);
     }
 

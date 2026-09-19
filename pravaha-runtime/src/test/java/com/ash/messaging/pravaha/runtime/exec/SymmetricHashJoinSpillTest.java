@@ -151,6 +151,14 @@ class SymmetricHashJoinSpillTest {
                     .as("40,000 distinct rows do not fit one 1 MiB slab")
                     .isTrue();
             assertThat(join.rowsHeldLeft()).isEqualTo(40_000);
+            // ADR-044: the key index over those rows spills with them, under the same RAM ceiling,
+            // rather than growing in RAM behind a four-gigabyte backstop.
+            assertThat(join.spillStatistics().overflowBytesReserved())
+                    .as("index and rows together hold more overflow than the rows alone")
+                    .isGreaterThan(join.rowSpillStatistics().overflowBytesReserved());
+            assertThat(join.indexRamBytes())
+                    .as("the index's RAM: its slot tables and one 1 MiB slab of its store per side")
+                    .isLessThanOrEqualTo(2L * (1 << 20) + 2L * 65_536 * 16);
         }
     }
 

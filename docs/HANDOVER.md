@@ -542,9 +542,11 @@ against a running server never sees a row" was accurate of the registry before i
 tables indexing `RowStore` blocks — plus checkpoints written as files, and, when
 `pravaha.state.spill.*` is set, a memory-mapped overflow tier for join and windowed-aggregate state
 (ADR-037 B2). RocksDB will not be built: ADR-044 makes the mapped
-tier L1, because a native JNI library is the one dependency the bundle refuses, and commits to the
-four things RocksDB would have given — slab compaction, a byte quota, `COUNT(DISTINCT)` spilling and a
-measurement at several times RAM.
+tier L1, because a native JNI library is the one dependency the bundle refuses, and built the four
+things RocksDB would have given — slab compaction (`compaction-threshold`), a byte quota (`max-bytes`,
+`PRV-4005`, and `PRV-4006` before a full disk), `COUNT(DISTINCT)` spilling (`PRV-3023` retired) and a
+measurement at 1–16x a 64 MiB ceiling: within about 2x of RAM throughput while page-cached. The tier
+stays off by default; state larger than free RAM is not measured.
 
 **The primary defence against unbounded state is refusal, not cleanup.** An unwindowed keyed
 `GROUP BY` is rejected at planning (`PRV-2050`) rather than accepted and spilled, because spilling

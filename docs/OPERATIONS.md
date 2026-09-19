@@ -98,8 +98,19 @@ ceiling) is simply kept; compaction never loses a block. Per query, `pravaha_que
 `_live_bytes`, `_fragmentation`, `_compactions` and `_slabs_released` (below) show whether it is
 keeping up.
 
+**Should you turn it on?** ADR-044's measurement drove join and windowed-aggregate state to 16 times
+a 64 MiB ceiling on an NVMe laptop: spilled state ran at 0.44–1.15x of the same load in RAM (inserts
+the worst, probes and window firing nearly unaffected) while the files stayed in the page cache, and
+compaction brought the files back to the live state in about a second per gigabyte freed. So: on a
+node with a local disk whose queries could surprise it, yes — with `max-bytes` below what the disk
+holds, and the directory on a **real disk** (a tmpfs `/tmp` is RAM, and spilling there only moves the
+out-of-memory to the kernel). What was not measured is state larger than free RAM, which will be
+slower than those numbers. A join's key index spills with its rows, except its slot table: 16 bytes a
+slot, at most 0.7 full, always in RAM.
+
 With it, join and windowed-aggregate state that outgrows memory is written to mapped files and the
-query keeps running, slower, instead of dying with `PRV-4001`. It is off by default. Every state
+query keeps running, slower, instead of dying with `PRV-4001`. It is off by default, and stays so
+(ADR-044): there is no directory it could safely assume. Every state
 shape spills: an aggregate containing `COUNT(DISTINCT)` keeps its per-value counts off-heap in the
 same kind of store as everything else, and spills with it (ADR-044; it used to be refused with a
 code that is now retired). Without the tier, the failure mode is memory, not disk.

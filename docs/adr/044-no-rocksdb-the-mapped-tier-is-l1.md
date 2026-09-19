@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — **supersedes the RocksDB tier of [ADR-006](006-tiered-state.md) and design D5**. The mapped tier exists (ADR-037 B2); of the four improvements below, `COUNT(DISTINCT)` spilling, slab compaction and the byte quota are built, and the measurement is not |
+| Status | Accepted — **supersedes the RocksDB tier of [ADR-006](006-tiered-state.md) and design D5**. The mapped tier exists (ADR-037 B2); the four improvements below are built and the measurement is recorded, with its recommendation: the tier stays off by default |
 | Date | 2026-09-19 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-006 (tiered state), ADR-037 (state that degrades), design D5 and §14 |
@@ -44,7 +44,7 @@ RocksDB is not added, and design D5's "L1 = RocksDB for spill/recovery" no longe
 | Compaction: space reclaimed as keys churn | Freed blocks are reused within their size class and never defragmented, so a churning query's files can outgrow its live state | **Slab compaction**: move live blocks out of sparse slabs and release them | **Built** 2026-09-19: `RowStore.compactOverflow`, driven by each state's owner between batches, triggered by `pravaha.state.spill.compaction-threshold` |
 | A disk budget in bytes | A ceiling in slabs (`max-overflow-slabs`); a full disk surfaces as an I/O failure | **A byte quota**, and a coded refusal before the directory runs out rather than after | **Built** 2026-09-19: `pravaha.state.spill.max-bytes`, the node's budget across every query (`PRV-4005`), and a free-space check before every slab (`PRV-4006`); `max-overflow-slabs` kept as the per-store ceiling |
 | Every state shape spills | `COUNT(DISTINCT)` keeps an on-heap set per group and is refused with the tier on (`PRV-3023`) | **Distinct sets in `RowStore`**, so they spill like everything else | **Built** 2026-09-19: one off-heap entry per `(group, slice, column, value)` with a count, in a `RowStore` that takes the overflow tier (`DistinctValueCounts`); `PRV-3023` retired |
-| Years of production measurement | Correctness-tested, never measured with state much larger than RAM | **A measurement** at several multiples of RAM, and a decision from it on whether the tier should be on by default | Not built |
+| Years of production measurement | Correctness-tested, never measured with state much larger than RAM | **A measurement** at several multiples of RAM, and a decision from it on whether the tier should be on by default | **Done** 2026-09-19: `SpillTierMeasurementIT`, 1x–16x a 64 MiB ceiling (below); recommendation: stays off by default |
 
 Those four are the work this ADR commits to. None of them needs a key-value store.
 
@@ -135,6 +135,105 @@ Proven by `SpillQuotaTest`: three slabs fit a three-slab quota and the fourth is
 space stubbed below a slab, the slab is refused with `PRV-4006`, no file, and its quota reservation
 returned; a `RowStore` over a two-slab quota stops with `PRV-4005` holding exactly two overflow slabs
 and carries on through its free list.
+
+## Measurement, 2026-09-19
+
+`SpillTierMeasurementIT` (`pravaha-runtime`, `exec`; excluded from the default build as `*IT`, run with
+`-Dtest=SpillTierMeasurementIT`). Each operator is driven directly, single-threaded as a lane drives
+it, to 1, 2, 4, 8 and 16 times a **64 MiB** RAM ceiling (the join's real one, `MAX_JOIN_STATE_SLABS`;
+for the windowed aggregate, per store, via its slice ceiling), once with the tier and once with the
+same load held entirely in RAM. Phases: insert; 500,000 probes (join) or updates (aggregate) at
+uniformly random keys, which is the pattern that finds cold pages; firing every window (aggregate);
+then the churn — three rows in four retracted at random (join), the watermark past three slices of
+four (aggregate) — and one compaction. "On disk" is `du` of the spill directory (sparse files: blocks
+written), with slab bytes mapped beside it.
+
+**The machine, and what that limits.** A heterogeneous 12-core laptop (AMD Ryzen AI 9 HX 370: Zen 5
+and Zen 5c cores, 24 threads) with 61 GiB of RAM, ~38 GiB of it free, a Crucial P310 NVMe SSD, JDK 21,
+nothing pinned: the single lane thread may land on either core type, and repeated runs vary by
+±20–25 % — the 1x rows, where nothing spills, show the noise (the tier's run beats the RAM run there
+more than once). The page cache was **not** dropped: at most ~2 GiB was spilled against ~38 GiB free,
+so the mapped files stayed resident and these numbers are the cost of the mapped tier's indirection,
+page-table work and write-back, **not** of reading cold state from the device. State larger than free
+RAM would cost more and was not measured; it is the case in *What would make this wrong*.
+
+The spill directory was `pravaha-runtime/target/…` on the NVMe drive, on purpose: `/tmp` on this
+machine is a tmpfs, i.e. RAM, and a tier pointed there measures nothing about a disk — which is also
+the argument below against any default directory.
+
+Windowed aggregate (`COUNT`, `SUM`, `COUNT(DISTINCT)`; four slices; a 128-byte block per accumulator
+and another per distinct value, so two stores of equal size, each with a 64 MiB RAM tier; from the
+first run, which the join-index change below does not touch):
+
+| state / ceiling | accumulators | tier | update/s | random update/s | fired/s | on disk before compaction | on disk after | compaction |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 524,288 | RAM | 1,330,671 | 1,389,568 | 645,918 | — | — | — |
+| 1x | 524,288 | spill | 1,923,487 | 1,400,082 | 695,880 | 0 | 0 | — |
+| 2x | 1,048,576 | RAM | 1,540,125 | 1,283,330 | 575,652 | — | — | — |
+| 2x | 1,048,576 | spill | 999,078 | 1,058,322 | 533,682 | 128.1 MiB | 64.1 MiB | 124 ms, 1,024 slabs |
+| 4x | 2,097,152 | RAM | 1,480,591 | 1,044,747 | 503,816 | — | — | — |
+| 4x | 2,097,152 | spill | 807,563 | 904,662 | 419,735 | 384.2 MiB | 128.2 MiB | 201 ms, 4,096 slabs |
+| 8x | 4,194,304 | RAM | 1,309,980 | 1,084,626 | 363,495 | — | — | — |
+| 8x | 4,194,304 | spill | 570,841 | 647,084 | 360,480 | 896.5 MiB | 256.5 MiB | 374 ms, 10,240 slabs |
+| 16x | 8,388,608 | RAM | 1,422,373 | 753,003 | 410,422 | — | — | — |
+| 16x | 8,388,608 | spill | 739,149 | 863,412 | 375,208 | 1,921.0 MiB | 513.0 MiB | 713 ms, 22,528 slabs |
+
+After compaction the files equal the live state exactly (the one surviving slice of four, 64 KiB
+slabs); before it, the discarded three quarters were still on disk.
+
+Join (a `BIGINT` and a short string per row, 147 bytes of row store per row, distinct keys; the key
+index's RAM is its slot table plus whatever of its store has not spilled):
+
+| state / ceiling | rows | tier | insert/s | probe/s | retract/s | key index in RAM | on disk before compaction | on disk after | compaction |
+|---|---|---|---|---|---|---|---|---|---|
+| 1x | 443,428 | RAM | 2,470,912 | 507,693 | 1,430,992 | 44 MiB | — | — | — |
+| 1x | 443,428 | spill | 3,021,547 | 487,682 | 1,416,571 | 44 MiB | 0 | 0 | — |
+| 2x | 886,857 | RAM | 3,184,917 | 536,436 | 1,409,246 | 87 MiB | — | — | — |
+| 2x | 886,857 | spill | 1,898,046 | 461,721 | 1,187,170 | 87 MiB | 44.3 MiB | 0.3 MiB | 114 ms, 44 slabs |
+| 4x | 1,773,714 | RAM | 2,664,991 | 508,797 | 1,201,916 | 173 MiB | — | — | — |
+| 4x | 1,773,714 | spill | 2,047,511 | 487,600 | 1,309,172 | 128 MiB | 196.9 MiB | 0.9 MiB | 287 ms, 196 slabs |
+| 8x | 3,547,428 | RAM | 2,493,509 | 477,642 | 1,235,229 | 345 MiB | — | — | — |
+| 8x | 3,547,428 | spill | 2,039,487 | 464,943 | 1,247,525 | 192 MiB | 521.7 MiB | 45.0 MiB | 625 ms, 521 slabs |
+| 16x | 7,094,857 | RAM | 2,367,978 | 452,373 | 1,166,246 | 690 MiB | — | — | — |
+| 16x | 7,094,857 | spill | 2,009,177 | 437,435 | 1,009,228 | 320 MiB | 1,171.2 MiB | 197.0 MiB | 1,180 ms, 1,171 slabs |
+
+After the churn a quarter of the rows is live; compaction moves what fits into the RAM tier's freed
+blocks and the rest into the fewest slabs, so the files come down to the live overflow (0.1 MiB at
+2x, 196.8 MiB at 16x) plus at most one partly carved slab.
+
+**What the first run found, and what changed because of it.** The first run of the join had the
+key index entirely in RAM: 690 MiB of index at 16x beside a 64 MiB row ceiling — about 100 bytes a key,
+bounded only by a four-gigabyte backstop, so a "spilled" join's memory still grew with its key count.
+The index's store now takes the tier too, under the same RAM ceiling as the rows (`JoinSide`, and it is
+compacted with them); the table above is the second run. What stays in RAM is the index's slot table,
+16 bytes a slot at a load of at most 0.7 — 256 MiB of the 320 MiB at 16x. That is the floor of this
+design: a probe walks the slot table, and moving it to disk would make every probe a page fault. A
+join with tens of millions of keys should be sized with it in mind.
+
+**What the numbers show.**
+
+- **Throughput under spill stays within about 2x of RAM, and mostly much closer, while the page
+  cache holds the files.** Windowed-aggregate inserts are the worst case, 0.44–0.65x of the all-RAM run
+  from 2x to 16x (fresh blocks carved in mapped memory, first-touch page faults, write-back); random
+  updates to spilled accumulators run 0.6–1.15x and window firing 0.83–0.99x. The join loses less:
+  inserts 0.6–0.85x, probes 0.86–0.97x, retractions 0.84–1.09x. The spilled runs do not get
+  steadily slower from 2x to 16x — the cost is the tier's, not the size's, as long as it is cached.
+- **Compaction costs 50–260 ms per 100 MiB freed**, less the more it frees (0.7 s for 1.4 GiB, 1.2 s for 1 GiB at 16x; one pause on the
+  lane that owns the state), and gives the disk back: 1,921 MiB to 513 MiB (aggregate), 1,171 MiB to
+  197 MiB (join) — to the live state, as the unit tests assert.
+- **The memory ceiling now holds for everything but index slot tables**, which is what the tier is
+  for.
+
+**Recommendation: leave the tier off by default.** The numbers do not argue against the tier — its
+cost is modest, bounded and flat across multiples — and a deployment with a local disk and state that
+can surprise it should turn it on, with `max-bytes` set below what the disk holds. They do not justify
+turning it on for everyone, for three reasons the measurement makes concrete: there is no directory
+that is safe to assume (on this very machine the obvious default, the temp directory, is RAM, where
+"spilling" would only move the out-of-memory to the kernel); the cost of state larger than free RAM —
+the only case where the tier is doing its real job — is unmeasured here and will be worse than the
+table; and a query that spills changes from failing loudly at its ceiling to running at half speed,
+which an operator should choose knowing `pravaha_query_spill_bytes` is there to watch. The default
+stays `enabled` unset with no directory, i.e. off.
 
 ## What would make this wrong
 

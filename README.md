@@ -125,11 +125,13 @@ corrected by late data arrives as a retraction of the old answer followed by the
 - **Change data capture.** A PostgreSQL logical-replication source is designed
   ([ADR-041](docs/adr/041-change-data-capture-without-debezium.md)) and not started. Sources poll or
   scan; Aerospike and Cassandra scans cannot see deletes.
-- **The spill tier's last four pieces.** There is no RocksDB, by decision
+- **The spill tier, measured only while the page cache holds it.** There is no RocksDB, by decision
   ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
-  the on-disk tier. It spills `COUNT(DISTINCT)` like everything else and compacts churned slabs
-  away, and budgets its disk in bytes (`max-bytes`, refusing by code before the disk fills); it
-  does not yet have a measurement at several times RAM.
+  the on-disk tier, and its last four pieces are built — `COUNT(DISTINCT)` spills, churned slabs are
+  compacted away, the disk is budgeted in bytes (`max-bytes`, refusing by code before it fills), and
+  a measurement at 1–16x a 64 MiB ceiling found spilled state within about 2x of RAM throughput. It
+  stays off by default. Not measured: state larger than the machine's free RAM, and a join's key
+  index keeps its slot table (16 bytes a slot) in RAM.
 - **The rest of the design's `CREATE CONTINUOUS QUERY` grammar.** The statement registers, and
   `DROP`, `PAUSE`, `RESUME CONTINUOUS QUERY` and `SHOW CONTINUOUS QUERIES` manage, over Flight SQL
   and in the embedded engine; the PostgreSQL gateway stays read-only and refuses them (`PRV-6211`).

@@ -121,6 +121,31 @@ final class JoinSide implements AutoCloseable {
             com.ash.messaging.pravaha.common.memory.MemoryAccess access,
             StreamSchema schema,
             int[] keyOrdinals) {
+        this(store, access, schema, keyOrdinals, BUCKET_STORE_MAX_SLABS, null, 0);
+    }
+
+    /**
+     * With the key index given the overflow tier too (ADR-044).
+     *
+     * <p>The rows spilled and the index over them did not: ADR-044's measurement found a spilled join
+     * still carrying an index of about 100 bytes a key in RAM, bounded by nothing but a four-gigabyte
+     * backstop. With a tier, the index's own store gets the same RAM
+     * ceiling as the rows and spills past it; its slot table -- sixteen bytes a slot -- stays in RAM,
+     * which is the part a probe walks.
+     *
+     * @param indexRamSlabs the RAM ceiling of the index's store, in {@link #BUCKET_STORE_SLAB_BYTES}
+     *     slabs
+     * @param overflowAccess the tier, or {@code null} for none -- the index then keeps its four-gigabyte
+     *     RAM backstop, exactly as before
+     */
+    JoinSide(
+            RowStore store,
+            com.ash.messaging.pravaha.common.memory.MemoryAccess access,
+            StreamSchema schema,
+            int[] keyOrdinals,
+            int indexRamSlabs,
+            com.ash.messaging.pravaha.common.memory.MemoryAccess overflowAccess,
+            int maxOverflowSlabs) {
         this.store = store;
         this.access = access;
         this.schema = schema;
@@ -128,8 +153,25 @@ final class JoinSide implements AutoCloseable {
         this.keyOrdinals = keyOrdinals.clone();
         this.cursor = new BinaryRowView(layout);
         this.restoreView = new BinaryRowView(layout);
-        this.buckets = new VariableKeyStateMap(access, 64, BUCKET_STORE_SLAB_BYTES, BUCKET_STORE_MAX_SLABS);
+        this.buckets = overflowAccess == null
+                ? new VariableKeyStateMap(access, 64, BUCKET_STORE_SLAB_BYTES, BUCKET_STORE_MAX_SLABS)
+                : new VariableKeyStateMap(
+                        access, 64, BUCKET_STORE_SLAB_BYTES, indexRamSlabs, overflowAccess, maxOverflowSlabs);
         this.hashScratch = access.allocate(Long.BYTES);
+    }
+
+    /** Compacts the key index's own overflow slabs (ADR-044); the rows are the join's to compact. */
+    int compactIndexIfFragmented(double threshold) {
+        return buckets.compactIfFragmented(threshold);
+    }
+
+    /** The overflow tier's numbers for this side's key index. */
+    com.ash.messaging.pravaha.state.SpillStatistics indexSpillStatistics() {
+        return buckets.spillStatistics();
+    }
+
+    boolean indexHasSpilled() {
+        return buckets.hasSpilled();
     }
 
     /** The chain head for a hash, or {@link ArenaHandle#NULL} if no bucket exists for it yet. */
@@ -351,6 +393,11 @@ final class JoinSide implements AutoCloseable {
 
     int distinctKeys() {
         return buckets.size();
+    }
+
+    /** RAM this side's key index holds: its slot table and whatever of its store has not spilled. */
+    long indexRamBytes() {
+        return buckets.bytesAllocated() - buckets.spillStatistics().overflowBytesReserved();
     }
 
     /**
