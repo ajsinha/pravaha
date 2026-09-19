@@ -38,7 +38,7 @@ a support conversation should have to start with.
 | PRV-5080 – PRV-5084 | `aerospike`, `aerospike-lookup`, `aerospike-sink` |
 | PRV-5085 – PRV-5089 | `cassandra` |
 | PRV-5090 – PRV-5094 | Attaching a source or sink to a registered query |
-| PRV-5100 – PRV-5103 | `kafka-sink` |
+| PRV-5100 – PRV-5107 | `kafka` (source) and `kafka-sink` |
 | PRV-5110 – PRV-5117 | `postgres-cdc` |
 
 ## Loading and naming plugins
@@ -375,6 +375,31 @@ the binding's name). The same code follows a transaction that outlived
 The staging topic that makes the sink exactly once is compacted, cannot be created, or — at a restart
 after a long outage — has already expired the staged changes a checkpoint recorded, which are then
 lost to the topic. Raise `staging.retention.ms` and register again.
+
+### PRV-5104 — Kafka: malformed offset
+
+The `kafka` source was handed a checkpointed position it did not write, or one for another topic or
+partition: the binding's `topic` was changed under an existing checkpoint. Register afresh.
+
+### PRV-5105 — Kafka: undecodable record
+
+A record does not fit the declared schema — not JSON, a string in an `INT64` column, a missing
+`NOT NULL` column, a tombstone in `format: json` — and there is no dead-letter queue. The message
+names it as `topic/partition@offset`. Set `pravaha.dlq.directory` to set such records aside and read
+on, fix the producer, or for an upsert topic's tombstones set `tombstone: skip`. The position stays
+before the record, so a restart meets it again rather than skipping it.
+
+### PRV-5106 — Kafka: resume point gone
+
+The offset a checkpoint resumes from is no longer in the partition: retention deleted records the
+checkpoint had not read (the node was down longer than the topic's `retention.ms`), or the topic was
+deleted and recreated and the offset is past its end. Those records are lost to every reader, and
+resuming anywhere else would hide it. Raise retention, then drop the checkpoint and register again.
+
+### PRV-5107 — Kafka: read failed
+
+Fetching failed in a way retrying will not fix: authorization revoked mid-stream, or the topic
+deleted.
 
 ## postgres-cdc
 
