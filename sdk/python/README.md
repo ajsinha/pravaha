@@ -71,7 +71,14 @@ with connect(options=options) as client:
     client.describe_query("hourly_spend") # keys, retention, sink and its failure, rows in
     client.query_plan("hourly_spend"); client.describe_view("hourly_spend")
     client.sinks(); client.status(); client.metrics_text()
+    client.plugins()                      # manifests, declared capabilities, visible bindings
+    client.permissions()                  # what the policy lets this principal do
+    client.audit(principal="ann", decision="deny", limit=50)  # 403 unless the policy allows it
 ```
+
+`audit()` pages newest first: pass a page's `nextCursor` back as `cursor` for the next one. Reading
+the audit trail is a permission of its own (`SecurityPolicy.mayReadAudit`), not a consequence of
+being allowed to read views, and every attempt is itself recorded.
 
 These return the JSON the API documents, as dicts. A refusal raises `ApiError` with the HTTP
 `status`, the engine's `engine_code` (`"PRV-7002"`) and its number as `code`; an engine that does not

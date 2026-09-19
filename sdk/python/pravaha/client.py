@@ -669,6 +669,59 @@ class Client:
         """The node: identity, version, engine state, plugin health. ``GET /api/v1/status``."""
         return dict(self._http().get("/api/v1/status") or {})
 
+    def plugins(self) -> "list[dict]":
+        """Every plugin the node can load: ``name``, ``version``, ``requiredApiVersion``,
+        ``compatible``, ``loaded``, ``kinds`` (``source``/``sink``/``lookup``), declared
+        ``capabilities``, manifest ``settings`` (names only), ``health`` (with ``reported``:
+        whether a live instance said so) and the ``bindings`` this principal may see. Never a
+        binding's options. ``GET /api/v1/plugins``."""
+        return list(self._http().get("/api/v1/plugins") or [])
+
+    def audit(
+        self,
+        *,
+        since: str | None = None,
+        until: str | None = None,
+        principal: str | None = None,
+        view: str | None = None,
+        action: str | None = None,
+        decision: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> dict:
+        """One page of the node's recorded authorization decisions, newest first: ``events``
+        (each with ``sequence``, ``at``, ``principal``, ``action``, ``target``, ``decision``,
+        ``reason``, ``detail``), ``nextCursor`` (pass back as ``cursor``; ``None`` on the last
+        page), and what the readable window holds (``capacity``, ``retained``, ``evicted``,
+        ``oldestRetained``). ``since``/``until`` are ISO-8601 instants; ``decision`` is
+        ``"allow"`` or ``"deny"``.
+
+        A permission of its own: a principal the policy does not let read the trail gets
+        :class:`ApiError` with status 403, however much else it may read -- and the attempt is
+        recorded either way. ``GET /api/v1/audit``."""
+        query = {
+            name: value
+            for name, value in (
+                ("since", since),
+                ("until", until),
+                ("principal", principal),
+                ("view", view),
+                ("action", action),
+                ("decision", decision),
+                ("limit", limit),
+                ("cursor", cursor),
+            )
+            if value not in (None, "")
+        }
+        return dict(self._http().get("/api/v1/audit", query or None) or {})
+
+    def permissions(self) -> dict:
+        """What the node's policy lets this principal do: ``register``, ``readAudit`` (each
+        ``allowed`` with a ``reason`` when not), and for each view and stream it may see, how
+        it may ``read`` it (``full`` or ``filtered``) and whether it may ``administer`` it.
+        ``GET /api/v1/me/permissions``."""
+        return dict(self._http().get("/api/v1/me/permissions") or {})
+
     def metrics_text(self) -> str:
         """The node's Prometheus exposition, unparsed. ``GET /actuator/prometheus``."""
         return self._http().text("/actuator/prometheus")

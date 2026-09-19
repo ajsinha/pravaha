@@ -95,6 +95,8 @@ def test_each_call_reaches_its_published_endpoint_with_the_token(engine):
     client.describe_view("orders")
     assert client.sinks() == [{"name": "orders_out", "plugin": "filesystem"}]
     client.status()
+    client.plugins()
+    client.permissions()
     client.declare_stream("clicks", "at:TIMESTAMP", event_time="at", out_of_orderness="PT5S")
 
     seen = [(c["method"], c["path"]) for c in _Recorder.calls]
@@ -108,6 +110,8 @@ def test_each_call_reaches_its_published_endpoint_with_the_token(engine):
         ("GET", "/api/v1/views/orders"),
         ("GET", "/api/v1/sinks"),
         ("GET", "/api/v1/status"),
+        ("GET", "/api/v1/plugins"),
+        ("GET", "/api/v1/me/permissions"),
         ("POST", "/api/v1/streams"),
     ]
     assert all(c["authorization"] == "Bearer t0ken" for c in _Recorder.calls)
@@ -118,6 +122,38 @@ def test_each_call_reaches_its_published_endpoint_with_the_token(engine):
         "eventTime": "at",
         "outOfOrderness": "PT5S",
     }
+
+
+def test_audit_sends_only_the_filters_given_and_passes_the_cursor_back(engine):
+    _Recorder.answers[("GET", "/api/v1/audit")] = (
+        200,
+        {"events": [{"sequence": 7, "principal": "ann"}], "nextCursor": "7"},
+    )
+    client = _client(engine)
+
+    first = client.audit()
+    client.audit(principal="ann", decision="deny", since="2026-09-19T08:00:00Z", limit=50,
+                 cursor=first["nextCursor"])
+
+    assert [c["path"] for c in _Recorder.calls] == [
+        "/api/v1/audit",
+        "/api/v1/audit?since=2026-09-19T08%3A00%3A00Z&principal=ann&decision=deny&limit=50&cursor=7",
+    ]
+    assert first["events"][0]["principal"] == "ann"
+
+
+def test_a_principal_not_allowed_the_audit_trail_gets_a_403_api_error(engine):
+    _Recorder.answers[("GET", "/api/v1/audit")] = (
+        403,
+        {"code": "PRV-7002", "message": "ann may not read the audit trail"},
+    )
+    client = _client(engine)
+
+    with pytest.raises(ApiError) as refused:
+        client.audit()
+
+    assert refused.value.status == 403
+    assert refused.value.engine_code == "PRV-7002"
 
 
 def test_a_name_is_one_path_segment_and_cannot_reach_another_endpoint(engine):
