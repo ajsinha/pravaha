@@ -19,7 +19,7 @@ becomes a surprise.
 | **Unwindowed keyed aggregate** | nothing | **refused at planning** (`PRV-2050`) |
 | Stream-to-stream join state | the **match window** (1 h event time, default) | rows released as the watermark passes |
 | …and as a backstop | `maxRowsPerSide` | **fails** (`PRV-3021`) — never evicts, see below |
-| A served view | **retention** (24 h event time, default) | oldest rows forgotten |
+| A served view | **retention** — forever unless the registration sets one (`RETAIN FOR`, `--retain`) | oldest rows forgotten |
 | …and as a backstop | `maxKeys` | **fails** (`PRV-4022`) |
 | Subscriber buffers | `SubscriptionOptions` | conflate / drop / fail, per the subscriber's choice |
 | Concurrent reads | `ReadAdmission` | refuse (`PRV-4026`–`4028`) |
@@ -119,10 +119,13 @@ code that is now retired). Without the tier, the failure mode is memory, not dis
 ## Capacity: the two numbers that interact
 
 Retention says what a view *means*; the ceiling says what the node can *afford*. When they disagree
-the view refuses and the message names both:
+the view refuses and the message names both — for a view registered to retain 24 hours:
 
 > `PRV-4022 … 24 hours of this data is more than 1,000,000 rows. Shorten the window, or provision for
 > the volume.`
+
+A view with no retention keeps everything, so the same refusal says instead that its key space keeps
+growing, and to give it a retention, bound the key, or raise the ceiling deliberately.
 
 Sizing rule of thumb: **rows ≈ arrival rate × retention window × distinct keys touched**. If that
 exceeds the ceiling, one of the two numbers is wrong, and which one is a product question rather than

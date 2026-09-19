@@ -152,7 +152,8 @@ commit that a crash aborted and the restart redid, twice; exactly once is promis
 **Are you ignoring weights?** A subscriber maintaining its own aggregate must apply the `-1`/`+1`
 weights, or it drifts from the view the first time late data corrects a window.
 
-**Did rows age out?** A view has a retention window — a day by default. `evicted()` counts what has
+**Did rows age out?** A view keeps everything unless its registration set a retention (`RETAIN FOR`,
+`--retain`); one that did evicts by event time. `evicted()` counts what has
 been forgotten, and a window shorter than the questions being asked of it is exactly what that
 counter exists to reveal.
 
