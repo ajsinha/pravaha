@@ -81,10 +81,13 @@ class ApiIntegrationTest {
 
     @Test
     void listsAndFetchesStreams() throws Exception {
+        // Found by name, not by position. OpenApiContractTest has identical @SpringBootTest
+        // properties, so Spring hands both classes one cached context -- and when it runs first,
+        // its "contract_check" stream sorts ahead of "txn". Asserting $[0] passed or failed on
+        // surefire's class order rather than on anything the API did.
         mvc.perform(get("/api/v1/streams"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].name").value("txn"))
-                .andExpect(jsonPath("$[0].fieldCount").value(4));
+                .andExpect(jsonPath("$[?(@.name == 'txn')].fieldCount").value(4));
 
         mvc.perform(get("/api/v1/streams/txn"))
                 .andExpect(status().isOk())

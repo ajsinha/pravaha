@@ -73,7 +73,12 @@ class StateClusterTest extends StateTestSupport {
     }
 
     private static List<String> grep(String pattern, Path root) throws Exception {
-        Process process = new ProcessBuilder("grep", "-rEn", pattern, "--include=*.java", ".")
+        // Agent worktrees under .claude/ are full copies of this repository, so an unscoped grep
+        // reports their uncommitted edits as if they were shipped code here. OrphanedClassTest and
+        // LicenseHeaderTest exclude the same directory for the same reason. --exclude-dir matches
+        // directories met while recursing, never the "." root itself, so a run from inside a
+        // worktree still searches that worktree.
+        Process process = new ProcessBuilder("grep", "-rEn", pattern, "--include=*.java", "--exclude-dir=.claude", ".")
                 .directory(root.toFile())
                 .redirectErrorStream(true)
                 .start();
