@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **314 findings carrying a
-status — 198 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
+only part that is kept current. Counting the register as it stands: **315 findings carrying a
+status — 199 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6666,3 +6666,9 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Found while moving `COUNT(DISTINCT)` off-heap.** Format 1 wrote sums but never the count of non-null values an `AVG` divides by, so a window whose accumulators were restored from a checkpoint published an average of 0 -- a silently wrong answer on the recovery path, the same class as CKPT-2 in a different operator.
 > **Why it mattered:** a correct query gave a wrong answer after a restart.
 
+
+### PUSH-1 (HIGH) — a partial-aggregate request could leave a filter applied by nobody
+
+> **Status:** FIXED — `41e3a27`: `SourcePushdown` asks a source for a partial aggregate only when every predicate between the aggregate and the scan is pushable *and* the source also declares `FILTER`; otherwise the source is asked for rows and the engine filters them. `PartialAggregatePushdownEquivalenceTest` runs the shipped JDBC plugin on H2, pushed and unpushed in lockstep (20 generated cases), and a partial that ignored its pushed filters was seed-proven to fail it (`[27, 3087]` expected, `[111, 10798]` produced).
+> **Found while making the JDBC plugin claim `PARTIAL_AGGREGATE`.** A partial replaces the rows, so the engine's own filter has nothing left to run against. The old rule asked for one from a source declaring `PARTIAL_AGGREGATE` without `FILTER`, or with a `LIKE` or an `OR` below the aggregate that no source can carry, and the filter would have been dropped: a total over rows the query excluded.
+> **Why it mattered:** a silently wrong answer. Latent until now, because no shipped plugin declared `PARTIAL_AGGREGATE` before this change.
