@@ -897,6 +897,15 @@ reversed.
 
 Node upgrades are a stop and start — there is no clustering to roll through.
 
+**A checkpoint written by an older engine may be refused.** Formats inside a checkpoint carry a
+version and a different one is refused with `PRV-4002`, never guessed at. The served view's snapshot
+went to version 2 when it began keeping every value's exact type (VIEW-2); a checkpoint whose view is
+version 1 is refused, before any operator state is restored, and that query resumes from the start of
+its sources — reprocessing, visible in the numbers while it catches up, never a double count in its
+answers (a sink that is not transactional is written the replayed rows again). Every
+checkpoint written after the upgrade is readable by it. Plan an upgrade across such a change for a
+time when replaying the sources is affordable, or accept the warm-up.
+
 ## What is not solved
 
 Listed because you will meet them, not to be thorough:

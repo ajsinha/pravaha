@@ -1089,7 +1089,11 @@ public final class QueryRegistry implements AutoCloseable {
                 // accumulators, so the view is the entire answer -- and a restart that restored
                 // offsets without it resumed the source past every row it had read and served an
                 // empty view, with the query reporting RUNNING over the emptiness.
-                .checkpointingViewWith(view::snapshot, view::restore);
+                .checkpointingViewWith(view::snapshot, view::restore)
+                // A view snapshot this engine cannot read is refused before any lane state is put
+                // back, so the replay from the sources that follows starts from empty operators
+                // rather than counting everything before the checkpoint twice (VIEW-2).
+                .checkingViewWith(ServedView::requireReadable);
         if (watermarkIdleAfter != null) {
             execution.generatingWatermarks(null, watermarkIdleAfter, watermarkTick);
         }

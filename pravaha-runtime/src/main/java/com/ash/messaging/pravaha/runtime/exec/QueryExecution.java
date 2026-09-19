@@ -998,6 +998,24 @@ public final class QueryExecution implements AutoCloseable {
         return this;
     }
 
+    private java.util.function.Consumer<byte[]> viewCheck;
+
+    /**
+     * Refuses a checkpoint whose view this query cannot restore, before any lane is restored.
+     *
+     * <p>The view is restored after the lanes, so a view snapshot refused there -- one written in a
+     * format this engine no longer reads -- was refused with every lane's operator state already
+     * back. The caller falls back to replaying its sources from the start, and replaying them into
+     * restored accumulators counts every row before the checkpoint twice. Checked first, a refusal
+     * leaves the lanes as empty as the replay needs them.
+     *
+     * @param check throws when the bytes are not a view snapshot this query can restore
+     */
+    public QueryExecution checkingViewWith(java.util.function.Consumer<byte[]> check) {
+        this.viewCheck = check;
+        return this;
+    }
+
     /**
      * What a checkpoint asks of a query's output, at the cut and on the lane's own thread.
      *
@@ -1264,6 +1282,11 @@ public final class QueryExecution implements AutoCloseable {
      * exists to prevent.
      */
     public void restore(com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint, Duration timeout) {
+        byte[] viewState = checkpoint.operatorState().get(SERVED_VIEW_STATE);
+        if (viewState != null && viewRestore != null && viewCheck != null) {
+            // Before any lane: see checkingViewWith.
+            viewCheck.accept(viewState);
+        }
         for (int index = 0; index < pipelines.size(); index++) {
             InterpretedPipeline pipeline = pipelines.get(index);
             byte[] state = checkpoint.operatorState().get("lane-" + index);

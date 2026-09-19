@@ -155,6 +155,16 @@ counter exists to reveal.
 **Are you summing across currencies?** Not an engine problem, but the one that gets shipped. The
 schema is where you stop yourself.
 
+**Did the query restart from an old checkpoint and start again from its sources?** A checkpoint
+carries the view's contents, and the view snapshot format is versioned. A snapshot written before
+the format carried a version (version 1) is refused with `PRV-4002 STATE_UNREADABLE`, because it
+stored `INT32`, `INT16` and `INT8` values as `INT64`, `FLOAT32` as `FLOAT64` and `DECIMAL` truncated
+to a whole number — restored, an `INT32`-keyed view held a second row beside every key updated after
+the restart and a decimal lost its fraction (VIEW-2). The refusal is checked before any operator state
+is restored, so the query resumes from its sources with empty operators, exactly as for any checkpoint
+it cannot read: the answers are rebuilt, not doubled. The next checkpoint is written in the current
+format.
+
 ## "It ran out of memory" / "the disk filled"
 
 | | |

@@ -404,6 +404,41 @@ public final class ServedView {
     }
 
     /**
+     * Marks a view snapshot, so a snapshot of another format -- or bytes that are not one -- is
+     * refused rather than read as rows.
+     */
+    private static final int SNAPSHOT_MAGIC = 0x50525656; // "PRVV"
+
+    /**
+     * Version 2: every value is written as its own class.
+     *
+     * <p>Version 1 had no header and four value tags. Every integral number went out as a {@code
+     * long} and every floating one as a {@code double}, and a {@code BigDecimal} went through {@code
+     * longValue()} -- so an {@code INT32} key came back a {@code Long}, which is not {@code equal} to
+     * the {@code Integer} the engine goes on writing, and {@code 12.345} came back {@code 12}. After a
+     * restore the next update for a key was a second row beside the first, a retraction missed the
+     * row it withdrew, and a sink seeded from the difference was sent the wrong one (VIEW-2).
+     *
+     * <p>A version 1 snapshot is refused, not converted. Its decimals have already lost their
+     * fractions, and nothing in the bytes says which ones did; reading it back would restore an
+     * answer that is wrong without looking wrong. The query starts from its sources instead, as it
+     * does for any checkpoint it cannot read.
+     */
+    private static final int SNAPSHOT_VERSION = 2;
+
+    private static final byte NULL = 0;
+    private static final byte STRING = 1;
+    private static final byte DOUBLE = 2;
+    private static final byte BOOLEAN = 3;
+    private static final byte LONG = 4;
+    private static final byte BYTES = 5;
+    private static final byte INT = 6;
+    private static final byte SHORT = 7;
+    private static final byte BYTE = 8;
+    private static final byte FLOAT = 9;
+    private static final byte DECIMAL = 10;
+
+    /**
      * This view's committed contents, for a checkpoint.
      *
      * <p>The view was not part of a checkpoint at all, and for a filter-or-projection query the
@@ -413,17 +448,21 @@ public final class ServedView {
      *
      * <p>Committed rows only. What is pending has not been published to any reader, so writing it
      * would restore an answer nobody was ever given.
+     *
+     * <p>Every value keeps its class and its exact value: see {@link #SNAPSHOT_VERSION}.
      */
     public synchronized byte[] snapshot() {
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
         try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {
+            out.writeInt(SNAPSHOT_MAGIC);
+            out.writeInt(SNAPSHOT_VERSION);
             out.writeLong(committedFrontier);
             out.writeInt(visible.size());
             for (Map.Entry<Key, Object[]> entry : visible.entrySet()) {
                 Object[] values = entry.getValue();
                 out.writeInt(values.length);
-                for (Object value : values) {
-                    writeValue(out, value);
+                for (int column = 0; column < values.length; column++) {
+                    writeValue(out, values[column], column);
                 }
                 out.writeLong(weights.getOrDefault(entry.getKey(), 1L));
                 out.writeLong(writtenAt.getOrDefault(entry.getKey(), committedFrontier));
@@ -432,6 +471,79 @@ public final class ServedView {
             throw new IllegalStateException("could not snapshot view '" + name + "'", e);
         }
         return bytes.toByteArray();
+    }
+
+    /** One row of a snapshot, read back. */
+    private record SnapshotRow(Object[] values, long weight, long writtenAt) {}
+
+    /** A snapshot, read back whole before anything is done with it. */
+    private record SnapshotContents(long frontier, List<SnapshotRow> rows) {}
+
+    /**
+     * Refuses a snapshot this engine did not write in its current format, without reading the rows.
+     *
+     * <p>For a caller that must know before it restores anything else beside the view: operator
+     * state restored next to a view that is then refused is state with no offsets to resume from.
+     */
+    public static void requireReadable(byte[] snapshot) {
+        if (snapshot == null || snapshot.length == 0) {
+            return;
+        }
+        try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(snapshot))) {
+            readHeader(in, "a view");
+        } catch (java.io.IOException e) {
+            throw unreadable("a view", "it is shorter than its own header", e);
+        }
+    }
+
+    private static void readHeader(java.io.DataInputStream in, String whose) throws java.io.IOException {
+        int magic = in.readInt();
+        if (magic != SNAPSHOT_MAGIC) {
+            // Version 1 had no header: its first eight bytes were the committed frontier.
+            throw unreadable(
+                    whose,
+                    "it is not a version " + SNAPSHOT_VERSION + " view snapshot. A snapshot written before "
+                            + "the format was versioned (version 1) stored INT32, INT16 and INT8 values as INT64, "
+                            + "FLOAT32 as FLOAT64 and DECIMAL truncated to a whole number, so it cannot be read "
+                            + "back as the values it was taken from",
+                    null);
+        }
+        int version = in.readInt();
+        if (version != SNAPSHOT_VERSION) {
+            throw unreadable(
+                    whose,
+                    "it is view snapshot format version " + version + " and this engine reads version "
+                            + SNAPSHOT_VERSION + ". Refusing to guess at the difference",
+                    null);
+        }
+    }
+
+    private static PravahaException unreadable(String whose, String why, Throwable cause) {
+        return new PravahaException(
+                com.ash.messaging.pravaha.state.StateErrors.STATE_UNREADABLE,
+                "cannot restore " + whose + " from this checkpoint: " + why + ". The query resumes from its "
+                        + "sources instead, as it does for any checkpoint it cannot read.",
+                cause);
+    }
+
+    private SnapshotContents read(byte[] snapshot) {
+        String whose = "view '" + name + "'";
+        try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(snapshot))) {
+            readHeader(in, whose);
+            long frontier = in.readLong();
+            int count = in.readInt();
+            List<SnapshotRow> rows = new ArrayList<>(Math.max(0, Math.min(count, 1 << 16)));
+            for (int i = 0; i < count; i++) {
+                Object[] values = new Object[in.readInt()];
+                for (int v = 0; v < values.length; v++) {
+                    values[v] = readValue(in);
+                }
+                rows.add(new SnapshotRow(values, in.readLong(), in.readLong()));
+            }
+            return new SnapshotContents(frontier, rows);
+        } catch (java.io.IOException e) {
+            throw unreadable(whose, "it is truncated or corrupt (" + e.getMessage() + ")", e);
+        }
     }
 
     /**
@@ -444,79 +556,40 @@ public final class ServedView {
      * what the checkpoint's view held. Sending it the whole view would repeat every row it has;
      * sending it nothing would lose what changed while it was away.
      *
-     * <p>Rows are compared as a snapshot writes them, not as objects: a restored view holds the
-     * classes a snapshot reads back, a live one the classes the engine wrote, and comparing those
-     * would call every restored row changed.
+     * <p>Rows are compared as values. They used to be compared as a version 1 snapshot encoded them,
+     * because a restored view held the classes that format read back rather than the ones the engine
+     * wrote -- and that encoding truncated a decimal, so a change from {@code 2.250} to {@code 2.251}
+     * compared equal and was never sent (VIEW-2). A snapshot now reads back exactly what it was taken
+     * from, so the comparison is the plain one.
      *
      * @param snapshot an earlier {@link #snapshot()} of this same view
      * @param withRetractions false for a reader that can only append, which is sent the inserts
      */
     public synchronized List<ViewChange> changesSince(byte[] snapshot, boolean withRetractions) {
-        Map<List<Byte>, Object[]> then = new java.util.LinkedHashMap<>();
+        Map<Key, Object[]> then = new LinkedHashMap<>();
         if (snapshot != null && snapshot.length > 0) {
-            try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(snapshot))) {
-                in.readLong();
-                int rows = in.readInt();
-                for (int i = 0; i < rows; i++) {
-                    Object[] values = new Object[in.readInt()];
-                    for (int v = 0; v < values.length; v++) {
-                        values[v] = readValue(in);
-                    }
-                    in.readLong();
-                    in.readLong();
-                    then.put(encodedKey(values), values);
-                }
-            } catch (java.io.IOException e) {
-                throw new IllegalStateException("could not read a snapshot of view '" + name + "'", e);
+            for (SnapshotRow row : read(snapshot).rows()) {
+                then.put(keyOf(row.values()), row.values());
             }
         }
         List<ViewChange> retractions = new ArrayList<>();
         List<ViewChange> inserts = new ArrayList<>();
-        java.util.Set<List<Byte>> present = new java.util.HashSet<>();
-        for (Object[] now : visible.values()) {
-            List<Byte> key = encodedKey(now);
-            present.add(key);
-            Object[] before = then.get(key);
+        for (Map.Entry<Key, Object[]> entry : visible.entrySet()) {
+            Object[] now = entry.getValue();
+            Object[] before = then.remove(entry.getKey());
             if (before == null) {
                 inserts.add(new ViewChange(now.clone(), 1));
-            } else if (!Arrays.equals(encoded(before), encoded(now))) {
+            } else if (!Arrays.deepEquals(before, now)) {
                 retractions.add(new ViewChange(before, -1));
                 inserts.add(new ViewChange(now.clone(), 1));
             }
         }
-        for (Map.Entry<List<Byte>, Object[]> gone : then.entrySet()) {
-            if (!present.contains(gone.getKey())) {
-                retractions.add(new ViewChange(gone.getValue(), -1));
-            }
+        for (Object[] gone : then.values()) {
+            retractions.add(new ViewChange(gone, -1));
         }
         List<ViewChange> changes = new ArrayList<>(withRetractions ? retractions : List.of());
         changes.addAll(inserts);
         return changes;
-    }
-
-    private List<Byte> encodedKey(Object[] values) {
-        Object[] key = new Object[keyOrdinals.length];
-        for (int i = 0; i < keyOrdinals.length; i++) {
-            key[i] = values[keyOrdinals[i]];
-        }
-        byte[] bytes = encoded(key);
-        List<Byte> boxed = new ArrayList<>(bytes.length);
-        for (byte b : bytes) {
-            boxed.add(b);
-        }
-        return boxed;
-    }
-
-    private static byte[] encoded(Object[] values) {
-        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-        try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {
-            for (Object value : values) {
-                writeValue(out, value);
-            }
-        } catch (java.io.IOException e) {
-            throw new IllegalStateException(e);
-        }
-        return bytes.toByteArray();
     }
 
     /**
@@ -524,82 +597,128 @@ public final class ServedView {
      *
      * <p>Replaces rather than merges: a restore happens into a view that has just been built and is
      * empty, and merging would quietly double a row if that ever stopped being true.
+     *
+     * <p>Read whole before anything is cleared, so a snapshot that is refused leaves the view as it
+     * was rather than half replaced.
      */
     public synchronized void restore(byte[] snapshot) {
         if (snapshot == null || snapshot.length == 0) {
             return;
         }
-        try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(snapshot))) {
-            visible.clear();
-            weights.clear();
-            writtenAt.clear();
-            pending.clear();
-            pendingWeight.clear();
-            pendingTime.clear();
-            long frontier = in.readLong();
-            int rows = in.readInt();
-            for (int i = 0; i < rows; i++) {
-                Object[] values = new Object[in.readInt()];
-                for (int v = 0; v < values.length; v++) {
-                    values[v] = readValue(in);
-                }
-                long weight = in.readLong();
-                long at = in.readLong();
-                Key key = keyOf(values);
-                visible.put(key, values);
-                weights.put(key, weight);
-                writtenAt.put(key, at);
-            }
-            committedFrontier = frontier;
-            appliedFrontier = Math.max(appliedFrontier, frontier);
-        } catch (java.io.IOException e) {
-            throw new IllegalStateException("could not restore view '" + name + "'", e);
+        SnapshotContents contents = read(snapshot);
+        visible.clear();
+        weights.clear();
+        writtenAt.clear();
+        pending.clear();
+        pendingWeight.clear();
+        pendingTime.clear();
+        for (SnapshotRow row : contents.rows()) {
+            Key key = keyOf(row.values());
+            visible.put(key, row.values());
+            weights.put(key, row.weight());
+            writtenAt.put(key, row.writtenAt());
         }
+        committedFrontier = contents.frontier();
+        appliedFrontier = Math.max(appliedFrontier, contents.frontier());
     }
 
-    private static void writeValue(java.io.DataOutputStream out, Object value) throws java.io.IOException {
-        if (value == null) {
-            out.writeByte(0);
-        } else if (value instanceof String text) {
-            out.writeByte(1);
-            out.writeUTF(text);
-        } else if (value instanceof Double || value instanceof Float) {
-            out.writeByte(2);
-            out.writeDouble(((Number) value).doubleValue());
-        } else if (value instanceof Boolean flag) {
-            out.writeByte(3);
-            out.writeBoolean(flag);
-        } else if (value instanceof byte[] raw) {
-            out.writeByte(5);
-            out.writeInt(raw.length);
-            out.write(raw);
-        } else {
-            out.writeByte(4);
-            out.writeLong(((Number) value).longValue());
+    /**
+     * One value, as its own class.
+     *
+     * <p>Refuses a class it has no tag for rather than writing something near it. Every class a view
+     * is given -- by {@link #apply}, by a {@link ViewSink} writer, by the value readers on the way in
+     * -- has one; a class without one is a new way in that this format has to learn about first.
+     */
+    private void writeValue(java.io.DataOutputStream out, Object value, int column) throws java.io.IOException {
+        switch (value) {
+            case null -> out.writeByte(NULL);
+            case String text -> {
+                // Length-prefixed bytes, not writeUTF, which refuses anything over 65,535 encoded bytes.
+                byte[] encoded = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                out.writeByte(STRING);
+                out.writeInt(encoded.length);
+                out.write(encoded);
+            }
+            case Long number -> {
+                out.writeByte(LONG);
+                out.writeLong(number);
+            }
+            case Integer number -> {
+                out.writeByte(INT);
+                out.writeInt(number);
+            }
+            case Short number -> {
+                out.writeByte(SHORT);
+                out.writeShort(number);
+            }
+            case Byte number -> {
+                out.writeByte(BYTE);
+                out.writeByte(number);
+            }
+            case Double number -> {
+                out.writeByte(DOUBLE);
+                out.writeLong(Double.doubleToRawLongBits(number));
+            }
+            case Float number -> {
+                out.writeByte(FLOAT);
+                out.writeInt(Float.floatToRawIntBits(number));
+            }
+            case java.math.BigDecimal number -> {
+                // Unscaled value and scale: the number exactly, and its scale with it, so 1.50 comes
+                // back 1.50 and equal to the 1.50 the engine writes next.
+                byte[] unscaled = number.unscaledValue().toByteArray();
+                out.writeByte(DECIMAL);
+                out.writeInt(number.scale());
+                out.writeInt(unscaled.length);
+                out.write(unscaled);
+            }
+            case Boolean flag -> {
+                out.writeByte(BOOLEAN);
+                out.writeBoolean(flag);
+            }
+            case byte[] raw -> {
+                out.writeByte(BYTES);
+                out.writeInt(raw.length);
+                out.write(raw);
+            }
+            default ->
+                throw new IllegalStateException(
+                        "view '" + name + "' holds a " + value.getClass().getName()
+                                + " in column '" + schema.field(column).name() + "', which a view snapshot has no "
+                                + "encoding for. Writing it as something near it is what made a restored view "
+                                + "disagree with the live one, so the checkpoint is refused instead.");
         }
     }
 
     private static Object readValue(java.io.DataInputStream in) throws java.io.IOException {
         byte tag = in.readByte();
-        switch (tag) {
-            case 0:
-                return null;
-            case 1:
-                return in.readUTF();
-            case 2:
-                return in.readDouble();
-            case 3:
-                return in.readBoolean();
-            case 5: {
-                byte[] raw = new byte[in.readInt()];
-                in.readFully(raw);
-                return raw;
+        return switch (tag) {
+            case NULL -> null;
+            case STRING -> new String(readBytes(in), java.nio.charset.StandardCharsets.UTF_8);
+            case LONG -> in.readLong();
+            case INT -> in.readInt();
+            case SHORT -> in.readShort();
+            case BYTE -> in.readByte();
+            case DOUBLE -> Double.longBitsToDouble(in.readLong());
+            case FLOAT -> Float.intBitsToFloat(in.readInt());
+            case DECIMAL -> {
+                int scale = in.readInt();
+                yield new java.math.BigDecimal(new java.math.BigInteger(readBytes(in)), scale);
             }
-            case 4:
-                return in.readLong();
-            default:
-                throw new java.io.IOException("unknown value tag " + tag + " in a view snapshot");
+            case BOOLEAN -> in.readBoolean();
+            case BYTES -> readBytes(in);
+            default -> throw new java.io.IOException("unknown value tag " + tag + " in a view snapshot");
+        };
+    }
+
+    private static byte[] readBytes(java.io.DataInputStream in) throws java.io.IOException {
+        int length = in.readInt();
+        if (length < 0) {
+            throw new java.io.IOException("a negative length, " + length);
         }
+        byte[] bytes = new byte[length];
+        in.readFully(bytes);
+        return bytes;
     }
 
     public String name() {
@@ -774,16 +893,22 @@ public final class ServedView {
         };
     }
 
-    /** A key by value, so it can be a map key. */
+    /**
+     * A key by value, so it can be a map key.
+     *
+     * <p>Deep, because a {@code BYTES} key column holds a {@code byte[]}, and an array's {@code
+     * equals} is identity: two rows with the same bytes were two keys, so an update beside the row it
+     * replaced and a retraction that found nothing to withdraw.
+     */
     private record Key(Object[] values) {
         @Override
         public boolean equals(Object other) {
-            return other instanceof Key that && Arrays.equals(values, that.values);
+            return other instanceof Key that && Arrays.deepEquals(values, that.values);
         }
 
         @Override
         public int hashCode() {
-            return Arrays.hashCode(values);
+            return Arrays.deepHashCode(values);
         }
 
         @Override
