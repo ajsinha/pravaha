@@ -54,7 +54,9 @@ import com.ash.messaging.pravaha.registry.ContinuousQueryStatements;
 import com.ash.messaging.pravaha.registry.FeedStatus;
 import com.ash.messaging.pravaha.registry.QueryListing;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
+import com.ash.messaging.pravaha.registry.QueryReplacement;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
+import com.ash.messaging.pravaha.registry.ReplacementOptions;
 import com.ash.messaging.pravaha.registry.Subscription;
 import com.ash.messaging.pravaha.registry.SubscriptionFilter;
 import com.ash.messaging.pravaha.registry.SubscriptionOptions;
@@ -594,6 +596,79 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         listener.onNext(new Result(ControlWire.encode(row.toArray(new String[0]))));
                     }
                 }
+                case ControlWire.REPLACE -> {
+                    // Blue/green replacement (ADR-046): the same fields a registration takes, plus
+                    // the options. The name keeps answering the version it answers now; what comes
+                    // back is the state the candidate is in and the computation it is.
+                    if (fields.size() < 3) {
+                        throw new PravahaException(
+                                FlightErrors.BAD_HANDLE,
+                                "replace needs a name, the new SQL and the key columns of the new version");
+                    }
+                    ReplacementOptions options = ReplacementOptions.defaults();
+                    if (fields.size() > 3 && !fields.get(3).isBlank()) {
+                        options = ReplacementOptions.parse(fields.get(3));
+                    }
+                    QueryReplacement.Status status = required.replacements()
+                            .replace(fields.get(0), fields.get(1), keyOrdinals(fields.get(2)), principal, options);
+                    listener.onNext(new Result(ControlWire.encode(replacement(status))));
+                }
+                case ControlWire.CUTOVER -> {
+                    requireName(fields, "cutover");
+                    listener.onNext(new Result(ControlWire.encode(
+                            replacement(required.replacements().cutOver(fields.get(0), principal)))));
+                }
+                case ControlWire.ROLLBACK -> {
+                    requireName(fields, "rollback");
+                    listener.onNext(new Result(ControlWire.encode(
+                            replacement(required.replacements().rollBack(fields.get(0), principal)))));
+                }
+                case ControlWire.ABANDON -> {
+                    requireName(fields, "abandon");
+                    listener.onNext(new Result(ControlWire.encode(
+                            replacement(required.replacements().abandon(fields.get(0), principal)))));
+                }
+                case ControlWire.FINISH -> {
+                    requireName(fields, "finish");
+                    listener.onNext(new Result(ControlWire.encode(
+                            replacement(required.replacements().finish(fields.get(0), principal)))));
+                }
+                case ControlWire.BACKFILL -> {
+                    requireName(fields, "backfill");
+                    String verb = fields.size() > 1 ? fields.get(1).strip().toLowerCase(java.util.Locale.ROOT) : "";
+                    QueryReplacement.Status status =
+                            switch (verb) {
+                                case "pause" -> required.replacements().pause(fields.get(0), principal);
+                                case "resume" -> required.replacements().resume(fields.get(0), principal);
+                                case "throttle" ->
+                                    required.replacements().throttle(fields.get(0), rowsPerSecond(fields), principal);
+                                default ->
+                                    throw new PravahaException(
+                                            FlightErrors.BAD_HANDLE,
+                                            "a backfill is paused, resumed or throttled; this action asked for '" + verb
+                                                    + "'");
+                            };
+                    listener.onNext(new Result(ControlWire.encode(replacement(status))));
+                }
+                case ControlWire.REPLACEMENT -> {
+                    // Reading the state of a replacement is administering the name, as changing it
+                    // is: the candidate's SQL and its progress describe a query somebody may not
+                    // read, and an unauthorized caller learns from it that the name exists at all.
+                    if (fields.isEmpty() || fields.get(0).isBlank()) {
+                        for (QueryReplacement.Status status :
+                                required.replacements().all()) {
+                            if (policy.mayAdminister(principal, status.name()).allowed()) {
+                                listener.onNext(new Result(ControlWire.encode(replacement(status))));
+                            }
+                        }
+                    } else {
+                        requireAdministrable(principal, fields.get(0), "replacement");
+                        required.replacements()
+                                .of(fields.get(0))
+                                .ifPresent(
+                                        status -> listener.onNext(new Result(ControlWire.encode(replacement(status)))));
+                    }
+                }
                 default ->
                     throw new PravahaException(
                             FlightErrors.UNSUPPORTED_REQUEST, "this server does not answer the action '" + type + "'");
@@ -665,6 +740,58 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         source.where(),
                         source.stop().at() == null ? "" : source.stop().at().toString()))
                 .orElseGet(() -> List.of(status.state().name(), "", "", "", ""));
+
+    /** A replacement's status as {@link ControlWire#REPLACEMENT_FIELDS} names its fields. */
+    private static List<String> replacement(QueryReplacement.Status status) {
+        com.ash.messaging.pravaha.backfill.BackfillJob.Progress progress = status.progress();
+        return List.of(
+                status.name(),
+                status.state().name(),
+                status.sql(),
+                text(status.candidate()),
+                text(status.replacing()),
+                text(status.sink()),
+                status.options().toString(),
+                text(status.owner()),
+                text(status.startedAt()),
+                text(status.cutOverAt()),
+                text(status.rollbackUntil()),
+                Boolean.toString(status.rollbackAvailable()),
+                Long.toString(progress.historyRows()),
+                Long.toString(progress.liveRows()),
+                Long.toString(Math.round(progress.rowsPerSecond())),
+                Integer.toString(progress.partitions()),
+                Integer.toString(progress.partitionsLive()),
+                Boolean.toString(progress.historyComplete()),
+                Long.toString(progress.rateLimit()),
+                Boolean.toString(progress.paused()),
+                Long.toString(status.lagNanos()),
+                text(status.failureCode()),
+                text(status.failure()));
+    }
+
+    private static String text(Object value) {
+        return value == null ? "" : value.toString();
+    }
+
+    /** The key columns a replace action carries, in the comma-separated form register takes. */
+    private static List<Integer> keyOrdinals(String field) {
+        List<Integer> keys = new ArrayList<>();
+        for (String ordinal : field.split(",")) {
+            if (!ordinal.isBlank()) {
+                keys.add(Integer.parseInt(ordinal.strip()));
+            }
+        }
+        return keys;
+    }
+
+    private static long rowsPerSecond(List<String> fields) {
+        try {
+            return Long.parseLong(fields.get(2).strip());
+        } catch (IndexOutOfBoundsException | NumberFormatException e) {
+            throw new PravahaException(
+                    FlightErrors.BAD_HANDLE, "throttling a backfill needs a number of records a second");
+        }
     }
 
     private static String ordinals(List<Integer> keys) {

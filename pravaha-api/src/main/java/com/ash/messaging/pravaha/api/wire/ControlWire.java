@@ -65,6 +65,60 @@ public final class ControlWire {
 
     public static final String RESUME = "pravaha.resume";
 
+    /**
+     * Blue/green replacement (ADR-046). {@code replace} takes the name, the new SQL, the key
+     * ordinals and the options as {@code key=value;key=value}; the others take the name, and
+     * {@code backfill} takes a verb ({@code pause}, {@code resume}, {@code throttle}) and a value.
+     */
+    public static final String REPLACE = "pravaha.replace";
+
+    /** The state of one replacement, or of every one this node knows when the name is empty. */
+    public static final String REPLACEMENT = "pravaha.replacement";
+
+    public static final String CUTOVER = "pravaha.cutover";
+
+    public static final String ROLLBACK = "pravaha.rollback";
+
+    /** Ends a replacement that has not cut over, releasing the candidate. */
+    public static final String ABANDON = "pravaha.abandon";
+
+    /** Confirms a cutover: the replaced version is released and there is no rollback after it. */
+    public static final String FINISH = "pravaha.finish";
+
+    /** Controls a backfill while it runs: {@code pause}, {@code resume} or {@code throttle}. */
+    public static final String BACKFILL = "pravaha.backfill";
+
+    /**
+     * The fields a replacement's status carries, in order, for every surface that renders one.
+     *
+     * <p>Positional and append-only, like the listing's: a client that reads the first twelve
+     * fields goes on reading exactly what it always did when a thirteenth is added.
+     */
+    public static final java.util.List<String> REPLACEMENT_FIELDS = java.util.List.of(
+            "name",
+            "state",
+            "sql",
+            "candidate",
+            "replacing",
+            "sink",
+            "options",
+            "owner",
+            "started_at",
+            "cut_over_at",
+            "rollback_until",
+            "rollback_available",
+            "history_rows",
+            "live_rows",
+            "rows_per_second",
+            "partitions",
+            "partitions_live",
+            "history_complete",
+            "rate_limit",
+            "paused",
+            "lag_nanos",
+            "failure_code",
+            "failure");
+
     private ControlWire() {}
 
     /** Encodes a list of strings. Nulls are encoded as absent and decode as empty. */
