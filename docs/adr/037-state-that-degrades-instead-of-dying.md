@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — B1 built; B2 built for stream-to-stream join state and windowed-aggregate state, configured by `pravaha.state.spill.*` and off by default; `COUNT(DISTINCT)` cannot spill and is refused by name (`PRV-3023`) |
+| Status | Accepted — B1 built; B2 built for stream-to-stream join state and windowed-aggregate state, configured by `pravaha.state.spill.*` and off by default; `COUNT(DISTINCT)` spills too since ADR-044 (it was refused by name with a code now retired) |
 | Date | 2026-09-15 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-006 (tiered state), ADR-008 (aligned checkpoints), ADR-013 (Z-sets), ADR-036 (one node, thousands of queries) |

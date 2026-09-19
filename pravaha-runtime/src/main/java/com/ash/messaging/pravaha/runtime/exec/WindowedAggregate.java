@@ -167,8 +167,8 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
     /**
      * ADR-037 item B2: a windowed aggregate whose live-slice count exceeds {@code operator.maxSlices()}
      * keeps running, slower, once given an overflow tier -- see {@link SlicedAggregateState}'s own
-     * overflow-aware constructor, which this passes straight through to, refusal for {@code COUNT
-     * DISTINCT} included.
+     * overflow-aware constructor, which this passes straight through to. {@code COUNT DISTINCT}
+     * spills too, since ADR-044.
      *
      * @param overflowAccess where state beyond the in-memory ceiling is carved from, or {@code null}
      *     for no overflow tier -- today's behaviour, unchanged

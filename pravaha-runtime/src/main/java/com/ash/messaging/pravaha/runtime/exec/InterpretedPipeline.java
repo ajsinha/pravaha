@@ -456,8 +456,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /** Whether any of this pipeline's windowed aggregates has spilled to its overflow tier
-     * (ADR-037 item B2). Always false for one computing {@code COUNT(DISTINCT ...)}, which cannot
-     * spill and is refused at construction instead if spilling was configured for it. */
+     * (ADR-037 item B2) -- accumulators or, since ADR-044, {@code COUNT(DISTINCT ...)}'s values. */
     public boolean windowedStateHasSpilled() {
         for (WindowedAggregate aggregate : windowed) {
             if (aggregate.hasSpilled()) {
@@ -609,9 +608,22 @@ public final class InterpretedPipeline implements AutoCloseable {
      * section -- but only into a plan with no unwindowed aggregate. Into one with an aggregate it
      * would restore that aggregate empty, which is the defect version 4 exists to close.
      */
-    private static final int SNAPSHOT_VERSION = 4;
+    /**
+     * Version 5: a windowed aggregate's own section changed (ADR-044). Its accumulators carry their
+     * non-null counts, and {@code COUNT(DISTINCT)}'s values follow them as a section of their own
+     * instead of an on-heap set inside each accumulator -- which is what lets them spill.
+     *
+     * <p>Only the windowed sections changed, so a version 4 or 3 snapshot is still read into a plan
+     * with no windowed aggregate (and, for version 3, no unwindowed one either), where the layouts are
+     * the same bytes. Into a windowed plan it is refused here, by version, rather than further in by
+     * the aggregate's own format check.
+     */
+    private static final int SNAPSHOT_VERSION = 5;
 
-    /** The last layout without unwindowed aggregates, readable into a plan that has none. */
+    /** The last layout with the old windowed-aggregate section, readable into a plan with no windowed aggregate. */
+    private static final int SNAPSHOT_VERSION_WITH_OLD_WINDOWS = 4;
+
+    /** The last layout without unwindowed aggregates, readable into a plan that has neither those nor windows. */
     private static final int SNAPSHOT_VERSION_WITHOUT_GLOBALS = 3;
 
     public byte[] snapshotState() {
@@ -655,8 +667,10 @@ public final class InterpretedPipeline implements AutoCloseable {
                                 + "than rejected.");
             }
             int version = in.readInt();
-            boolean withoutGlobals = version == SNAPSHOT_VERSION_WITHOUT_GLOBALS && globals.isEmpty();
-            if (version != SNAPSHOT_VERSION && !withoutGlobals) {
+            boolean withoutGlobals =
+                    version == SNAPSHOT_VERSION_WITHOUT_GLOBALS && globals.isEmpty() && windowed.isEmpty();
+            boolean oldWindowsButNone = version == SNAPSHOT_VERSION_WITH_OLD_WINDOWS && windowed.isEmpty();
+            if (version != SNAPSHOT_VERSION && !withoutGlobals && !oldWindowsButNone) {
                 throw new PravahaException(
                         RuntimeErrors.LANE_FAILED,
                         "this snapshot is version " + version + " and this engine writes version " + SNAPSHOT_VERSION
@@ -798,10 +812,9 @@ public final class InterpretedPipeline implements AutoCloseable {
     @Override
     public void close() {
         joins.forEach(SymmetricHashJoin::close);
-        // ADR-037 item B2: a windowed aggregate now owns off-heap state (unless it computes
-        // COUNT(DISTINCT ...), the one shape that stays on-heap -- see SlicedAggregateState's own
-        // class javadoc) and, like a join's, it has to be released rather than left to the
-        // collector. Before this, WindowedAggregate held nothing that needed it.
+        // ADR-037 item B2: a windowed aggregate owns off-heap state -- COUNT(DISTINCT ...)'s values
+        // included since ADR-044 -- and, like a join's, it has to be released rather than left to
+        // the collector. Before B2, WindowedAggregate held nothing that needed it.
         windowed.forEach(WindowedAggregate::close);
         lookupJoins.forEach(LookupJoin::close);
         arena.close();

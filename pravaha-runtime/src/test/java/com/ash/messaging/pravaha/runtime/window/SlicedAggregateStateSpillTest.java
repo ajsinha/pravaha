@@ -34,12 +34,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * ADR-037 item B2's overflow tier for windowed aggregates: a slice ceiling that would otherwise be
  * refused keeps running once spilling is configured, a checkpoint taken mid-spill restores
- * correctly, and {@code COUNT(DISTINCT ...)} is refused by name rather than silently denied the
- * overflow tier it was asked for.
+ * correctly, and -- since ADR-044 -- {@code COUNT(DISTINCT ...)} spills with the rest instead of
+ * being refused.
  *
  * <p>{@link SlicedAggregateStateTest} and {@link CountDistinctTest} are the tests that must keep
- * passing unchanged through this: they are what proves the off-heap and on-heap paths this class
- * chooses between still answer identically to before spilling existed at all.
+ * passing unchanged through this, and {@link DistinctValueCountsPropertyTest} holds the off-heap
+ * distinct counts to the on-heap model they replaced.
  */
 class SlicedAggregateStateSpillTest {
 
@@ -134,26 +134,99 @@ class SlicedAggregateStateSpillTest {
     }
 
     @Test
-    void countDistinctWithOverflowConfiguredIsRefusedAtConstruction(@TempDir Path dir) {
-        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir)) {
-            assertThatThrownBy(() -> new SlicedAggregateState(
-                            new SlicedWindows(WindowSpec.tumbling(10 * SECOND)),
-                            new SlicedAggregateState.Kind[] {
-                                SlicedAggregateState.Kind.COUNT, SlicedAggregateState.Kind.COUNT_DISTINCT
-                            },
-                            1_000,
-                            overflow,
-                            8))
-                    .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("PRV-3023")
-                    .hasMessageContaining("COUNT(DISTINCT");
+    void countDistinctSpillsInsteadOfBeingRefused(@TempDir Path dir) throws Exception {
+        // It was refused here, by name, with the overflow tier configured: its distinct sets were
+        // on the heap and had nowhere to spill. ADR-044 moved them into a RowStore.
+        SlicedAggregateState.Kind[] kinds = {SlicedAggregateState.Kind.COUNT, SlicedAggregateState.Kind.COUNT_DISTINCT};
+        byte[] snapshot;
+        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir.resolve("a"));
+                SlicedAggregateState state = new SlicedAggregateState(
+                        new SlicedWindows(WindowSpec.tumbling(10 * SECOND)), kinds, 2, overflow, 64)) {
+            // Three groups, each seeing 3,000 distinct values twice: far more than a two-slice RAM
+            // budget holds.
+            for (long value = 0; value < 3_000; value++) {
+                for (long group = 0; group < 3; group++) {
+                    state.update(group, group * 31, new Object[] {group}, SECOND, new long[] {0, value}, 1);
+                    state.update(group, group * 31, new Object[] {group}, 2 * SECOND, new long[] {0, value}, 1);
+                }
+            }
+            assertThat(state.hasSpilled())
+                    .as("9,000 distinct values do not fit the RAM tier")
+                    .isTrue();
+            assertThat(state.distinctValuesHeld()).isEqualTo(9_000);
+            assertThat(state.fire(10 * SECOND))
+                    .allSatisfy(result -> assertThat(result.values()).containsExactly(6_000, 3_000));
+
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (DataOutputStream out = new DataOutputStream(bytes)) {
+                state.writeTo(out);
+            }
+            snapshot = bytes.toByteArray();
+        }
+
+        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir.resolve("b"));
+                SlicedAggregateState restored = new SlicedAggregateState(
+                        new SlicedWindows(WindowSpec.tumbling(10 * SECOND)), kinds, 2, overflow, 64)) {
+            try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(snapshot))) {
+                restored.readFrom(in);
+            }
+            assertThat(restored.fire(10 * SECOND))
+                    .allSatisfy(result -> assertThat(result.values()).containsExactly(6_000, 3_000));
+            // Both occurrences of value 7 in group 0 retracted: it goes, and only it.
+            restored.update(0L, 0L, new Object[] {0L}, SECOND, new long[] {0, 7}, -1);
+            restored.update(0L, 0L, new Object[] {0L}, 2 * SECOND, new long[] {0, 7}, -1);
+            assertThat(restored.fire(10 * SECOND).stream()
+                            .filter(r -> ((Long) r.keyValues()[0]) == 0L)
+                            .findFirst()
+                            .orElseThrow()
+                            .values())
+                    .containsExactly(5_998, 2_999);
+        }
+    }
+
+    @Test
+    void aVersion1CheckpointIsRefusedByName() {
+        // Version 1 kept each distinct set inside its accumulator and no non-null counts: its bytes
+        // would parse as version 2's in the wrong places.
+        byte[] versionOne = {0, 0, 0, 1, 0, 0, 0, 1};
+        try (SlicedAggregateState state = new SlicedAggregateState(
+                new SlicedWindows(WindowSpec.tumbling(10 * SECOND)),
+                new SlicedAggregateState.Kind[] {SlicedAggregateState.Kind.COUNT},
+                10)) {
+            assertThatThrownBy(() -> state.readFrom(new DataInputStream(new ByteArrayInputStream(versionOne))))
+                    .isInstanceOf(java.io.IOException.class)
+                    .hasMessageContaining("format version 1")
+                    .hasMessageContaining("ADR-044");
+        }
+    }
+
+    @Test
+    void anAverageSurvivesACheckpoint() throws Exception {
+        // Version 1 wrote the sums and not the non-null counts AVG divides by, so a restored window
+        // averaged to zero.
+        SlicedAggregateState.Kind[] kinds = {SlicedAggregateState.Kind.AVG};
+        byte[] snapshot;
+        try (SlicedAggregateState state =
+                new SlicedAggregateState(new SlicedWindows(WindowSpec.tumbling(10 * SECOND)), kinds, 10)) {
+            state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {10}, 1);
+            state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {20}, 1);
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (DataOutputStream out = new DataOutputStream(bytes)) {
+                state.writeTo(out);
+            }
+            snapshot = bytes.toByteArray();
+        }
+        try (SlicedAggregateState restored =
+                new SlicedAggregateState(new SlicedWindows(WindowSpec.tumbling(10 * SECOND)), kinds, 10)) {
+            restored.readFrom(new DataInputStream(new ByteArrayInputStream(snapshot)));
+            assertThat(restored.fire(10 * SECOND).get(0).values()).containsExactly(15);
         }
     }
 
     @Test
     void countDistinctWithNoOverflowStillWorksExactlyAsBefore() {
-        // The on-heap path is untouched code; this just confirms the 5-arg constructor's null
-        // branch reaches it exactly the way the 3-arg constructor always has.
+        // No overflow tier: the same off-heap state, refusing at its RAM ceiling instead of
+        // spilling, and answering exactly as the on-heap sets did.
         try (SlicedAggregateState state = new SlicedAggregateState(
                 new SlicedWindows(WindowSpec.tumbling(10 * SECOND)),
                 new SlicedAggregateState.Kind[] {SlicedAggregateState.Kind.COUNT_DISTINCT},

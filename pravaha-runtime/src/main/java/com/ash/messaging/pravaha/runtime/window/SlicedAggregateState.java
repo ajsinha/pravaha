@@ -15,10 +15,6 @@
  */
 package com.ash.messaging.pravaha.runtime.window;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -27,7 +23,6 @@ import java.util.Map;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
-import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.state.VariableKeyStateMap;
 
@@ -56,42 +51,29 @@ import com.ash.messaging.pravaha.runtime.state.VariableKeyStateMap;
  * deployment. The limit is a constructor argument rather than a configuration nicety, and exceeding
  * it names the key that broke it, because "out of memory" is not a diagnosis.
  *
- * <h2>ADR-037 item B2: two storage strategies, chosen once, by shape</h2>
+ * <h2>Where the state lives: off-heap, and spillable, for every aggregate</h2>
  *
- * <p>Every accumulator here is a handful of fixed-width numbers <strong>except</strong> {@code
- * COUNT(DISTINCT x)}, whose state is a per-group set that grows with cardinality rather than
- * staying constant. That difference, not the digest keying, is what decides whether an aggregate's
- * state can live off-heap: a fixed-width accumulator maps onto a {@link
- * com.ash.messaging.pravaha.state.RowStore} block the way a join's rows already do; a growing set
- * does not, any more than {@code JoinSide}'s bucket chains would fit in one.
+ * <p>Accumulators live in {@link OffHeapAccumulators}: a {@link VariableKeyStateMap} keyed by the
+ * 128-bit digest ({@code keyHigh}, {@code keyLow}) and {@code sliceStart} this class has always used,
+ * one {@link com.ash.messaging.pravaha.state.RowStore} block per accumulator. That is also where an
+ * overflow tier attaches, exactly the way {@code RowStore} and {@code SymmetricHashJoin} accept one.
  *
- * <p>So this class picks its representation once, at construction, from the aggregate {@link
- * Kind}s it was given -- never per accumulator, since every accumulator here shares one shape:
- *
- * <ul>
- *   <li><strong>No {@code COUNT DISTINCT}:</strong> accumulators live off-heap, in a {@link
- *       VariableKeyStateMap} keyed by the same 128-bit digest ({@code keyHigh}, {@code keyLow}) and
- *       {@code sliceStart} this class has always used -- no re-keying to raw group-key bytes, since
- *       the ~10^-27 collision risk of a 128-bit digest was already this design's accepted answer
- *       (see the class javadoc above) and JoinSide's raw-byte requirement does not apply here. This
- *       is also where an overflow tier attaches, exactly the way {@code RowStore} and {@code
- *       SymmetricHashJoin} already accept one.
- *   <li><strong>Any {@code COUNT DISTINCT}:</strong> accumulators stay exactly where they have
- *       always been, in an on-heap {@code HashMap}, with the per-value counting {@code
- *       COUNT_DISTINCT} needs. Untouched code, on purpose: {@code CountDistinctTest} exercises this
- *       path today and must keep exercising the same lines tomorrow. An aggregate on this path
- *       cannot spill -- there is nowhere to spill a growing on-heap set to -- so asking for an
- *       overflow tier here is refused by name, at construction, with {@link
- *       RuntimeErrors#COUNT_DISTINCT_CANNOT_SPILL}, rather than accepted and left to hit the
- *       ordinary ceiling later with no more room than it had before spilling was configured.
- * </ul>
+ * <p>{@code COUNT(DISTINCT x)} used to be the exception. Its state is a set that grows with
+ * cardinality rather than a handful of numbers, it stayed in an on-heap {@code HashMap} per
+ * accumulator, and an aggregate containing it was refused by name when the overflow tier was
+ * configured (it could not spill). ADR-044 closed that: the sets are flattened into {@link
+ * DistinctValueCounts}, one off-heap entry per {@code (group, slice, column, value)} with a count, in
+ * a second {@code RowStore} that takes the same overflow tier. A window's distinct count is then
+ * computed when it fires by counting each value once across the window's slices -- a value is counted
+ * in the earliest slice of the window that holds it, which is a lookup per value rather than a set
+ * built on the heap.
  *
  * <p>{@code keyValues} -- the group's own column values, carried so a fired window's output row can
  * be built without re-deriving them from a digest -- are encoded off-heap with the exact same {@link
- * #writeTagged}/{@link #readTagged} pair the checkpoint format already uses, not a second encoding
- * invented for this. A group's {@code keyValues} are fixed at creation and never rewritten, which is
- * what makes storing them as one variable-length tail on the accumulator's own block enough: there is
- * no later resize to plan for.
+ * TaggedValues#writeKeyValues} the checkpoint format uses, not a second encoding invented for this. A
+ * group's {@code keyValues} are fixed at creation and never rewritten, which is what makes storing
+ * them as one variable-length tail on the accumulator's own block enough: there is no later resize to
+ * plan for.
  */
 public final class SlicedAggregateState implements AutoCloseable {
 
@@ -164,55 +146,15 @@ public final class SlicedAggregateState implements AutoCloseable {
      */
     private record SliceKey(long keyHigh, long keyLow, long sliceStart) {}
 
-    private static final class Accumulator {
-        final long[] values;
-        /**
-         * Per column, how many non-null values have been accumulated.
-         *
-         * <p>Needed twice over. {@code COUNT(col)} counts non-null values and was counting rows,
-         * and {@code AVG} must divide by the non-null count rather than the row count -- and the
-         * caller flattens a null to 0 before this class ever sees it, so the value cannot say.
-         */
-        final long[] nonNull;
-        /**
-         * Per distinct-column, how many times each value is currently present. Null unless needed.
-         *
-         * <p>Keyed by the value itself, not by a long. It was keyed by a long, and the caller
-         * filled that long with {@code row.getLong(ordinal)} whatever the column's type -- so over
-         * a STRING column it counted distinct <em>(offset, length)</em> pairs read out of the
-         * string's slot. Four rows over three distinct users reported one, and two equal strings
-         * written at different offsets counted as two.
-         */
-        Map<Object, Long>[] distinct;
-
-        Object[] keyValues;
-        long count;
-
-        @SuppressWarnings("unchecked")
-        Accumulator(int columns, boolean[] needsDistinct) {
-            this.values = new long[columns];
-            this.nonNull = new long[columns];
-            for (int i = 0; i < columns; i++) {
-                if (needsDistinct[i]) {
-                    if (distinct == null) {
-                        distinct = new Map[columns];
-                    }
-                    distinct[i] = new HashMap<>();
-                }
-            }
-        }
-    }
-
     private final SlicedWindows windows;
     private final Kind[] kinds;
-    private final boolean[] needsDistinct;
-    private final boolean anyDistinct;
     private final int maxSlices;
-    private final Map<SliceKey, Accumulator> slices = new HashMap<>();
     private long peakSlices;
 
-    /** Non-null only when {@link #anyDistinct} is false -- see the class javadoc. */
     private final OffHeapAccumulators offHeap;
+
+    /** Every distinct column's values and their counts; null when no column is {@code COUNT_DISTINCT}. */
+    private final DistinctValueCounts distinct;
 
     /**
      * Whether an overflow tier was configured. When it was, {@link #maxSlices} stops being a hard
@@ -235,16 +177,14 @@ public final class SlicedAggregateState implements AutoCloseable {
 
     /**
      * ADR-037 item B2: a windowed aggregate whose live-slice count exceeds {@code maxSlices} keeps
-     * running, slower, by spilling to a file under {@code overflowAccess} instead of being refused
-     * -- unless this aggregate includes {@code COUNT DISTINCT}, which cannot spill and is refused
-     * here, by name, rather than silently denied the overflow tier it was configured to have.
+     * running, slower, by spilling to a file under {@code overflowAccess} instead of being refused --
+     * {@code COUNT DISTINCT} included since ADR-044, whose per-value counts spill through the same
+     * tier as the accumulators.
      *
      * @param overflowAccess where slabs beyond the in-memory ceiling are carved from, or {@code
      *     null} for no overflow tier -- today's behaviour, unchanged
      * @param maxOverflowSlabs the ceiling on {@code overflowAccess} slabs, ignored when {@code
      *     overflowAccess} is {@code null}
-     * @throws PravahaException {@link RuntimeErrors#COUNT_DISTINCT_CANNOT_SPILL} if {@code
-     *     overflowAccess} is given and {@code kinds} contains {@link Kind#COUNT_DISTINCT}
      */
     public SlicedAggregateState(
             SlicedWindows windows, Kind[] kinds, int maxSlices, MemoryAccess overflowAccess, int maxOverflowSlabs) {
@@ -253,48 +193,32 @@ public final class SlicedAggregateState implements AutoCloseable {
         }
         this.windows = windows;
         this.kinds = kinds.clone();
-        this.needsDistinct = new boolean[kinds.length];
         boolean anyDistinct = false;
-        for (int i = 0; i < kinds.length; i++) {
-            needsDistinct[i] = kinds[i] == Kind.COUNT_DISTINCT;
-            anyDistinct |= needsDistinct[i];
+        for (Kind kind : kinds) {
+            anyDistinct |= kind == Kind.COUNT_DISTINCT;
         }
-        this.anyDistinct = anyDistinct;
         this.maxSlices = maxSlices;
         this.hasOverflow = overflowAccess != null;
-        if (anyDistinct) {
-            if (overflowAccess != null) {
-                throw new PravahaException(
-                        RuntimeErrors.COUNT_DISTINCT_CANNOT_SPILL,
-                        "this windowed aggregate computes COUNT(DISTINCT ...), whose state is one entry per "
-                                + "distinct value per group per slice -- a set that grows with cardinality, not a "
-                                + "fixed-width number, and has nowhere to spill to. Spilling was configured for "
-                                + "this deployment; this specific aggregate cannot use it. Remove the DISTINCT, "
-                                + "narrow the window, or raise the slice ceiling instead.");
-            }
-            this.offHeap = null;
-        } else {
-            this.offHeap = new OffHeapAccumulators(
-                    kinds.length,
-                    MemoryAccess.best(),
-                    OffHeapAccumulators.ramSlabsFor(maxSlices),
-                    overflowAccess,
-                    maxOverflowSlabs);
-        }
+        int ramSlabs = OffHeapAccumulators.ramSlabsFor(maxSlices);
+        this.offHeap =
+                new OffHeapAccumulators(kinds.length, MemoryAccess.best(), ramSlabs, overflowAccess, maxOverflowSlabs);
+        // The distinct values get a RAM budget of their own, the same size as the accumulators'. It
+        // is a budget and not a bound on the answer: past it they spill with everything else, and
+        // without a tier they are refused with PRV-4001 by the store rather than growing the heap.
+        this.distinct = anyDistinct
+                ? new DistinctValueCounts(MemoryAccess.best(), ramSlabs, overflowAccess, maxOverflowSlabs)
+                : null;
     }
 
-    /**
-     * Folds one record into its slice.
-     *
-     * @param values one per aggregate column; ignored for {@code COUNT}
-     * @param weight the Z-set weight: {@code +1} for an insert, {@code -1} for a retraction
-     */
     /**
      * Updates with every value treated as present.
      *
      * <p>For a caller that has no nulls to report. The distinction matters only to {@code
      * COUNT(col)} and {@code AVG}, both of which must ignore nulls and cannot tell from the value --
      * a null is flattened to 0 before it arrives here.
+     *
+     * @param values one per aggregate column; ignored for {@code COUNT}
+     * @param weight the Z-set weight: {@code +1} for an insert, {@code -1} for a retraction
      */
     public void update(long keyHigh, long keyLow, Object[] keyValues, long eventTimeNanos, long[] values, long weight) {
         boolean[] present = new boolean[values.length];
@@ -336,119 +260,6 @@ public final class SlicedAggregateState implements AutoCloseable {
             return;
         }
         long sliceStart = windows.sliceStartFor(eventTimeNanos);
-        if (anyDistinct) {
-            updateOnHeap(keyHigh, keyLow, keyValues, sliceStart, values, present, distinctValues, weight);
-        } else {
-            updateOffHeap(keyHigh, keyLow, keyValues, sliceStart, values, present, weight);
-        }
-    }
-
-    private void updateOnHeap(
-            long keyHigh,
-            long keyLow,
-            Object[] keyValues,
-            long sliceStart,
-            long[] values,
-            boolean[] present,
-            Object[] distinctValues,
-            long weight) {
-        SliceKey sliceKey = new SliceKey(keyHigh, keyLow, sliceStart);
-        Accumulator accumulator = slices.get(sliceKey);
-        if (accumulator == null) {
-            if (slices.size() >= maxSlices) {
-                throw ceilingExceeded(keyHigh, keyLow, sliceStart, slices.size());
-            }
-            accumulator = new Accumulator(kinds.length, needsDistinct);
-            accumulator.keyValues = keyValues;
-            slices.put(sliceKey, accumulator);
-            peakSlices = Math.max(peakSlices, slices.size());
-        }
-
-        accumulator.count += weight;
-        for (int i = 0; i < kinds.length; i++) {
-            switch (kinds[i]) {
-                case COUNT -> {
-                    // COUNT(*) has no argument and counts rows; COUNT(col) counts non-null values.
-                    // This counted rows either way, so a windowed COUNT(col) contradicted the SUM
-                    // beside it in its own output row.
-                    if (present[i]) {
-                        accumulator.values[i] += weight;
-                    }
-                }
-                case COUNT_DISTINCT -> {
-                    // NULL is not a value SQL counts. It used to be: a null flattens to 0 on its
-                    // way in, and counting it made COUNT(DISTINCT status) over {ok, NULL, ok,
-                    // flagged} report three where SQL says two.
-                    if (present[i]) {
-                        // Counted, not flagged. A value seen three times and retracted once is
-                        // still present, and a set would have said it had gone.
-                        Object value = distinctValues == null ? values[i] : distinctValues[i];
-                        Map<Object, Long> seen = accumulator.distinct[i];
-                        long remaining = seen.merge(value, weight, Long::sum);
-                        if (remaining <= 0) {
-                            seen.remove(value);
-                        }
-                    }
-                    accumulator.values[i] = accumulator.distinct[i].size();
-                }
-                case SUM -> {
-                    // Also guarded by presence. A null flattens to 0, which adds nothing, so the
-                    // total was right either way -- but nonNull is what MIN and MAX now seed from,
-                    // and a SUM that did not maintain it would leave them seeding off a count that
-                    // no longer meant what they thought.
-                    if (present[i]) {
-                        accumulator.values[i] += values[i] * weight;
-                        accumulator.nonNull[i] += weight;
-                    }
-                }
-                case AVG -> {
-                    if (present[i]) {
-                        accumulator.values[i] += values[i] * weight;
-                        accumulator.nonNull[i] += weight;
-                    }
-                }
-                case MIN, MAX -> {
-                    if (weight < 0) {
-                        throw retractionRefused(kinds[i]);
-                    }
-                    // NULL is not a value SQL's MIN or MAX considers, and this folded it in: a
-                    // null flattens to 0 on the way in, so MIN over {5, 5, 7, NULL} answered 0 --
-                    // which is also what it answers over an all-positive column that was never
-                    // seeded, so the value carried no information about the data at all. MAX was
-                    // right only by luck, because zero is below every positive amount.
-                    if (!present[i]) {
-                        break;
-                    }
-                    // Seeded from the first non-null value, not the first row. accumulator.count is
-                    // the row count, so a group whose first row was null seeded the extreme to that
-                    // null's zero and then compared every real value against it.
-                    boolean firstValue = accumulator.nonNull[i] == 0;
-                    accumulator.nonNull[i] += weight;
-                    if (firstValue) {
-                        accumulator.values[i] = values[i];
-                    } else if (kinds[i] == Kind.MIN) {
-                        accumulator.values[i] = Math.min(accumulator.values[i], values[i]);
-                    } else {
-                        accumulator.values[i] = Math.max(accumulator.values[i], values[i]);
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * The off-heap twin of {@link #updateOnHeap}, for the same reason and to the same arithmetic --
-     * {@code COUNT_DISTINCT} never reaches here (see the class javadoc), so the switch below has one
-     * fewer case than the on-heap one and no {@code Map} to touch.
-     */
-    private void updateOffHeap(
-            long keyHigh,
-            long keyLow,
-            Object[] keyValues,
-            long sliceStart,
-            long[] values,
-            boolean[] present,
-            long weight) {
         long handle = offHeap.find(keyHigh, keyLow, sliceStart);
         if (handle == ArenaHandle.NULL) {
             if (!hasOverflow && offHeap.size() >= maxSlices) {
@@ -466,11 +277,32 @@ public final class SlicedAggregateState implements AutoCloseable {
         for (int i = 0; i < kinds.length; i++) {
             switch (kinds[i]) {
                 case COUNT -> {
+                    // COUNT(*) has no argument and counts rows; COUNT(col) counts non-null values.
+                    // This counted rows either way, so a windowed COUNT(col) contradicted the SUM
+                    // beside it in its own output row.
                     if (present[i]) {
                         offHeap.setValue(handle, i, offHeap.value(handle, i) + weight);
                     }
                 }
+                case COUNT_DISTINCT -> {
+                    // NULL is not a value SQL counts. It used to be: a null flattens to 0 on its
+                    // way in, and counting it made COUNT(DISTINCT status) over {ok, NULL, ok,
+                    // flagged} report three where SQL says two.
+                    if (present[i]) {
+                        // Counted, not flagged. A value seen three times and retracted once is
+                        // still present, and a set would have said it had gone.
+                        Object value = distinctValues == null ? (Object) values[i] : distinctValues[i];
+                        int change = distinct.add(keyHigh, keyLow, sliceStart, i, value, weight);
+                        if (change != 0) {
+                            // The slice's own distinct count, kept exact without recounting.
+                            offHeap.setValue(handle, i, offHeap.value(handle, i) + change);
+                        }
+                    }
+                }
                 case SUM, AVG -> {
+                    // Guarded by presence. A null flattens to 0, which adds nothing, so a SUM was
+                    // right either way -- but nonNull is what AVG divides by and what MIN and MAX
+                    // seed from, and it has to mean non-null values for all of them.
                     if (present[i]) {
                         offHeap.setValue(handle, i, offHeap.value(handle, i) + values[i] * weight);
                         offHeap.setNonNull(handle, i, offHeap.nonNull(handle, i) + weight);
@@ -480,9 +312,14 @@ public final class SlicedAggregateState implements AutoCloseable {
                     if (weight < 0) {
                         throw retractionRefused(kinds[i]);
                     }
+                    // NULL is not a value SQL's MIN or MAX considers, and this folded it in: a
+                    // null flattens to 0 on the way in, so MIN over {5, 5, 7, NULL} answered 0.
                     if (!present[i]) {
                         break;
                     }
+                    // Seeded from the first non-null value, not the first row: a group whose first
+                    // row was null seeded the extreme to that null's zero and then compared every
+                    // real value against it.
                     boolean firstValue = offHeap.nonNull(handle, i) == 0;
                     offHeap.setNonNull(handle, i, offHeap.nonNull(handle, i) + weight);
                     if (firstValue) {
@@ -493,9 +330,6 @@ public final class SlicedAggregateState implements AutoCloseable {
                         offHeap.setValue(handle, i, Math.max(offHeap.value(handle, i), values[i]));
                     }
                 }
-                case COUNT_DISTINCT ->
-                    throw new IllegalStateException(
-                            "unreachable: COUNT_DISTINCT always takes the on-heap path (see class javadoc)");
             }
         }
     }
@@ -527,36 +361,23 @@ public final class SlicedAggregateState implements AutoCloseable {
      */
     public List<WindowResult> fire(long windowEndNanos) {
         List<Long> sliceStarts = windows.slicesOfWindowEnding(windowEndNanos);
-        Map<SliceKey, Accumulator> combined = new HashMap<>();
-        if (anyDistinct) {
-            for (long sliceStart : sliceStarts) {
-                for (Map.Entry<SliceKey, Accumulator> entry : slices.entrySet()) {
-                    if (entry.getKey().sliceStart() != sliceStart) {
-                        continue;
-                    }
-                    // Keyed by the group alone -- slice zeroed -- because combining slices into a
-                    // window is precisely the act of forgetting which slice a value came from.
-                    SliceKey groupKey = new SliceKey(
-                            entry.getKey().keyHigh(), entry.getKey().keyLow(), 0);
-                    Accumulator target =
-                            combined.computeIfAbsent(groupKey, key -> new Accumulator(kinds.length, needsDistinct));
-                    merge(target, entry.getValue());
+        Map<SliceKey, SliceAccumulator> combined = new HashMap<>();
+        List<Long> handles = new ArrayList<>();
+        offHeap.forEach(handles::add);
+        for (long sliceStart : sliceStarts) {
+            for (long handle : handles) {
+                if (offHeap.sliceStartOf(handle) != sliceStart) {
+                    continue;
                 }
+                // Keyed by the group alone -- slice zeroed -- because combining slices into a
+                // window is precisely the act of forgetting which slice a value came from.
+                SliceKey groupKey = new SliceKey(offHeap.keyHighOf(handle), offHeap.keyLowOf(handle), 0);
+                SliceAccumulator target = combined.computeIfAbsent(groupKey, key -> new SliceAccumulator(kinds.length));
+                merge(target, offHeap.read(handle));
             }
-        } else {
-            List<Long> handles = new ArrayList<>();
-            offHeap.forEach(handles::add);
-            for (long sliceStart : sliceStarts) {
-                for (long handle : handles) {
-                    if (offHeap.sliceStartOf(handle) != sliceStart) {
-                        continue;
-                    }
-                    SliceKey groupKey = new SliceKey(offHeap.keyHighOf(handle), offHeap.keyLowOf(handle), 0);
-                    Accumulator target =
-                            combined.computeIfAbsent(groupKey, key -> new Accumulator(kinds.length, needsDistinct));
-                    merge(target, offHeap.readAccumulator(handle, kinds.length, needsDistinct));
-                }
-            }
+        }
+        if (distinct != null) {
+            countDistinctValues(sliceStarts, combined);
         }
 
         long windowStart = windowEndNanos - windows.spec().sizeNanos();
@@ -590,7 +411,38 @@ public final class SlicedAggregateState implements AutoCloseable {
         return results;
     }
 
-    private void merge(Accumulator target, Accumulator source) {
+    /**
+     * Distinct counts do not add across slices: a value in two slices is one distinct value in the
+     * window, not two. So each value is counted once, in the earliest of the window's slices that
+     * holds it -- decided by looking the same {@code (group, column, value)} up in each earlier slice,
+     * off-heap, rather than by building the window's set on the heap.
+     */
+    private void countDistinctValues(List<Long> sliceStarts, Map<SliceKey, SliceAccumulator> combined) {
+        java.util.Set<Long> inWindow = new java.util.HashSet<>(sliceStarts);
+        for (long handle : distinct.handles()) {
+            long sliceStart = distinct.sliceStartOf(handle);
+            if (!inWindow.contains(sliceStart)) {
+                continue;
+            }
+            SliceAccumulator target =
+                    combined.get(new SliceKey(distinct.keyHighOf(handle), distinct.keyLowOf(handle), 0));
+            if (target == null || presentInAnEarlierSlice(handle, sliceStart, sliceStarts)) {
+                continue;
+            }
+            target.values[distinct.columnOf(handle)]++;
+        }
+    }
+
+    private boolean presentInAnEarlierSlice(long handle, long sliceStart, List<Long> sliceStarts) {
+        for (long other : sliceStarts) {
+            if (other < sliceStart && distinct.presentIn(handle, other)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void merge(SliceAccumulator target, SliceAccumulator source) {
         if (target.keyValues == null) {
             target.keyValues = source.keyValues;
         }
@@ -598,21 +450,12 @@ public final class SlicedAggregateState implements AutoCloseable {
         for (int i = 0; i < kinds.length; i++) {
             switch (kinds[i]) {
                 case COUNT -> target.values[i] += source.values[i];
-                case SUM -> {
-                    target.values[i] += source.values[i];
-                    target.nonNull[i] += source.nonNull[i];
-                }
-                case AVG -> {
+                case SUM, AVG -> {
                     target.values[i] += source.values[i];
                     target.nonNull[i] += source.nonNull[i];
                 }
                 case COUNT_DISTINCT -> {
-                    // Distinct counts do not add across slices: a value in two slices is one distinct
-                    // value in the window, not two. The per-value counts have to be merged and the
-                    // size taken afterwards, which is why the maps travel rather than the numbers.
-                    Map<Object, Long> merged = target.distinct[i];
-                    source.distinct[i].forEach((value, seenCount) -> merged.merge(value, seenCount, Long::sum));
-                    target.values[i] = merged.size();
+                    // Not added: see countDistinctValues, which counts the values themselves.
                 }
                 // Merged on the non-null count, not on whether the target held any rows: a
                 // slice of nothing but nulls has rows and no extreme, and treating it as seeded
@@ -650,27 +493,25 @@ public final class SlicedAggregateState implements AutoCloseable {
      * @return how many accumulators were released
      */
     public int discardSlicesEndingBefore(long watermarkNanos, long allowedLatenessNanos) {
-        if (anyDistinct) {
-            int before = slices.size();
-            slices.keySet()
-                    .removeIf(sliceKey ->
-                            windows.lastWindowEndFor(sliceKey.sliceStart()) + allowedLatenessNanos <= watermarkNanos);
-            return before - slices.size();
-        }
+        java.util.function.LongPredicate dead =
+                sliceStart -> windows.lastWindowEndFor(sliceStart) + allowedLatenessNanos <= watermarkNanos;
         int before = offHeap.size();
         List<Long> handles = new ArrayList<>();
         offHeap.forEach(handles::add);
         for (long handle : handles) {
             long sliceStart = offHeap.sliceStartOf(handle);
-            if (windows.lastWindowEndFor(sliceStart) + allowedLatenessNanos <= watermarkNanos) {
+            if (dead.test(sliceStart)) {
                 offHeap.remove(offHeap.keyHighOf(handle), offHeap.keyLowOf(handle), sliceStart);
             }
+        }
+        if (distinct != null) {
+            distinct.removeSlices(dead);
         }
         return before - offHeap.size();
     }
 
     /**
-     * Writes every accumulator to a stream.
+     * Writes every accumulator, then every distinct value, to a stream.
      *
      * <p>The format is deliberately explicit rather than derived from the object graph: Java
      * serialization is banned as a transport here (ADR-003's reasoning applies just as much to a
@@ -681,11 +522,6 @@ public final class SlicedAggregateState implements AutoCloseable {
      *
      * <p>Called on the lane thread, between batches. Anywhere else it would be reading state that
      * is being mutated -- a photograph of a car crash rather than a snapshot.
-     *
-     * <p>The wire format does not know or care which of the two storage strategies produced it: an
-     * off-heap-sourced checkpoint and an on-heap-sourced one are byte-for-byte indistinguishable,
-     * which is what lets a restore rebuild whichever representation this construction chose without
-     * the checkpoint format needing a third thing to agree on.
      */
     public void writeTo(java.io.DataOutput out) throws java.io.IOException {
         out.writeInt(FORMAT_VERSION);
@@ -693,33 +529,26 @@ public final class SlicedAggregateState implements AutoCloseable {
         for (Kind kind : kinds) {
             out.writeUTF(kind.name());
         }
-        if (anyDistinct) {
-            out.writeInt(slices.size());
-            for (Map.Entry<SliceKey, Accumulator> entry : slices.entrySet()) {
-                writeEntry(out, entry.getKey(), entry.getValue());
+        List<Long> handles = new ArrayList<>();
+        offHeap.forEach(handles::add);
+        out.writeInt(handles.size());
+        for (long handle : handles) {
+            out.writeLong(offHeap.keyHighOf(handle));
+            out.writeLong(offHeap.keyLowOf(handle));
+            out.writeLong(offHeap.sliceStartOf(handle));
+            SliceAccumulator accumulator = offHeap.read(handle);
+            out.writeLong(accumulator.count);
+            for (int column = 0; column < kinds.length; column++) {
+                out.writeLong(accumulator.values[column]);
+                out.writeLong(accumulator.nonNull[column]);
             }
+            TaggedValues.writeKeyValues(out, accumulator.keyValues);
+        }
+        if (distinct == null) {
+            out.writeInt(0);
         } else {
-            List<Long> handles = new ArrayList<>();
-            offHeap.forEach(handles::add);
-            out.writeInt(handles.size());
-            for (long handle : handles) {
-                SliceKey key =
-                        new SliceKey(offHeap.keyHighOf(handle), offHeap.keyLowOf(handle), offHeap.sliceStartOf(handle));
-                writeEntry(out, key, offHeap.readAccumulator(handle, kinds.length, needsDistinct));
-            }
+            distinct.writeTo(out);
         }
-    }
-
-    private void writeEntry(java.io.DataOutput out, SliceKey key, Accumulator accumulator) throws java.io.IOException {
-        out.writeLong(key.keyHigh());
-        out.writeLong(key.keyLow());
-        out.writeLong(key.sliceStart());
-        out.writeLong(accumulator.count);
-        for (long value : accumulator.values) {
-            out.writeLong(value);
-        }
-        writeKeyValues(out, accumulator.keyValues);
-        writeDistinct(out, accumulator);
     }
 
     /**
@@ -731,6 +560,12 @@ public final class SlicedAggregateState implements AutoCloseable {
      */
     public void readFrom(java.io.DataInput in) throws java.io.IOException {
         int version = in.readInt();
+        if (version == 1) {
+            throw new java.io.IOException("this windowed aggregate's checkpoint is format version 1, written before "
+                    + "COUNT(DISTINCT) state moved off-heap (ADR-044); this engine writes version " + FORMAT_VERSION
+                    + " and does not read version 1, which kept each distinct set inside its accumulator and "
+                    + "did not carry the non-null counts AVG divides by. Refusing to guess at the difference.");
+        }
         if (version != FORMAT_VERSION) {
             throw new java.io.IOException("checkpoint is format version " + version + ", this engine writes "
                     + FORMAT_VERSION + ". Refusing to guess at the difference.");
@@ -748,141 +583,58 @@ public final class SlicedAggregateState implements AutoCloseable {
             }
         }
 
-        if (anyDistinct) {
-            slices.clear();
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                SliceKey key = new SliceKey(in.readLong(), in.readLong(), in.readLong());
-                Accumulator accumulator = new Accumulator(kinds.length, needsDistinct);
-                accumulator.count = in.readLong();
-                for (int column = 0; column < kinds.length; column++) {
-                    accumulator.values[column] = in.readLong();
-                }
-                accumulator.keyValues = readKeyValues(in);
-                readDistinct(in, accumulator);
-                slices.put(key, accumulator);
+        offHeap.clear();
+        int count = in.readInt();
+        for (int i = 0; i < count; i++) {
+            long keyHigh = in.readLong();
+            long keyLow = in.readLong();
+            long sliceStart = in.readLong();
+            long readCount = in.readLong();
+            long[] values = new long[kinds.length];
+            long[] nonNull = new long[kinds.length];
+            for (int column = 0; column < kinds.length; column++) {
+                values[column] = in.readLong();
+                nonNull[column] = in.readLong();
             }
-            peakSlices = Math.max(peakSlices, slices.size());
+            Object[] keyValues = TaggedValues.readKeyValues(in);
+            long handle = offHeap.create(keyHigh, keyLow, sliceStart, keyValues);
+            offHeap.setCount(handle, readCount);
+            for (int column = 0; column < kinds.length; column++) {
+                offHeap.setValue(handle, column, values[column]);
+                offHeap.setNonNull(handle, column, nonNull[column]);
+            }
+        }
+        peakSlices = Math.max(peakSlices, offHeap.size());
+        if (distinct == null) {
+            int entries = in.readInt();
+            if (entries != 0) {
+                throw new java.io.IOException("checkpoint holds " + entries + " distinct values for an aggregate "
+                        + "with no COUNT(DISTINCT) column: it was written by a different query");
+            }
         } else {
-            offHeap.clear();
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                long keyHigh = in.readLong();
-                long keyLow = in.readLong();
-                long sliceStart = in.readLong();
-                long readCount = in.readLong();
-                long[] values = new long[kinds.length];
-                for (int column = 0; column < kinds.length; column++) {
-                    values[column] = in.readLong();
-                }
-                Object[] keyValues = readKeyValues(in);
-                // Off-heap accumulators never have a distinct column (see the class javadoc), so
-                // this reads and discards nothing -- but it still has to be called, symmetrically
-                // with writeEntry always calling writeDistinct, or a checkpoint written with one
-                // aggregate shape and read with another would misalign every field after this one.
-                readDistinct(in, new Accumulator(kinds.length, needsDistinct));
-                long handle = offHeap.create(keyHigh, keyLow, sliceStart, keyValues);
-                offHeap.setCount(handle, readCount);
-                for (int column = 0; column < kinds.length; column++) {
-                    offHeap.setValue(handle, column, values[column]);
-                }
-            }
-            peakSlices = Math.max(peakSlices, offHeap.size());
-        }
-    }
-
-    /** Bumped whenever the layout above changes in a way an older reader would misread. */
-    private static final int FORMAT_VERSION = 1;
-
-    private static void writeKeyValues(java.io.DataOutput out, Object[] keyValues) throws java.io.IOException {
-        out.writeInt(keyValues == null ? -1 : keyValues.length);
-        if (keyValues == null) {
-            return;
-        }
-        for (Object value : keyValues) {
-            writeTagged(out, value);
+            distinct.readFrom(in, kinds.length);
         }
     }
 
     /**
-     * One value, tagged with its shape.
+     * Bumped whenever the layout above changes in a way an older reader would misread.
      *
-     * <p>Shared by the group keys and the distinct sets, which hold the same kinds of value for the
-     * same reason. A distinct set used to be longs, so this did not apply to it; keying it by the
-     * value rather than by the slot's bits made the two the same problem.
+     * <p>Version 2 (ADR-044): each accumulator carries its non-null counts beside its values -- AVG
+     * divides by them, and a version 1 restore left them at zero, so a restored window's AVG came out
+     * 0 -- and the distinct values follow every accumulator as one section of their own, instead of
+     * one set inside each accumulator. Version 1 is refused by name.
      */
-    private static void writeTagged(java.io.DataOutput out, Object value) throws java.io.IOException {
-        if (value == null) {
-            out.writeByte(0);
-        } else if (value instanceof String string) {
-            out.writeByte(1);
-            out.writeUTF(string);
-        } else if (value instanceof Double || value instanceof Float) {
-            out.writeByte(2);
-            out.writeDouble(((Number) value).doubleValue());
-        } else if (value instanceof Boolean flag) {
-            out.writeByte(3);
-            out.writeBoolean(flag);
-        } else {
-            out.writeByte(4);
-            out.writeLong(((Number) value).longValue());
-        }
-    }
-
-    private static Object readTagged(java.io.DataInput in) throws java.io.IOException {
-        byte tag = in.readByte();
-        return switch (tag) {
-            case 0 -> null;
-            case 1 -> in.readUTF();
-            case 2 -> in.readDouble();
-            case 3 -> in.readBoolean();
-            case 4 -> in.readLong();
-            default -> throw new java.io.IOException("unknown key-value tag " + tag + " in the checkpoint");
-        };
-    }
-
-    private static Object[] readKeyValues(java.io.DataInput in) throws java.io.IOException {
-        int length = in.readInt();
-        if (length < 0) {
-            return null;
-        }
-        Object[] values = new Object[length];
-        for (int i = 0; i < length; i++) {
-            values[i] = readTagged(in);
-        }
-        return values;
-    }
-
-    private void writeDistinct(java.io.DataOutput out, Accumulator accumulator) throws java.io.IOException {
-        for (int i = 0; i < kinds.length; i++) {
-            if (!needsDistinct[i]) {
-                continue;
-            }
-            Map<Object, Long> seen = accumulator.distinct[i];
-            out.writeInt(seen.size());
-            for (Map.Entry<Object, Long> entry : seen.entrySet()) {
-                writeTagged(out, entry.getKey());
-                out.writeLong(entry.getValue());
-            }
-        }
-    }
-
-    private void readDistinct(java.io.DataInput in, Accumulator accumulator) throws java.io.IOException {
-        for (int i = 0; i < kinds.length; i++) {
-            if (!needsDistinct[i]) {
-                continue;
-            }
-            int entries = in.readInt();
-            Map<Object, Long> seen = accumulator.distinct[i];
-            for (int e = 0; e < entries; e++) {
-                seen.put(readTagged(in), in.readLong());
-            }
-        }
-    }
+    private static final int FORMAT_VERSION = 2;
 
     /** Live accumulators. The number bounded-state enforcement watches. */
     public int liveSlices() {
-        return anyDistinct ? slices.size() : offHeap.size();
+        return offHeap.size();
+    }
+
+    /** Live {@code (group, slice, column, value)} entries behind this aggregate's {@code COUNT(DISTINCT)}
+     * columns; zero when it has none. */
+    public int distinctValuesHeld() {
+        return distinct == null ? 0 : distinct.size();
     }
 
     public long peakSlices() {
@@ -893,231 +645,25 @@ public final class SlicedAggregateState implements AutoCloseable {
         return maxSlices;
     }
 
-    /** Whether this aggregate's off-heap accumulators have spilled to the overflow tier. False for
-     * an aggregate using the on-heap ({@code COUNT DISTINCT}) path, which never spills. */
+    /** Whether this aggregate's off-heap state -- accumulators or distinct values -- has spilled to
+     * the overflow tier. */
     public boolean hasSpilled() {
-        return !anyDistinct && offHeap.hasSpilled();
+        return offHeap.map().hasSpilled() || (distinct != null && distinct.map().hasSpilled());
     }
 
-    /** Bytes this aggregate's off-heap accumulators have taken from the operating system -- index
-     * and data together. Zero for the on-heap path, which this does not measure. */
+    /** Bytes this aggregate's off-heap state has taken from the operating system -- index and data,
+     * accumulators and distinct values together. */
     public long offHeapBytesAllocated() {
-        return anyDistinct ? 0 : offHeap.bytesAllocated();
+        return offHeap.map().bytesAllocated()
+                + (distinct == null ? 0 : distinct.map().bytesAllocated());
     }
 
-    /**
-     * Releases the off-heap resources this aggregate holds. A no-op for the on-heap ({@code COUNT
-     * DISTINCT}) path, which has none.
-     */
+    /** Releases the off-heap resources this aggregate holds. */
     @Override
     public void close() {
-        if (offHeap != null) {
-            offHeap.close();
-        }
-    }
-
-    /**
-     * Off-heap storage for every accumulator this class holds, when none of them needs {@code
-     * COUNT_DISTINCT}'s per-value counting.
-     *
-     * <p>Indexed by {@link VariableKeyStateMap}, keyed by the same 24 fixed bytes -- {@code
-     * keyHigh}, {@code keyLow}, {@code sliceStart} -- this class has always identified a slice by.
-     * The value is one {@link com.ash.messaging.pravaha.state.RowStore} block per accumulator: a
-     * fixed header ({@code count}, then {@code values[]}, then {@code nonNull[]}, all eight-byte
-     * longs) followed by {@code keyValues} encoded exactly as {@link #writeKeyValues} writes it to a
-     * checkpoint -- reused rather than re-invented, and safe to reuse because a group's {@code
-     * keyValues} are fixed at creation and never rewritten, so the block never needs to grow.
-     */
-    private static final class OffHeapAccumulators implements AutoCloseable {
-
-        private static final int INDEX_INITIAL_CAPACITY = 64;
-        private static final int STORE_SLAB_BYTES = 1 << 16;
-
-        /**
-         * A deliberately generous per-accumulator estimate -- fixed header plus a modest {@code
-         * keyValues} encoding -- used only to size the RAM tier from {@code maxSlices}, never to
-         * bound anything: a bigger accumulator than this simply fits fewer per slab, and a query
-         * genuinely holding more accumulators than {@code maxSlices} was ever sized for is exactly
-         * what the overflow tier, once it is reached, exists to keep running through.
-         */
-        private static final int ESTIMATED_BYTES_PER_ENTRY = 256;
-
-        private final int columns;
-        private final int fixedHeaderBytes;
-        private final MemoryAccess access;
-        private final MemoryAccess overflowAccess;
-        private final int maxOverflowSlabs;
-        private final int ramMaxSlabs;
-        private final MemoryRegion keyScratch;
-
-        private VariableKeyStateMap map;
-
-        /**
-         * @param ramMaxSlabs the RAM tier's own slab ceiling, in {@link #STORE_SLAB_BYTES}-sized
-         *     slabs -- derived from {@code maxSlices} by {@link SlicedAggregateState}, not a
-         *     separately configured number, so that a small {@code maxSlices} does not carry a
-         *     RAM budget sized for a large one
-         */
-        OffHeapAccumulators(
-                int columns, MemoryAccess access, int ramMaxSlabs, MemoryAccess overflowAccess, int maxOverflowSlabs) {
-            this.columns = columns;
-            this.fixedHeaderBytes = Long.BYTES + 2 * Long.BYTES * columns;
-            this.access = access;
-            this.overflowAccess = overflowAccess;
-            this.maxOverflowSlabs = maxOverflowSlabs;
-            this.ramMaxSlabs = ramMaxSlabs;
-            this.keyScratch = access.allocate(3 * Long.BYTES);
-            this.map = newMap();
-        }
-
-        /** How many RAM slabs comfortably hold {@code maxSlices} accumulators at the estimate
-         * above -- at least one, however small {@code maxSlices} is. */
-        static int ramSlabsFor(int maxSlices) {
-            long estimatedBytes = (long) maxSlices * ESTIMATED_BYTES_PER_ENTRY;
-            return (int) Math.max(1, (estimatedBytes + STORE_SLAB_BYTES - 1) / STORE_SLAB_BYTES);
-        }
-
-        private VariableKeyStateMap newMap() {
-            return new VariableKeyStateMap(
-                    access, INDEX_INITIAL_CAPACITY, STORE_SLAB_BYTES, ramMaxSlabs, overflowAccess, maxOverflowSlabs);
-        }
-
-        private void writeKey(long keyHigh, long keyLow, long sliceStart) {
-            keyScratch.putLong(0, keyHigh);
-            keyScratch.putLong(Long.BYTES, keyLow);
-            keyScratch.putLong(2 * Long.BYTES, sliceStart);
-        }
-
-        long find(long keyHigh, long keyLow, long sliceStart) {
-            writeKey(keyHigh, keyLow, sliceStart);
-            return map.find(keyScratch, 0, 3 * Long.BYTES);
-        }
-
-        /** Creates a new, zeroed accumulator (the store zeroes a fresh block's value bytes) with
-         * {@code keyValues} written into its variable tail. */
-        long create(long keyHigh, long keyLow, long sliceStart, Object[] keyValues) {
-            writeKey(keyHigh, keyLow, sliceStart);
-            byte[] encodedKeyValues = encodeKeyValues(keyValues);
-            long handle = map.getOrCreate(keyScratch, 0, 3 * Long.BYTES, fixedHeaderBytes + encodedKeyValues.length);
-            map.valueRegionOf(handle)
-                    .putBytes(
-                            map.valueOffsetOf(handle) + fixedHeaderBytes, encodedKeyValues, 0, encodedKeyValues.length);
-            return handle;
-        }
-
-        private static byte[] encodeKeyValues(Object[] keyValues) {
-            try {
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                try (DataOutputStream out = new DataOutputStream(bytes)) {
-                    writeKeyValues(out, keyValues);
-                }
-                return bytes.toByteArray();
-            } catch (java.io.IOException e) {
-                // ByteArrayOutputStream never throws IOException; this exists so the checked
-                // exception on the shared writeKeyValues signature does not have to leak here.
-                throw new IllegalStateException(e);
-            }
-        }
-
-        Object[] keyValuesOf(long handle) {
-            MemoryRegion region = map.valueRegionOf(handle);
-            int base = map.valueOffsetOf(handle);
-            int length = map.valueLengthOf(handle) - fixedHeaderBytes;
-            byte[] encoded = new byte[length];
-            region.getBytes(base + fixedHeaderBytes, encoded, 0, length);
-            try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(encoded))) {
-                return readKeyValues(in);
-            } catch (java.io.IOException e) {
-                // Reading from a ByteArrayInputStream cannot fail on I/O; a failure here means the
-                // bytes this class itself wrote are not what this class itself expects, which is a
-                // bug in this class rather than a condition a caller could have caused.
-                throw new IllegalStateException("cannot decode this accumulator's own key values", e);
-            }
-        }
-
-        long count(long handle) {
-            return map.valueRegionOf(handle).getLong(map.valueOffsetOf(handle));
-        }
-
-        void setCount(long handle, long value) {
-            map.valueRegionOf(handle).putLong(map.valueOffsetOf(handle), value);
-        }
-
-        long value(long handle, int column) {
-            return map.valueRegionOf(handle).getLong(map.valueOffsetOf(handle) + Long.BYTES + Long.BYTES * column);
-        }
-
-        void setValue(long handle, int column, long value) {
-            map.valueRegionOf(handle).putLong(map.valueOffsetOf(handle) + Long.BYTES + Long.BYTES * column, value);
-        }
-
-        long nonNull(long handle, int column) {
-            return map.valueRegionOf(handle)
-                    .getLong(map.valueOffsetOf(handle) + Long.BYTES + Long.BYTES * columns + Long.BYTES * column);
-        }
-
-        void setNonNull(long handle, int column, long value) {
-            map.valueRegionOf(handle)
-                    .putLong(
-                            map.valueOffsetOf(handle) + Long.BYTES + Long.BYTES * columns + Long.BYTES * column, value);
-        }
-
-        long keyHighOf(long handle) {
-            return map.keyRegionOf(handle).getLong(map.keyOffsetOf(handle));
-        }
-
-        long keyLowOf(long handle) {
-            return map.keyRegionOf(handle).getLong(map.keyOffsetOf(handle) + Long.BYTES);
-        }
-
-        long sliceStartOf(long handle) {
-            return map.keyRegionOf(handle).getLong(map.keyOffsetOf(handle) + 2 * Long.BYTES);
-        }
-
-        /** A temporary, on-heap copy of one accumulator, for {@link #merge} and the checkpoint
-         * writer to work with exactly as they already do for the on-heap path. */
-        Accumulator readAccumulator(long handle, int columnCount, boolean[] needsDistinct) {
-            Accumulator accumulator = new Accumulator(columnCount, needsDistinct);
-            accumulator.count = count(handle);
-            for (int i = 0; i < columnCount; i++) {
-                accumulator.values[i] = value(handle, i);
-                accumulator.nonNull[i] = nonNull(handle, i);
-            }
-            accumulator.keyValues = keyValuesOf(handle);
-            return accumulator;
-        }
-
-        void remove(long keyHigh, long keyLow, long sliceStart) {
-            writeKey(keyHigh, keyLow, sliceStart);
-            map.remove(keyScratch, 0, 3 * Long.BYTES);
-        }
-
-        void forEach(java.util.function.LongConsumer visitor) {
-            map.forEach(visitor::accept);
-        }
-
-        int size() {
-            return map.size();
-        }
-
-        boolean hasSpilled() {
-            return map.hasSpilled();
-        }
-
-        long bytesAllocated() {
-            return map.bytesAllocated();
-        }
-
-        /** Discards every accumulator, for a restore that replaces rather than merges. */
-        void clear() {
-            map.close();
-            map = newMap();
-        }
-
-        @Override
-        public void close() {
-            map.close();
-            keyScratch.close();
+        offHeap.close();
+        if (distinct != null) {
+            distinct.close();
         }
     }
 }

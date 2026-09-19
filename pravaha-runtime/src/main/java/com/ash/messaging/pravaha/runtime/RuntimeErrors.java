@@ -38,19 +38,11 @@ public final class RuntimeErrors {
     /** A join Pravaha will not run: an unsupported key type, or a shape with no bounded execution. */
     public static final ErrorCode UNSUPPORTED_JOIN = new ErrorCode(3021, "RUNTIME_UNSUPPORTED_JOIN");
 
-    /**
-     * ADR-037 item B2: {@code COUNT(DISTINCT ...)} cannot spill.
-     *
-     * <p>Every other windowed aggregate's accumulator is a handful of fixed-width numbers, which is
-     * what makes it possible to carve off-heap and, from there, to an overflow tier. {@code
-     * COUNT(DISTINCT x)} holds one entry per distinct value per group per slice -- a set that grows
-     * with cardinality, not a number -- and that has no fixed-width representation to spill. Refused
-     * by name, at the moment spilling is configured for a query that needs it, rather than accepted
-     * and left to hit {@link #UNSUPPORTED_AGGREGATE}'s ceiling later with no more room to grow into
-     * than it had before spilling was ever turned on.
-     */
-    public static final ErrorCode COUNT_DISTINCT_CANNOT_SPILL =
-            new ErrorCode(3023, "RUNTIME_COUNT_DISTINCT_CANNOT_SPILL");
+    // 3023 is retired, not free. It was RUNTIME_COUNT_DISTINCT_CANNOT_SPILL: an aggregate containing
+    // COUNT(DISTINCT) kept its distinct sets on the heap and was refused when the overflow tier was
+    // configured. ADR-044 moved those sets into RowStore, so they spill like every other state and
+    // nothing can throw it any more. The number is not reused -- an operator who met it once must
+    // never find something else behind it.
 
     private RuntimeErrors() {}
 }

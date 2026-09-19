@@ -203,7 +203,7 @@ class StateRestoreTest extends StateTestSupport {
             assertThat(c.operatorState().keySet()).containsExactly("lane-0");
             byte[] s = c.operatorState().get("lane-0");
             assertThat(intAt(s, 0)).isEqualTo(0x50565354);
-            assertThat(intAt(s, 4)).isEqualTo(4);
+            assertThat(intAt(s, 4)).isEqualTo(5);
         }
         // Filter.
         try (RawExecution filtered = raw(TXN, "SELECT user_id, amount FROM txn WHERE amount > 50")) {
@@ -238,7 +238,7 @@ class StateRestoreTest extends StateTestSupport {
             assertThat(s[1]).isEqualTo((byte) 0x56);
             assertThat(s[2]).isEqualTo((byte) 0x53);
             assertThat(s[3]).isEqualTo((byte) 0x54);
-            assertThat(intAt(s, 4)).isEqualTo(4); // SNAPSHOT_VERSION -- 4 since CKPT-2 added unwindowed aggregates
+            assertThat(intAt(s, 4)).isEqualTo(5); // SNAPSHOT_VERSION -- 5 since ADR-044 changed the windowed section
             assertThat(intAt(s, 8)).isEqualTo(1); // windowed operator count
         }
     }
@@ -265,7 +265,7 @@ class StateRestoreTest extends StateTestSupport {
             assertThat(s).isNotNull();
             assertThat(s.length).isGreaterThan(0);
             assertThat(intAt(s, 0)).isEqualTo(0x50565354);
-            assertThat(intAt(s, 4)).isEqualTo(4);
+            assertThat(intAt(s, 4)).isEqualTo(5);
             assertThat(intAt(s, 8))
                     .as("windowed count is zero for a join-only plan")
                     .isEqualTo(0);
@@ -620,42 +620,70 @@ class StateRestoreTest extends StateTestSupport {
         try (RawExecution b = rawWindowed()) {
             assertThatThrownBy(() -> b.execution.restore(patched, Duration.ofSeconds(30)))
                     .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("this snapshot is version 1 and this engine writes version 4")
+                    .hasMessageContaining("this snapshot is version 1 and this engine writes version 5")
                     .hasMessageContaining("Replay the stream from a source offset instead.");
         }
     }
 
     /**
-     * A version 3 snapshot -- written before unwindowed aggregates were checkpointed (CKPT-2) -- is
-     * version 4's layout without the trailing aggregates section, so a windowed plan still restores
-     * from one: the upgrade does not throw away every open window a deployment holds.
+     * A version 4 or 3 snapshot holding windowed state is refused. ADR-044 changed the windowed
+     * aggregate's own section (its non-null counts, and {@code COUNT(DISTINCT)}'s values moved out of
+     * each accumulator into a section of their own, off-heap), so version 5 is not version 4 plus
+     * something at the end: reading one as the other would parse fields in the wrong places.
+     *
+     * <p>It used to be the other way round for version 3 -- a windowed plan restored from it, because
+     * version 4 only appended a section. That stopped being true when the windowed section itself
+     * changed.
      */
     @Test
-    void state061b_aVersion3SnapshotStillRestoresIntoAPlanWithNoUnwindowedAggregate() {
+    void state061b_anOlderSnapshotWithWindowedStateIsRefusedByVersion() {
         RawExecution a = rawWindowed();
         a.feedAt("u1", 100, 1_000_000_000L);
         assertThat(a.execution.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
         byte[] current =
                 a.execution.checkpoint(1, Duration.ofSeconds(5)).operatorState().get("lane-0");
         a.abort();
-        assertThat(intAt(current, current.length - 4))
-                .as("version 4 ends with the unwindowed aggregate count, zero here")
-                .isZero();
-        byte[] versionThree = java.util.Arrays.copyOf(current, current.length - 4);
-        versionThree[7] = 3;
-        Checkpoint old = new Checkpoint(1, 0, java.util.Map.of(), java.util.Map.of("lane-0", versionThree));
+        for (int old : new int[] {4, 3}) {
+            byte[] bytes = current.clone();
+            bytes[7] = (byte) old;
+            Checkpoint patched = new Checkpoint(1, 0, java.util.Map.of(), java.util.Map.of("lane-0", bytes));
+            try (RawExecution b = rawWindowed()) {
+                assertThatThrownBy(() -> b.execution.restore(patched, Duration.ofSeconds(30)))
+                        .isInstanceOf(PravahaException.class)
+                        .hasMessageContaining("this snapshot is version " + old + " and this engine writes version 5");
+            }
+        }
+    }
 
-        try (RawExecution b = rawWindowed()) {
+    /**
+     * ...but a version 4 snapshot of a plan with no windowed aggregate is the same bytes version 5
+     * writes, and still restores: an upgrade does not throw away an unwindowed aggregate's count.
+     */
+    @Test
+    void state061d_aVersion4SnapshotStillRestoresIntoAPlanWithNoWindowedAggregate() {
+        RawExecution a = raw(TXN, "SELECT COUNT(*) AS n FROM txn");
+        a.feed("u1", 100);
+        a.feed("u2", 5);
+        assertThat(a.execution.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
+        byte[] bytes = a.execution
+                .checkpoint(1, Duration.ofSeconds(5))
+                .operatorState()
+                .get("lane-0")
+                .clone();
+        a.abort();
+        bytes[7] = 4;
+        Checkpoint old = new Checkpoint(1, 0, java.util.Map.of(), java.util.Map.of("lane-0", bytes));
+
+        try (RawExecution b = raw(TXN, "SELECT COUNT(*) AS n FROM txn")) {
             b.execution.restore(old, Duration.ofSeconds(30));
-            b.feedAt("u1", 5, 3_000_000_000L);
-            assertThat(b.execution.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
-            b.advanceWatermark(11_000_000_000L);
             b.execution.checkHealth();
-            long total = b.emitted.stream()
-                    .filter(row -> "u1".equals(row.asString(0)))
-                    .mapToLong(row -> row.asLong(1))
-                    .sum();
-            assertThat(total).isEqualTo(105L);
+            byte[] after = b.execution
+                    .checkpoint(2, Duration.ofSeconds(5))
+                    .operatorState()
+                    .get("lane-0");
+            assertThat(java.util.Arrays.copyOfRange(after, 8, after.length))
+                    .as("the restored aggregate checkpoints exactly what the version 4 snapshot held")
+                    .isEqualTo(java.util.Arrays.copyOfRange(bytes, 8, bytes.length));
         }
     }
 
@@ -681,7 +709,7 @@ class StateRestoreTest extends StateTestSupport {
         try (RawExecution b = raw(TXN, "SELECT COUNT(*) AS n FROM txn")) {
             assertThatThrownBy(() -> b.execution.restore(old, Duration.ofSeconds(30)))
                     .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("this snapshot is version 3 and this engine writes version 4");
+                    .hasMessageContaining("this snapshot is version 3 and this engine writes version 5");
         }
     }
 

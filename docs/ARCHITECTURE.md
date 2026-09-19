@@ -211,7 +211,7 @@ is sized by cores — roughly 30 of them on this class of box, whatever the quer
 |---|---|---|---|
 | Generated stage + its classloader | ~40 KB | ~400 MB | Metaspace, off-heap |
 | Plan IR, schema, catalog entry, subscription record | 50–100 KB | 0.5–1 GB | Heap |
-| Operator state (windows, aggregates) | **budget ≤ 4 MB** | ≤ 40 GB | *Designed* as off-heap L0 then RocksDB; RocksDB dropped by ADR-044. **As built: off-heap, except `COUNT(DISTINCT)`.** Row payloads live in `RowStore` blocks, and a join's per-side index and a windowed aggregate's accumulators are `VariableKeyStateMap`s — off-heap tables of fingerprints and handles, keys of any width, which replaced the deleted fixed-width `L0StateMap` (W8-12). An aggregate containing `COUNT(DISTINCT)` keeps an on-heap `HashMap` of values per group. There is no RocksDB; the optional overflow tier is memory-mapped files (ADR-037 B2) |
+| Operator state (windows, aggregates) | **budget ≤ 4 MB** | ≤ 40 GB | *Designed* as off-heap L0 then RocksDB; RocksDB dropped by ADR-044. **As built: off-heap, all of it.** Row payloads live in `RowStore` blocks, and a join's per-side index and a windowed aggregate's accumulators are `VariableKeyStateMap`s — off-heap tables of fingerprints and handles, keys of any width, which replaced the deleted fixed-width `L0StateMap` (W8-12). `COUNT(DISTINCT)` keeps one off-heap entry per group, slice and value with a count (`DistinctValueCounts`, ADR-044), so it spills like the rest. There is no RocksDB; the optional overflow tier is memory-mapped files (ADR-037 B2) |
 
 > **Aggregates are single-lane.** The lane model parallelises joins: `pumpPartitionedInto` routes
 > each row to the lane owning its join key. There is no equivalent for a grouping key, so a keyed

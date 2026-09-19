@@ -170,7 +170,7 @@ format.
 | | |
 |---|---|
 | `PRV-4022` view too large | Retention is applied *before* this check, so hitting it means either the view keeps everything and should not, or the window genuinely holds more rows than the ceiling. The message says which |
-| `PRV-4001` state too large | An operator's state passed its ceiling, and the lane it was running on dies with it. **Do not meet this for the first time here**: `pravaha_query_state_fraction` reports how full every query is, and `_held` / `_ceiling` report the two numbers behind it. Alert at 0.9. Without a spill tier a query that hits the ceiling stops. Configure `pravaha.state.spill.*` (off by default) and join and windowed-aggregate state spills to disk instead, slower but running (ADR-037 B2); an aggregate containing `COUNT(DISTINCT)` cannot spill and is refused at registration with `PRV-3023` when the tier is on |
+| `PRV-4001` state too large | An operator's state passed its ceiling, and the lane it was running on dies with it. **Do not meet this for the first time here**: `pravaha_query_state_fraction` reports how full every query is, and `_held` / `_ceiling` report the two numbers behind it. Alert at 0.9. Without a spill tier a query that hits the ceiling stops. Configure `pravaha.state.spill.*` (off by default) and join and windowed-aggregate state spills to disk instead, slower but running (ADR-037 B2), `COUNT(DISTINCT)` included since ADR-044 |
 | `PRV-4003` state not ours | Another node owns this checkpoint directory or registry journal, or a second instance of this node is running. The message names the holder's node id, host, port and how long ago it was last seen. Give this node its own directory, stop the other instance, or set `pravaha.state.allow-shared=true` if sharing really is intended. A node reclaiming *its own* state after a crash does **not** hit this: an expired claim under the same node id is taken over automatically |
 | `PRV-4004` ownership marker unreadable | The `.pravaha-owner` file in a state directory exists and cannot be read, written, or names no node. Refused rather than assumed free, because a truncated marker and an absent one mean different things. Delete it only if the directory is genuinely unowned |
 | `PRV-4090` dead-letter queue unusable | `pravaha.dlq.directory` is set and this node cannot create or write there, so it refuses to start. Deliberately fatal: an operator who configured a dead-letter queue asked for undecodable records to be kept, and starting without one would hand them the behaviour they configured it to avoid — a single bad field ending the poll and taking the rest of the file with it (TIME-4). Fix the path and its permissions, or unset the key to go back to failing loudly on a bad record |
@@ -337,7 +337,6 @@ way it was registered.
 | `PRV-3020` | RUNTIME_UNSUPPORTED_AGGREGATE | runtime |
 | `PRV-3022` | RUNTIME_WINDOW_SPAN_IMPLAUSIBLE | runtime |
 | `PRV-3021` | RUNTIME_UNSUPPORTED_JOIN | runtime |
-| `PRV-3023` | RUNTIME_COUNT_DISTINCT_CANNOT_SPILL | runtime |
 | `PRV-3100` | CODEGEN_COMPILATION_FAILED | runtime |
 | `PRV-3101` | CODEGEN_UNSUPPORTED_OPERATOR | runtime |
 | `PRV-3102` | CODEGEN_STAGE_TOO_LARGE | runtime |

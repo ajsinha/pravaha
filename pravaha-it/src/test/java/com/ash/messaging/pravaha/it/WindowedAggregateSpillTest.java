@@ -22,7 +22,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.common.arena.RowArena;
@@ -40,7 +39,6 @@ import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * ADR-037 item B2's overflow tier for windowed aggregates, proven through the real vertical stack:
@@ -120,25 +118,30 @@ class WindowedAggregateSpillTest {
         assertThat(sink.rowsApplied()).as("one fired row per distinct user").isEqualTo(userCount);
     }
 
+    /**
+     * It was refused here at compile time with the tier on (it kept its distinct sets on the heap and
+     * had nowhere to spill them). ADR-044 moved them into a {@code RowStore}: the same query now
+     * compiles, runs and answers.
+     */
     @Test
-    void windowedCountDistinctWithSpillConfiguredIsRefusedAtCompileTime(@TempDir Path dir) {
+    void windowedCountDistinctWithSpillConfiguredCompilesAndAnswers(@TempDir Path dir) {
         InterpretedPipeline.configureSpill(new SpillSettings(true, dir.toString(), 16));
-
-        PhysicalOperator plan = plan(SQL_DISTINCT);
-        ServedView view = new ServedView("v", plan.outputSchema(), List.of(0, 1), 1_000_000);
-        ViewSink sink = new ViewSink(view, plan.outputSchema());
-
-        assertThatThrownBy(() -> InterpretedPipeline.compile(plan, (RowOutput) sink::begin))
-                .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-3023")
-                .hasMessageContaining("COUNT(DISTINCT");
+        assertThat(countDistinctUsers(40)).as("one row, for the one window").isEqualTo(1);
     }
 
     @Test
     void windowedCountDistinctWithoutSpillConfiguredStillWorks() {
-        // Unconfigured is SpillSettings.DISABLED by default -- this is the regression check that
-        // an aggregate needing the on-heap path is completely unaffected when nobody has turned
-        // spilling on at all, which is every deployment today.
+        // Unconfigured is SpillSettings.DISABLED by default: the same off-heap state, refusing at its
+        // memory ceiling rather than spilling, which is every deployment that has not opted in.
+        assertThat(countDistinctUsers(5)).isEqualTo(1);
+    }
+
+    /**
+     * Feeds {@code users} distinct users, each twice, into one ten-second window of {@link
+     * #SQL_DISTINCT} and fires it; asserts the window's answer is {@code users} and returns how many
+     * rows the view was sent.
+     */
+    private static long countDistinctUsers(int users) {
         PhysicalOperator plan = plan(SQL_DISTINCT);
         ServedView view = new ServedView("v", plan.outputSchema(), List.of(0, 1), 1_000_000);
         ViewSink sink = new ViewSink(view, plan.outputSchema());
@@ -147,16 +150,24 @@ class WindowedAggregateSpillTest {
                 InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, (RowOutput) sink::begin)) {
             BinaryRowWriter writer = new BinaryRowWriter(layout);
             BinaryRowView reader = new BinaryRowView(layout);
-            for (int user = 0; user < 5; user++) {
-                long handle = arena.allocate(layout.rowSize(256));
-                writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-                writer.setLong(0, user).setLong(1, 0L).setLong(2, SECOND);
-                writer.weight(1L).eventTimestampNanos(SECOND).sequence(user).commit();
-                arena.trimTo(handle, writer.sizeSoFar());
-                pipeline.accept(reader.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+            for (int copy = 0; copy < 2; copy++) {
+                for (int user = 0; user < users; user++) {
+                    long handle = arena.allocate(layout.rowSize(256));
+                    writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+                    writer.setLong(0, user).setLong(1, 0L).setLong(2, SECOND);
+                    writer.weight(1L).eventTimestampNanos(SECOND).sequence(user).commit();
+                    arena.trimTo(handle, writer.sizeSoFar());
+                    pipeline.accept(reader.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+                }
             }
             pipeline.advanceWatermark(10 * SECOND);
         }
-        assertThat(sink.rowsApplied()).isEqualTo(1);
+        sink.commitApplied();
+        List<Object[]> rows = view.scan();
+        assertThat(rows).hasSize(1);
+        assertThat(((Number) rows.get(0)[2]).longValue())
+                .as("each user counted once, however often it appeared")
+                .isEqualTo(users);
+        return sink.rowsApplied();
     }
 }

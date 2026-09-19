@@ -73,10 +73,10 @@ pravaha:
 ```
 
 With it, join and windowed-aggregate state that outgrows memory is written to mapped files and the
-query keeps running, slower, instead of dying with `PRV-4001`. It is off by default. An aggregate
-containing `COUNT(DISTINCT)` keeps its state on-heap and cannot spill, so with the tier on it is
-refused at registration with `PRV-3023` rather than silently denied it (ADR-037 B2). Without the
-tier, the failure mode is memory, not disk.
+query keeps running, slower, instead of dying with `PRV-4001`. It is off by default. Every state
+shape spills: an aggregate containing `COUNT(DISTINCT)` keeps its per-value counts off-heap in the
+same kind of store as everything else, and spills with it (ADR-044; it used to be refused with a
+code that is now retired). Without the tier, the failure mode is memory, not disk.
 
 ## Capacity: the two numbers that interact
 
@@ -981,8 +981,8 @@ Listed because you will meet them, not to be thorough:
   including state against its ceiling; lane throughput and backpressure are not
 - **State is refused unless you configure the spill tier.** Without `pravaha.state.spill.*`, a query
   that reaches its ceiling dies with `PRV-4001` and takes its lane with it; with it, join and
-  windowed-aggregate state spills to mapped files and the query slows instead (ADR-037 B2).
-  `COUNT(DISTINCT)` cannot spill. The ceiling is visible before it arrives either way (B1)
+  windowed-aggregate state spills to mapped files and the query slows instead (ADR-037 B2),
+  `COUNT(DISTINCT)` included (ADR-044). The ceiling is visible before it arrives either way (B1)
 - **By default a lane runs one query on a node.** The thread is shared (`LaneRunner`); the inbox
   and the arena are not, so per-query off-heap is ~1 MiB idle. `pravaha.lane.multiplex.enabled`
   shares them (off by default, because a shared lane shares its fate), and even then a shared lane

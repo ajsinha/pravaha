@@ -94,8 +94,7 @@ pravaha:
   #
   # `enabled` is tri-state and explicit wins in BOTH directions: set it false and a directory left
   # configured underneath does NOT switch spilling back on. Leave it unset and a configured
-  # directory means on. COUNT(DISTINCT) cannot spill and says so at registration (PRV-3023) rather
-  # than silently filling memory.
+  # directory means on. Every state shape spills, COUNT(DISTINCT) included (ADR-044).
 # state:
 #   spill:
 #     enabled: false
