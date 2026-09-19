@@ -227,10 +227,14 @@ class SharedSourceReaderTest {
                             + "history and polled again to find nothing new")
                     .isTrue();
 
+            // A leave narrows the shared reader's request, and the feed thread applies it at the
+            // reader's next idle poll by opening the narrower reader and then closing the old one
+            // (SharedPartitionFeed#replaceReader) -- two open for an instant, which a count read
+            // straight after the drop can land on. Wait for it to settle; the assertion is unchanged.
             registry.drop("asks_one");
-            assertThat(CountingScanPlugin.OPEN.get())
+            assertThat(awaitOpen(1, Duration.ofSeconds(5)))
                     .as("dropping one of two queries must leave the reader open for the other")
-                    .isEqualTo(1);
+                    .isTrue();
 
             registry.drop("asks_another");
             assertThat(CountingScanPlugin.OPEN.get())
