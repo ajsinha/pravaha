@@ -65,6 +65,10 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     private final BackpressurePolicy policy;
     private volatile java.nio.file.Path deadLetterDirectory;
 
+    /** The bound applied to every dead-letter file this node writes. */
+    private volatile com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention deadLetterRetention =
+            com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention.defaults();
+
     /**
      * One reader per binding, shared by every query that reads it. SRC-3.
      *
@@ -104,6 +108,35 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     public PluginSourceFeeds deadLetteringTo(java.nio.file.Path directory) {
         this.deadLetterDirectory = directory;
         return this;
+    }
+
+    /**
+     * Bounds every dead-letter file this node writes (B5).
+     *
+     * <p>Unbounded, one renamed column in a busy feed fills the disk the node's checkpoints are
+     * on. The bound evicts the oldest entries and writes down what it took, rather than refusing
+     * -- see {@link com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention} for why that way
+     * round.
+     */
+    public PluginSourceFeeds retainingDeadLetters(com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention bound) {
+        this.deadLetterRetention =
+                bound == null ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention.defaults() : bound;
+        return this;
+    }
+
+    /**
+     * Reads back what has been dead-lettered, or {@link
+     * com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore#NONE} when no directory is configured.
+     *
+     * <p>A store rather than a path, so that every surface that lists, shows and replays reads the
+     * files through one implementation. Built per call, because it holds no state: a directory and
+     * a bound.
+     */
+    public com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters() {
+        java.nio.file.Path directory = deadLetterDirectory;
+        return directory == null
+                ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE
+                : new com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterStore(directory, deadLetterRetention);
     }
 
     /**
@@ -228,6 +261,11 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                                         reader -> {
                                             IngestPump pump = execution.pumpInto(0, stream, reader, policy);
                                             attachDeadLetters(pump, queryName, sharedResources);
+                                            // What the source promises, so a replay can refuse where
+                                            // re-feeding a record would count it twice (B5).
+                                            pump.sourceGuarantee(group.plugin()
+                                                    .capabilities()
+                                                    .guarantee());
                                             return pump;
                                         },
                                         execution.sharedLaneInput(stream)));
@@ -273,6 +311,9 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     com.ash.messaging.pravaha.runtime.ingest.IngestPump pump =
                             execution.pumpInto(0, stream, reader, policy);
                     attachDeadLetters(pump, queryName, resources);
+                    // What the source promises, so a replay can refuse where re-feeding a record
+                    // would count it twice (B5).
+                    pump.sourceGuarantee(plugin.capabilities().guarantee());
                     pumps.add(pump);
                     inputs.add(new FeedInput(stream, partition.index()));
                 }
@@ -718,9 +759,10 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             java.nio.file.Files.createDirectories(directory);
             // One file per query, named for it: a shared file would make "which query rejected
             // this" a question you answer by reading, and the queryId is already on every entry.
-            java.nio.file.Path file = directory.resolve(queryName + ".dlq");
+            java.nio.file.Path file =
+                    com.ash.messaging.pravaha.runtime.dlq.DeadLetterFiles.letters(directory, queryName);
             com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue queue =
-                    new com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue(file);
+                    new com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue(file, deadLetterRetention);
             resources.add(queue);
             pump.deadLetteringTo(queue, queryName);
         } catch (java.io.IOException | RuntimeException cannot) {

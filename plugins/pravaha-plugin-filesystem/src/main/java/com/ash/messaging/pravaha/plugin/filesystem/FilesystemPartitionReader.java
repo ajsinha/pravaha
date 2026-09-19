@@ -284,52 +284,112 @@ final class FilesystemPartitionReader implements PartitionReader {
                 if (line.isEmpty()) {
                     continue;
                 }
-                RowWriter writer = sink.beginRow();
-                try {
-                    codec.decode(line, lineNumber, writer);
-                    // The row's event time comes from the column the schema marked, when it marked
-                    // one. Without this every row carries zero and no watermark can reach a window
-                    // in the present -- so a windowed query ingests everything and emits nothing.
-                    long eventTime = codec.lastEventTimeNanos();
-                    if (eventTime != Long.MIN_VALUE) {
-                        writer.eventTimestampNanos(eventTime);
-                    }
-                    // A file is an append-only log of insertions *unless* it names an operation
-                    // column. With one, a row can retract what an earlier row inserted, which is
-                    // what makes the engine's Z-set model reachable from a configured source at all.
-                    String operation = codec.lastOperation();
-                    boolean retraction = operation != null && deleteMarkers.contains(operation.strip());
-                    writer.rowKind(retraction ? RowKind.DELETE : RowKind.INSERT)
-                            .weight(retraction ? -1L : 1L)
-                            .sequence(lineNumber)
-                            .commit();
+                if (decodeInto(line, lineNumber, "line " + lineNumber, sink)) {
                     produced++;
-                } catch (RuntimeException e) {
-                    // One malformed line must not cost the batch. The engine's DLQ handles the
-                    // record; the reader's job is to keep going.
-                    //
-                    // That comment was the plan and `throw e` was the code, for as long as this
-                    // reader has existed: one letter where a number should be, in one line of a
-                    // twenty-thousand-line file, ended the poll and stopped the source. reject()
-                    // is what the comment was describing. It answers false when no dead-letter
-                    // queue is attached, and then this fails exactly as it always did -- a record
-                    // is not dropped just because nobody arranged somewhere to put it.
-                    //
-                    // Offered before the row is abandoned, and the abandon only happens if it was
-                    // taken. On the unguarded path abort() refuses -- it cannot return a claimed
-                    // inbox cell -- and aborting first meant its "report this" message replaced
-                    // the decode failure that caused it, so the one thing the person needed (the
-                    // line, the column, the value that would not convert) never reached them.
-                    if (!sink.reject(line.getBytes(StandardCharsets.UTF_8), "line " + lineNumber, reasonFor(e))) {
-                        throw e;
-                    }
-                    writer.abort();
                 }
             }
         } catch (IOException e) {
             throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "read failed at line " + lineNumber, e);
         }
         return produced;
+    }
+
+    /**
+     * Puts one dead letter's bytes back through the same decoder that refused them.
+     *
+     * <p>One line, decoded exactly as a polled one is -- the same codec, the same event time, the
+     * same retraction rule -- so a replayed record is a row of this stream and not an
+     * approximation of one. Nothing about the reader's position changes: {@code lineNumber} is
+     * where the file is being read, and a replay is not a read.
+     *
+     * <p>The offset is the one recorded on the dead letter rather than a fresh one, so a record
+     * that fails again is written back saying where it originally came from. A sequence is still
+     * needed for the row, and the recorded line number is used when it can be read out of the
+     * offset; a record whose offset is not a line number gets the reader's current position, which
+     * orders it after everything already delivered -- which is what a replay is.
+     */
+    @Override
+    public boolean decodeOne(byte[] raw, String sourceOffset, RecordSink sink) {
+        String line = new String(raw, StandardCharsets.UTF_8);
+        if (line.isEmpty()) {
+            return false;
+        }
+        decodeInto(line, sequenceOf(sourceOffset), sourceOffset, sink);
+        return true;
+    }
+
+    /** The line number inside {@code "line 812"}, or the reader's position when there is none. */
+    private long sequenceOf(String sourceOffset) {
+        if (sourceOffset != null && sourceOffset.startsWith("line ")) {
+            try {
+                return Long.parseLong(sourceOffset.substring("line ".length()).strip());
+            } catch (NumberFormatException notALineNumber) {
+                // Falls through to the reader's own position.
+            }
+        }
+        return lineNumber;
+    }
+
+    /**
+     * Decodes one line into {@code sink}, dead-lettering it if it will not decode.
+     *
+     * <p>Shared by {@link #poll} and {@link #decodeOne} so that a replay cannot decode by
+     * different rules than the read that rejected it -- which would make "it failed again" and "it
+     * decoded this time" say something about this method rather than about the record.
+     *
+     * @return whether a row was produced
+     */
+    private boolean decodeInto(String line, long sequence, String sourceOffset, RecordSink sink) {
+        RowWriter writer = sink.beginRow();
+        try {
+            codec.decode(line, sequence, writer);
+            // The row's event time comes from the column the schema marked, when it marked
+            // one. Without this every row carries zero and no watermark can reach a window
+            // in the present -- so a windowed query ingests everything and emits nothing.
+            long eventTime = codec.lastEventTimeNanos();
+            if (eventTime != Long.MIN_VALUE) {
+                writer.eventTimestampNanos(eventTime);
+            }
+            // A file is an append-only log of insertions *unless* it names an operation
+            // column. With one, a row can retract what an earlier row inserted, which is
+            // what makes the engine's Z-set model reachable from a configured source at all.
+            String operation = codec.lastOperation();
+            boolean retraction = operation != null && deleteMarkers.contains(operation.strip());
+            writer.rowKind(retraction ? RowKind.DELETE : RowKind.INSERT)
+                    .weight(retraction ? -1L : 1L)
+                    .sequence(sequence)
+                    .commit();
+            return true;
+        } catch (RuntimeException e) {
+            // One malformed line must not cost the batch. The engine's DLQ handles the
+            // record; the reader's job is to keep going.
+            //
+            // That comment was the plan and `throw e` was the code, for as long as this
+            // reader has existed: one letter where a number should be, in one line of a
+            // twenty-thousand-line file, ended the poll and stopped the source. reject()
+            // is what the comment was describing. It answers false when no dead-letter
+            // queue is attached, and then this fails exactly as it always did -- a record
+            // is not dropped just because nobody arranged somewhere to put it.
+            //
+            // Offered before the row is abandoned, and the abandon only happens if it was
+            // taken. On the unguarded path abort() refuses -- it cannot return a claimed
+            // inbox cell -- and aborting first meant its "report this" message replaced
+            // the decode failure that caused it, so the one thing the person needed (the
+            // line, the column, the value that would not convert) never reached them.
+            //
+            // The code goes with it (B5): every entry in the queue carries PRV-5040, so a
+            // thousand rejections can be grouped by what went wrong and each one links to
+            // the page that explains it.
+            if (!sink.reject(
+                    line.getBytes(StandardCharsets.UTF_8),
+                    sourceOffset,
+                    reasonFor(e),
+                    DelimitedCodec.DECODE_FAILED.code())) {
+                throw e;
+            }
+            writer.abort();
+            return false;
+        }
     }
 
     /**

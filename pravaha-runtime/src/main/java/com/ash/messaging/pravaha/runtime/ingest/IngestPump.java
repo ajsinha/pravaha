@@ -123,6 +123,24 @@ public final class IngestPump implements AutoCloseable {
 
     private String deadLetterQueryId = "";
 
+    /** The stream this pump feeds, recorded on every dead letter so a two-stream query can tell them apart. */
+    private final String streamName;
+
+    /** The stream's schema when this pump was built, recorded on every dead letter and checked on replay. */
+    private final String schemaSignature;
+
+    /**
+     * The id being replayed right now, or null.
+     *
+     * <p>Read only by {@link #sink}'s reject, and only between {@link #replay}'s lock and unlock,
+     * so it needs no synchronisation of its own: the lock that serialises a replay against a poll
+     * serialises this too.
+     */
+    private String replayingId;
+
+    /** What the source promises, when the binding layer has said. Null means it did not. */
+    private com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee sourceGuarantee;
+
     /**
      * A cell-sized buffer rows are decoded into while a dead-letter queue is attached.
      *
@@ -166,6 +184,8 @@ public final class IngestPump implements AutoCloseable {
         this.policy = policy;
         this.layout = RowLayout.of(schema);
         this.writer = new BinaryRowWriter(layout);
+        this.streamName = schema.name();
+        this.schemaSignature = signatureOf(schema);
         if (layout.fixedEnd() > lane.inboxCellBytes()) {
             throw new PravahaException(
                     RuntimeErrors.BACKPRESSURED,
@@ -375,24 +395,148 @@ public final class IngestPump implements AutoCloseable {
 
         @Override
         public boolean reject(byte[] raw, String sourceOffset, String reason) {
+            return reject(raw, sourceOffset, reason, "");
+        }
+
+        @Override
+        public boolean reject(byte[] raw, String sourceOffset, String reason, String code) {
             DeadLetterQueue queue = deadLetters;
             if (queue == null) {
                 return false;
             }
+            // A record that was replayed and failed again goes back on the queue as a new entry,
+            // saying so. It must not loop: the caller replays one id, gets FAILED_AGAIN back, and
+            // the entry it would replay next is a different one -- so a client retrying blindly
+            // walks forward through ids rather than round the same one for ever.
+            String note = replayingId == null ? reason : "replay of " + replayingId + " failed again: " + reason;
             // accept must not throw -- the reader is already handling a failure and cannot handle a
             // second one. FileDeadLetterQueue counts its own write failures instead, which is what
             // failures() is for.
             queue.accept(new DeadLetter(
                     deadLetterQueryId,
-                    reason,
+                    note,
+                    code,
+                    streamName,
+                    schemaSignature,
                     sourceOffset,
                     raw,
                     UUID.randomUUID().toString(),
-                    System.nanoTime()));
+                    System.nanoTime(),
+                    System.currentTimeMillis()));
             rowsRejected.incrementAndGet();
             return true;
         }
     };
+
+    /**
+     * Feeds one dead letter's bytes back through this pump's decoder.
+     *
+     * <p><strong>A new row at the current frontier, not a rewind.</strong> The record enters
+     * through the same sink a poll would use, so it becomes a row of the stream with whatever event
+     * time it carries, applied to the state the query has now. Nothing is re-read, no offset moves,
+     * and no earlier row is recomputed -- a query that has since emitted a window the record
+     * belongs to will not emit it again, and the record lands as late data, which is the only
+     * honest thing a streaming engine can do with a row that arrives now.
+     *
+     * <p><strong>A record that fails again returns to the queue.</strong> The sink's reject path
+     * runs exactly as it does for a poll, writing a fresh entry that names the id this was a replay
+     * of. The original is not removed; the caller is told {@code FAILED_AGAIN} and the store marks
+     * it, so a queue of records that can never decode is visibly that rather than a queue nobody
+     * has looked at.
+     *
+     * <p>Serialised against polling by the same lock a checkpoint uses, so a replayed row is
+     * written between two polled ones and never into the middle of one.
+     *
+     * @param recordedSchema the stream's schema signature when the record was rejected, or empty
+     *     for an entry written before that was recorded
+     * @return whether it decoded this time
+     * @throws PravahaException {@code PRV-4092} when replaying it could not be correct
+     */
+    public com.ash.messaging.pravaha.runtime.dlq.DeadLetterEntry.Replay replay(
+            byte[] raw, String sourceOffset, String recordedSchema, String id) {
+        if (deadLetters == null) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.state.StateErrors.DLQ_REPLAY_REFUSED,
+                    "this query has no dead-letter queue attached, so a record that failed again would have "
+                            + "nowhere to go and would be lost. Set pravaha.dlq.directory and re-register it.");
+        }
+        if (!recordedSchema.isEmpty() && !recordedSchema.equals(schemaSignature)) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.state.StateErrors.DLQ_REPLAY_REFUSED,
+                    "stream '" + streamName + "' had the schema " + recordedSchema + " when this record was "
+                            + "rejected and has " + schemaSignature + " now. The same bytes would decode into a "
+                            + "different row, so replaying them would put a row into the view that never existed "
+                            + "in the source. Correct the record at the source instead.");
+        }
+        if (sourceGuarantee == com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee.EXACTLY_ONCE) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.state.StateErrors.DLQ_REPLAY_REFUSED,
+                    "the source behind stream '" + streamName + "' promises EXACTLY_ONCE delivery, which it can "
+                            + "only do with replayable offsets -- so this record is still readable at "
+                            + (sourceOffset.isEmpty() ? "its own offset" : sourceOffset)
+                            + ", and the source has moved past it. Re-feeding it at the current frontier would "
+                            + "count it a second time and break the promise. Re-register the query from that "
+                            + "offset instead, which re-reads it in order.");
+        }
+        ingest.lock();
+        try {
+            replayingId = id;
+            long rejectedBefore = rowsRejected.get();
+            if (!reader.decodeOne(raw, sourceOffset, sink)) {
+                throw new PravahaException(
+                        com.ash.messaging.pravaha.state.StateErrors.DLQ_REPLAY_REFUSED,
+                        "the source behind stream '" + streamName + "' cannot decode a record outside its own "
+                                + "read, so these bytes cannot be put back through it. Correct the record at the "
+                                + "source and let the source deliver it.");
+            }
+            boolean failed = rowsRejected.get() > rejectedBefore;
+            if (!failed) {
+                rowsPumped.incrementAndGet();
+            }
+            return failed
+                    ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterEntry.Replay.FAILED_AGAIN
+                    : com.ash.messaging.pravaha.runtime.dlq.DeadLetterEntry.Replay.REPLAYED;
+        } finally {
+            replayingId = null;
+            ingest.unlock();
+        }
+    }
+
+    /** Which stream this pump feeds, recorded on every dead letter it writes. */
+    public String streamName() {
+        return streamName;
+    }
+
+    /**
+     * Tells this pump what its source promises, so a replay can refuse where it would double-count.
+     *
+     * <p>Told rather than asked: the pump holds a reader and a reader does not carry its plugin's
+     * capabilities. The binding layer, which opened both, knows.
+     */
+    public void sourceGuarantee(com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee guarantee) {
+        this.sourceGuarantee = guarantee;
+    }
+
+    /**
+     * A stream's schema as one comparable line: {@code txn/1(txn_id INT64,amount INT64)}.
+     *
+     * <p>Recorded on every dead letter, and compared on replay. Names, types and the declared
+     * version, because all three change what the same bytes decode into; the watermark settings are
+     * left out, because they change when a row is late and not what it contains.
+     */
+    private static String signatureOf(StreamSchema schema) {
+        StringBuilder out = new StringBuilder(schema.name()).append('/').append(schema.version());
+        out.append('(');
+        for (int i = 0; i < schema.fieldCount(); i++) {
+            if (i > 0) {
+                out.append(',');
+            }
+            out.append(schema.field(i).name())
+                    .append(' ')
+                    .append(schema.field(i).type());
+        }
+        return out.append(')').toString();
+    }
 
     private RowWriter beginRow() {
         if (deadLetters != null || sharedInbox) {

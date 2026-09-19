@@ -830,6 +830,18 @@ final class SharedPartitionFeed {
             return pump;
         }
 
+        /**
+         * Publishes this query's frontier now, outside the group's own delivery (B5).
+         *
+         * <p>A replayed row is applied on the caller's thread, not the group's, so nothing would
+         * otherwise publish it: the group's loop publishes after a delivery, and a source that has
+         * gone quiet -- the usual state of a query somebody is cleaning a dead-letter queue for --
+         * has no next delivery.
+         */
+        void publishFrontier() {
+            afterDelivery.run();
+        }
+
         void pauseReading() {
             feed.pause(this);
         }

@@ -99,6 +99,28 @@ final class SharedFeed implements SourceFeed {
     }
 
     /**
+     * Feeds one dead letter back through the pump that reads its stream, shared or not (B5).
+     *
+     * <p>Every pump this query has, whether its reader is its own or the group's: a pump writes
+     * into this query's lane and nothing else's, so a replay on a shared reader reaches the query
+     * that asked and no other member of the group. Asking the reader to re-poll would have reached
+     * all of them, which is why replay goes through the pump.
+     */
+    @Override
+    public com.ash.messaging.pravaha.runtime.dlq.DeadLetterEntry.Replay replay(
+            String stream, byte[] raw, String sourceOffset, String schema, String id) {
+        List<IngestPump> pumps = new ArrayList<>();
+        members.forEach(member -> pumps.add(member.pump()));
+        if (unshared != null) {
+            pumps.addAll(unshared.pumps());
+        }
+        com.ash.messaging.pravaha.runtime.dlq.DeadLetterEntry.Replay outcome =
+                FeedReplay.through(pumps, stream, raw, sourceOffset, schema, id);
+        members.forEach(SharedPartitionFeed.Member::publishFrontier);
+        return outcome;
+    }
+
+    /**
      * The shared readers this query joined, then its own.
      *
      * <p>A shared reader's stop is the reader's, so it is attributed to the partition as its origin

@@ -254,6 +254,29 @@ final class PumpingFeed implements SourceFeed {
         return rowsFed.get();
     }
 
+    /**
+     * Feeds one dead letter back through the pump that reads its stream (B5).
+     *
+     * <p>Not counted in {@link #rowsFed()}, which is what this feed's thread has moved: a replayed
+     * row arrives on the caller's thread and is counted by the pump. A view that gains a row
+     * without its feed's count moving is exactly what happened.
+     */
+    @Override
+    public com.ash.messaging.pravaha.runtime.dlq.DeadLetterEntry.Replay replay(
+            String stream, byte[] raw, String sourceOffset, String schema, String id) {
+        com.ash.messaging.pravaha.runtime.dlq.DeadLetterEntry.Replay outcome =
+                FeedReplay.through(pumps, stream, raw, sourceOffset, schema, id);
+        // The frontier has to be published or the replayed row sits applied and invisible until the
+        // feed's own timer comes round -- which for a source that has gone quiet is never.
+        afterDelivery.run();
+        return outcome;
+    }
+
+    /** This feed's pumps, for a {@link SharedFeed} that owns this one as its unshared half. */
+    List<IngestPump> pumps() {
+        return pumps;
+    }
+
     @Override
     public FeedStatus status() {
         return FeedStatus.of(description, sources(false));

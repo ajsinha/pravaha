@@ -59,5 +59,27 @@ public final class StateErrors {
      */
     public static final ErrorCode DLQ_UNUSABLE = new ErrorCode(4090, "STATE_DLQ_UNUSABLE");
 
+    /**
+     * No dead letter with that id is in this query's queue.
+     *
+     * <p>B5. Its own code rather than a generic not-found, because there are three ordinary ways to
+     * meet it and they need different actions: the id was mistyped, the entry was replayed and the
+     * caller is holding an id from a stale page, or retention evicted it -- and the third is the
+     * one worth knowing, since the queue's eviction count says whether it is plausible.
+     */
+    public static final ErrorCode DLQ_NO_SUCH_LETTER = new ErrorCode(4091, "STATE_DLQ_NO_SUCH_LETTER");
+
+    /**
+     * Replaying this dead letter could not be correct, so it was not attempted.
+     *
+     * <p>B5. A replay is a new row at the query's current frontier, which is right for a record
+     * that was never counted and wrong in three cases that this refuses by name: the query that
+     * rejected it is no longer registered, the stream's schema has changed since (so the bytes
+     * would decode into a different row than the one that was rejected), and the source promises
+     * exactly-once delivery with replayable offsets -- where the record is still readable at its
+     * own offset, and re-feeding it at the frontier would count it twice. The message says which.
+     */
+    public static final ErrorCode DLQ_REPLAY_REFUSED = new ErrorCode(4092, "STATE_DLQ_REPLAY_REFUSED");
+
     private StateErrors() {}
 }

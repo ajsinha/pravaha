@@ -84,6 +84,34 @@ public interface PartitionReader extends AutoCloseable {
      */
     default void checkpointed(SourceOffset offset) {}
 
+    /**
+     * Decodes one record's bytes out of band, without reading from the source.
+     *
+     * <p>What makes a dead letter replayable. A record in the queue is exactly the bytes this
+     * reader could not turn into a row, and the only thing in the system that knows how to try
+     * again is the decoder that failed -- so replay asks the reader rather than reimplementing a
+     * CSV parser somewhere the operator can reach. The record goes into {@code sink} exactly as a
+     * polled one would, which is what makes a replayed row a row like any other: it lands at the
+     * frontier the query has reached now, and if it fails again the sink's own
+     * {@link RecordSink#reject} puts it back on the queue.
+     *
+     * <p><strong>The reader's position does not move.</strong> This is not a seek and not a
+     * re-read; nothing about where the source is reading changes, and a checkpoint taken after a
+     * replay records the same offset it would have without one.
+     *
+     * <p>{@code false} by default, and that is a refusal rather than a failure: a source that
+     * cannot decode a record outside its own read loop -- one whose decode depends on the block, the
+     * transaction or the schema message it arrived with -- says so, and replay is refused by name
+     * instead of producing a row from bytes nobody can vouch for.
+     *
+     * @param raw the bytes as the queue recorded them
+     * @param sourceOffset where they came from, for a reader that puts the offset in the row
+     * @return true if the bytes were decoded or rejected; false if this reader does not do this
+     */
+    default boolean decodeOne(byte[] raw, String sourceOffset, RecordSink sink) {
+        return false;
+    }
+
     @Override
     void close();
 
@@ -119,6 +147,22 @@ public interface PartitionReader extends AutoCloseable {
          */
         default boolean reject(byte[] raw, String sourceOffset, String reason) {
             return false;
+        }
+
+        /**
+         * The same, with the {@code PRV-} code of the decode failure.
+         *
+         * <p>Every other failure in this engine is addressable by a number that goes in a runbook,
+         * a log filter and a help page; a dead letter's was a sentence and nothing else, so a
+         * thousand rejections could not be grouped by what went wrong or linked to the page that
+         * explains it. A reader that has a code passes it; one that does not keeps calling
+         * {@link #reject(byte[], String, String)} and its entries say the code was not recorded,
+         * which is true and is better than a guessed one.
+         *
+         * @param code the failure's code, as {@code PRV-5040}
+         */
+        default boolean reject(byte[] raw, String sourceOffset, String reason, String code) {
+            return reject(raw, sourceOffset, reason);
         }
     }
 }

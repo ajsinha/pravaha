@@ -40,6 +40,21 @@ public interface DeadLetterQueue extends AutoCloseable {
     /** Entries that could not be written. Non-zero means the DLQ itself needs attention. */
     long failures();
 
+    /**
+     * How many entries are waiting to be dealt with -- the queue's depth, not the running total.
+     *
+     * <p>{@link #count()} only ever rises and answers "how many has this process rejected". The
+     * question an operator asks of a dashboard is the other one: how much is sitting there now,
+     * after whatever retention has taken and whatever has been replayed. A rising count with a flat
+     * depth is a queue somebody is keeping on top of; a rising depth is the finding.
+     *
+     * <p>Defaults to {@link #count()}, which is exactly right for an implementation that never
+     * removes anything.
+     */
+    default long depth() {
+        return count();
+    }
+
     @Override
     void close();
 

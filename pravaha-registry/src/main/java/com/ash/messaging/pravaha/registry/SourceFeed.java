@@ -90,6 +90,37 @@ public interface SourceFeed extends AutoCloseable {
         return FeedStatus.of(describe(), java.util.List.of());
     }
 
+    /**
+     * Puts one dead letter's bytes back through the decoder that refused them (B5).
+     *
+     * <p>Here rather than on the registry, because only the feed holds the readers -- and a replay
+     * that did not go through the source's own decoder would be the engine inventing a row from
+     * bytes it cannot read. What it produces is <strong>a new row at the query's current
+     * frontier</strong>: nothing is re-read, no offset moves, and the view is not recomputed. A
+     * record that fails again is written back to the queue as a fresh entry rather than retried,
+     * so a client walking the queue moves forwards through it instead of round one entry.
+     *
+     * <p>The default refuses, which is what a feed attached to nothing must do: there is no
+     * decoder to ask.
+     *
+     * @param stream which of the query's streams the record arrived on; empty means the only one
+     * @param raw the bytes exactly as the queue recorded them
+     * @param sourceOffset where they came from, in the source's own terms
+     * @param schema the stream's schema signature at the moment of rejection, or empty when the
+     *     entry predates it being recorded
+     * @param id the dead letter's id, named on the entry a second failure writes
+     * @throws com.ash.messaging.pravaha.api.PravahaException {@code PRV-4092} when replaying it
+     *     could not be correct
+     */
+    default com.ash.messaging.pravaha.runtime.dlq.DeadLetterEntry.Replay replay(
+            String stream, byte[] raw, String sourceOffset, String schema, String id) {
+        throw new com.ash.messaging.pravaha.api.PravahaException(
+                com.ash.messaging.pravaha.state.StateErrors.DLQ_REPLAY_REFUSED,
+                "no source is bound to this query's streams, so there is no decoder to put the record back "
+                        + "through. A dead letter can only be replayed into the query that produced it, while "
+                        + "that query is still reading.");
+    }
+
     @Override
     void close();
 }
