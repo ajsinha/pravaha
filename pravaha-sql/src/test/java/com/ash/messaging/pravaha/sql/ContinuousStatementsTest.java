@@ -326,7 +326,6 @@ class ContinuousStatementsTest {
     @ParameterizedTest
     @ValueSource(
             strings = {
-                "CREATE OR REPLACE CONTINUOUS QUERY v KEYED BY (a) AS SELECT 1",
                 "CREATE CONTINUOUS QUERY v INDEXED BY (a) RANGE (b) AS SELECT 1",
                 "CREATE CONTINUOUS QUERY v KEYED BY (a) WITH ('retention' = '24h') AS SELECT 1",
                 "CREATE CONTINUOUS QUERY v KEYED BY (a) AS SELECT 1 EMIT CHANGES WITH ('parallelism' = '16')",
@@ -337,6 +336,55 @@ class ContinuousStatementsTest {
 
         assertThat(refused.errorCode()).isEqualTo(SqlErrors.CLAUSE_NOT_BUILT);
         assertThat(refused.getMessage()).contains("PRV-2072").contains("The statement's shape is:");
+    }
+
+    @Test
+    void createOrReplaceIsRecognisedAndSaysSo() {
+        ContinuousStatement.Create create = (ContinuousStatement.Create)
+                ContinuousStatements.recognize("CREATE OR REPLACE CONTINUOUS QUERY spend KEYED BY (user_id) "
+                                + "AS SELECT user_id, SUM(amount) AS total FROM txn GROUP BY user_id")
+                        .orElseThrow();
+
+        assertThat(create.orReplace()).isTrue();
+        assertThat(create.verb()).isEqualTo("CREATE OR REPLACE CONTINUOUS QUERY");
+        assertThat(create.name()).isEqualTo("spend");
+        assertThat(create.options()).isEmpty();
+    }
+
+    @Test
+    void aReplacementsOptionsAreReadIncludingTheDottedOnes() {
+        ContinuousStatement.Create create = (ContinuousStatement.Create)
+                ContinuousStatements.recognize("CREATE OR REPLACE CONTINUOUS QUERY spend KEYED BY (user_id) "
+                                + "WITH (backfill = 'history', backfill.rate.limit = 1000, cutover = auto, "
+                                + "rollback.retention = 'PT30M') AS SELECT 1")
+                        .orElseThrow();
+
+        assertThat(create.options())
+                .containsOnly(
+                        java.util.Map.entry("backfill", "history"),
+                        java.util.Map.entry("backfill.rate.limit", "1000"),
+                        java.util.Map.entry("cutover", "auto"),
+                        java.util.Map.entry("rollback.retention", "PT30M"));
+    }
+
+    @Test
+    void anOptionListOnAPlainCreateIsStillRefusedByName() {
+        PravahaException refused =
+                refusal("CREATE CONTINUOUS QUERY v KEYED BY (a) WITH (backfill = 'history') AS SELECT 1");
+        assertThat(refused.errorCode()).isEqualTo(SqlErrors.CLAUSE_NOT_BUILT);
+        assertThat(refused.getMessage()).contains("CREATE OR REPLACE");
+    }
+
+    @Test
+    void anOptionListThatIsNotOneIsRefusedWhereItGoesWrong() {
+        assertThat(refusal("CREATE OR REPLACE CONTINUOUS QUERY v KEYED BY (a) WITH (backfill 'history') AS SELECT 1")
+                        .getMessage())
+                .contains("PRV-2070")
+                .contains("'=' after the option 'backfill'");
+        assertThat(refusal("CREATE OR REPLACE CONTINUOUS QUERY v KEYED BY (a) "
+                                + "WITH (cutover = 'auto', cutover = 'manual') AS SELECT 1")
+                        .getMessage())
+                .contains("given twice");
     }
 
     /**

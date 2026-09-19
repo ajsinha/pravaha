@@ -75,7 +75,14 @@ public sealed interface ContinuousStatement
      * @param select the query itself, exactly as written between {@code AS} and the end (less any
      *     trailing {@code EMIT CHANGES} or semicolon), so the text a listing shows is the user's
      */
-    record Create(String name, List<String> keyColumns, Optional<String> sink, Optional<Retain> retain, String select)
+    record Create(
+            String name,
+            List<String> keyColumns,
+            Optional<String> sink,
+            Optional<Retain> retain,
+            String select,
+            boolean orReplace,
+            java.util.Map<String, String> options)
             implements ContinuousStatement {
 
         public Create {
@@ -84,11 +91,21 @@ public sealed interface ContinuousStatement
             Objects.requireNonNull(sink, "sink");
             Objects.requireNonNull(retain, "retain");
             Objects.requireNonNull(select, "select");
+            options = options == null ? java.util.Map.of() : java.util.Map.copyOf(options);
+            if (!orReplace && !options.isEmpty()) {
+                throw new IllegalArgumentException("only CREATE OR REPLACE takes options");
+            }
+        }
+
+        /** A plain {@code CREATE}: no replacement, no options. */
+        public Create(
+                String name, List<String> keyColumns, Optional<String> sink, Optional<Retain> retain, String select) {
+            this(name, keyColumns, sink, retain, select, false, java.util.Map.of());
         }
 
         @Override
         public String verb() {
-            return "CREATE CONTINUOUS QUERY";
+            return orReplace ? "CREATE OR REPLACE CONTINUOUS QUERY" : "CREATE CONTINUOUS QUERY";
         }
 
         /**

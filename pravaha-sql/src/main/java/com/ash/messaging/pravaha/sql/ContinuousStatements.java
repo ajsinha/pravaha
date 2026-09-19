@@ -66,8 +66,9 @@ import com.ash.messaging.pravaha.api.PravahaException;
  */
 public final class ContinuousStatements {
 
-    static final String CREATE_SHAPE = "CREATE CONTINUOUS QUERY <name> KEYED BY (<column>, ...) "
-            + "[WRITING TO <sink>] [RETAIN FOR <duration> | RETAIN FOREVER] AS <select>";
+    static final String CREATE_SHAPE = "CREATE [OR REPLACE] CONTINUOUS QUERY <name> KEYED BY (<column>, ...) "
+            + "[WRITING TO <sink>] [RETAIN FOR <duration> | RETAIN FOREVER] "
+            + "[WITH (<option> = <value>, ...)] AS <select>";
     static final String DROP_SHAPE = "DROP CONTINUOUS QUERY <name>";
     static final String PAUSE_SHAPE = "PAUSE CONTINUOUS QUERY <name>";
     static final String RESUME_SHAPE = "RESUME CONTINUOUS QUERY <name>";
@@ -186,13 +187,15 @@ public final class ContinuousStatements {
         }
 
         private ContinuousStatement create() {
+            // OR REPLACE is built (ADR-046): the new version is registered beside the running one,
+            // backfilled, and cut over to at a position both have consumed exactly. What it never
+            // does is take the answer away while the new one warms up, which is why it was refused
+            // until there was a mechanism that does not.
+            boolean orReplace = false;
             if (isWord(peek(), "OR")) {
-                StatementLexer.Token or = next();
-                throw notBuilt(
-                        or,
-                        "CREATE OR REPLACE is not built: replacing a running query would take its answers "
-                                + "away from whoever is reading them. DROP CONTINUOUS QUERY it first, then "
-                                + "CREATE it again.");
+                next();
+                keyword("REPLACE");
+                orReplace = true;
             }
             keyword("CONTINUOUS");
             keyword("QUERY");
@@ -200,6 +203,7 @@ public final class ContinuousStatements {
             List<String> keys = null;
             String sink = null;
             ContinuousStatement.Retain retain = null;
+            java.util.Map<String, String> options = new java.util.LinkedHashMap<>();
             boolean served = false;
             while (true) {
                 StatementLexer.Token clause = next();
@@ -217,7 +221,13 @@ public final class ContinuousStatements {
                         }
                         String select = select(clause);
                         return new ContinuousStatement.Create(
-                                name, keys, Optional.ofNullable(sink), Optional.ofNullable(retain), select);
+                                name,
+                                keys,
+                                Optional.ofNullable(sink),
+                                Optional.ofNullable(retain),
+                                select,
+                                orReplace,
+                                options);
                     }
                     case "KEYED", "INDEXED" -> {
                         once(keys == null, clause, "the key");
@@ -256,12 +266,19 @@ public final class ContinuousStatements {
                         }
                         served = true;
                     }
-                    case "WITH" ->
-                        throw notBuilt(
-                                clause,
-                                "a WITH (...) option list is not built, and its options are refused rather than "
-                                        + "ignored. Say the retention with RETAIN FOR <duration>; other options "
-                                        + "have no equivalent yet.");
+                    case "WITH" -> {
+                        if (!orReplace) {
+                            throw notBuilt(
+                                    clause,
+                                    "a WITH (...) option list is not built on a plain CREATE, and its options "
+                                            + "are refused rather than ignored. Say the retention with RETAIN "
+                                            + "FOR <duration>; the options a WITH list does carry -- backfill, "
+                                            + "backfill.rate.limit, cutover, rollback.retention -- are a "
+                                            + "replacement's, so they belong on CREATE OR REPLACE.");
+                        }
+                        once(options.isEmpty(), clause, "the options");
+                        options.putAll(options(clause));
+                    }
                     default ->
                         throw unexpected(
                                 clause,
@@ -315,6 +332,51 @@ public final class ContinuousStatements {
                 throw unexpected(first, "the query's SELECT after AS");
             }
             return sql.substring(from, to).strip();
+        }
+
+        /**
+         * {@code WITH (backfill = 'history', backfill.rate.limit = 1000)}.
+         *
+         * <p>Read here and judged elsewhere: which options exist is the registry's business (see
+         * {@code ReplacementOptions}), and one it does not build is refused by name with its own
+         * code rather than silently ignored -- an ignored rate limit is a backfill that took a
+         * production store down at full speed.
+         */
+        private java.util.Map<String, String> options(StatementLexer.Token with) {
+            symbol("(");
+            java.util.Map<String, String> read = new java.util.LinkedHashMap<>();
+            while (true) {
+                StringBuilder key = new StringBuilder(identifier("an option's name"));
+                StatementLexer.Token after = next();
+                // Dotted names are the design's spelling -- backfill.rate.limit -- and the lexer
+                // hands back the dot as a symbol of its own.
+                while (after.kind() == StatementLexer.Kind.SYMBOL
+                        && after.text().equals(".")) {
+                    key.append('.').append(identifier("the rest of the option's name"));
+                    after = next();
+                }
+                if (after.kind() != StatementLexer.Kind.SYMBOL || !after.text().equals("=")) {
+                    throw unexpected(after, "'=' after the option '" + key + "'");
+                }
+                StatementLexer.Token value = next();
+                if (value.kind() != StatementLexer.Kind.WORD
+                        && value.kind() != StatementLexer.Kind.STRING
+                        && value.kind() != StatementLexer.Kind.NUMBER) {
+                    throw unexpected(value, "a value for the option '" + key + "'");
+                }
+                if (read.put(key.toString().toLowerCase(Locale.ROOT), value.text()) != null) {
+                    throw malformed(value.start(), "the option '" + key + "' is given twice");
+                }
+                StatementLexer.Token separator = next();
+                if (separator.kind() == StatementLexer.Kind.SYMBOL
+                        && separator.text().equals(")")) {
+                    return read;
+                }
+                if (separator.kind() != StatementLexer.Kind.SYMBOL
+                        || !separator.text().equals(",")) {
+                    throw unexpected(separator, "',' or ')' in the option list");
+                }
+            }
         }
 
         private List<String> columns() {

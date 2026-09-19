@@ -129,6 +129,9 @@ public final class ContinuousQueryStatements {
         // The key by name, resolved against the columns the view would have. Planned the way register
         // plans it, so the ordinal is the one register will use whatever order the SELECT list is in.
         List<Integer> keys = create.keyOrdinals(registry.outputSchemaOf(create.select()));
+        if (create.orReplace() && registry.find(create.name()).isPresent()) {
+            return replace(create, keys, principal);
+        }
         Retention retention = create.retain()
                 .map(retain -> retain.age().map(Retention::ofAge).orElseGet(Retention::forever))
                 .orElse(null);
@@ -145,6 +148,53 @@ public final class ContinuousQueryStatements {
             query.state().name(),
             query.fingerprint().shortForm(),
             create.sink().orElse(null)
+        }));
+    }
+
+    /**
+     * {@code CREATE OR REPLACE} over a name that already exists: a blue/green replacement (ADR-046).
+     *
+     * <p>It does not take the name from its readers and hand it to something that has not caught
+     * up. The new version is registered beside the running one and backfilled, and the statement
+     * answers with the state it is in -- {@code BACKFILLING} -- and the fingerprint of the
+     * computation being prepared. The cutover is a separate act, by design: it is the moment the
+     * answer changes, and {@code cutover = 'auto'} is how a caller says it does not want to be
+     * asked.
+     *
+     * <p>A sink is the name's, not the statement's. {@code WRITING TO} naming a different one is
+     * refused rather than quietly moving the query's output somewhere else.
+     */
+    private ViewQuery.Result replace(ContinuousStatement.Create create, List<Integer> keys, Principal principal) {
+        String existingSink = registry.sinkOf(create.name()).orElse(null);
+        create.sink().ifPresent(named -> {
+            if (!named.equals(existingSink)) {
+                throw new PravahaException(
+                        com.ash.messaging.pravaha.backfill.BackfillErrors.SOURCE_UNSUPPORTED,
+                        "'" + create.name() + "' writes to "
+                                + (existingSink == null ? "no sink" : "the sink '" + existingSink + "'")
+                                + " and this statement names '" + named + "'. A replacement changes the query "
+                                + "behind a name, not where its output goes: moving a sink is a drop and a "
+                                + "fresh registration, so that what the old sink holds is somebody's decision "
+                                + "rather than a side effect.");
+            }
+        });
+        create.retain().ifPresent(retain -> {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.backfill.BackfillErrors.SOURCE_UNSUPPORTED,
+                    "'" + create.name() + "' keeps "
+                            + registry.find(create.name()).orElseThrow().view().retention()
+                            + ", and a replacement keeps what the name keeps: a retention that changed at a "
+                            + "cutover would change what the view means at the same moment as the query, and "
+                            + "nothing downstream could tell which had done what.");
+        });
+        ReplacementOptions options = ReplacementOptions.defaults();
+        for (java.util.Map.Entry<String, String> option : create.options().entrySet()) {
+            options = ReplacementOptions.with(options, option.getKey(), option.getValue());
+        }
+        QueryReplacement.Status status =
+                registry.replacements().replace(create.name(), create.select(), keys, principal, options);
+        return new ViewQuery.Result(CREATED, List.<Object[]>of(new Object[] {
+            create.name(), status.state().name(), status.candidate(), existingSink
         }));
     }
 
