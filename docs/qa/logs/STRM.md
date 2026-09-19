@@ -4,7 +4,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 Cases: [`../cases/STRM.md`](../cases/STRM.md). Executed 2026-09-14 on branch `develop` (worktree
-`.claude/worktrees/qa-strm`, branch `worktree-qa-strm`, at `b298190`), against `pravaha-*` as built
+`.claude/worktrees/qa-strm`, branch `worktree-qa-strm`, at `e6eb69a`), against `pravaha-*` as built
 by `./mvnw -o -T1C install -DskipTests` (Java 21, `/usr/lib/jvm/java-21-openjdk-amd64`). Ports HTTP
 **18800** / Flight **19800** throughout, both confirmed unbound beforehand. Scratch `$QA =
 /tmp/claude-1000/-home-ashutosh-IdeaProjects-pravaha/qa-strm`. **No production code was modified by

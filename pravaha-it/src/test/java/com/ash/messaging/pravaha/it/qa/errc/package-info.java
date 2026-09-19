@@ -28,7 +28,7 @@
  * PRV-9xxx} entirely).
  *
  * <p><strong>The case file's own "facts" preamble is partly stale.</strong> It was authored against
- * the code as it stood before commit {@code 36a984f} ("Defects 3-14"), which landed the day before
+ * the code as it stood before commit {@code e0b6395} ("Defects 3-14"), which landed the day before
  * this round and independently fixed several of the defects the case file's facts 3-7 describe as
  * still open: {@code ErrorCode.Category} now covers all nine ranges (8xxx and 9xxx included), so
  * {@code category()} no longer throws for a registry or cluster code, and {@code

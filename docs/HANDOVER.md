@@ -14,7 +14,7 @@ otherwise have to rediscover the hard way.
 
 | | |
 |---|---|
-| `main` | `20ea131` on origin. **Normally behind `develop`, on purpose**: work happens on `develop`, and `main` is merged from it when the owner asks — "drill" means both branches, "drill to develop" and "drill to main" one each. The earlier habit of fast-forwarding `main` after every change is retired |
+| `main` | Whatever the last drill put there. **Normally behind `develop`, on purpose**: work happens on `develop`, and `main` is merged from it when the owner asks — "drill" means both branches, "drill to develop" and "drill to main" one each. The earlier habit of fast-forwarding `main` after every change is retired |
 | `develop` | Pushed after every verified change ("drill to develop"). Waves 8 and 9 are here; neither is tagged |
 | Modules | **32** Maven modules (33 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **2,765** tests, 0 failures, 61 skipped, across 33 reactor projects — `tools/verify-clean.sh` over the whole reactor on 2026-09-19, offline, the skips being the Docker, Cassandra, Aerospike and `psql` tests this machine cannot run. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there. Count the **per-module summary lines only** — summing those and the per-class `-- in Class` lines together is how a report came to quote 4,408 for a run of 2,207 (DOCR-22) |
@@ -506,10 +506,11 @@ there is nothing to keep in step.
   resolves both directions.
 - **Error codes** are `PRV-nnnn`, ranged by subsystem, never renumbered. Add to the relevant
   `*Errors` class.
-- **Commit messages** explain *why*, including what was wrong and what was learned. No Claude
-  attribution anywhere — the history was rewritten once to remove it; do not reintroduce it.
-- **Waves:** `develop` moves continuously; `main` moves **once per wave**, at a gate, with an
-  evidence pack and a retrospective. Never merge to `main` mid-wave.
+- **Commit messages** explain *why*, including what was wrong and what was learned. Ashutosh Sinha
+  is the sole author, and a message ends with its own text — no trailers of any kind.
+- **Branches:** work happens on `develop`, pushed after every verified change ("drill to develop").
+  `main` is merged from it when the owner says so ("drill to main"; a bare "drill" is both), so
+  between drills it is behind `develop`.
   **Suspended for waves 3–7** — see [`docs/gates/wave-7`](gates/wave-7/), which is now Wave 7's gate
   record rather than the interim merge note it started as. The
   gates it would have waited for are hardware-blocked rather than code-blocked, and holding `main`

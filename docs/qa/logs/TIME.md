@@ -4,7 +4,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 Cases: [`../cases/TIME.md`](../cases/TIME.md). Executed 2026-09-14 on branch `develop` (worktree
-`.claude/worktrees/qa-time`, branch `worktree-qa-time`, at `b298190`), against `pravaha-*` as built
+`.claude/worktrees/qa-time`, branch `worktree-qa-time`, at `e6eb69a`), against `pravaha-*` as built
 by `./mvnw -o -T1C install -DskipTests` (Java 21, `/usr/lib/jvm/java-21-openjdk-amd64`).
 
 Three execution surfaces were used, and every verdict below says which one produced it:

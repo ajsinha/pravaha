@@ -4,7 +4,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 Cases: [`../cases/PERF.md`](../cases/PERF.md). Executed 2026-09-14 on branch `develop` at
-`efa8fae`, Java 21.
+`7efaf9c`, Java 21.
 
 **Overall: 8 of 60 cases executed.** 6 PASS, 0 FAIL, 0 BLOCKED, **52 NOT RUN** — and the reason is
 recorded rather than worked around. See *What was not run, and why* below. Four findings recorded as
@@ -19,7 +19,7 @@ CPU            AMD Ryzen AI 9 HX 370 w/ Radeon 890M
 RAM            61 GiB total, 28 GiB in use at the time of the run
 Machine idle   NO — load average 10.24 over 1 min, 16.62 over 15 min
 JDK            OpenJDK 21.0.12+8-1-26.04-Ubuntu, 64-Bit Server VM, mixed mode, sharing
-Commit         efa8fae63cdfbb73ba6f99abc502f9b6f99eff25
+Commit         7efaf9cd081f3a9d6bdc457e9dbe3276c7d75858
 JVM flags      -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED
                --add-opens=java.base/java.lang=ALL-UNNAMED
 ```

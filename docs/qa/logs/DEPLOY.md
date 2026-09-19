@@ -1168,7 +1168,7 @@ end showed none of my ports bound and the test container was removed.
 
 ## Which build these results are against — read this first
 
-The artefacts I was handed were the ones built at **21:37** from `ab0eca3` ("Remediate what QA found").
+The artefacts I was handed were the ones built at **21:37** from `7e0de33` ("Remediate what QA found").
 I verified they were that build before starting: `BOOT-INF/lib/` went from 151 files / 73,871,162
 bytes to **152 files / 73,917,522 bytes** (the one new entry is
 `netty-transport-native-unix-common-4.1.135.Final.jar`, 44,327 bytes), and
@@ -1191,7 +1191,7 @@ $ git status --short
 That uncommitted work is a second round of remediation — of defects on this very list — in flight
 while I was verifying the first. So every verdict below is tagged with the build it was taken on:
 
-- **[handed-over]** — the 21:37 artefacts, i.e. `ab0eca3`. Everything up to 22:02 wall clock.
+- **[handed-over]** — the 21:37 artefacts, i.e. `7e0de33`. Everything up to 22:02 wall clock.
 - **[in-progress]** — the 22:03:49 rebuild of the uncommitted working tree. The 50-cycle test, the
   container case, and four deliberate probes at the end.
 
@@ -1682,7 +1682,7 @@ properly a drop of `a.b` deletes `a_b`'s checkpoints too.
 
 Jar size, which was the question:
 ```
-handed-over [ab0eca3]:
+handed-over [7e0de33]:
 $ unzip -l ...-app.jar 'BOOT-INF/lib/*' | tail -2
  73917522                     152 files          (was 73871162 / 151 files)
 $ unzip -l ...-app.jar | grep netty-transport-native-unix

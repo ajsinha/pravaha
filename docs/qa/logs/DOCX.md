@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
-Cases: [`../cases/DOCX.md`](../cases/DOCX.md). Executed 2026-09-14 on branch `develop` at `efa8fae`,
+Cases: [`../cases/DOCX.md`](../cases/DOCX.md). Executed 2026-09-14 on branch `develop` at `7efaf9c`,
 in an isolated git worktree under `.claude/`, against `pravaha-*` as built by
 `./mvnw -o -T1C install -DskipTests` (Java 21). Four sub-rounds ran in parallel — Group D (error
 codes), Group E (links, anchors, paths, ADR index, module list), Group F (ADRs against the code they
@@ -19,7 +19,7 @@ standing brief for this round overrides that: documentation rot is a defect the 
 specifically, and unlike a product defect it is safe to repair in the same round. So every FAIL below
 records **what the document claimed and what the code does**, as an audit must, and then names the
 commit that fixed it. Nothing was measured after being edited: every verdict is against the tree as
-found at `efa8fae`, and the repairs are a separate, later act recorded beside the verdict. No product
+found at `7efaf9c`, and the repairs are a separate, later act recorded beside the verdict. No product
 code was changed. Where the **code** was wrong rather than the document, the code was left alone and
 the finding says so.
 
@@ -32,7 +32,7 @@ repairs of three prior rounds landed between the cases being written and this ex
 marked *stale-Expected* and are not findings. The distinction matters: an audit that reports a FAIL
 for a defect that was fixed is as misleading as one that misses a live one.
 
-**Documentation corrected in this round** (commits `51b27f5` and `fbe02eb`, both on `develop`):
+**Documentation corrected in this round** (commits `0171a94` and `4d8b27a`, both on `develop`):
 `docs/QUICKSTART.md`, `docs/OPERATIONS.md`, `docs/HANDOVER.md`, `docs/TROUBLESHOOTING.md`,
 `docs/SECURITY.md`, `docs/SQL_SUPPORT.md`, `docs/README.md`, `docs/CONCEPTS.md`, `docs/USER_GUIDE.md`,
 `docs/system_design.md`, `docs/implementation_plan.md`, `README.md`, `console/README.md`,
@@ -137,7 +137,7 @@ document does not give is a defect in the document.
   takes `--spring.profiles.active=dev` as an argument, so the profile does reach the JVM; the
   multi-stage copy globs the same two jar patterns the document names.
 
-- **DOCX-007 — FAIL → finding DOCX-1, FIXED in `51b27f5`.** Both commands run verbatim from
+- **DOCX-007 — FAIL → finding DOCX-1, FIXED in `0171a94`.** Both commands run verbatim from
   `$QA/step2/` containing only `transactions.csv`:
   ```
   step 2: --out-schema is required. Supplied: [sql, schema, stream, in, out]   EXIT=2
@@ -223,7 +223,7 @@ document does not give is a defect in the document.
   Found incidentally, a **code** defect left alone and recorded as **DOCX-10**: `pravaha pause` prints
   `pauseped t1` and `resume` prints `resumeped t1` (`ServerCommand.java:132`, `action + "ped "`).
 
-- **DOCX-013 — FAIL → findings DOCX-4, DOCX-5, DOCX-9; all three FIXED in `51b27f5`.** The command
+- **DOCX-013 — FAIL → findings DOCX-4, DOCX-5, DOCX-9; all three FIXED in `0171a94`.** The command
   half is nearly empty and that is itself the result: `OPERATIONS.md` yields **one** extracted command
   and `SECURITY.md` **zero** — they are prose and YAML, so the YAML half is the case. Six YAML blocks
   written verbatim into a config file and started:
@@ -380,7 +380,7 @@ document does not give is a defect in the document.
   the `security` preamble is the clearest statement in the repository of why the defaults refuse to
   start. NEITHER: `pravaha.lookups.*` (**DOCX-7**).
 
-- **DOCX-023 — FAIL → finding DOCX-18, FIXED in `fbe02eb`.** 16 `pravaha.*` keys named in `src/main`
+- **DOCX-023 — FAIL → finding DOCX-18, FIXED in `4d8b27a`.** 16 `pravaha.*` keys named in `src/main`
   javadoc or comments, resolved against the code side. Both of the case's known members appear:
   `StreamSchema.java:53` names `pravaha.watermark.out-of-orderness`, which has no reader (**DOCX-6**);
   and `SecurityProperties.java:52` and `:55` named **two values the code rejects** — `policy: tenant`
@@ -410,7 +410,7 @@ document does not give is a defect in the document.
   The first is the sharpest shape: an operator *hardening* a `dev` node meets an error message that
   appears in no searchable place. The third is the worst outcome, because it fails open and quietly.
 
-- **DOCX-026 — FAIL → finding DOCX-11, FIXED in `51b27f5`.** Ten settings read from
+- **DOCX-026 — FAIL → finding DOCX-11, FIXED in `0171a94`.** Ten settings read from
   `console/config/application.yaml`. Split: **console's own README 2** (`server.port` and `engine.url`,
   in passing inside an override example), **QUICKSTART §7 only 1** (`console.password`, as
   `CONSOLE_PASSWORD`), **nowhere 7** (`console.session_secret`, `CONSOLE_HOST`, `PRAVAHA_TOKEN`, the
@@ -430,7 +430,7 @@ document does not give is a defect in the document.
   verbatim with nothing else changed makes the node **exit 1** at
   `PravahaFlightServer.encryptedWith:121` with `PRV-6104 the TLS certificate /etc/pravaha/tls.crt is
   not a readable file`, and nothing in the quickstart marked those paths as placeholders (fixed in
-  `51b27f5`). **1031** and **1042** are SDK-surface-only and not reachable through the CLI (recorded as
+  `0171a94`). **1031** and **1042** are SDK-surface-only and not reachable through the CLI (recorded as
   not reached, not as absent); **1040** is unreachable in practice because gRPC connects lazily, so a
   dead port yields `1041`; **1043** is unreachable as the case predicts and its documentation row
   *says so*; **5092** not reached — `PumpingFeed.java:118` catches `PravahaException` first, so it
@@ -474,7 +474,7 @@ document does not give is a defect in the document.
   constructible code — `ApiExceptionHandler.java:69-71` carries a comment recording that exact fix.
   **The one surviving divergence, and it is real:** `PRV-9xxx` was **absent from the ranges table**
   while all seven 9xxx codes sat in the detail table two screens below, so a reader finding `PRV-9003`
-  in a log got no subsystem from the table that exists to give them one. Added in `51b27f5`.
+  in a log got no subsystem from the table that exists to give them one. Added in `0171a94`.
   **Vacuity:** the eight ranges that agree across all three sources are the control.
 
 - **DOCX-031 — FAIL, sampled.** **25 of the 99** documented codes with a throw site were checked, and
@@ -528,7 +528,7 @@ document does not give is a defect in the document.
   (34 in `docs/adr/README.md` alone, plus `examples/`, `console/`, `sdk/`), 52 inside it but
   extensionless. **Vacuity:** six seeded broken links, **two of them in `README.md` itself**, left the
   test `PASSED`; a control seed of the *right shape* in the *right file* did fail it, so the test is
-  not broken — its perimeter is. Both overstated claims corrected in `51b27f5` (**DOCX-14**).
+  not broken — its perimeter is. Both overstated claims corrected in `0171a94` (**DOCX-14**).
 
 - **DOCX-035 — PASS.** 843 headings slugged, **63 anchors, 0 broken, none resolving by prefix
   coincidence**. Both anchors the case names resolve exactly:
@@ -576,7 +576,7 @@ document does not give is a defect in the document.
   (one hit anywhere, an ArchUnit package string); **`ShadowDeployment`** has every reference in its own
   test; **`pravaha-embedded` has nine methods** — two static factories and seven instance — and no
   `register`, `query` or `read`. Three documents presented **the CLI** as a consumer of
-  `pravaha-embedded`, and `pravaha-cli/pom.xml` does not depend on it; corrected in `51b27f5`
+  `pravaha-embedded`, and `pravaha-cli/pom.xml` does not depend on it; corrected in `0171a94`
   (`README.md:211`, `OPERATIONS.md:431`) and covered by the header on `system_design.md`.
 
 ---
@@ -602,7 +602,7 @@ document does not give is a defect in the document.
   **Vacuity:** a query with no `LIKE` returned rows in the same run. `SQL_SUPPORT.md:97-98` is
   **accurate**; **ADR-032:61 was stale** — "LIKE is not implemented at all; `LIKE 'u%'` is refused
   too" — one clause of one table cell, and the clause a reader checking "can I use LIKE?" stops at.
-  Fixed in `51b27f5`.
+  Fixed in `0171a94`.
 
 - **DOCX-041 — PASS.** Zero production readers of `emitsDeletes`, `replayableOffsets` or
   `DeliveryGuarantee.weakest` (every caller of the last is in `CapabilitiesTest`).
@@ -630,7 +630,7 @@ document does not give is a defect in the document.
   `OPERATIONS.md:136-139` states "**Raft is not implemented**" in bold. The residual defect is real
   and smaller: the pointer was in the body while the `| Status |` row still read a bare `Accepted`, so
   a reader scanning status rows saw a live decision. **Vacuity:** ADR-030's supersession of ADR-007 is
-  present and reciprocal — the convention works when someone remembers. Fixed in `51b27f5`.
+  present and reciprocal — the convention works when someone remembers. Fixed in `0171a94`.
 
 - **DOCX-044 — PASS → part of finding DOCX-12.** **Zero WebSocket implementations** anywhere: the only
   two occurrences outside `docs/` are comment lines in `console/routes/api_routes.py:118-119`
@@ -661,7 +661,7 @@ document does not give is a defect in the document.
   `PluginSourceFeedsTest#aQueryResumesFromItsCheckpointRatherThanReplayingTheWholeFile` passes,
   asserting **three** rows — "not zero, which is state lost, and not six, which is the file replayed".
   ADR-008's own status section said "registered queries are not checkpointed at all"; struck in
-  `51b27f5`.
+  `0171a94`.
 
 - **DOCX-046 — PASS.** 34 rows produced, one per ADR, each with one line of evidence.
   **Non-`IMPLEMENTED`: 20 of 34** — 14 IMPLEMENTED, 12 PARTIAL, 5 DECIDED-NOT-BUILT (009, 010, 015,
@@ -697,7 +697,7 @@ The class of defect that stops people checking, which makes it worse than the th
   **Fraction of ✅ rows whose *answer* is asserted: 26 / 42 (62 %)** — the case expected 0. But
   **all seven ✅ join rows are plan-only (0 / 7)**, which is where the expensive wrong-answer defects
   live. 4 constructs in the document and not the test; 17 in the test and not the document.
-  **Two live contradictions found and fixed in `51b27f5`:** `SQL_SUPPORT.md:112` lists
+  **Two live contradictions found and fixed in `0171a94`:** `SQL_SUPPORT.md:112` lists
   `COUNT, SUM, MIN, MAX, AVG` as ✅ with no caveat while the matrix asserts `SUM(price)` and
   `AVG(price)` over `FLOAT64` are refused `PRV-2020`; `:113` lists `COUNT(DISTINCT x)` as ✅ while
   `ExamplesTest:241` asserts the unwindowed form exits non-zero.
@@ -781,7 +781,7 @@ The class of defect that stops people checking, which makes it worse than the th
 
 ## Group H — the README banner and cross-document consistency (DOCX-053 … DOCX-056)
 
-- **DOCX-053 — FAIL → finding DOCX-2, FIXED in `51b27f5`. Run first, as the case instructs.**
+- **DOCX-053 — FAIL → finding DOCX-2, FIXED in `0171a94`. Run first, as the case instructs.**
   **`README.md`'s banner has already been corrected** — lines 11-15 now assert the positive, and the
   status line and Wave-7-of-10 badge are accurate (waves 8-10 are genuinely not started; the roadmap
   in `system_design.md` and `docs/gates/` agree). All three claims tested by experiment anyway,
@@ -826,7 +826,7 @@ The class of defect that stops people checking, which makes it worse than the th
   `README.md`'s "What is not built" table was re-checked item by item against the tree and is
   **accurate in both directions** — the round-1 finding against it no longer reproduces.
 
-- **DOCX-056 — FAIL → finding DOCX-13, FIXED in `51b27f5`.** Neither document carried a status marker
+- **DOCX-056 — FAIL → finding DOCX-13, FIXED in `0171a94`.** Neither document carried a status marker
   or a dated header. Twenty behavioural claims sampled and **recorded here so a later round samples
   the same twenty**: (1) `mode: HA` — **NOT-BUILT**, a value the code rejects; (2)
   `PravahaConfig.fromYaml` — NOT-BUILT, no such type; (3) `PravahaProperties` mirror + reflecting sync
@@ -856,13 +856,13 @@ The class of defect that stops people checking, which makes it worse than the th
   documented and were not inventions. **Vacuity control satisfied and it is the round's key
   measurement:** a second walker who knows the answers reached a running continuous query with
   correct hand-computed sums in the same session — so "the reader cannot get there" is distinguishable
-  from "the engine cannot get there", and the two need different fixes. After `51b27f5` the first
+  from "the engine cannot get there", and the two need different fixes. After `0171a94` the first
   invention moves from step 2 to step 4.
 
 - **DOCX-058 — PARTIAL.** Four doors:
   - **CLI / quickstart** — reaches a running query (the control walk above). **Works.**
   - **Console** — `make install`, run, every route 200. **Works**, with the password gate documented
-    only two directories away until `51b27f5` (**DOCX-11**).
+    only two directories away until `0171a94` (**DOCX-11**).
   - **Embedded** — **stops early, as predicted.** `pravaha-embedded`'s `PravahaEngine` has nine
     methods — two static factories plus `start`, `stop`, `state`, `configuration`, `plugins`,
     `instanceId`, `close` — and no `register`, `query` or `read`. A reader following ADR-019's

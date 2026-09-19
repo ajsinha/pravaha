@@ -169,7 +169,7 @@ $ pravaha run --sql "SELECT window_start, COUNT(*) AS n, COUNT(DISTINCT user_id)
 ```
 `d = 3` (`{a, bb, ccc}`), the *true* distinct count — not distinct string **lengths** (which would
 give 2, since two rows share length 1) and not the AGG-020-style collapse to 1. Confirms the
-`WindowedAggregate` `COUNT(DISTINCT)` fix (commit `2e05bfad`, "The four COUNT(DISTINCT) defects")
+`WindowedAggregate` `COUNT(DISTINCT)` fix (commit `189890be`, "The four COUNT(DISTINCT) defects")
 holds for strings of differing length, not only same-length ones.
 
 ### AGG-022 — PASS (already executable and green)
@@ -213,7 +213,7 @@ This section needs HA with a hand-driven watermark (fact 9: allowed lateness is 
 so the retract-and-re-emit path is unreachable through SQL alone). Directly relevant context: the
 working tree carried an uncommitted change to `WindowedAggregate.java` at the start of this session
 (net-zero window-key withdrawal on correction, committed by a concurrent agent partway through as
-`25794ef  I-5: a window key that nets to zero is withdrawn instead of standing for ever`) — which is
+`0757832  I-5: a window key that nets to zero is withdrawn instead of standing for ever`) — which is
 exactly this section's subject (AGG-085 … AGG-088 territory). Not independently re-verified here;
 noted so the next executor knows a fix landed mid-session rather than rediscovering it from scratch.
 
@@ -223,7 +223,7 @@ noted so the next executor knows a fix landed mid-session rather than rediscover
 `AVG(amount) = 75` (not the sum, `300`) over W1 — confirming fact 7's predicted defect ("a windowed
 AVG emits the sum, never divided") **does not reproduce**: this build's windowed AVG divides
 correctly. Same root cause and same fixing commit as the §1 finding above —
-`23acedc2  Defects 15-17: three aggregate answers that were wrong` maps `AVG` to its own kind in
+`6c5e2b03  Defects 15-17: three aggregate answers that were wrong` maps `AVG` to its own kind in
 `WindowedAggregateOperator`/`SlicedAggregateState` rather than reusing `SUM`, and divides at emit.
 `FINDINGS.md`'s `W-1 (HIGH)` predates this commit and should be marked `FIXED`. AGG-093, 094, 095,
 097, 098 — **NOT RUN**.
@@ -269,7 +269,7 @@ through AGG-016, above): every keyed `COUNT(col)` correctly excludes NULLs, is i
 with the paired `SUM`/`AVG` in the same row, and matches the case file's own "Expected (correct)"
 text rather than its "Expected (this build)" text.
 
-**Traced to the exact commit**: `23acedc2  Defects 15-17: three aggregate answers that were wrong`
+**Traced to the exact commit**: `6c5e2b03  Defects 15-17: three aggregate answers that were wrong`
 (2026-09-13), which adds precisely this guard to `KeyedAggregate.java` —
 ```
 -                    case COUNT -> counts[i] += weight;

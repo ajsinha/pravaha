@@ -1455,7 +1455,7 @@ none of that was checked here, so every verdict is a verdict about the interpret
 
 ## Re-QA 2026-09-12
 
-Re-run after the remediation commit `ab0eca3` ("Remediate what QA found: 18 defects, 4 of them
+Re-run after the remediation commit `7e0de33` ("Remediate what QA found: 18 defects, 4 of them
 silent-wrong"), against the rebuilt artefacts. Server on HTTP **18400** / Flight **19400**, PID
 recorded and killed by number; no `pkill`. Streams `w`, `ws`, `wni`, `lt`, `lt2`, `wn`, `agg`, `nt`
 declared, all bound to the filesystem plugin; `w`, `ws`, `lt`, `lt2`, `wn` carry
@@ -1746,11 +1746,11 @@ Five further runs of each of the first two, to check the non-determinism SQL-006
 ten failed loudly, none produced the `ok  1 in, 0 out` / exit 0 outcome, none took anywhere near
 five minutes.
 
-**Where the fix is matters, and it is not in `ab0eca3`.** That commit touches two files in the whole
+**Where the fix is matters, and it is not in `7e0de33`.** That commit touches two files in the whole
 runtime and CLI:
 
 ```
-$ git show --name-only --format="" ab0eca3 | grep -E "pravaha-runtime|pravaha-cli"
+$ git show --name-only --format="" 7e0de33 | grep -E "pravaha-runtime|pravaha-cli"
 pravaha-runtime/src/main/java/com/ash/messaging/pravaha/runtime/exec/GlobalAggregate.java
 pravaha-runtime/src/main/java/com/ash/messaging/pravaha/runtime/plan/Expression.java
 ```
@@ -1849,7 +1849,7 @@ omits `carol,900`.
 
 ### SQL-062 — STILL FAILING
 
-`SqlSupportMatrixTest.java` is not in `ab0eca3`'s file list and `outcomeOf` is unchanged: every case
+`SqlSupportMatrixTest.java` is not in `7e0de33`'s file list and `outcomeOf` is unchanged: every case
 still reduces to `"OK"` or an eight-character code, and no value is ever compared. Of the defects
 this pass found, `ROUND(0.49999999999999994) = 1`, `COUNT(col)` counting NULLs in two of three
 operators, windowed `COUNT(DISTINCT)` over a string returning 1, and INT32 arithmetic wrapping
@@ -2166,7 +2166,7 @@ error on a shared pool; the node survived because the pool replaces the thread. 
 `Application error processing RPC` with no `PRV-` code. `SELECT CAST(1 AS DOUBLE)` over Flight gives
 `PRV-1041  There was an error servicing your request.` and the server logs nothing at all.
 
-This is not a regression — nothing in `ab0eca3` touches literal compilation — but it means
+This is not a regression — nothing in `7e0de33` touches literal compilation — but it means
 `WHERE event_time > TIMESTAMP '...'`, the most ordinary predicate a streaming engine is asked for,
 crashes rather than refuses. With windowing now working, users will write it.
 
@@ -2250,7 +2250,7 @@ $ pravaha query --sql "SELECT * FROM lwbig"
 PRV-1041  PRV-2002  Object 'lwbig' not found. Known streams: [wnw, cdw2, av, cdw, lwc, lw, gbw]
 ```
 
-Still not found ten minutes later. `ab0eca3` says "a shared computation's second name is journalled
+Still not found ten minutes later. `7e0de33` says "a shared computation's second name is journalled
 and registered as a view"; in this shape it is listed and not registered, so the name exists
 everywhere except where a user would use it. Also note the confirmation line prints `registered lw`
 when the user asked for `lwbig`. Primarily the registry area's finding; recorded because it was hit
@@ -2285,8 +2285,8 @@ as this is written, so this one is worth re-checking against the next build befo
 | SQL-007 `COUNT(col)` | **PARTIALLY FIXED** | `GlobalAggregate` fixed and hand-checked. `KeyedAggregate` (SQL-067) and `WindowedAggregate` (SQL-068) have the identical bug, untouched |
 | SQL-012 `ROUND` | **PARTIALLY FIXED** | 2.5→3, −2.5→−3, 0.5→1, −0.5→−1, 2.4→2 all correct; integer ROUND still exact above 2^53. Two new wrong answers introduced (SQL-072) |
 | SQL-010 `ABS(Long.MIN_VALUE)` | **VERIFIED FIXED** | Clear `PRV-3010`, real message, exit 1, under 5 s. Nothing hung and nothing was swallowed |
-| SQL-005 integer `/ 0` | **FIXED, but not by `ab0eca3`** | Fails in ~1 s with the real `ArithmeticException` and exit 1. The fix is an uncommitted working-tree change to `QueryExecution.awaitQuiescent`/`QueryRunner`. Whole-batch loss and the false "routed to the DLQ" claim remain |
-| SQL-006 overflow | **FIXED, but not by `ab0eca3`** | Same fix; ten of ten runs failed loudly, the `ok` / exit 0 variant never appeared |
+| SQL-005 integer `/ 0` | **FIXED, but not by `7e0de33`** | Fails in ~1 s with the real `ArithmeticException` and exit 1. The fix is an uncommitted working-tree change to `QueryExecution.awaitQuiescent`/`QueryRunner`. Whole-batch loss and the false "routed to the DLQ" claim remain |
+| SQL-006 overflow | **FIXED, but not by `7e0de33`** | Same fix; ten of ten runs failed loudly, the `ok` / exit 0 variant never appeared |
 | SQL-043 `COUNT(DISTINCT)` | **PARTIALLY FIXED** | Stream half now fails fast with the real `PRV-3020` reason (same in-flight fix), though still at run time rather than at plan time; view half unchanged and still contradicts the document; keyed form now returns `PRV-1041  -1` (SQL-078); the windowed form it recommends is wrong (SQL-069) |
 | SQL-008 unary minus | **STILL FAILING** | Unchanged, message still claims the feature is present |
 | SQL-055 deep nesting | **STILL FAILING** | `PRV-2001  null` |

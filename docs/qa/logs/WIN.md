@@ -275,7 +275,7 @@ covered, and its own comment says so.
 
 - **WIN-121 — PASS** (pre-existing). 100,000 rows, 100 keys, `COUNT(*) = 1,000`, `SUM(n) = 99,999` —
   the exact shape "13 windows served where 19 exist" was reported against, one order of magnitude
-  below the reported N. No deficit: the blocker git history (`e2189cd Defect 35 (blocker): windowed
+  below the reported N. No deficit: the blocker git history (`386c568 Defect 35 (blocker): windowed
   results stop being corrupted under volume`) shows it fixed before this round began, and WIN-121
   passing is the regression check for that fix at N=100,000.
 - **WIN-119, WIN-120, WIN-122 … WIN-140 — NOT RUN.** WIN-119 (N=1, the smallest point on the same

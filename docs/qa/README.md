@@ -15,7 +15,7 @@ It is written by QA, kept in the repository, and meant to be read by whoever tak
 Every case and log in this directory cites `docs/SQL_SUPPORT.md`, often by line number. That file was
 merged into [`../CONTINUOUS_QUERIES.md`](../CONTINUOUS_QUERIES.md) on 2026-09-16, which now carries
 the support matrix row for row alongside the streams-to-views narrative (ADR-040's sibling work, see
-`948d19d`).
+`1b242f3`).
 
 The citations here are **deliberately not rewritten.** They are dated records of what was read at the
 time, against a file that had that name and those line numbers, and editing them would make them say

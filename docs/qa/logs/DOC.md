@@ -21,7 +21,7 @@ were killed by number; the one container built was removed along with its image.
 > whole QUICKSTART §4 loop was exercised against it. From roughly 20:39 onward the *same command*
 > fails at startup with `PRV-7002 … different SecurityPolicy instances` in **every** configuration
 > tried, including the plain `dev` profile that had just worked. No commit landed in that window
-> (newest is `6030cd5`, 20:16), so another agent's rebuild of `pravaha-flight`/`pravaha-server` is the
+> (newest is `b4ce5c8`, 20:16), so another agent's rebuild of `pravaha-flight`/`pravaha-server` is the
 > likely cause. Verdicts recorded against the earlier artefact are marked; DOC-008 is BLOCKED by it.
 
 ---
@@ -1063,12 +1063,12 @@ re-testing against an artefact that no longer starts.
 
 Second pass, same area, same ports (HTTP 18500–18508, Flight 19500–19508), scratch
 `/tmp/.../scratchpad/qa-doc2`. Six server PIDs started, all killed by number. Artefacts taken as
-built (`ab0eca3`); nothing rebuilt except one `dependency:build-classpath` for a TLS probe.
+built (`7e0de33`); nothing rebuilt except one `dependency:build-classpath` for a TLS probe.
 
 **The finding that frames everything below:**
 
 ```
-$ git diff --stat 6030cd5..HEAD -- docs/ README.md
+$ git diff --stat b4ce5c8..HEAD -- docs/ README.md
  docs/qa/cases/*.md  docs/qa/logs/*.md   (10 files, the QA record itself)
 ```
 
@@ -1519,7 +1519,7 @@ Minor, inside the message: `MIN(price)` and `MAX(price)` are told to fix it with
 ### DOC-056 — **`SecurityPolicy.mayAdminister` is new public API and appears in no document** — FAIL
 
 ```java
-// SecurityPolicy.java, new in ab0eca3
+// SecurityPolicy.java, new in 7e0de33
 default AccessDecision mayAdminister(Principal principal, String view) {
     return mayRead(principal, view);
 }
@@ -1564,7 +1564,7 @@ README.md:12-16
 > receives a row.
 ```
 
-Three claims, all false as of `ab0eca3`:
+Three claims, all false as of `7e0de33`:
 
 1. "nothing generates watermarks" — `PravahaNode.java:372` calls
    `registry.generatingWatermarks(idleAfter, tick)`, logged at startup as

@@ -134,7 +134,7 @@ class ErrcCrossCuttingTest {
 
     @Test
     void categoryNowHasNineConstantsCoveringTheWholeRangeCorrectingTheCaseSStaleFacts() {
-        // Fact 3/5 (stale, commit 36a984f): the case file says Category has seven constants and
+        // Fact 3/5 (stale, commit e0b6395): the case file says Category has seven constants and
         // CLUSTER is (6000,6999), so 8xxx/9xxx have no category and category() throws for them.
         // Reconfirmed here against the *current* build: nine constants, the whole 1000-9999 range
         // covered, no constructible code lacks a category any more.

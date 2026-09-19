@@ -423,7 +423,7 @@ that. The fix was correct about threading and quietly disabled the feature.
 this, not a defect of its own.
 
 ## T-2 (HIGH) — watermark partition names are built by concatenating two integers
-> **Status:** FIXED — `QueryExecution.trackEventTimeOf` now separates the two integers with `":"`; commit `3c3c9fd` ("Defects 18-25: types on the wire, join keys, windows, names")
+> **Status:** FIXED — `QueryExecution.trackEventTimeOf` now separates the two integers with `":"`; commit `49c0f96` ("Defects 18-25: types on the wire, join keys, windows, names")
 
 
 ```java
@@ -463,7 +463,7 @@ through `lane.submitControlTask`; this does not. The same class of defect as the
 one tier down, and not yet observed only because the window under contention is narrow.
 
 ## T-5 — per-plugin event time, measured
-> **Status:** OPEN — `FeedFilePartitionReader`/`DeltaPartitionReader` still call `.eventTimestampNanos(0L)` unconditionally and `JdbcPartitionReader.emit` still passes a raw JDBC long with no unit conversion; only the Aerospike row (`LutScanReader`, commit `1d6f44d`) is now fixed
+> **Status:** OPEN — `FeedFilePartitionReader`/`DeltaPartitionReader` still call `.eventTimestampNanos(0L)` unconditionally and `JdbcPartitionReader.emit` still passes a raw JDBC long with no unit conversion; only the Aerospike row (`LutScanReader`, commit `7402a5b`) is now fixed
 > **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
 
 
@@ -646,7 +646,7 @@ No configuration makes a continuous query continuous. Combined with C-2: a shipp
 a finite file of insertions and nothing else.
 
 ## C-4 — `pravaha run` silently truncates, and it invalidates earlier evidence
-> **Status:** FIXED — `QueryRunner`'s pump loop now calls `execution.awaitQuiescent(...)` and retries before treating a zero read as exhausted; commit `fbc6580` ("Defect 33 (blocker): pravaha run reads the whole file"); `ExamplesTest#runReadsEveryRowOfALargeFileEveryTime` passes, 20,000/20,000 rows on 3/3 attempts
+> **Status:** FIXED — `QueryRunner`'s pump loop now calls `execution.awaitQuiescent(...)` and retries before treating a zero read as exhausted; commit `0059ef7` ("Defect 33 (blocker): pravaha run reads the whole file"); `ExamplesTest#runReadsEveryRowOfALargeFileEveryTime` passes, 20,000/20,000 rows on 3/3 attempts
 
 
 Five runs of an identical command over the same 20,000-row file returned **17,664 / 9,472 / 7,424 /
@@ -696,7 +696,7 @@ be reached from a server. `pravaha-embedded` has nine methods and cannot registe
 no AVG kind and no divisor anywhere. `SqlPlanner` runs no rule set, so Calcite never reduces AVG to
 SUM/COUNT either. `KeyedAggregate` and `GlobalAggregate` both divide — **so the same query returns a
 different number over a window than over a view**, and only a group with more than one row
-discriminates. Found independently by two agents. **Fixed in `23acedc2  Defects 15-17: three
+discriminates. Found independently by two agents. **Fixed in `6c5e2b03  Defects 15-17: three
 aggregate answers that were wrong`** (2026-09-13), which gives `AVG` its own kind and divides at
 emit. Re-verified executing `AGG.md`/`SQLX.md` this round (`SqlAnswerTest`'s
 `"SQLX-105/AGG-096"` case, `AVG(amount) = 75` over W1, not the sum `300`) — see
@@ -755,7 +755,7 @@ inheriting them:
   4. Slices per window is `S/gcd(S,D)`, not `S/D` — which understates a 10s/9.999s hop by 10,000×.
 
 ## W-6 — also pinned, from reading the source
-> **Status:** OPEN — still true: `CUMULATE` has no case and falls to a `default` refusal with no PRV code, and `WindowSpec` still throws a raw uncoded `IllegalArgumentException` for `slide > size`. Partially stale: windowed `MIN`/`MAX` over NULL and windowed `COUNT`/`COUNT(DISTINCT)` over NULL are now fixed (commits `8ac14cb`, `2e05bfa`) — several sub-defects remain, several don't
+> **Status:** OPEN — still true: `CUMULATE` has no case and falls to a `default` refusal with no PRV code, and `WindowSpec` still throws a raw uncoded `IllegalArgumentException` for `slide > size`. Partially stale: windowed `MIN`/`MAX` over NULL and windowed `COUNT`/`COUNT(DISTINCT)` over NULL are now fixed (commits `4bc0a36`, `189890b`) — several sub-defects remain, several don't
 > **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
 
 
@@ -868,7 +868,7 @@ pass every case in this file while disagreeing on a narrow integer or on `-0.0`.
 # API surfaces — 180 cases across CLI, REST and Flight
 
 ## P-1 (HIGH) — REST authenticates and never authorizes
-> **Status:** SUPERSEDED — by SX-3, which re-examines this exact defect in detail: `StreamController`/`QueryController` now inject `HttpAuthorizer` and call `requireRead`/`requireAdminister` (commit `9597579`), `HttpAuthorizationTest` passes, and SX-3 records the narrower remaining gap itself
+> **Status:** SUPERSEDED — by SX-3, which re-examines this exact defect in detail: `StreamController`/`QueryController` now inject `HttpAuthorizer` and call `requireRead`/`requireAdminister` (commit `90093ad`), `HttpAuthorizationTest` passes, and SX-3 records the narrower remaining gap itself
 
 
 Any valid token, from any tenant, reads and writes everything on the HTTP surface. The
@@ -1067,7 +1067,7 @@ continuous query** — and `restore()` is called from no shipped path anyway, so
 even when it is written.
 
 ## S-2 (HIGH) — under any real policy, no query survives a restart
-> **Status:** FIXED — commit `6e179f4` ("Defect 34 (blocker): recovery reconstructs an identity, or refuses") replaced the finding's quoted `new Principal(id, "unknown", ...)` with `PravahaNode.principalNamed`, which resolves against configured identities and refuses naming the query when authentication is on and the id is unknown; `ServerSecurityTest#recoveryReconstructsTheConfiguredIdentityRatherThanInventingOne` passes
+> **Status:** FIXED — commit `c374882` ("Defect 34 (blocker): recovery reconstructs an identity, or refuses") replaced the finding's quoted `new Principal(id, "unknown", ...)` with `PravahaNode.principalNamed`, which resolves against configured identities and refuses naming the query when authentication is on and the id is unknown; `ServerSecurityTest#recoveryReconstructsTheConfiguredIdentityRatherThanInventingOne` passes
 
 
 ```java
@@ -1080,7 +1080,7 @@ principal it refuses everything under any policy that inspects roles or tenant. 
 branch is unreachable, and `PRV-8007` is declared and never thrown.
 
 ## S-3 (HIGH) — `PARTITIONED` has no runtime behaviour at all
-> **Status:** FIXED — again, and where the claim is made: `PravahaNode` refuses to serve `PARTITIONED` (`PRV-9002`, naming S-3) before it joins the cluster, on any mechanism, until something in the node consumes partition ownership. `CoordinatorFactory` still builds the coordinator, because as a library the assignment and leases are real and tested. `PravahaNodeTest#partitionedModeIsRefusedByANodeEvenOnACoordinatorThatExcludesSplitBrain` (seed-proven: without the call it fails) and `StateClusterTest#state106`, which had been asserting the symptom as expected behaviour. History: **reopened 2026-09-19: the refusal that fixed this was removed before the mode became real.** ADR-039 item 8's first slice (`9238785`) deleted `CoordinatorFactory`'s `PARTITIONED` refusal on the grounds that membership now produces a real assignment; but `PartitionAssigner` is constructed only in tests, and nothing in `PravahaNode` asks for a partition lease before reading one. So `PARTITIONED` × `zookeeper` (or `single`) starts and every node serves every partition -- this finding's original symptom, and with sinks now attached, two nodes configured PARTITIONED over one source would each write the whole answer to the same sink. ADR-039 said the refusal should go in the same change that makes the mode real; either restore it until item 8's consumer exists, or build the consumer. Previously FIXED: `CoordinatorFactory` refuses `PARTITIONED` outright, naming ADR-034 and what to use instead. Only `PARTITIONED` × `socket` was refused before, for split-brain, which made that look like the guard — `PARTITIONED` × `single` **started, reported itself partitioned, and partitioned nothing**. Refused rather than implemented (ADR-038): a mode that reports success and does nothing is worse than one that refuses, because only the second tells the operator what they actually have.
+> **Status:** FIXED — again, and where the claim is made: `PravahaNode` refuses to serve `PARTITIONED` (`PRV-9002`, naming S-3) before it joins the cluster, on any mechanism, until something in the node consumes partition ownership. `CoordinatorFactory` still builds the coordinator, because as a library the assignment and leases are real and tested. `PravahaNodeTest#partitionedModeIsRefusedByANodeEvenOnACoordinatorThatExcludesSplitBrain` (seed-proven: without the call it fails) and `StateClusterTest#state106`, which had been asserting the symptom as expected behaviour. History: **reopened 2026-09-19: the refusal that fixed this was removed before the mode became real.** ADR-039 item 8's first slice (`21bbb95`) deleted `CoordinatorFactory`'s `PARTITIONED` refusal on the grounds that membership now produces a real assignment; but `PartitionAssigner` is constructed only in tests, and nothing in `PravahaNode` asks for a partition lease before reading one. So `PARTITIONED` × `zookeeper` (or `single`) starts and every node serves every partition -- this finding's original symptom, and with sinks now attached, two nodes configured PARTITIONED over one source would each write the whole answer to the same sink. ADR-039 said the refusal should go in the same change that makes the mode real; either restore it until item 8's consumer exists, or build the consumer. Previously FIXED: `CoordinatorFactory` refuses `PARTITIONED` outright, naming ADR-034 and what to use instead. Only `PARTITIONED` × `socket` was refused before, for split-brain, which made that look like the guard — `PARTITIONED` × `single` **started, reported itself partitioned, and partitioned nothing**. Refused rather than implemented (ADR-038): a mode that reports success and does nothing is worse than one that refuses, because only the second tells the operator what they actually have.
 
 
 Only `PARTITIONED` × `socket` is refused (`PRV-9002`). `PARTITIONED` × `single` **starts** — and
@@ -1256,7 +1256,7 @@ number meaning the engine's own unit so a file the sink wrote reads back identic
 storing a time unscaled again, which fails with 3,600,000 against 3,600,000,000,000.
 
 ## X-2 — probable corrections to Q-5, Q-6, Q-7 and Q-11 (round 1), not yet confirmed against a commit
-> **Status:** FIXED — ran `ExpressionMatrixTest` (pravaha-sql, exit 0), which covers integer division by zero and overflow via `Expression.Arithmetic.evaluateLong` (`Math.addExact`/`subtractExact`/`multiplyExact` plus an explicit `divideByZero()` ArithmeticException); unary minus is normalized in `ExpressionCompiler`; COUNT(DISTINCT) fix independently confirmed by `docs/qa/logs/AGG.md` citing commit `2e05bfad` and `SqlAnswerTest#AGG-022`/`#AGG-024`.
+> **Status:** FIXED — ran `ExpressionMatrixTest` (pravaha-sql, exit 0), which covers integer division by zero and overflow via `Expression.Arithmetic.evaluateLong` (`Math.addExact`/`subtractExact`/`multiplyExact` plus an explicit `divideByZero()` ArithmeticException); unary minus is normalized in `ExpressionCompiler`; COUNT(DISTINCT) fix independently confirmed by `docs/qa/logs/AGG.md` citing commit `189890be` and `SqlAnswerTest#AGG-022`/`#AGG-024`.
 
 
 Executing SQLX-038, SQLX-039 and SQLX-040 against the current build ran the exact SQL each of Q-11
@@ -1488,7 +1488,7 @@ uniform rule. (SQLX-160, SQLX-161)
 unguarded `case COUNT -> counts[i] += weight;`. Executed directly against a running server
 (AGG-013..016): every keyed `COUNT(col)` now correctly excludes NULLs and is internally consistent
 with its paired `SUM`/`AVG` in the same row — matching the case file's "Expected (correct)" text, not
-its "Expected (this build)" text. Traced to `23acedc2  Defects 15-17: three aggregate answers that
+its "Expected (this build)" text. Traced to `6c5e2b03  Defects 15-17: three aggregate answers that
 were wrong`, which adds the guard and, in the same commit, fixes W-1 above. `AGG.md`'s fact 2 and
 `docs/qa/logs/AGG.md`'s own preamble should be updated to say `FIXED` rather than describe a live
 defect. Full reproduction in `docs/qa/logs/AGG.md`.
@@ -3095,7 +3095,7 @@ The new test offers rows straight into `lane(0)` and never calls `accept()`.
 
 ### DOCX-1 (HIGH) — `docs/QUICKSTART.md`'s first two commands did not run, and no test could have noticed
 
-> **Status:** FIXED — commit 51b27f5 corrected steps 2 and 3; both now run and produce exactly the output the document prints, verified by executing them verbatim from a clean directory containing only `examples/01-filter-and-project/transactions.csv`.
+> **Status:** FIXED — commit 0171a94 corrected steps 2 and 3; both now run and produce exactly the output the document prints, verified by executing them verbatim from a clean directory containing only `examples/01-filter-and-project/transactions.csv`.
 
 Step 2 and step 3 both omitted `--out-schema`, which `RunCommand` requires, and both declared a
 two-column `--schema` for a four-column CSV. Executed verbatim:
@@ -3119,7 +3119,7 @@ opens the file.
 
 ### DOCX-2 (HIGH) — `docs/HANDOVER.md` told the next session the server cannot ingest, and it can
 
-> **Status:** FIXED — commit 51b27f5 rewrote `HANDOVER.md`'s "The server has no ingestion path" paragraph against a measured run: `ROWS IN 10`, three windows closed on the derived watermark, `pravaha subscribe` delivering each commit.
+> **Status:** FIXED — commit 0171a94 rewrote `HANDOVER.md`'s "The server has no ingestion path" paragraph against a measured run: `ROWS IN 10`, three windows closed on the derived watermark, `pravaha subscribe` delivering each commit.
 
 `HANDOVER.md:394` stated: "**The server has no ingestion path.** … A query registered against a
 running server never sees a row, `rows_in` stays at zero". `README.md`'s evaluation banner carried
@@ -3144,7 +3144,7 @@ produced two further commits at the tap.
 
 ### DOCX-3 (HIGH) — three error codes existed, were reachable, and were undocumented under a claim of completeness
 
-> **Status:** FIXED — commit 51b27f5 added the `PRV-5090`/`5091`/`5092` rows and changed `ErrcCrossCuttingTest.theInventoryIsOneHundredAndTenDistinctCodesTenUndocumentedZeroSpurious` from `containsExactly("PRV-5090","PRV-5091","PRV-5092")` to `isEmpty()`, so the gap cannot reopen. The test prints `ERRC-111: 111 declared, 111 documented` and is green.
+> **Status:** FIXED — commit 0171a94 added the `PRV-5090`/`5091`/`5092` rows and changed `ErrcCrossCuttingTest.theInventoryIsOneHundredAndTenDistinctCodesTenUndocumentedZeroSpurious` from `containsExactly("PRV-5090","PRV-5091","PRV-5092")` to `isEmpty()`, so the gap cannot reopen. The test prints `ERRC-111: 111 declared, 111 documented` and is green.
 
 `docs/TROUBLESHOOTING.md` closed with "Generated from the source, not from memory … If a code is
 missing here it does not exist in the engine." 111 codes are declared in `src/main`; 108 were in the
@@ -3166,7 +3166,7 @@ same walk also now excludes nested `.claude` worktrees relative to the root it f
 
 ### DOCX-4 (MEDIUM) — `docs/OPERATIONS.md` printed a Flight port no other surface uses
 
-> **Status:** FIXED — commit 51b27f5 changed `docs/OPERATIONS.md:325` from `port: 8815` to `port: 9090`, matching `pravaha-server/src/main/resources/application.yaml:72`.
+> **Status:** FIXED — commit 0171a94 changed `docs/OPERATIONS.md:325` from `port: 8815` to `port: 9090`, matching `pravaha-server/src/main/resources/application.yaml:72`.
 
 The "Starting a node" YAML block printed `pravaha.flight.port: 8815` — Arrow Flight's registered
 port. The shipped default is `9090`, and `application.yaml`'s own comment explains at length why:
@@ -3176,7 +3176,7 @@ every other document prints, with no error naming the mismatch.
 
 ### DOCX-5 (MEDIUM) — `docs/OPERATIONS.md` contradicted itself twice, and both stale halves were the pessimistic ones
 
-> **Status:** FIXED — commit 51b27f5 rewrote the Disk section and the "What is not solved" list.
+> **Status:** FIXED — commit 0171a94 rewrote the Disk section and the "What is not solved" list.
 
 Two claims in the operator's document were false of the build:
 
@@ -3266,7 +3266,7 @@ misconfigurations are not caught at startup"); this is the specific case, measur
 
 ### DOCX-9 (LOW) — `docs/OPERATIONS.md` claimed a startup validation the node does not perform
 
-> **Status:** FIXED — commit 51b27f5 rewrote `docs/OPERATIONS.md:267` to say the ordering *should* hold, that it is not validated, and that only `idle-after` itself is bounds-checked.
+> **Status:** FIXED — commit 0171a94 rewrote `docs/OPERATIONS.md:267` to say the ordering *should* hold, that it is not validated, and that only `idle-after` itself is bounds-checked.
 
 "The **tick must be finer than the idle timeout**, and a configuration where it is not is refused."
 A node with `watermark.tick: 30s` and `watermark.idle-after: 5s` starts and logs
@@ -3294,7 +3294,7 @@ verbs it serves.
 
 ### DOCX-11 (MEDIUM) — `console/README.md` documented no configuration at all, including the gate without which nobody can sign in
 
-> **Status:** FIXED — commit 51b27f5 added a Configuration section to `console/README.md` listing all ten settings with their environment variables, defaults and effects, the password gate first.
+> **Status:** FIXED — commit 0171a94 added a Configuration section to `console/README.md` listing all ten settings with their environment variables, defaults and effects, the password gate first.
 
 `console/config/application.yaml` reads ten settings. `console/README.md` mentioned two of them
 (`server.port` and `engine.url`, in passing, inside an override example) and **no occurrence of
@@ -3310,7 +3310,7 @@ and every route the QUICKSTART table and the README table name answered 200 (`/`
 
 ### DOCX-12 (MEDIUM) — the ADR set gave built and unbuilt decisions the same status
 
-> **Status:** FIXED — commit 51b27f5 gave twelve ADRs a qualified `Status` row with one line of evidence each, added the convention to `docs/adr/README.md`, gave ADR-009 the ADR-034 pointer the README's own supersession rule asks for, and struck ADR-008's "registered queries are not checkpointed at all", which is fixed.
+> **Status:** FIXED — commit 0171a94 gave twelve ADRs a qualified `Status` row with one line of evidence each, added the convention to `docs/adr/README.md`, gave ADR-009 the ADR-034 pointer the README's own supersession rule asks for, and struck ADR-008's "registered queries are not checkpointed at all", which is fixed.
 
 Thirty-four ADRs, and until this round thirty-two of them read `| Status | Accepted |` whether the
 decision was in the tree or not. Measured examples: ADR-020's `pravaha-spring-boot-starter`,
@@ -3326,7 +3326,7 @@ sit after 022 in the index; cosmetic, recorded so a later reader does not chase 
 
 ### DOCX-13 (MEDIUM) — `system_design.md` and `implementation_plan.md` are linked as specification and describe a system that partly does not exist
 
-> **Status:** FIXED — commit 51b27f5 put a header on each saying it is the intent and not the build, naming the symbols an audit found absent, and pointing at `HANDOVER.md`, `ARCHITECTURE.md` and the ADRs instead.
+> **Status:** FIXED — commit 0171a94 put a header on each saying it is the intent and not the build, naming the symbols an audit found absent, and pointing at `HANDOVER.md`, `ARCHITECTURE.md` and the ADRs instead.
 
 4,955 lines, linked from the README as the full specification, unchanged since before most of this
 engine existed, and carrying no marker distinguishing what was built from what was designed. Named
@@ -3345,7 +3345,7 @@ header that tells a reader which document to trust costs two minutes and removes
 
 ### DOCX-14 (MEDIUM) — three documents claimed a test executes commands it never reads
 
-> **Status:** FIXED — commit 51b27f5 corrected `docs/HANDOVER.md:57`, `examples/README.md:5` and the freshness-test claims in `README.md:298` and `docs/README.md:47`.
+> **Status:** FIXED — commit 0171a94 corrected `docs/HANDOVER.md:57`, `examples/README.md:5` and the freshness-test claims in `README.md:298` and `docs/README.md:47`.
 
 The class of defect that stops people checking, which is worse than the thing it conceals.
 
@@ -3367,7 +3367,7 @@ The class of defect that stops people checking, which is worse than the thing it
 
 ### DOCX-15 (LOW) — six documents said four case studies and five said five; there are five
 
-> **Status:** FIXED — commit fbe02eb corrected `examples/case-studies/SETUP.md:6`, `examples/case-studies/README.md:74`, `docs/CONCEPTS.md:187`, `docs/README.md:13`, `docs/QUICKSTART.md:351` and `docs/USER_GUIDE.md:282`.
+> **Status:** FIXED — commit 4d8b27a corrected `examples/case-studies/SETUP.md:6`, `examples/case-studies/README.md:74`, `docs/CONCEPTS.md:187`, `docs/README.md:13`, `docs/QUICKSTART.md:351` and `docs/USER_GUIDE.md:282`.
 
 `ls examples/case-studies/` gives five: trade-processing, banking-card-velocity,
 finance-counterparty-exposure, trading-order-flow, biology-sequencing-qc. The defect is less the
@@ -3377,7 +3377,7 @@ infrastructure to stand up.
 
 ### DOCX-16 (LOW) — `HANDOVER.md` counted 33 ADRs, dated its own status two waves behind, and no gate pack exists for waves 5 or 6
 
-> **Status:** FIXED — commit fbe02eb corrected the ADR count to 34, replaced the stale session header with a wave-status paragraph that keeps the original note under its own date, and recorded the missing gate packs.
+> **Status:** FIXED — commit 4d8b27a corrected the ADR count to 34, replaced the stale session header with a wave-status paragraph that keeps the original note under its own date, and recorded the missing gate packs.
 
 `| ADRs | **33** |` against 34 files. The header said "**Wave 6 (E5) has started**" while the same
 document's body says "### Wave 7 (E6) — complete" and the README badge says Wave 7 of 10 — a session
@@ -3388,7 +3388,7 @@ stated wave against the *newest* gate directory, so a missing middle pack fails 
 
 ### DOCX-17 (LOW) — `sdk/python/README.md` documents an extra that does not exist
 
-> **Status:** FIXED — commit fbe02eb changed `pip install 'pravaha[grpc]'` to `'pravaha[flight]'`.
+> **Status:** FIXED — commit 4d8b27a changed `pip install 'pravaha[grpc]'` to `'pravaha[flight]'`.
 
 `sdk/python/pyproject.toml:31` defines `flight = ["pyarrow>=15.0.0"]`. There is no `grpc` extra, so
 the documented command installs the contracts, silently installs none of the transport, and does not
@@ -3397,7 +3397,7 @@ fail — `pravaha.connect` then raises on its lazy `pyarrow` import. The working
 
 ### DOCX-18 (LOW) — `SecurityProperties`' javadoc named two values the node refuses at startup
 
-> **Status:** FIXED — commit fbe02eb corrected both javadoc lines to the values the code accepts and named the refusal code.
+> **Status:** FIXED — commit 4d8b27a corrected both javadoc lines to the values the code accepts and named the refusal code.
 
 `SecurityProperties.java:52` offered `permissive` or **`tenant`**; `:55` offered `none`, `memory` or
 **`log`**. `PravahaNode.java:298` and `:318` accept `permissive`/`authenticated` and `none`/`memory`
@@ -3468,7 +3468,7 @@ A second, opposite defect sits beside it: only the three in-process CLI commands
 
 ### DOCX-22 (LOW) — `docs/SECURITY.md` named a method that does not exist and attributed a fixed defect to it
 
-> **Status:** FIXED — commit 51b27f5 rewrote the paragraph: there is no `PravahaFlightServer.location()` (it is a private field; the accessors are `port()`, `uri()`, `catalog()`, `isEncrypted()`), the scheme half of SX-16 is fixed, and the ephemeral-port half is restated against the `Location` that actually reaches `getFlightInfo`.
+> **Status:** FIXED — commit 0171a94 rewrote the paragraph: there is no `PravahaFlightServer.location()` (it is a private field; the accessors are `port()`, `uri()`, `catalog()`, `isEncrypted()`), the scheme half of SX-16 is fixed, and the ephemeral-port half is restated against the `Location` that actually reaches `getFlightInfo`.
 
 `PravahaFlightServer.java:229-230` now builds the advertised `Location` with `forGrpcTls` when a
 certificate is configured, so the "a genuinely-TLS node reports `grpc+tcp://`" half of the claim is
@@ -5379,7 +5379,7 @@ the one that was saved.
 
 ## DOCR — documentation rot after Wave 8
 
-A sweep of the high-traffic documents against the tree at `de859d2`, a day after the DOCX round and
+A sweep of the high-traffic documents against the tree at `f9bdeb2`, a day after the DOCX round and
 twenty-five commits later. Round DOCX corrected the documentation the code had outgrown; Wave 8, the
 STRM and CFG fixes and ADR-035 then landed on top of it, and the same documents went stale again in
 new places. Every entry below was checked against the code or by running the command, never against
@@ -6225,7 +6225,7 @@ for a query fed by a source that scans once a second and will never produce one.
 
 ### W9-8 (HIGH) — `LaneMultiplexer` is built, tested and wired to nothing, and it is the answer to the per-query inbox
 
-> **Status:** OPEN — narrowed to the node. The row-format blocker below is gone (W9-9) and the registry now hosts queries on shared lanes through `QueryExecution.startOn` when `QueryRegistry.multiplexingLanes(true)` is called (`8fe249e`, `MultiplexedRegistryTest`). What remains: `PravahaNode` never calls it and no `pravaha.lane.*` key reaches it, so a server always runs a lane per query, and nothing decides which shared lane a registration lands on. The original status, kept for its reasoning: blocked on the row format -- `LaneMultiplexer` was referenced from nothing in `src/main`, and wiring it then would have delivered one stream's rows to queries subscribed to another.
+> **Status:** OPEN — narrowed to the node. The row-format blocker below is gone (W9-9) and the registry now hosts queries on shared lanes through `QueryExecution.startOn` when `QueryRegistry.multiplexingLanes(true)` is called (`0990ed2`, `MultiplexedRegistryTest`). What remains: `PravahaNode` never calls it and no `pravaha.lane.*` key reaches it, so a server always runs a lane per query, and nothing decides which shared lane a registration lands on. The original status, kept for its reasoning: blocked on the row format -- `LaneMultiplexer` was referenced from nothing in `src/main`, and wiring it then would have delivered one stream's rows to queries subscribed to another.
 > **Disposition:** POST-GA — demoted by W9-11: an optimisation on a target already reached
 
 A fourth built-but-unreachable mechanism, after the three Wave 8 found (W8-11 … W8-13). Its own
@@ -6327,7 +6327,7 @@ as PF-10 and W8-8, which this codebase has now paid for twice.
 
 ### W9-10 (HIGH) — wiring `LaneMultiplexer` is a wave, not a task, and the aligned barrier is why
 
-> **Status:** FIXED — `bab368b`: a watermark advance is a *level* task (`submitLevelTask`), which keeps its place in queue order and does not clamp the lane's batch; only a checkpoint is a *cut*. The clamp binds to the first cut in the queue rather than the task at its head, and `ControlTaskBarrierTest` pins both halves. What this entry assessed as a wave's worth of design turned out to be that asymmetry. Originally: W9-9 removed the blocker that made wiring *wrong*; this records what makes it *large*.
+> **Status:** FIXED — `4ef2dd1`: a watermark advance is a *level* task (`submitLevelTask`), which keeps its place in queue order and does not clamp the lane's batch; only a checkpoint is a *cut*. The clamp binds to the first cut in the queue rather than the task at its head, and `ControlTaskBarrierTest` pins both halves. What this entry assessed as a wave's worth of design turned out to be that asymmetry. Originally: W9-9 removed the blocker that made wiring *wrong*; this records what makes it *large*.
 
 With streams identified (W9-9) the multiplexer would now dispatch correctly. Three things still stand
 between that and a node where three hundred queries share a lane, and the third is the one that

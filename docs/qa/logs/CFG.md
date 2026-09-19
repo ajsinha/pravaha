@@ -4,7 +4,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 Cases: [`../cases/CFG.md`](../cases/CFG.md). Executed 2026-09-14 on branch `develop` (worktree
-`.claude/worktrees/qa-cfg`, `worktree-qa-cfg` at `efa8fae`), against `pravaha-*` as built by
+`.claude/worktrees/qa-cfg`, `worktree-qa-cfg` at `7efaf9c`), against `pravaha-*` as built by
 `./mvnw -o -T1C install -DskipTests` (Java 21, `/usr/lib/jvm/java-21-openjdk-amd64`). Every runtime
 observation below is a **real `pravaha-server-0.1.0-SNAPSHOT-app.jar` node**, one per configuration
 cell, started with `--spring.config.additional-location=file:$QA/conf/<cell>.yaml` and killed by

@@ -19,7 +19,7 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   docs/qa/FINDINGS.md has the exact counts and FindingsRegisterTest holds it
   to them.
 
-  S-3 was reopened and re-fixed on 2026-09-19. 9238785 had removed
+  S-3 was reopened and re-fixed on 2026-09-19. 21bbb95 had removed
   CoordinatorFactory's refusal of PARTITIONED while nothing in a node consumed
   partition ownership. The refusal now lives in PravahaNode
   (refusePartitionedServing, PRV-9002): the factory still builds the
@@ -90,8 +90,8 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
 4. HOUSE RULES
 ====================================================================
 
-  * NO "Co-Authored-By: Claude" OR "Claude-Session:" TRAILERS in commit
-    messages. Ashutosh Sinha is the sole author. Absolute.
+  * Ashutosh Sinha is the sole author of every commit, and a commit
+    message ends with its own text: no trailers of any kind. Absolute.
   * git add with EXPLICIT PATHS. Never git add -A.
   * Verify, THEN commit, THEN push. "Drill to develop" = commit and push
     develop. "Drill to main" = merge develop into main and push main. A bare

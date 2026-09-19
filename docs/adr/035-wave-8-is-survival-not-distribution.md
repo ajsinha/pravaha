@@ -79,7 +79,7 @@ case, deliberately, and it cannot be built before the rules for it exist.
 
 `DeadLetterQueue`/`FileDeadLetterQueue`, `L0StateMap`, and `ChangelogAnalysis` are implemented and
 tested, and no production code outside their own packages references any of them. Verified by grep at
-`1df9b4d`: zero references for the first two, one javadoc mention for the third.
+`1f8869c`: zero references for the first two, one javadoc mention for the third.
 
 Unreachable code is worse than absent code. It reads as a capability in every document that describes
 the system, it passes its own tests, and it is a decision nobody made — no one chose not to have a

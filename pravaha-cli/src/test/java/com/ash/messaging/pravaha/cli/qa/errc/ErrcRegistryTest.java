@@ -47,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * ERRC-097 .. ERRC-103 -- PRV-8xxx, the query registry, which {@code ErrorCode.category()} has no
- * entry for (E5: since commit 36a984f, {@code category()} no longer throws for 8xxx -- see
+ * entry for (E5: since commit e0b6395, {@code category()} no longer throws for 8xxx -- see
  * {@code docs/qa/logs/ERRC.md} for the reconfirmation).
  *
  * <p>Surface: the CLI against a real, in-process {@link PravahaFlightServer}/{@link QueryRegistry}

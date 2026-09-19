@@ -35,7 +35,7 @@ same crash.
 contains an adversarial sentence addressed to "an AI Agent". It is not an instruction from this
 project and was ignored, per the same note in `docs/qa/logs/CQ.md` and `docs/qa/logs/LIFE.md`.
 
-**The case file's own "facts" preamble is partly stale.** Commit `36a984f` ("Defects 3-14"), which
+**The case file's own "facts" preamble is partly stale.** Commit `e0b6395` ("Defects 3-14"), which
 landed the day before this round, independently fixed several of the defects facts 3-7 describe as
 still open: `ErrorCode.Category` now has nine constants covering the whole 1000-9999 range (`FLIGHT`
 6000-6999, `REGISTRY` 8000-8999, `CLUSTER` 9000-9999 — no code lacks a category any more), and
@@ -312,12 +312,12 @@ running `pravaha-server` process — not stood up this round. Continued in the n
 **A pre-existing, out-of-scope test failure noticed while running `pravaha-it verify` for this drill,
 not caused by ERRC work and not fixed here.** `DocumentationFreshnessTest
 .everyJavaTypeTheReadmeShowsExists` and `WindowClosingAnswerTest.win167_...` (WIN's own file) both walk
-`repoRoot()` and exclude any path containing `/.claude/`, per commit `25794ef`'s fix for a different
+`repoRoot()` and exclude any path containing `/.claude/`, per commit `0757832`'s fix for a different
 problem (agents' worktrees nested *under* a main checkout, seen as duplicate files). This executor's
 own worktree is itself rooted at `.claude/worktrees/agent-a142c3c16e6b104f1/` — so `repoRoot()`
 (walking up from the module directory to find a marker file) resolves to a path that **itself**
 contains `/.claude/`, and the exclusion filter then discards the entire repository, not just nested
-child worktrees. Confirmed via `git log 21903ef..dcb509d -- <these two files>`: the exclusion was
+child worktrees. Confirmed via `git log 21903ef..e99fcea -- <these two files>`: the exclusion was
 added between this round's first and second commits, by a concurrent agent's already-pushed work, not
 by anything in `docs/qa/cases/ERRC.md` or this package. `WindowTestSupport.java` is explicitly WIN's
 file and out of ERRC's scope to touch; `DocumentationFreshnessTest.java` is shared IT infrastructure,
@@ -390,7 +390,7 @@ PRV-7xxx and PRV-8xxx below without needing a full `PravahaNode`/Spring Boot pro
   (§2's own text incorrectly said this was already done — corrected here, not silently).
 
 **E-category reconfirmation (fact 5 / ERRC-114, done here rather than deferred):** `ErrorCode.Category`
-now has `FLIGHT(6000,6999)` as its own constant (commit `36a984f`, see §1's stale-facts note) — the
+now has `FLIGHT(6000,6999)` as its own constant (commit `e0b6395`, see §1's stale-facts note) — the
 case's own fact 5 ("CLUSTER is the Flight range") is stale. Confirmed by reading `ErrorCode.java`
 directly rather than by a new test in this file (`category()` is a pure function of the enum; ERRC-114
 in the cross-cutting batch will assert it formally).
@@ -426,7 +426,7 @@ two policy holders disagreeing — all startup-time refusals needing `PravahaNod
 
 ## §6 — PRV-8xxx the query registry (ERRC-097 … ERRC-103)
 
-Test class: `ErrcRegistryTest`. `E5` (category, reconfirmed): since commit `36a984f`,
+Test class: `ErrcRegistryTest`. `E5` (category, reconfirmed): since commit `e0b6395`,
 `ErrorCode.Category.REGISTRY(8000,8999)` exists and `category()` no longer throws for any 8xxx code —
 the case's own fact 3/4 is stale here too, formally reconfirmed in the cross-cutting batch.
 
@@ -569,7 +569,7 @@ not part of this Flight-only harness).
   constants (sampled across the full 1000-9999 range, not exhaustive per-number); `FlightErrors
   .UNSUPPORTED_TYPE.category()` is `Category.FLIGHT`, `PRV-9001` is `Category.CLUSTER`, `PRV-8001` is
   `Category.REGISTRY` — the case's fact 5 ("CLUSTER is the Flight range") is stale, fixed by commit
-  `36a984f` before this round began. E6 (the ranges table omits `PRV-9xxx`) still holds — visually
+  `e0b6395` before this round began. E6 (the ranges table omits `PRV-9xxx`) still holds — visually
   confirmed against the document, unchanged.
 - **ERRC-116 — PASS, with the honest half recorded as NOT DETERMINED rather than guessed.** `helpUrl()`
   is `https://docs.pravaha.io/errors/PRV-nnnn` for a documented code, an undocumented one (`PRV-1030`)
