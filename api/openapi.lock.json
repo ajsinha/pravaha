@@ -1,5 +1,26 @@
 {
   "paths" : {
+    "/api/v1/audit" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "query:action", "query:cursor", "query:decision", "query:limit", "query:principal", "query:since", "query:until", "query:view" ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/api/v1/me/permissions" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/api/v1/plugins" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200" ]
+      }
+    },
     "/api/v1/queries" : {
       "get" : {
         "hasBody" : false,

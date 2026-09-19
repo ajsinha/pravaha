@@ -55,6 +55,17 @@ public interface SecurityPolicy {
         public AccessDecision mayRegisterQuery(Principal principal) {
             return AccessDecision.allow();
         }
+
+        /**
+         * Allowed, and consistently so: a node that lets every caller read every view, register
+         * and drop anything has no reader the audit trail could be kept from that is not already
+         * entitled to everything it describes. A deployment that wants the trail kept from its
+         * readers wants a policy other than this one.
+         */
+        @Override
+        public AccessDecision mayReadAudit(Principal principal) {
+            return AccessDecision.allow();
+        }
     };
 
     /**
@@ -121,5 +132,23 @@ public interface SecurityPolicy {
         return principal.isAnonymous()
                 ? AccessDecision.deny("anonymous callers may read but not register continuous queries")
                 : AccessDecision.allow();
+    }
+
+    /**
+     * May this principal read the audit trail -- who asked for what, and with which SQL?
+     *
+     * <p><strong>Denied unless a policy says otherwise</strong>, and deliberately not derived from
+     * {@link #mayRead}. The trail names every principal that read anything on the node and the text
+     * they read it with, so it discloses more than any one view does: a principal entitled to read
+     * every view is still not entitled to learn who else read them. Answering this by passing a
+     * pseudo-view name to {@code mayRead} would apply a check to the wrong noun -- and under a policy
+     * that allows every read, hand the trail to everyone.
+     *
+     * <p>A lambda does not override this either, so a policy written as one keeps the trail closed,
+     * which is the safe way for that surprise to go.
+     */
+    default AccessDecision mayReadAudit(Principal principal) {
+        return AccessDecision.deny(
+                "reading the audit trail is a permission of its own, and this node's " + "policy grants it to nobody");
     }
 }

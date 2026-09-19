@@ -41,6 +41,7 @@ import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.security.AuditSink;
+import com.ash.messaging.pravaha.security.AuditTrail;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
@@ -511,7 +512,7 @@ public class PravahaNode implements SmartLifecycle {
                 : security.getPolicy().trim();
         return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
             case "permissive" -> SecurityPolicy.PERMISSIVE;
-            case "authenticated", "authenticated-only" -> new AuthenticatedOnlyPolicy();
+            case "authenticated", "authenticated-only" -> new AuthenticatedOnlyPolicy(security.getAuditReaders());
             default ->
                 throw new PravahaException(
                         SecurityErrors.MISCONFIGURED,
@@ -545,12 +546,12 @@ public class PravahaNode implements SmartLifecycle {
                 security.getAudit() == null ? "none" : security.getAudit().trim();
         return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
             case "none" -> AuditSink.NONE;
-            case "memory" -> audit == null ? (audit = memorySink()) : audit;
+            case "memory" -> audit == null ? (audit = readable(memorySink(), "memory")) : audit;
             // CFG-23. The setting that produces a trail an operator can read after the fact, and
             // the reason it is a file: an endpoint listing who-read-what is a disclosure surface
             // needing an authorization this codebase's policy SPI cannot express, while a file's
             // readers are already decided by the operating system. See FileAuditSink.
-            case "file" -> audit == null ? (audit = fileSink()) : audit;
+            case "file" -> audit == null ? (audit = readable(fileSink(), "file")) : audit;
             default ->
                 throw new PravahaException(
                         SecurityErrors.MISCONFIGURED,
@@ -595,6 +596,36 @@ public class PravahaNode implements SmartLifecycle {
     }
 
     private AuditSink audit;
+
+    /**
+     * The configured sink, wrapped so the most recent decisions can be read back over
+     * {@code GET /api/v1/audit}.
+     *
+     * <p>A bounded ring beside the durable sink rather than the durable sink read back: the file is
+     * written asynchronously, rotates, and is for the operator's own tools, while the ring is
+     * recorded on the same call as the decision and costs O(1). {@link AuditTrail} explains the
+     * trade and the read API reports the bound. The wrapper also swallows a failing delegate, so
+     * auditing cannot fail the call it audits.
+     */
+    private AuditSink readable(AuditSink durable, String kind) {
+        int capacity = security.getAuditRecent();
+        if (capacity < 1) {
+            throw new PravahaException(
+                    SecurityErrors.MISCONFIGURED,
+                    "pravaha.security.audit-recent is " + capacity + "; it is how many recent decisions stay "
+                            + "readable over /api/v1/audit and must be at least 1.");
+        }
+        return new AuditTrail(durable, kind, capacity);
+    }
+
+    /**
+     * The readable trail, when this node audits at all; empty under {@code audit: none}, where there is
+     * nothing to read and the read API says so rather than showing an empty trail as if nobody had
+     * asked for anything.
+     */
+    public Optional<AuditTrail> auditTrail() {
+        return auditSink() instanceof AuditTrail trail ? Optional.of(trail) : Optional.empty();
+    }
 
     @Override
     public int getPhase() {

@@ -76,17 +76,19 @@ class AuditFileSinkConfigurationTest {
         Path trail = directory.resolve("audit.jsonl");
         PravahaNode node = node(fileAudit(trail));
 
-        AuditSink sink = node.auditSink();
-        sink.record(AuditEvent.of(
+        AuditSink recorder = node.auditSink();
+        recorder.record(AuditEvent.of(
                 Principal.of("carol"), "query", "payroll", AccessDecision.deny("denied by policy"), "SELECT *"));
-        ((FileAuditSink) sink).flush(Duration.ofSeconds(5));
+        // The node records through a readable trail whose durable half is the file.
+        FileAuditSink sink = (FileAuditSink) ((com.ash.messaging.pravaha.security.AuditTrail) recorder).delegate();
+        sink.flush(Duration.ofSeconds(5));
 
         assertThat(Files.readString(trail))
                 .as("the question CFG-23 says an operator cannot answer from a running node")
                 .contains("\"principal\":\"carol\"")
                 .contains("\"target\":\"payroll\"")
                 .contains("\"result\":\"DENY\"");
-        ((FileAuditSink) sink).close();
+        sink.close();
     }
 
     @Test
@@ -99,8 +101,10 @@ class AuditFileSinkConfigurationTest {
         // CFG-5's rule, which applies to every sink and not only to memory: resolving the key a
         // second time would give the HTTP surface its own file handle on the same path, two
         // appenders interleaving into one file with no coordination.
-        assertThat(http).isSameAs(node.auditSink()).isInstanceOf(FileAuditSink.class);
-        ((FileAuditSink) http).close();
+        assertThat(http).isSameAs(node.auditSink()).isInstanceOf(com.ash.messaging.pravaha.security.AuditTrail.class);
+        AuditSink durable = ((com.ash.messaging.pravaha.security.AuditTrail) http).delegate();
+        assertThat(durable).isInstanceOf(FileAuditSink.class);
+        ((FileAuditSink) durable).close();
     }
 
     @Test

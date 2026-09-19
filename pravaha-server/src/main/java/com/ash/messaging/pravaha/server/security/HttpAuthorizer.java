@@ -89,4 +89,38 @@ public class HttpAuthorizer {
                     SecurityErrors.FORBIDDEN, principal.id() + " may not change '" + what + "': " + decision.reason());
         }
     }
+
+    /**
+     * Refuses unless this caller may read the audit trail, recording the attempt either way.
+     *
+     * <p>Recorded before anything is read, and with what was asked for: reading the trail is itself
+     * a decision the trail has to show, or the one question nobody could answer afterwards would be
+     * "who looked at who looked at payroll".
+     *
+     * @param asked the filter, as text, for the event's detail
+     */
+    public void requireAuditRead(HttpServletRequest request, String asked) {
+        Principal principal = principalOf(request);
+        AccessDecision decision = policy.mayReadAudit(principal);
+        audit.record(com.ash.messaging.pravaha.security.AuditEvent.of(
+                principal, "http.audit.read", "audit", decision, asked));
+        if (!decision.allowed()) {
+            throw new PravahaException(
+                    SecurityErrors.FORBIDDEN, principal.id() + " may not read the audit trail: " + decision.reason());
+        }
+    }
+
+    /**
+     * The policy's answers for this caller, recorded as one event.
+     *
+     * <p>Asking is not acting, so the individual questions are not recorded one by one -- a page of
+     * a hundred views would otherwise be a hundred audit lines per view of the page -- but the fact
+     * that a principal looked at their own permissions is.
+     */
+    public SecurityPolicy policyFor(HttpServletRequest request) {
+        Principal principal = principalOf(request);
+        audit.record(com.ash.messaging.pravaha.security.AuditEvent.of(
+                principal, "http.permissions", principal.id(), AccessDecision.allow(), ""));
+        return policy;
+    }
 }

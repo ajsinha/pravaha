@@ -91,6 +91,19 @@ public class SecurityProperties {
     private int auditKeep = com.ash.messaging.pravaha.security.FileAuditSink.DEFAULT_KEEP;
 
     /**
+     * The roles whose holders may read the audit trail over {@code GET /api/v1/audit}, under
+     * {@code policy: authenticated}. {@code permissive} lets every caller read it, as it lets every
+     * caller read and drop everything; a custom policy answers {@code mayReadAudit} itself.
+     */
+    private List<String> auditReaders = new java.util.ArrayList<>(List.of("admin"));
+
+    /**
+     * How many recent decisions the node keeps readable in memory, beside whatever
+     * {@link #getAudit()} records durably. The read API names this bound and what it has evicted.
+     */
+    private int auditRecent = com.ash.messaging.pravaha.security.AuditTrail.DEFAULT_CAPACITY;
+
+    /**
      * Acknowledges that this server serves everything to unauthenticated callers.
      *
      * <p>Deliberately awkward. Without it, a server configured with no authentication and a
@@ -147,6 +160,23 @@ public class SecurityProperties {
 
     public void setAuditKeep(int auditKeep) {
         this.auditKeep = auditKeep;
+    }
+
+    public List<String> getAuditReaders() {
+        return auditReaders;
+    }
+
+    public void setAuditReaders(List<String> auditReaders) {
+        this.auditReaders =
+                auditReaders == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(auditReaders);
+    }
+
+    public int getAuditRecent() {
+        return auditRecent;
+    }
+
+    public void setAuditRecent(int auditRecent) {
+        this.auditRecent = auditRecent;
     }
 
     public boolean isAllowAnonymous() {

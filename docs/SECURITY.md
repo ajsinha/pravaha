@@ -35,7 +35,7 @@ they protect the connection, not the query.
 | | Answers | SPI |
 |---|---|---|
 | Authentication | Who is this? | `TokenVerifier`: credential in, `Principal` out |
-| Authorization | What may they read? | `SecurityPolicy`: allow / allow-with-row-filter / deny |
+| Authorization | What may they read, register, administer — and may they read the audit trail? | `SecurityPolicy`: allow / allow-with-row-filter / deny |
 | Audit | Who asked what, and what were they told? | `AuditSink`: every decision, allows included |
 
 Kept apart so a deployment can adopt an external identity provider without rewriting its rules, or
@@ -59,7 +59,12 @@ describe what is registered go further and call the **same code** as Flight's `p
 | `GET /api/v1/queries/{name}`, `/{name}/plan`, `GET /api/v1/views/{name}` | A name the policy denies: `403` whether or not it exists. An allowed name that is not registered, **or whose query reads a stream the caller may not read**: `404`, identically — so neither answer is an existence oracle. Other names sharing the computation are listed only if the caller may know them. A row-filtered caller gets counts and failure text withheld |
 | `GET /api/v1/sinks` | A sink appears to a caller the policy lets read its name; its writers are the queries the caller's own listing shows. **A binding's options are never read to build the answer** — they are where credentials live — and a sink failure's text (`PRV-8009`) has every configured option value that could be a credential struck out before it leaves |
 
-Proven in `pravaha-server`'s `RegistryEndpointsTest` and `HttpAuthorizationTest`.
+| `GET /api/v1/plugins` | Every plugin the node can load, with its manifest and declared capabilities; its **bindings** (streams, lookup tables, sinks) only where the caller may read the binding's name. Options are never read — a binding is its kind and its name — and a manifest's settings are listed by name only |
+| `GET /api/v1/audit` | Only a principal `mayReadAudit` allows — see [Audit](#reading-the-audit-trail-get-apiv1audit). Every attempt recorded as `http.audit.read` |
+| `GET /api/v1/me/permissions` | The caller's own answers, over what their listing already shows them |
+
+Proven in `pravaha-server`'s `RegistryEndpointsTest`, `HttpAuthorizationTest`, `AdminEndpointsTest`
+and `AdminHttpTest`.
 
 ## Setting it up
 
@@ -219,11 +224,10 @@ nothing at startup said so. `AuditSinkSharingTest` asserts object identity rathe
 configuration, because resolving the key twice would give the HTTP surface a second in-memory sink
 nothing can reach — invisible in exactly the same way, while looking correct.
 
-**What `memory` is, and is not.** It holds recent events in this process for tests and for support
-to read from a heap dump. **Nothing in the server exposes them** — there is no endpoint and no log
-appender. Do not deploy `memory` believing it produces a retained audit trail: a node set to it says
-so at startup now (a `WARN` naming what the setting does not do), and `audit: file` is the setting
-that leaves a record.
+**What `memory` is, and is not.** It holds recent events in this process and nowhere else: they are
+readable over `GET /api/v1/audit` (below) until the process ends, and then they are gone. Do not
+deploy `memory` believing it produces a retained audit trail: a node set to it says so at startup (a
+`WARN` naming what the setting does not do), and `audit: file` is the setting that leaves a record.
 
 **`audit: file` is the readable trail (CFG-23).** One JSON object per line, appended to
 `pravaha.security.audit-file` (default `pravaha-audit.jsonl`), rotating at
@@ -232,20 +236,75 @@ line carries the timestamp, the principal's id, tenant and roles, the action, th
 `DENY`, the reason, and the SQL or filter as `detail`. The claims map is never written, for the same
 reason `Principal.toString()` does not print it.
 
-*Why a file and not an endpoint.* An endpoint listing who-read-what is itself a disclosure surface —
-it carries every principal id and the SQL text that made SX-11 a breach rather than an inconvenience
-— so it would need an authorization of its own, and `SecurityPolicy` has no question that means "may
-read the audit trail". Answering it by passing a pseudo-view name to `mayRead` would be a check
-applied to the wrong noun, and under the default `permissive` policy it would return ALLOW to
-everybody. A file needs no such invention: the operating system already decides who may read it, and
-the file is created `rw-------`. Set the permissions you want on the directory; Pravaha will not
-loosen the file's.
+*The file is still the durable record.* The operating system decides who may read it, and it is
+created `rw-------`. Set the permissions you want on the directory; Pravaha will not loosen the
+file's. The read endpoint below does not replace it: it reads a bounded window of recent decisions,
+and the file is where everything older is.
 
 *What it costs and what it refuses.* Writing happens on one daemon thread behind a bounded queue, so
 an audit sink can never fail the query it is auditing; a full queue drops and the next line written
 is an `audit.dropped` marker with the count, because a gap nothing records is a trail that lies. A
 path that cannot be written is `PRV-7004` at startup rather than a discovery at the first decision
 nobody sees. A durable sink of your own is still an `AuditSink` implementation you supply.
+
+### Reading the audit trail: `GET /api/v1/audit`
+
+`GET /api/v1/audit?since=&until=&principal=&view=&action=&decision=&limit=&cursor=` returns recorded
+decisions **newest first**, one page at a time: each with its sequence number, time, principal (id,
+tenant, roles — never claims), action, target, `ALLOW`/`DENY`, reason and detail (the SQL). `since`
+and `until` are ISO-8601 instants (inclusive, exclusive); `view` matches the target ignoring case;
+`decision` is `allow` or `deny`; `limit` is at most 500 (100 by default); `cursor` is the previous
+page's `nextCursor`. A malformed parameter is `PRV-1051` naming it, never a filter silently dropped.
+The Python SDK's `Client.audit(...)` calls it; the console's **Admin · Audit** screen is built on it.
+
+**A permission of its own.** An endpoint listing who read what is a disclosure surface — it carries
+every principal id and the SQL text that made SX-11 a breach rather than an inconvenience — so it is
+authorized by a fourth question on the policy, `SecurityPolicy.mayReadAudit(principal)`, and never
+by `mayRead` on some pseudo-view name, which would be a check applied to the wrong noun. **Being
+allowed to read every view does not make the trail readable**: that is the property
+`AdminEndpointsTest` pins first, and it was seed-proven by answering the question with `mayRead` and
+watching the tests fail.
+
+| Policy | Who may read the trail |
+|---|---|
+| a custom `SecurityPolicy` | **nobody**, unless it overrides `mayReadAudit` — the interface's default denies, and a policy written as a lambda keeps that default |
+| `authenticated` | a verified principal holding a role in `pravaha.security.audit-readers` (default `[admin]`); an empty list closes it to everybody over HTTP |
+| `permissive` | every caller. That policy already lets every caller read every view, register, and drop, pause or resume any query; there is no reader it could keep the trail from who is not already entitled to everything the trail describes. A deployment that wants the trail kept from its readers wants a different policy |
+
+A refusal is `403 PRV-7002`, and no credential is `401 PRV-7001` before the policy is asked.
+
+**Reading it is audited.** Every attempt — allowed or refused — is recorded as `http.audit.read`
+before anything is read, with the filter as its detail, so "who looked at who read payroll" has an
+answer too.
+
+**Where it reads from.** Not the file read back. The node keeps a bounded ring of the most recent
+decisions (`pravaha.security.audit-recent`, 10,000 by default) beside whatever `audit` records
+durably, written on the same call. Reading the file back would mean parsing JSON Lines that are
+written asynchronously (so the newest decisions are not in it yet), that rotate underneath the
+reader, and that are for the operator's own tools — and a custom sink may not be a file at all. The
+ring is O(1) to record, in step with the decisions, and the same whatever the durable sink is. What it
+gives up is history across a restart, and the response says so: `capacity`, `retained`, `evicted`,
+`oldestRetained`, and a `note`. With `audit: none` there is no ring either; the response is
+`recording: false` rather than an empty trail that would read as "nobody asked for anything".
+
+**Auditing still cannot fail a query.** The ring cannot throw, and a durable sink that throws is
+counted and swallowed by the wrapper around it — an audit outage must not become a query outage, and
+the decision stays readable in the ring meanwhile.
+
+**Paging is by sequence, not offset.** Every decision gets a sequence number, increasing by one and
+never reused; `nextCursor` is the sequence to continue below. New decisions arriving between two
+pages do not shift the second one, which an offset into a moving list would.
+
+### What a principal may do: `GET /api/v1/me/permissions`
+
+The policy's own answers for the caller, read-only: `register` and `readAudit` (each allowed, or
+refused with the policy's reason), and for every view and stream the caller could already see, how
+they read it (`full`, or `filtered` — the predicate is not repeated) and whether they may administer
+it. Views come from the caller's own listing (the `QueryListing` rule `GET /api/v1/queries` and
+Flight's `pravaha.list` use), so a view hidden from them is absent rather than listed with a "no".
+There is no endpoint to change a grant: the engine is not where grants live — `SecurityPolicy` is an
+SPI a deployment implements against its own identity system, and the configured policies have none
+to edit. The console's **Admin · Access** screen shows it.
 
 ## Transport
 

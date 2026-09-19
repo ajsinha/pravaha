@@ -23,6 +23,7 @@ becomes a surprise.
 | …and as a backstop | `maxKeys` | **fails** (`PRV-4022`) |
 | Subscriber buffers | `SubscriptionOptions` | conflate / drop / fail, per the subscriber's choice |
 | Concurrent reads | `ReadAdmission` | refuse (`PRV-4026`–`4028`) |
+| Readable audit trail (`GET /api/v1/audit`) | `pravaha.security.audit-recent` decisions (10,000 default), only with `audit: memory` or `file` | oldest dropped from the readable window; the response says how many, and a `file` sink still has them |
 
 The distinction that runs through all of it:
 

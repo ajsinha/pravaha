@@ -38,5 +38,13 @@ public final class ApiErrors {
      */
     public static final ErrorCode MISSING_FIELD = new ErrorCode(1050, "API_MISSING_FIELD");
 
+    /**
+     * A query parameter the endpoint could not read: a timestamp that is not ISO-8601, a decision
+     * that is neither {@code allow} nor {@code deny}, a cursor this node did not issue. A 400 that
+     * names the parameter, rather than a filter silently ignored -- an audit search that dropped a
+     * malformed {@code since} would answer a different question from the one asked and look right.
+     */
+    public static final ErrorCode INVALID_PARAMETER = new ErrorCode(1051, "API_INVALID_PARAMETER");
+
     private ApiErrors() {}
 }

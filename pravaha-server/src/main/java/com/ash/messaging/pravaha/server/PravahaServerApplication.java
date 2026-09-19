@@ -105,7 +105,7 @@ public class PravahaServerApplication {
         return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
             case "permissive" -> com.ash.messaging.pravaha.security.SecurityPolicy.PERMISSIVE;
             case "authenticated", "authenticated-only" ->
-                new com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy();
+                new com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy(security.getAuditReaders());
             default ->
                 throw new com.ash.messaging.pravaha.api.PravahaException(
                         com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
