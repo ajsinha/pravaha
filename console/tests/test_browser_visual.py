@@ -1,4 +1,5 @@
-"""Visual regression: every page, light and dark, narrow and wide, against committed baselines.
+"""Visual regression: every page, light and dark, narrow and wide, comfortable and compact,
+against committed baselines.
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
@@ -6,7 +7,8 @@ Proprietary and confidential. See LICENSE at the repository root.
 Design 23.18 asks for "no unreviewed pixel change" in both themes. Each page is photographed
 (the viewport, not the whole scroll height -- the first screen is what a person judges, and a
 full-page capture of a long table is a baseline that changes whenever a row does) and compared
-with ``tests/visual/baselines/<page>-<theme>-<viewport>.png``. A page may differ from its
+with ``tests/visual/baselines/<page>-<theme>-<viewport>.png`` (``...-compact.png`` in the compact
+density). A page may differ from its
 baseline in at most ``TOLERANCE`` of its pixels, each by more than ``THRESHOLD`` in some
 channel; beyond that the test fails and writes the actual screenshot and a diff image (changed
 pixels in red) to ``tests/visual/failures/``, which is git-ignored.
@@ -39,6 +41,7 @@ from browser_harness import (
     BrowserEngine,
     Console,
     compare_png,
+    density_script,
     open_page,
     sign_in,
     theme_script,
@@ -54,6 +57,9 @@ UPDATE = os.environ.get("PRAVAHA_UPDATE_BASELINES") == "1"
 
 THEMES = ["light", "dark"]
 VIEWPORTS = {"wide": (1280, 800), "narrow": (390, 844)}
+#: Design 23.4's two densities. Comfortable is the default and keeps the baselines' original
+#: names; compact's carry a ``-compact`` suffix.
+DENSITIES = ["comfortable", "compact"]
 
 #: At most this share of pixels may differ, each by more than THRESHOLD (0-255) in a channel.
 TOLERANCE = 0.002
@@ -87,15 +93,16 @@ def _chrome_major(chrome: Browser) -> str:
 
 @pytest.fixture(scope="module")
 def shooters(chrome: Browser, console: Console):
-    tabs: dict[tuple[str, str], Page] = {}
+    tabs: dict[tuple[str, str, str], Page] = {}
 
-    def get(theme: str, viewport: str) -> Page:
-        key = (theme, viewport)
+    def get(theme: str, viewport: str, density: str = "comfortable") -> Page:
+        key = (theme, viewport, density)
         if key not in tabs:
             width, height = VIEWPORTS[viewport]
             tab = chrome.new_page(width=width, height=height)
             tab.before_every_document(DETERMINISM)
             tab.before_every_document(theme_script(theme))
+            tab.before_every_document(density_script(density))
             tab.emulate(reduced_motion=True, scheme="dark" if theme == "dark" else "light")
             sign_in(tab, console)
             tabs[key] = tab
@@ -135,14 +142,23 @@ def _shoot(page: Page, console: Console, path: str, ready: str) -> bytes:
     return page.screenshot()
 
 
+def _baseline_name(name: str, theme: str, viewport: str, density: str) -> str:
+    return f"{name}-{theme}-{viewport}" + ("" if density == "comfortable" else f"-{density}")
+
+
+@pytest.mark.parametrize("density", DENSITIES)
 @pytest.mark.parametrize("viewport", list(VIEWPORTS))
 @pytest.mark.parametrize("theme", THEMES)
 @pytest.mark.parametrize("name,path,ready", SHOTS, ids=[s[0] for s in SHOTS])
 def test_every_page_matches_its_baseline(shooters, comparer, console, baseline_chrome,
-                                         name, path, ready, theme, viewport):
+                                         name, path, ready, theme, viewport, density):
     recorded, current = baseline_chrome
-    shot = _shoot(shooters(theme, viewport), console, path, ready)
-    baseline = BASELINES / f"{name}-{theme}-{viewport}.png"
+    page = shooters(theme, viewport, density)
+    shot = _shoot(page, console, path, ready)
+    expected_density = None if density == "comfortable" else density
+    assert page.eval("document.documentElement.getAttribute('data-density')") == expected_density
+    stem = _baseline_name(name, theme, viewport, density)
+    baseline = BASELINES / f"{stem}.png"
     if UPDATE:
         baseline.write_bytes(shot)
         return
@@ -159,24 +175,46 @@ def test_every_page_matches_its_baseline(shooters, comparer, console, baseline_c
     if result["sameSize"] and share <= TOLERANCE:
         return
     FAILURES.mkdir(parents=True, exist_ok=True)
-    (FAILURES / f"{name}-{theme}-{viewport}.actual.png").write_bytes(shot)
-    (FAILURES / f"{name}-{theme}-{viewport}.diff.png").write_bytes(base64.b64decode(result["diff"]))
-    pytest.fail(f"{path} ({theme}, {viewport}) differs from its baseline in {result['changed']} pixels "
-                f"({share:.3%}, tolerance {TOLERANCE:.1%}); see tests/visual/failures/{name}-{theme}-{viewport}.*.png")
+    (FAILURES / f"{stem}.actual.png").write_bytes(shot)
+    (FAILURES / f"{stem}.diff.png").write_bytes(base64.b64decode(result["diff"]))
+    pytest.fail(f"{path} ({theme}, {viewport}, {density}) differs from its baseline in {result['changed']} pixels "
+                f"({share:.3%}, tolerance {TOLERANCE:.1%}); see tests/visual/failures/{stem}.*.png")
 
 
+@pytest.mark.parametrize("density", DENSITIES)
 @pytest.mark.parametrize("viewport", list(VIEWPORTS))
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_audit_trail_when_not_permitted_matches_its_baseline(shooters, comparer, console, baseline_chrome,
-                                                                 theme, viewport):
+                                                                 theme, viewport, density):
     """The engine's refusal is a designed state, so it has a baseline like any page."""
     console.engine.audit_allowed = False
     try:
         test_every_page_matches_its_baseline(
             shooters, comparer, console, baseline_chrome, "admin-audit-denied", "/admin/audit",
-            "document.getElementById('audit-not-permitted')", theme, viewport)
+            "document.getElementById('audit-not-permitted')", theme, viewport, density)
     finally:
         console.engine.audit_allowed = True
+
+
+def test_compact_is_denser_and_keeps_its_targets(shooters, console):
+    """Compact is a density, not a zoom: the same queries table is shorter, its text is still
+    text-sized, and no control shrinks below WCAG 2.2's 24px target (2.5.8)."""
+    table = """(() => { const t = document.querySelector('#ops-queries');
+        return {height: t.getBoundingClientRect().height,
+                font: parseFloat(getComputedStyle(t.querySelector('tbody td')).fontSize)}; })()"""
+    buttons = """Math.min(...[...document.querySelectorAll('main .btn')].filter(e => e.offsetParent)
+        .map(e => e.getBoundingClientRect().height))"""
+    sizes = {}
+    for density in DENSITIES:
+        page = shooters("light", "wide", density)
+        open_page(page, console, "/operations", "document.querySelector('#chart-rate canvas')")
+        sizes[density] = page.eval(table)
+        open_page(page, console, "/queries/big_txn", "true")
+        sizes[density]["smallest_button"] = page.eval(buttons)
+    assert sizes["compact"]["height"] < sizes["comfortable"]["height"] * 0.85, sizes
+    assert sizes["compact"]["font"] >= 12, sizes
+    assert sizes["compact"]["smallest_button"] >= 24, sizes
+    assert sizes["compact"]["smallest_button"] == sizes["comfortable"]["smallest_button"], sizes
 
 
 def test_the_comparison_itself_catches_a_change(comparer, shooters, console):

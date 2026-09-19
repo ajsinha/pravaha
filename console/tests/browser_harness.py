@@ -272,6 +272,11 @@ def theme_script(theme: str) -> str:
     return f"try{{localStorage.setItem('pravaha.theme', {json.dumps(theme)})}}catch(e){{}}"
 
 
+def density_script(density: str) -> str:
+    """Chosen the way a person chooses it -- the density toggle's own localStorage key."""
+    return f"try{{localStorage.setItem('pravaha.density', {json.dumps(density)})}}catch(e){{}}"
+
+
 # ====================================================================== the pages
 
 #: Every screen the console renders, as (name, path, needs a session, ready when).

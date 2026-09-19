@@ -25,6 +25,7 @@ from browser_harness import (
     PAGES,
     Console,
     axe,
+    density_script,
     describe,
     fresh_console,
     open_page,
@@ -73,6 +74,26 @@ def test_every_page_has_no_axe_violations(themed, console, theme, name, path, re
     # A page whose script threw is not audited as if it had worked.
     assert page.exceptions[before:] == [], f"{path} threw: {page.exceptions[before:]}"
     _assert_clean(page, f"{path} ({theme})")
+
+
+@pytest.fixture(scope="module")
+def compact(chrome: Browser, console: Console):
+    """One signed-in tab in the compact density (design 23.4), light: density moves no colour,
+    so what it can break is layout -- target size, overlap, reflow -- and one theme finds it."""
+    tab = chrome.new_page()
+    tab.before_every_document(DETERMINISM)
+    tab.before_every_document(theme_script("light"))
+    tab.before_every_document(density_script("compact"))
+    sign_in(tab, console)
+    yield tab
+    tab.close()
+
+
+@pytest.mark.parametrize("name,path,ready", [(n, p, r) for n, p, _, r in PAGES], ids=[n for n, *_ in PAGES])
+def test_every_page_in_compact_density_has_no_axe_violations(compact, console, name, path, ready):
+    open_page(compact, console, path, ready)
+    assert compact.eval("document.documentElement.getAttribute('data-density')") == "compact"
+    _assert_clean(compact, f"{path} (compact)")
 
 
 @pytest.mark.parametrize("theme", THEMES)

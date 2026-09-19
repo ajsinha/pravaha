@@ -69,7 +69,10 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
   --code:"Source Code Pro",Consolas,"SF Mono",Menlo,monospace;
 
-  --row-h:38px;
+  /* DENSITY tokens, comfortable values (design 23.4). Compact redefines them below, and only
+     them: density is one block of tokens, as a theme is, never a zoom. */
+  --row-h:38px; --cell-y:.5rem; --cell-y-sm:.25rem; --cell-fs:.86rem;
+  --card-pad:1rem; --card-cap-y:.5rem; --gutter:1rem; --section-gap:1.6rem; --state-pad:2.2rem;
 
   /* DATA colour, never UI chrome (design 23.4): a validated categorical order, assigned to a
      series by identity and never cycled. The dark themes carry their own steps of it. */
@@ -169,8 +172,14 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
 
 /* Density. An operator watching forty queries wants forty rows on a screen; a
    demonstration wants room to read. Both designed, rather than one being a
-   browser zoom of the other -- zoom scales the layout, this scales the rows. */
-:root[data-density="compact"]{ --row-h:28px; }
+   browser zoom of the other -- zoom scales the layout, this scales the rows,
+   the cells, the cards and the space between sections. Text stays at a size
+   that reads, and no control shrinks: a compact screen still has targets of
+   at least 24px (WCAG 2.2, 2.5.8), which the axe audit in compact holds. */
+:root[data-density="compact"]{
+  --row-h:28px; --cell-y:.2rem; --cell-y-sm:.12rem; --cell-fs:.82rem;
+  --card-pad:.6rem; --card-cap-y:.3rem; --gutter:.6rem; --section-gap:1.05rem; --state-pad:1.2rem;
+}
 
 /* ---------------------------------------------------------------- bootstrap
    Bootstrap's own variables repointed at the tokens, so a theme switch moves
@@ -206,7 +215,7 @@ a:hover{color:var(--flow-d);}
   --bs-btn-active-bg:var(--bad);--bs-btn-active-color:var(--canvas);}
 h1,h2,h3,.serif{font-family:var(--serif);letter-spacing:-.01em;}
 h1{font-size:1.5rem;font-weight:600;}
-h2{font-size:1.05rem;font-weight:600;margin:1.6rem 0 .6rem;}
+h2{font-size:1.05rem;font-weight:600;margin:var(--section-gap) 0 .6rem;}
 .mono,code,pre{font-family:var(--code);font-size:.82rem;}
 
 .navbar{background:var(--bar)!important;box-shadow:var(--lift);}
@@ -239,7 +248,12 @@ thead th{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
   color:var(--muted);font-weight:600;border-bottom:1px solid var(--rule)!important;
   white-space:nowrap;}
 tbody td{height:var(--row-h);vertical-align:middle;border-color:var(--hairline)!important;
-  font-size:.86rem;}
+  font-size:var(--cell-fs);}
+.table:not(.table-sm)>:not(caption)>*>*{padding-top:var(--cell-y);padding-bottom:var(--cell-y);}
+.table-sm>:not(caption)>*>*{padding-top:var(--cell-y-sm);padding-bottom:var(--cell-y-sm);}
+.card{--bs-card-spacer-y:var(--card-pad);--bs-card-spacer-x:var(--card-pad);
+  --bs-card-cap-padding-y:var(--card-cap-y);}
+.row.g-3{--bs-gutter-x:var(--gutter);--bs-gutter-y:var(--gutter);}
 tbody tr:hover{background:var(--stripe);}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
 
@@ -287,7 +301,7 @@ pre{background:var(--stripe);border:1px solid var(--rule);border-radius:4px;
 .freshness[data-state="stale"] .dot{background:var(--bad);}
 /* Stale data dims and says how old it is. It is never shown as if it were live. */
 .stale{opacity:.55;filter:saturate(.5);}
-.state{padding:2.2rem 1rem;text-align:center;color:var(--muted);}
+.state{padding:var(--state-pad) 1rem;text-align:center;color:var(--muted);}
 /* An empty state's title is an h2 wherever it sits, so the outline never skips a level
    (h1 -> h3 was the commonest axe finding before this); it only looks like a small one. */
 .state h2,.state h3{font-size:.98rem;color:var(--ink);margin-bottom:.4rem;font-family:var(--serif);}
