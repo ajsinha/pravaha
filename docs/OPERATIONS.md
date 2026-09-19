@@ -964,7 +964,12 @@ version and a different one is refused with `PRV-4002`, never guessed at. The se
 went to version 2 when it began keeping every value's exact type (VIEW-2); a checkpoint whose view is
 version 1 is refused, before any operator state is restored, and that query resumes from the start of
 its sources — reprocessing, visible in the numbers while it catches up, never a double count in its
-answers (a sink that is not transactional is written the replayed rows again). Every
+answers (a sink that is not transactional is written the replayed rows again). The operator
+snapshot went to version 4 when unwindowed aggregates (`SELECT COUNT(*), SUM(x) FROM s`) began
+carrying their accumulators and last published answer in it (CKPT-2) — before that a restart
+restored such a query's view and resumed its aggregate from zero, and the next answer appeared beside
+the old one. A version 3 checkpoint of a windowed or join query is still restored; one of an
+unwindowed aggregate is refused, and that query resumes from the start of its sources. Every
 checkpoint written after the upgrade is readable by it. Plan an upgrade across such a change for a
 time when replaying the sources is affordable, or accept the warm-up.
 

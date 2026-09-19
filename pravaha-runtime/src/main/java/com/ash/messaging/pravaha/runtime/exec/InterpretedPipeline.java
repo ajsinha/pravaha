@@ -130,6 +130,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     private final List<WindowedAggregate> windowed = new ArrayList<>();
     private final List<SymmetricHashJoin> joins = new ArrayList<>();
     private final List<LookupJoin> lookupJoins = new ArrayList<>();
+    private final List<GlobalAggregate> globals = new ArrayList<>();
 
     /**
      * Where rows enter, by stream name.
@@ -243,6 +244,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         pipeline.windowed.addAll(builder.windowed);
         pipeline.joins.addAll(builder.joins);
         pipeline.lookupJoins.addAll(builder.lookupJoins);
+        pipeline.globals.addAll(builder.globals);
         pipeline.inputs.putAll(builder.heads);
         pipeline.partialAggregateTargets.putAll(builder.partialAggregateTargets);
         return pipeline;
@@ -596,7 +598,21 @@ public final class InterpretedPipeline implements AutoCloseable {
      * rather than read, which is what this field is for: the alternative is parsing one field as
      * another and resuming from state that is wrong without being obviously wrong.
      */
-    private static final int SNAPSHOT_VERSION = 3;
+    /**
+     * Version 4: unwindowed aggregates, after the joins.
+     *
+     * <p>They were in no snapshot at all, and a pipeline holding only one reported itself stateless,
+     * so its lane put nothing in a checkpoint: a restart restored the view and resumed the source
+     * past every row the view counted, with the accumulators at zero (CKPT-2).
+     *
+     * <p>A version 3 snapshot is still read, since its layout is version 4's without the aggregates
+     * section -- but only into a plan with no unwindowed aggregate. Into one with an aggregate it
+     * would restore that aggregate empty, which is the defect version 4 exists to close.
+     */
+    private static final int SNAPSHOT_VERSION = 4;
+
+    /** The last layout without unwindowed aggregates, readable into a plan that has none. */
+    private static final int SNAPSHOT_VERSION_WITHOUT_GLOBALS = 3;
 
     public byte[] snapshotState() {
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
@@ -610,6 +626,10 @@ public final class InterpretedPipeline implements AutoCloseable {
             out.writeInt(joins.size());
             for (SymmetricHashJoin join : joins) {
                 join.writeTo(out);
+            }
+            out.writeInt(globals.size());
+            for (GlobalAggregate aggregate : globals) {
+                aggregate.writeTo(out);
             }
         } catch (java.io.IOException e) {
             throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot snapshot this pipeline's state: " + e, e);
@@ -635,7 +655,8 @@ public final class InterpretedPipeline implements AutoCloseable {
                                 + "than rejected.");
             }
             int version = in.readInt();
-            if (version != SNAPSHOT_VERSION) {
+            boolean withoutGlobals = version == SNAPSHOT_VERSION_WITHOUT_GLOBALS && globals.isEmpty();
+            if (version != SNAPSHOT_VERSION && !withoutGlobals) {
                 throw new PravahaException(
                         RuntimeErrors.LANE_FAILED,
                         "this snapshot is version " + version + " and this engine writes version " + SNAPSHOT_VERSION
@@ -666,6 +687,19 @@ public final class InterpretedPipeline implements AutoCloseable {
             }
             for (SymmetricHashJoin join : joins) {
                 join.readFrom(in);
+            }
+
+            int globalCount = withoutGlobals ? 0 : in.readInt();
+            if (globalCount != globals.size()) {
+                throw new PravahaException(
+                        RuntimeErrors.LANE_FAILED,
+                        "the checkpoint holds " + globalCount + " unwindowed aggregates and this plan has "
+                                + globals.size() + ": the query changed since the checkpoint was taken, and an "
+                                + "aggregate resumed from nothing beside a restored view publishes its next "
+                                + "answer next to the one the view already holds.");
+            }
+            for (GlobalAggregate aggregate : globals) {
+                aggregate.readFrom(in);
             }
         } catch (java.io.IOException e) {
             throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot restore pipeline state: " + e, e);
@@ -722,7 +756,7 @@ public final class InterpretedPipeline implements AutoCloseable {
 
     /** Whether this pipeline holds any state worth checkpointing. */
     public boolean isStateful() {
-        return !windowed.isEmpty() || !joins.isEmpty();
+        return !windowed.isEmpty() || !joins.isEmpty() || !globals.isEmpty();
     }
 
     /** Records dropped as too late, across every windowed operator in this pipeline. */
@@ -782,6 +816,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final List<WindowedAggregate> windowed = new ArrayList<>();
         private final List<SymmetricHashJoin> joins = new ArrayList<>();
         private final List<LookupJoin> lookupJoins = new ArrayList<>();
+        private final List<GlobalAggregate> globals = new ArrayList<>();
         private final List<ScanOperator> scans = new ArrayList<>();
         private final Map<String, RowProcessor> heads = new LinkedHashMap<>();
         private final Map<String, PartialAggregateSink> partialAggregateTargets = new LinkedHashMap<>();
@@ -857,6 +892,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                         // and emit nothing, because a stream has no end to trigger a finisher.
                         finishers.add(aggregate::emit);
                         continuousEmitters.add(aggregate::emitIncremental);
+                        globals.add(aggregate);
                         onlyStreamOf(a.input())
                                 .ifPresent(stream -> partialAggregateTargets.put(stream, aggregate::processPartial));
                         yield buildInput(a.input(), aggregate);

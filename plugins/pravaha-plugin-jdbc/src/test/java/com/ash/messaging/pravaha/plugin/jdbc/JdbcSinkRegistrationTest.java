@@ -188,6 +188,42 @@ class JdbcSinkRegistrationTest {
         assertThat(staged()).isZero();
     }
 
+    /**
+     * The aggregate across a restart: the table holds one answer, the one that counts every row
+     * (CKPT-2).
+     *
+     * <p>The aggregate's accumulators were in no checkpoint. The view and the table came back
+     * holding {@code 2|350}, the aggregate came back at zero, and the next row wrote {@code 1|75}
+     * beside it -- with nothing retracted, because the aggregate had not itself published the
+     * answer the restore put back.
+     */
+    @Test
+    void aRestartedAggregateRevisesTheAnswerTheTableHoldsRatherThanWritingOneBesideIt() throws Exception {
+        QueryRegistry first = checkpointed(new JdbcSinks().bind("spend_table", Map.of()));
+        RegisteredQuery query = first.registerWritingTo("spend_so_far", SPEND, List.of(0), DANA, "spend_table");
+        feed(query, "u1", 300L);
+        feed(query, "u2", 50L);
+        commitUntil(query, 2L);
+        checkpointerOf(query).checkpointNow();
+        assertThat(table()).containsExactly("2|350");
+        first.close();
+        registries.remove(first);
+
+        QueryRegistry second = checkpointed(new JdbcSinks().bind("spend_table", Map.of()));
+        RegisteredQuery restarted = second.registerWritingTo("spend_so_far", SPEND, List.of(0), DANA, "spend_table");
+        feed(restarted, "u3", 75L);
+        commitUntil(restarted, 3L);
+        checkpointerOf(restarted).checkpointNow();
+
+        assertThat(restarted.view().scan())
+                .as("the view: one answer, counting all three rows")
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsExactly(3L, 425L));
+        assertThat(table())
+                .as("the table: 2|350 retracted and 3|425 written; 1|75 had the aggregate restarted from zero")
+                .containsExactly("3|425");
+    }
+
     @Test
     void withoutCheckpointsEachViewCommitIsItsOwnTransaction() throws Exception {
         QueryRegistry registry = new QueryRegistry(new ViewCatalog(), TXN)

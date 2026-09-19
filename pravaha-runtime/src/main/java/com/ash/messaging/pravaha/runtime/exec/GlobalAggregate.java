@@ -335,6 +335,149 @@ final class GlobalAggregate implements RowProcessor {
         downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
     }
 
+    /**
+     * Writes everything this aggregate needs to resume where it stood: the accumulators, and the
+     * answer it last published.
+     *
+     * <p>Both halves matter, and the second is the one that is easy to miss. The accumulators are
+     * what the next answer is computed from; the last published answer is what the next emission
+     * retracts. A checkpoint carries the served view as it stood at the cut, and that view holds
+     * exactly this answer -- so an aggregate restored without it publishes its next answer beside
+     * the restored one instead of in place of it. Neither was written, once (CKPT-2): a restarted
+     * {@code SELECT COUNT(*), SUM(amount)} came back empty beside a view holding {@code [2, 350]},
+     * and the next row put {@code [1, 75]} next to it.
+     */
+    void writeTo(java.io.DataOutput out) throws java.io.IOException {
+        int n = sums.length;
+        out.writeInt(n);
+        out.writeLong(rowCount);
+        out.writeLong(lastTimestamp);
+        out.writeLong(lastSequence);
+        for (int i = 0; i < n; i++) {
+            out.writeLong(sums[i]);
+            out.writeLong(counts[i]);
+            out.writeBoolean(seen[i]);
+            writeDistinct(out, distincts[i]);
+        }
+        out.writeBoolean(emittedBefore);
+        if (emittedBefore) {
+            for (long value : previous) {
+                out.writeLong(value);
+            }
+        }
+    }
+
+    /**
+     * Restores what {@link #writeTo} wrote, replacing whatever this aggregate held.
+     *
+     * @throws java.io.IOException if the snapshot was written for a different number of aggregate
+     *     calls -- a different query, whose accumulators would be read into the wrong columns
+     */
+    void readFrom(java.io.DataInput in) throws java.io.IOException {
+        int n = in.readInt();
+        if (n != sums.length) {
+            throw new java.io.IOException("the checkpointed aggregate computes " + n + " values and this one computes "
+                    + sums.length + ": the query changed since the checkpoint was taken");
+        }
+        rowCount = in.readLong();
+        lastTimestamp = in.readLong();
+        lastSequence = in.readLong();
+        for (int i = 0; i < n; i++) {
+            sums[i] = in.readLong();
+            counts[i] = in.readLong();
+            seen[i] = in.readBoolean();
+            distincts[i] = readDistinct(in);
+        }
+        emittedBefore = in.readBoolean();
+        previous = null;
+        if (emittedBefore) {
+            previous = new long[n];
+            for (int i = 0; i < n; i++) {
+                previous[i] = in.readLong();
+            }
+        }
+    }
+
+    // A continuous registration refuses COUNT(DISTINCT) over an unwindowed stream (PRV-2050), so
+    // these sets are absent from every checkpoint written today. They are written anyway: leaving a
+    // field of this class out of its snapshot is exactly the defect the two methods above close,
+    // and the day that refusal is relaxed the set must not be the next thing forgotten.
+    private static final int NO_SET = -1;
+
+    private static void writeDistinct(java.io.DataOutput out, java.util.Set<Object> values) throws java.io.IOException {
+        if (values == null) {
+            out.writeInt(NO_SET);
+            return;
+        }
+        out.writeInt(values.size());
+        for (Object value : values) {
+            switch (value) {
+                case Boolean v -> {
+                    out.writeByte(0);
+                    out.writeBoolean(v);
+                }
+                case Byte v -> {
+                    out.writeByte(1);
+                    out.writeByte(v);
+                }
+                case Short v -> {
+                    out.writeByte(2);
+                    out.writeShort(v);
+                }
+                case Integer v -> {
+                    out.writeByte(3);
+                    out.writeInt(v);
+                }
+                case Long v -> {
+                    out.writeByte(4);
+                    out.writeLong(v);
+                }
+                case Float v -> {
+                    out.writeByte(5);
+                    out.writeFloat(v);
+                }
+                case Double v -> {
+                    out.writeByte(6);
+                    out.writeDouble(v);
+                }
+                case String v -> {
+                    out.writeByte(7);
+                    out.writeUTF(v);
+                }
+                default ->
+                    throw new java.io.IOException("cannot checkpoint a distinct value of type "
+                            + value.getClass().getName());
+            }
+        }
+    }
+
+    private static java.util.Set<Object> readDistinct(java.io.DataInput in) throws java.io.IOException {
+        int size = in.readInt();
+        if (size == NO_SET) {
+            return null;
+        }
+        if (size < 0) {
+            throw new java.io.IOException("a distinct set of " + size + " values");
+        }
+        java.util.Set<Object> values = new java.util.HashSet<>();
+        for (int i = 0; i < size; i++) {
+            byte tag = in.readByte();
+            values.add(
+                    switch (tag) {
+                        case 0 -> in.readBoolean();
+                        case 1 -> in.readByte();
+                        case 2 -> in.readShort();
+                        case 3 -> in.readInt();
+                        case 4 -> in.readLong();
+                        case 5 -> in.readFloat();
+                        case 6 -> in.readDouble();
+                        case 7 -> in.readUTF();
+                        default -> throw new java.io.IOException("unknown distinct value tag " + tag);
+                    });
+        }
+        return values;
+    }
+
     /** Net rows seen, weights included. Negative is possible and legitimate. */
     long rowCount() {
         return rowCount;
