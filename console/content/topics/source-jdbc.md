@@ -7,7 +7,7 @@ icon: table
 summary: "Polls any relational table — or any SELECT — on a monotonic column, pushing your WHERE, the columns you read and a running COUNT/SUM into the database. What polling can and cannot see, said plainly."
 badge: SOURCE
 audience: Operators
-keywords: [jdbc, postgres, postgresql, mysql, oracle, sql server, h2, polling, watermark.column, key.column, page.clause, fetch.size, keyset, pushdown, projection, partial aggregate, pushdown.partial.aggregate, collation.binary]
+keywords: [jdbc, PRV-2042, repeats rows, watermark.moves.on.update, postgres, postgresql, mysql, oracle, sql server, h2, polling, watermark.column, key.column, page.clause, fetch.size, keyset, pushdown, projection, partial aggregate, pushdown.partial.aggregate, collation.binary]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, source-postgres-cdc, lookups, connector-security, sink-jdbc, delivery-guarantees]
 ---
@@ -34,6 +34,7 @@ polls is seen once.
 | Delivery guarantee | `AT_LEAST_ONCE` |
 | Replayable offsets | **only with `key.column`** — see below |
 | Emits deletes / before-image | no / no |
+| Repeats rows | **yes**, unless `key.column` is set and `watermark.moves.on.update: false` — an update that moves the watermark brings the row back at `+1`. An aggregate, a join or an append-only sink over a stream that repeats is refused (PRV-2042) |
 | Pushdown | `FILTER` (a bound `WHERE`), `PROJECT` (the `SELECT` list) and, **with `key.column` only**, `PARTIAL_AGGREGATE` (a continuous `COUNT`/`SUM` taken by the database) |
 | Shared between queries | no — each query gets its own reader and its own statement |
 | Schema comes from | **the database**, read from the result set's metadata. There is no `schema` option |
@@ -54,6 +55,7 @@ polls is seen once.
 | `stream` | no | the table name, or the binding's name with `query` | The stream name the plugin reports |
 | `pushdown.partial.aggregate` | no | `true` | Whether a continuous `COUNT`/`SUM` may be taken by the database. Has effect only with `key.column`; `false` always reads rows |
 | `collation.binary` | no | `false` | Set it only when the database compares and groups text **byte for byte, case-sensitively**, as the engine does. It is what lets a partial aggregate filter or group on a text column |
+| `watermark.moves.on.update` | no | `true` | Whether an update can move the watermark column, so that a poll reads the row again. Set `false` only when the column is written once, on insert — a sequence, a `created_at` — and never by an update. With `key.column` the source then declares that it never repeats a row, and an aggregate or a join over it can be registered; otherwise they are refused with PRV-2042. Anything but `true` or `false` is PRV-5074 |
 | `share.reader` | no | `true` | Read by the binding layer; this source is not shared (it is ordered within its partition), so it has no effect |
 | `tls.*` | — | — | **Refused** with PRV-5074, except `tls.enabled: false`. A driver takes TLS in the URL, and accepting `tls.*` would leave a plaintext connection behind a configuration that looks encrypted |
 
@@ -205,7 +207,12 @@ every column, and the poll is `SELECT *` — a missed saving, never a wrong answ
 
 ### `PARTIAL_AGGREGATE` — a running `COUNT`/`SUM`, taken by the database
 
-With `key.column` set, a continuous **global** aggregate over this stream need not read rows at all:
+With `key.column` set, a continuous **global** aggregate over this stream need not read rows at all.
+It can only be registered over a poll that never reads a row twice: the binding must also say
+`watermark.moves.on.update: false`, which is true only if `change_ns` is set when a row is inserted
+and never by an update. Where an update moves it — a trigger on `UPDATE`, an `updated_at` — the row
+comes back as a second `+1`, a `COUNT` would count it twice, and the registration is refused with
+PRV-2042:
 
 ```sql
 CREATE CONTINUOUS QUERY big_order_totals
@@ -226,8 +233,9 @@ SELECT COUNT(*), SUM(amount), ... FROM (...) AS src WHERE <after the offset> AND
 
 and the engine adds the partials into its running total. The answer is the one the rows give: a
 page's partial is the sum of exactly the rows the row poll would have sent, with the same offsets,
-and a restore resumes from the same place. (An update the poll sees again is counted again in both,
-because a polled table is not a changelog either way.)
+and a restore resumes from the same place. (An update the poll sees again would be counted again in
+both, because a polled table is not a changelog either way — which is why the aggregate is admitted
+only with `watermark.moves.on.update: false`.)
 
 A partial leaves no rows for the engine's own filter to run on, so it is asked for **only when it is
 certainly exact**, and read as rows otherwise. It is declined:
@@ -251,7 +259,10 @@ keeps apart.)
 `AT_LEAST_ONCE`. With `key.column` the resume is exact — the offset is (watermark, key) — but a poll
 still cannot see a delete or the intermediate values of a row updated twice between polls, so the
 stream is not a faithful changelog however careful the offsets are. Without `key.column` even the
-resume is only as reliable as the database's ordering of tied rows.
+resume is only as reliable as the database's ordering of tied rows. Either way a row can arrive twice
+with nothing retracting the first copy, and the source says so (it **repeats rows**) unless
+`key.column` is set and `watermark.moves.on.update: false`: a keyed view of the rows is right, and
+what would count the copies — an aggregate, a join, an append-only sink — is refused with PRV-2042.
 
 ## Pitfalls
 

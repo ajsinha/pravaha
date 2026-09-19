@@ -7,7 +7,7 @@ icon: hdd-network
 summary: "Scans an Aerospike set for records updated since the last scan, with your WHERE pushed in as server-side expressions and only the bins you read fetched — one shared scan for every query over the set."
 badge: SOURCE
 audience: Operators
-keywords: [aerospike, lut-scan, deletes, detect, deletes.max.keys, deletes.state.dir, retraction, last update time, scan, set, namespace, bins, expressions, pushdown, projection, share.reader, shared reader, xdr, community edition, tls.name]
+keywords: [aerospike, lut-scan, deletes, detect, PRV-2042, repeats rows, deletes.max.keys, deletes.state.dir, retraction, last update time, scan, set, namespace, bins, expressions, pushdown, projection, share.reader, shared reader, xdr, community edition, tls.name]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, lookups, connector-security, sink-aerospike, sharing]
 ---
@@ -33,6 +33,7 @@ edition, and the plugin declares exactly what a scan can and cannot promise
 | Delivery guarantee | `AT_LEAST_ONCE` — a rescan from the watermark re-delivers the boundary records. `EXACTLY_ONCE` with `deletes: detect` |
 | Replayable offsets | yes — the offset is a last-update-time watermark (with `deletes: detect`, a count of emitted rows backed by files) |
 | Emits deletes / before-image | no / no — **yes / yes with `deletes: detect`**, [below](#seeing-deletes-deletes-detect) |
+| Repeats rows | **yes** with `deletes: ignore` — an update is read again with nothing retracted, so an aggregate, a join or an append-only sink is refused (PRV-2042); no with `deletes: detect` |
 | Pushdown | `FILTER` — translated into Aerospike expressions and added to the scan filter; `PROJECT` — the scan names only the bins read. Not `PARTIAL_AGGREGATE` |
 | Shared between queries | **yes** — one reader per binding feeds every query over it; not with `deletes: detect` |
 | Schema comes from | the `schema` option you write (bins have no declared types) |
@@ -92,7 +93,24 @@ bin**: if a query needs `txn_id`, the writer must store it in a bin as well as u
 
 ## A query over it
 
-Card-velocity style: spend per user per minute, and the single-user filter the case study uses:
+Over the binding above — `deletes: ignore`, the default — the natural query keeps **current state**:
+a keyed filter or projection, which a record read again only overwrites.
+
+```sql
+CREATE CONTINUOUS QUERY large_approved
+    KEYED BY (txn_id)
+AS
+SELECT txn_id, user_id, amount
+FROM txn
+WHERE status = 'APPROVED' AND amount > 5000;
+```
+
+An aggregate over the stream needs `deletes: detect` on the binding
+([below](#seeing-deletes-deletes-detect)). With `ignore` the scan **repeats rows** — an updated
+record is read again as the new row with nothing retracting the old, and a record written while a
+scan ran is read by the next scan too — so a `COUNT` or `SUM` would count it twice, and registration
+refuses the query with **PRV-2042**, naming the binding and the fix. With `detect`, card-velocity
+style — spend per user per minute:
 
 ```sql
 CREATE CONTINUOUS QUERY spend_per_minute
@@ -134,7 +152,8 @@ serving it. With `deletes: detect` the source remembers every row it has emitted
 | no record where one was emitted | the whole old row at `−1`, with the event time it was inserted at |
 
 A view over the set then equals the set after every pass — the same shape of changelog
-[`postgres-cdc`](/help/topics/source-postgres-cdc) produces, from a store with no change feed.
+[`postgres-cdc`](/help/topics/source-postgres-cdc) produces, from a store with no change feed — and
+an aggregate or a join over the stream is admitted where `ignore` refuses it (PRV-2042).
 
 ```yaml
 pravaha:
@@ -275,9 +294,19 @@ pravaha:
 
 !!! warning "Pitfall: two writes between scans are one"
     A record written twice inside `scan.interval.ms` is seen once, with the final value, and — unless
-    `deletes: detect` is set — an update arrives as a new value with nothing retracted. An aggregate that **sums** such a stream counts the
-    record again on every update; one that reads current state (a filter, a projection into a keyed
-    view) is right.
+    `deletes: detect` is set — an update arrives as a new value with nothing retracted.
+
+!!! warning "Pitfall: by default, the scan repeats rows"
+    With `deletes: ignore` an updated record is read again at `+1`, and a record written while a scan
+    ran is read by that scan and the next. A query that reads current state (a filter, a projection
+    into a keyed view) is right — each copy overwrites its own key. What would count the copies is
+    refused at registration with PRV-2042: an aggregate over the stream, a join, and a sink that
+    cannot upsert by key. Set `deletes: detect` on the binding. A subscriber to a keyed view sees each
+    copy as another `+1` of a row it already has: overwrite by key rather than summing weights.
+
+    **Why `ignore` is still the default:** `detect` turns this incremental scan into a full scan of
+    the set every interval, needs a durable `deletes.state.dir`, and holds every emitted record in
+    memory.
 
 !!! warning "Pitfall: `event.time` must be nanoseconds"
     The bin named by `event.time` is used as the record's event time **as stored**, in nanoseconds.

@@ -33,6 +33,7 @@ help's example streams: `txn`, `orders`, `shipments`, `trades`, `quotes` and `re
 | PRV-2020 | SQL_UNSUPPORTED_OPERATOR | A relational operator the engine will not run |
 | PRV-2021 | SQL_UNSUPPORTED_EXPRESSION | An expression or function the engine will not compile |
 | PRV-2041 | SQL_EMIT_MODE_MISMATCH | The query revises its answer; the sink can only append |
+| PRV-2042 | SQL_SOURCE_REPEATS_ROWS | The answer depends on how often a row arrived, and the source repeats rows |
 | PRV-2050 | SQL_UNBOUNDED_STATE | The query's state would grow for ever |
 | PRV-2060 | SQL_PARAMETER_NOT_BOUND | Fewer values than placeholders |
 | PRV-2061 | SQL_PARAMETER_ARITY | The number of values does not match the placeholders |
@@ -325,6 +326,40 @@ revises and goes to any sink; over a source that deletes, the message's *Why* na
 **Do:** point a revising query at a sink that accepts updates (`jdbc-sink`, `aerospike-sink`, `kafka-sink`), or
 change the query so it does not revise. The catalog's *Sinks* tab says what each binding accepts. See
 [How a query writes to a sink](/help/topics/sinks-overview).
+
+### PRV-2042 — the source repeats rows
+
+The stream is read from a source that **repeats rows** — it delivers a row it has already delivered,
+with nothing retracting the earlier copy — and the query's answer depends on how many times a row
+arrived. Refused at registration, before a feed or a sink opens (SCAN-1). Every copy arrives at `+1`,
+so a `COUNT` over a Cassandra table would grow by the table's size every pass, and an Aerospike
+update would be counted twice, under a success status.
+
+Which sources repeat, by configuration:
+
+| Source | Repeats rows |
+|---|---|
+| `cassandra`, `deletes: ignore` (the default) | yes — every pass emits every row again |
+| `aerospike`, `deletes: ignore` (the default) | yes — an update is read again as the new row; a record written during a scan is read by the next scan too |
+| `jdbc` | yes, unless `key.column` is set and `watermark.moves.on.update: false` — an update that moves the watermark brings the row back |
+| `cassandra` / `aerospike` with `deletes: detect`, `postgres-cdc`, `kafka`, `delta`, `feedfile`, `filesystem` | no |
+
+What is refused over such a stream: **any aggregate**, windowed or not (`MIN`, `MAX` and `DISTINCT`
+too — an update is never retracted from them); **a join**, which pairs every copy again; and **a sink
+that cannot upsert by key** (`filesystem`, `jdbc-sink` with `mode: append`, `kafka-sink` with
+`format: changelog`), which would write every copy as another row.
+
+What is admitted: a filter or projection served as a keyed view, or written to a sink that upserts
+by key. A copy overwrites its own key with the values it already has, so a read returns each row
+once, as the store holds it. A subscriber sees each copy as another `+1` of a row it already has —
+overwrite by key rather than summing weights.
+
+**Do:** set `deletes: detect` on the binding the message names (with `deletes.state.dir`) — each pass
+then becomes an exact changelog, and the query registers. For `jdbc`, poll a watermark column only
+an insert sets, with `key.column`, and say so with `watermark.moves.on.update: false`; or read the
+table through `postgres-cdc`. Or keep the query a keyed view of the rows and aggregate over the view.
+See [the Cassandra source](/help/topics/source-cassandra) and
+[the Aerospike source](/help/topics/source-aerospike).
 
 ## The statements that register and manage queries
 

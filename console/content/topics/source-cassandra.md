@@ -7,7 +7,7 @@ icon: hdd-stack
 summary: "Scans a Cassandra table by token() range on an interval — a full, honest periodic scan rather than an incremental one that would quietly miss rows — with hostname-verified TLS."
 badge: SOURCE
 audience: Operators
-keywords: [cassandra, cql, deletes, detect, deletes.max.keys, deletes.state.dir, retraction, scylla, token range, scan, partition.key, local.datacenter, consistency.level, fetch.size, writetime, cdc, tombstone, pushdown, projection, allow filtering]
+keywords: [cassandra, cql, deletes, detect, PRV-2042, repeats rows, deletes.max.keys, deletes.state.dir, retraction, scylla, token range, scan, partition.key, local.datacenter, consistency.level, fetch.size, writetime, cdc, tombstone, pushdown, projection, allow filtering]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, source-aerospike, connector-security, event-time-watermarks]
 ---
@@ -35,6 +35,7 @@ quietly misses rows**.
 | Delivery guarantee | `AT_LEAST_ONCE`; `EXACTLY_ONCE` with `deletes: detect` |
 | Replayable offsets | yes — a token cursor within the pass (with `deletes: detect`, a count of emitted rows backed by files) |
 | Emits deletes / before-image | no / no — **yes / yes with `deletes: detect`**, [below](#seeing-deletes-deletes-detect) |
+| Repeats rows | **yes** with `deletes: ignore` — every pass emits every row again, so an aggregate, a join or an append-only sink is refused (PRV-2042); no with `deletes: detect` |
 | Pushdown | `PROJECT` only — the CQL `SELECT` list. Not `FILTER`, not `PARTIAL_AGGREGATE` |
 | Shared between queries | yes — one reader per binding serves every query over it; not with `deletes: detect` |
 | Schema comes from | the `schema` option you write |
@@ -127,7 +128,11 @@ US	2	4000
 The view is keyed by `order_id`, so the second pass re-reading the same orders replaces each row with
 itself rather than adding it again.
 
-A windowed aggregate works too, with the event time read from the row:
+An aggregate over the stream itself — windowed or not — needs `deletes: detect` on the binding
+([below](#seeing-deletes-deletes-detect)). With the default `deletes: ignore` every pass emits every
+row again, so a `COUNT` would count each row once per pass, and registration refuses it with
+**PRV-2042**, naming the binding and the fix. With `detect` it registers and stays equal to the
+table:
 
 ```sql
 CREATE CONTINUOUS QUERY orders_per_region_hour
@@ -137,9 +142,6 @@ SELECT region, window_start, window_end, COUNT(*) AS placed
 FROM TABLE(TUMBLE(TABLE orders, DESCRIPTOR(event_time), INTERVAL '1' HOUR))
 GROUP BY region, window_start, window_end;
 ```
-
-But mind the second pitfall: a windowed **count** over a source that re-reads every row counts each
-row once per pass that lands in an open window.
 
 ## Pushdown
 
@@ -175,7 +177,8 @@ multiset:
 | no row where one was emitted | the whole old row at `−1`, with the event time it was inserted at |
 
 A view over the table then equals the table after every pass — including a stream aggregate, which
-no longer counts a row once per pass.
+no longer counts a row once per pass, and which is therefore admitted where `ignore` refuses it
+(PRV-2042).
 
 ```yaml
 pravaha:
@@ -216,8 +219,8 @@ pravaha:
 
 `AT_LEAST_ONCE` by default. The offset is the last token consumed inside the current pass; a restart
 resumes the unread remainder of that pass. What the plugin cannot give you then, it declares: deletes
-are invisible, two writes between passes are one, and there is no before-image. `deletes: detect`,
-above, is `EXACTLY_ONCE` and sees deletes.
+are invisible, two writes between passes are one, there is no before-image, and every pass repeats
+every row. `deletes: detect`, above, is `EXACTLY_ONCE`, sees deletes and repeats nothing.
 
 ## TLS
 
@@ -253,9 +256,15 @@ pravaha:
     soft-delete with a status column and filter on it.
 
 !!! warning "Pitfall: by default, every pass re-delivers every row"
-    Without `deletes: detect` the source is not incremental. A keyed view that holds current state is right; a stream aggregate
-    that adds up rows (`COUNT`, `SUM` over the stream) sees a row again on every pass inside an open
-    window. Aggregate over the keyed view instead, as the read example above does.
+    Without `deletes: detect` the source repeats rows, and says so. A keyed view that holds current
+    state is right — each copy overwrites its own key. What would count the copies is refused at
+    registration with PRV-2042: any aggregate over the stream, a join, and a sink that cannot upsert
+    by key. Set `deletes: detect` on the binding, or aggregate over the keyed view instead, as the
+    read example above does. A subscriber to the keyed view sees each copy as another `+1` of a row
+    it already has: overwrite by key rather than summing weights.
+
+    **Why `ignore` is still the default:** `detect` needs a durable `deletes.state.dir` and holds
+    every emitted row in memory, up to `deletes.max.keys` per token range; it costs no extra reads.
 
 !!! warning "Pitfall: a short interval on a large table"
     Each pass reads the whole range. `scan.interval.ms: "1000"` on a hundred-million-row table is a
