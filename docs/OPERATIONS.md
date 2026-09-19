@@ -756,7 +756,7 @@ pravaha:
         hosts: aerospike-1:3000
         namespace: analytics
         set: spend_by_user
-        schema: "user_id:STRING,window_end:INT64,total:INT64"
+        schema: "user_id:STRING,window_end:TIMESTAMP,total:INT64"
         key.bins: user_id,window_end   # must be the registration's --keys, as columns
         ttl.seconds: 86400             # optional; each record expires itself
 ```
@@ -778,7 +778,7 @@ pravaha:
         user: pravaha
         password: ${PG_PASSWORD}
         table: spend_by_user              # or schema.table; you create it, the sink never does
-        schema: "user_id:STRING,window_end:INT64,total:INT64"
+        schema: "user_id:STRING,window_end:TIMESTAMP,total:INT64"
         key.columns: user_id,window_end   # must be the registration's --keys, as columns
         mode: upsert                      # default; `append` inserts every row and takes no retraction
         transactional: true               # default; false writes each batch straight to the table
@@ -826,7 +826,7 @@ pravaha:
       options:
         bootstrap.servers: "kafka-1.internal:9093,kafka-2.internal:9093"
         topic: spend-by-user              # you create it (cleanup.policy=compact for upsert); the sink never does
-        schema: "user_id:STRING,window_end:INT64,total:INT64"
+        schema: "user_id:STRING,window_end:TIMESTAMP,total:INT64"
         key.columns: user_id,window_end   # must be the registration's --keys; optional in changelog mode
         mode: upsert                      # default; `changelog` writes {"op","weight","row"} for every change
         transactional: true               # default; false sends each change straight to the topic
@@ -841,7 +841,7 @@ pravaha:
 ```
 
 - **The record.** Upsert mode: the key is the key columns as a JSON object (`{"user_id":"u1",
-  "window_end":1700000000}`), the value the whole row by column name, and a retraction is a
+  "window_end":"2026-09-19T14:00:00Z"}` — a `TIMESTAMP` is written as an ISO-8601 instant in UTC), the value the whole row by column name, and a retraction is a
   **tombstone** — the key with a null value — so a compacted topic holds the query's answer, one
   record per key, and Kafka Streams, ksqlDB or a Connect sink read it as a table. Changelog mode:
   the value is `{"op":"insert"|"delete","weight":n,"row":{...}}`, keyed by `key.columns` or, without

@@ -438,8 +438,9 @@ commits and never half a batch (`STRM-11`), so a CDC source buffers to `Commit` 
 transaction entire.
 
 Which creates the opposite problem: **one enormous transaction**. A ten-million-row `UPDATE` is one
-transaction, and buffering it whole is a memory bound nothing here spills past — inboxes are fixed
-and off-heap, and nothing spills. Postgres 14 and later can stream an in-progress transaction, which
+transaction, and buffering it whole is a memory bound nothing here spills past — operator state can spill to the
+mapped tier (ADR-044), but inboxes are fixed and off-heap and a transaction being assembled is
+held on the heap until its `Commit`. Postgres 14 and later can stream an in-progress transaction, which
 moves the problem rather than removing it: the connector then knows about changes that may still roll
 back. Whichever is chosen, it is a decision to record, not a default to inherit.
 

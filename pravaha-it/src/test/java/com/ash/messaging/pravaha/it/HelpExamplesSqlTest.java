@@ -150,7 +150,8 @@ class HelpExamplesSqlTest {
                         // planned above
                     }
                     case "parameterised" -> {
-                        // A registration that carries bound values (`pravaha register --param`): the
+                        // A registration that carries bound values (an embedded QueryRegistry.register(...,
+                        // BoundParameters)): the
                         // values arrive with the registration, so here the plan is checked and its
                         // placeholders counted, as CaseStudySqlTest does for its parameterised reads.
                         try {
