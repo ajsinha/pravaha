@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.plugin.cassandra;
 
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -51,6 +52,7 @@ import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
+import com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
@@ -63,8 +65,8 @@ import static org.assertj.core.api.Assumptions.assumeThat;
  * one partition -- one token -- holds several rows: an insert, an update, a row deleted, a whole
  * partition deleted, and a re-insert each reach the emitted rows exactly; restarts mid-pass and
  * between passes neither invent nor miss a retraction; the ceiling refuses; eight token ranges
- * together cover the ring; and a registered view over the source, through the registry a node runs,
- * equals the table.
+ * together cover the ring; and a registered view over the source and an aggregate over it, through
+ * the registry a node runs, equal the table across updates, deletes and a restart through it.
  */
 @Timeout(300)
 class CassandraDeleteDetectionIT {
@@ -334,8 +336,14 @@ class CassandraDeleteDetectionIT {
             "SELECT COUNT(*) AS n, SUM(amount) AS total, SUM(customer * 1000 + id * id + amount) AS mix FROM orders";
 
     private QueryRegistry registry() {
-        PluginSourceFeeds feeds = new PluginSourceFeeds()
-                .bind(new SourceBinding("orders", "cassandra", options(Map.of("scan.interval.ms", "100"))));
+        return registry(Map.of());
+    }
+
+    private QueryRegistry registry(Map<String, String> extra) {
+        Map<String, String> binding = new HashMap<>(Map.of("scan.interval.ms", "100"));
+        binding.putAll(extra);
+        PluginSourceFeeds feeds =
+                new PluginSourceFeeds().bind(new SourceBinding("orders", "cassandra", options(binding)));
         QueryRegistry registry = new QueryRegistry(new ViewCatalog(), ORDERS)
                 .feedingFrom(feeds)
                 .checkpointingTo(
@@ -349,23 +357,25 @@ class CassandraDeleteDetectionIT {
     }
 
     /**
-     * Through the registry and source bindings a node runs. Not across a restart: a view restored
-     * from a checkpoint can be killed by its feed's first commit (PRV-5092, "frontier went
-     * backwards") because ViewSink's frontier starts at Long.MIN_VALUE rather than at the restored
-     * view's, and a retraction carries the old event time of the row it cancels. That defect is the
-     * engine's and is reported, not worked round; restarts are proved at the reader, above, against
-     * this same server.
+     * Through the registry and source bindings a node runs, and across a restart through it: both
+     * views are checkpointed, a delete is delivered after the checkpoint (so the restore must redo
+     * it), the registry is closed, the table changes while nothing reads it, and the same two names
+     * registered again restore from the checkpoint and are brought to the table by one pass.
+     *
+     * <p>This test first ran without the restart because a restored view's first commit was refused
+     * as "frontier went backwards" (PRV-5092) -- the defect {@code 3b9d9a8} (LANE-4) fixed. It goes
+     * on changing the table after the restore because that defect stopped the feed, not the view.
      */
     @Test
-    void aRegisteredViewEqualsTheTableAfterUpdatesDeletesAndReinserts() {
+    void aRegisteredViewAndAggregateEqualTheTableAcrossUpdatesDeletesAndARestart() throws Exception {
         for (long customer = 1; customer <= 10; customer++) {
             put(customer, 1, "NEW", customer);
             put(customer, 2, "NEW", customer * 2);
         }
-        QueryRegistry registry = registry();
-        RegisteredQuery rows = registry.register(
+        QueryRegistry first = registry();
+        RegisteredQuery rows = first.register(
                 "orders_now", "SELECT customer, id, status, amount FROM orders", List.of(0, 1), Principal.ANONYMOUS);
-        RegisteredQuery totals = registry.register("orders_total", CHECKSUM, List.of(0), Principal.ANONYMOUS);
+        RegisteredQuery totals = first.register("orders_total", CHECKSUM, List.of(0), Principal.ANONYMOUS);
         awaitRows(rows);
         awaitChecksum(totals);
 
@@ -374,17 +384,47 @@ class CassandraDeleteDetectionIT {
         put(5, 1, "CHANGED", 500);
         awaitRows(rows);
         awaitChecksum(totals);
+        sleep(500);
+        assertThat(checksum(totals))
+                .as("still equal a few passes later: an unchanged row is not counted again")
+                .isEqualTo(tableChecksum());
 
+        checkpointerOf(rows).checkpointNow();
+        checkpointerOf(totals).checkpointNow();
         deleteCustomer(6);
+        awaitRows(rows); // delivered after the checkpoint, so the restore must redo it
+        awaitChecksum(totals);
+        first.close();
+        registries.remove(first);
+
+        // While nothing is reading.
+        delete(7, 1);
         put(3, 1, "BACK", 3);
         put(11, 1, "NEW", 11);
-        awaitRows(rows);
-        awaitChecksum(totals);
+        put(8, 2, "CHANGED", 800);
+
+        QueryRegistry second = registry();
+        RegisteredQuery rowsAgain = second.register(
+                "orders_now", "SELECT customer, id, status, amount FROM orders", List.of(0, 1), Principal.ANONYMOUS);
+        RegisteredQuery totalsAgain = second.register("orders_total", CHECKSUM, List.of(0), Principal.ANONYMOUS);
+        awaitRows(rowsAgain);
+        awaitChecksum(totalsAgain);
+        assertThat(totalsAgain.rowsIn())
+                .as("restored, so the reader sends the difference from the checkpoint, not the whole table")
+                .isLessThan(tableRows().size());
+
+        // Alive after the restore: the defect this replaces stopped the feed on its first commit.
+        deleteCustomer(9);
+        put(10, 1, "CHANGED", 1000);
+        awaitRows(rowsAgain);
+        awaitChecksum(totalsAgain);
         sleep(500);
-        assertThat(viewRows(rows))
+        assertThat(viewRows(rowsAgain))
                 .as("still equal a few passes later: nothing is added twice")
                 .isEqualTo(tableRows());
-        assertThat(checksum(totals)).isEqualTo(tableChecksum());
+        assertThat(checksum(totalsAgain)).isEqualTo(tableChecksum());
+        assertThat(rowsAgain.failure()).isEmpty();
+        assertThat(totalsAgain.failure()).isEmpty();
     }
 
     private Set<String> tableRows() {
@@ -447,6 +487,48 @@ class CassandraDeleteDetectionIT {
             }
             sleep(50);
         }
+    }
+
+    /**
+     * SCAN-1 against a real server. Over the default binding, {@code deletes: ignore}, every pass
+     * emits every row again at +1 -- so an aggregate is refused at registration (PRV-2042) with
+     * {@code deletes: detect} named as the fix, and a keyed view of the rows is admitted and holds
+     * each row once, as the table does, however many copies arrive.
+     */
+    @Test
+    void overTheDefaultBindingAnAggregateIsRefusedAndAKeyedViewStillEqualsTheTable() {
+        for (long customer = 1; customer <= 5; customer++) {
+            put(customer, 1, "NEW", customer);
+            put(customer, 2, "NEW", customer * 2);
+        }
+        QueryRegistry registry = registry(Map.of("deletes", "ignore"));
+        assertThatThrownBy(() -> registry.register("orders_total", CHECKSUM, List.of(0), Principal.ANONYMOUS))
+                .isInstanceOf(PravahaException.class)
+                .satisfies(e -> assertThat(((PravahaException) e).errorCode())
+                        .isEqualTo(com.ash.messaging.pravaha.sql.SqlErrors.SOURCE_REPEATS_ROWS))
+                .hasMessageContaining("`deletes: detect`");
+        assertThat(registry.names()).isEmpty();
+
+        RegisteredQuery rows = registry.register(
+                "orders_now", "SELECT customer, id, status, amount FROM orders", List.of(0, 1), Principal.ANONYMOUS);
+        awaitRows(rows);
+        put(5, 1, "CHANGED", 500);
+        put(6, 1, "NEW", 6);
+        awaitRows(rows);
+        sleep(1_000);
+        assertThat(viewRows(rows))
+                .as("each row once, with the values the table holds")
+                .isEqualTo(tableRows());
+        assertThat(rows.rowsIn())
+                .as("and the copies did arrive: more rows in than the table holds")
+                .isGreaterThan(tableRows().size());
+        assertThat(rows.failure()).isEmpty();
+    }
+
+    private static PeriodicCheckpointer checkpointerOf(RegisteredQuery query) throws ReflectiveOperationException {
+        Field field = RegisteredQuery.class.getDeclaredField("checkpointer");
+        field.setAccessible(true);
+        return (PeriodicCheckpointer) field.get(query);
     }
 
     private static void sleep(long millis) {

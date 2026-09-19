@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.plugin.aerospike;
 
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -51,6 +52,7 @@ import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
+import com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
@@ -62,7 +64,8 @@ import static org.assertj.core.api.Assumptions.assumeThat;
  * {@code deletes: detect} against a real Community Edition server: an insert, an update, a delete and
  * a re-insert each reach the emitted rows exactly; a restart between passes and one mid-pass resume
  * without a spurious retraction or a missed one; the ceiling refuses; and a registered view over the
- * source, through the registry a node runs, equals the set after updates, deletes and re-inserts.
+ * source and an aggregate over it, through the registry a node runs, equal the set after updates,
+ * deletes, re-inserts and a restart through that registry.
  *
  * <p>What a mock cannot say and this does: that a record deleted on the server is really absent from
  * the next full scan (not a tombstone the client hands back), that a digest is stable across scans,
@@ -304,8 +307,14 @@ class AerospikeDeleteDetectionIT {
     private static final StreamSchema ORDERS = AerospikeSchemas.parse("orders", SCHEMA);
 
     private QueryRegistry registry() {
-        PluginSourceFeeds feeds = new PluginSourceFeeds()
-                .bind(new SourceBinding("orders", "aerospike", options(Map.of("scan.interval.ms", "100"))));
+        return registry(Map.of());
+    }
+
+    private QueryRegistry registry(Map<String, String> extra) {
+        Map<String, String> binding = new HashMap<>(Map.of("scan.interval.ms", "100"));
+        binding.putAll(extra);
+        PluginSourceFeeds feeds =
+                new PluginSourceFeeds().bind(new SourceBinding("orders", "aerospike", options(binding)));
         QueryRegistry registry = new QueryRegistry(new ViewCatalog(), ORDERS)
                 .feedingFrom(feeds)
                 .checkpointingTo(
@@ -327,22 +336,26 @@ class AerospikeDeleteDetectionIT {
             "SELECT COUNT(*) AS n, SUM(amount) AS total, SUM(id * id + amount) AS mix FROM orders";
 
     /**
-     * Through the registry and source bindings a node runs. Not across a restart: a view restored
-     * from a checkpoint can be killed by its feed's first commit (PRV-5092, "frontier went
-     * backwards") because ViewSink's frontier starts at Long.MIN_VALUE rather than at the restored
-     * view's, and a retraction carries the old event time of the row it cancels. That defect is the
-     * engine's and is reported, not worked round; restarts are proved at the reader, above, against
-     * this same server.
+     * Through the registry and source bindings a node runs, and across a restart through it: both
+     * views are checkpointed, a delete is delivered after the checkpoint (so the restore must redo
+     * it), the registry is closed, the set changes while nothing reads it, and the same two names
+     * registered again restore from the checkpoint and are brought to the set by one pass.
+     *
+     * <p>The restart half was taken out by {@code 652b489} for an engine defect -- a restored view's
+     * first commit refused as "frontier went backwards" (PRV-5092), which a retraction carrying its
+     * row's old event time reached readily. {@code 3b9d9a8} (LANE-4) fixed it: a commit is never
+     * behind the view's committed frontier. This test is the proof against a real server, and it
+     * goes on changing the set after the restore because the defect stopped the feed, not the view.
      */
     @Test
-    void aRegisteredViewEqualsTheSetAfterUpdatesDeletesAndReinserts() {
+    void aRegisteredViewAndAggregateEqualTheSetAcrossUpdatesDeletesAndARestart() throws Exception {
         for (long id = 1; id <= 20; id++) {
             put(id, id % 2 == 0 ? "EVEN" : "ODD", id);
         }
-        QueryRegistry registry = registry();
-        RegisteredQuery rows = registry.register(
-                "orders_now", "SELECT id, status, amount FROM orders", List.of(0), Principal.ANONYMOUS);
-        RegisteredQuery totals = registry.register("orders_total", CHECKSUM, List.of(0), Principal.ANONYMOUS);
+        QueryRegistry first = registry();
+        RegisteredQuery rows =
+                first.register("orders_now", "SELECT id, status, amount FROM orders", List.of(0), Principal.ANONYMOUS);
+        RegisteredQuery totals = first.register("orders_total", CHECKSUM, List.of(0), Principal.ANONYMOUS);
         awaitRows(rows);
         awaitChecksum(totals);
 
@@ -351,17 +364,48 @@ class AerospikeDeleteDetectionIT {
         put(5, "CHANGED", 500);
         awaitRows(rows);
         awaitChecksum(totals);
+        sleep(500);
+        assertThat(checksum(totals))
+                .as("still equal a few passes later: an unchanged record is not counted again")
+                .isEqualTo(setChecksum());
 
+        checkpointerOf(rows).checkpointNow();
+        checkpointerOf(totals).checkpointNow();
         delete(6);
+        awaitRows(rows); // delivered after the checkpoint, so the restore must redo it
+        awaitChecksum(totals);
+        first.close();
+        registries.remove(first);
+
+        // While nothing is reading.
+        delete(7);
         put(3, "BACK", 3);
         put(21, "NEW", 21);
-        awaitRows(rows);
-        awaitChecksum(totals);
+        put(8, "CHANGED", 800);
+
+        QueryRegistry second = registry();
+        RegisteredQuery rowsAgain =
+                second.register("orders_now", "SELECT id, status, amount FROM orders", List.of(0), Principal.ANONYMOUS);
+        RegisteredQuery totalsAgain = second.register("orders_total", CHECKSUM, List.of(0), Principal.ANONYMOUS);
+        awaitRows(rowsAgain);
+        awaitChecksum(totalsAgain);
+        assertThat(totalsAgain.rowsIn())
+                .as("restored, so the reader sends the difference from the checkpoint (6 and 7 retracted, "
+                        + "3 and 21 inserted, 8 retracted and re-inserted), not the whole set again")
+                .isLessThan(setRows().size());
+
+        // Alive after the restore: the defect this replaces stopped the feed on its first commit.
+        delete(9);
+        put(10, "CHANGED", 1000);
+        awaitRows(rowsAgain);
+        awaitChecksum(totalsAgain);
         sleep(500);
-        assertThat(viewRows(rows))
-                .as("still equal a few passes later: nothing is added twice")
+        assertThat(viewRows(rowsAgain))
+                .as("6, 7 and 9 gone once, 3 back, 21 new, 5, 8 and 10 changed, nothing added twice")
                 .isEqualTo(setRows());
-        assertThat(checksum(totals)).isEqualTo(setChecksum());
+        assertThat(checksum(totalsAgain)).isEqualTo(setChecksum());
+        assertThat(rowsAgain.failure()).isEmpty();
+        assertThat(totalsAgain.failure()).isEmpty();
     }
 
     private Set<String> setRows() {
@@ -424,6 +468,48 @@ class AerospikeDeleteDetectionIT {
             }
             sleep(50);
         }
+    }
+
+    /**
+     * SCAN-1 against a real server. Over the default binding, {@code deletes: ignore}, an updated
+     * record is read again as the new row with nothing retracting the old -- so an aggregate is
+     * refused at registration (PRV-2042) with {@code deletes: detect} named as the fix, and a keyed
+     * view of the records is admitted and holds each record once, as the set does, however many
+     * copies arrive.
+     */
+    @Test
+    void overTheDefaultBindingAnAggregateIsRefusedAndAKeyedViewStillEqualsTheSet() {
+        for (long id = 1; id <= 10; id++) {
+            put(id, "NEW", id);
+        }
+        QueryRegistry registry = registry(Map.of("deletes", "ignore"));
+        assertThatThrownBy(() -> registry.register("orders_total", CHECKSUM, List.of(0), Principal.ANONYMOUS))
+                .isInstanceOf(PravahaException.class)
+                .satisfies(e -> assertThat(((PravahaException) e).errorCode())
+                        .isEqualTo(com.ash.messaging.pravaha.sql.SqlErrors.SOURCE_REPEATS_ROWS))
+                .hasMessageContaining("`deletes: detect`");
+        assertThat(registry.names()).isEmpty();
+
+        RegisteredQuery rows = registry.register(
+                "orders_now", "SELECT id, status, amount FROM orders", List.of(0), Principal.ANONYMOUS);
+        awaitRows(rows);
+        put(5, "CHANGED", 500);
+        put(11, "NEW", 11);
+        awaitRows(rows);
+        sleep(1_000);
+        assertThat(viewRows(rows))
+                .as("each record once, with the values the set holds")
+                .isEqualTo(setRows());
+        assertThat(rows.rowsIn())
+                .as("and the copy did arrive: more rows in than the set holds")
+                .isGreaterThan(setRows().size());
+        assertThat(rows.failure()).isEmpty();
+    }
+
+    private static PeriodicCheckpointer checkpointerOf(RegisteredQuery query) throws ReflectiveOperationException {
+        Field field = RegisteredQuery.class.getDeclaredField("checkpointer");
+        field.setAccessible(true);
+        return (PeriodicCheckpointer) field.get(query);
     }
 
     private static void sleep(long millis) {
