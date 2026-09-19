@@ -29,9 +29,13 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.testcontainers.kafka.ConfluentKafkaContainer;
 
 /**
@@ -125,6 +129,44 @@ final class KafkaBroker {
 
     static List<Seen> readCommitted(String topic) {
         return read(topic, "read_committed", Duration.ofSeconds(2));
+    }
+
+    /** A producer of its own; {@code transactionalId} null for a plain idempotent one. */
+    static KafkaProducer<byte[], byte[]> producer(String transactionalId) {
+        Map<String, Object> config = new java.util.HashMap<>();
+        config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap());
+        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
+        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
+        config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        config.put(ProducerConfig.ACKS_CONFIG, "all");
+        if (transactionalId != null) {
+            config.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, transactionalId);
+        }
+        KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(config);
+        if (transactionalId != null) {
+            producer.initTransactions();
+        }
+        return producer;
+    }
+
+    /** Sends {@code value} under {@code key} to one partition, and waits until it is written. */
+    static void send(String topic, int partition, String key, String value) {
+        try (KafkaProducer<byte[], byte[]> producer = producer(null)) {
+            send(producer, topic, partition, key, value);
+        }
+    }
+
+    static void send(KafkaProducer<byte[], byte[]> producer, String topic, int partition, String key, String value) {
+        try {
+            producer.send(new ProducerRecord<>(topic, partition, bytes(key), bytes(value)))
+                    .get(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException("cannot write to " + topic + "/" + partition, e);
+        }
+    }
+
+    private static byte[] bytes(String text) {
+        return text == null ? null : text.getBytes(StandardCharsets.UTF_8);
     }
 
     private static String text(byte[] bytes) {

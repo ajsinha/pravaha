@@ -14,11 +14,15 @@
  * See the LICENSE file in the root of this repository for the full terms.
  */
 /**
- * A Kafka sink, {@code kafka-sink} ({@code KafkaSinkPlugin}): a continuous query's changes written
- * to a topic as keyed upserts with tombstones, or as an explicit changelog, in JSON -- exactly once to
- * a {@code read_committed} consumer, through a staging topic and Kafka transactions tied to the
- * engine's checkpoints.
+ * Kafka, both ways.
  *
- * <p>No source: a Kafka <em>source</em> is not built (see {@code docs/CONNECTORS.md} section 7).
+ * <p>A source, {@code kafka} ({@code KafkaSourcePlugin}): a topic read as a stream, one reader per
+ * partition, from exact offsets the engine's checkpoints hold -- exactly once, {@code read_committed}
+ * by default -- decoding JSON rows by column name, or {@code kafka-sink}'s changelog with its weights.
+ *
+ * <p>A sink, {@code kafka-sink} ({@code KafkaSinkPlugin}): a continuous query's changes written to a
+ * topic as keyed upserts with tombstones, or as an explicit changelog, in JSON -- exactly once to a
+ * {@code read_committed} consumer, through a staging topic and Kafka transactions tied to the engine's
+ * checkpoints.
  */
 package com.ash.messaging.pravaha.plugin.kafka;

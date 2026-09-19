@@ -9,9 +9,11 @@
   </parent>
   <artifactId>pravaha-plugin-kafka</artifactId>
   <name>Pravaha :: plugin :: kafka</name>
-  <description>A sink that writes a continuous query's changes to a Kafka topic: keyed upserts with
-    tombstones, or an explicit changelog, JSON by default. Exactly once to a read_committed consumer,
-    through a staging topic and Kafka transactions tied to the engine's checkpoints.</description>
+  <description>A source that reads a Kafka topic, one reader per partition, exactly once from the
+    engine's checkpointed offsets; and a sink that writes a continuous query's changes to a topic:
+    keyed upserts with tombstones, or an explicit changelog, JSON by default. The sink is exactly once
+    to a read_committed consumer, through a staging topic and Kafka transactions tied to the engine's
+    checkpoints.</description>
 
   <dependencies>
     <dependency>
@@ -58,11 +60,25 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <!-- The source reads JSON with Jackson's streaming parser alone: exact decimals and a record
+         never materialised as a tree. The version is the one the root pom pins for the whole build,
+         which Arrow, Spring Boot and Hadoop already put on a node's classpath. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+    </dependency>
     <!-- The end-to-end tests register a real continuous query writing to Kafka, with checkpoints,
          through the registry that delivers to sinks in production. -->
     <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-registry</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- ...and read from it, through the source and sink bindings a node uses. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-bindings</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
     </dependency>
