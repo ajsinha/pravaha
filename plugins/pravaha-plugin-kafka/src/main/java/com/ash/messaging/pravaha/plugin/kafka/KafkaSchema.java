@@ -27,14 +27,14 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 
 /**
- * A sink's {@code schema} option: {@code name:TYPE,...}, the same spelling every other connector
- * reads, with {@code ?} after a type for a nullable column.
+ * A binding's {@code schema} option, the sink's and the source's alike: {@code name:TYPE,...}, the
+ * same spelling every other connector reads, with {@code ?} after a type for a nullable column.
  */
-final class KafkaSinkSchema {
+final class KafkaSchema {
 
     private static final Pattern DECIMAL = Pattern.compile("^DECIMAL\\((\\d+),\\s*(\\d+)\\)$");
 
-    private KafkaSinkSchema() {}
+    private KafkaSchema() {}
 
     static StreamSchema parse(String streamName, String spec) {
         StreamSchema.Builder builder = StreamSchema.builder(streamName);
