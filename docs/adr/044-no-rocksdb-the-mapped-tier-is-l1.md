@@ -320,6 +320,8 @@ controller not delegated to it; it checks by starting a scope with `MemoryMax=64
 #   -Dpravaha.spill.beyond.multiples=1,2,4  (plus -Dpravaha.spill.beyond.heapMiB=1024 for the firing)
 ```
 
+`tools/spill-beyond-ram.sh <a real disk>` is the same thing with those defaults filled in.
+
 **The machine.** AMD Ryzen AI 9 HX 370 (Zen 5 + Zen 5c, 12 cores, 24 threads), 61 GiB RAM, Crucial
 P310 1 TB NVMe (`nvme0n1p2`, ext4, `read_ahead_kb` 128, `none` scheduler), kernel 7.0.4, JDK
 21.0.12. The spill directory was on that NVMe, never `/tmp` (a tmpfs here, i.e. RAM). Another
