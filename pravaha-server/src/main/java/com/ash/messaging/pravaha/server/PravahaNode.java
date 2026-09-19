@@ -994,7 +994,7 @@ public class PravahaNode implements SmartLifecycle {
     }
 
     /** The sink bindings this node resolved at start, for describing them; empty before it starts. */
-    public Optional<com.ash.messaging.pravaha.server.egress.PluginSinks> sinks() {
+    public Optional<com.ash.messaging.pravaha.bindings.egress.PluginSinks> sinks() {
         return Optional.ofNullable(pluginSinks);
     }
 

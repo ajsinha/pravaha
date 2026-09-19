@@ -24,12 +24,12 @@ import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.ash.messaging.pravaha.bindings.egress.PluginSinks;
+import com.ash.messaging.pravaha.bindings.egress.SinkBinding;
 import com.ash.messaging.pravaha.registry.QueryListing;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.server.PravahaNode;
-import com.ash.messaging.pravaha.server.egress.PluginSinks;
-import com.ash.messaging.pravaha.server.egress.SinkBinding;
 
 /**
  * What the HTTP API may ask of the running node's registry and sinks, and nothing else.

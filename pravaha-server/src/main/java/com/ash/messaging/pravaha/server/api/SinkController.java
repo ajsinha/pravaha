@@ -30,11 +30,11 @@ import org.springframework.web.bind.annotation.RestController;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.EmitMode;
 import com.ash.messaging.pravaha.api.plugin.SinkCapabilities;
+import com.ash.messaging.pravaha.bindings.egress.PluginSinks;
+import com.ash.messaging.pravaha.bindings.egress.SinkBinding;
 import com.ash.messaging.pravaha.registry.QueryListing;
 import com.ash.messaging.pravaha.registry.SinkFactory;
 import com.ash.messaging.pravaha.security.Principal;
-import com.ash.messaging.pravaha.server.egress.PluginSinks;
-import com.ash.messaging.pravaha.server.egress.SinkBinding;
 import com.ash.messaging.pravaha.server.security.HttpAuthorizer;
 
 /**
