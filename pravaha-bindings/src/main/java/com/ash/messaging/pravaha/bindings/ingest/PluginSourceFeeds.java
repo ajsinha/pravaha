@@ -30,6 +30,7 @@ import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
 import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
+import com.ash.messaging.pravaha.backfill.OffsetSplicedReader;
 import com.ash.messaging.pravaha.connect.PluginErrors;
 import com.ash.messaging.pravaha.registry.SourceFeed;
 import com.ash.messaging.pravaha.registry.SourceFeedFactory;
@@ -314,6 +315,131 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 .map(bindings::get)
                 .filter(java.util.Objects::nonNull)
                 .toList();
+    }
+
+    /**
+     * Opens a feed that reads history to the seam and then joins the live stream (ADR-046).
+     *
+     * <p>Three differences from {@link #open}, and each is the point of the operation rather than
+     * an optimisation.
+     *
+     * <ul>
+     *   <li><strong>Its own readers.</strong> A shared reader (SRC-3) hands a joining consumer the
+     *       fan-out first and its history afterwards, which duplicates the overlap -- acceptable
+     *       for an at-least-once source and not for a replacement, whose whole claim is that the
+     *       new version's answer is the one it would have had if it had always been running.
+     *   <li><strong>Each reader is spliced.</strong> History from the beginning to the position the
+     *       running version has reached, then a reader created at that position: see {@link
+     *       OffsetSplicedReader} for why the seam is exact.
+     *   <li><strong>The history is throttled</strong> by the job, and the live phase is not.
+     * </ul>
+     *
+     * <p>A checkpointed position taken during the history carries its seam, so a restart resumes
+     * the same backfill rather than starting a different one; a plain position means the seam is
+     * behind this partition and only the live reader is opened.
+     */
+    @Override
+    public SourceFeed openBackfill(
+            String queryName,
+            QueryExecution execution,
+            List<String> sourceStreams,
+            Runnable afterDelivery,
+            Map<String, String> resumeFrom,
+            com.ash.messaging.pravaha.backfill.BackfillPlan plan) {
+        List<String> bound =
+                sourceStreams.stream().distinct().filter(bindings::containsKey).toList();
+        if (bound.isEmpty()) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.backfill.BackfillErrors.SOURCE_UNSUPPORTED,
+                    "nothing is bound to any stream '" + queryName + "' reads, so there is no history to replay "
+                            + "and no live stream to splice onto.");
+        }
+        List<IngestPump> pumps = new ArrayList<>();
+        List<AutoCloseable> resources = new ArrayList<>();
+        Map<String, Integer> partitionCounts = new LinkedHashMap<>();
+        Map<String, String> pushed = new LinkedHashMap<>();
+        Runnable publish = serialised(afterDelivery);
+        int ordinal = 0;
+        try {
+            for (String stream : bound) {
+                SourceBinding binding = bindings.get(stream);
+                StreamSourcePlugin plugin = openPlugin(binding);
+                resources.add(plugin);
+                // Rows, never a partial: a spliced reader hands its records to the history reader
+                // and the live one in turn, and a pre-combined partial from one phase cannot be
+                // folded in beside rows from the other.
+                ReadRequest request = SourcePushdown.requestFor(execution.plan(), stream, plugin.capabilities())
+                        .withoutAggregates();
+                List<SourcePartition> partitions = plugin.partitions(stream);
+                partitionCounts.put(stream, partitions.size());
+                pushed.put(stream, summarise(request) + ", backfilling");
+                for (int index = 0; index < partitions.size(); index++) {
+                    SourcePartition partition = partitions.get(index);
+                    String token = resumeFrom.get("partition-" + ordinal++);
+                    SourceOffset splice = plan.spliceFor(stream, index).orElse(null);
+                    SourceOffset from = SourceOffset.BEGINNING;
+                    boolean historyDone = false;
+                    if (token != null && OffsetSplicedReader.isBackfillToken(token)) {
+                        splice = OffsetSplicedReader.spliceOf(token);
+                        from = OffsetSplicedReader.historyOf(token);
+                    } else if (token != null) {
+                        from = new SourceOffset(token);
+                        historyDone = true;
+                    } else if (!plan.readHistory() && splice != null) {
+                        // backfill = none: start where the running version is, with empty state.
+                        from = splice;
+                    }
+                    PartitionReader reader = new OffsetSplicedReader(
+                            at -> plugin.createReader(partition, at, request), from, splice, plan.job(), historyDone);
+                    resources.add(reader);
+                    IngestPump pump = execution.pumpInto(0, stream, reader, policy);
+                    attachDeadLetters(pump, queryName, resources);
+                    pumps.add(pump);
+                }
+            }
+        } catch (RuntimeException e) {
+            closeQuietly(resources);
+            throw e;
+        }
+        PumpingFeed feed = new PumpingFeed(queryName, pumps, resources, describe(partitionCounts, pushed), publish);
+        feed.start();
+        return feed;
+    }
+
+    /**
+     * Why a replacement's backfill cannot read {@code stream}, or empty when it can (ADR-046).
+     *
+     * <p>Asked before a replacement starts, so an operator is told which stream and why rather than
+     * watching a backfill that will never finish. A source that cannot be read again from a
+     * position it handed out has no history to replay; one whose positions do not order the records
+     * within a partition -- a scan of a table, which reports where its pass started -- has no seam
+     * to splice at, and reading past one would deliver the overlap twice.
+     */
+    @Override
+    public java.util.Optional<String> backfillRefusal(String stream) {
+        SourceBinding binding = bindings.get(stream);
+        if (binding == null) {
+            return java.util.Optional.of("nothing is bound to '" + stream + "', so its rows are pushed in rather "
+                    + "than read from a source: there is no history to replay and no position to splice at");
+        }
+        StreamSourcePlugin plugin = configure(binding);
+        try {
+            com.ash.messaging.pravaha.api.plugin.SourceCapabilities capabilities = plugin.capabilities();
+            if (!capabilities.replayableOffsets()) {
+                return java.util.Optional.of("the '" + binding.plugin() + "' source bound to '" + stream
+                        + "' cannot be read again from a position it handed out, so there is no history to "
+                        + "replay into the new version");
+            }
+            if (!capabilities.orderedWithinPartition()) {
+                return java.util.Optional.of("the '" + binding.plugin() + "' source bound to '" + stream
+                        + "' does not order the records within a partition -- its position names where a scan "
+                        + "began rather than the record it was taken after -- so there is no offset the "
+                        + "history and the live stream can meet at exactly");
+            }
+            return java.util.Optional.empty();
+        } finally {
+            closeQuietly(List.of(plugin));
+        }
     }
 
     /**
