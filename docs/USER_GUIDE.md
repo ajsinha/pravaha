@@ -425,9 +425,9 @@ try (PravahaEngine engine = PravahaEngine.create(configuration)) {
 
 An embedded engine has no authentication or policy: every call runs as the anonymous principal, on
 the assumption that your application has already decided who may call it. Run the server when that
-is not true. Two known limits: an unwindowed `GROUP BY` per key is refused as unbounded state
-(`PRV-2050`, as everywhere), and an unwindowed global aggregate's running total is **not** carried
-across a restart by its checkpoint — its view comes back, its accumulator starts again.
+is not true. One known limit: an unwindowed `GROUP BY` per key is refused as unbounded state
+(`PRV-2050`, as everywhere). A global aggregate's running total is carried across a restart by its
+checkpoint, as every other operator's state is (CKPT-2).
 
 ## 10. Embed it in a Spring Boot application
 
