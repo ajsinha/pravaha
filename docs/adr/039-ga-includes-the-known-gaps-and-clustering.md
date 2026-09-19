@@ -73,4 +73,4 @@ assumed — denied and absent reads cost 0.033 and 0.036 ms — and closed on th
 | 5 | **Closed** — a registration names a sink, the changelog is checked before the sink opens, and every commit reaches it, at least once ([ADR-043](043-how-a-continuous-query-names-its-sink.md)) |
 | 6 | **Built, and not yet used by a deployment** — projection and `COUNT`/`SUM` partial-aggregate pushdown exist in the planner and the engine, but no shipped plugin declares either and no ingest path delivers a partial. The Cassandra plugin is built, as a full `token()`-range scan |
 | 7 | **Partly** — the console's read-side authorization gap and three literal §23.20 items are closed; the design-system surface is not built, by decision |
-| 8 | **Two slices of several** — real partition assignment and fenced leases; no runtime consumer, so a node refuses to serve `PARTITIONED` (see above) |
+| 8 | **Two slices of several** — real partition assignment and fenced leases; no runtime consumer, so a node refuses to serve `PARTITIONED` (see above). The consumer is designed in [ADR-045](045-cluster-mode-assigns-queries-not-rows.md) — a node owns whole computations, not rows — and is on hold |

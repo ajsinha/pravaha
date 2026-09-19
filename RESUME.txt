@@ -84,7 +84,9 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
     tested, but no shipped plugin declares either and no ingest path delivers
     a partial, so a deployment only ever pushes filters.
   - Item 7: console design-system surface, not built by decision.
-  - Item 8: cluster mode -- the runtime consumer of ownership, then rebalance.
+  - Item 8: cluster mode -- on hold by the owner. Designed in ADR-045: a node
+    owns whole computations (by fingerprint), not rows; do NOT merge the
+    per-row gate in worktree agent-a15965300.
 
 ====================================================================
 4. HOUSE RULES
