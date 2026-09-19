@@ -233,6 +233,10 @@ read of the source.
 
 **A filter naming a column the view does not have is refused**, not ignored. A typo quietly dropped
 would leave you receiving everything while believing you asked for a slice.
+A filter's value is read as its column's type, so `--filter amount=20` or `--filter active=true`
+matches a number or a boolean; a value that cannot be one (`amount=twenty`) is refused the same way.
+Until HLP-9 every value was compared as text, and a filter on anything but a text column matched
+nothing.
 
 **Rows are flyweights.** In Java they point into the Arrow buffer that carried them, and that buffer
 is reused for the next commit. Copy anything you keep past the callback.

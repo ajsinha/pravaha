@@ -288,6 +288,76 @@ class SubscriptionTest {
     }
 
     @Test
+    void aFilterOnANumberWrittenAsTextMatchesTheNumber() {
+        // HLP-9. A filter arrives over the wire as text -- the Flight ticket carries strings -- and
+        // was compared with Objects.equals, so "20" never equalled the view's Long 20 and a filter on
+        // any column but a text one silently matched nothing.
+        List<ViewChange> seen = new ArrayList<>();
+        StreamSchema schema = query.outputSchema();
+        try (Subscription subscription = query.subscribe(
+                SubscriptionOptions.DEFAULT, SubscriptionFilter.matching(schema, "amount", "20"), seen::addAll)) {
+            feed("u1", 10L);
+            feed("u2", 20L);
+            query.commit();
+
+            assertThat(seen)
+                    .singleElement()
+                    .satisfies(change -> assertThat(change.values()[0]).isEqualTo("u2"));
+        }
+    }
+
+    @Test
+    void textThatIsNotANumberIsRefusedForANumericColumn() {
+        assertThatThrownBy(() -> SubscriptionFilter.matching(query.outputSchema(), "amount", "twenty"))
+                .hasMessageContaining("amount")
+                .hasMessageContaining("twenty");
+    }
+
+    @Test
+    void everyScalarColumnTypeCanBeFilteredOnFromText() {
+        StreamSchema wide = StreamSchema.builder("wide")
+                .field("flag", Types.bool())
+                .field("tiny", Types.int8())
+                .field("small", Types.int16())
+                .field("n", Types.int32())
+                .field("big", Types.int64())
+                .field("ratio", Types.float64())
+                .field("text", Types.string())
+                .build();
+        SubscriptionFilter filter = SubscriptionFilter.matching(
+                wide,
+                new java.util.LinkedHashMap<>(Map.of(
+                        "flag", "TRUE",
+                        "tiny", "1",
+                        "small", "2",
+                        "n", "3",
+                        "big", "4",
+                        "ratio", "0.5",
+                        "text", "x")));
+        Object[] row = {true, (byte) 1, (short) 2, 3, 4L, 0.5d, "x"};
+
+        assertThat(filter.accepts(new ViewChange(row, 1))).isTrue();
+        Object[] other = row.clone();
+        other[0] = false;
+        assertThat(filter.accepts(new ViewChange(other, 1))).isFalse();
+        assertThat(SubscriptionFilter.matching(wide, "big", 4L).accepts(new ViewChange(row, 1)))
+                .as("a typed value still matches, for an embedder that passes one")
+                .isTrue();
+        StreamSchema money = StreamSchema.builder("money")
+                .field("price", Types.decimal(10, 2))
+                .field("weight", Types.float32())
+                .build();
+        assertThat(SubscriptionFilter.matching(money, Map.of("price", "1.5", "weight", "2.5"))
+                        .accepts(new ViewChange(new Object[] {new java.math.BigDecimal("1.50"), 2.5f}, 1)))
+                .as("a decimal is read at its column's scale")
+                .isTrue();
+        assertThatThrownBy(() -> SubscriptionFilter.matching(money, "price", "1.505"))
+                .hasMessageContaining("1.505");
+        assertThatThrownBy(() -> SubscriptionFilter.matching(wide, "flag", "yes"))
+                .hasMessageContaining("BOOLEAN");
+    }
+
+    @Test
     void differentlyFilteredSubscribersShareOneComputation() {
         List<ViewChange> first = new ArrayList<>();
         List<ViewChange> second = new ArrayList<>();

@@ -38,6 +38,9 @@ import com.ash.messaging.pravaha.serving.ViewChange;
  * whole argument for separating registration from subscription (ADR-025), and a pass-through query
  * is where it is most visible.
  *
+ * <p>A value given as text is read as its column's type, so a filter from the wire can name a
+ * number or a boolean (HLP-9).
+ *
  * <p>Equality only, deliberately. Ranges and text matching invite the expectation that this is a
  * query language, and it is not -- it is a tap. Anything richer belongs in the registered query,
  * where the planner can reason about it and the cost is visible.
@@ -90,10 +93,56 @@ public final class SubscriptionFilter {
                                 + "everything while believing you asked for a slice");
             }
             ordinals[index] = ordinal;
-            values[index] = entry.getValue();
+            values[index] = asColumnValue(schema, ordinal, entry.getValue());
             index++;
         }
         return new SubscriptionFilter(Map.copyOf(declared), ordinals, values);
+    }
+
+    /**
+     * The value as the view holds it for this column.
+     *
+     * <p>HLP-9. A filter arrives over the wire as text -- the Flight subscribe ticket carries
+     * strings -- and was compared as given, so {@code "20"} never equalled a view's {@code Long} 20
+     * and a filter on anything but a text column matched nothing, with nothing to say so. Text is
+     * now read as the column's type; a value that is not one is refused, for the same reason an
+     * unknown column is. A value already of the column's type passes through.
+     */
+    private static Object asColumnValue(StreamSchema schema, int ordinal, Object value) {
+        if (!(value instanceof String text)) {
+            return value;
+        }
+        com.ash.messaging.pravaha.api.data.Field field = schema.field(ordinal);
+        String trimmed = text.strip();
+        try {
+            return switch (field.type().typeName()) {
+                case BOOLEAN -> {
+                    if (!trimmed.equalsIgnoreCase("true") && !trimmed.equalsIgnoreCase("false")) {
+                        throw new NumberFormatException("not true or false");
+                    }
+                    yield Boolean.parseBoolean(trimmed);
+                }
+                case INT8 -> Byte.parseByte(trimmed);
+                case INT16 -> Short.parseShort(trimmed);
+                case INT32, DATE -> Integer.parseInt(trimmed);
+                case INT64, TIME, TIMESTAMP_LTZ -> Long.parseLong(trimmed);
+                case FLOAT32 -> Float.parseFloat(trimmed);
+                case FLOAT64 -> Double.parseDouble(trimmed);
+                case DECIMAL ->
+                    new java.math.BigDecimal(trimmed)
+                            .setScale(
+                                    ((com.ash.messaging.pravaha.api.data.DecimalType) field.type()).scale(),
+                                    java.math.RoundingMode.UNNECESSARY);
+                default -> text;
+            };
+        } catch (NumberFormatException | ArithmeticException e) {
+            throw new PravahaException(
+                    RegistryErrors.NO_SUCH_QUERY,
+                    "the filter on '" + field.name() + "' asks for '" + text + "', which is not a "
+                            + field.type().typeName() + " value, so no row of this view could match it. A filter "
+                            + "that quietly matched nothing would look like a quiet view",
+                    e);
+        }
     }
 
     /** A filter on one column. */
