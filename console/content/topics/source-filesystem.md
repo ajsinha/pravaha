@@ -18,8 +18,8 @@ every example and integration test uses as its known-good input — so it is whe
 where to go back to when you want to prove whether a problem is in your query or in your store.
 
 It reads a file once and stops, or — with `follow: true` — keeps reading as the file grows, the way
-`tail -f` does. And it is the one shipped source that can deliver a **retraction** from
-configuration: name an operation column and a row can withdraw what an earlier row inserted.
+`tail -f` does. And it is the one shipped source that can deliver a **retraction** written by you
+into the data: name an operation column and a row can withdraw what an earlier row inserted.
 
 ## At a glance
 

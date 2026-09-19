@@ -9,7 +9,7 @@ badge: PRV-5XXX
 audience: Operators
 keywords: [plugin, classpath, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
 guide: connectors
-related: [sources-overview, sinks-overview, source-jdbc, source-delta, connector-security, errors-overview]
+related: [sources-overview, sinks-overview, source-jdbc, source-postgres-cdc, sink-kafka, source-delta, connector-security, errors-overview]
 ---
 
 Every source, lookup and sink is a **plugin**, found on the classpath by its name
@@ -67,8 +67,8 @@ pravaha:
 ### PRV-5010 — plugin not found
 
 No plugin on the classpath answers to the name. The message lists the names that *are* available.
-Only `filesystem` is inside the server jar; `feedfile`, `jdbc`, `delta`, `aerospike` and `cassandra`
-are separate modules, added by dropping the jar on the classpath. Discovery happens when a query is
+Only `filesystem` is inside the server jar; `feedfile`, `jdbc`, `delta`, `aerospike`, `cassandra`,
+`postgres-cdc` and `kafka-sink` are separate modules, added by dropping the jar on the classpath. Discovery happens when a query is
 first registered against the stream, **not at startup** — so a binding naming a missing plugin starts
 a server cleanly and fails at the registration that needs it.
 
@@ -344,11 +344,18 @@ query's first commit, so nothing is half-written.
 
 ## kafka-sink
 
+Every option, the staging topic and the guarantee are on [the Kafka sink](/help/topics/sink-kafka).
+
 ### PRV-5100 — Kafka: bad configuration
 
-The binding's options cannot make a sink: a required option missing (`bootstrap.servers`, `topic`),
-an unknown `format`, or a compression codec the plugin does not ship. Only `none` and `gzip` work;
-lz4, snappy and zstd are native code and are refused by name rather than failing at the first write.
+The binding's options cannot make a sink: a required option missing (`bootstrap.servers`, `topic`,
+`schema`), `key.columns` missing in upsert mode or naming a floating-point or nullable column, an
+unknown `format` or `mode`, a `kafka.*` property the sink sets itself or that would weaken its
+guarantee (`kafka.acks` below `all`, `kafka.enable.idempotence: false`, serializers, `kafka.ssl.*`)
+or that no Kafka client knows, SASL `PLAIN` without TLS, half a credential — or a compression codec
+whose library is not on the classpath. `none` and `gzip` work as shipped; lz4, snappy and zstd are
+native code the plugin does not bundle, and are refused by name rather than failing at the first
+write unless you add the codec's library yourself.
 
 ### PRV-5101 — Kafka: connect failed
 
@@ -370,6 +377,9 @@ after a long outage — has already expired the staged changes a checkpoint reco
 lost to the topic. Raise `staging.retention.ms` and register again.
 
 ## postgres-cdc
+
+The prerequisites, every option, the slot and the recoveries are on
+[the postgres-cdc source](/help/topics/source-postgres-cdc).
 
 ### PRV-5110 — PostgreSQL CDC: bad configuration
 
@@ -422,6 +432,7 @@ directory, drop the slot, register again.
 ## Where next
 
 - [Sources](/help/topics/sources-overview) and [Sinks](/help/topics/sinks-overview), and each
-  connector's own page
+  connector's own page — among them [postgres-cdc](/help/topics/source-postgres-cdc) and
+  [kafka-sink](/help/topics/sink-kafka)
 - [Connector security](/help/topics/connector-security) — credentials and TLS per connector
 - [Dead letters](/help/topics/dead-letters)

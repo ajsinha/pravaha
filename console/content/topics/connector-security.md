@@ -4,16 +4,16 @@ slug: connector-security
 category: sources
 order: 90
 icon: shield-lock
-summary: "Credentials kept out of the file with ${ENV} placeholders, the eleven shared tls.* options, and what each store's driver actually verifies — Aerospike's tls.name, Cassandra's hostname check, JDBC's URL."
+summary: "Credentials kept out of the file with ${ENV} placeholders, the eleven shared tls.* options, and what each store's driver actually verifies — Aerospike's tls.name, Cassandra's and Kafka's hostname checks, JDBC's URL."
 badge: SECURITY
 audience: Operators
-keywords: [tls, ssl, mtls, certificate, truststore, keystore, pem, pkcs12, password, credentials, environment, placeholder, tls.name, sslmode, verify-full, verify-hostname]
+keywords: [tls, ssl, mtls, certificate, truststore, keystore, pem, pkcs12, password, credentials, environment, placeholder, tls.name, sslmode, verify-full, verify-hostname, kafka, sasl, scram, postgres-cdc]
 guide: connector-tls#2-connectors
-related: [tls, sources-overview, source-aerospike, source-cassandra, source-jdbc]
+related: [tls, sources-overview, source-aerospike, source-cassandra, source-jdbc, sink-kafka, source-postgres-cdc]
 ---
 
-Every connector that dials out to a store — the Aerospike, Cassandra and JDBC sources, their lookups
-and their sinks — needs two things kept right: **who it says it is** (credentials) and **whom it
+Every connector that dials out to a store — the Aerospike, Cassandra, JDBC and postgres-cdc sources,
+their lookups, and the JDBC, Aerospike and Kafka sinks — needs two things kept right: **who it says it is** (credentials) and **whom it
 trusts** (TLS). This page covers both for connectors. The engine's own listeners and the SDKs dialling
 them are on [TLS everywhere](/help/topics/tls).
 
@@ -30,6 +30,8 @@ One rule runs through all of it:
 | `aerospike`, `aerospike-lookup`, `aerospike-sink` | `user`, `password` — Aerospike security; ignored if `user` is empty |
 | `cassandra` | `user`, `password` |
 | `jdbc`, `jdbc-lookup`, `jdbc-sink` | `user`, `password` — passed to the driver as properties; or in the URL, if your driver takes them there |
+| `postgres-cdc` | `user`, `password` — a role with `REPLICATION` |
+| `kafka-sink` | `user`, `password` and `sasl.mechanism` (`PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`) — SASL. Both or neither; `PLAIN` without TLS is refused |
 | `filesystem`, `feedfile`, `delta` | none — they read what the node's operating-system user can read |
 
 ### Keeping secrets out of the file
@@ -75,7 +77,7 @@ with no placeholder resolution: resolve secrets before you build it.
 ## TLS: the shared options
 
 Every connector that can take a Java `SSLContext` — Aerospike and Cassandra — reads exactly the same
-options, all under the binding's `options:` and all prefixed `tls.`:
+options, and so does `kafka-sink`, which maps them onto Kafka's own `ssl.*` properties, all under the binding's `options:` and all prefixed `tls.`:
 
 | Option | Meaning |
 |---|---|
@@ -164,12 +166,43 @@ pravaha:
 
 No `tls.enabled` here: the truststore turns TLS on by inference.
 
+### Kafka — the shared options, mapped onto `ssl.*`, and SASL
+
+Kafka's clients take files and properties, not an `SSLContext`, so `kafka-sink` checks the shared
+`tls.*` options exactly as every other connector does (the same refusals, the same words) and then
+maps them: `tls.ca` becomes a PEM truststore, `tls.certificate` and `tls.key` a PEM keystore, a
+`tls.truststore` or `tls.keystore` is passed by location, and `tls.verify-hostname` is Kafka's endpoint
+identification (`https`, or off). Setting Kafka's own `kafka.ssl.*` or `kafka.security.protocol` is
+refused (PRV-5100): the protocol follows from `tls.*` and the credentials — `SSL`, `SASL_SSL`,
+`SASL_PLAINTEXT` or `PLAINTEXT`.
+
+```yaml
+pravaha:
+  sinks:
+    open_orders_topic:
+      plugin: kafka-sink
+      options:
+        bootstrap.servers: "kafka-1.internal:9093,kafka-2.internal:9093"
+        topic: open-orders
+        schema: "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,status:STRING"
+        key.columns: order_id
+        user: pravaha
+        password: "${KAFKA_PASSWORD}"
+        sasl.mechanism: SCRAM-SHA-512
+        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+```
+
+`PLAIN` sends the password to the broker as it is, so `sasl.mechanism: PLAIN` (the default when `user`
+is set) without TLS is refused; the SCRAM mechanisms never send it and are allowed either way. See
+[the Kafka sink](/help/topics/sink-kafka).
+
 ### JDBC — TLS lives in the URL, and `tls.*` is refused
 
 A JDBC driver cannot be handed an `SSLContext`; it takes a URL and a bag of properties, and every driver
 spells TLS its own way. So the `jdbc` source, `jdbc-lookup` and `jdbc-sink` **refuse** the shared
 `tls.*` options with PRV-5074 — accepting them would leave a plaintext socket behind a configuration
-that claims otherwise. Put TLS in `url`:
+that claims otherwise — and `postgres-cdc`, which opens its replication connection from the same
+kind of URL, refuses them with PRV-5110. Put TLS in `url`:
 
 | Database | In the URL |
 |---|---|

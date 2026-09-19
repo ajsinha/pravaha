@@ -193,13 +193,14 @@ SELECT COUNT(*) AS payments, SUM(amount) AS total FROM txn
 PRV-2041  sink 'merchant_minutes' accepts [APPEND], but this query needs one of [UPSERT, RETRACT].
 ```
 
-The check reads the plan's aggregates only. A source that delivers deletes (the filesystem source's
-`op.column`) sends retractions through a plain filter, which the check judges append-only — and a
+The check reads the plan's aggregates only. A source that delivers deletes (postgres-cdc, Delta, the
+filesystem source's `op.column`) sends retractions through a plain filter, which the check judges append-only — and a
 file writes such a retraction as an ordinary line, with no weight to tell it apart. Keep retracting
 sources away from this sink.
 
-Point such a query at [`jdbc-sink`](/help/topics/sink-jdbc) or
-[`aerospike-sink`](/help/topics/sink-aerospike), which delete on a retraction.
+Point such a query at [`jdbc-sink`](/help/topics/sink-jdbc),
+[`aerospike-sink`](/help/topics/sink-aerospike) or [`kafka-sink`](/help/topics/sink-kafka), which take a
+retraction — as a delete, or a tombstone.
 
 ## Delivery
 

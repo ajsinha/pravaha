@@ -7,14 +7,14 @@ icon: box-arrow-right
 summary: "Bind a sink under pravaha.sinks, name it when you register, and every commit of the view is written there too — checked for shape and for retractions before anything opens."
 badge: SINKS
 audience: Engineers
-keywords: [sink, WRITING TO, "--sink", pravaha.sinks, shape check, emit mode, append, upsert, retract, detached, /api/v1/sinks]
+keywords: [sink, WRITING TO, "--sink", pravaha.sinks, shape check, emit mode, append, upsert, retract, detached, /api/v1/sinks, kafka]
 guide: operations#one-engine-and-what-the-server-still-lacks
-related: [delivery-guarantees, sink-jdbc, sink-aerospike, sink-filesystem, create-continuous-query, zset-weights]
+related: [delivery-guarantees, sink-jdbc, sink-kafka, sink-aerospike, sink-filesystem, create-continuous-query, zset-weights]
 ---
 
 A continuous query always maintains its **view** — the answer clients read and subscribe to. A
 **sink** is somewhere *else* the same answer is written: a file, a relational table, an Aerospike
-set. You declare the sink once, in the node's configuration, and a registration **names** it. From
+set, a Kafka topic. You declare the sink once, in the node's configuration, and a registration **names** it. From
 then on every commit of that query's view — insertions, and retractions as rows with a negative
 weight — is also handed to the sink, on the query's own commit.
 
@@ -62,8 +62,8 @@ pravaha:
 
 | Key | What it is |
 |---|---|
-| `pravaha.sinks.<name>` | The binding's name. It is what a registration names, what `GET /api/v1/sinks` lists, and (for `jdbc-sink`) the default transaction id |
-| `plugin` | The plugin's own name: `filesystem`, `jdbc-sink` or `aerospike-sink` ship today |
+| `pravaha.sinks.<name>` | The binding's name. It is what a registration names, what `GET /api/v1/sinks` lists, and (for `jdbc-sink` and `kafka-sink`) the default transaction id |
+| `plugin` | The plugin's own name: `filesystem`, `jdbc-sink`, `aerospike-sink` or `kafka-sink` ship today |
 | `options` | Passed to the plugin untouched. **Nested under `options:`** — a key written one level too high is not read |
 | `options.schema` | The row shape the sink writes, `name:TYPE,...`. Every shipped sink requires one, and the registration is checked against it |
 
@@ -136,8 +136,8 @@ query produced them. So the query's `SELECT` list must match the sink's `schema`
 column: the same order, the same names (ignoring case) and the same types**. Nullability is not
 compared — a sink writes a null wherever the query produces one.
 
-A keyed sink (`jdbc-sink` in upsert mode, `aerospike-sink`) must also key its records by **exactly
-the view's key**. On fewer columns, distinct rows collapse onto one record and retracting one
+A keyed sink (`jdbc-sink` and `kafka-sink` in upsert mode, `aerospike-sink`) must also key its records
+by **exactly the view's key**. On fewer columns, distinct rows collapse onto one record and retracting one
 deletes the other; on more, a changed row leaves its old record behind.
 
 The query below plans perfectly — and is refused at registration, because the columns are in the
@@ -180,6 +180,8 @@ A sink declares what it accepts:
 | `jdbc-sink`, `mode: append` | `APPEND` | no |
 | `jdbc-sink`, `mode: upsert` (default) | `UPSERT`, `RETRACT` | yes |
 | `aerospike-sink` | `UPSERT`, `RETRACT` | yes |
+| `kafka-sink`, `mode: upsert` (default) | `UPSERT`, `RETRACT` — a retraction is a tombstone | yes |
+| `kafka-sink`, `mode: changelog` | `APPEND`, `RETRACT` — a retraction is an `"op":"delete"` record | yes |
 
 A revising query pointed at an append-only sink is refused with PRV-2041 at registration. This
 query plans, and registering it `WRITING TO large_payments` is refused:
@@ -197,15 +199,17 @@ PRV-2041  sink 'large_payments' accepts [APPEND], but this query needs one of [U
 ```
 
 (The message is the engine's; the name after "over" is the aggregate's input as the plan names it.) The fix
-text names stores that have no shipped sink today (Redis, Kafka); the three sinks on this page are
-the ones that ship. A file holding rows that are each correct and a total that is wrong for ever is
+text names Redis, which has no shipped sink; a compacted Kafka topic is [`kafka-sink`](/help/topics/sink-kafka)
+in upsert mode, and it, `jdbc-sink` and `aerospike-sink` are the shipped sinks that take a revising
+query. A file holding rows that are each correct and a total that is wrong for ever is
 the failure this check exists to prevent.
 
 !!! warning "What the check does not see: retractions from a source"
-    The analysis reads the plan's aggregates. A source that delivers deletes — the filesystem
-    source's `op.column` — sends retractions through a plain filter too, and a filter is judged
-    append-only. Pointed at an append-only sink, such a retraction is written as an ordinary line.
-    Send a query over a retracting source to an upsert sink.
+    The analysis reads the plan's aggregates. A source that delivers deletes —
+    [postgres-cdc](/help/topics/source-postgres-cdc), Delta, the filesystem source's `op.column` —
+    sends retractions through a plain filter too, and a filter is judged append-only. Pointed at an
+    append-only sink, such a retraction is written as an ordinary line. Send a query over a
+    retracting source to a sink that takes retractions.
 
 ## What the sink receives
 
@@ -320,7 +324,7 @@ The Python SDK's `client.sinks()` returns the same list; the console's **Catalog
 ## Where next
 
 - [The filesystem sink](/help/topics/sink-filesystem), [the jdbc sink](/help/topics/sink-jdbc),
-  [the Aerospike sink](/help/topics/sink-aerospike)
+  [the Aerospike sink](/help/topics/sink-aerospike), [the Kafka sink](/help/topics/sink-kafka)
 - [Delivery guarantees](/help/topics/delivery-guarantees) — at-least-once, effectively once, exactly
   once, and what checkpoints have to do with it
 - [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query) — the whole grammar

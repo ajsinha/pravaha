@@ -9,7 +9,7 @@ badge: SINK
 audience: Engineers
 keywords: [jdbc sink, jdbc-sink, transactional, exactly once, exactly-once, postgresql, h2, upsert, staging table, transaction.id, key.columns, "ON CONFLICT", MERGE]
 guide: operations#one-engine-and-what-the-server-still-lacks
-related: [sinks-overview, delivery-guarantees, checkpoints-recovery, source-jdbc, connector-security]
+related: [sinks-overview, delivery-guarantees, sink-kafka, checkpoints-recovery, source-jdbc, connector-security]
 ---
 
 `jdbc-sink` keeps a relational table **equal to the query's view**. Each row the query commits is
@@ -17,8 +17,8 @@ upserted by its key; each retraction deletes the row its key names. Readers of t
 maintained answer — current totals per customer, per window, per symbol — in the database they
 already have, with the SQL and tools they already use.
 
-It is the one shipped sink that is **transactional**. On a node that takes checkpoints, the jdbc
-sink is **exactly once**: every change the engine commits reaches the table exactly once, a
+It is **transactional**, as [`kafka-sink`](/help/topics/sink-kafka) is. On a node that takes
+checkpoints, the jdbc sink is **exactly once**: every change the engine commits reaches the table exactly once, a
 checkpoint's changes become visible together, and a crash neither loses nor repeats a row. The price
 is that the table trails the view by up to one checkpoint interval.
 
@@ -285,7 +285,7 @@ which the upsert makes harmless in upsert mode and which an append table receive
 
 ## Where next
 
-- [Delivery guarantees](/help/topics/delivery-guarantees) — how the three shipped sinks compare
+- [Delivery guarantees](/help/topics/delivery-guarantees) — how the four shipped sinks compare
 - [Checkpoints and recovery](/help/topics/checkpoints-recovery) — what the exactly-once guarantee
   rests on
 - [How a query writes to a sink](/help/topics/sinks-overview) — the shape check and detach

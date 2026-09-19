@@ -155,13 +155,16 @@ GROUP BY user_id, window_start, window_end;
 5. The first commit after the catch-up makes the view equal to what it would have been with no
    crash.
 
-What the replay does to a **sink** depends on the sink — exactly once for `jdbc-sink` on a node that
-checkpoints, effectively once for `aerospike-sink`, at least once (duplicates in the file) for
-`filesystem`. See [Delivery guarantees](/help/topics/delivery-guarantees).
+What the replay does to a **sink** depends on the sink — exactly once for `jdbc-sink` and `kafka-sink`
+(to a `read_committed` consumer) on a node that checkpoints, effectively once for `aerospike-sink`, at
+least once (duplicates in the file) for `filesystem`. See [Delivery guarantees](/help/topics/delivery-guarantees).
 
 What it does to a **source** that cannot rewind: a source that cannot return to a checkpoint's
 offsets makes the whole pipeline at-least-once, and a source that no longer holds those rows cannot
-supply them at all.
+supply them at all. A source may also be *told* when a checkpoint holding its offset is durable:
+[postgres-cdc](/help/topics/source-postgres-cdc) confirms its replication slot only then, so the
+database never discards a change a restore could ask for — which is why that source needs
+checkpoints to run at all.
 
 After the restart, a point read shows the recovered answer immediately:
 

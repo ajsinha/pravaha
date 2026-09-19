@@ -20,8 +20,9 @@ The interesting property is how little it has to do. Delta rewrites whole files:
 `DELETE` or a `MERGE` removes the files it touched and adds replacements. So the difference between
 version *n* and version *n+1* is exactly a set of removed files and a set of added files — and emitting
 the added files' rows at weight `+1` and the removed files' rows at weight `−1` **is** the Z-set delta
-for that commit. Delta's storage semantics and Pravaha's algebra agree without an adapter. This is the
-one shipped source whose deletes and updates reach a view as retractions without any help from you.
+for that commit. Delta's storage semantics and Pravaha's algebra agree without an adapter. With
+[postgres-cdc](/help/topics/source-postgres-cdc), it is one of the two shipped sources whose deletes
+and updates reach a view as retractions without any help from you.
 
 It is built on **Delta Kernel, not Spark**: the connector-facing library that understands the log,
 checkpoints, protocol versions and column mapping, bringing Hadoop and Parquet with it but not a
@@ -199,4 +200,4 @@ configuration, which this plugin does not manage.
 
 - [Weights and retractions](/help/topics/zset-weights) — why a removed file's rows at `−1` are exactly right
 - [The feedfile source](/help/topics/source-feedfile) — files that only ever add
-- [Sources overview](/help/topics/sources-overview) — the six sources side by side
+- [Sources overview](/help/topics/sources-overview) — the seven sources side by side

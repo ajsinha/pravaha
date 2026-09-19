@@ -194,7 +194,8 @@ total that is wrong for ever. This console's query page shows the detach with it
 
 **Do:** fix what the sink refused, then drop and re-register the query; the sink is sent the view's
 whole contents first. Whatever it already held, it will hold twice — unless it upserts by key
-(`jdbc-sink` in upsert mode, `aerospike-sink`), in which case the repeat overwrites itself.
+(`jdbc-sink` in upsert mode, `aerospike-sink`, `kafka-sink` in upsert mode on a compacted topic), in
+which case the repeat overwrites itself.
 
 ## The embedded engine
 

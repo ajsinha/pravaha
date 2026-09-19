@@ -232,4 +232,4 @@ Not applicable: the directory is local (or a mounted filesystem). Secure the tra
 - [The filesystem source](/help/topics/source-filesystem) — one file, followed, with event time and retractions
 - [The Delta source](/help/topics/source-delta) — a table whose commits are already a changelog
 - [Dead letters](/help/topics/dead-letters) — keeping undecodable records instead of stopping
-- [Sources overview](/help/topics/sources-overview) — choosing between the six
+- [Sources overview](/help/topics/sources-overview) — choosing between the seven

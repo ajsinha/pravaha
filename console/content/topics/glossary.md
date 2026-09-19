@@ -54,6 +54,10 @@ and its `options`. → [Sources](/help/topics/sources-overview)
 **Catalog.** The streams, lookup tables, queries, views and sinks a node knows about. In this console,
 the Catalog screen. → [Streams](/help/topics/streams)
 
+**Change data capture (CDC).** Reading a database's own log of changes instead of polling its
+tables, so a delete arrives as a `−1` and an update as a `−1` and a `+1`. The `postgres-cdc` source
+does it for PostgreSQL. → [The postgres-cdc source](/help/topics/source-postgres-cdc)
+
 **Checkpoint.** A query's accumulated state and its source offsets, written periodically under
 `pravaha.checkpoint.directory` so a restart recovers answers, not only questions.
 → [Checkpoints and recovery](/help/topics/checkpoints-recovery)
@@ -98,7 +102,8 @@ the application pushes. → [The embedded engine](/help/topics/embedded-engine)
 → [Event time and watermarks](/help/topics/event-time-watermarks)
 
 **Exactly once.** A delivery guarantee: each change is committed to the sink once, even across a
-crash — a transactional sink (`jdbc-sink`) on a node that checkpoints. → [Delivery guarantees](/help/topics/delivery-guarantees)
+crash — a transactional sink (`jdbc-sink`, or `kafka-sink` to a `read_committed` consumer) on a node
+that checkpoints. → [Delivery guarantees](/help/topics/delivery-guarantees)
 
 ## F
 
@@ -181,12 +186,20 @@ exists for. → [Point reads](/help/topics/point-reads)
 **PostgreSQL gateway.** The read-only PostgreSQL wire protocol (port 5432, off by default) that lets
 `psql`, Grafana and ORMs read views. → [The PostgreSQL gateway](/help/topics/pgwire)
 
+**Pushdown.** Work a source does for the engine at the store: a filter (`WHERE`), the columns read, or
+a running `COUNT`/`SUM`. Each source declares which it can do; the engine keeps its own filter
+regardless. → [Sources](/help/topics/sources-overview)
+
 **Principal.** Who a caller is, once authenticated: an id, a tenant and roles.
 → [Authentication](/help/topics/authentication)
 
 **PRV code.** The stable `PRV-nnnn` code every failure carries. → [Reading a PRV code](/help/topics/errors-overview)
 
 ## R
+
+**Replication slot.** PostgreSQL's record of how far a change-data-capture reader has confirmed; it
+keeps write-ahead log until then. `postgres-cdc` confirms it only at checkpoints.
+→ [The postgres-cdc source](/help/topics/source-postgres-cdc)
 
 **Retention.** How much event time a view keeps (`RETAIN FOR P7D`, `--retain`); older rows are evicted.
 Part of the fingerprint. → [Views and keys](/help/topics/views-and-keys)
@@ -203,10 +216,11 @@ so the principal sees only its rows (PRV-7003 when it cannot be enforced).
 **Shape check.** The registration-time check that a query's output matches its sink's declared schema
 and key, column for column (PRV-8010). → [How a query writes to a sink](/help/topics/sinks-overview)
 
-**Sink.** Where a query's committed changes are also written — a file, a table, an Aerospike set —
-named with `WRITING TO`. → [Sinks](/help/topics/sinks-overview)
+**Sink.** Where a query's committed changes are also written — a file, a table, an Aerospike set, a
+Kafka topic — named with `WRITING TO`. → [Sinks](/help/topics/sinks-overview)
 
-**Source.** Where a stream's rows come from — a file, a directory, a table, a Delta table, a set.
+**Source.** Where a stream's rows come from — a file, a directory, a table, a Delta table, a set, a
+PostgreSQL table's change log.
 → [Sources](/help/topics/sources-overview)
 
 **Spill tier.** Memory-mapped files on disk that a query's state overflows into instead of being refused
@@ -230,6 +244,9 @@ refreshing its ownership claim. → [Standby](/help/topics/standby)
 
 **Tenant.** The group a principal belongs to; read admission shares capacity per tenant.
 → [Authorization](/help/topics/authorization)
+
+**Tombstone.** A Kafka record with a key and a null value: how `kafka-sink` in upsert mode writes a
+retraction, and what a compacted topic reads as a delete. → [The Kafka sink](/help/topics/sink-kafka)
 
 **Tumbling window.** Fixed, non-overlapping windows: every row falls in exactly one.
 → [Windows](/help/topics/windows)

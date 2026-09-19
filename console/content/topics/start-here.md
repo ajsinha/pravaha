@@ -39,9 +39,9 @@ Pravaha collapses them:
 | Retry and de-duplication logic for corrections | Z-set weights: a correction is a `-1` for the old row and a `+1` for the new one, applied by the engine and delivered to subscribers |
 | A second copy of the pipeline for each team asking the same question | Sharing by fingerprint: identical questions become one computation with several names |
 
-It reads the stores you already have — files, directories of feed files, JDBC databases, Delta
-tables, Aerospike, Cassandra — and can write each answer back out to a sink (a file, a JDBC table,
-an Aerospike set) as well as serving it.
+It reads the stores you already have — files, directories of feed files, JDBC databases, a
+PostgreSQL table's change log, Delta tables, Aerospike, Cassandra — and can write each answer back
+out to a sink (a file, a JDBC table, an Aerospike set, a Kafka topic) as well as serving it.
 
 ## The three nouns
 

@@ -337,8 +337,8 @@ HAVING COUNT(*) > 1
 
 The two sides may come from entirely different sources — a `filesystem` file on one side and a
 `feedfile` directory on the other is demonstrated end to end by the engine's own tests. Joins across
-`jdbc`, `delta`, `aerospike` or `cassandra` sources are supported by construction and not yet
-demonstrated end to end. Each side keeps its own out-of-orderness; the join waits for the slower.
+`jdbc`, `delta`, `aerospike`, `cassandra` or `postgres-cdc` sources are supported by construction and
+not yet demonstrated end to end. Each side keeps its own out-of-orderness; the join waits for the slower.
 
 ## Pitfalls
 

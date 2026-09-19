@@ -9,7 +9,7 @@ badge: SINKS
 audience: Engineers
 keywords: [exactly once, exactly-once, effectively once, at least once, delivery, guarantee, checkpoint, replay, transactional, idempotent, crash, restart]
 guide: operations#one-engine-and-what-the-server-still-lacks
-related: [sinks-overview, sink-jdbc, sink-aerospike, sink-filesystem, checkpoints-recovery, zset-weights]
+related: [sinks-overview, sink-jdbc, sink-kafka, sink-aerospike, sink-filesystem, checkpoints-recovery, zset-weights]
 ---
 
 Inside the engine, every row affects the view exactly once: state is checkpointed, and after a crash
@@ -45,9 +45,9 @@ What the sink does with that second copy is the guarantee.
 
 | Sink declares | Example | With `pravaha.checkpoint.directory` set | Without it |
 |---|---|---|---|
-| **transactional** | [`jdbc-sink`](/help/topics/sink-jdbc) (default) | **exactly once** | at least once — there is no checkpoint to tie a transaction to, so each commit is its own |
-| **idempotent upsert** | [`aerospike-sink`](/help/topics/sink-aerospike); `jdbc-sink` with `transactional: false`, `mode: upsert` | effectively once | effectively once |
-| **neither** | [`filesystem`](/help/topics/sink-filesystem); `jdbc-sink` with `transactional: false`, `mode: append` | at least once | at least once |
+| **transactional** | [`jdbc-sink`](/help/topics/sink-jdbc) and [`kafka-sink`](/help/topics/sink-kafka) (both by default) | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | at least once — there is no checkpoint to tie a transaction to, so each commit is its own |
+| **idempotent upsert** | [`aerospike-sink`](/help/topics/sink-aerospike); `jdbc-sink` or `kafka-sink` with `transactional: false`, `mode: upsert` (Kafka on a compacted topic) | effectively once | effectively once |
+| **neither** | [`filesystem`](/help/topics/sink-filesystem); `jdbc-sink` with `transactional: false`, `mode: append`; `kafka-sink` with `transactional: false`, `mode: changelog` | at least once | at least once |
 
 ### Exactly once: prepare at the checkpoint, commit when it is durable
 
@@ -56,7 +56,8 @@ checkpoint's cut the transaction is **prepared** and its handle recorded **in th
 the checkpoint is safely stored, the transaction is **committed**. On restore, the sink commits what
 the restored checkpoint recorded and abandons everything after it — which the replay then writes
 again. `jdbc-sink` implements the transaction with a staging table and one database transaction per
-checkpoint; its page has the details.
+checkpoint; `kafka-sink` with a staging topic and one Kafka transaction per checkpoint, because Kafka
+has no *prepare* a restarted producer could commit. Their pages have the details.
 
 The cost is latency: a row reaches the sink only once the checkpoint that recorded it is durable, so
 the sink trails the view by up to one checkpoint interval.
@@ -77,8 +78,9 @@ query's key if they matter.
 ## The source caps it too
 
 The guarantee is end to end only if the source can **rewind** to a checkpoint's offsets. A source
-that cannot is at least once end to end, whatever the sink does. The sources that ship each declare their own delivery;
-see [choosing a source](/help/topics/sources-overview).
+that cannot is at least once end to end, whatever the sink does. The sources that ship each declare their own delivery —
+`postgres-cdc`, filesystem, Delta and feedfile can be exactly once; JDBC, Aerospike and Cassandra are
+at least once; see [choosing a source](/help/topics/sources-overview).
 
 ## What the node tells you
 
@@ -145,7 +147,10 @@ table now changes once per checkpoint, all of a checkpoint's rows together.
   stays uncommitted, as after a crash, and the restart writes it — so a node stopped and never
   restarted leaves that tail out of the sink.
 - **At a second writer.** Exactly-once for `jdbc-sink` assumes one writer per `transaction.id` and
-  nothing else writing the target's keys.
+  nothing else writing the target's keys; for `kafka-sink`, one writer per `transactional.id` — a
+  second fences the first.
+- **At a `read_uncommitted` consumer.** `kafka-sink`'s exactly-once is what a `read_committed`
+  consumer sees; one reading uncommitted can also see a commit a crash aborted and the restore redid.
 - **At a second name.** A sink attached to a computation that is already running is first sent the
   view's whole contents, inside its first transaction when it is transactional.
 
@@ -158,4 +163,5 @@ table now changes once per checkpoint, all of a checkpoint's rows together.
 - [Checkpoints and recovery](/help/topics/checkpoints-recovery) — what a checkpoint holds and how a
   restore works
 - [The jdbc sink](/help/topics/sink-jdbc) — the staging table in detail
+- [The Kafka sink](/help/topics/sink-kafka) — the staging topic, and what `read_committed` has to do with it
 - [How a query writes to a sink](/help/topics/sinks-overview)
