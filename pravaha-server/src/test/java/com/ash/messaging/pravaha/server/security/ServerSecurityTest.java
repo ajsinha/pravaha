@@ -241,6 +241,42 @@ class ServerSecurityTest {
     }
 
     @Test
+    void theDocsUiIsOpenAtTheAddressTheServerRedirectsTo() {
+        // API-F11. /api/docs answered 302 without a credential, as the design intends, and its own
+        // redirect target answered 401: OPEN_PREFIXES carried /swagger-ui and springdoc serves the
+        // UI's resources under /api/swagger-ui. A reader clicking through to the interactive docs
+        // met an authentication wall the design exists to avoid.
+        BearerTokenFilter filter = new BearerTokenFilter(TokenVerifier.rejectAll());
+
+        assertThat(filter.shouldNotFilter(get("/api/docs")))
+                .as("the configured springdoc.swagger-ui.path is open by design")
+                .isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/swagger-ui/index.html")))
+                .as("/api/docs redirects here, so it has to be open too")
+                .isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/swagger-ui/swagger-ui-bundle.js")))
+                .as("the page's own resources, or it renders blank")
+                .isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/v1/openapi.json")))
+                .as("the document a generated client is built from")
+                .isTrue();
+
+        assertThat(filter.shouldNotFilter(get("/api/v1/streams")))
+                .as("opening the docs must not open the data: this is the control")
+                .isFalse();
+        assertThat(filter.shouldNotFilter(get("/api/v1/queries")))
+                .as("nor the query listing")
+                .isFalse();
+    }
+
+    private static jakarta.servlet.http.HttpServletRequest get(String uri) {
+        org.springframework.mock.web.MockHttpServletRequest request =
+                new org.springframework.mock.web.MockHttpServletRequest("GET", uri);
+        request.setRequestURI(uri);
+        return request;
+    }
+
+    @Test
     void aTokenAuthenticatedNodeWithAPermissivePolicyStarts() {
         // CFG-9/SX-12. authentication=token + a real token table + policy=permissive +
         // allow-anonymous=false is the posture an operator sets out to configure: every

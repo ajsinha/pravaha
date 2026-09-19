@@ -55,9 +55,21 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
      * identity source is down, and takes the node out of rotation for a fault that has nothing to do
      * with it. The OpenAPI document and the docs UI describe the shape of the API and disclose no
      * data.
+     *
+     * <p>API-F11: {@code /swagger-ui} was here and {@code /api/swagger-ui} was not, so {@code GET
+     * /api/docs} answered 302 without a credential -- as intended -- and the redirect it handed the
+     * browser answered 401. These are matched against {@code getRequestURI()}, which carries the
+     * whole path, and springdoc serves the UI's own resources under {@code springdoc.swagger-ui
+     * .path}'s parent. A page the design means to be open has to be open at the address the server
+     * itself sends the reader to.
      */
-    private static final Set<String> OPEN_PREFIXES =
-            Set.of("/actuator/health", "/actuator/info", "/api/v1/openapi.json", "/api/docs", "/swagger-ui");
+    private static final Set<String> OPEN_PREFIXES = Set.of(
+            "/actuator/health",
+            "/actuator/info",
+            "/api/v1/openapi.json",
+            "/api/docs",
+            "/swagger-ui",
+            "/api/swagger-ui");
 
     private final TokenVerifier verifier;
 
