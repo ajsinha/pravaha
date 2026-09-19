@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+  <artifactId>pravaha-plugin-postgres-cdc</artifactId>
+  <name>Pravaha :: plugin :: postgres-cdc</name>
+  <description>Change data capture from PostgreSQL through native logical replication (ADR-041): a
+    replication slot and a publication, pgoutput decoded by hand, whole transactions, an insert at
+    +1, a delete at -1 of the full before-image, an update as both. The slot is confirmed only at
+    positions the engine has checkpointed.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- Provided, not bundled: ADR-041's whole argument. The replication API
+         (PGReplicationConnection, PGReplicationStream, LogSequenceNumber) ships inside the
+         PostgreSQL JDBC driver a deployment already supplies for the jdbc source, so this plugin
+         adds no dependency at all. It is compiled against 42.7.8, the version the jdbc plugin is
+         tested against; a missing driver is refused at open by name, and no class that names a
+         driver type is loaded before that check. -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.7.8</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- The tests collect rows into an arena, as a lane does. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- The end-to-end tests register a revising aggregate over a CDC-fed stream, with
+         checkpoints and a restart, through the registry and source bindings a node uses. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-registry</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-bindings</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-testkit</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>
