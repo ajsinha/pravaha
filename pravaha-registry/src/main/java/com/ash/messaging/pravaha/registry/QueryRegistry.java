@@ -618,45 +618,6 @@ public final class QueryRegistry implements AutoCloseable {
         return register(name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName);
     }
 
-    private synchronized RegisteredQuery register(
-            String name,
-            String sql,
-            List<Integer> keyColumns,
-            Principal principal,
-            Retention retention,
-            BoundParameters parameters,
-            String sinkName) {
-        QueryNames.require(name, byName.keySet());
-        Preparation prepared = prepare(name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
-
-        // Opened after every refusal above and before anything runs, so a registration refused for
-        // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
-        // computation can attach the sink before its feed delivers a row.
-        SinkDelivery delivery = sinkName == null
-                ? null
-                : openDelivery(name, sinkName, prepared.plan().outputSchema());
-        try {
-            return register(
-                    name,
-                    sql,
-                    keyColumns,
-                    principal,
-                    retention,
-                    parameters,
-                    sinkName,
-                    prepared.plan(),
-                    prepared.placements(),
-                    prepared.fingerprint(),
-                    delivery,
-                    recoveringInto == null ? QueryCheckpoints.directoryFor(name) : recoveringInto);
-        } catch (RuntimeException e) {
-            if (delivery != null) {
-                delivery.close();
-            }
-            throw e;
-        }
-    }
-
     /** What planning and authorizing a registration produced, before anything is started. */
     record Preparation(PhysicalOperator plan, List<ParameterPlacement> placements, QueryFingerprint fingerprint) {}
 
@@ -756,6 +717,45 @@ public final class QueryRegistry implements AutoCloseable {
         // Without them `--keys 1` and `--keys 0,1` over identical SQL shared one view, keyed as the
         // first registrant asked and with the second one's retention dropped, silently.
         return new Preparation(plan, placements, QueryFingerprint.of(plan, rowFilters, keyColumns, retention));
+    }
+
+    private synchronized RegisteredQuery register(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            Retention retention,
+            BoundParameters parameters,
+            String sinkName) {
+        QueryNames.require(name, byName.keySet());
+        Preparation prepared = prepare(name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
+
+        // Opened after every refusal above and before anything runs, so a registration refused for
+        // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
+        // computation can attach the sink before its feed delivers a row.
+        SinkDelivery delivery = sinkName == null
+                ? null
+                : openDelivery(name, sinkName, prepared.plan().outputSchema());
+        try {
+            return register(
+                    name,
+                    sql,
+                    keyColumns,
+                    principal,
+                    retention,
+                    parameters,
+                    sinkName,
+                    prepared.plan(),
+                    prepared.placements(),
+                    prepared.fingerprint(),
+                    delivery,
+                    recoveringInto == null ? QueryCheckpoints.directoryFor(name) : recoveringInto);
+        } catch (RuntimeException e) {
+            if (delivery != null) {
+                delivery.close();
+            }
+            throw e;
+        }
     }
 
     /**

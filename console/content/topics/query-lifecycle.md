@@ -195,9 +195,13 @@ what. See [authorization](/help/topics/authorization).
     Those rows were dropped. If the gap matters, drop and re-register against a source that can
     replay (a file, a Delta table from a version), or do not pause.
 
-!!! tip "Drop and re-register to change a query"
-    There is no `CREATE OR REPLACE` — it is refused with PRV-2072 rather than half-supported. Drop
-    the name and create it again; if another name shares the computation, it keeps running.
+!!! tip "Replace a query rather than dropping it"
+    `CREATE OR REPLACE CONTINUOUS QUERY` starts a blue/green replacement: the new version is
+    registered beside the running one, backfilled from the source, and takes the name only when the
+    two have consumed the same input — so nobody reading the name loses an answer, which is what
+    dropping and re-creating costs. The version it replaced keeps running for the rollback window.
+    A query whose computation is shared with another name is refused (PRV-8003): change or drop the
+    others first.
 
 ## Where next
 

@@ -551,6 +551,7 @@ What the calls do:
 | `query(sql, params...)` / `query(Class, sql, params...)` | SQL over the views, as rows or as records |
 | `subscribe(query, consumer)` | Every commit of a view, retractions as weight `-1` |
 | `pause` / `resume` / `drop` / `queries()` / `registry()` | Lifecycle, and the registry underneath for everything else |
+| `registry().replacements()` | Blue/green replacement in process: `replace`, `of`, `cutOver`, `rollBack`, `throttle`, `pause`, `resume`, `finish`. `query("CREATE OR REPLACE CONTINUOUS QUERY ...")` is the same thing in SQL. It needs a bound source to replay from: a query fed by `push` has no history and is refused with `PRV-4018` |
 
 Everything can come from configuration instead, with the server's key names:
 

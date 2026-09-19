@@ -420,21 +420,24 @@ you may read what the query reads.
 ### PRV-2072 — clause not built
 
 A clause from the design's grammar that this engine does not build: `INDEXED BY ... RANGE (...)`, a
-`WITH (...)` option list, `EMIT CHANGES WITH (...)`, `CREATE OR REPLACE`, or a `SERVE AS VIEW` naming
+`WITH (...)` option list on a plain `CREATE`, `EMIT CHANGES WITH (...)`, or a `SERVE AS VIEW` naming
 something other than the query. **Refused by name rather than ignored**: an ignored
 `'retention' = '24h'` in a `WITH` list is a view you asked to keep for a day, kept for ever.
 
 <!-- sql: refused PRV-2072 -->
 ```sql
-CREATE OR REPLACE CONTINUOUS QUERY recent_big_txn
+CREATE CONTINUOUS QUERY recent_big_txn
     KEYED BY (txn_id)
+    WITH ('retention' = '24h')
 AS
 SELECT txn_id, user_id, amount FROM txn WHERE amount > 5000
 ```
 
-**Do:** say a retention with `RETAIN FOR`; drop and re-create instead of replacing; give the query
-the name clients read. The spellings the design uses that mean the same thing are accepted:
-`INDEXED BY (...)` for `KEYED BY`, `INTO sink` for `WRITING TO`, and a trailing `EMIT CHANGES`.
+**Do:** say a retention with `RETAIN FOR`; give the query the name clients read. A `WITH (...)` list
+does belong on `CREATE OR REPLACE`, which is built and carries a replacement's options there
+(`backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention`). The spellings the design uses
+that mean the same thing are accepted: `INDEXED BY (...)` for `KEYED BY`, `INTO sink` for
+`WRITING TO`, and a trailing `EMIT CHANGES`.
 
 ```sql
 CREATE CONTINUOUS QUERY recent_big_txn

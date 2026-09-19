@@ -58,9 +58,15 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
                 .build();
     }
 
-    /** Reflective access to the private static encoder, as STATE-027/028/029 require. */
+    /**
+     * Reflective access to the package-private static encoder, as STATE-027/028/029 require.
+     *
+     * <p>It moved from {@code QueryRegistry} to {@code QueryCheckpoints} when the checkpoint
+     * placement came out of the registry (ADR-046); the encoding it checks is unchanged.
+     */
     private static String encode(String name) throws Exception {
-        Method m = QueryRegistry.class.getDeclaredMethod("checkpointDirectoryFor", String.class);
+        Class<?> checkpoints = Class.forName("com.ash.messaging.pravaha.registry.QueryCheckpoints");
+        Method m = checkpoints.getDeclaredMethod("directoryFor", String.class);
         m.setAccessible(true);
         return (String) m.invoke(null, name);
     }

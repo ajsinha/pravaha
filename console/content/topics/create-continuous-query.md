@@ -254,17 +254,22 @@ AS SELECT txn_id, amount FROM txn EMIT CHANGES
 CREATE CONTINUOUS QUERY served KEYED BY (txn_id) SERVE AS VIEW served AS SELECT txn_id, amount FROM txn
 ```
 
+`CREATE OR REPLACE` is built (it starts a blue/green replacement — the new version runs beside the
+running one and takes the name only when the two have consumed the same input), and on it a
+`WITH (...)` list carries that replacement's options:
+
+```sql
+CREATE OR REPLACE CONTINUOUS QUERY replaced KEYED BY (txn_id)
+    WITH (backfill = 'history', cutover = 'manual')
+AS SELECT txn_id, amount FROM txn
+```
+
 The rest of that design is **refused by name** with PRV-2072 rather than ignored — an ignored
 `'retention' = '24h'` would be a view you asked to keep for a day, kept for ever:
 
 <!-- sql: refused PRV-2072 -->
 ```sql
 CREATE CONTINUOUS QUERY with_options KEYED BY (txn_id) WITH ('retention' = '24h') AS SELECT txn_id FROM txn
-```
-
-<!-- sql: refused PRV-2072 -->
-```sql
-CREATE OR REPLACE CONTINUOUS QUERY replaced KEYED BY (txn_id) AS SELECT txn_id FROM txn
 ```
 
 <!-- sql: refused PRV-2072 -->
@@ -285,7 +290,7 @@ CREATE CONTINUOUS QUERY one_name KEYED BY (txn_id) SERVE AS VIEW another_name AS
 | Refused | Say instead |
 |---|---|
 | `WITH (...)` options | `RETAIN FOR <duration>`; other options have no equivalent |
-| `CREATE OR REPLACE` | `DROP CONTINUOUS QUERY` it, then `CREATE` — replacing would take answers away from readers mid-read |
+| `CREATE OR REPLACE` *(built)* | Starts a blue/green replacement: the new version backfills beside the running one and takes the name at a cutover, so no reader loses an answer |
 | `INDEXED BY ... RANGE (...)` | Put the range column in `KEYED BY` and filter on it when you read |
 | `EMIT CHANGES WITH (...)` | `EMIT CHANGES` alone, or nothing |
 | `SERVE AS VIEW other` | A query and its view are one name — the one clients put in `FROM` |

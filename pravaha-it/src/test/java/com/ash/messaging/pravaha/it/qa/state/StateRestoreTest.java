@@ -95,7 +95,10 @@ class StateRestoreTest extends StateTestSupport {
         // test") is no longer true: QueryRegistry.restoreFrom (pravaha-registry/src/main) calls both
         // CheckpointStore.latest() and QueryExecution.restore(), and it is wired into register(), a
         // real, shipped code path. Re-derived live with the case's own grep commands rather than
-        // trusting a cached answer.
+        // trusting a cached answer. The calls moved from QueryRegistry.restoreFrom to
+        // QueryCheckpoints.restore when the checkpoint placement came out of the registry
+        // (ADR-046); they are the same calls on the same shipped path -- register() still makes
+        // them on every registration a checkpoint root is configured for.
         Path root = repoRoot();
 
         List<String> latestCalls = grep("\\.latest()", root).stream()
@@ -105,17 +108,18 @@ class StateRestoreTest extends StateTestSupport {
                 .as("STATE-050 expects only the CheckpointStore declaration and FileCheckpointStore's "
                         + "implementation; there is now a third, real caller")
                 .hasSize(1);
-        assertThat(latestCalls.get(0)).contains("QueryRegistry.java");
+        assertThat(latestCalls.get(0)).contains("QueryCheckpoints.java");
 
         List<String> restoreCalls = grep("\\.restore(", root).stream()
                 .filter(l -> l.contains("/src/main/"))
                 .toList();
         assertThat(restoreCalls)
-                .as("STATE-050 expects only PartitionHandoff.java (an unrelated type) and the "
-                        + "QueryExecution.restore declaration; there is now a third, real caller")
-                .hasSize(2);
-        assertThat(restoreCalls.stream().anyMatch(l -> l.contains("QueryRegistry.java")))
-                .as("QueryRegistry.restoreFrom calls execution.restore(...)")
+                .as("STATE-050 expects only PartitionHandoff.java (an unrelated type); there are now two "
+                        + "more, and both are the one shipped path: QueryCheckpoints.restore calls "
+                        + "execution.restore, and QueryRegistry.start calls QueryCheckpoints.restore")
+                .hasSize(3);
+        assertThat(restoreCalls.stream().anyMatch(l -> l.contains("QueryCheckpoints.java")))
+                .as("QueryCheckpoints.restore calls execution.restore(...), for register()")
                 .isTrue();
 
         List<String> restoreStateCalls = grep("restoreState", root).stream()
@@ -132,7 +136,7 @@ class StateRestoreTest extends StateTestSupport {
         assertThat(pravahaNode).contains("checkpointingTo");
         assertThat(pravahaNode).doesNotContain(".restore(");
         // PravahaNode itself still never calls restore directly -- but it does not need to: as of
-        // this build, QueryRegistry.register calls restoreFrom internally on every registration a
+        // this build, QueryRegistry.register calls QueryCheckpoints.restore on every registration a
         // checkpoint root is configured for, PravahaNode.start's registry.checkpointingTo call
         // (:370) is what arms it, and every subsequent journal-replay registration on restart goes
         // through the same register() method. The restore path is reachable from a live node without
@@ -381,7 +385,8 @@ class StateRestoreTest extends StateTestSupport {
 
         // FAIL as authored, in the most consequential way this whole area found: STATE-057 says "no
         // shipped code reads offsets() back", citing a grep that returned only QueryExecution.java,
-        // which writes it. As executed, QueryRegistry.restoreFrom (QueryRegistry.java:474) returns
+        // which writes it. As executed, QueryCheckpoints.restore (QueryCheckpoints.java, the
+        // registry's checkpoint placement since ADR-046) returns
         // latest.get().offsets() to its caller, register() passes it to feeds.open(...) as
         // resumeFrom, and PluginSourceFeeds.open (PluginSourceFeeds.java, around ":126"-":131") uses
         // it to seek each partition's reader to SourceOffset(token) instead of SourceOffset.BEGINNING
@@ -398,7 +403,7 @@ class StateRestoreTest extends StateTestSupport {
                 .toList();
         assertThat(offsetReaders)
                 .as("offsets() now has a real, non-pravaha-state reader")
-                .anyMatch(l -> l.contains("QueryRegistry.java"));
+                .anyMatch(l -> l.contains("QueryCheckpoints.java"));
         String pluginSourceFeeds = Files.readString(
                 repoRoot()
                         .resolve(

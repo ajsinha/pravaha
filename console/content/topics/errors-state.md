@@ -32,8 +32,13 @@ The codes split into two families that call for different people:
 | PRV-4010 | BACKFILL_BUFFER_FULL | Changes piled up faster than a snapshot finished |
 | PRV-4011 | BACKFILL_MISSING_VERSION | A row with no version to compare |
 | PRV-4012 | BACKFILL_UNSUPPORTED_KEY | A key type the splice cannot compare |
-| PRV-4014 | BACKFILL_NOT_CAUGHT_UP | A cutover asked for too early |
+| PRV-4013 | BACKFILL_SPLICE_MISSED | A backfill ran out of history without reaching its seam |
+| PRV-4014 | BACKFILL_NOT_CAUGHT_UP | A cutover asked for too early, or at a position the two versions do not share |
 | PRV-4015 | BACKFILL_SEAM_WENT_BACKWARDS | A cutover seam at or before the last one |
+| PRV-4016 | BACKFILL_NO_REPLACEMENT | Nothing is replacing that name |
+| PRV-4017 | BACKFILL_REPLACEMENT_IN_PROGRESS | A second replacement of one name, or a drop during one |
+| PRV-4018 | BACKFILL_SOURCE_UNSUPPORTED | A stream that cannot be backfilled, or an option that is not built |
+| PRV-4019 | BACKFILL_VIEW_REPLACED | The view a subscription followed was replaced at a cutover |
 | PRV-4020 | SERVING_NO_HISTORY | A read asked for the past |
 | PRV-4021 | SERVING_READ_TIMED_OUT | A read waited for a frontier that did not arrive |
 | PRV-4022 | SERVING_VIEW_TOO_LARGE | A view past its key ceiling |
@@ -153,12 +158,18 @@ avoid — one bad field ending the poll and taking the rest of the file with it 
 **Do:** fix the path and its permissions, or unset the key to go back to failing loudly on a bad
 record. See [Dead letters](/help/topics/dead-letters).
 
-## Backfill
+## Backfill and blue/green replacement
 
-The backfill codes belong to the library that splices a snapshot of a table with the live changes
-arriving while the snapshot is read, and that cuts a query over from one version to the next
-(ADR-015, ADR-016). **The server does not expose it through its API today**; these codes are met by
-code that uses `pravaha-backfill` directly.
+These are the codes of a **replacement**: a new version of a registered query, started beside the
+running one, backfilled from the source, spliced onto the live stream at the exact position the
+running version has reached, and cut over to only when the two have consumed the same input
+(ADR-046). `CREATE OR REPLACE CONTINUOUS QUERY`, `pravaha replace`, both SDKs and
+`/api/v1/queries/{name}/replacement` all reach it.
+
+Three of them — PRV-4010, PRV-4011 and PRV-4012 — belong to the *other* splice, the one that joins a
+table snapshot to a change feed and deduplicates by the store's own version (ADR-015). That one is a
+library in `pravaha-backfill` with no caller: no source plugin here exposes a snapshot read
+separately from its change feed. They are met only by code that uses `pravaha-backfill` directly.
 
 ### PRV-4010 — backfill buffer full
 
@@ -174,16 +185,52 @@ comparing versions; a null cannot be compared, and guessing would drop live chan
 
 A key column of a type the splice cannot compare. Use a scalar key.
 
+### PRV-4013 — backfill splice missed
+
+The backfill read all the history the source has and never reached the position the running version
+is at. Its positions do not name the record they were taken after, so there is no offset the history
+and the live stream can meet at — and reading past the seam would deliver the overlap twice. The
+backfill stops instead of doubling it.
+
 ### PRV-4014 — backfill not caught up
 
-A cutover was asked for before the new version reached the old one's frontier. Cutting over then would
-leave the input between the two frontiers in neither version's output, permanently and invisibly. Wait
-until the candidate has caught up.
+A cutover was asked for before the new version had caught up, **or** the two versions could not be
+brought to the same position in their input. Cutting over at different positions would leave the
+records between them in neither version's output, or in both — permanently, and invisibly. Wait for
+every partition to reach the live stream, and try again; if the source is busy enough that the two
+never stop at the same record, quieten it. Nothing has changed either way.
 
 ### PRV-4015 — backfill seam went backwards
 
 A cutover seam at or before the previous one. Seams only move forward: an overlapping seam would make
 two versions both responsible for the same input, and both would emit it.
+
+### PRV-4016 — no replacement
+
+A cutover, rollback, throttle or status for a name nothing is replacing. Start one with
+`CREATE OR REPLACE CONTINUOUS QUERY`, `pravaha replace`, or
+`POST /api/v1/queries/{name}/replacement`. After a rollback or a finish there is none left to act on.
+
+### PRV-4017 — a replacement is already in progress
+
+One shadow at a time. Also raised when the new version's plan normalises to the computation already
+serving the name — a cutover to itself — and when a query is dropped while its candidate is still
+running. Cut over, roll back or abandon the first.
+
+### PRV-4018 — this cannot be backfilled
+
+A stream nothing is bound to, or whose source cannot be replayed or does not order the records within
+a partition (a table scan reports where its pass began rather than the record it was taken after); an
+option this engine does not build (`backfill.parallelism`, `backfill.window`, `backfill.adaptive`); a
+rate above the ceiling the replacement was started with; or a `WRITING TO` or `RETAIN` that would
+change the name's sink or retention while replacing it. The message names which.
+
+### PRV-4019 — the view was replaced
+
+The subscription you were holding ended because the view it followed was replaced at a cutover. Every
+change the version you were following made was delivered first. Subscribe again — a snapshot
+subscription then starts from a fresh snapshot of the new version, which is what it needs and what a
+diff between two different queries could not give it.
 
 ## Reading a view
 
