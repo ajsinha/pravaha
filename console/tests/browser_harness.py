@@ -128,6 +128,8 @@ class BrowserEngine(FakeEngine):
         mine: queue.Queue = queue.Queue()
         with self._tails_lock:
             self._tails.append(mine)
+            # Recorded like a plain tail's, so a journey can see which filters reached the engine.
+            self.tails_opened.append((view, filters))
         try:
             yield ("snapshot", self.snapshot_rows(), 1)
             frontier = 1
