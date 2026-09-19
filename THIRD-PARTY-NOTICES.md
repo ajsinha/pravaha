@@ -62,6 +62,15 @@ engine core. Each carries its own licence; see the `THIRD-PARTY-NOTICES.md` of t
 plugin module concerned. Some are commercially licensed by their vendors, and using
 them may require a separate agreement with that vendor.
 
+| Component | Licence | Project | Used by |
+|---|---|---|---|
+| Apache Kafka client (`org.apache.kafka:kafka-clients` 3.9.1) | Apache License 2.0 | https://kafka.apache.org | `plugins/pravaha-plugin-kafka` (`kafka-sink`) |
+
+**Kafka client note.** The client's own `NOTICE` travels inside its jar, unmodified. Its three
+optional compression codecs — `zstd-jni` (BSD 2-Clause), `lz4-java` (Apache 2.0) and
+`snappy-java` (Apache 2.0) — are **excluded** from the plugin, because each carries per-platform
+native libraries; they are not redistributed, and a deployment that adds one takes on its licence.
+
 ## Console browser assets — vendored and redistributed
 
 The console (`console/`) serves every script, stylesheet and font from its own

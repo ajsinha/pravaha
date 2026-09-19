@@ -37,7 +37,7 @@ Three kinds, and a connector may be more than one:
 | Interface | What it does | Shipped examples |
 |---|---|---|
 | `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra |
-| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, so exactly once on a checkpointed node) |
+| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, so exactly once on a checkpointed node), `kafka-sink` (keyed JSON upserts with a tombstone for a retraction, or an explicit changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | aerospike, jdbc |
 
 ---
@@ -678,7 +678,7 @@ source claiming exactly-once resumes without duplicates too (`SourcePluginTck.re
 
 | Connector | Kind | Proves |
 |---|---|---|
-| **Kafka** | streaming | replayable offsets and real exactly-once resumption |
+| **Kafka** | streaming | replayable offsets and real exactly-once resumption. The **sink** is built (`kafka-sink`, `plugins/pravaha-plugin-kafka`; its transactional mapping is below); the source is not |
 | **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model |
 | **Cassandra** | table scan | the scan path generalises beyond Aerospike — **built**, ADR-039 item 6: a full `token()`-range scan, `plugins/pravaha-plugin-cassandra` |
 | **ScyllaDB** | table scan | speaks the same CQL wire protocol as Cassandra; not built or tested against — the `cassandra` plugin has not been run against it |
@@ -691,6 +691,31 @@ The queue connectors are architecturally different and it is worth saying so bef
 queue gives you *acknowledgement*, not a position you can return to. They cannot be `EXACTLY_ONCE`,
 and `SharedSourceGroup` will decline to share their readers for the same reason it declines JDBC's.
 
+
+### A transactional sink on a store with no prepare: Kafka
+
+The sink SPI's transactional protocol is two-phase: `prepare(id)` makes a transaction durable and
+invisible and returns a handle the checkpoint records, and `commit(handle)` — possibly from another
+process after a restart — makes it visible. Kafka's transactional producer has no such state. A
+transaction is open or committed; a restarted producer with the same `transactional.id` *aborts*
+whatever its predecessor left open (that is how it fences it); and one producer has one open
+transaction, where the protocol begins the next the moment it prepares one.
+
+So the obvious mapping — write into an open Kafka transaction, `commitTransaction` at commit — loses
+data: a process that dies after its checkpoint is durable and before the commit leaves a handle the
+restore will commit, naming a transaction the restart has already aborted, holding changes from
+before the checkpoint's cut that the replay does not write again (`SinkDelivery.recover`,
+`TransactionalSinkDeliveryTest`). KIP-939 adds a real prepare to Kafka; it needs brokers and
+clients this plugin cannot assume.
+
+`kafka-sink` does what `jdbc-sink` does with a staging table, with a **staging topic**: writes go
+there (one partition, delete policy), `prepare` names the checkpoint's changes by their staging
+offsets, and `commit` reads them back and writes them to the target in one Kafka transaction
+together with an offset for a consumer group that serves as the commit's receipt — which is what
+makes a repeated commit a no-op. The guarantee is exactly once **to a `read_committed` consumer**;
+every change is written twice. `KafkaSinkPlugin`'s class comment has the argument in full, and
+`KafkaSinkBrokerTest` the crashes — between prepare and commit, and inside a commit — proved against
+a broker.
 
 ### The remote connector — the source that inverts this table
 
@@ -712,7 +737,7 @@ Stated so nobody discovers it mid-build:
 
 | | |
 |---|---|
-| A sink TCK and a lookup TCK | Only sources have one. The transactional sink protocol is tested per sink — `TransactionalSinkDeliveryTest` against a model, `JdbcSinkPluginTest` and `JdbcSinkRegistrationTest` against H2 — not by a kit a new sink can run |
+| A sink TCK and a lookup TCK | Only sources have one. The transactional sink protocol is tested per sink — `TransactionalSinkDeliveryTest` against a model, `JdbcSinkPluginTest` and `JdbcSinkRegistrationTest` against H2, `KafkaSinkBrokerTest` and `KafkaSinkRegistrationTest` against a real broker — not by a kit a new sink can run |
 | Capability verification in the TCK | Replay and exactly-once are tested; ordering, deletes and pushdown claims are believed, not tested |
 | An SPI stability statement | `Version` exists; nothing says what change breaks a plugin |
 | Plugin isolation | A connector shares the engine's classpath; a dependency clash is yours to resolve |

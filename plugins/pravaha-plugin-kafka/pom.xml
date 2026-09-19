@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+  <artifactId>pravaha-plugin-kafka</artifactId>
+  <name>Pravaha :: plugin :: kafka</name>
+  <description>A sink that writes a continuous query's changes to a Kafka topic: keyed upserts with
+    tombstones, or an explicit changelog, JSON by default. Exactly once to a read_committed consumer,
+    through a staging topic and Kafka transactions tied to the engine's checkpoints.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- Compile scope: a BYTES column is copied out of the engine's binary row, and a DECIMAL's two
+         limbs are reassembled the way the engine wrote them. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-clients</artifactId>
+      <exclusions>
+        <!--
+          The three compression codecs kafka-clients brings are JNI: zstd-jni and snappy-java carry a
+          native library per platform (Linux on x86_64, aarch64, arm, ppc64le, s390x, riscv64 and
+          more; macOS; Windows; FreeBSD), and lz4-java its own native build beside a Java fallback.
+          The client loads a codec only when a batch uses it, so without them it runs as it did:
+          compression.type none (the default here) and gzip, which is the JDK's own
+          java.util.zip, work; lz4, snappy and zstd are refused by the sink at configuration, with
+          PRV-5100, rather than failing at the first batch with a NoClassDefFoundError.
+
+          The same trade the Cassandra plugin made for jnr-posix: one bundle that runs anywhere,
+          proven by this module's tests, the real-broker ones included, passing without them.
+          A deployment that wants lz4 or zstd puts the codec jar on this plugin's classpath and
+          sets kafka.compression.type; the refusal checks for the class, not the name.
+        -->
+        <exclusion>
+          <groupId>com.github.luben</groupId>
+          <artifactId>zstd-jni</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.lz4</groupId>
+          <artifactId>lz4-java</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.xerial.snappy</groupId>
+          <artifactId>snappy-java</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!-- The end-to-end tests register a real continuous query writing to Kafka, with checkpoints,
+         through the registry that delivers to sinks in production. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-registry</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-testkit</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>kafka</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

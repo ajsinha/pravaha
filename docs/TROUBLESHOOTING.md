@@ -136,7 +136,10 @@ sink is detached the same way when a prepare or a commit fails.
 **Is the sink transactional?** Then nothing it is written is visible until the next checkpoint is
 stored — up to `pravaha.checkpoint.interval` behind the view — and without
 `pravaha.checkpoint.directory` each commit is its own transaction. The registration's `INFO` line
-(`query '…' writes to sink '…', exactly-once: …`) says which the node is doing.
+(`query '…' writes to sink '…', exactly-once: …`) says which the node is doing. For `kafka-sink`,
+also check the reader: a consumer with the default `isolation.level=read_uncommitted` can see a
+commit that a crash aborted and the restart redid, twice; exactly once is promised to
+`read_committed`.
 
 **Did a filter silently match nothing?** `WHERE tier = ?` bound to `NULL` matches **no rows**, because
 `x = NULL` is UNKNOWN under SQL's three-valued logic. `IS NULL` is what finds the empty ones.
@@ -219,6 +222,15 @@ missing `--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.l
 Arrow fails *inside the server* and cancels the stream; the client sees only the cancellation. On
 Java 24+ add `--sun-misc-unsafe-memory-access=allow` — it is **not** valid on 21 and the JVM refuses
 to start.
+
+**A `kafka-sink` detached with `PRV-5102` saying another producer fenced it.** Two sinks opened with
+the same `transactional.id` — two nodes running one binding, or two registrations naming it — and
+the broker lets only the newest write. Give each registration its own binding (the default id is the
+binding's name). The same code follows a transaction that outlived `kafka.transaction.timeout.ms`.
+`PRV-5101` at registration is the brokers unreachable, the target topic missing (the sink never
+creates it), or the credentials or ACLs refused; `PRV-5103` is the staging topic compacted, not
+creatable, or — at a restart after a long outage — already past the staged changes a checkpoint
+recorded, which are then lost to the topic: raise `staging.retention.ms` and re-register.
 
 **A client closed and the server still holds a subscription.** Fixed, but if you see it: the server
 learns nobody is listening from a *cancellation*, not from a dropped transport. The SDK cancels what
@@ -408,6 +420,10 @@ way it was registered.
 | `PRV-5092` | INGEST_FEED_FAILED | plugins |
 | `PRV-5093` | EGRESS_NO_SUCH_SINK_PLUGIN | plugins |
 | `PRV-5094` | EGRESS_SINK_BINDING_FAILED | plugins |
+| `PRV-5100` | KAFKA_BAD_CONFIGURATION | plugins |
+| `PRV-5101` | KAFKA_CONNECT_FAILED | plugins |
+| `PRV-5102` | KAFKA_WRITE_FAILED | plugins |
+| `PRV-5103` | KAFKA_STAGING_UNUSABLE | plugins |
 | `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |

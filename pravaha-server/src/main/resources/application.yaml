@@ -249,6 +249,14 @@ pravaha:
   #   plugin: jdbc-sink
   #   options: {url: "jdbc:postgresql://pg-1:5432/analytics", user: pravaha, password: "${PG_PASSWORD}",
   #             table: spend, schema: "user_id:STRING,total:INT64", key.columns: user_id}
+  # `kafka-sink` writes the changes to a topic you create: keyed JSON upserts with a tombstone for a
+  # retraction (`mode: upsert`, key.columns required; compact the topic), or every change with its
+  # op and weight (`mode: changelog`). It is transactional through a staging topic: a checkpoint's
+  # changes are written to the target in one Kafka transaction once the checkpoint is durable --
+  # exactly once to a read_committed consumer. TLS is the shared tls.* options; SASL is user/password.
+  #   plugin: kafka-sink
+  #   options: {bootstrap.servers: "kafka-1:9092", topic: spend-by-user,
+  #             schema: "user_id:STRING,total:INT64", key.columns: user_id}
   #
   # sinks:
   #   audit_trail:

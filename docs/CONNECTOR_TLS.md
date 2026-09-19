@@ -36,7 +36,7 @@ indistinguishable from a correct one until someone is actually attacking you.
 
 ## 2. Connectors
 
-A connector is a plugin dialling out — Aerospike, Cassandra, a JDBC database. The shared options
+A connector is a plugin dialling out — Aerospike, Cassandra, Kafka, a JDBC database. The shared options
 live in `pravaha-api/src/main/java/com/ash/messaging/pravaha/api/plugin/PluginTls.java` and every
 connector that can take an `SSLContext` reads exactly the same ones.
 
@@ -185,6 +185,44 @@ If a plaintext JDBC connection is deliberate — a database on a loopback socket
 
 The same holds for every JDBC connector: the `jdbc` source, the JDBC lookup, and the `jdbc-sink`
 under `pravaha.sinks.<name>` — each refuses `tls.*` with `PRV-5074` and takes its TLS in `url`.
+
+### 3.4 Kafka — the shared options, mapped to Kafka's `ssl.*`
+
+The Kafka client takes files and properties, not an `SSLContext`, so `kafka-sink` maps the shared
+options onto Kafka's own. `PluginTls` still reads them first, so everything in §2 holds: an unknown
+`tls.*` option, half a certificate pair, both forms of one thing, an unreadable file or a PKCS#1 key
+is refused (`PRV-5100`) with the same words every other connector uses.
+
+| Shared option | Kafka property |
+| --- | --- |
+| `tls.ca` | `ssl.truststore.type=PEM`, `ssl.truststore.location` |
+| `tls.truststore` (+ `.password`, `.type`) | `ssl.truststore.location`, `.password`, `.type` (guessed from the extension) |
+| `tls.certificate` + `tls.key` | `ssl.keystore.type=PEM`, with the two files' contents as `ssl.keystore.certificate.chain` and `ssl.keystore.key` |
+| `tls.keystore` (+ `.password`, `.type`) | `ssl.keystore.location`, `.password`, `.type`, and `ssl.key.password` |
+| `tls.verify-hostname` | `ssl.endpoint.identification.algorithm`: `https` (the default), or empty for `false` |
+
+`security.protocol` follows: `SSL` with TLS on, `SASL_SSL` when `user` and `password` are set too,
+`SASL_PLAINTEXT` for SCRAM without TLS. SASL `PLAIN` without TLS is refused — it sends the password
+as it is. `kafka.ssl.*` and `kafka.security.protocol` are refused, so TLS has one spelling.
+
+```yaml
+pravaha:
+  sinks:
+    spend_topic:
+      plugin: kafka-sink
+      options:
+        bootstrap.servers: "kafka-1.internal:9093"
+        topic: spend-by-user
+        schema: "user_id:STRING,total:INT64"
+        key.columns: user_id
+        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.certificate: /etc/pravaha/tls/pravaha.crt   # mTLS, if the listener asks for a client certificate
+        tls.key: /etc/pravaha/tls/pravaha.key
+```
+
+Tested: the mapping, and that Kafka's own loader accepts the result (the producer builds its TLS
+engine in its constructor). Not tested here: a handshake with a TLS listener — the broker tests run
+in plaintext.
 
 ---
 

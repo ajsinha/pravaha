@@ -46,6 +46,7 @@
     <module>plugins/pravaha-plugin-jdbc</module>
     <module>plugins/pravaha-plugin-aerospike</module>
     <module>plugins/pravaha-plugin-cassandra</module>
+    <module>plugins/pravaha-plugin-kafka</module>
     <module>plugins/pravaha-cluster-zookeeper</module>
     <module>pravaha-bindings</module>
     <module>pravaha-embedded</module>
@@ -87,6 +88,7 @@
     <docker.api.version>1.44</docker.api.version>
     <aerospike.client.version>10.4.0</aerospike.client.version>
     <cassandra.driver.version>4.19.3</cassandra.driver.version>
+    <kafka.clients.version>3.9.1</kafka.clients.version>
     <arrow.version>19.0.0</arrow.version>
     <jmh.version>1.37</jmh.version>
 
@@ -272,6 +274,12 @@
         <groupId>org.apache.cassandra</groupId>
         <artifactId>java-driver-core</artifactId>
         <version>${cassandra.driver.version}</version>
+      </dependency>
+      <!-- The Kafka sink's client. Its compression codecs are excluded where it is used; see that pom. -->
+      <dependency>
+        <groupId>org.apache.kafka</groupId>
+        <artifactId>kafka-clients</artifactId>
+        <version>${kafka.clients.version}</version>
       </dependency>
       <!--
         Pinned for TEST scope only, and only because excluding jnr-posix from the driver changed

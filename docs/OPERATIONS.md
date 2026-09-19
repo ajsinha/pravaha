@@ -633,7 +633,7 @@ columns are then also written as bins so a reader can see them. The connection t
 `tls.*` options as the Aerospike source ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)).
 
 `jdbc-sink` maintains the query's answer in a relational table — PostgreSQL, H2, or anything else
-with a JDBC driver the deployment supplies — and is the one shipped sink that is **transactional**:
+with a JDBC driver the deployment supplies — and is **transactional**, as `kafka-sink` below is:
 
 ```yaml
 pravaha:
@@ -683,6 +683,67 @@ pravaha:
 - **`PRV-5076`** is a write, staging, commit or abort the database refused; the delivery then
   detaches the sink with `PRV-8009`.
 
+`kafka-sink` writes the query's changes to a Kafka topic, and is transactional too:
+
+```yaml
+pravaha:
+  sinks:
+    spend_topic:
+      plugin: kafka-sink
+      options:
+        bootstrap.servers: "kafka-1.internal:9093,kafka-2.internal:9093"
+        topic: spend-by-user              # you create it (cleanup.policy=compact for upsert); the sink never does
+        schema: "user_id:STRING,window_end:INT64,total:INT64"
+        key.columns: user_id,window_end   # must be the registration's --keys; optional in changelog mode
+        mode: upsert                      # default; `changelog` writes {"op","weight","row"} for every change
+        transactional: true               # default; false sends each change straight to the topic
+        # transactional.id: spend_topic   # default: this binding's name; one writer per id
+        # staging.topic: pravaha-staging.spend_topic      # created if missing: 1 partition, delete policy
+        # staging.retention.ms: 604800000                 # a week; must outlast the longest outage
+        # commit.group: pravaha-sink.spend_topic          # where each commit's receipt is kept
+        user: pravaha                     # SASL; sasl.mechanism PLAIN (default, TLS required) or SCRAM-SHA-256/512
+        password: ${KAFKA_PASSWORD}
+        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        # kafka.linger.ms: 20             # any other Kafka client property, with its kafka. prefix
+```
+
+- **The record.** Upsert mode: the key is the key columns as a JSON object (`{"user_id":"u1",
+  "window_end":1700000000}`), the value the whole row by column name, and a retraction is a
+  **tombstone** — the key with a null value — so a compacted topic holds the query's answer, one
+  record per key, and Kafka Streams, ksqlDB or a Connect sink read it as a table. Changelog mode:
+  the value is `{"op":"insert"|"delete","weight":n,"row":{...}}`, keyed by `key.columns` or, without
+  them, by the whole row, so a row's insert and its retraction share a partition and stay in order.
+  JSON only; `DECIMAL` is a JSON number with its exact digits, `BYTES` base64, dates and times ISO-8601
+  in UTC.
+- **Exactly once, through a staging topic** — to a consumer reading with
+  `isolation.level=read_committed`. A write goes to `staging.topic`, not the target. Once the
+  checkpoint that recorded it is durable, the commit reads that checkpoint's staged changes back and
+  writes them to the target in **one Kafka transaction** under `transactional.id`, together with an
+  offset for `commit.group` that marks them done — so a `read_committed` reader sees a checkpoint's
+  changes all at once or not at all, and a commit repeated after a crash finds the mark and writes
+  nothing. Opening the sink fences any earlier producer with the same `transactional.id` and aborts
+  a commit it died inside. Not a Kafka transaction held open until the checkpoint: Kafka has no
+  prepare, and a restarted producer aborts what its predecessor left open, which would lose the
+  changes of a checkpoint that was durable when the process died. The cost: each change is written
+  twice, and the topic trails the view by up to one `pravaha.checkpoint.interval`. A
+  `read_uncommitted` consumer can see a commit that was aborted by a crash and redone: at least once
+  for it.
+- **What that guarantee assumes:** one sink per `transactional.id` — a second one fences the first,
+  which is detached with `PRV-5102` and `PRV-8009`, so give each registration its own binding — and
+  staged changes that outlive the gap between a checkpoint and its commit, restarts included
+  (`staging.retention.ms`). A commit whose staged changes retention has deleted is refused with
+  `PRV-5103` rather than skipped. The principal needs write on both topics, read on the staging
+  topic, the `transactional.id`, and read on `commit.group`. With `transactional: false` an upsert
+  sink is effectively once on a compacted topic and a changelog sink at least once.
+- **Checked before a row moves:** `kafka.*` properties that would weaken the guarantee
+  (`enable.idempotence=false`, `acks` other than `all`) or that the sink owns (`transactional.id`,
+  serializers, `security.protocol`, `ssl.*`) are refused with `PRV-5100`, as is a misspelled one.
+  The target topic must exist (`PRV-5101`); an upsert sink on a topic that is not compacted is
+  logged, not refused. TLS is the shared `tls.*` options ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)).
+- **Compression:** `none` (the default) and `gzip`. The lz4, snappy and zstd codecs are native code
+  and not shipped; asking for one is refused with `PRV-5100` unless its library is on the plugin's
+  classpath.
+
 A registration names the sink, not the configuration: `pravaha register --name big_txn --sql-file
 q.sql --sink audit_trail`, or the `sink` argument of either SDK's `register`. The query's view is
 maintained exactly as before, and every commit of it is also written to the sink.
@@ -706,13 +767,13 @@ What an operator should know about that delivery:
 
   | Sink declares | Guarantee | Why |
   |---|---|---|
-  | `transactional` (`jdbc-sink`), and `pravaha.checkpoint.directory` is set | **exactly once** | Writes between checkpoints go into a transaction, prepared at each checkpoint's cut and recorded in the checkpoint, committed once the checkpoint is durable. A restore commits what the checkpoint recorded and has the sink abandon the rest, which the replay writes again |
+  | `transactional` (`jdbc-sink`, `kafka-sink`), and `pravaha.checkpoint.directory` is set | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | Writes between checkpoints go into a transaction, prepared at each checkpoint's cut and recorded in the checkpoint, committed once the checkpoint is durable. A restore commits what the checkpoint recorded and has the sink abandon the rest, which the replay writes again |
   | `transactional`, no checkpoint directory | at least once | Nothing to tie a transaction to, so each commit is its own |
   | `idempotentUpsert` (`aerospike-sink`) | effectively once | The replay rewrites records with the values they already hold |
   | neither (`filesystem`) | at least once | Expect duplicates in the file after a restart. A view commit carries no sequence a replay would repeat, so there is nothing to deduplicate on |
 
-  `jdbc-sink` is transactional by default (`transactional: false` makes it idempotent upsert, or a
-  plain append); the other two shipped sinks are not. The source caps it too: one that cannot
+  `jdbc-sink` and `kafka-sink` are transactional by default (`transactional: false` makes them
+  idempotent upsert, or a plain append or changelog); `aerospike-sink` and `filesystem` are not. The source caps it too: one that cannot
   rewind to a checkpoint's offsets is at least once end to end.
 - **A sink added to a running computation** (a second name for the same query) is first sent the
   view's whole contents — at the query's next change or checkpoint, not at once — inside its first
