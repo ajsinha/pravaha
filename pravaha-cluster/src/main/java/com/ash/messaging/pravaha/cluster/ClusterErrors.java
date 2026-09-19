@@ -41,7 +41,8 @@ public final class ClusterErrors {
      * first slice built {@code PartitionAssigner}, which wires real membership from a real {@code
      * ClusterCoordinator} into a real, continuously recomputed assignment -- constructed by tests,
      * not yet by a running node -- and {@code CoordinatorFactory} allows {@code PARTITIONED} on any
-     * mechanism that excludes split-brain (S-3, reopened: see {@code CoordinatorFactory}). What did not land, on purpose, is anything that needs a
+     * mechanism that excludes split-brain -- while a node refuses to serve in that mode until it
+     * consumes ownership (S-3; {@code PravahaNode.refusePartitionedServing}). What did not land, on purpose, is anything that needs a
      * leader at all: assignment is a pure function every node computes independently from whatever
      * membership it has observed (see {@code PartitionAssigner}'s own javadoc for why), so nothing
      * asks "am I the leader" before doing it. {@code Rebalancer} and {@code PartitionHandoff} remain

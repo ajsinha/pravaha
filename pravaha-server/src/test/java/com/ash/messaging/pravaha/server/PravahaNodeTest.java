@@ -150,7 +150,37 @@ class PravahaNodeTest {
         // Two nodes each believing they own a partition write the same aggregate twice, and the
         // damage is silent, durable, and found later by whoever reconciles the numbers. Refusing to
         // start is the cheap end of that.
-        assertThatThrownBy(node::start).isInstanceOf(PravahaException.class).hasMessageContaining("PRV-9002");
+        assertThatThrownBy(node::start)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-9002")
+                // The more specific diagnosis wins: this pair is refused for split-brain before the
+                // node ever asks whether it could serve partitioned.
+                .hasMessageContaining("cannot exclude split-brain");
+        node.stop();
+    }
+
+    @Test
+    void partitionedModeIsRefusedByANodeEvenOnACoordinatorThatExcludesSplitBrain() {
+        // S-3, reopened and closed again. The coordinator can be built PARTITIONED and computes a
+        // real assignment, but nothing in the node consumes it, so a node that started would read
+        // and serve every partition while reporting itself partitioned.
+        PravahaNode node = PravahaNode.builder()
+                .withCatalog(catalog())
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence(""))
+                .withCluster("PARTITIONED", "single")
+                .withNodeId("test-node")
+                .build();
+
+        assertThatThrownBy(node::start)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-9002")
+                .hasMessageContaining("cannot be served by this node")
+                .hasMessageContaining("S-3");
+        assertThat(node.isRunning()).isFalse();
+        assertThat(node.registry()).as("refused before anything could serve").isEmpty();
         node.stop();
     }
 

@@ -37,15 +37,18 @@ Sequenced by **what a wrong answer costs**, not by what is quickest.
 
 ## One consequence to notice before it surprises somebody
 
-**S-3's refusal was temporary, and it has been removed before its condition was met.** `CoordinatorFactory`
-refused `PARTITIONED` outright, because the mode started, reported itself partitioned, and
-partitioned nothing. This ADR said the refusal should go *in the same change that makes the mode
-real*. Item 8's first slice removed it when membership began producing a real assignment
-(`PartitionAssigner`), and the second added fenced partition leases — but nothing in a running node
-constructs a `PartitionAssigner` or asks for a lease before reading a partition. So **`PARTITIONED`
-on a coordinator with consensus (`zookeeper`) now starts and serves every partition**, which is S-3's
-original symptom again. Until item 8's consumer exists, a deployment must not read `PARTITIONED` as
-anything more than a label.
+**S-3's refusal is temporary, and its removal condition is here.** `CoordinatorFactory` refused
+`PARTITIONED` outright, because the mode started, reported itself partitioned, and partitioned
+nothing. This ADR said the refusal should go *in the same change that makes the mode real*. Item 8's
+first slice removed it from the factory when membership began producing a real assignment — true of
+the cluster layer, and not of a node, which still constructs no `PartitionAssigner` and takes no
+lease before reading. For three days a `PARTITIONED` node started and served every partition, and
+S-3 was reopened on 2026-09-19. The refusal now lives in `PravahaNode` (`refusePartitionedServing`,
+`PRV-9002`), where the claim would be made: the factory builds the coordinator, so the library can be
+tested as what it is, and a node refuses to serve on its strength. **Whoever builds item 8's consumer
+removes that node-side refusal in the same change**, and
+`PravahaNodeTest#partitionedModeIsRefusedByANodeEvenOnACoordinatorThatExcludesSplitBrain` is what will
+fail and say so.
 
 The split-brain guard is unchanged and still ordered first: `PARTITIONED` on a mechanism that
 cannot exclude split-brain (`socket`) is refused with `PRV-9002`.
@@ -56,8 +59,8 @@ The blocker list is still not being waived and the gate packs still say what is 
 M6 not passed because its demo has never been performed. A longer road to GA is not a reason to start
 rounding anything up.
 
-**Progress against that rule, recorded 2026-09-19.** One GA-BLOCKER is open — `S-3`, reopened
-because its refusal was removed early (above) — and no GA-REQUIRED finding. `SX-1` was already fixed in code and gained the test it lacked; `SX-5` lost its code channel to
+**Progress against that rule, recorded 2026-09-19.** No GA-BLOCKER and no GA-REQUIRED finding is
+open — `S-3` was reopened and closed again the same day (above). `SX-1` was already fixed in code and gained the test it lacked; `SX-5` lost its code channel to
 authorizing the parsed name before planning, and its latency channel was then re-measured rather than
 assumed — denied and absent reads cost 0.033 and 0.036 ms — and closed on the number. Item by item:
 
@@ -70,4 +73,4 @@ assumed — denied and absent reads cost 0.033 and 0.036 ms — and closed on th
 | 5 | **Closed** — a registration names a sink, the changelog is checked before the sink opens, and every commit reaches it, at least once ([ADR-043](043-how-a-continuous-query-names-its-sink.md)) |
 | 6 | **Built, and not yet used by a deployment** — projection and `COUNT`/`SUM` partial-aggregate pushdown exist in the planner and the engine, but no shipped plugin declares either and no ingest path delivers a partial. The Cassandra plugin is built, as a full `token()`-range scan |
 | 7 | **Partly** — the console's read-side authorization gap and three literal §23.20 items are closed; the design-system surface is not built, by decision |
-| 8 | **Two slices of several** — real partition assignment and fenced leases; no runtime consumer, so execution is single-node (see above) |
+| 8 | **Two slices of several** — real partition assignment and fenced leases; no runtime consumer, so a node refuses to serve `PARTITIONED` (see above) |

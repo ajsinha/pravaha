@@ -65,7 +65,8 @@
   by rendezvous hashing, and ownership of a partition is a lease acquired by compare-and-swap with a
   fenced handoff, proved against a real ZooKeeper ensemble by making two nodes genuinely contend.
   What is still missing is the consumer — no runtime path yet asks "may I serve this partition right
-  now" before reading one — so execution remains single-node.
+  now" before reading one — so execution remains single-node, and a node refuses to start in
+  `PARTITIONED` mode (`PRV-9002`) rather than serve every partition while claiming to own some.
 - **No Spring Boot starter** (ADR-020). The engine core contains no Spring and sits behind a plain
   `PravahaEngine` seam, so embedding it never dictates your Spring version.
 - **Sinks are at-least-once, and one ships that can be named** (ADR-043). A registration can name a

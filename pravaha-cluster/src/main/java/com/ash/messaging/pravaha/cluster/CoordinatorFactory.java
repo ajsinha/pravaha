@@ -95,13 +95,14 @@ public final class CoordinatorFactory {
                             + "mode REPLICATED, where a split brain costs duplicated work rather than wrong "
                             + "numbers. Refusing now rather than during a partition.");
         }
-        // S-3 -- REOPENED 2026-09-19, read this before relying on PARTITIONED. The paragraph below
-        // is the reasoning for removing the refusal, and its premise has not been met: nothing in
-        // a running node constructs a PartitionAssigner or asks for a partition lease before
-        // reading, so a PARTITIONED node still serves every partition. ADR-039 said the refusal
-        // should go in the same change that makes the mode real; restore it, or build the consumer.
+        // S-3. The factory builds a PARTITIONED coordinator, because as a library it is real: the
+        // assignment and the leases work and are tested against a real ZooKeeper. A NODE refuses to
+        // serve in the mode (PravahaNode.refusePartitionedServing) until something in it consumes
+        // partition ownership -- the refusal moved to where the claim would be made, rather than
+        // going away. Removing it here without that node-side refusal reopened S-3 for three days.
         //
-        // The original note: PARTITIONED used to be refused unconditionally here, because nothing in the
+        // The original note on removing it from here: PARTITIONED used to be refused unconditionally here, because
+        // nothing in the
         // build computed an assignment at all: PartitionAssignment, Rebalancer and PartitionHandoff
         // were never referenced from any running path, and PARTITIONED x single started, reported
         // itself partitioned, and partitioned nothing. ADR-039 item 8's first slice is what changes:

@@ -12,27 +12,27 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
 ====================================================================
 
   develop  pushed after every verified change ("drill to develop")
-  main     merged from develop only when the owner asks ("drill to main"),
-           so it is normally BEHIND develop. That is intended.
+  main     merged from develop when the owner says "drill" or "drill to
+           main", so between drills it is BEHIND develop. That is intended.
 
-  Findings register: ONE GA-BLOCKER open, and it is a reopened one -- S-3.
-  0 GA-REQUIRED. The header of docs/qa/FINDINGS.md has the exact counts and
-  FindingsRegisterTest holds it to them.
+  Findings register: 0 GA-BLOCKER, 0 GA-REQUIRED. The header of
+  docs/qa/FINDINGS.md has the exact counts and FindingsRegisterTest holds it
+  to them.
 
-  S-3 (PARTITIONED does nothing). It was fixed by making CoordinatorFactory
-  refuse PARTITIONED. ADR-039 item 8's first slice (9238785) removed that
-  refusal because membership now produces a real assignment -- but no running
-  node constructs a PartitionAssigner or asks for a partition lease before
-  reading. So PARTITIONED starts and every node serves every partition, and
-  with sinks attached two such nodes would both write the whole answer to one
-  sink. Two honest ways out:
-    (a) restore the refusal in CoordinatorFactory until the consumer exists, or
-    (b) build the consumer (ADR-039 item 8, third slice).
-  An agent had started (b) in .claude/worktrees/agent-a15965300af1b29ea, as
-  UNCOMMITTED edits: a per-row ownership gate in PartitionedIngestPump that
-  DROPS rows this node cannot prove it owns. Review the design before using
-  it: dropping is only safe if another node reads the same source and keeps
-  the row; otherwise, once the offset moves past it, the row is lost.
+  S-3 was reopened and re-fixed on 2026-09-19. 9238785 had removed
+  CoordinatorFactory's refusal of PARTITIONED while nothing in a node consumed
+  partition ownership. The refusal now lives in PravahaNode
+  (refusePartitionedServing, PRV-9002): the factory still builds the
+  coordinator, so membership/assignment/leases stay testable as a library,
+  and a node will not serve PARTITIONED. Whoever builds ADR-039 item 8's
+  consumer removes that refusal in the same change.
+
+  An agent had started that consumer in
+  .claude/worktrees/agent-a15965300af1b29ea, as UNCOMMITTED edits: a per-row
+  ownership gate in PartitionedIngestPump that DROPS rows this node cannot
+  prove it owns. Review the design before using it: dropping is only safe if
+  another node reads the same source and keeps the row; otherwise, once the
+  offset moves past it, the row is lost.
 
 ====================================================================
 2. WHAT LANDED 2026-09-19
@@ -63,7 +63,6 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
 3. WHAT IS NEXT (ADR-039's road, as it stands)
 ====================================================================
 
-  - S-3 (above) -- the only blocker.
   - Item 2: no node setting turns on lane multiplexing (W9-8). The registry
     supports it (QueryRegistry.multiplexingLanes); PravahaNode never calls it,
     and there is no admission control. Note there is NO pravaha.lane.multiplex
@@ -88,8 +87,8 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
     messages. Ashutosh Sinha is the sole author. Absolute.
   * git add with EXPLICIT PATHS. Never git add -A.
   * Verify, THEN commit, THEN push. "Drill to develop" = commit and push
-    develop. "Drill to main" = merge develop into main and push main, only
-    when asked.
+    develop. "Drill to main" = merge develop into main and push main. A bare
+    "drill" = both. Work happens on develop; main moves only on a drill.
   * docs/qa/FINDINGS.md is owned by the lead session. Agents never edit it.
   * Documentation rot is a build failure. After doc edits:
         ./mvnw -o -pl pravaha-it test \

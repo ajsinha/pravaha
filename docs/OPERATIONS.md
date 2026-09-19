@@ -234,16 +234,19 @@ pravaha:
 |---|---|---|---|
 | `single` | ✅ (there is no second node) | no | One node. The default, and what embedded always is |
 | `socket` | ❌ | no | Development, and `REPLICATED` where a split brain costs duplicated work |
-| `zookeeper` | ✅ | yes | Production `PARTITIONED`. Needs `plugins/pravaha-cluster-zookeeper` on the classpath |
+| `zookeeper` | ✅ | yes | `PARTITIONED`, once a node can serve it (below). Needs `plugins/pravaha-cluster-zookeeper` on the classpath |
 
 | Mode | Means | Needs consensus |
 |---|---|---|
 | `SINGLE` | One node | no |
 | `REPLICATED` | Several nodes, each holding the whole state | no |
-| `PARTITIONED` | Partitions owned by particular nodes | **yes** |
+| `PARTITIONED` | Partitions owned by particular nodes — **refused by a node today** | **yes** |
 
-**`PARTITIONED` on a coordinator without consensus is refused at startup** (`PRV-9002`), not warned
-about. Two nodes each believing they own a partition means two nodes writing the same aggregate, and
+**A node refuses to start `PARTITIONED` on any coordinator** (`PRV-9002`). Membership and partition
+assignment are built and tested, but nothing in the node asks which partitions it owns before
+reading, so it would serve every partition while reporting itself partitioned (S-3). The refusal
+lifts with ADR-039 item 8's consumer. Separately, and checked first, **`PARTITIONED` on a coordinator
+without consensus is refused** for split-brain, not warned about. Two nodes each believing they own a partition means two nodes writing the same aggregate, and
 the damage is silent, durable, and found later by whoever reconciles the numbers. §21.2 rejected a
 store-backed CAS lease for exactly this reason.
 
@@ -262,15 +265,15 @@ A deployment that runs etcd or Consul can supply its own coordinator through `Co
 and `ServiceLoader`, without the engine knowing about it.
 
 **Raft is not implemented.** §21.2 and ADR-009 choose embedded Raft (Ratis) as the eventual default —
-consensus without a mandatory external service. Until it exists, production `PARTITIONED` means
-ZooKeeper.
+consensus without a mandatory external service. Until it exists, `PARTITIONED` — once a node serves
+it — means ZooKeeper.
 
 ## Rebalancing: what happens when the membership changes
 
 > **Not wired into a node.** What follows is how `Rebalancer` and `PartitionHandoff` behave as a
 > library, tested with real threads and a real ZooKeeper ensemble. No running node constructs either,
-> nor a `PartitionAssigner`, so a node never rebalances and a `PARTITIONED` node serves every
-> partition (S-3, reopened; ADR-039 item 8). Read this as the design that ships next, not as what a
+> nor a `PartitionAssigner`, so a node never rebalances, and a node refuses to start `PARTITIONED`
+> at all (S-3; ADR-039 item 8). Read this as the design that ships next, not as what a
 > node does today.
 
 A node joins or leaves, the assignment is recomputed, and the partitions whose owner changed are

@@ -648,11 +648,45 @@ public class PravahaNode implements SmartLifecycle {
         startNow();
     }
 
+    /**
+     * Refuses to serve in {@code PARTITIONED} mode, because this node would not partition anything.
+     *
+     * <p>S-3, a second time. {@code CoordinatorFactory} used to refuse the mode outright; ADR-039 item
+     * 8's first slice removed that once membership produced a real assignment, which is true of the
+     * <em>cluster</em> layer and a good reason for the factory to build the coordinator. It is not
+     * true of this node: nothing here constructs a {@code PartitionAssigner} or takes a partition
+     * lease before reading, so a node started {@code PARTITIONED} reads and serves every partition
+     * while reporting itself partitioned -- and two of them, with a sink attached, would each write
+     * the whole answer to it. The refusal lives here rather than in the factory because this is
+     * where the claim would be made: the coordinator can be built and tested as a library, and a
+     * node may not serve on its strength until something here consumes ownership.
+     */
+    private void refusePartitionedServing() {
+        if (CoordinatorFactory.modeOf(clusterConfiguration)
+                != com.ash.messaging.pravaha.cluster.ClusterMode.PARTITIONED) {
+            return;
+        }
+        com.ash.messaging.pravaha.cluster.ClusterCoordinator built = coordinator;
+        coordinator = null;
+        closeQuietly("cluster coordinator", built);
+        throw new PravahaException(
+                com.ash.messaging.pravaha.cluster.ClusterErrors.INSUFFICIENT_GUARANTEE,
+                "cluster mode PARTITIONED cannot be served by this node: membership and partition "
+                        + "assignment are built, but nothing in the node asks which partitions it owns before "
+                        + "reading, so it would read and serve every partition while reporting itself "
+                        + "partitioned -- and two such nodes would each write the whole answer to any sink. "
+                        + "Use SINGLE, or REPLICATED for more than one node if duplicated work is acceptable. "
+                        + "This refusal lifts when a node consumes partition ownership (ADR-039 item 8, S-3).");
+    }
+
     private void startNow() {
         if (running) {
             return;
         }
         coordinator = CoordinatorFactory.create(clusterConfiguration);
+        // S-3. After the factory, so PARTITIONED on a mechanism that cannot exclude split-brain keeps
+        // its more specific diagnosis; before start, so a refused node never joins the cluster.
+        refusePartitionedServing();
         // Advertised on the Flight port: that is the address other nodes would have to reach this
         // one on, and advertising an address nobody can connect to is a cluster that forms and
         // cannot work.

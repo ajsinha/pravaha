@@ -377,38 +377,26 @@ class StateClusterTest extends StateTestSupport {
                         "close");
 
         // The demonstration this case was originally built on -- PARTITIONED and SINGLE producing
-        // identical results because PARTITIONED did nothing -- cannot be run as originally written,
-        // because PARTITIONED is no longer refused on a mechanism with consensus. What it is replaced
-        // with is the honest current claim: both modes serve the same rows (nothing here routes by
-        // partition ownership yet), and the PARTITIONED node can additionally say which partitions it
-        // owns, which the SINGLE node has no concept of at all.
+        // identical results because PARTITIONED did nothing. For a while after item 8's first slice
+        // it asserted exactly that as "the honest current claim", which was S-3's symptom written
+        // down as expected behaviour. A node now refuses to serve PARTITIONED until something in it
+        // consumes partition ownership, so the two halves of the claim are asserted separately:
+        // SINGLE answers, and PARTITIONED refuses rather than answering the same while reporting
+        // itself partitioned.
         Path singleJournal = Files.createTempDirectory("state106-s").resolve("registry.journal");
         Path partitionedJournal = Files.createTempDirectory("state106-p").resolve("registry.journal");
         var single = nodeWithMode("SINGLE", singleJournal);
         try {
-            var partitioned = nodeWithMode("PARTITIONED", partitionedJournal);
-            try {
-                List<List<Object>> singleAnswer = runThreeQueriesAndScan(single);
-                assertThat(singleAnswer)
-                        .as("SINGLE answers, the mode a one-node GA ships with")
-                        .isNotEmpty();
-                assertThat(runThreeQueriesAndScan(partitioned))
-                        .as("PARTITIONED answers identically -- nothing yet routes by partition ownership")
-                        .isEqualTo(singleAnswer);
-
-                assertThat(partitioned.coordinator())
-                        .isPresent()
-                        .get()
-                        .extracting(c -> c.guarantees().excludesSplitBrain())
-                        .as("single is a legitimate mechanism for PARTITIONED precisely because one "
-                                + "node cannot disagree with itself")
-                        .isEqualTo(true);
-            } finally {
-                partitioned.stop();
-            }
+            assertThat(runThreeQueriesAndScan(single))
+                    .as("SINGLE answers, the mode a one-node deployment ships with")
+                    .isNotEmpty();
         } finally {
             single.stop();
         }
+        assertThatThrownBy(() -> nodeWithMode("PARTITIONED", partitionedJournal))
+                .as("a node that would serve every partition must not start PARTITIONED (S-3)")
+                .hasMessageContaining("PRV-9002")
+                .hasMessageContaining("cannot be served by this node");
     }
 
     private com.ash.messaging.pravaha.server.PravahaNode nodeWithMode(String mode, Path journal) {

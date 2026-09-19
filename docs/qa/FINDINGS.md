@@ -5,7 +5,7 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **299 findings carrying a
-status — 184 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **1 is
+status — 185 FIXED, 101 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 101 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 94 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -54,18 +54,18 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 1 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 94 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
-**The blockers, by what they break — one open.** The fifteen this triage started with are all
+**The blockers, by what they break — none open.** The fifteen this triage started with are all
 **fixed**: data reaching the wrong principal (`SX-5`, `SX-1`, `SX-11`, and the security controls
 `CFG-5`, `CFG-6`, `P-3`, `SX-7`), silently wrong answers (`TIME-2`, `STRM-11`, `TY-3`, `TY-13`,
 `TY-21`, `I-3`), silent loss (`TY-2`, `W-2`, `TIME-1`, `TIME-4`), and a declared mechanism that did nothing
-(`I-6`). The one open is **`S-3`, reopened on 2026-09-19**: it was fixed by refusing `PARTITIONED`,
-and that refusal was removed with ADR-039 item 8's first slice while no running path yet consumes
-partition ownership — so the mode once more reports itself partitioned and partitions nothing.
+(`I-6`, `S-3`). `S-3` was reopened for a day on 2026-09-19 — its refusal of `PARTITIONED` had been
+removed with ADR-039 item 8's first slice while no running path consumed partition ownership — and
+is fixed again, with the refusal moved into the node, where the claim would be made.
 
 **`SX-11`, the worst of them, is fixed.** Authorization was keyed on the *registered view name*,
 never on what the query actually reads, so a principal denied everything named "payroll" saw 6 of 8
@@ -1080,8 +1080,7 @@ principal it refuses everything under any policy that inspects roles or tenant. 
 branch is unreachable, and `PRV-8007` is declared and never thrown.
 
 ## S-3 (HIGH) — `PARTITIONED` has no runtime behaviour at all
-> **Status:** OPEN — **reopened 2026-09-19: the refusal that fixed this was removed before the mode became real.** ADR-039 item 8's first slice (`9238785`) deleted `CoordinatorFactory`'s `PARTITIONED` refusal on the grounds that membership now produces a real assignment; but `PartitionAssigner` is constructed only in tests, and nothing in `PravahaNode` asks for a partition lease before reading one. So `PARTITIONED` × `zookeeper` (or `single`) starts and every node serves every partition -- this finding's original symptom, and with sinks now attached, two nodes configured PARTITIONED over one source would each write the whole answer to the same sink. ADR-039 said the refusal should go in the same change that makes the mode real; either restore it until item 8's consumer exists, or build the consumer. Previously FIXED: `CoordinatorFactory` refuses `PARTITIONED` outright, naming ADR-034 and what to use instead. Only `PARTITIONED` × `socket` was refused before, for split-brain, which made that look like the guard — `PARTITIONED` × `single` **started, reported itself partitioned, and partitioned nothing**. Refused rather than implemented (ADR-038): a mode that reports success and does nothing is worse than one that refuses, because only the second tells the operator what they actually have.
-> **Disposition:** GA-BLOCKER — declared and does nothing: a mode that reports itself partitioned and partitions nothing, the category S-3 was triaged into
+> **Status:** FIXED — again, and where the claim is made: `PravahaNode` refuses to serve `PARTITIONED` (`PRV-9002`, naming S-3) before it joins the cluster, on any mechanism, until something in the node consumes partition ownership. `CoordinatorFactory` still builds the coordinator, because as a library the assignment and leases are real and tested. `PravahaNodeTest#partitionedModeIsRefusedByANodeEvenOnACoordinatorThatExcludesSplitBrain` (seed-proven: without the call it fails) and `StateClusterTest#state106`, which had been asserting the symptom as expected behaviour. History: **reopened 2026-09-19: the refusal that fixed this was removed before the mode became real.** ADR-039 item 8's first slice (`9238785`) deleted `CoordinatorFactory`'s `PARTITIONED` refusal on the grounds that membership now produces a real assignment; but `PartitionAssigner` is constructed only in tests, and nothing in `PravahaNode` asks for a partition lease before reading one. So `PARTITIONED` × `zookeeper` (or `single`) starts and every node serves every partition -- this finding's original symptom, and with sinks now attached, two nodes configured PARTITIONED over one source would each write the whole answer to the same sink. ADR-039 said the refusal should go in the same change that makes the mode real; either restore it until item 8's consumer exists, or build the consumer. Previously FIXED: `CoordinatorFactory` refuses `PARTITIONED` outright, naming ADR-034 and what to use instead. Only `PARTITIONED` × `socket` was refused before, for split-brain, which made that look like the guard — `PARTITIONED` × `single` **started, reported itself partitioned, and partitioned nothing**. Refused rather than implemented (ADR-038): a mode that reports success and does nothing is worse than one that refuses, because only the second tells the operator what they actually have.
 
 
 Only `PARTITIONED` × `socket` is refused (`PRV-9002`). `PARTITIONED` × `single` **starts** — and

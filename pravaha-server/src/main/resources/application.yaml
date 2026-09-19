@@ -389,7 +389,9 @@ pravaha:
     # What is being asked of the cluster (a correctness question).
     #   SINGLE      one node
     #   REPLICATED  several nodes, each holding the whole state
-    #   PARTITIONED partitions owned by particular nodes -- requires real consensus
+    #   PARTITIONED partitions owned by particular nodes -- requires real consensus, and is refused
+    #               by a node today (PRV-9002): nothing yet consumes partition ownership, so the
+    #               node would serve every partition while claiming to own some (S-3)
     mode: SINGLE
     # Which coordinator provides it (an operational question).
     #   single     no second node to disagree with
