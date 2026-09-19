@@ -114,9 +114,13 @@ By far the most common report, and usually not a fault.
 clock does. Ten rows in, nothing out, is correct if nothing has yet told the engine that the window
 is complete. Send an event past the window's end.
 
-**Is the subscription attached?** A subscription starts from *now*, not from the beginning of time. A
-change committed before the subscriber attached was published to nobody. The console shows subscriber
-counts; `RegisteredQuery.subscriberCount()` is the same number in code.
+**Is the subscription attached?** A plain subscription starts from *now*, not from the beginning of
+time: a change committed before the subscriber attached was published to nobody. Worse, reading the
+view beside it does not fill the gap — subscribe-then-read and read-then-subscribe can both lose the
+commit in flight at that moment, silently (SUB-1). To keep a copy of a view, or to wait for one to
+reach an answer, subscribe *from a snapshot* instead: the first batch is the view at a commit and
+every later batch is a commit after it, with none missed. The console shows subscriber counts;
+`RegisteredQuery.subscriberCount()` is the same number in code.
 
 **Is the query paused?** A paused query keeps answering at the frontier it reached and stops
 advancing. Rows arriving while paused are dropped rather than buffered — a pause is meant to stop it
@@ -317,6 +321,20 @@ way, with `PRV-5083` / `PRV-5088`: switching `deletes` on an existing checkpoint
 **A client closed and the server still holds a subscription.** Fixed, but if you see it: the server
 learns nobody is listening from a *cancellation*, not from a dropped transport. The SDK cancels what
 it opened when you close it; a hand-rolled client must do the same.
+
+**A snapshot subscription ended with `PRV-6105 FLIGHT_SUBSCRIBER_BEHIND`.** The client stopped
+reading, or read more slowly than the query commits, and more than 64 commits waited for it on the
+server. A plain subscription drops batches in that position and carries on; a snapshot subscription
+(`subscribeFromSnapshot`, `subscribe(..., snapshot=True)`, `pravaha subscribe --snapshot`) promises
+every commit after its snapshot, so the server ends the stream instead of writing past a commit the
+client would never see. Nothing is lost for good: subscribe again and the new stream starts from a
+fresh snapshot. If it keeps happening, the consumer is doing too much in its callback — hand the
+batch to a queue of your own and return. The status is `RESOURCE_EXHAUSTED`, which retrying
+clients already treat as retryable.
+
+**A snapshot subscription is refused with `PRV-6102` "this is not a subscription ticket".** The
+server predates snapshot subscriptions (SUB-1). Upgrade it, or use a plain subscription, which is
+gapful: see "Is the subscription attached?" above.
 
 ---
 
@@ -528,6 +546,7 @@ way it was registered.
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |
 | `PRV-6103` | FLIGHT_PARAMETERS_TOO_LARGE | gateway |
 | `PRV-6104` | FLIGHT_TLS_UNREADABLE | gateway |
+| `PRV-6105` | FLIGHT_SUBSCRIBER_BEHIND | gateway |
 | `PRV-6200` | PGWIRE_UNSUPPORTED_TYPE | gateway |
 | `PRV-6201` | PGWIRE_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6202` | PGWIRE_PROTOCOL_VIOLATION | gateway |

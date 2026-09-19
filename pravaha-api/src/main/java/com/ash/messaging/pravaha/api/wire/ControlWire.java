@@ -137,12 +137,84 @@ public final class ControlWire {
         }
     }
 
+    /** The first field of a plain subscription ticket: changes from the next commit on, no state. */
+    public static final String SUBSCRIBE = "subscribe";
+
+    /**
+     * The first field of a snapshot subscription ticket: the view as it stands, then every commit
+     * after it (SUB-1).
+     *
+     * <p>A verb of its own rather than an extra field, so the two are told apart without guessing and
+     * an older server refuses this ticket as one it does not know, instead of reading a flag as a
+     * filter column. Every batch on such a stream carries a {@link BatchMark} as its application
+     * metadata; a plain subscription's carry none, as they never have.
+     */
+    public static final String SUBSCRIBE_FROM_SNAPSHOT = "subscribe.snapshot";
+
     /** The ticket a subscriber returns with: a view name, then alternating filter column and value. */
     public static byte[] subscribeTicket(String view, List<String> filterPairs) {
+        return ticket(SUBSCRIBE, view, filterPairs);
+    }
+
+    /** {@link #subscribeTicket}, for a subscription that starts from the view's snapshot. */
+    public static byte[] subscribeFromSnapshotTicket(String view, List<String> filterPairs) {
+        return ticket(SUBSCRIBE_FROM_SNAPSHOT, view, filterPairs);
+    }
+
+    private static byte[] ticket(String verb, String view, List<String> filterPairs) {
         List<String> fields = new ArrayList<>();
-        fields.add("subscribe");
+        fields.add(verb);
         fields.add(view);
         fields.addAll(filterPairs);
         return encode(fields);
+    }
+
+    /**
+     * What one batch of a snapshot subscription is: part of the snapshot, its last part, or a commit.
+     *
+     * <p>Sent as the batch's Flight application metadata, as the UTF-8 text {@code
+     * pravaha:<kind>:<frontier>}. A snapshot larger than one batch arrives as {@link #SNAPSHOT}
+     * parts and ends with exactly one {@link #SNAPSHOT_END}, which is sent even for an empty view;
+     * every batch after it is a {@link #COMMIT}, whole.
+     *
+     * @param frontier the committed frontier the snapshot is the view at, or the commit published
+     */
+    public record BatchMark(String kind, long frontier) {
+
+        /** A part of the snapshot with more to follow. */
+        public static final String SNAPSHOT = "snapshot";
+
+        /** The snapshot's last part; the client's copy is complete once it is applied. */
+        public static final String SNAPSHOT_END = "snapshot-end";
+
+        /** One commit after the snapshot. */
+        public static final String COMMIT = "commit";
+
+        private static final String PREFIX = "pravaha:";
+
+        public byte[] encode() {
+            return (PREFIX + kind + ":" + frontier).getBytes(StandardCharsets.UTF_8);
+        }
+
+        /** The mark in {@code metadata}, or null when there is none or it is not one of ours. */
+        public static BatchMark decode(byte[] metadata) {
+            if (metadata == null || metadata.length == 0) {
+                return null;
+            }
+            String text = new String(metadata, StandardCharsets.UTF_8);
+            int split = text.lastIndexOf(':');
+            if (!text.startsWith(PREFIX) || split <= PREFIX.length()) {
+                return null;
+            }
+            try {
+                return new BatchMark(text.substring(PREFIX.length(), split), Long.parseLong(text.substring(split + 1)));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+
+        public boolean isSnapshot() {
+            return SNAPSHOT.equals(kind) || SNAPSHOT_END.equals(kind);
+        }
     }
 }

@@ -53,6 +53,17 @@ public final class FlightErrors {
     public static final ErrorCode TLS_UNREADABLE = new ErrorCode(6104, "FLIGHT_TLS_UNREADABLE");
 
     /**
+     * A snapshot subscriber fell further behind than the server holds commits for it, and its
+     * stream was ended rather than continued past a commit it would never receive (SUB-1).
+     *
+     * <p>A plain subscription drops the batch and carries on, which is its documented contract. A
+     * snapshot subscription promises every commit after the snapshot, so a dropped one would leave
+     * the client's copy silently wrong; ending the stream is the only honest answer. Subscribing
+     * again starts from a fresh snapshot, so nothing is lost for good. Retryable, and sent as such.
+     */
+    public static final ErrorCode SUBSCRIBER_BEHIND = new ErrorCode(6105, "FLIGHT_SUBSCRIBER_BEHIND");
+
+    /**
      * The Flight status a Pravaha failure should arrive as.
      *
      * <p>The message always carries the engine's own PRV code and diagnosis, but the status code is
@@ -70,7 +81,7 @@ public final class FlightErrors {
             case "PRV-7002", "PRV-7003" -> CallStatus.UNAUTHORIZED;
             // Admission. Retryable, and saying so is the difference between a client that backs off
             // and one that hammers a node that is already full.
-            case "PRV-4026", "PRV-4027", "PRV-4028" -> CallStatus.RESOURCE_EXHAUSTED;
+            case "PRV-4026", "PRV-4027", "PRV-4028", "PRV-6105" -> CallStatus.RESOURCE_EXHAUSTED;
             case "PRV-4021", "PRV-4029" -> CallStatus.TIMED_OUT;
             case "PRV-4023" -> CallStatus.NOT_FOUND;
             // A handle the server cannot read, or one from an older version: the client's move is

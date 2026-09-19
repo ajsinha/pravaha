@@ -288,6 +288,37 @@ class CliAgainstServerTest {
     }
 
     @Test
+    void subscribeWithSnapshotPrintsTheViewFirstThenTheCommitsAfterIt() throws Exception {
+        // SUB-1. A row committed before the subscriber attached reaches a plain subscription by no
+        // path; --snapshot prints it, marked as the snapshot, and then the commit that follows.
+        cli("register", "--url", url, "--name", "trade_feed", "--sql", SQL, "--keys", "0");
+        feed("T-1", "SWAP");
+
+        Thread feeder = Thread.ofVirtual().start(() -> {
+            try {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+                while (System.nanoTime() < deadline
+                        && registry.require("trade_feed").subscriberCount() == 0) {
+                    Thread.sleep(20);
+                }
+                feed("T-2", "SWAP");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        CliResult streamed = cli("subscribe", "--url", url, "--view", "trade_feed", "--snapshot", "--limit", "2");
+        feeder.join(5_000);
+
+        assertThat(streamed.code()).as(streamed.err()).isZero();
+        String plain = streamed.out().replaceAll("\u001B\\[[0-9;]*m", "");
+        assertThat(plain).contains("+1\tT-1\tSWAP", "-- snapshot at frontier", "+1\tT-2\tSWAP", "-- commit, 1 row");
+        assertThat(plain.indexOf("T-1"))
+                .isLessThan(plain.indexOf("-- snapshot"))
+                .isLessThan(plain.indexOf("T-2"));
+    }
+
+    @Test
     void aFailureKeepsTheServersOwnDiagnosis() {
         CliResult failed = cli("query", "--url", url, "--sql", "SELECT * FROM nowhere");
 

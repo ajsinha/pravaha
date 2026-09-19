@@ -25,6 +25,8 @@ import java.util.function.Consumer;
 import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
+import com.ash.messaging.pravaha.api.wire.ControlWire;
+
 /**
  * A client's handle on a running subscription.
  *
@@ -46,6 +48,9 @@ public final class Subscription implements AutoCloseable {
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicLong batches = new AtomicLong();
     private final AtomicLong rows = new AtomicLong();
+
+    /** Snapshot rows received so far, until the part that ends the snapshot. Run's thread only. */
+    private final List<Row> snapshot = new ArrayList<>();
 
     Subscription(FlightStream stream, Consumer<ChangeBatch> onBatch, Consumer<Subscription> onClosed) {
         this.stream = stream;
@@ -86,10 +91,24 @@ public final class Subscription implements AutoCloseable {
                 for (int i = 0; i < root.getRowCount(); i++) {
                     batch.add(new Row(root, columns, weightOrdinal).at(i));
                 }
-                if (!batch.isEmpty()) {
+                ControlWire.BatchMark mark = markOf(stream.getLatestMetadata());
+                if (mark != null && mark.isSnapshot()) {
+                    // The snapshot may span several batches and is handed over as one, so its rows
+                    // are copied out of each batch before the stream moves past it.
+                    for (Row row : batch) {
+                        snapshot.add(row.detach());
+                    }
+                    if (ControlWire.BatchMark.SNAPSHOT_END.equals(mark.kind())) {
+                        List<Row> whole = List.copyOf(snapshot);
+                        snapshot.clear();
+                        batches.incrementAndGet();
+                        rows.addAndGet(whole.size());
+                        onBatch.accept(new ChangeBatch(whole, true, mark.frontier()));
+                    }
+                } else if (!batch.isEmpty()) {
                     batches.incrementAndGet();
                     rows.addAndGet(batch.size());
-                    onBatch.accept(new ChangeBatch(batch));
+                    onBatch.accept(new ChangeBatch(batch, false, mark == null ? Long.MIN_VALUE : mark.frontier()));
                 }
             }
         } catch (RuntimeException e) {
@@ -102,7 +121,17 @@ public final class Subscription implements AutoCloseable {
         }
     }
 
-    /** Commits delivered. */
+    /** The batch's mark, when the server sent one: only a snapshot subscription's batches carry it. */
+    private static ControlWire.BatchMark markOf(org.apache.arrow.memory.ArrowBuf metadata) {
+        if (metadata == null || metadata.readableBytes() == 0) {
+            return null;
+        }
+        byte[] bytes = new byte[(int) metadata.readableBytes()];
+        metadata.getBytes(metadata.readerIndex(), bytes);
+        return ControlWire.BatchMark.decode(bytes);
+    }
+
+    /** Commits delivered, counting a snapshot as one. */
     public long batches() {
         return batches.get();
     }

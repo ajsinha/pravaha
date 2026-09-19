@@ -131,9 +131,12 @@ public final class PravahaCli {
         out.println("  queries   [--url ...]");
         out.println("            List the continuous queries a server is running.");
         out.println();
-        out.println("  subscribe --view <name> [--filter col=val,col2=val2] [--limit N] [--url ...]");
+        out.println("  subscribe --view <name> [--filter col=val,col2=val2] [--snapshot] [--limit N] [--url ...]");
         out.println("            Stream changes as they are committed. Each change leads with its weight:");
         out.println("            +1 a row arriving, -1 a row withdrawn. A '-- commit' line closes each commit.");
+        out.println("            --snapshot prints the view's rows first ('-- snapshot at frontier F'), then");
+        out.println("            every commit after them, none missed; without it the stream starts at the");
+        out.println("            next commit and a read of the view beside it can miss the one in flight.");
         out.println();
         out.println("  pause | resume | drop   --name <view> [--url ...]");
         out.println("            Lifecycle. A computation is released when its last name is dropped.");

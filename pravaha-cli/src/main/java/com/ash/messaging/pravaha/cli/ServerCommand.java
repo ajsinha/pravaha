@@ -208,12 +208,17 @@ final class ServerCommand {
             }
         });
         long limit = Long.parseLong(args.get("limit", "0"));
+        // SUB-1. Without --snapshot a subscription starts at the next commit and says nothing of
+        // what the view already holds, so reading the view beside it can miss the commit in flight.
+        // With it the view's rows come first, then every commit after them, with nothing between.
+        boolean fromSnapshot = args.has("snapshot");
 
         try (PravahaFlightClient client = connect(args)) {
             out.println(Ansi.dim("subscribed to " + view + (filters.isEmpty() ? "" : " " + filters)
-                    + "; changes print as they are committed. Ctrl-C to stop."));
+                    + (fromSnapshot ? "; the view's rows print first, then" : ";")
+                    + " changes print as they are committed. Ctrl-C to stop."));
             boolean[] header = {false};
-            Subscription subscription = client.subscribe(view, filters, batch -> {
+            java.util.function.Consumer<com.ash.messaging.pravaha.sdk.flight.ChangeBatch> print = batch -> {
                 for (Row row : batch) {
                     if (!header[0]) {
                         out.println(Ansi.bold("WEIGHT\t" + String.join("\t", row.columns())));
@@ -223,8 +228,15 @@ final class ServerCommand {
                 }
                 // One batch is one commit, and saying so makes the boundary visible to whoever is
                 // watching the output rather than something they have to know.
-                out.println(Ansi.dim("-- commit, " + batch.size() + " row" + (batch.size() == 1 ? "" : "s")));
-            });
+                String rows = batch.size() + " row" + (batch.size() == 1 ? "" : "s");
+                out.println(Ansi.dim(
+                        batch.isSnapshot()
+                                ? "-- snapshot at frontier " + batch.frontier() + ", " + rows
+                                : "-- commit, " + rows));
+            };
+            Subscription subscription = fromSnapshot
+                    ? client.subscribeFromSnapshot(view, filters, print)
+                    : client.subscribe(view, filters, print);
             Runtime.getRuntime().addShutdownHook(new Thread(subscription::close));
             if (limit > 0) {
                 Thread watcher = Thread.ofVirtual().start(() -> {

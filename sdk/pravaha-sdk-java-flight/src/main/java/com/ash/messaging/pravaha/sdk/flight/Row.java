@@ -46,11 +46,40 @@ public final class Row {
         this.root = root;
         this.columns = columns;
         this.weightOrdinal = weightOrdinal;
+        this.detached = null;
+        this.detachedWeight = 1L;
     }
+
+    /**
+     * A row copied out of its batch, valid for as long as it is held.
+     *
+     * <p>For a subscription's snapshot, which may span several Arrow batches and is handed over as
+     * one: the batches before the last are gone by the time it is delivered, so their rows cannot
+     * be cursors over them.
+     */
+    private Row(List<String> columns, Object[] values, long weight) {
+        this.root = null;
+        this.columns = columns;
+        this.weightOrdinal = -1;
+        this.detached = values;
+        this.detachedWeight = weight;
+    }
+
+    private final Object[] detached;
+    private final long detachedWeight;
 
     Row at(int rowIndex) {
         this.index = rowIndex;
         return this;
+    }
+
+    /** A copy of this row, values and weight, that outlives its batch. */
+    Row detach() {
+        return new Row(columns, toArray(), weight());
+    }
+
+    private Object raw(int ordinal) {
+        return detached != null ? detached[ordinal] : root.getVector(ordinal).getObject(index);
     }
 
     /** The column names, in order. */
@@ -59,7 +88,9 @@ public final class Row {
     }
 
     public boolean isNull(int ordinal) {
-        return root.getVector(ordinal).isNull(index);
+        return detached != null
+                ? detached[ordinal] == null
+                : root.getVector(ordinal).isNull(index);
     }
 
     public boolean isNull(String column) {
@@ -71,7 +102,7 @@ public final class Row {
         if (isNull(ordinal)) {
             return null;
         }
-        Object value = root.getVector(ordinal).getObject(index);
+        Object value = raw(ordinal);
         if (value instanceof org.apache.arrow.vector.util.Text text) {
             return text.toString();
         }
@@ -99,7 +130,7 @@ public final class Row {
                             + "' is null; check isNull first, or read it with get() as an object",
                     false);
         }
-        return ((Number) root.getVector(ordinal).getObject(index)).longValue();
+        return ((Number) raw(ordinal)).longValue();
     }
 
     public long getLong(String column) {
@@ -111,7 +142,7 @@ public final class Row {
             throw new PravahaClientException(
                     ClientErrors.READ_FAILED, "column '" + columns.get(ordinal) + "' is null", false);
         }
-        return ((Number) root.getVector(ordinal).getObject(index)).doubleValue();
+        return ((Number) raw(ordinal)).doubleValue();
     }
 
     public double getDouble(String column) {
@@ -123,7 +154,7 @@ public final class Row {
         if (isNull(ordinal)) {
             return null;
         }
-        Object value = root.getVector(ordinal).getObject(index);
+        Object value = raw(ordinal);
         return value instanceof org.apache.arrow.vector.util.Text text ? text.toString() : value;
     }
 
@@ -144,6 +175,9 @@ public final class Row {
      * reports {@code 1} there rather than failing. Only a subscription carries real ones.
      */
     public long weight() {
+        if (detached != null) {
+            return detachedWeight;
+        }
         if (weightOrdinal < 0) {
             return 1L;
         }

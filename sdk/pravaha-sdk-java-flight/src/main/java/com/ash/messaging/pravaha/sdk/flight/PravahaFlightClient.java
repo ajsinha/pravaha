@@ -432,13 +432,45 @@ public final class PravahaFlightClient implements AutoCloseable {
      *     the network. Equality only. A column the view does not have is refused rather than ignored
      */
     public Subscription subscribe(String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
+        return open(ControlWire.subscribeTicket(view, pairs(filters)), onBatch);
+    }
+
+    /**
+     * Watches a registered query from its current state: the first batch is the view's snapshot,
+     * and every batch after it is a commit after that snapshot, with nothing between (SUB-1).
+     *
+     * <p>The way to keep a copy of a view. {@link #subscribe} starts at the next commit and carries
+     * no state, so reading the view beside it -- before or after -- can miss the commit in flight at
+     * the time, silently. Here the first {@link ChangeBatch} has {@link ChangeBatch#isSnapshot()} set
+     * and holds every row of the view at a commit (filtered, each with its multiplicity as its
+     * weight, and delivered even when empty); apply it, then every later batch by weight.
+     *
+     * <p>The rows of the snapshot batch are copies and may be kept; rows of later batches are
+     * flyweights, as on {@link #subscribe}. A subscriber that falls too far behind has its stream
+     * ended with {@code PRV-6105} rather than skipped past a commit: subscribe again and start from a
+     * fresh snapshot. A server older than this SDK refuses the subscription with {@code PRV-6102}.
+     */
+    public Subscription subscribeFromSnapshot(String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
+        return open(ControlWire.subscribeFromSnapshotTicket(view, pairs(filters)), onBatch);
+    }
+
+    /** {@link #subscribeFromSnapshot(String, Map, Consumer)} with no filter. */
+    public Subscription subscribeFromSnapshot(String view, Consumer<ChangeBatch> onBatch) {
+        return subscribeFromSnapshot(view, Map.of(), onBatch);
+    }
+
+    private static List<String> pairs(Map<String, String> filters) {
         List<String> pairs = new java.util.ArrayList<>();
         filters.forEach((column, value) -> {
             pairs.add(column);
             pairs.add(value);
         });
+        return pairs;
+    }
+
+    private Subscription open(byte[] ticket, Consumer<ChangeBatch> onBatch) {
         requireOpen();
-        FlightStream stream = client.getStream(new Ticket(ControlWire.subscribeTicket(view, pairs)), callOptions);
+        FlightStream stream = client.getStream(new Ticket(ticket), callOptions);
         Subscription subscription = new Subscription(stream, onBatch, subscriptions::remove);
         subscriptions.add(subscription);
         return subscription;

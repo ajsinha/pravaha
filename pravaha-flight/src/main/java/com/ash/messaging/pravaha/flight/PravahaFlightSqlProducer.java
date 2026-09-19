@@ -26,6 +26,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.protobuf.ByteString;
@@ -683,7 +684,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     private void streamSubscription(CallContext context, Ticket ticket, ServerStreamListener listener) {
         try {
             List<String> fields = ControlWire.decode(ticket.getBytes());
-            if (fields.size() < 2 || !"subscribe".equals(fields.get(0))) {
+            boolean fromSnapshot = fields.size() >= 2 && ControlWire.SUBSCRIBE_FROM_SNAPSHOT.equals(fields.get(0));
+            if (fields.size() < 2 || !(fromSnapshot || ControlWire.SUBSCRIBE.equals(fields.get(0)))) {
                 throw new PravahaException(FlightErrors.BAD_HANDLE, "this is not a subscription ticket");
             }
             String viewName = fields.get(1);
@@ -747,28 +749,49 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             // network part of the query's critical path: one subscriber on a slow link would slow
             // the computation for everybody, which is exactly what Subscription's bounded buffer
             // exists to prevent. The handover must not block, so it does not.
-            BlockingQueue<List<com.ash.messaging.pravaha.serving.ViewChange>> handover =
-                    new LinkedBlockingQueue<>(SUBSCRIPTION_HANDOVER_BATCHES);
+            BlockingQueue<Handed> handover = new LinkedBlockingQueue<>(SUBSCRIPTION_HANDOVER_BATCHES);
             AtomicLong droppedBatches = new AtomicLong();
+            AtomicBoolean fellBehind = new AtomicBoolean();
             CountDownLatch finished = new CountDownLatch(1);
 
             try (VectorSchemaRoot root = VectorSchemaRoot.create(arrow, allocator)) {
                 listener.start(root);
                 listener.setOnCancelHandler(finished::countDown);
-                try (Subscription subscription = query.subscribe(SubscriptionOptions.DEFAULT, filter, changes -> {
-                    // offer, never put. A full queue means this subscriber is slower than
-                    // the query, and the answer is to lose its batches rather than the
-                    // engine's pace.
-                    if (!handover.offer(changes)) {
-                        droppedBatches.incrementAndGet();
-                    }
-                })) {
+                try (Subscription subscription = fromSnapshot
+                        ? subscribeFromSnapshot(query, filter, handover, fellBehind)
+                        : query.subscribe(SubscriptionOptions.DEFAULT, filter, changes -> {
+                            // offer, never put. A full queue means this subscriber is slower than
+                            // the query, and the answer is to lose its batches rather than the
+                            // engine's pace.
+                            if (!handover.offer(new Handed(changes, null))) {
+                                droppedBatches.incrementAndGet();
+                            }
+                        })) {
 
                     long nextAuthorizationCheck = System.nanoTime() + REAUTHORIZE_EVERY.toNanos();
                     while (!listener.isCancelled()
                             && finished.getCount() > 0
                             && !subscription.isClosed()
                             && !query.state().isTerminal()) {
+                        if (fellBehind.get()) {
+                            // A snapshot subscriber's promise is every commit; one it cannot be
+                            // given ends the stream, and the client resubscribes from a snapshot.
+                            audit.record(AuditEvent.of(
+                                    principal,
+                                    "subscribe.behind",
+                                    viewName,
+                                    decision,
+                                    "more than " + SUBSCRIPTION_HANDOVER_BATCHES
+                                            + " commits waiting for a snapshot subscriber"));
+                            listener.error(FlightErrors.failureOf(new PravahaException(
+                                            FlightErrors.SUBSCRIBER_BEHIND,
+                                            "this subscriber fell more than " + SUBSCRIPTION_HANDOVER_BATCHES
+                                                    + " commits behind '" + viewName + "', and a snapshot "
+                                                    + "subscription does not skip one; subscribe again to "
+                                                    + "start from a fresh snapshot"))
+                                    .toRuntimeException());
+                            return;
+                        }
                         // Re-authorised while it runs, not only when it opened.
                         //
                         // A subscription was checked once and then delivered for as long as the
@@ -809,11 +832,32 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 return;
                             }
                         }
-                        List<com.ash.messaging.pravaha.serving.ViewChange> batch =
-                                handover.poll(200, TimeUnit.MILLISECONDS);
-                        if (batch != null && !batch.isEmpty()) {
-                            writeBatch(listener, root, schema, batch);
+                        Handed handed = handover.poll(200, TimeUnit.MILLISECONDS);
+                        if (handed == null) {
+                            continue;
                         }
+                        if (handed.mark() == null) {
+                            if (!handed.changes().isEmpty()) {
+                                writeBatch(listener, root, schema, handed.changes(), null);
+                            }
+                        } else if (handed.mark().isSnapshot()) {
+                            writeSnapshot(
+                                    listener,
+                                    root,
+                                    schema,
+                                    handed.changes(),
+                                    handed.mark().frontier());
+                        } else {
+                            writeBatch(listener, root, schema, handed.changes(), handed.mark());
+                        }
+                    }
+                    if (fromSnapshot && subscription.failure().isPresent()) {
+                        // Said, not completed: a snapshot subscriber's copy is only right while the
+                        // stream is unbroken, and a clean end would read as "nothing more to come".
+                        listener.error(
+                                FlightErrors.failureOf(subscription.failure().get())
+                                        .toRuntimeException());
+                        return;
                     }
                     // Whatever is still queued when the client goes is not worth sending, but it is
                     // worth counting: a subscriber that lost batches should be able to find out.
@@ -842,12 +886,78 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         }
     }
 
-    /** Writes one commit's changes as one Arrow batch, so a batch boundary is a commit boundary. */
+    /** One commit, or the snapshot, on its way from the engine's thread to this call's. */
+    private record Handed(List<com.ash.messaging.pravaha.serving.ViewChange> changes, ControlWire.BatchMark mark) {}
+
+    /**
+     * Opens a snapshot subscription feeding {@code handover} (SUB-1).
+     *
+     * <p>Neither conflated nor dropped within a commit -- the buffer is unbounded and FAIL -- because
+     * the client is keeping a copy, and a conflated retraction is a copy gone wrong. What is bounded is
+     * the handover: a subscriber that falls {@link #SUBSCRIPTION_HANDOVER_BATCHES} commits behind is
+     * marked, is offered nothing further (a commit after a gap would be worse than none), and its
+     * stream ends with {@link FlightErrors#SUBSCRIBER_BEHIND}. The snapshot is the first thing queued,
+     * into an empty queue, so it is never the one refused.
+     */
+    private static Subscription subscribeFromSnapshot(
+            RegisteredQuery query,
+            SubscriptionFilter filter,
+            BlockingQueue<Handed> handover,
+            AtomicBoolean fellBehind) {
+        return query.subscribeFromSnapshot(
+                SubscriptionOptions.of(Integer.MAX_VALUE, SubscriptionOptions.Overflow.FAIL),
+                filter,
+                new com.ash.messaging.pravaha.registry.SubscriptionListener() {
+                    @Override
+                    public void onSnapshot(List<com.ash.messaging.pravaha.serving.ViewChange> rows, long frontier) {
+                        hand(rows, new ControlWire.BatchMark(ControlWire.BatchMark.SNAPSHOT_END, frontier));
+                    }
+
+                    @Override
+                    public void onCommit(List<com.ash.messaging.pravaha.serving.ViewChange> changes, long frontier) {
+                        hand(changes, new ControlWire.BatchMark(ControlWire.BatchMark.COMMIT, frontier));
+                    }
+
+                    private void hand(
+                            List<com.ash.messaging.pravaha.serving.ViewChange> changes, ControlWire.BatchMark mark) {
+                        if (!fellBehind.get() && !handover.offer(new Handed(changes, mark))) {
+                            fellBehind.set(true);
+                        }
+                    }
+                });
+    }
+
+    /**
+     * Writes the snapshot in batches of at most {@link #BATCH_ROWS}, each marked, the last one {@link
+     * ControlWire.BatchMark#SNAPSHOT_END} -- exactly one, sent even when the snapshot is empty.
+     */
+    private void writeSnapshot(
+            ServerStreamListener listener,
+            VectorSchemaRoot root,
+            StreamSchema schema,
+            List<com.ash.messaging.pravaha.serving.ViewChange> rows,
+            long frontier) {
+        int from = 0;
+        do {
+            int to = Math.min(rows.size(), from + BATCH_ROWS);
+            String kind = to == rows.size() ? ControlWire.BatchMark.SNAPSHOT_END : ControlWire.BatchMark.SNAPSHOT;
+            writeBatch(listener, root, schema, rows.subList(from, to), new ControlWire.BatchMark(kind, frontier));
+            from = to;
+        } while (from < rows.size());
+    }
+
+    /**
+     * Writes one commit's changes as one Arrow batch, so a batch boundary is a commit boundary.
+     *
+     * @param mark what the batch is, sent as its application metadata; null on a plain
+     *     subscription, whose batches have never carried any
+     */
     private void writeBatch(
             ServerStreamListener listener,
             VectorSchemaRoot root,
             StreamSchema schema,
-            List<com.ash.messaging.pravaha.serving.ViewChange> changes) {
+            List<com.ash.messaging.pravaha.serving.ViewChange> changes,
+            ControlWire.BatchMark mark) {
         if (listener.isCancelled()) {
             return;
         }
@@ -864,7 +974,15 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             index++;
         }
         root.setRowCount(index);
-        listener.putNext();
+        if (mark == null) {
+            listener.putNext();
+            return;
+        }
+        byte[] encoded = mark.encode();
+        // Ownership of the buffer passes to Flight with the call.
+        org.apache.arrow.memory.ArrowBuf metadata = allocator.buffer(encoded.length);
+        metadata.writeBytes(encoded);
+        listener.putNext(metadata);
     }
 
     private static String filterText(List<String> fields) {
