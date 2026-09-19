@@ -84,6 +84,29 @@ public final class RegistryJournal {
      */
     private static final String REGISTER_WRITING = "W";
 
+    /**
+     * A replacement that has been started and has not yet cut over, rolled back or been abandoned
+     * (ADR-046): the same fields as a registration, plus the options it was started with and the
+     * directory its shadow checkpoints into.
+     *
+     * <p>Recorded because a backfill can run for hours and a node can restart during one. The
+     * <em>name</em> still belongs to the version that is serving -- that is what makes this safe to
+     * replay: a node that comes back up puts the running version back first and then starts the
+     * replacement again, and a node of an older build refuses the record by name rather than
+     * silently forgetting that a replacement was in flight.
+     */
+    private static final String REPLACEMENT = "P";
+
+    /**
+     * A cutover or a rollback: from here the name's registration is this one (ADR-046). It also
+     * ends whatever replacement was pending for the name, in the same record -- two records could
+     * leave a restart with the new version serving and a replacement of it still pending.
+     */
+    private static final String CUTOVER = "C";
+
+    /** A pending replacement that ended without moving the name: abandoned, or failed. */
+    private static final String REPLACEMENT_ENDED = "E";
+
     private final Path file;
 
     public RegistryJournal(Path file) {
@@ -98,12 +121,39 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             List<String> parameters,
-            String sink) {
+            String sink,
+            String checkpointDirectory) {
 
         public Entry {
             keyColumns = List.copyOf(keyColumns);
             parameters = List.copyOf(parameters);
             sink = sink == null || sink.isEmpty() ? null : sink;
+            checkpointDirectory =
+                    checkpointDirectory == null || checkpointDirectory.isEmpty() ? null : checkpointDirectory;
+        }
+
+        /** A registration checkpointing into the directory its name implies. */
+        public Entry(
+                String name,
+                String sql,
+                List<Integer> keyColumns,
+                String owner,
+                Retention retention,
+                List<String> parameters,
+                String sink) {
+            this(name, sql, keyColumns, owner, retention, parameters, sink, null);
+        }
+
+        /**
+         * Where this registration checkpoints, when it is not the directory its name implies.
+         *
+         * <p>A version that took the name at a cutover keeps the directory it backfilled into.
+         * Moving the files at the cutover would leave a window in which a crash has the name
+         * pointing at a directory holding the <em>other</em> version's state, and restoring one
+         * version's operator state into another's plan is the kind of wrong nothing reports.
+         */
+        public java.util.Optional<String> directory() {
+            return java.util.Optional.ofNullable(checkpointDirectory);
         }
 
         /** A registration that writes only to its view. */
@@ -171,6 +221,70 @@ public final class RegistryJournal {
         append(List.of(DROP, name));
     }
 
+    /** One replacement that had been started and had not finished when the journal was written. */
+    public record Pending(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            String owner,
+            Retention retention,
+            String sink,
+            String options,
+            String checkpointDirectory) {
+
+        public Pending {
+            keyColumns = List.copyOf(keyColumns);
+            sink = sink == null || sink.isEmpty() ? null : sink;
+        }
+
+        public java.util.Optional<String> sinkName() {
+            return java.util.Optional.ofNullable(sink);
+        }
+    }
+
+    /** Appends a started replacement (ADR-046). The name still belongs to the version serving it. */
+    public void recordReplacementStarted(Pending pending) {
+        append(List.of(
+                REPLACEMENT,
+                pending.name(),
+                pending.sql(),
+                joinInts(pending.keyColumns()),
+                pending.owner() == null ? "" : pending.owner(),
+                encodeRetention(pending.retention()),
+                pending.sink() == null ? "" : pending.sink(),
+                pending.options() == null ? "" : pending.options(),
+                pending.checkpointDirectory() == null ? "" : pending.checkpointDirectory()));
+    }
+
+    /**
+     * Appends a cutover or a rollback: the name's registration is {@code entry} from now on, and
+     * whatever replacement was pending for it is over.
+     */
+    public void recordCutover(Entry entry) {
+        append(List.of(
+                CUTOVER,
+                entry.name(),
+                entry.sql(),
+                joinInts(entry.keyColumns()),
+                entry.owner() == null ? "" : entry.owner(),
+                encodeRetention(entry.retention()),
+                entry.sink() == null ? "" : entry.sink(),
+                entry.checkpointDirectory() == null ? "" : entry.checkpointDirectory()));
+    }
+
+    /** Appends the end of a replacement that never took the name: abandoned, or failed. */
+    public void recordReplacementEnded(String name) {
+        append(List.of(REPLACEMENT_ENDED, name));
+    }
+
+    /** What a replay found: the registrations that are live, and the replacements still pending. */
+    public record Replayed(List<Entry> live, List<Pending> pending) {
+        public Replayed {
+            live = List.copyOf(live);
+            pending = List.copyOf(pending);
+        }
+    }
+
     /**
      * Replays the journal.
      *
@@ -178,12 +292,18 @@ public final class RegistryJournal {
      *     registered, dropped and registered again appears once, with its latest definition
      */
     public List<Entry> replay() {
+        return replayAll().live();
+    }
+
+    /** Replays the journal, keeping both the live registrations and the replacements in flight. */
+    public Replayed replayAll() {
         if (!Files.exists(file)) {
-            return List.of();
+            return new Replayed(List.of(), List.of());
         }
         // Insertion-ordered so recovery re-registers in the order the queries were created, which
         // keeps a shared computation's first registrant stable across restarts.
         Map<String, Entry> live = new LinkedHashMap<>();
+        Map<String, Pending> pending = new LinkedHashMap<>();
         byte[] all;
         try {
             all = Files.readAllBytes(file);
@@ -213,18 +333,54 @@ public final class RegistryJournal {
                                 + "silently drop whatever it said",
                         unreadable);
             }
-            apply(live, fields, record);
+            apply(live, pending, fields, record);
         }
-        return List.copyOf(live.values());
+        return new Replayed(List.copyOf(live.values()), List.copyOf(pending.values()));
     }
 
-    private void apply(Map<String, Entry> live, List<String> fields, int record) {
+    private void apply(Map<String, Entry> live, Map<String, Pending> pending, List<String> fields, int record) {
         if (fields.isEmpty()) {
             return;
         }
         String kind = fields.get(0);
         if (DROP.equals(kind) && fields.size() >= 2) {
             live.remove(fields.get(1));
+            pending.remove(fields.get(1));
+            return;
+        }
+        if (REPLACEMENT_ENDED.equals(kind) && fields.size() >= 2) {
+            pending.remove(fields.get(1));
+            return;
+        }
+        if (REPLACEMENT.equals(kind) && fields.size() >= 9) {
+            pending.put(
+                    fields.get(1),
+                    new Pending(
+                            fields.get(1),
+                            fields.get(2),
+                            parseInts(fields.get(3)),
+                            fields.get(4),
+                            decodeRetention(fields.get(5)),
+                            fields.get(6),
+                            fields.get(7),
+                            fields.get(8)));
+            return;
+        }
+        if (CUTOVER.equals(kind) && fields.size() >= 8) {
+            String cutName = fields.get(1);
+            live.remove(cutName);
+            live.put(
+                    cutName,
+                    new Entry(
+                            cutName,
+                            fields.get(2),
+                            parseInts(fields.get(3)),
+                            fields.get(4),
+                            decodeRetention(fields.get(5)),
+                            List.of(),
+                            fields.get(6),
+                            fields.get(7)));
+            pending.remove(cutName);
             return;
         }
         // W carries the sink name second; lifting it out leaves exactly R's fields.
@@ -292,11 +448,23 @@ public final class RegistryJournal {
 
     /** Rewrites the journal with only what is live, discarding the history of drops. */
     public synchronized void compact(List<Entry> live) {
+        compact(live, replayAll().pending());
+    }
+
+    /** Rewrites the journal with what is live and what is still in flight, and nothing else. */
+    public synchronized void compact(List<Entry> live, List<Pending> pending) {
         Path temporary = file.resolveSibling(file.getFileName() + ".compacting");
         try {
             Files.deleteIfExists(temporary);
             RegistryJournal rewritten = new RegistryJournal(temporary);
             for (Entry entry : live) {
+                if (entry.checkpointDirectory() != null) {
+                    // A version that took its name at a cutover: the directory travels with the
+                    // registration, so a compaction that wrote it back as a plain R record would
+                    // point the name at a directory holding nothing.
+                    rewritten.recordCutover(entry);
+                    continue;
+                }
                 rewritten.recordRegistration(
                         entry.name(),
                         entry.sql(),
@@ -305,6 +473,9 @@ public final class RegistryJournal {
                         entry.retention(),
                         entry.parameters(),
                         entry.sink());
+            }
+            for (Pending each : pending) {
+                rewritten.recordReplacementStarted(each);
             }
             // Atomic: a crash here leaves either the old journal or the new one, never a partial
             // rewrite, and both are complete descriptions of what is registered.

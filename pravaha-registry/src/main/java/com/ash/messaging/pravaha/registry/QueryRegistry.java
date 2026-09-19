@@ -324,10 +324,8 @@ public final class QueryRegistry implements AutoCloseable {
     /** Attaches data to a query's inputs. Nothing, until a deployment says otherwise. */
     private SourceFeedFactory feeds = SourceFeedFactory.NONE;
 
-    /** Where checkpoints are written, and how often. Null when nothing is checkpointed. */
-    private java.nio.file.Path checkpointRoot;
-
-    private com.ash.messaging.pravaha.common.config.Configuration checkpointConfiguration;
+    /** Where checkpoints are written, and how often. {@link QueryCheckpoints#NONE} until told. */
+    private QueryCheckpoints checkpoints = QueryCheckpoints.NONE;
 
     public QueryRegistry(ViewCatalog views, StreamSchema... streams) {
         this(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, streams);
@@ -461,11 +459,7 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public QueryRegistry checkpointingTo(
             java.nio.file.Path root, com.ash.messaging.pravaha.common.config.Configuration configuration) {
-        this.checkpointRoot = root;
-        this.checkpointConfiguration = configuration == null
-                ? com.ash.messaging.pravaha.common.config.Configuration.builder()
-                        .build()
-                : configuration;
+        this.checkpoints = root == null ? QueryCheckpoints.NONE : new QueryCheckpoints(root, configuration);
         return this;
     }
 
@@ -632,7 +626,59 @@ public final class QueryRegistry implements AutoCloseable {
             Retention retention,
             BoundParameters parameters,
             String sinkName) {
-        requireName(name);
+        QueryNames.require(name, byName.keySet());
+        Preparation prepared = prepare(name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
+
+        // Opened after every refusal above and before anything runs, so a registration refused for
+        // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
+        // computation can attach the sink before its feed delivers a row.
+        SinkDelivery delivery = sinkName == null
+                ? null
+                : openDelivery(name, sinkName, prepared.plan().outputSchema());
+        try {
+            return register(
+                    name,
+                    sql,
+                    keyColumns,
+                    principal,
+                    retention,
+                    parameters,
+                    sinkName,
+                    prepared.plan(),
+                    prepared.placements(),
+                    prepared.fingerprint(),
+                    delivery,
+                    recoveringInto == null ? QueryCheckpoints.directoryFor(name) : recoveringInto);
+        } catch (RuntimeException e) {
+            if (delivery != null) {
+                delivery.close();
+            }
+            throw e;
+        }
+    }
+
+    /** What planning and authorizing a registration produced, before anything is started. */
+    record Preparation(PhysicalOperator plan, List<ParameterPlacement> placements, QueryFingerprint fingerprint) {}
+
+    /**
+     * Plans a registration and decides whether this principal may have it, without starting
+     * anything.
+     *
+     * <p>Shared by {@code register} and by a blue/green replacement's shadow (ADR-046), which has to
+     * be judged by exactly the same rules: a principal who may not read what the new version reads
+     * must not be able to put it behind a name whose readers would then be served by it.
+     *
+     * @param action the audit action: {@code register} or {@code replace}
+     */
+    private Preparation prepare(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            Retention retention,
+            BoundParameters parameters,
+            String sinkName,
+            String action) {
         if (keyColumns == null || keyColumns.isEmpty()) {
             throw new IllegalArgumentException(
                     "a registration needs at least one key column: a view with no key is a log, and a "
@@ -665,7 +711,7 @@ public final class QueryRegistry implements AutoCloseable {
         }
 
         AccessDecision decision = policy.mayRegisterQuery(principal);
-        audit.record(AuditEvent.of(principal, "register", name, decision, sql));
+        audit.record(AuditEvent.of(principal, action, name, decision, sql));
         if (!decision.allowed()) {
             throw new PravahaException(
                     SecurityErrors.FORBIDDEN, principal.id() + " may not register a query: " + decision.reason());
@@ -682,11 +728,11 @@ public final class QueryRegistry implements AutoCloseable {
         List<String> rowFilters = new ArrayList<>();
         for (String source : sourceStreams(plan)) {
             AccessDecision read = policy.mayRead(principal, source);
-            audit.record(AuditEvent.of(principal, "register:source", source, read, sql));
+            audit.record(AuditEvent.of(principal, action + ":source", source, read, sql));
             if (!read.allowed()) {
                 throw new PravahaException(
                         SecurityErrors.FORBIDDEN,
-                        principal.id() + " may not register '" + name + "' because it reads '" + source
+                        principal.id() + " may not " + action + " '" + name + "' because it reads '" + source
                                 + "', which they may not read: " + read.reason()
                                 + ". A registration is a standing read of everything the query names, so it "
                                 + "is refused here rather than at the first row.");
@@ -709,31 +755,49 @@ public final class QueryRegistry implements AutoCloseable {
         // I-3: the key columns and the retention are part of what makes a computation itself.
         // Without them `--keys 1` and `--keys 0,1` over identical SQL shared one view, keyed as the
         // first registrant asked and with the second one's retention dropped, silently.
-        QueryFingerprint fingerprint = QueryFingerprint.of(plan, rowFilters, keyColumns, retention);
+        return new Preparation(plan, placements, QueryFingerprint.of(plan, rowFilters, keyColumns, retention));
+    }
 
-        // Opened after every refusal above and before anything runs, so a registration refused for
-        // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
-        // computation can attach the sink before its feed delivers a row.
-        SinkDelivery delivery = sinkName == null ? null : openDelivery(name, sinkName, plan.outputSchema());
-        try {
-            return register(
-                    name,
-                    sql,
-                    keyColumns,
-                    principal,
-                    retention,
-                    parameters,
-                    sinkName,
-                    plan,
-                    placements,
-                    fingerprint,
-                    delivery);
-        } catch (RuntimeException e) {
-            if (delivery != null) {
-                delivery.close();
-            }
-            throw e;
+    /**
+     * Starts a shadow computation for a blue/green replacement: running, backfilling, and answering
+     * to nothing (ADR-046).
+     *
+     * <p>Not in {@code byName}, not in {@code byFingerprint} and not in the view catalogue, so
+     * nothing can read it and nothing can share it until the cutover puts it behind the name. It is
+     * planned and authorized exactly as a registration is, because it is one in every way except
+     * that it has no readers yet.
+     */
+    synchronized RegisteredQuery startShadow(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            Retention retention,
+            String sinkName,
+            String checkpointDirectory,
+            com.ash.messaging.pravaha.backfill.BackfillPlan backfill) {
+        Preparation prepared =
+                prepare(name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName, "replace");
+        RegisteredQuery existing = byFingerprint.get(prepared.fingerprint());
+        if (existing != null && !existing.state().isTerminal()) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.backfill.BackfillErrors.REPLACEMENT_IN_PROGRESS,
+                    "the new version of '" + name + "' is the same computation as '" + existing.name()
+                            + "', which is already running: replacing a query with one that normalises to the "
+                            + "same plan would cut over to itself. Registrations that ask the same question "
+                            + "share one computation, so point readers at '" + existing.name() + "' instead.");
         }
+        return start(
+                name,
+                sql,
+                prepared.plan(),
+                keyColumns,
+                prepared.fingerprint(),
+                retention,
+                prepared.placements(),
+                null,
+                checkpointDirectory,
+                backfill);
     }
 
     /**
@@ -763,8 +827,7 @@ public final class QueryRegistry implements AutoCloseable {
      * listing shows, and the same decision the registration log states.
      */
     public String sinkGuaranteeFor(com.ash.messaging.pravaha.api.plugin.SinkCapabilities capabilities) {
-        return SinkDelivery.label(
-                capabilities.transactional(), capabilities.idempotentUpsert(), checkpointRoot != null);
+        return SinkDelivery.label(capabilities.transactional(), capabilities.idempotentUpsert(), checkpoints.enabled());
     }
 
     private SinkDelivery openDelivery(String name, String sinkName, StreamSchema schema) {
@@ -783,7 +846,8 @@ public final class QueryRegistry implements AutoCloseable {
             PhysicalOperator plan,
             List<ParameterPlacement> placements,
             QueryFingerprint fingerprint,
-            SinkDelivery delivery) {
+            SinkDelivery delivery,
+            String checkpointDirectory) {
         RegisteredQuery existing = byFingerprint.get(fingerprint);
         if (existing != null && !existing.state().isTerminal()) {
             // The same question, asked again. One computation, one copy of the state, two names.
@@ -817,7 +881,8 @@ public final class QueryRegistry implements AutoCloseable {
             return existing;
         }
 
-        RegisteredQuery query = start(name, sql, plan, keyColumns, fingerprint, retention, placements, delivery);
+        RegisteredQuery query = start(
+                name, sql, plan, keyColumns, fingerprint, retention, placements, delivery, checkpointDirectory, null);
         byName.put(name, query);
         byFingerprint.put(fingerprint, query);
         views.register(query.view());
@@ -880,15 +945,29 @@ public final class QueryRegistry implements AutoCloseable {
             Principal principal,
             Retention retention,
             BoundParameters parameters,
-            String sinkName) {
+            String sinkName,
+            String checkpointDirectory) {
         RegistryJournal suspended = journal;
         journal = null;
+        String directory = recoveringInto;
+        recoveringInto = checkpointDirectory;
         try {
             return register(name, sql, keyColumns, principal, retention, parameters, sinkName);
         } finally {
             journal = suspended;
+            recoveringInto = directory;
         }
     }
+
+    /**
+     * The checkpoint directory a registration being replayed keeps, when it is not the one its name
+     * implies -- a version that took the name at a cutover (ADR-046).
+     *
+     * <p>Set for the length of one replayed registration rather than threaded through six
+     * overloads of {@code register}, which is a real trade: this is state for the duration of a
+     * call, and the alternative is a parameter every caller has to pass null for.
+     */
+    private String recoveringInto;
 
     /**
      * Every stream the plan reads, in the order it reads them.
@@ -897,125 +976,6 @@ public final class QueryRegistry implements AutoCloseable {
      * planner optimised away and can omit one a view expanded into. What the plan scans is what the
      * query will actually read.
      */
-    /**
-     * Restores the newest readable checkpoint, returning the offsets its sources should resume from.
-     *
-     * <p>Nothing called {@code restore} anywhere in shipped code. Checkpoints were written on a
-     * schedule, pruned, permissioned -- and never read, so a restart recovered a query's definition
-     * from the journal and none of what it had computed, while {@code application.yaml} said a
-     * restart recovers answers.
-     *
-     * <p>The newest checkpoint is the likeliest to be unreadable, because it is the one that was
-     * being written when the process died. Falling back to the previous one costs reprocessing;
-     * failing the registration costs the query.
-     */
-    private Map<String, String> restoreFrom(String name, QueryExecution execution, RegisteredQuery query) {
-        if (checkpointRoot == null) {
-            return Map.of();
-        }
-        com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore store =
-                new com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore(
-                        checkpointRoot.resolve(checkpointDirectoryFor(name)));
-        try {
-            Optional<com.ash.messaging.pravaha.state.checkpoint.Checkpoint> latest = store.latest();
-            if (latest.isEmpty()) {
-                return Map.of();
-            }
-            execution.restore(latest.get(), Duration.ofSeconds(30));
-            // What it recorded about sinks, for each registration to claim as it attaches: the
-            // handles to commit, and the view each sink holds once they are.
-            query.restoredFrom(latest.get());
-            return latest.get().offsets();
-        } catch (RuntimeException e) {
-            // A query that starts from nothing is worse than one that starts from an older
-            // checkpoint and better than one that does not start. Reprocessing is visible in the
-            // numbers; a refusal to register is visible immediately; silent corruption is neither.
-            return Map.of();
-        }
-    }
-
-    private void startCheckpointing(String name, QueryExecution execution, RegisteredQuery query) {
-        if (checkpointRoot == null) {
-            return;
-        }
-        // The registration's name reaches the filesystem here, so it is sanitised rather than
-        // trusted. requireName already refuses the obvious, but a directory is a different alphabet
-        // from an identifier and "../" in a view name should not be able to choose where a
-        // checkpoint lands.
-        String directory = checkpointDirectoryFor(name);
-        java.nio.file.Path checkpointDirectory = checkpointRoot.resolve(directory);
-        com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer checkpointer =
-                com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer.from(
-                                execution,
-                                new com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore(checkpointDirectory),
-                                checkpointConfiguration,
-                                // The narrative channel: start-up line, a line per success, a line per
-                                // failure. Not the failure counter -- wiring the counter here counted all
-                                // three, so a query whose checkpoints were all succeeding reported a rising
-                                // failure count and named a success as its last failure.
-                                message -> {})
-                        // Failures only. PeriodicCheckpointer reports every one rather than the first,
-                        // precisely so that a query which has silently not checkpointed for six hours does
-                        // not look like one that has -- and the registry used to throw each report away,
-                        // which produced exactly that. Recorded on the query, so an operator asking about
-                        // it gets an answer.
-                        .reportingFailuresTo(query::recordCheckpointFailure)
-                        // The second phase: what each transactional sink prepared at the cut is
-                        // committed once, and only once, the checkpoint recording it is durable.
-                        .tellingWhenDurable(query::checkpointDurable);
-        checkpointer.start();
-        query.checkpointWith(checkpointer, checkpointDirectory);
-    }
-
-    /**
-     * Deletes a checkpoint directory that a dropped computation was writing to.
-     *
-     * <p>Takes the path the checkpointer was given rather than a name to re-derive it from. The
-     * previous version took a name and was called after the last name had already been removed, so
-     * it resolved a fingerprint digest that had never been a directory, deleted nothing, and the
-     * {@code NoSuchFileException} went into the catch below indistinguishable from a real one.
-     */
-    private void deleteCheckpointDirectory(java.nio.file.Path directory) {
-        try (java.util.stream.Stream<java.nio.file.Path> entries = java.nio.file.Files.list(directory)) {
-            for (java.nio.file.Path entry : entries.toList()) {
-                java.nio.file.Files.deleteIfExists(entry);
-            }
-            java.nio.file.Files.deleteIfExists(directory);
-        } catch (java.io.IOException e) {
-            // A drop must succeed even if the disk will not co-operate. Leftover files cost space;
-            // a drop that fails half way costs a query nobody can remove.
-        }
-    }
-
-    /**
-     * The directory a query's checkpoints live in.
-     *
-     * <p>Dots are stripped along with separators, so a query named {@code ..} cannot write above the
-     * configured root. A digest tail keeps two names that sanitise alike -- {@code a.b} and {@code
-     * a_b} -- in separate directories, which they must be: sharing one would have each pruning the
-     * other's fallbacks away.
-     */
-    private static String checkpointDirectoryFor(String name) {
-        // Percent-style hex encoding, which is injective: two different names cannot produce one
-        // directory. Replacing unsafe characters with '_' is many-to-one, and a hash suffix does not
-        // rescue it -- a collision was constructed from first principles on the first attempt, and
-        // `a#!b` and `a"@b` still shared a directory. Two queries in one directory share a
-        // checkpoint id sequence and prune each other's fallbacks away, which is the exact failure
-        // the per-query directory exists to prevent.
-        //
-        // '_' is encoded too, or `a_b` and `a b` would still meet.
-        StringBuilder encoded = new StringBuilder(name.length() + 8);
-        for (byte b : name.getBytes(java.nio.charset.StandardCharsets.UTF_8)) {
-            char c = (char) (b & 0xFF);
-            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
-                encoded.append(c);
-            } else {
-                encoded.append('_').append(String.format("%02x", b & 0xFF));
-            }
-        }
-        return encoded.toString();
-    }
-
     private static List<String> sourceStreams(PhysicalOperator plan) {
         List<String> found = new ArrayList<>();
         collectSources(plan, found);
@@ -1037,7 +997,9 @@ public final class QueryRegistry implements AutoCloseable {
             QueryFingerprint fingerprint,
             Retention retention,
             List<ParameterPlacement> placements,
-            SinkDelivery delivery) {
+            SinkDelivery delivery,
+            String checkpointDirectory,
+            com.ash.messaging.pravaha.backfill.BackfillPlan backfill) {
         StreamSchema schema = plan.outputSchema();
         for (int ordinal : keyColumns) {
             if (ordinal < 0 || ordinal >= schema.fieldCount()) {
@@ -1101,18 +1063,22 @@ public final class QueryRegistry implements AutoCloseable {
             // Restore before anything is fed. State without rewound sources double-counts every
             // record between the checkpoint and the failure; rewound sources without state replays
             // them into an empty query. Both halves or neither.
-            Map<String, String> resumeFrom = restoreFrom(name, execution, query);
+            Map<String, String> resumeFrom = checkpoints.restore(checkpointDirectory, execution, query);
 
             // Before the feed, so the first rows a source delivers are already inside a query that
             // is being checkpointed. Started after the execution exists and before anything can
             // write to it is the only window where neither ordering is wrong.
-            startCheckpointing(name, execution, query);
+            checkpoints.start(checkpointDirectory, execution, query);
             // Before the feed, so the sink hears the first commit there is. Nothing can have
             // committed yet, so there is nothing to seed it with.
             if (delivery != null) {
                 delivery.attachTo(query, false);
             }
-            query.feedFrom(feeds.open(name, execution, sourceStreams(plan), query::commit, resumeFrom));
+            query.feedFrom(
+                    backfill == null
+                            ? feeds.open(name, execution, sourceStreams(plan), query::commit, resumeFrom)
+                            : feeds.openBackfill(
+                                    name, execution, sourceStreams(plan), query::commit, resumeFrom, backfill));
         } catch (RuntimeException e) {
             // A feed that cannot open must not leave a half-started query behind holding a lane
             // thread and an arena. Fail the registration instead, with the execution released.
@@ -1121,6 +1087,107 @@ public final class QueryRegistry implements AutoCloseable {
         }
         placement.ifPresent(where -> sharedLaneOf.put(fingerprint, where.index()));
         return query;
+    }
+
+    /**
+     * Blue/green replacements in flight on this registry (ADR-046). Created with the first one.
+     *
+     * <p>Not synchronized on this registry: a replacement takes its own monitor and then the
+     * registry's for the moments that change a name, and a registry method that took them the
+     * other way round would eventually meet a cutover coming the other way.
+     */
+    private volatile QueryReplacements replacements;
+
+    /**
+     * The blue/green replacements of this registry's queries (ADR-046, design section 16.3).
+     *
+     * <p>Where a new version of a registered query is started beside the running one, backfilled,
+     * cut over to at a position both have consumed exactly, and rolled back from while the replaced
+     * version is retained. Every one of those requires the administer permission on the name, as
+     * dropping it does: a replacement takes the answer away from its readers just as thoroughly.
+     *
+     * <p>Created with the first replacement, so a registry that never replaces anything starts no
+     * thread. Not synchronized on this registry: a replacement takes its own monitor and then the
+     * registry's for the moments that change a name, and a registry method that took them the other
+     * way round would eventually meet a cutover coming the other way.
+     */
+    public QueryReplacements replacements() {
+        QueryReplacements running = replacements;
+        if (running == null) {
+            synchronized (QueryReplacements.class) {
+                running = replacements;
+                if (running == null) {
+                    running = new QueryReplacements(this, policy, audit);
+                    replacements = running;
+                }
+            }
+        }
+        return running;
+    }
+
+    // What a replacement needs of the registry, and nothing more. Package-private on purpose: a
+    // name moving between two computations is the registry's own bookkeeping, and the replacement
+    // orchestrates rather than reaches in.
+
+    RegistryJournal journal() {
+        return journal;
+    }
+
+    SourceFeedFactory feeds() {
+        return feeds;
+    }
+
+    /** The registration the journal holds for {@code name}, for a rollback to put back. */
+    java.util.Optional<RegistryJournal.Entry> journalledEntry(String name) {
+        if (journal == null) {
+            return java.util.Optional.empty();
+        }
+        return journal.replay().stream()
+                .filter(entry -> entry.name().equals(name))
+                .findFirst();
+    }
+
+    /** The streams {@code sql} would read if it were registered here, planned as registration plans it. */
+    synchronized List<String> sourceStreamsOf(String sql) {
+        return sourceStreams(PreparedContinuousQuery.of(
+                        sql, BoundParameters.none(), java.util.List.of(streams), List.copyOf(lookupSchemas.values()))
+                .plan());
+    }
+
+    /**
+     * Moves one name from the computation answering it to another, atomically.
+     *
+     * <p>The whole of a cutover's visible effect. A reader resolves the name through the view
+     * catalogue at the moment of its read, so it reads one version's view or the other's and never
+     * a mixture; the two are at the same position in their input, so neither is behind.
+     */
+    synchronized void moveName(String name, RegisteredQuery from, RegisteredQuery to) {
+        from.removeName(name);
+        byFingerprint.remove(from.fingerprint());
+        to.addName(name);
+        byName.put(name, to);
+        byFingerprint.put(to.fingerprint(), to);
+        views.registerAs(name, to.view());
+    }
+
+    /** Takes the name's sink delivery away from whoever has it, for a cutover to hand over. */
+    synchronized SinkDelivery takeDelivery(String name) {
+        return deliveries.remove(name);
+    }
+
+    synchronized void putDelivery(String name, SinkDelivery delivery) {
+        deliveries.put(name, delivery);
+    }
+
+    /** Opens a second delivery to the same sink, for the version taking the name over. */
+    SinkDelivery newDelivery(String name, String sinkName, StreamSchema schema) {
+        return openDelivery(name, sinkName, schema);
+    }
+
+    /** Releases a shadow or a retained version: nothing answers to it, so nothing is unbound. */
+    synchronized void releaseShadow(RegisteredQuery query) {
+        query.close();
+        query.checkpointDirectory().ifPresent(checkpoints::delete);
     }
 
     /**
@@ -1162,7 +1229,8 @@ public final class QueryRegistry implements AutoCloseable {
         }
         List<String> recovered = new ArrayList<>();
         List<Recovery.Refusal> refused = new ArrayList<>();
-        for (RegistryJournal.Entry entry : journal.replay()) {
+        RegistryJournal.Replayed replayed = journal.replayAll();
+        for (RegistryJournal.Entry entry : replayed.live()) {
             Optional<Principal> owner = principals.apply(entry.owner());
             if (owner.isEmpty()) {
                 refused.add(new Recovery.Refusal(
@@ -1184,7 +1252,8 @@ public final class QueryRegistry implements AutoCloseable {
                         owner.get(),
                         entry.retention(),
                         values.isEmpty() ? BoundParameters.none() : BoundParameters.of(values),
-                        entry.sink());
+                        entry.sink(),
+                        entry.checkpointDirectory());
                 recovered.add(entry.name());
             } catch (RuntimeException failure) {
                 // One bad entry must not stop the rest. A deployment recovering forty queries should
@@ -1195,6 +1264,12 @@ public final class QueryRegistry implements AutoCloseable {
         // Every name the journal knows has now been registered or refused, so a sink a restored
         // checkpoint recorded and nobody claimed belongs to a name that is not coming back.
         byFingerprint.values().forEach(RegisteredQuery::forgetUnclaimedSinks);
+        // And then the replacements that were in flight, which need their names back first: a
+        // candidate is started beside the version serving the name, and there is no name to be
+        // beside until the registrations above have been replayed (ADR-046).
+        if (!replayed.pending().isEmpty()) {
+            refused.addAll(replacements().recover(replayed.pending(), principals));
+        }
         return new Recovery(recovered, refused);
     }
 
@@ -1339,6 +1414,13 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public synchronized void drop(String name) {
         RegisteredQuery query = require(name);
+        QueryReplacements running = replacements;
+        if (running != null && running.isReplacing(name)) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.backfill.BackfillErrors.REPLACEMENT_IN_PROGRESS,
+                    "'" + name + "' is being replaced, and dropping it now would leave the candidate running "
+                            + "with nothing to take over. Abandon the replacement first, or roll it back.");
+        }
         // Journal first: see the note below on why this order is the only honest one.
         if (journal != null) {
             journal.recordDrop(name);
@@ -1366,7 +1448,7 @@ public final class QueryRegistry implements AutoCloseable {
             // The name the checkpointer was STARTED with, not the one being dropped. For a shared
             // computation those differ, so deleting by the dropped name removed nothing and left the
             // directory orphaned. Both are mine, from the same change.
-            query.checkpointDirectory().ifPresent(this::deleteCheckpointDirectory);
+            query.checkpointDirectory().ifPresent(checkpoints::delete);
         }
         // The journal entry was written before anything was released: a drop the client is told
         // failed must not have destroyed the computation, and a drop that succeeded must survive a
@@ -1374,7 +1456,18 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() {
+    public void close() {
+        // Before the registry's own monitor is taken: a replacement holds its own and then asks
+        // for this one, so closing it from inside this lock is how the two would meet head on.
+        QueryReplacements running = replacements;
+        replacements = null;
+        if (running != null) {
+            running.close();
+        }
+        closeQueries();
+    }
+
+    private synchronized void closeQueries() {
         List<RegisteredQuery> all = new ArrayList<>(byFingerprint.values());
         deliveries.values().forEach(SinkDelivery::close);
         deliveries.clear();
@@ -1398,62 +1491,6 @@ public final class QueryRegistry implements AutoCloseable {
         laneRunner = null;
         if (runner != null) {
             runner.close();
-        }
-    }
-
-    /**
-     * Refuses a name no query will be able to say.
-     *
-     * <p>A view name is written in a FROM clause, so it has to survive the SQL parser. {@code
-     * primary} does not: the registration is accepted, the server reports RUNNING, and every attempt
-     * to read it fails with a parse error naming a column position, which reads like a broken query
-     * rather than a name that was never usable. Refused at registration, where the person who chose
-     * the name is still holding it.
-     */
-    private static void requireSayableName(String name) {
-        // Unicode letters, not ASCII only. My first version refused a name like 金额 that the
-        // planner resolves perfectly well -- a validation stricter than the thing it was protecting.
-        if (!name.matches("[\\p{L}_][\\p{L}\\p{N}_]*")) {
-            throw new PravahaException(
-                    RegistryErrors.NAME_UNUSABLE,
-                    "'" + name + "' cannot be used as a view name: a name is written in a FROM clause, so it "
-                            + "must be a plain identifier -- a letter or underscore, then letters, digits or "
-                            + "underscores.");
-        }
-        try {
-            // Calcite's own parser rather than a list of reserved words kept by hand here. The list
-            // is long, it is version-specific, and a copy of it is wrong the first time Calcite
-            // changes -- whereas the parser is the thing that will actually reject the name.
-            org.apache.calcite.sql.parser.SqlParser.create("SELECT 1 FROM " + name)
-                    .parseQuery();
-        } catch (org.apache.calcite.sql.parser.SqlParseException | RuntimeException e) {
-            // What the parser said, not a diagnosis of our own. This used to answer every parse
-            // failure with "is a reserved word in SQL", which is the common cause and not the only
-            // one: a 500-character name is refused by Calcite's lexer for its length and was told it
-            // was a keyword -- false, and it sends the person who chose it looking for a list they
-            // will not find themselves on.
-            String reason =
-                    e.getMessage() == null ? e.toString() : e.getMessage().split("\n")[0];
-            throw new PravahaException(
-                    RegistryErrors.NAME_UNUSABLE,
-                    "'" + name + "' cannot appear in a FROM clause, so no query could read the view: " + reason
-                            + ". The usual cause is that the name is a reserved word in SQL.");
-        }
-    }
-
-    private void requireName(String name) {
-        // The null check first. I added requireSayableName above it, so a null name threw a bare
-        // NullPointerException out of name.matches() instead of the message two lines down.
-        if (name == null || name.isBlank()) {
-            throw new IllegalArgumentException("a registration needs a name");
-        }
-        requireSayableName(name);
-        if (byName.containsKey(name)) {
-            throw new PravahaException(
-                    RegistryErrors.NAME_IN_USE,
-                    "'" + name + "' is already registered. Drop it first, or register under another name -- "
-                            + "silently replacing a running query would take its answers away from whoever "
-                            + "is reading them");
         }
     }
 }

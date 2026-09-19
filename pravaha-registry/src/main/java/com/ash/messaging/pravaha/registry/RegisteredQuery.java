@@ -335,6 +335,7 @@ public final class RegisteredQuery implements AutoCloseable {
     public Subscription subscribe(
             SubscriptionOptions options,
             java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
+        refuseIfReplaced();
         // state(), not the field. Attaching a subscriber to a query whose lane has died gives it a
         // handle that will never deliver anything and never say why.
         if (state().isTerminal()) {
@@ -357,6 +358,7 @@ public final class RegisteredQuery implements AutoCloseable {
             SubscriptionOptions options,
             SubscriptionFilter filter,
             java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
+        refuseIfReplaced();
         // state(), not the field. Attaching a subscriber to a query whose lane has died gives it a
         // handle that will never deliver anything and never say why.
         if (state().isTerminal()) {
@@ -369,7 +371,42 @@ public final class RegisteredQuery implements AutoCloseable {
                 options == null ? SubscriptionOptions.DEFAULT : options,
                 filter,
                 consumer,
-                subscription -> sink.onCommit(subscription::onCommit));
+                subscription -> track(subscription, sink.onCommit(subscription::onCommit)));
+    }
+
+    /**
+     * Subscriptions open on this computation, so a cutover can tell them the view was replaced.
+     *
+     * <p>Removed as each one detaches, which is what keeps this from being a list of every
+     * subscriber this query has ever had.
+     */
+    private final java.util.List<Subscription> subscriptions = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private AutoCloseable track(Subscription subscription, AutoCloseable detach) {
+        subscriptions.add(subscription);
+        return () -> {
+            subscriptions.remove(subscription);
+            detach.close();
+        };
+    }
+
+    /**
+     * Ends every subscription on this computation, with the reason (ADR-046).
+     *
+     * <p>Called at a cutover, after the final commit has been delivered: a subscriber sees every
+     * change the version it was following ever made, and is then told that the name it subscribed
+     * to now answers a different question. Handing it the new version's changes instead would be a
+     * copy that is a mixture of two queries with nothing to say so.
+     */
+    void endSubscriptions(PravahaException why) {
+        for (Subscription subscription : subscriptions) {
+            subscription.endBecause(why);
+        }
+    }
+
+    /** How many subscriptions are open, which is what a cutover reports having ended. */
+    int openSubscriptions() {
+        return subscriptions.size();
     }
 
     /**
@@ -394,6 +431,7 @@ public final class RegisteredQuery implements AutoCloseable {
     public Subscription subscribeFromSnapshot(
             SubscriptionOptions options, SubscriptionFilter filter, SubscriptionListener listener) {
         java.util.Objects.requireNonNull(listener, "listener");
+        refuseIfReplaced();
         if (state().isTerminal()) {
             throw new PravahaException(
                     RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state);
@@ -404,18 +442,20 @@ public final class RegisteredQuery implements AutoCloseable {
                 options == null ? SubscriptionOptions.DEFAULT : options,
                 filter,
                 listener,
-                attached -> sink.onCommitFromSnapshot(new com.ash.messaging.pravaha.serving.ViewChangeListener() {
-                    @Override
-                    public void onSnapshot(java.util.List<com.ash.messaging.pravaha.serving.ViewChange> rows, long at) {
-                        attached.onSnapshot(rows, at);
-                    }
+                attached -> track(
+                        attached, sink.onCommitFromSnapshot(new com.ash.messaging.pravaha.serving.ViewChangeListener() {
+                            @Override
+                            public void onSnapshot(
+                                    java.util.List<com.ash.messaging.pravaha.serving.ViewChange> rows, long at) {
+                                attached.onSnapshot(rows, at);
+                            }
 
-                    @Override
-                    public void onCommit(
-                            java.util.List<com.ash.messaging.pravaha.serving.ViewChange> changes, long at) {
-                        attached.onCommit(changes, at);
-                    }
-                }));
+                            @Override
+                            public void onCommit(
+                                    java.util.List<com.ash.messaging.pravaha.serving.ViewChange> changes, long at) {
+                                attached.onCommit(changes, at);
+                            }
+                        })));
         if (sink.awaitingSnapshot()) {
             // Not needed for correctness -- the next commit from anywhere ends the wait -- but a
             // paused query's feed commits nothing, and nobody should wait on a timer for a boundary
@@ -723,6 +763,74 @@ public final class RegisteredQuery implements AutoCloseable {
                         e);
             }
         }
+    }
+
+    /**
+     * The version this computation was replaced by, once a cutover has moved its name (ADR-046).
+     *
+     * <p>It keeps running -- that is what makes a rollback instant -- and it keeps answering
+     * nobody: the name is the other version's now. A subscription opened here would follow a view
+     * no reader can reach, so it is refused rather than served.
+     */
+    private volatile String replacedBy;
+
+    void replacedBy(String version) {
+        this.replacedBy = version;
+    }
+
+    /** Whether this computation has been replaced and is retained only so a rollback can be instant. */
+    public boolean isRetiredByReplacement() {
+        return replacedBy != null;
+    }
+
+    private void refuseIfReplaced() {
+        String by = replacedBy;
+        if (by != null) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.backfill.BackfillErrors.VIEW_REPLACED,
+                    "this version of '" + anyName() + "' was replaced by " + by + " at a cutover and is kept only "
+                            + "so the replacement can be rolled back. Subscribe to the name, which the new "
+                            + "version answers.");
+        }
+    }
+
+    /**
+     * Where each of this computation's sources has got to, by stream, read between rows.
+     *
+     * <p>What a cutover compares: two versions are at the same point in their input when every
+     * partition of every stream they both read reports the same position (ADR-046).
+     */
+    public java.util.Map<String, java.util.List<String>> sourcePositions(java.time.Duration timeout) {
+        return execution.sourcePositions(timeout);
+    }
+
+    /** Takes a checkpoint now, or empty when this computation is not checkpointed. */
+    Optional<com.ash.messaging.pravaha.state.checkpoint.Checkpoint> checkpointNow() {
+        return checkpointer instanceof com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer periodic
+                ? Optional.of(periodic.checkpointNow())
+                : Optional.empty();
+    }
+
+    /**
+     * Numbers this computation's later checkpoints, and its sinks' transactions, above {@code id}.
+     *
+     * <p>For a cutover handing a sink over: the SPI's transaction labels only increase, so a sink
+     * moving to a computation whose checkpoint ids start lower would re-use labels its own store
+     * has already seen.
+     */
+    void continueLabelsAfter(long id) {
+        lastCut = Math.max(lastCut, id);
+        if (checkpointer instanceof com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer periodic) {
+            periodic.continueAfter(id);
+        }
+    }
+
+    /**
+     * Records what a sink handed over at a cutover already holds, for the delivery about to claim
+     * it -- the same channel a restored checkpoint uses, because it is the same question.
+     */
+    void carrySinkOver(String name, SinkDelivery.Restored restored) {
+        restoredSinks.put(name, restored);
     }
 
     /** The most recent checkpoint failure, and how many there have been. */

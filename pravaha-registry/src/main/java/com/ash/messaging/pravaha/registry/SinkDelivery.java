@@ -194,15 +194,17 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
             try {
                 if (restored.isPresent()) {
                     recover(restored.get());
-                    if (joining) {
-                        // The computation was restored by another name and has moved on since. This
-                        // sink holds the restored view -- that is what its section says -- so it is
-                        // owed the difference, not the whole.
+                    if (joining || restored.get().carriedView()) {
+                        // The computation was restored by another name and has moved on since, or
+                        // the section was carried from somewhere else entirely -- the version a
+                        // cutover replaced (ADR-046). Either way this sink holds the view the
+                        // section names and not this computation's, so it is owed the difference,
+                        // not the whole.
                         byte[] base = restored.get().view();
                         seed = () -> query.view().changesSince(base, acceptsRetractions);
                     }
-                    // Starting the computation: the view is the restored one, exactly what this sink
-                    // holds, and nothing has committed yet. Nothing to send.
+                    // Starting the computation from a checkpoint of its own: the view is the
+                    // restored one, exactly what this sink holds, and nothing has committed yet.
                 } else if (joining || (transactional && query.view().size() > 0)) {
                     // Joining: the view holds what was committed before this sink existed. Starting
                     // from a restored view with no record of this sink, and transactional: whatever
@@ -530,6 +532,17 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
         return queryName;
     }
 
+    /**
+     * The label of the transaction this sink has open.
+     *
+     * <p>Read when a cutover moves the sink to another computation: the SPI's labels only increase,
+     * across restarts and across a change of computation, so the new one's checkpoint ids have to
+     * continue above this.
+     */
+    synchronized long label() {
+        return label;
+    }
+
     long rowsWritten() {
         return rowsWritten.get();
     }
@@ -578,7 +591,12 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * @param view the view contents this sink holds once they are committed: the checkpoint's own
      *     view, or -- for a section carried forward unclaimed -- the view of the checkpoint it came from
      */
-    record Restored(long checkpointId, List<Prepared> handles, byte[] view) {
+    record Restored(long checkpointId, List<Prepared> handles, byte[] view, boolean carriedView) {
+
+        /** A section whose view is one this sink holds and no checkpoint of this computation does. */
+        static Restored carrying(long checkpointId, byte[] view) {
+            return new Restored(checkpointId, List.of(), view, true);
+        }
 
         /** The section to store for this sink while no registration has claimed it. */
         byte[] carried() {
@@ -606,7 +624,7 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
                     view = new byte[viewLength];
                     in.readFully(view);
                 }
-                return new Restored(checkpointId, List.copyOf(handles), view);
+                return new Restored(checkpointId, List.copyOf(handles), view, viewLength >= 0);
             } catch (IOException e) {
                 throw new UncheckedIOException("a sink's section of checkpoint " + checkpointId + " is unreadable", e);
             }

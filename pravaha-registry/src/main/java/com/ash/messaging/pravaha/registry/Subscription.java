@@ -143,6 +143,22 @@ public final class Subscription implements AutoCloseable {
         }
     }
 
+    /**
+     * Ends this subscription with a reason of the engine's rather than the subscriber's.
+     *
+     * <p>For a cutover (ADR-046): the view this subscriber was following has been replaced, so
+     * there are no more changes to it and there never will be. Said rather than simply closed,
+     * because a stream that merely stops reads as "nothing is happening" -- which is exactly what a
+     * dashboard would show for a view that is now answered by a different query.
+     */
+    void endBecause(PravahaException why) {
+        if (closed.get()) {
+            return;
+        }
+        failure = why;
+        close();
+    }
+
     private void threw(RuntimeException e) {
         failure = new PravahaException(
                 RegistryErrors.QUERY_FAILED,

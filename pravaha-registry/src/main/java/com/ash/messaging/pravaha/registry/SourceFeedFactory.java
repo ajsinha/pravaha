@@ -54,6 +54,45 @@ public interface SourceFeedFactory {
             java.util.Map<String, String> resumeFrom);
 
     /**
+     * Opens a feed that reads a bounded range of history before joining the live stream at the
+     * positions the running version has reached (ADR-046, design section 16.1).
+     *
+     * <p>The seam is per partition and is in {@code plan}. Everything else is exactly {@link #open}:
+     * the same pumps, the same backpressure, the same checkpointed offsets -- a backfill is a
+     * routine capability rather than a special mode, which is what makes a blue/green replacement
+     * possible at all.
+     *
+     * <p>Refused by default, because a factory that silently opened an ordinary feed instead would
+     * start the new version from the present with empty state and report it caught up.
+     */
+    default SourceFeed openBackfill(
+            String queryName,
+            QueryExecution execution,
+            List<String> sourceStreams,
+            Runnable afterDelivery,
+            java.util.Map<String, String> resumeFrom,
+            com.ash.messaging.pravaha.backfill.BackfillPlan plan) {
+        throw new com.ash.messaging.pravaha.api.PravahaException(
+                com.ash.messaging.pravaha.backfill.BackfillErrors.SOURCE_UNSUPPORTED,
+                "nothing here can read history for '" + queryName + "': this engine's rows are pushed in by "
+                        + "its embedder rather than read from a bound source, so there is no history to "
+                        + "replay and no live stream to splice onto. A replacement would start from empty "
+                        + "state and call itself caught up.");
+    }
+
+    /**
+     * Why a replacement's backfill cannot read {@code stream}, or empty when it can.
+     *
+     * <p>Asked before a replacement starts, so the refusal names the stream and the reason rather
+     * than arriving as a backfill that never finishes. Refused by default: an unbound stream is fed
+     * by hand and has no history anybody can replay.
+     */
+    default java.util.Optional<String> backfillRefusal(String stream) {
+        return java.util.Optional.of("nothing is bound to '" + stream + "', so its rows are pushed in rather than "
+                + "read from a source: there is no history to replay and no position to splice at");
+    }
+
+    /**
      * Whether rows from this stream's source can carry a negative weight -- a delete, or the old
      * half of an update.
      *

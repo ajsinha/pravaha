@@ -36,6 +36,15 @@
       <artifactId>pravaha-runtime</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!--
+      Blue/green replacement (ADR-046): the splice a backfill reads history through, the job an
+      operator throttles, and the shadow deployment that records who served what.
+    -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-backfill</artifactId>
+      <version>${project.version}</version>
+    </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-serving</artifactId>
