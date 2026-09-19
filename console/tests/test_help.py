@@ -427,12 +427,13 @@ PLUGINS = {
     "aerospike-sink": "plugins/pravaha-plugin-aerospike",
     "cassandra": "plugins/pravaha-plugin-cassandra",
     "postgres-cdc": "plugins/pravaha-plugin-postgres-cdc",
-    "kafka-sink": "plugins/pravaha-plugin-kafka",
+    "kafka-sink": "plugins/pravaha-plugin-kafka", "kafka": "plugins/pravaha-plugin-kafka",
 }
 
 #: Option prefixes a plugin passes through whole, so no literal in its code names each option:
-#: kafka-sink hands every `kafka.<property>` to the Kafka clients, which refuse a name they lack.
-PASS_THROUGH = {"kafka-sink": ("kafka.",)}
+#: kafka-sink and the kafka source hand every `kafka.<property>` to the Kafka clients, and each
+#: refuses a name its client does not know.
+PASS_THROUGH = {"kafka-sink": ("kafka.",), "kafka": ("kafka.",)}
 
 
 def _literals(module: str) -> set[str]:
