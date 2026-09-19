@@ -40,7 +40,7 @@ slot, and this page says how.
 | Emits deletes / before-image | **yes / yes** — the first shipped source to declare both |
 | Pushdown | none — the stream is the table's whole rows |
 | Shared between queries | **no** — one slot, one reader, per registration |
-| Initial snapshot | **none**: changes from the moment the slot was created, nothing before |
+| Initial snapshot | with `snapshot.mode: initial`: the rows already there, in key order, then the changes; exact across a restart half-way through. `never` (the default): changes from the slot's creation only |
 | Schema comes from | the table, or a declared `schema` checked against it |
 | Event time | the transaction's **commit time**, or an `event.time` timestamp column |
 
@@ -103,6 +103,8 @@ this page.)
 | `start.timeout` | no | `30s` | How long opening a reader waits to have read the log as far as it stood |
 | `slot.lag.warn.bytes` | no | `1073741824` (1 GiB) | Retained WAL past which the source's health is `DEGRADED` |
 | `drop.slot.on.close` | no | `false` | `true` drops the slot whenever the source closes, a node shutdown included — for tests and throwaway environments only |
+| `snapshot.mode` | no | `never` | `initial`: a registration starting from nothing first reads the rows already in the table, then streams. Needs a primary key (PRV-5112 without one). `never`: changes from the slot's creation only |
+| `snapshot.chunk.rows` | no | `10000` | Rows one snapshot query reads — about how many are held in memory at once |
 | `share.reader` | no | `true` | Read by the binding layer. An exactly-once source is never shared, so it has no effect here |
 | `tls.*` | — | — | **Refused** (PRV-5110), except `tls.enabled: false`: the driver takes TLS in the URL, and accepting `tls.*` would promise an encryption the connection never made |
 
@@ -155,6 +157,8 @@ pravaha:
         start.timeout: 30s
         slot.lag.warn.bytes: "1073741824"
         drop.slot.on.close: "false"
+        snapshot.mode: initial              # the orders already there, then every change
+        snapshot.chunk.rows: "10000"
 ```
 
 Two things this binding does on purpose:
@@ -309,13 +313,31 @@ per hour".
 two registrations reading the same stream need two bindings with two slots. A second reader of a slot
 already being read waits a few seconds and then fails.
 
-## No initial snapshot
+## The initial snapshot
 
-The source delivers changes **from the moment its slot was created**. Rows already in the table then
-are not delivered, so a view over a table that already holds rows starts without them. Register the
-query before the table is loaded, or load its history another way. (The exact seam for a snapshot is
-known; a checkpoint cut *during* the snapshot read has no exact resume point yet, and shipping a
-snapshot that is exact only when nothing restarts would be worse than none.)
+With `snapshot.mode: never`, the default, the source delivers changes **from the moment its slot was
+created**, and a view over a table that already holds rows starts without them. With
+`snapshot.mode: initial`, a registration that starts from nothing reads those rows first:
+
+- **One point in the log.** A temporary slot, `<slot>_snap_<random>`, exports a snapshot that sees
+  exactly the transactions committed before the slot's consistent point. The table is read under it,
+  in primary-key order, every row at +1; the changes before that point are dropped (the snapshot has
+  them) and every change after it is streamed. The temporary slot is gone once the snapshot is taken.
+- **A restart half-way through is exact.** The checkpoint records the last key delivered —
+  `lsn=0/16B3748;snapshot=20000@20417`: twenty thousand rows, the last with key 20417. A restore takes
+  a new snapshot, keeps from the log only the changes to rows at or below that key, and reads the
+  rest of the table above it. No row twice, none missing, whatever changed while the node was down.
+- **Bounded memory.** The table is read `snapshot.chunk.rows` at a time, never more than two chunks
+  ahead of the engine. The source's health shows the progress: `initial snapshot in progress: N rows
+  delivered of about M`.
+
+What it needs: a **primary key** (PRV-5112 without one), `SELECT` on the table, room in
+`max_replication_slots` for the temporary slot, and **no transaction left open** from before it
+starts — PostgreSQL creates the temporary slot only once every transaction already running has
+ended, and past `start.timeout` the source is refused with PRV-5118. While the table is read, one
+`REPEATABLE READ` transaction stays open (holding back vacuum) and the slot retains WAL from the
+snapshot's point. A checkpoint taken mid-snapshot finishes the snapshot whatever `snapshot.mode` now
+says; one written before snapshots existed resumes as the stream it always was.
 
 ## Recovery: when the slot cannot be resumed
 
@@ -331,8 +353,8 @@ and nothing can replay them. The recovery is one procedure:
     SELECT pg_drop_replication_slot('pravaha_orders');
     ```
 
-4. Register the query again. It is rebuilt from the table's changes from that moment; rows already in
-   the table are not replayed, because there is no initial snapshot.
+4. Register the query again. It is rebuilt from the table's changes from that moment — and, with
+   `snapshot.mode: initial`, from the rows already in the table first.
 
 After a **failover**, whether the slot exists on the new primary depends on the PostgreSQL version and
 on slot synchronisation (`sync_replication_slots`, PostgreSQL 17). Where it does not, the source
@@ -358,6 +380,7 @@ DROP PUBLICATION IF EXISTS pravaha_orders;
 | [PRV-5115](/help/codes/PRV-5115) | at restore | The slot has confirmed past the checkpoint being restored. Recover as above |
 | [PRV-5116](/help/codes/PRV-5116) | while running | A `TRUNCATE`, or a key-only before-image (the replica identity was changed while capturing). Everything before it was delivered. Recover as above |
 | [PRV-5117](/help/codes/PRV-5117) | while running | The replication stream failed in a way no reconnect fixes: the slot dropped or invalidated, the role's privileges revoked |
+| [PRV-5118](/help/codes/PRV-5118) | at open, or during a snapshot | The initial snapshot could not start — a transaction left open since before it, or no room for the temporary slot — or its read failed. A restart resumes it exactly |
 
 ## Pitfalls
 

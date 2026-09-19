@@ -4,7 +4,7 @@ slug: errors-plugins
 category: errors
 order: 60
 icon: plug
-summary: "PRV-5001 to PRV-5117: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
+summary: "PRV-5001 to PRV-5118: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
 badge: PRV-5XXX
 audience: Operators
 keywords: [plugin, classpath, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
@@ -39,7 +39,7 @@ a support conversation should have to start with.
 | PRV-5085 – PRV-5089 | `cassandra` |
 | PRV-5090 – PRV-5094 | Attaching a source or sink to a registered query |
 | PRV-5100 – PRV-5107 | `kafka` (source) and `kafka-sink` |
-| PRV-5110 – PRV-5117 | `postgres-cdc` |
+| PRV-5110 – PRV-5118 | `postgres-cdc` |
 
 ## Loading and naming plugins
 
@@ -472,6 +472,17 @@ role's privileges revoked.
 
 For PRV-5115, 5116 and 5117 the recovery is the same: stop the registration, delete its checkpoint
 directory, drop the slot, register again.
+
+### PRV-5118 — PostgreSQL CDC: snapshot failed
+
+With `snapshot.mode: initial`, the initial snapshot could not start or could not be read. At start it
+is almost always a transaction left open since before the registration: PostgreSQL creates the
+temporary slot that pins the snapshot to the log only once every transaction already running has
+ended, and `start.timeout` bounds the wait. Find it with `SELECT pid, xact_start, state FROM
+pg_stat_activity WHERE backend_xid IS NOT NULL ORDER BY xact_start;`. Otherwise
+`max_replication_slots` has no room for the temporary slot, or the snapshot's connection failed
+mid-read — which a restart from the last checkpoint recovers from exactly, after the last key
+delivered.
 
 ## Where next
 
