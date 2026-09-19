@@ -24,5 +24,17 @@
       <artifactId>pravaha-state</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- CapturingRowWriter, so a splice test can assert the rows rather than a count of them. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-testkit</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.jqwik</groupId>
+      <artifactId>jqwik</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>
