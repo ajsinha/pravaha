@@ -374,6 +374,14 @@ class DetectingScanReaderTest {
             reader.checkpointed(latest);
             assertThat(parentDir).doesNotExist();
             try (var files = Files.list(reader.emittedRows().directory())) {
+                for (Path file : files.toList()) {
+                    assertThat(java.nio.file.attribute.PosixFilePermissions.toString(
+                                    Files.getPosixFilePermissions(file)))
+                            .as("%s holds the source's rows, so only its owner may read it", file.getFileName())
+                            .isEqualTo("rw-------");
+                }
+            }
+            try (var files = Files.list(reader.emittedRows().directory())) {
                 assertThat(files.map(file -> file.getFileName().toString())
                                 .filter(name -> name.startsWith("snap-"))
                                 .toList())

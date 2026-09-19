@@ -26,12 +26,10 @@ import java.io.EOFException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -45,6 +43,7 @@ import java.util.zip.CheckedOutputStream;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.common.io.SensitiveFiles;
 
 /**
  * Every row a delete-detecting reader has emitted and not retracted, and the files that give them
@@ -68,7 +67,8 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * (every row after {@code n} emitted, checksummed, written to a temporary name and renamed),
  * {@code log-<n>.bin} (each row emitted after snapshot {@code n}, each entry checksummed), {@code
  * parent} (the reader this one was restored from, if any) and {@code confirmed} (present once a
- * checkpoint naming this reader is durable). A restored reader writes its own snapshot at once and
+ * checkpoint naming this reader is durable). They hold the source's rows, so each is created
+ * owner-only before its first byte, as checkpoints are. A restored reader writes its own snapshot at once and
  * never writes into its parent's directory; the parent's is deleted once a checkpoint naming the new
  * reader is durable, since nothing will resume from the older one again.
  *
@@ -185,7 +185,7 @@ final class EmittedRows<K> {
         }
         this.parentId = parent;
         try {
-            Files.createDirectories(dir);
+            SensitiveFiles.createOwnerOnly(dir.resolve("parent"));
             Files.writeString(dir.resolve("parent"), parent == null ? "" : parent);
             writeSnapshot(0);
             openSegment(0);
@@ -354,6 +354,7 @@ final class EmittedRows<K> {
         if (!released) {
             released = true;
             try {
+                SensitiveFiles.createOwnerOnly(dir.resolve("confirmed"));
                 Files.writeString(dir.resolve("confirmed"), token);
                 if (parentId != null) {
                     deleteTree(partitionDir.resolve(parentId));
@@ -435,7 +436,9 @@ final class EmittedRows<K> {
     // Files.
 
     private void openSegment(long start) throws IOException {
-        this.logFile = new FileOutputStream(dir.resolve("log-" + start + ".bin").toFile());
+        Path file = dir.resolve("log-" + start + ".bin");
+        SensitiveFiles.createOwnerOnly(file);
+        this.logFile = new FileOutputStream(file.toFile());
         this.log = new DataOutputStream(new BufferedOutputStream(logFile, 1 << 16));
         this.segmentStart = start;
         this.dirty = false;
@@ -452,6 +455,7 @@ final class EmittedRows<K> {
 
     private void writeSnapshot(long count) throws IOException {
         Path temporary = dir.resolve("snap-" + count + ".tmp");
+        SensitiveFiles.createOwnerOnly(temporary);
         CRC32 crc = new CRC32();
         try (FileOutputStream file = new FileOutputStream(temporary.toFile())) {
             DataOutputStream out =
@@ -475,11 +479,7 @@ final class EmittedRows<K> {
             file.getChannel().force(true);
         }
         Files.move(temporary, dir.resolve("snap-" + count + ".bin"), StandardCopyOption.ATOMIC_MOVE);
-        try (FileChannel directory = FileChannel.open(dir, StandardOpenOption.READ)) {
-            directory.force(true);
-        } catch (IOException e) {
-            // Not every filesystem lets a directory be forced; the rename is still atomic.
-        }
+        SensitiveFiles.syncDirectory(dir);
         snapshots.add(count);
     }
 
