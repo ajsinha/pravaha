@@ -282,7 +282,12 @@ earlier version of the Flight server read a private key into a field, served pla
 advised the operator to set keys they had already half set.
 
 The PostgreSQL wire gateway takes the same two settings under `pravaha.pgwire.tls`, and `psql`'s
-`sslmode=require` negotiates over the same port.
+`sslmode=require` negotiates over the same port. Until HLP-5 the node never read those two keys:
+the gateway could do TLS, and a deployment that configured it was served plaintext anyway, with
+only the startup line `PostgreSQL wire protocol listening on ... -- NO TLS` to say so. The keys are
+read now, a half-set pair is refused naming the missing half as Flight's is, and a TLS gateway logs
+`... over TLS` instead. `PravahaNodePgWireTlsTest` holds it: an `SSLRequest` is answered `S` and the
+handshake presents the configured certificate.
 
 ### 4.2 The SDKs
 

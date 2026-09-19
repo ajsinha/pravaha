@@ -92,6 +92,8 @@ public class PravahaNode implements SmartLifecycle {
     private final boolean pgwireEnabled;
     private final String pgwireHost;
     private final int pgwirePort;
+    private final File pgwireTlsCertificate;
+    private final File pgwireTlsKey;
 
     private final boolean flightEnabled;
     private final String flightHost;
@@ -189,6 +191,8 @@ public class PravahaNode implements SmartLifecycle {
         private boolean pgwireEnabled;
         private String pgwireHost = "127.0.0.1";
         private int pgwirePort;
+        private String pgwireTlsCertificate;
+        private String pgwireTlsKey;
 
         public Builder withCatalog(StreamCatalog streams) {
             this.streams = streams;
@@ -235,6 +239,13 @@ public class PravahaNode implements SmartLifecycle {
             this.pgwireEnabled = enabled;
             this.pgwireHost = host;
             this.pgwirePort = port;
+            return this;
+        }
+
+        /** Both halves together, refused together when only one is set, as for Flight. */
+        public Builder withPgWireTls(String certificate, String key) {
+            this.pgwireTlsCertificate = certificate;
+            this.pgwireTlsKey = key;
             return this;
         }
 
@@ -303,7 +314,9 @@ public class PravahaNode implements SmartLifecycle {
                     stateSpill,
                     pgwireEnabled,
                     pgwireHost,
-                    pgwirePort);
+                    pgwirePort,
+                    pgwireTlsCertificate,
+                    pgwireTlsKey);
         }
     }
 
@@ -335,7 +348,9 @@ public class PravahaNode implements SmartLifecycle {
             com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill,
             @Value("${pravaha.pgwire.enabled:false}") boolean pgwireEnabled,
             @Value("${pravaha.pgwire.host:0.0.0.0}") String pgwireHost,
-            @Value("${pravaha.pgwire.port:5432}") int pgwirePort) {
+            @Value("${pravaha.pgwire.port:5432}") int pgwirePort,
+            @Value("${pravaha.pgwire.tls.certificate:}") String pgwireTlsCertificate,
+            @Value("${pravaha.pgwire.tls.key:}") String pgwireTlsKey) {
         this.streams = streams;
         this.sources = sources;
         // Defaults to empty if no bean is supplied, so the existing test call sites that construct
@@ -359,6 +374,9 @@ public class PravahaNode implements SmartLifecycle {
         this.pgwireEnabled = pgwireEnabled;
         this.pgwireHost = pgwireHost;
         this.pgwirePort = pgwirePort;
+        this.pgwireTlsCertificate =
+                pgwireTlsCertificate == null || pgwireTlsCertificate.isBlank() ? null : new File(pgwireTlsCertificate);
+        this.pgwireTlsKey = pgwireTlsKey == null || pgwireTlsKey.isBlank() ? null : new File(pgwireTlsKey);
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
         this.flightPort = flightPort;
@@ -934,10 +952,9 @@ public class PravahaNode implements SmartLifecycle {
             // and it must not become a second, weaker way to the data. PgWireConnection calls
             // ViewQuery.execute(sql, principal) exactly as PravahaFlightSqlProducer does.
             //
-            // OFF BY DEFAULT, and that is the setting doing real work rather than caution. This
-            // gateway has no TLS in its first slice, so the password crosses the wire in the clear.
-            // An operator turns it on knowing that, on loopback or behind a terminator; nobody gets
-            // it by not reading the configuration file.
+            // OFF BY DEFAULT. Without pravaha.pgwire.tls.certificate and .key the password and every
+            // row cross the wire in the clear, so an operator turns it on knowing that, on loopback
+            // or behind a terminator; nobody gets it by not reading the configuration file.
             com.ash.messaging.pravaha.pgwire.PravahaPgWireServer server =
                     new com.ash.messaging.pravaha.pgwire.PravahaPgWireServer(views)
                             .authorizedBy(securityPolicyOf(registry), auditSink());
@@ -945,12 +962,25 @@ public class PravahaNode implements SmartLifecycle {
             if (pgVerifier != null) {
                 server.authenticatedBy(pgVerifier);
             }
+            // HLP-5. The gateway has had TLS since its third slice, and application.yaml and
+            // CONNECTOR_TLS.md documented pravaha.pgwire.tls.*, but nothing here read those keys:
+            // a deployment that configured them was served plaintext, and told so only by the log
+            // line below. Either half set hands both to PgTls.load, which refuses the missing one
+            // by name (CFG-6's rule), rather than ignoring half a pair.
+            if (pgwireTlsCertificate != null || pgwireTlsKey != null) {
+                server.encryptedWith(pgwireTlsCertificate, pgwireTlsKey);
+            }
             pgwire = server.start(pgwireHost, pgwirePort);
-            log.info(
-                    "PostgreSQL wire protocol listening on {}:{} -- NO TLS, the credential crosses "
-                            + "the wire in the clear; use loopback or a terminator",
-                    pgwireHost,
-                    pgwire.port());
+            if (server.isEncrypted()) {
+                log.info("PostgreSQL wire protocol listening on {}:{} over TLS", pgwireHost, pgwire.port());
+            } else {
+                log.info(
+                        "PostgreSQL wire protocol listening on {}:{} -- NO TLS, the credential crosses "
+                                + "the wire in the clear; set pravaha.pgwire.tls.certificate and .key, "
+                                + "or use loopback or a terminator",
+                        pgwireHost,
+                        pgwire.port());
+            }
         }
         running = true;
     }
@@ -1021,6 +1051,11 @@ public class PravahaNode implements SmartLifecycle {
     /** The port Flight is listening on, which is worth knowing when the configured port was zero. */
     public Optional<Integer> flightPort() {
         return flight == null ? Optional.empty() : Optional.of(flight.port());
+    }
+
+    /** The port the PostgreSQL wire gateway is listening on; empty when it is not enabled. */
+    public Optional<Integer> pgwirePort() {
+        return pgwire == null ? Optional.empty() : Optional.of(pgwire.port());
     }
 
     public Optional<QueryRegistry> registry() {
