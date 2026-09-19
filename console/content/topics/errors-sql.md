@@ -124,8 +124,8 @@ A relational operator Pravaha does not execute: `ORDER BY`, `LIMIT`/`OFFSET`, `U
 bound, a non-equi join, `SESSION` windows, `ROLLUP`, `INSERT`/`UPDATE`/`DELETE` — and `SUM`, `AVG`,
 `MIN` or `MAX` over a floating-point column, because every aggregate accumulator reads and writes a
 64-bit integer (only `COUNT` of a float plans). A `WHERE` on a looked-up column over an inner lookup
-join is refused with this code too, under a message about correlated subqueries — write the join
-`LEFT` ([lookups](/help/topics/lookups)).
+join is refused with this code too; the message says a filter on a lookup column is refused and that
+the `LEFT JOIN ... WHERE` form plans — write the join `LEFT` ([lookups](/help/topics/lookups)).
 
 <!-- sql: refused PRV-2020 -->
 ```sql
@@ -175,7 +175,9 @@ SELECT txn_id, CAST(amount AS VARCHAR) AS amount_text FROM txn
     name a function your SQL does not contain.
 
 A nullable comparison projected as a boolean is refused because writing UNKNOWN into a boolean column
-would report it as `false` — a wrong answer under a success code. Say which you mean and it plans:
+would report it as `false` — a wrong answer under a success code. The message says to choose what
+UNKNOWN means: `(<condition>) IS TRUE` reads it as FALSE, `(<condition>) IS NOT FALSE` as TRUE, and
+both are never UNKNOWN, so both plan:
 
 <!-- sql: refused PRV-2021 -->
 ```sql
@@ -183,8 +185,12 @@ SELECT txn_id, status = 'SETTLED' AS settled FROM txn
 ```
 
 ```sql
-SELECT txn_id, CASE WHEN status = 'SETTLED' THEN TRUE ELSE FALSE END AS settled FROM txn
+SELECT txn_id, (status = 'SETTLED') IS TRUE AS settled FROM txn
 ```
+
+`CASE WHEN status = 'SETTLED' THEN TRUE ELSE FALSE END` means the same as `IS TRUE` and plans too.
+Adding `status IS NOT NULL AND` to the comparison does **not**: the whole expression is still typed
+as possibly UNKNOWN, and is refused the same way.
 
 ### The refusal with no code
 
@@ -308,12 +314,14 @@ Write the value into the SQL, and register one query per shape.
 ### PRV-2041 — emit mode mismatch
 
 The query **revises its answer** — an unwindowed aggregate over a view, a window with allowed
-lateness, a join that can withdraw a match — and the sink it names can only **append**, such as a
+lateness, a join that can withdraw a match, or anything that passes on rows from a source that
+deletes (postgres-cdc, Delta, a Kafka changelog) — and the sink it names can only **append**, such as a
 `filesystem` sink. Refused at registration, before the sink is opened, because the alternative is a
 file holding rows that are each correct and a total that is wrong for ever: a retraction has nowhere
 to go (design §15.5).
 
-A filter, a projection, or a tumbling window without lateness never revises and goes to any sink.
+Over sources that only append, a filter, a projection, or a tumbling window without lateness never
+revises and goes to any sink; over a source that deletes, the message's *Why* names the stream.
 **Do:** point a revising query at a sink that accepts updates (`jdbc-sink`, `aerospike-sink`, `kafka-sink`), or
 change the query so it does not revise. The catalog's *Sinks* tab says what each binding accepts. See
 [How a query writes to a sink](/help/topics/sinks-overview).

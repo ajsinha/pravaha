@@ -24,9 +24,9 @@ change carrying a weight so a retraction subtracts exactly what an insertion add
 | `COUNT(*)` | — | — | — | Counts rows |
 | `COUNT(col)` | yes | yes | yes | Skips NULLs |
 | `COUNT(DISTINCT col)` | yes | yes | yes | Windowed on a stream; anywhere on a view. Does not count NULL |
-| `SUM(col)` | yes | **refused**, PRV-2020 | no | Accumulates in 64-bit integers |
+| `SUM(col)` | yes | **refused**, PRV-2020 | no | Accumulates in 64-bit integers. **The result is a `BIGINT`** (`INT64`) over a `TINYINT`, `SMALLINT` or `INT` column too — a running sum outgrows 32 bits |
 | `AVG(col)` | yes | **refused**, PRV-2020 | no | The exact sum over the count, as the column's integer type |
-| `MIN(col)`, `MAX(col)` | yes | **refused**, PRV-2020 | — | |
+| `MIN(col)`, `MAX(col)` | yes | **refused**, PRV-2020 | — | The column's own type: `MIN` of an `INT` is an `INT` |
 | Over an expression — `SUM(qty * price_cents)` | yes | | | |
 
 `SUM`, `AVG`, `MIN` and `MAX` over a float column are all refused because every accumulator reads and
@@ -193,6 +193,17 @@ SELECT currency, window_start, window_end,
        COUNT(status) AS with_status
 FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' HOUR))
 GROUP BY currency, window_start, window_end
+```
+
+A counter written as a `SUM` of a `CASE` is a `BIGINT`, like any `SUM` of an integer — so a sink's
+`schema` names it `INT64`, whatever the literals' type:
+
+```sql
+SELECT window_start, window_end,
+       SUM(CASE WHEN status = 'SETTLED' THEN 1 ELSE 0 END) AS settled,
+       COUNT(*) AS payments
+FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' MINUTE))
+GROUP BY window_start, window_end
 ```
 
 A nullable integer aggregates the same way:

@@ -119,8 +119,9 @@ GROUP BY window_start, window_end
 
 !!! warning "Pitfall: renaming `window_end` in the SELECT list"
     `SELECT user_id, window_end AS hour_end, ... GROUP BY user_id, window_start, window_end` is
-    refused with PRV-2050 today, although it groups by both columns. Select the column under its own
-    name — `window_end` — and rename it where you read it.
+    refused with PRV-2050, although it groups by both columns: the window is found by its columns'
+    *names*, and the rename hides one. The message lists the grouped columns it found and says so.
+    Select the column under its own name — `window_end` — and rename it where you read it.
 
 <!-- sql: refused PRV-2050 -->
 ```sql
@@ -483,18 +484,23 @@ values; writing UNKNOWN into one would report it as `false` under a success exit
 SELECT txn_id, status = 'SETTLED' AS settled FROM txn
 ```
 
-**Rewrite:** say which you mean. `CASE` collapses UNKNOWN to `FALSE` deliberately:
+**Rewrite:** say which answer UNKNOWN should be, as the message suggests. `IS TRUE` reads it as
+`FALSE`; `IS NOT FALSE` reads it as `TRUE`. Neither can be UNKNOWN:
 
 ```sql
 SELECT txn_id,
-       CASE WHEN status = 'SETTLED' THEN TRUE ELSE FALSE END AS settled
+       (status = 'SETTLED') IS TRUE AS settled,
+       (status = 'SETTLED') IS NOT FALSE AS settled_or_unknown
 FROM txn
 ```
 
-!!! note "`IS NOT NULL AND ... =` is refused too, today"
-    The long-form guide suggests `status IS NOT NULL AND status = 'SETTLED'` as a projection that is
-    never UNKNOWN. It is not UNKNOWN, but the compiler judges each operand separately and refuses it
-    with PRV-2021 all the same. Use the `CASE` form; in a `WHERE`, either form works.
+`CASE WHEN status = 'SETTLED' THEN TRUE ELSE FALSE END` is the long way to write `IS TRUE`, and plans
+too.
+
+!!! note "`IS NOT NULL AND ... =` is refused"
+    `status IS NOT NULL AND status = 'SETTLED'` is never UNKNOWN in fact, but the planner still types
+    the `AND` as possibly UNKNOWN, and it is refused with PRV-2021 all the same. Use `IS TRUE`; in a
+    `WHERE`, either form works.
 
 <!-- sql: refused PRV-2021 -->
 ```sql

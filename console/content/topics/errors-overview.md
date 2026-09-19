@@ -48,9 +48,11 @@ A message is the code, **two spaces**, and a sentence that says what happened an
 one, what to do:
 
 ```text
-PRV-2050  this GROUP BY is over a windowed stream but does not group by the window: add
-window_start and window_end to the GROUP BY. Without them the aggregate spans every window at once,
-which is the unbounded case wearing a window's clothes.
+PRV-2050  this GROUP BY is over a windowed stream, and the window is found by its columns' names,
+window_start and window_end, among the grouped columns: here they are user_id. Group by both, and
+keep their names -- a SELECT that renames one (window_end AS closes) hides it; rename it in an outer
+query or in the client instead. Without the window the aggregate spans every window at once, which
+is the unbounded case wearing a window's clothes.
 ```
 
 Three rules hold for every message, and knowing them saves time:

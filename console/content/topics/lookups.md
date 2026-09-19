@@ -160,8 +160,8 @@ JOIN customers FOR SYSTEM_TIME AS OF o.event_time AS c
 ```
 
 To keep only some of the enriched rows, filter on the lookup's columns — but write it as a `LEFT`
-join. An inner join with a `WHERE` on the lookup's columns is refused today, with a message about
-correlated subqueries:
+join. An inner join with a `WHERE` on the lookup's columns is refused, and the message says so and
+points at the `LEFT` form:
 
 <!-- sql: refused PRV-2020 -->
 ```sql

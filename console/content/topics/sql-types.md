@@ -99,12 +99,13 @@ success exit code:
 SELECT txn_id, status = 'SETTLED' AS settled FROM txn
 ```
 
-Say which you mean. `CASE` collapses UNKNOWN to `FALSE` deliberately:
+Say which you mean. `IS TRUE` collapses UNKNOWN to `FALSE` deliberately, `IS NOT FALSE` to `TRUE`
+(a `CASE WHEN ... THEN TRUE ELSE FALSE END` is the long form of `IS TRUE`):
 
 ```sql
 SELECT txn_id,
        amount > 50 AS over_fifty,
-       CASE WHEN status = 'SETTLED' THEN TRUE ELSE FALSE END AS settled
+       (status = 'SETTLED') IS TRUE AS settled
 FROM txn
 ```
 
