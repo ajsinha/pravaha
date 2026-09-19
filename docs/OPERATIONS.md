@@ -452,6 +452,10 @@ quietly discarded input is the thing the queue exists to prevent, not something 
 Two of the three previously carried a comment telling the operator to permission them like data.
 An instruction to somebody who may never read it is not a control.
 
+A fourth exists when an `aerospike` or `cassandra` source runs `deletes: detect`: the rows the source
+has emitted, under `deletes.state.dir`, created owner-only the same way (*How hard a source is
+polled*, below).
+
 Best effort where POSIX permissions are unsupported — Windows, some network mounts — and it says so
 at `WARNING` rather than failing the write, because refusing to run there would trade a
 confidentiality problem for an availability one. **Nothing is encrypted at rest**; if that is
@@ -538,6 +542,24 @@ It is **1.0 scans per second** now, and four queries are 3.8 — linear, where t
 fell per query because the cluster was saturated. `records.per.second` is a different knob: it
 throttles records *within* a scan and never throttled how often one started. Raise the interval on a
 shared cluster; the cost of raising it is staleness, bounded by the interval.
+
+**Aerospike with `deletes: detect` reads the whole set every pass.** A deleted record never matches
+a last-update-time filter, so delete detection drops it and each pass is a full scan of the
+partition range: size `scan.interval.ms` to the set, not to the rate of change. Cassandra's passes
+were always full scans, so `detect` changes nothing it reads.
+
+**Delete-detection state, on disk and in memory.** Each reader of a `deletes: detect` source keeps
+every row it has emitted: about 150 bytes of heap a row plus the row's encoded size (measured: 145
+bytes for a three-column row on Aerospike, 136 on Cassandra — a million rows is about 150 MB),
+bounded per partition or token range by `deletes.max.keys`, which refuses by code (`PRV-5120` /
+`PRV-5122`) rather than forgetting rows. On disk, under
+`deletes.state.dir/<source>/<partition>/<reader>/`, a checksummed snapshot of those rows and a log of
+the changes since it; a new snapshot is written when the log passes a quarter of the rows, so a
+quiet source writes nothing. Put the directory on durable local disk, back it up with the
+checkpoints — a restore that cannot find the rows its checkpoint names is refused (`PRV-5121` /
+`PRV-5123`) — and expect `position()` to force the log to disk at every checkpoint. A durable
+checkpoint deletes what it supersedes; the directory of a **dropped** query is not deleted, and can
+be removed by hand once its checkpoint directory is gone.
 
 **Filesystem with `follow: true` costs about 13 ms of CPU per second per source while completely
 idle** — a `stat` and a `read` a thousand times a second, whether or not anything was written.

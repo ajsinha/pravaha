@@ -371,13 +371,17 @@ pravaha:
 | `scan.interval.ms` | no | `1000` |
 | `scan.socket.timeout.ms` / `scan.total.timeout.ms` | no | `30000` / `120000` |
 | `user` / `password` | no | empty |
+| `deletes` | no | `ignore`; `detect` retracts records that are gone — [below](#seeing-deletes-in-a-scan-deletes-detect) |
+| `deletes.state.dir` | with `detect` | — |
+| `deletes.max.keys` | no | `1000000` per partition |
 
 `strategy` declares four values and **implements one**. `lut-scan` is a partition-parallel scan
 filtered on each record's last-update time; `xdr-kafka`, `xdr-http` and `write-intercept` are named
 in the enum and refused at configuration if you ask for them, which is better than a silent fallback
 to a strategy with different delivery properties.
 
-Several queries over the same Aerospike set share one scan rather than each opening their own —
+Several queries over the same Aerospike set share one scan rather than each opening their own
+(except under `deletes: detect`, below) —
 four queries over one set measured 3.8 → 1.0 scans per second (SRC-3). The `WHERE` clause is a
 server-side filter expression and the columns a query reads are the bins the scan names, so the
 server sends only those. A shared scan pushes the **OR** of its queries' filters and the union of
@@ -424,6 +428,9 @@ pravaha:
 | `consistency.level` | no | `LOCAL_ONE` |
 | `request.timeout.ms` | no | `30000` |
 | `user` / `password` | no | empty |
+| `deletes` | no | `ignore`; `detect` retracts rows that are gone — [below](#seeing-deletes-in-a-scan-deletes-detect) |
+| `deletes.state.dir` | with `detect` | — |
+| `deletes.max.keys` | no | `1000000` per token range |
 
 **This is a full scan, not an incremental one, and that is a deliberate choice rather than a
 shortcut.** Cassandra's CDC writes commitlog segments to `cdc_raw` on every node, meant to be read
@@ -445,12 +452,72 @@ short interval on a large table is a scan that never stops running.
 ##### What a table scan cannot do
 
 The same limits [`CONNECTORS.md`](CONNECTORS.md) documents for the Aerospike `lut-scan`, for the same
-reason: scanning a store with no change feed. **Deletes are invisible** — a tombstoned row is simply
-absent from the next scan, indistinguishable from one that never existed. **Intra-interval overwrites
-collapse** — two writes between passes are seen as one, with only the final value. **There is no
-before-image**, so an update arrives as an insert of the new value with nothing to retract.
-`capabilities()` declares `emitsDeletes = false`, `emitsBeforeImage = false`, and
-`DeliveryGuarantee.AT_LEAST_ONCE` — a scan cannot honestly promise more.
+reason: scanning a store with no change feed. With the default `deletes: ignore`, **deletes are
+invisible** — a tombstoned row is simply absent from the next scan, indistinguishable from one that
+never existed — and **every pass adds every row again at `+1`**, so a view over the table holds each
+row once per pass it has lived through. **Intra-interval overwrites collapse** — two writes between
+passes are seen as one, with only the final value. **There is no before-image**, so an update arrives
+as an insert of the new value with nothing to retract. `capabilities()` declares `emitsDeletes =
+false`, `emitsBeforeImage = false`, and `DeliveryGuarantee.AT_LEAST_ONCE`. `deletes: detect`, next,
+removes all but the collapsing.
+
+#### Seeing deletes in a scan: `deletes: detect`
+
+Both scan sources can compare each full pass with **every row they have emitted** and emit only the
+difference: a row not emitted before at `+1`; a row that changed as the **whole old row at `−1`**,
+then the new one at `+1`; a row that is gone as the whole old row at `−1`, carrying the event time it
+was inserted with, so it leaves the window it entered; an unchanged row not at all. A registered view
+over the source then equals the store after each pass — the Z-set the engine is built on, from a
+store with no change feed.
+
+```yaml
+      options:
+        deletes: detect
+        deletes.state.dir: /var/lib/pravaha/scan-state   # durable local disk
+        deletes.max.keys: "2000000"                       # per partition / token range
+```
+
+- **Aerospike reads everything each pass.** A deleted record never matches a last-update-time
+  filter — it is not written, it is absent — so `detect` drops that filter and scans the whole
+  partition range every `scan.interval.ms` (pushed filters and projection still run server-side).
+  Raise `scan.interval.ms` to match the set's size. Records are identified by their digest.
+- **Cassandra reads what it always read** — every pass was already a full `token()`-range scan. The
+  pass is merged with the held rows in token order, so only the current token's rows are buffered;
+  the rows under one token (a partition's clustering rows) are compared as a multiset. A poll reads
+  at most `fetch.size` rows. With more than one replica, use a `consistency.level` that cannot miss
+  a row a replica has not yet received (`LOCAL_QUORUM`): a row absent from one pass is retracted, and
+  re-inserted when it reappears.
+- **Latency is the scan interval plus one pass.** A delete is seen only as an absence, so it is as
+  timely as the next complete pass — up to `scan.interval.ms` plus the pass's own duration after the
+  delete. A pass that fails emits nothing more, and never reads what it did not reach as deleted.
+- **Memory, per remembered row: about 150 bytes plus the row's encoded size.** Measured with a
+  three-column row (17 encoded bytes): 145 bytes a row on the Aerospike reader, 136 on the Cassandra.
+  A row encodes as roughly two bytes per column plus the value — a small `BIGINT` in one to three
+  bytes, a string in its UTF-8 length plus one. A million rows of that shape is about 150 MB of heap.
+  `deletes.max.keys` bounds each partition (Aerospike) or token range (Cassandra) and **refuses by
+  code** — `PRV-5120` / `PRV-5122` — rather than forgetting rows, because a forgotten row is a delete
+  that can never be detected. Aerospike refuses a pass before emitting any of it; Cassandra bounds
+  the rows held at every moment.
+- **Disk: the rows again, plus a log of changes.** Each reader keeps, under
+  `deletes.state.dir/<source>/<partition>/<reader>/`, a checksummed snapshot of its rows (written
+  when the log of changes since the last one passes a quarter of the rows — a quiet pass writes
+  nothing) and that log. A checkpoint's offset is `deletes=<reader>/<count>`: how many rows the reader
+  had emitted, with the log forced to disk before the offset is handed over.
+- **A restart is exact.** A reader resumed from a checkpoint loads the newest snapshot at or below
+  the count and replays the log up to it — the rows the engine's own checkpoint, taken at the same
+  frozen moment, was built from — and starts a fresh pass against them. It retracts only rows the
+  restored view holds and inserts only rows it lacks, whether the checkpoint fell between passes or
+  in the middle of one. State that is gone or damaged is refused (`PRV-5121` / `PRV-5123`), never
+  guessed at. A durable checkpoint deletes the snapshots and the older reader's directory it
+  supersedes; the directory of a query that was dropped is not deleted for you.
+- **What it declares:** `emitsDeletes` and `emitsBeforeImage` true, and `EXACTLY_ONCE` — after the
+  first pass every row of the store is counted once. The before-image is the row as the previous pass
+  saw it: **writes between two passes still collapse**, and an intermediate value is never emitted or
+  retracted. `EXACTLY_ONCE` also means the reader is **not shared** between queries: its changes are
+  relative to its own emitted rows, which another query's catch-up could not be handed. A query over
+  the source can now be refused an append-only sink (`PRV-2041`), as one over `postgres-cdc` is.
+- **Switching modes needs a fresh start.** An offset written in the other mode is refused
+  (`PRV-5083` / `PRV-5088`): the restored view holds rows the new mode knows nothing about.
 
 #### `postgres-cdc` — a PostgreSQL table's changes, from its write-ahead log
 

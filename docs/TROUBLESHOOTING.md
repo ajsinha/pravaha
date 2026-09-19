@@ -293,6 +293,27 @@ The slot is confirmed only at Pravaha checkpoints: check the node is running, th
 quiet table. A slot nothing will read again has to be dropped by hand —
 `SELECT pg_drop_replication_slot('<slot>');` — because nothing else ever will.
 
+**An `aerospike` or `cassandra` source with `deletes: detect` stopped with `PRV-5120` or
+`PRV-5122`.** A partition (Aerospike) or token range (Cassandra) would hold more rows than
+`deletes.max.keys` (default 1,000,000 each). Every row the source has emitted is remembered so that
+its disappearance can be retracted, and forgetting some would leave their deletes undetectable for
+ever — so the pass is refused, by code, rather than degraded. Aerospike refuses before the pass emits
+anything; Cassandra bounds the rows held at every moment, so a pass that inserts before it reaches
+the rows it retracts can meet the ceiling on the way. Raise `deletes.max.keys` with the heap to match
+(about 150 bytes a row plus the row's encoded size, [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md)
+§2.1), split the source into more `partitions`, or set `deletes: ignore`. The same codes at a
+restart mean the checkpoint's rows no longer fit a lowered ceiling.
+
+**`PRV-5121` or `PRV-5123`: the remembered rows could not be written or read back.** At a restart it
+is almost always the directory the checkpoint names under `deletes.state.dir` being gone — the
+directory was on a disk that did not survive, or was cleaned — or its files failing their checksums,
+or the stream's schema having changed since the checkpoint. Without those rows the rows the restored
+view holds are unknown, and the next pass would retract nothing it should and double everything
+else, so the restore is refused rather than guessed at. Restore the directory, or drop the
+registration and its checkpoint directory and register again. While running, it is the state
+directory not writable or full. An offset written in the other `deletes` mode is refused the same
+way, with `PRV-5083` / `PRV-5088`: switching `deletes` on an existing checkpoint needs a fresh start.
+
 **A client closed and the server still holds a subscription.** Fixed, but if you see it: the server
 learns nobody is listening from a *cancellation*, not from a dropped transport. The SDK cancels what
 it opened when you close it; a hand-rolled client must do the same.
@@ -498,6 +519,10 @@ way it was registered.
 | `PRV-5116` | PGCDC_UNREPRESENTABLE_CHANGE | plugins |
 | `PRV-5117` | PGCDC_STREAM_FAILED | plugins |
 | `PRV-5118` | PGCDC_SNAPSHOT_FAILED | plugins |
+| `PRV-5120` | AEROSPIKE_DELETE_STATE_FULL | plugins |
+| `PRV-5121` | AEROSPIKE_DELETE_STATE_FAILED | plugins |
+| `PRV-5122` | CASSANDRA_DELETE_STATE_FULL | plugins |
+| `PRV-5123` | CASSANDRA_DELETE_STATE_FAILED | plugins |
 | `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |

@@ -291,7 +291,8 @@ changes.
 
 **Most connectors have to pretend the world is insert-only.** A filesystem source appends. The
 Aerospike source scans a set and infers what changed. They set `weight(1)` on everything and
-`emitsDeletes = false`.
+`emitsDeletes = false` — unless, for the two scan sources, `deletes: detect` is set, which infers
+retractions by comparing each full pass with what was emitted ([below](#retractions-you-can-have-today-without-cdc)).
 
 **A change-data-capture source does not have to pretend.** Its input *is* a changelog.
 
@@ -533,7 +534,9 @@ names four ways to get changes out and implements one:
   before-image, and **deletes are invisible**. A deleted record is simply absent from the next scan,
   which is indistinguishable from one that never existed. It also misses intra-interval overwrites:
   two writes between scans are seen as one. Those are properties of *scanning*, not of the
-  implementation, and no amount of care removes them.
+  implementation, and no amount of care removes them. `deletes: detect` buys the deletes and the
+  before-image back at the price of a full scan each pass and the emitted rows kept in memory
+  ([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1); the collapsed overwrites stay collapsed.
 - `xdr-kafka`, `xdr-http` — Enterprise, not built.
 - `write-intercept` — every writer goes through a Pravaha wrapper. Intrusive, not built.
 
@@ -560,7 +563,9 @@ no before-image, deletes invisible. It is not even incremental the way `lut-scan
 `writetime()` cannot be filtered server-side without `ALLOW FILTERING`, and is tracked per column
 rather than per row, so `CassandraStrategy` refuses `writetime-incremental` for the same reason it
 refuses `commitlog-cdc`: a full scan that says what it is beats an incremental one that quietly
-misses rows. See `docs/CONTINUOUS_QUERIES.md` §2.1 for the configuration.
+misses rows. With `deletes: detect` the same passes become a changelog: each is merged, in token
+order, with the rows already emitted, and only the difference is emitted. See
+`docs/CONTINUOUS_QUERIES.md` §2.1 for the configuration.
 
 #### Where does it run? The database is on another machine
 
@@ -759,10 +764,23 @@ simply does not ask for it.
 else, `I` included, is an insertion. There is no value meaning "update": an update is a retraction
 and an insertion, which is the same two rows Debezium's `u` event produces above.
 
-**Every other shipped source plugin but `postgres-cdc` and `kafka` (in `format: changelog`) hard-codes
-`weight(+1)`.** Until `postgres-cdc` arrived, this was the one route a retraction had into a configured deployment, which is why the Z-set model went so
-long without one — and why a CDC connector matters beyond the convenience of not writing the file
-yourself.
+**Every other shipped source plugin but `postgres-cdc`, `kafka` (in `format: changelog`), and
+`aerospike` and `cassandra` with `deletes: detect` hard-codes `weight(+1)`.** Until `postgres-cdc`
+arrived, this was the one route a retraction had into a configured deployment, which is why the Z-set
+model went so long without one — and why a CDC connector matters beyond the convenience of not
+writing the file yourself.
+
+**Retractions from a scan, by comparison.** A store with no change feed can still yield a changelog
+if the source remembers what it has emitted. `aerospike` and `cassandra` with `deletes: detect` keep
+every row they have emitted (compactly, bounded by `deletes.max.keys`, persisted beside the
+checkpoint) and compare each complete pass with it: a row not held is `+1`, a changed row is the held
+row at `−1` then the new one at `+1`, a row missing from the pass is the held row at `−1`. Two things
+make this honest rather than a guess. The comparison is against the rows *emitted*, not against the
+previous pass as read, so the output always sums to exactly what the store held at the last complete
+pass; and a pass that fails part way retracts nothing it did not reach. What it cannot recover is
+what scanning never had: two writes between passes are still one, and a delete is seen a scan
+interval late. The costs — a full scan each pass for Aerospike, about 150 bytes of heap per row plus
+the row — are in [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1.
 
 ## 6. What a connector should refuse to claim
 
@@ -772,7 +790,9 @@ Honesty here is not politeness — the engine changes its behaviour based on the
   remainder, no more and no less. If you cannot replay, you are at-least-once.
 - **`orderedWithinPartition`** — only if two rows for one key always arrive in their true order.
 - **`emitsDeletes`** — only if a removal in the store produces a `−1`. Inferring deletion by absence
-  in a scan is not this.
+  in a scan is not this *unless* the absence is judged against a complete pass and the `−1` is the
+  whole row the source itself emitted — which is what `deletes: detect` does, and why it may declare
+  it. A scan that merely stops returning a row has retracted nothing.
 - **Pushdown** — `FILTER` means you *applied* the filter, not that you accepted it. The engine
   re-applies filters it keeps, but a filter you claim and drop silently returns too many rows.
   A `ReadRequest` may also carry `alternatives` — the OR a reader shared by several queries asks for.
@@ -796,7 +816,7 @@ What the shipped plugins claim, and why not more (ADR-039 item 6):
 | Plugin | `FILTER` | `PROJECT` | `PARTIAL_AGGREGATE` |
 |---|---|---|---|
 | `jdbc` | yes — bound `WHERE`, `alternatives` as an `OR` | yes — the `SELECT` list, plus the watermark and key columns | with `key.column` only: one `GROUP BY` per keyset page, `COUNT` and `SUM` over `BIGINT`; declined for a filter SQL cannot carry, and for text comparisons or text group keys unless `collation.binary: true`, since a case-insensitive collation groups `'DONE'` with `'done'` |
-| `aerospike` | yes — server-side expressions, `alternatives` as `Exp.or` | yes — the scan's bin names | no — server-side aggregation needs Lua stream UDFs registered on the cluster, and a last-update-time scan has no retraction for an overwritten record |
+| `aerospike` | yes — server-side expressions, `alternatives` as `Exp.or` (with `deletes: detect` too, where a record leaving the filter is retracted) | yes — the scan's bin names | no — server-side aggregation needs Lua stream UDFs registered on the cluster, and a last-update-time scan has no retraction for an overwritten record |
 | `cassandra` | no — anything but the partition key needs `ALLOW FILTERING` | yes — the CQL `SELECT` list | no — every pass re-reads the whole range, so no partial could cover "new rows only" |
 | `filesystem`, `feedfile`, `delta` | no | no | no |
 | `kafka` | no — a broker has no server-side filter; every record is fetched whole | no | no |
