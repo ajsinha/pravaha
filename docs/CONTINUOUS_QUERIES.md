@@ -482,6 +482,29 @@ neither repeats the other.
 
 ## 3. Registering a continuous query
 
+In SQL, wherever SQL arrives — `pravaha query --sql`, either SDK's `query()`, the console's
+workbench, any Flight SQL client, or the embedded engine's `query(sql)`:
+
+```sql
+CREATE CONTINUOUS QUERY hourly_spend
+    KEYED BY (user_id, hour)
+    RETAIN FOR P7D
+AS
+SELECT user_id,
+       TUMBLE_END(event_time, INTERVAL '1' HOUR) AS hour,
+       SUM(amount) AS spend
+FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' HOUR))
+GROUP BY user_id, window_start, window_end;
+```
+
+It answers with one row — the name, its state, the fingerprint of the computation the name landed
+on, and the sink — and `DROP`, `PAUSE` and `RESUME CONTINUOUS QUERY hourly_spend` and `SHOW
+CONTINUOUS QUERIES` manage what is running. §10.1 has the whole grammar. The key is given **by
+column name** and resolved to output ordinals by planning the `SELECT`, so it cannot drift when the
+`SELECT` list is reordered.
+
+Or, with the same meaning, as a registration whose arguments name everything:
+
 ```bash
 pravaha register --name hourly_spend \
   --sql "SELECT user_id,
@@ -492,14 +515,14 @@ pravaha register --name hourly_spend \
   --keys 0,1
 ```
 
-**`--keys` is the view's key**, given as output-column ordinals. It decides what a row *replaces*: a
+**`--keys` is the view's key** (`KEYED BY` in SQL), given here as output-column ordinals. It decides what a row *replaces*: a
 second row with the same key supersedes the first. Get it wrong and the view conflates rows that
 should be distinct, or keeps rows that should have replaced each other.
 
 Two registrations differing only in `--keys` are **two different computations** — the key is part of
 the query's identity, because it changes the answer (I-3).
 
-**`--retain` is how much event time the view keeps**, as an ISO-8601 duration (`PT24H`, `P7D`) or
+**`--retain` is how much event time the view keeps** (`RETAIN FOR` / `RETAIN FOREVER` in SQL), as an ISO-8601 duration (`PT24H`, `P7D`) or
 `forever`; left out, the node's default applies, which is forever unless the node sets one. Rows whose
 event time falls further behind the committed frontier than that are evicted. Both SDKs take it as
 the `retention` argument of `register`, and the Flight `pravaha.register` action as an optional fifth
@@ -556,6 +579,13 @@ retraction and its insert arrive in the same commit, never the retraction alone 
 
 Or have the node write every commit to a sink it binds under `pravaha.sinks.<name>`
 ([`OPERATIONS.md`](OPERATIONS.md) has the binding), by naming it at registration:
+
+```sql
+CREATE CONTINUOUS QUERY big_txn KEYED BY (user_id) WRITING TO audit_trail
+AS SELECT user_id, amount FROM txn WHERE amount > 100;
+```
+
+or, as arguments:
 
 ```bash
 pravaha register --name big_txn --sql "SELECT user_id, amount FROM txn WHERE amount > 100" \
@@ -781,6 +811,71 @@ It is never accepted and then approximated. That matters more than the size of t
 refusal costs a developer five minutes, and a query that runs and returns a plausible wrong number
 costs whatever was decided on the strength of it.
 
+### 10.1 The statements that register and manage queries
+
+```
+CREATE CONTINUOUS QUERY name
+    KEYED BY (column [, column]...)
+    [WRITING TO sink]
+    [RETAIN FOR duration | RETAIN FOREVER]
+AS select
+
+DROP   CONTINUOUS QUERY name
+PAUSE  CONTINUOUS QUERY name
+RESUME CONTINUOUS QUERY name
+SHOW   CONTINUOUS QUERIES
+```
+
+- **Keywords in any case; names plain or double-quoted** (`"audit-log"`, with `""` for a quote).
+  A name keeps its case, as every identifier here does. The query's name follows the registry's
+  rule — a name a `FROM` clause can hold — so a reserved word is refused with `PRV-8008`.
+- **The clauses before `AS` in any order, each once.** `KEYED BY` is required: a view with no key is
+  a log.
+- **`KEYED BY` names output columns** — by alias where the `SELECT` list gives one, so
+  `SUM(amount) AS total` is `total`. The `SELECT` is planned to turn the names into the ordinals the
+  view is keyed by; a name it does not produce is refused with `PRV-2071`, and so is a name given
+  twice. A name matches its column exactly, or else the one column differing only in case.
+- **A duration** is ISO-8601, bare or quoted (`PT24H`, `'P7D'`), or an interval in one unit:
+  `INTERVAL '24' HOUR` — `SECOND`, `MINUTE`, `HOUR`, `DAY` or `WEEK`. A month is not a fixed length
+  of event time, and is refused.
+- **`WRITING TO sink`** names a binding under `pravaha.sinks` (§4); everything §4 says about sinks
+  holds.
+- **One trailing semicolon** is accepted, and so are comments.
+
+**What each answers.** `CREATE`: one row — `name`, `state`, `fingerprint`, `sink`. `DROP`, `PAUSE`,
+`RESUME`: `name` and the state it is now in (`DROPPED`, `PAUSED`, `RUNNING`). `SHOW CONTINUOUS
+QUERIES`: a row per name you may learn exists — `name`, `state`, `sql`, `fingerprint`, `rows_in`
+(`-1` when withheld), `key_columns` (by name), `sink`, `retention` — filtered exactly as `pravaha
+queries` and `GET /api/v1/queries` are. A JDBC or ADBC client's `executeUpdate` runs them too, and is
+answered with the row count.
+
+**Authorization is the registration's.** A `CREATE` is authorized as `pravaha register` is — may
+this principal register, and may it read every stream the query reads — and `DROP`, `PAUSE` and
+`RESUME` as the actions are, by the policy's `mayAdminister`, audited under the same verbs. The
+spelling changes nothing about who may do what.
+
+**The design's spellings are accepted where they mean the same thing** (design §11.2): `INTO sink`
+for `WRITING TO sink`, `INDEXED BY (...)` for `KEYED BY (...)`, `SERVE AS VIEW name` when it names
+the query itself, and a trailing `EMIT CHANGES` — which every continuous query does. The rest of
+that design is refused by name with `PRV-2072` rather than ignored: `INDEXED BY ... RANGE (...)`, a
+`WITH (...)` option list (read a retention there as ignored and a view you asked to keep for a day
+is kept for ever), `EMIT CHANGES WITH (...)`, `CREATE OR REPLACE`, and a `SERVE AS VIEW` naming
+something other than the query — here a query and its view are one name.
+
+**Why this grammar.** `KEYED BY` says what the clause does — a second row with the same key replaces
+the first — where `INDEXED BY` suggests an index beside the view, which nothing builds. `WRITING TO`
+reads as what happens and cannot be mistaken for `INSERT INTO`, which stays refused (§15,
+[ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). The statements are recognised before
+Calcite, by their leading words, rather than added to a fork of Calcite's grammar: only the `SELECT`
+needs a SQL parser, and it gets the real one, exactly as a registration argument does. A statement
+that starts as one of these and goes wrong is refused with `PRV-2070`, the shape that was expected,
+and the line and column where reading stopped — never with Calcite's syntax error about a word it
+has never heard of.
+
+**Where they run.** Over Flight SQL — so every SDK, the CLI and the console — and in the embedded
+engine. The PostgreSQL gateway is read-only and refuses all five with `PRV-6211`
+(SQLSTATE `25006`).
+
 ---
 
 ## 11. Projection — `SELECT`
@@ -990,7 +1085,7 @@ then, the message says plainly what is wrong.
 | `IN (subquery)`, `EXISTS`, scalar subqueries | ❌ | `PRV-2021` |
 | Window functions — `ROW_NUMBER() OVER (…)` | ❌ | `PRV-2021` |
 | `VALUES` | ❌ | `PRV-2020` |
-| `INSERT`, `UPDATE`, `DELETE` | ❌ | `PRV-2020` — Pravaha answers questions; sinks write results |
+| `INSERT`, `UPDATE`, `DELETE` | ❌ | `PRV-2020` — Pravaha answers questions; sinks write results. A query writes to a sink with `CREATE CONTINUOUS QUERY ... WRITING TO` (§10.1) |
 
 Note what `ORDER BY` means over a stream: a total order over rows that have not all arrived. It is
 meaningful over a *bounded* read of a maintained view, and that is where it would land if it is
@@ -1074,7 +1169,11 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2041` | The query revises its answer and the sink it names can only append — §4 |
 | `PRV-2050` | The query's state would grow without bound |
 | `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](adr/032-parameters-are-values-not-queries.md) |
+| `PRV-2070` | A `CREATE`/`DROP`/`PAUSE`/`RESUME CONTINUOUS QUERY` or `SHOW CONTINUOUS QUERIES` without that statement's shape — §10.1 |
+| `PRV-2071` | `KEYED BY` names a column the query does not produce, or one twice — §10.1 |
+| `PRV-2072` | A clause of the design's `CREATE CONTINUOUS QUERY` that is not built — §10.1 |
 | `PRV-3030` | A row's output is wider than 64 columns — §11 |
+| `PRV-6211` | A continuous-query statement sent to the read-only PostgreSQL gateway — §10.1 |
 | `PRV-8009` | A sink refused a batch and was detached from the query; the view carries on — §4 |
 | `PRV-8010` | The sink's configured columns, or its key, do not match the query's output or `--keys` — §4 |
 

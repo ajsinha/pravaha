@@ -63,5 +63,35 @@ public final class SqlErrors {
      */
     public static final ErrorCode PARAMETER_NOT_A_VALUE = new ErrorCode(2063, "SQL_PARAMETER_NOT_A_VALUE");
 
+    /**
+     * A statement that begins as one of the continuous-query statements ({@code CREATE CONTINUOUS
+     * QUERY}, {@code DROP}/{@code PAUSE}/{@code RESUME CONTINUOUS QUERY}, {@code SHOW CONTINUOUS
+     * QUERIES}) and does not have that statement's shape.
+     *
+     * <p>Refused by {@link ContinuousStatements} with the shape it expected and where it stopped
+     * reading, and never handed to Calcite: Calcite has never heard of these statements and would
+     * answer with a syntax error about the wrong word.
+     */
+    public static final ErrorCode STATEMENT_MALFORMED = new ErrorCode(2070, "SQL_STATEMENT_MALFORMED");
+
+    /**
+     * {@code KEYED BY} names a column the query does not produce, or names one twice.
+     *
+     * <p>Key columns are named as the {@code SELECT} list names them, and resolved to output
+     * ordinals by planning the query -- so a name is checked against the columns the view will
+     * actually have, not against the text.
+     */
+    public static final ErrorCode KEY_COLUMN_UNKNOWN = new ErrorCode(2071, "SQL_KEY_COLUMN_UNKNOWN");
+
+    /**
+     * A clause the design describes for {@code CREATE CONTINUOUS QUERY} and this engine does not
+     * build: {@code INDEXED BY ... RANGE (...)}, a {@code WITH (...)} option list, {@code OR
+     * REPLACE}, or a {@code SERVE AS VIEW} whose name differs from the query's.
+     *
+     * <p>Refused by name rather than ignored. Ignoring {@code 'retention' = '24h'} in a {@code WITH}
+     * list would keep a view for ever that somebody asked to keep for a day.
+     */
+    public static final ErrorCode CLAUSE_NOT_BUILT = new ErrorCode(2072, "SQL_CLAUSE_NOT_BUILT");
+
     private SqlErrors() {}
 }

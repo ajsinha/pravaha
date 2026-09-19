@@ -166,6 +166,11 @@ public interface PravahaEngine extends AutoCloseable {
     /**
      * Runs one query over the maintained views, at their committed frontier.
      *
+     * <p>Also runs the continuous-query statements -- {@code CREATE CONTINUOUS QUERY name KEYED BY
+     * (...) AS SELECT ...}, {@code DROP}/{@code PAUSE}/{@code RESUME CONTINUOUS QUERY name} and
+     * {@code SHOW CONTINUOUS QUERIES} -- answering with the registration, the new state or the
+     * listing as rows. {@code docs/CONTINUOUS_QUERIES.md} section 3 has the grammar.
+     *
      * @param parameters values for the query's {@code ?} placeholders, in order
      */
     ViewQuery.Result query(String sql, Object... parameters);

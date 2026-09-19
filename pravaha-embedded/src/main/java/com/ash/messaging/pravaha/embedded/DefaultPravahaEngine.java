@@ -49,6 +49,7 @@ import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.connect.PluginRegistry;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
+import com.ash.messaging.pravaha.registry.ContinuousQueryStatements;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.QueryState;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
@@ -60,6 +61,9 @@ import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
+import com.ash.messaging.pravaha.sql.ContinuousStatement;
+import com.ash.messaging.pravaha.sql.ContinuousStatements;
+import com.ash.messaging.pravaha.sql.SqlErrors;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
 import com.ash.messaging.pravaha.sql.plan.PreparedContinuousQuery;
 
@@ -504,7 +508,20 @@ final class DefaultPravahaEngine implements PravahaEngine {
 
     @Override
     public ViewQuery.Result query(String sql, Object... parameters) {
-        registry();
+        QueryRegistry target = registry();
+        // CREATE / DROP / PAUSE / RESUME CONTINUOUS QUERY and SHOW CONTINUOUS QUERIES arrive here as
+        // SQL too, and run as the same anonymous caller under the same permissive policy as the
+        // engine's own register and drop -- the host application has already decided who may call.
+        Optional<ContinuousStatement> statement = ContinuousStatements.recognize(sql);
+        if (statement.isPresent()) {
+            if (parameters != null && parameters.length > 0) {
+                throw new PravahaException(
+                        SqlErrors.STATEMENT_MALFORMED,
+                        statement.get().verb() + " takes no parameters; write the values into the statement.");
+            }
+            return new ContinuousQueryStatements(target, target.policy(), AuditSink.NONE)
+                    .execute(statement.get(), CALLER);
+        }
         ViewQuery current = reads;
         if (parameters == null || parameters.length == 0) {
             return current.execute(sql, CALLER);

@@ -51,8 +51,11 @@ GROUP BY TUMBLE(t.event_time, INTERVAL '10' SECOND), t.user_id, p.tier
 That query — a tumbling window, a temporal lookup join, a filter evaluated inside Aerospike rather
 than after the read, and two aggregates — is registered and run against a real Aerospike server by
 `AerospikeContinuousQueryIT`, which needs Docker. `SELECT STREAM` is accepted and redundant: every
-Pravaha query is continuous. There is no `CREATE CONTINUOUS QUERY` statement; a query is registered
-by name, through the CLI or an SDK, with the columns its view is keyed by.
+Pravaha query is continuous. It is registered by name with the columns its view is keyed by —
+`CREATE CONTINUOUS QUERY txn_volume KEYED BY (window_end, user_id) AS SELECT …`, from any SQL
+client that speaks Flight SQL, the CLI, an SDK, the console or the embedded engine; or as a
+registration whose arguments say the same ([`CONTINUOUS_QUERIES.md`](docs/CONTINUOUS_QUERIES.md)
+§3, §10.1).
 
 The answer is then read by key, over Arrow Flight SQL or the PostgreSQL wire protocol:
 
@@ -126,9 +129,14 @@ corrected by late data arrives as a retraction of the old answer followed by the
   ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
   the on-disk tier. It does not yet compact its slabs, budget in bytes, spill `COUNT(DISTINCT)`, or
   have a measurement at several times RAM.
-- **SQL registration statements** (`CREATE CONTINUOUS QUERY`); a query is registered by name through
-  an API. The Spring Boot starter (ADR-020) is built without `@PravahaTest`, its actuator endpoint, a
-  listener error handler, or a CI matrix across Boot versions — it is tested against Boot 3.5 only.
+- **The rest of the design's `CREATE CONTINUOUS QUERY` grammar.** The statement registers, and
+  `DROP`, `PAUSE`, `RESUME CONTINUOUS QUERY` and `SHOW CONTINUOUS QUERIES` manage, over Flight SQL
+  and in the embedded engine; the PostgreSQL gateway stays read-only and refuses them (`PRV-6211`).
+  Design §11.2's `INDEXED BY ... RANGE`, `WITH (...)` options and `CREATE OR REPLACE` are refused by
+  name (`PRV-2072`) rather than ignored, and `INSERT INTO <sink>` stays refused (`PRV-2020`).
+- **The Spring Boot starter's remaining pieces.** The starter (ADR-020) is built without
+  `@PravahaTest`, its actuator endpoint, a listener error handler, or a CI matrix across Boot
+  versions — it is tested against Boot 3.5 only.
 - **Blue/green query updates and backfill splicing** are built in `pravaha-backfill` and reachable
   from no running path.
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
@@ -159,14 +167,16 @@ what was and was not measured, wave by wave.
 ./mvnw -q -DskipTests install
 
 # Register a continuous query, ask its view a question, then watch it change.
-pravaha register  --name user_volume --sql "SELECT user_id, SUM(amount) AS total FROM txn \
-                    GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), user_id" --keys 0
+pravaha query     --sql "CREATE CONTINUOUS QUERY user_volume KEYED BY (user_id) AS \
+                    SELECT user_id, SUM(amount) AS total FROM txn \
+                    GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), user_id"
 pravaha query     --sql "SELECT total FROM user_volume WHERE user_id = ?" --params u1
 pravaha subscribe --view user_volume --filter user_id=u1
 ```
 
-`pravaha queries`, `pause`, `resume` and `drop` manage what is running; `run`, `explain` and
-`validate` work without a server. The [**Quickstart**](docs/QUICKSTART.md) takes a clone to a running,
+`SHOW CONTINUOUS QUERIES` and `DROP` / `PAUSE` / `RESUME CONTINUOUS QUERY` manage what is running —
+or `pravaha queries`, `pause`, `resume` and `drop`, with `pravaha register` taking a registration as
+arguments; `run`, `explain` and `validate` work without a server. The [**Quickstart**](docs/QUICKSTART.md) takes a clone to a running,
 changing view in about ten minutes.
 
 ## How it is built

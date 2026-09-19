@@ -119,7 +119,8 @@ public final class PravahaCli {
         out.println("            Parse, validate and plan without running anything.");
         out.println();
         out.println("  query     --sql <query> [--params a,b] [--url grpc://host:9090] [--token t]");
-        out.println("            Ask a running server a question and print the rows.");
+        out.println("            Ask a running server a question and print the rows. Also runs");
+        out.println("            CREATE / DROP / PAUSE / RESUME CONTINUOUS QUERY and SHOW CONTINUOUS QUERIES.");
         out.println();
         out.println("  register  --name <view> --sql-file <path> [--keys 0,1] [--sink <name>] [--retain PT24H]");
         out.println("            [--url ...]");

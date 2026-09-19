@@ -275,6 +275,22 @@ surface as `PRV-2001` with no message at all — a separate, open defect (X-10),
 And this — Calcite's own conversion failure, distinct from either `StackOverflowError` — is
 `PRV-2011`.
 
+## `CREATE CONTINUOUS QUERY` and the statements around it
+
+The statements that register and manage queries in SQL
+([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §10.1) have four refusals of their own. Each names
+the statement's expected shape.
+
+| Code | What happened | What to do |
+|---|---|---|
+| `PRV-2070` | The text starts as one of the statements — `CREATE CONTINUOUS`, `DROP CONTINUOUS`, `SHOW CONTINUOUS`, `PAUSE`, `RESUME` — and does not have its shape: no `KEYED BY`, a clause given twice, a retention that is not a duration, words after the name. Also: parameters bound to one of these statements, which take none | The message says what was expected, what was found, and the line and column. Compare it with the shape at the end of the message |
+| `PRV-2071` | `KEYED BY` names a column the `SELECT` does not produce, or names one twice | Name the column as the `SELECT` list does — by its alias where it has one (`SUM(amount) AS total` is `total`). The message does not list the columns, because it is raised before the registry has decided whether you may read what the query reads |
+| `PRV-2072` | A clause from the design's grammar that is not built: `INDEXED BY ... RANGE`, `WITH (...)`, `EMIT CHANGES WITH (...)`, `CREATE OR REPLACE`, a `SERVE AS VIEW` naming another view | Say a retention with `RETAIN FOR`; drop and re-create instead of replacing; give the query the name clients read. Refused rather than ignored: an ignored `'retention' = '24h'` is a view kept for ever |
+| `PRV-6211` | One of the statements was sent to the PostgreSQL gateway (SQLSTATE `25006`), which is read-only | Send it over Flight SQL: an SDK's `query()`, `pravaha query --sql`, or the console's workbench |
+
+A reserved word as the query's name is refused by the registry's own name rule, `PRV-8008`, whichever
+way it was registered.
+
 ## Every code
 
 | Code | Name | Range |
@@ -312,6 +328,9 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-2061` | SQL_PARAMETER_ARITY | sql |
 | `PRV-2062` | SQL_PARAMETER_TYPE | sql |
 | `PRV-2063` | SQL_PARAMETER_NOT_A_VALUE | sql |
+| `PRV-2070` | SQL_STATEMENT_MALFORMED | sql |
+| `PRV-2071` | SQL_KEY_COLUMN_UNKNOWN | sql |
+| `PRV-2072` | SQL_CLAUSE_NOT_BUILT | sql |
 | `PRV-3001` | RUNTIME_ARENA_EXHAUSTED | runtime |
 | `PRV-3002` | RUNTIME_BACKPRESSURED | runtime |
 | `PRV-3010` | RUNTIME_LANE_FAILED | runtime |
@@ -400,6 +419,7 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-6208` | PGWIRE_UNKNOWN_PORTAL | gateway |
 | `PRV-6209` | PGWIRE_UNSUPPORTED_WIRE_FORMAT | gateway |
 | `PRV-6210` | PGWIRE_UNSUPPORTED_PARAMETER_SYNTAX | gateway |
+| `PRV-6211` | PGWIRE_READ_ONLY | gateway |
 | `PRV-7001` | SECURITY_UNAUTHENTICATED | security |
 | `PRV-7002` | SECURITY_FORBIDDEN | security |
 | `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |

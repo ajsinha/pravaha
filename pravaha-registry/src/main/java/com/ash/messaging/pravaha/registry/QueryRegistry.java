@@ -525,6 +525,18 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /**
+     * The columns {@code sql} would produce if registered here, planned over the same streams and
+     * lookup tables {@code register} plans it over -- which is how a key named by column is turned
+     * into the ordinal {@code register} takes, against the view that would actually exist.
+     */
+    public synchronized StreamSchema outputSchemaOf(String sql) {
+        return PreparedContinuousQuery.of(
+                        sql, BoundParameters.none(), List.of(streams), List.copyOf(lookupSchemas.values()))
+                .plan()
+                .outputSchema();
+    }
+
+    /**
      * Registers a parameterised continuous query with values bound into it.
      *
      * <p>Binding into the query is always <em>correct</em> and is sometimes wasteful: each distinct

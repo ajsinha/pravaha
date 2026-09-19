@@ -31,6 +31,9 @@ const MONACO = "/static/vendor/monaco/vs";
 const WORKER = MONACO + "/assets/editor.worker-lj3bdIIn.js";
 const CONTRIBUTIONS = "vs/toggleHighContrast-qGX7E9o7";
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/* CREATE / DROP / PAUSE / RESUME CONTINUOUS QUERY and SHOW CONTINUOUS QUERIES: the engine runs these
+   when they are Run, and its planner does not validate them, so the editor does not ask it to. */
+const STATEMENT = /^\s*(?:(?:--[^\n]*\n|\/\*[\s\S]*?\*\/)\s*)*(?:(?:CREATE|DROP|SHOW)\s+CONTINUOUS\b|PAUSE\b|RESUME\b)/i;
 
 function newId() { return Math.random().toString(36).slice(2, 9); }
 function tabTitle(sql, fallback) {
@@ -390,6 +393,24 @@ function ExplainPanel({ sql, valid, origin }) {
   </div>`;
 }
 
+/* The registration a CREATE CONTINUOUS QUERY answered with -- one row of name, state, fingerprint, sink. */
+function registered(answer) {
+  const c = (answer && answer.columns) || [];
+  if (c.join(",") !== "name,state,fingerprint,sink" || !answer.rows || answer.rows.length !== 1) return null;
+  const [name, state, fingerprint, sink] = answer.rows[0];
+  return { name, state, fingerprint, sink };
+}
+function registeredView(made) {
+  return html`<div class="alert alert-success py-2" role="status">
+    <strong>${made.name}</strong> is ${String(made.state).toLowerCase()} — fingerprint${" "}
+    <span class="mono">${made.fingerprint}</span>${made.sink ? ", writing to " + made.sink : ""}.
+    <div class="mt-1 d-flex gap-2 flex-wrap">
+      <a class="btn btn-sm btn-primary" href=${"/views/" + encodeURIComponent(made.name) + "/live"}>Watch it change</a>
+      <a class="btn btn-sm btn-outline-secondary" href=${"/views/" + encodeURIComponent(made.name)}>Browse the view</a>
+      <a class="btn btn-sm btn-outline-secondary" href=${"/queries/" + encodeURIComponent(made.name)}>Manage</a>
+    </div></div>`;
+}
+
 function RunPanel({ sql, params, setParams, paramsRef }) {
   const [state, setState] = useState({ status: "idle" });
   const gridRef = useRef(null);
@@ -401,7 +422,8 @@ function RunPanel({ sql, params, setParams, paramsRef }) {
     try {
       const answer = await call("/query", { json: { sql, parameters: typedParams(params) } });
       setState({ status: "ok", answer });
-      announce(`${answer.returned} rows in ${answer.took_ms} milliseconds`);
+      const made = registered(answer);
+      announce(made ? `${made.name} registered` : `${answer.returned} rows in ${answer.took_ms} milliseconds`);
     } catch (err) { setState({ status: "error", err }); }
   }, [sql, params]);
   useEffect(() => { window.__wbRun = run; }, [run]);
@@ -429,12 +451,15 @@ function RunPanel({ sql, params, setParams, paramsRef }) {
       <button type="button" class="btn btn-sm btn-primary" onClick=${run} disabled=${!sql.trim()}>Run once</button>
       ${state.status === "ok" && state.answer.rows.length ? html`<button type="button" class="btn btn-sm btn-outline-secondary" onClick=${downloadCsv}>Download CSV</button>` : null}
     </div>
-    <p class="small text-muted">A one-off read, answered from the views the engine maintains. Nothing is registered.
-      Numbers stay numbers: <code>40</code> is an integer, not the string “40”.</p>
+    ${STATEMENT.test(sql) ? html`<p class="small text-muted">A continuous-query statement: Run executes it, as you,
+      exactly as <code>pravaha query --sql</code> would. <code>CREATE CONTINUOUS QUERY</code> registers a query that runs
+      until it is dropped.</p>` : html`<p class="small text-muted">A one-off read, answered from the views the engine maintains. Nothing is registered.
+      Numbers stay numbers: <code>40</code> is an integer, not the string “40”.</p>`}
     ${state.status === "idle" ? html`<div class="state"><h2>Nothing run yet</h2><p>Run reads a view once. To keep an
       answer current, register the query instead.</p></div>` : null}
     ${state.status === "loading" ? html`<div class="skeleton" style="height:120px"></div>` : null}
     ${state.status === "error" ? errorView(state.err) : null}
+    ${state.status === "ok" && registered(state.answer) ? registeredView(registered(state.answer)) : null}
     ${state.status === "ok" ? html`<div>
       ${state.answer.truncated ? html`<div class="alert alert-warning py-2 small">Showing the first ${state.answer.returned} rows;
         the answer was larger. These are the first rows, not a sample.</div>` : null}
@@ -597,6 +622,7 @@ function Workbench() {
 
   const validate = useRef(debounce(async (sql) => {
     if (!sql.trim()) { setValidation({ status: "idle", diagnostics: [], output_fields: [] }); return; }
+    if (STATEMENT.test(sql)) { setValidation({ status: "statement", diagnostics: [], output_fields: [] }); return; }
     setValidation((v) => ({ ...v, checking: true }));
     try {
       const answer = await call("/sql/validate", { json: { sql } });
@@ -777,6 +803,7 @@ function Workbench() {
   const status = validation.status === "valid" ? html`<span class="validity ok"><i class="bi bi-check-circle-fill"></i> valid</span>`
     : validation.status === "invalid" ? html`<span class="validity bad"><i class="bi bi-x-circle-fill"></i> ${count} problem${count === 1 ? "" : "s"}</span>`
     : validation.status === "unavailable" ? html`<span class="validity idle" title=${validation.error}><i class="bi bi-plug"></i> validation unavailable</span>`
+    : validation.status === "statement" ? html`<span class="validity idle"><i class="bi bi-broadcast"></i> continuous-query statement — Run executes it</span>`
     : html`<span class="validity idle"><i class="bi bi-circle"></i> not checked</span>`;
 
   /* The tablist holds tabs and nothing else: ARIA lets a tablist own only tabs, and a tab

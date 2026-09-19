@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -48,6 +49,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
+import com.ash.messaging.pravaha.registry.ContinuousQueryStatements;
 import com.ash.messaging.pravaha.registry.QueryListing;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
@@ -64,6 +66,8 @@ import com.ash.messaging.pravaha.serving.ReadAdmission;
 import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
+import com.ash.messaging.pravaha.sql.ContinuousStatement;
+import com.ash.messaging.pravaha.sql.ContinuousStatements;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
 
 /**
@@ -181,7 +185,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     public FlightInfo getFlightInfoStatement(
             FlightSql.CommandStatementQuery command, CallContext context, FlightDescriptor descriptor) {
         String sql = command.getQuery();
-        Schema schema = arrowSchemaOf(plan(sql, context));
+        Schema schema = schemaOf(sql, context);
         // The ticket carries the query itself, so the server holds nothing between this call and the
         // one that fetches the rows.
         FlightSql.TicketStatementQuery ticket = FlightSql.TicketStatementQuery.newBuilder()
@@ -194,7 +198,90 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     public void getStreamStatement(
             FlightSql.TicketStatementQuery ticket, CallContext context, ServerStreamListener listener) {
         String sql = ticket.getStatementHandle().toStringUtf8();
-        emit(listener, () -> queries.execute(sql, principalOf(context)));
+        // A continuous-query statement runs here, at the fetch, like any other statement: the ticket
+        // carries the text and getFlightInfo only said what the answer would look like.
+        emit(
+                listener,
+                () -> ContinuousStatements.recognize(sql)
+                        .map(statement -> run(statement, context))
+                        .orElseGet(() -> queries.execute(sql, principalOf(context))));
+    }
+
+    /**
+     * The result schema of {@code sql}, whether it is a question or a continuous-query statement.
+     *
+     * <p>A statement's schema is fixed by what it is, so nothing is planned; but it is refused here,
+     * before the fetch, when it is malformed or when this server hosts no registry to run it.
+     */
+    private Schema schemaOf(String sql, CallContext context) {
+        Optional<ContinuousStatement> statement = statementOf(sql);
+        if (statement.isEmpty()) {
+            return arrowSchemaOf(plan(sql, context));
+        }
+        try {
+            requireRegistry();
+        } catch (PravahaException e) {
+            throw FlightErrors.failureOf(e).toRuntimeException();
+        }
+        return arrowSchemaOf(ContinuousQueryStatements.resultSchemaOf(statement.get()));
+    }
+
+    /** {@code CREATE}/{@code DROP}/{@code PAUSE}/{@code RESUME CONTINUOUS QUERY} or {@code SHOW}, if it is one. */
+    private static Optional<ContinuousStatement> statementOf(String sql) {
+        try {
+            return ContinuousStatements.recognize(sql);
+        } catch (PravahaException e) {
+            throw FlightErrors.failureOf(e).toRuntimeException();
+        }
+    }
+
+    /**
+     * Runs a continuous-query statement with this server's policy and audit sink -- the ones its
+     * actions use, so the SQL spelling and the action decide identically.
+     */
+    private ViewQuery.Result run(ContinuousStatement statement, CallContext context) {
+        return new ContinuousQueryStatements(requireRegistry(), policy, audit).execute(statement, principalOf(context));
+    }
+
+    /**
+     * {@code executeUpdate} -- the call a JDBC or ADBC client makes for a statement it expects no
+     * rows from -- for the continuous-query statements. Anything else is refused as it always was:
+     * this server answers questions and has nothing else to update.
+     */
+    @Override
+    public Runnable acceptPutStatement(
+            FlightSql.CommandStatementUpdate command,
+            CallContext context,
+            FlightStream flightStream,
+            StreamListener<PutResult> ackStream) {
+        Optional<ContinuousStatement> statement;
+        try {
+            statement = ContinuousStatements.recognize(command.getQuery());
+        } catch (PravahaException e) {
+            return () -> ackStream.onError(FlightErrors.failureOf(e).toRuntimeException());
+        }
+        if (statement.isEmpty()) {
+            return super.acceptPutStatement(command, context, flightStream, ackStream);
+        }
+        return () -> {
+            try {
+                ViewQuery.Result result = run(statement.get(), context);
+                FlightSql.DoPutUpdateResult update = FlightSql.DoPutUpdateResult.newBuilder()
+                        .setRecordCount(result.size())
+                        .build();
+                try (org.apache.arrow.memory.ArrowBuf metadata = allocator.buffer(update.getSerializedSize())) {
+                    metadata.writeBytes(update.toByteArray());
+                    ackStream.onNext(PutResult.metadata(metadata));
+                }
+                ackStream.onCompleted();
+            } catch (PravahaException e) {
+                ackStream.onError(FlightErrors.failureOf(e).toRuntimeException());
+            } catch (RuntimeException e) {
+                ackStream.onError(CallStatus.INTERNAL
+                        .withDescription(String.valueOf(e.getMessage()))
+                        .toRuntimeException());
+            }
+        };
     }
 
     /**
@@ -249,6 +336,25 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             StreamListener<Result> listener) {
         try {
             String sql = request.getQuery();
+            Optional<ContinuousStatement> statement = ContinuousStatements.recognize(sql);
+            if (statement.isPresent()) {
+                // A driver that prepares everything -- the Flight SQL JDBC driver does -- prepares a
+                // CREATE too. Its answer's shape is fixed, and it has no placeholders to bind.
+                requireRegistry();
+                listener.onNext(new Result(com.google.protobuf.Any.pack(
+                                FlightSql.ActionCreatePreparedStatementResult.newBuilder()
+                                        .setPreparedStatementHandle(ByteString.copyFrom(
+                                                StatementHandle.unbound(sql).encode()))
+                                        .setDatasetSchema(ByteString.copyFrom(
+                                                arrowSchemaOf(ContinuousQueryStatements.resultSchemaOf(statement.get()))
+                                                        .serializeAsMessage()))
+                                        .setParameterSchema(
+                                                ByteString.copyFrom(new Schema(List.of()).serializeAsMessage()))
+                                        .build())
+                        .toByteArray()));
+                listener.onCompleted();
+                return;
+            }
             ViewQuery.Prepared prepared = queries.prepare(sql, principalOf(context));
 
             // Both schemas go back now, before any value is bound. The dataset schema is what lets a
@@ -275,6 +381,14 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         }
     }
 
+    /** A continuous-query statement has no {@code ?} to bind, so a binding is a mistake worth naming. */
+    private static PravahaException noParameters(ContinuousStatement statement) {
+        return new PravahaException(
+                com.ash.messaging.pravaha.sql.SqlErrors.STATEMENT_MALFORMED,
+                statement.verb() + " takes no parameters. Write the values into the statement, or register a "
+                        + "parameterised query through the register action, which binds them.");
+    }
+
     @Override
     public void closePreparedStatement(
             FlightSql.ActionClosePreparedStatementRequest request,
@@ -291,6 +405,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         StatementHandle handle =
                 StatementHandle.decode(command.getPreparedStatementHandle().toByteArray());
         try {
+            if (ContinuousStatements.isContinuousStatement(handle.sql())) {
+                return generateFlightInfo(command, descriptor, schemaOf(handle.sql(), context));
+            }
             ViewQuery.Prepared prepared = queries.prepare(handle.sql(), principalOf(context));
             return generateFlightInfo(command, descriptor, arrowSchemaOf(prepared.resultSchema()));
         } catch (PravahaException e) {
@@ -304,6 +421,13 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         emit(listener, () -> {
             StatementHandle handle =
                     StatementHandle.decode(command.getPreparedStatementHandle().toByteArray());
+            Optional<ContinuousStatement> statement = ContinuousStatements.recognize(handle.sql());
+            if (statement.isPresent()) {
+                if (handle.boundParameters().isPresent()) {
+                    throw noParameters(statement.get());
+                }
+                return run(statement.get(), context);
+            }
             Principal principal = principalOf(context);
             ViewQuery.Prepared prepared = queries.prepare(handle.sql(), principal);
             BoundParameters parameters = handle.boundParameters()
@@ -323,6 +447,10 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             try {
                 StatementHandle handle = StatementHandle.decode(
                         command.getPreparedStatementHandle().toByteArray());
+                Optional<ContinuousStatement> statement = ContinuousStatements.recognize(handle.sql());
+                if (statement.isPresent()) {
+                    throw noParameters(statement.get());
+                }
 
                 // SX-10. This leg applied no policy check at all. No rows escaped through it -- the
                 // follow-on getFlightInfoPreparedStatement re-authorizes and refuses before any
@@ -407,17 +535,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     // PT24H, or "forever"). Optional for the same reason the sink is; a client with a
                     // retention and no sink sends an empty fourth field.
                     Retention retention = fields.size() > 4 ? retentionOf(fields.get(4)) : null;
-                    RegisteredQuery query;
-                    if (sink != null) {
-                        query = retention == null
-                                ? required.registerWritingTo(fields.get(0), fields.get(1), keys, principal, sink)
-                                : required.registerWritingTo(
-                                        fields.get(0), fields.get(1), keys, principal, sink, retention);
-                    } else {
-                        query = retention == null
-                                ? required.register(fields.get(0), fields.get(1), keys, principal)
-                                : required.register(fields.get(0), fields.get(1), keys, principal, retention);
-                    }
+                    RegisteredQuery query = ContinuousQueryStatements.register(
+                            required, fields.get(0), fields.get(1), keys, principal, sink, retention);
                     listener.onNext(new Result(ControlWire.encode(
                             query.name(),
                             query.state().name(),
@@ -481,14 +600,6 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     }
 
     /**
-     * Refuses a control verb the principal may not use on this view.
-     *
-     * <p>These three verbs authorized nothing whatsoever. An unauthenticated caller dropped every
-     * continuous query on a node configured to serve only verified callers, and an authenticated but
-     * denied principal dropped another principal's payroll query -- destroying its accumulated state
-     * and taking the view away from everyone holding a name for it.
-     */
-    /**
      * Refuses a control action whose body carries no query name.
      *
      * <p>API-142. {@code DROP}, {@code PAUSE} and {@code RESUME} read {@code fields.get(0)} without
@@ -542,14 +653,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         }
     }
 
+    /** The one authorization rule for drop, pause and resume, shared with their SQL spellings. */
     private void requireAdministrable(Principal principal, String view, String verb) {
-        AccessDecision decision = policy.mayAdminister(principal, view);
-        audit.record(AuditEvent.of(principal, verb, view, decision, ""));
-        if (!decision.allowed()) {
-            throw new PravahaException(
-                    SecurityErrors.FORBIDDEN,
-                    principal.id() + " may not " + verb + " '" + view + "': " + decision.reason());
-        }
+        ContinuousQueryStatements.requireAdministrable(policy, audit, principal, view, verb);
     }
 
     @Override
@@ -817,7 +923,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     @Override
     public org.apache.arrow.flight.SchemaResult getSchemaStatement(
             FlightSql.CommandStatementQuery command, CallContext context, FlightDescriptor descriptor) {
-        return new org.apache.arrow.flight.SchemaResult(arrowSchemaOf(plan(command.getQuery(), context)));
+        return new org.apache.arrow.flight.SchemaResult(schemaOf(command.getQuery(), context));
     }
 
     @Override
@@ -826,6 +932,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         StatementHandle handle =
                 StatementHandle.decode(command.getPreparedStatementHandle().toByteArray());
         try {
+            if (ContinuousStatements.isContinuousStatement(handle.sql())) {
+                return new org.apache.arrow.flight.SchemaResult(schemaOf(handle.sql(), context));
+            }
             ViewQuery.Prepared prepared = queries.prepare(handle.sql(), principalOf(context));
             return new org.apache.arrow.flight.SchemaResult(arrowSchemaOf(prepared.resultSchema()));
         } catch (PravahaException e) {

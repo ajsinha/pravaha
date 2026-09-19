@@ -129,6 +129,30 @@ public final class PgWireErrors {
             new ErrorCode(6210, "PGWIRE_UNSUPPORTED_PARAMETER_SYNTAX");
 
     /**
+     * A continuous-query statement -- {@code CREATE}, {@code DROP}, {@code PAUSE} or {@code RESUME
+     * CONTINUOUS QUERY}, or {@code SHOW CONTINUOUS QUERIES} -- sent to this gateway.
+     *
+     * <p>This gateway is read-only: it answers questions over views and hosts no registry, so it can
+     * neither stand a computation up nor list them. Refused by name, with {@code 25006
+     * read_only_sql_transaction} -- PostgreSQL's own word for "this session does not write" -- rather
+     * than handed to the planner, which has never heard of these statements and would call them a
+     * syntax error. They run over Flight SQL, where every SDK, the CLI and the console send them.
+     */
+    public static final ErrorCode READ_ONLY = new ErrorCode(6211, "PGWIRE_READ_ONLY");
+
+    /** Refuses a continuous-query statement, if {@code statement} is one; the same words from both protocols. */
+    static void refuseContinuousStatement(String statement) {
+        if (com.ash.messaging.pravaha.sql.ContinuousStatements.isContinuousStatement(statement)) {
+            throw new PravahaException(
+                    READ_ONLY,
+                    "the PostgreSQL gateway is read-only: it does not register, drop, pause, resume or list "
+                            + "continuous queries. Send the statement over Flight SQL instead -- an SDK's "
+                            + "query(), `pravaha query --sql`, or the console's workbench -- where it runs as "
+                            + "your principal.");
+        }
+    }
+
+    /**
      * The five-character SQLSTATE a Pravaha failure should arrive as.
      *
      * <p>The message always carries the engine's own PRV code -- {@link PravahaException} puts it
@@ -176,6 +200,7 @@ public final class PgWireErrors {
             // and 08000 is the nearest honest class if it ever did reach a client.
             case "PRV-6206" -> "08000";
             case "PRV-6202" -> "08P01"; // protocol_violation
+            case "PRV-6211" -> "25006"; // read_only_sql_transaction
             case "PRV-6207" -> "26000"; // invalid_sql_statement_name
             case "PRV-6208" -> "34000"; // invalid_cursor_name
             // 54000 program_limit_exceeded: the result was larger than one response may carry.

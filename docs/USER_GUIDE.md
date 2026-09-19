@@ -53,6 +53,27 @@ right fix is usually `grpc+tls://` rather than the flag.
 
 ## 2. Register a continuous query
 
+In SQL, through anything that sends SQL — `client.query(...)` in either SDK, `pravaha query --sql`,
+the console's workbench, a Flight SQL JDBC or ADBC driver, or an embedded engine's `query(sql)`:
+
+```sql
+CREATE CONTINUOUS QUERY card_velocity
+    KEYED BY (card_id)
+    RETAIN FOR PT8H
+AS SELECT window_end, card_id, COUNT(*) AS swipes
+   FROM TABLE(TUMBLE(TABLE card_swipe, DESCRIPTOR(event_time), INTERVAL '1' MINUTE))
+   GROUP BY window_start, window_end, card_id;
+```
+
+The answer is one row: the name, its state, the fingerprint and the sink. The key is named by
+column — as the `SELECT` list names it — and the engine turns it into ordinals by planning the
+query, so reordering the `SELECT` list cannot silently change what the key is. `WRITING TO <sink>`
+adds a sink, `RETAIN FOREVER` or `RETAIN FOR INTERVAL '8' HOUR` a retention;
+[Streams, queries and SQL §10.1](CONTINUOUS_QUERIES.md) has the whole grammar. The PostgreSQL gateway
+is read-only and refuses these statements (`PRV-6211`).
+
+Or through the registration call, with the key as output-column ordinals:
+
 ```java
 RegisteredQueryInfo registered = client.register(
         "card_velocity",                       // the view name your SQL will read
@@ -238,6 +259,16 @@ data is the failure the mechanism exists to make visible.
 
 ## 5. Manage what is running
 
+```sql
+SHOW CONTINUOUS QUERIES;                  -- name, state, sql, fingerprint, rows_in, key_columns, sink, retention
+PAUSE  CONTINUOUS QUERY card_velocity;
+RESUME CONTINUOUS QUERY card_velocity;
+DROP   CONTINUOUS QUERY card_velocity;
+```
+
+Each is authorized exactly as the calls below are — a principal who may not drop through one may not
+drop through the other — and `SHOW` lists only what `pravaha queries` would show the same principal.
+
 ```bash
 pravaha queries                       # name, state, fingerprint, rows in
 pravaha pause  --name card_velocity   # keeps answering, stops advancing
@@ -377,6 +408,10 @@ try (PravahaEngine engine = PravahaEngine.createDefault()) {
 
     engine.register("big_txn", "SELECT user_id, amount FROM txn WHERE amount > 100", "user_id");
     engine.register("totals", "SELECT COUNT(*) AS n, SUM(amount) AS total FROM txn", "n");
+    // The same registration in SQL: query(sql) runs CREATE / DROP / PAUSE / RESUME CONTINUOUS QUERY
+    // and SHOW CONTINUOUS QUERIES too, as the embedded engine's anonymous caller.
+    engine.query("CREATE CONTINUOUS QUERY small_txn KEYED BY (user_id) AS "
+            + "SELECT user_id, amount FROM txn WHERE amount <= 100");
 
     // Committed changes, retractions included, on the committing thread: keep it short.
     engine.subscribe("totals", changes -> changes.forEach(c ->

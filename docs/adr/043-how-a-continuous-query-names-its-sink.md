@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — **built**: registrations name a sink and every commit reaches it (see "As built") |
+| Status | Accepted — **built**: registrations name a sink and every commit reaches it (see "As built"); the argument also has a SQL spelling, `CREATE CONTINUOUS QUERY ... WRITING TO <sink>` (last section) |
 | Date | 2026-09-16 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-025 (registration), ADR-030 (scope tiers), ADR-039 item 5, design §15.5, `W8-13` |
@@ -154,3 +154,26 @@ Recorded after the code, so it describes what exists.
     sinks' tail since the last checkpoint uncommitted, where a drop commits it; and the view is only
     as right as the checkpoint — the sink matches the view, exactly.
     `TransactionalSinkDeliveryTest` holds the protocol, crash cases included.
+
+## The argument now has a SQL spelling
+
+Recorded 2026-09-19. The registration argument is unchanged; it can now also be written in SQL:
+
+```sql
+CREATE CONTINUOUS QUERY big_txn KEYED BY (user_id) WRITING TO large_txn
+AS SELECT user_id, amount FROM txn WHERE amount > 100;
+```
+
+- **It is the same argument, not a second mechanism.** The statement is recognised before Calcite
+  (`ContinuousStatements`), its `SELECT` is planned exactly as the argument form's SQL is, and
+  `WRITING TO` hands the registry the same `sinkName` through the same `registerWritingTo`
+  (`ContinuousQueryStatements.register`, which the `pravaha.register` action now calls too). So
+  everything above — the changelog check before the sink opens, `PRV-8010`, fan-out, the journal's
+  `W` record, the guarantee — holds for it unchanged.
+- **Why `WRITING TO` and not `INTO`, and still not `INSERT INTO`.** The reasons for not giving
+  `INSERT INTO <sink> SELECT` a second meaning stand: it would need a DML surface that exists only as
+  a refusal (`PRV-2020`). A clause of `CREATE CONTINUOUS QUERY` has no such problem, because the
+  statement is already a registration. The design's `INTO <sink>` (§11.2) is accepted as an alias;
+  the canonical spelling is `WRITING TO`, which cannot be read as `INSERT INTO`.
+- **The sink is still not in the fingerprint**, whichever spelling named it: two registrations whose
+  statements differ only in `WRITING TO` are one computation with two sinks, fanned out as decided above.

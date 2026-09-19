@@ -131,6 +131,9 @@ final class PgExtendedSession {
             PgSessionSet.handle(statement);
             return new PgStatement.ForSet(statement);
         }
+        // Refused at Parse, as a real backend refuses a statement it will not run, rather than
+        // planned: the planner would call CREATE CONTINUOUS QUERY a syntax error.
+        PgWireErrors.refuseContinuousStatement(statement);
         // Recognised by a bare probe first: PgCatalogShim matches this statement's own markers
         // (join shape, column names, function names) whether or not it has $n placeholders yet, so
         // whether it is catalog-shaped at all does not depend on knowing their count.

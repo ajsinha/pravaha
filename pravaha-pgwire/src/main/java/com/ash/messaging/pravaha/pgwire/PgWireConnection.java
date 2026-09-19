@@ -416,6 +416,7 @@ final class PgWireConnection implements Runnable {
                 backend.commandComplete("SET");
                 return;
             }
+            PgWireErrors.refuseContinuousStatement(statement);
             // The catalog shim answers first, and only queries it recognises as pg_catalog
             // introspection (PgCatalogShim.looksLikeCatalogQuery) -- everything else, including
             // every ordinary SELECT over a view, falls through to the one call that matters below.
