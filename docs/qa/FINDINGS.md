@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **315 findings carrying a
-status — 199 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
+only part that is kept current. Counting the register as it stands: **319 findings carrying a
+status — 203 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6672,3 +6672,22 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Status:** FIXED — `41e3a27`: `SourcePushdown` asks a source for a partial aggregate only when every predicate between the aggregate and the scan is pushable *and* the source also declares `FILTER`; otherwise the source is asked for rows and the engine filters them. `PartialAggregatePushdownEquivalenceTest` runs the shipped JDBC plugin on H2, pushed and unpushed in lockstep (20 generated cases), and a partial that ignored its pushed filters was seed-proven to fail it (`[27, 3087]` expected, `[111, 10798]` produced).
 > **Found while making the JDBC plugin claim `PARTIAL_AGGREGATE`.** A partial replaces the rows, so the engine's own filter has nothing left to run against. The old rule asked for one from a source declaring `PARTIAL_AGGREGATE` without `FILTER`, or with a `LIKE` or an `OR` below the aggregate that no source can carry, and the filter would have been dropped: a total over rows the query excluded.
 > **Why it mattered:** a silently wrong answer. Latent until now, because no shipped plugin declared `PARTIAL_AGGREGATE` before this change.
+
+### HLP-10 (LOW) — the CLI said "pauseped" and "resumeped"
+
+> **Status:** FIXED — `11b4a5e`: `ServerCommand.lifecycle` built the past tense as `action + "ped"`; a `pastTense()` now gives dropped, paused and resumed. `ServerCommandTest`, and `CliAgainstServerTest#lifecycleCommandsWork` against an in-process server. Found while writing the console's help.
+
+### HLP-11 (MEDIUM) — `pravaha subscribe` printed changes without their weights
+
+> **Status:** FIXED — `11b4a5e`: each change now starts with its signed weight (`+1` / `-1`) under a `WEIGHT` header, and the usage text, QUICKSTART §6 and CONTINUOUS_QUERIES §4 describe what the command prints. `CliAgainstServerTest#subscribePrintsEachChangesWeight` sends +1 then −1 of the same row and checks both, in order.
+> **Why it mattered:** a retraction and an insertion of the same row printed identically, so the one tool meant to show the change model hid it.
+
+### HLP-12 (MEDIUM) — CONTINUOUS_QUERIES documented `pravaha register --param`, which does not exist, and the CLI silently dropped it
+
+> **Status:** FIXED — `31e0168`: §9 says only an embedded `QueryRegistry.register(..., BoundParameters)` binds values and that a `?` registered over the wire is refused with PRV-2060 (now tested through the CLI). `register` refuses `--param`/`--params` with a usage error naming the alternatives, where it used to ignore unknown options — so the documented command registered the query *without* the value. `ServerCommandTest`.
+> **Why it mattered:** a filter copied from the documentation was silently not applied.
+
+### HLP-13 (MEDIUM) — ten documentation claims the code contradicted
+
+> **Status:** FIXED — `f1718ba`, `e5bcc35`, `d47ecb5`, `106cb65`, `a287e24`, `1ca1685`, each checked against the code before it was changed. CONTINUOUS_QUERIES: the §11 `IS NOT NULL AND` projection (PRV-2021), MIN/MAX over floats (PRV-2020, and the stated reason was wrong), a renamed window column (PRV-2050), a filter on a looked-up column (PRV-2020), §2.2's lookup joined by the plugin's name, and §3's `hourly_spend` that could not be registered — pinned by `ContinuousQueriesClaimsTest` (8) and `LookupJoinTest`. View retention's default is forever, not a day (OPERATIONS, TROUBLESHOOTING, HANDOVER). EXECUTION_MODEL's "nothing spills" and wrong wait-strategy default. CONNECTOR_TLS's source YAML in a shape nothing reads. `application.yaml`'s commented `tokens:`, `streams:`, `sources:` and `sinks:` blocks nested under the wrong keys. SECURITY.md calling a fixed hole (SX-15) open.
+> **Why it mattered:** each sent a reader to a configuration or a query that does not work.
