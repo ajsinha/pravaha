@@ -908,19 +908,70 @@ the consumer. Two value formats, stated precisely:
 |---|---|---|---|
 | `json` (default) | a JSON object of the row's columns, matched by name — what `kafka-sink` upsert mode writes | `+1` | none: `emitsDeletes` false. A **tombstone** (null value) says a key was deleted without saying what row it held, so there is nothing to retract: it is a dead letter (or `PRV-5105`), unless `tombstone: skip` reads the topic as insertions only |
 | `changelog` | `kafka-sink`'s changelog envelope, `{"op":"insert"\|"delete","weight":n,"row":{...}}` | the envelope's | yes: a retraction written by one query's sink is a retraction in the next query's source. `emitsDeletes` and `emitsBeforeImage` true |
+| `avro` | Avro's binary encoding of one record, against the writer schema in `schema.file` or the one the record's schema id names in the registry | `+1` | as `json` |
+| `protobuf` | one message of the `FileDescriptorSet` in `schema.descriptor`, read with `DynamicMessage` | `+1` | as `json` |
 
 Upsert-mode tombstones are not read as retractions because doing so would need the last value of
 every key — state the source would have to hold, and a checkpoint to hold it in, to replay exactly.
 Read `kafka-sink`'s changelog mode instead when a downstream query must see retractions. Values are
 decoded the way `kafka-sink` encodes them, and anything that does not fit the declared schema — not
 JSON, a fraction in an integer column, a decimal with more places than its scale — is a dead letter
-with a reason, never a guessed value. No Avro, Protobuf or schema registry.
+with a reason, never a guessed value.
+
+#### Avro, Protobuf and a schema registry, without a new dependency
+
+The three were added with **no library added to the build for any of them**, which is a decision
+about what a deployment has to trust, not a saving in bytes:
+
+- **Avro** is read by a binary reader of this repository's own (`AvroBinary`, `AvroSchema`,
+  `AvroRowReader`), the way `postgres-cdc` reads `pgoutput` by hand. Avro's binary encoding is small
+  and frozen — zig-zag varints, little-endian floats, length-prefixed bytes, blocks, a union's branch
+  index, a record's fields in order and nothing else — and the writer schema is Avro JSON, parsed
+  with the Jackson streaming parser already on the classpath. Logical types are read where they
+  change what the bytes mean: `date`, `time-millis`, `time-micros`, `timestamp-millis`,
+  `timestamp-micros`, and `decimal` over `bytes` or `fixed`. `local-timestamp-*` is refused rather
+  than read as UTC, and a plain `int` is not read as a `DATE` nor a plain `long` as a `TIMESTAMP`:
+  the schema either says what a number means or it does not.
+- **Protobuf** is read with `DynamicMessage` over a `FileDescriptorSet` the deployment supplies
+  (`protoc --include_imports --descriptor_set_out=x.desc`), so no generated classes and no `protoc`
+  at run time. `protobuf-java` was already in the build through gRPC and Avatica; B7 declared it and
+  pinned it in the root pom's `dependencyManagement` so its version is somebody's decision.
+- **The schema registry** is spoken over its REST API with the JDK's own `HttpClient`: the Confluent
+  wire format (one `0x00` byte, a four-byte big-endian schema id, then the payload) and one request,
+  `GET <url>/schemas/ids/{id}`, cached by id forever because an id's meaning never changes. No
+  Confluent client library — it is under the Confluent Community License and is not on Maven Central
+  — and nothing here is Confluent-specific, so **Karapace** and **Apicurio**'s `ccompat` endpoint
+  work the same (point `schema.registry.url` at them, path prefix and all).
+
+**Mapped by name, refused by name.** Every column of the declared schema must be a top-level Avro
+field or a protobuf field of that name (exactly, then ignoring case), of a type that can become it; a
+field no column names is skipped whole. With `schema.file` or `schema.descriptor` the mapping is made
+and refused when the query registers — `PRV-5108`, naming the column or the field — so a mismatch is a
+registration that fails rather than a stream of dead letters. A schema that arrives *with* the record
+(the registry's) cannot be refused that early: that record is a dead letter naming the schema id and
+the mismatch, and the mismatch is remembered per id. A registry that cannot be read is `PRV-5109` and
+stops the reader, because a registry being down is not a record's fault.
+
+**proto3 defaults are not NULL, and this is not hidden.** A proto3 scalar without `optional` has no
+presence on the wire: never set and set to `0`/`""`/`false` are the same bytes, none. Such a field
+fills its column with the type's default and never with NULL, even when the column is nullable. A
+field that does carry presence — `optional` in proto3, any message field, proto2's `optional` — reads
+as NULL when it is absent. Declare the field `optional` if a column must be able to be unknown.
+
+A value that begins with `0x00` while no registry is configured is the mistake this format makes
+most often, so a refusal that follows one says so and names `schema.registry.url`.
 
 Proved against a real broker (Testcontainers): the source TCK; an aborted transaction skipped, and
 resumption from an offset between it and its markers exact; three partitions restarted from
 checkpointed positions with every record once; and through the registry's own checkpoints
 (`KafkaSourceRegistrationTest`), a restart that counts every record once, and a `kafka-sink`
-changelog topic read back by a `kafka` source with its retraction applied. The binding's options are in
+changelog topic read back by a `kafka` source with its retraction applied; and an Avro topic, an Avro
+topic whose values carry a registry's five-byte prefix, and a Protobuf topic each read end to end
+(`KafkaSourceFormatBrokerTest`). Away from the broker: the Avro reader against hand-written
+specification vectors and a seeded property test (500 random schemas, 2 000 records), the Protobuf
+reader against messages written with `DynamicMessage`, and the registry against an HTTP server in the
+test — caching, basic auth, a bearer token, a 401, a 404, a 500, a body that is not the documented
+shape, and a registry that is down. The binding's options are in
 [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1.
 
 ### A transactional sink on a store with no prepare: Kafka

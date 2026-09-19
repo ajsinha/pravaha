@@ -254,6 +254,21 @@ Tested: the mapping, and that Kafka's own loader accepts the result (the produce
 engine in its constructor); the source's refusals, in its own words, by `KafkaSourceOptionsTest`. Not
 tested here: a handshake with a TLS listener — the broker tests run in plaintext.
 
+#### The schema registry uses the same `tls.*`
+
+`format: avro` with an `https://` `schema.registry.url` dials a second thing, and it is **not** given
+a vocabulary of its own: the same `tls.*` options build the `SSLContext` the JDK's `HttpClient` uses,
+so one trust decision covers the brokers and the registry. A registry behind a different CA therefore
+needs that CA in `tls.ca` (or in the JVM's trust store) alongside the brokers'.
+
+**`tls.verify-hostname: false` with an `https` registry is refused** (`PRV-5100`). The JDK's HTTP
+client verifies the certificate's name and offers no per-client way to stop it — only a global system
+property — so honouring the option would mean either lying about it or weakening every HTTPS client
+in the process. The refusal says to use `http://` for the registry, or a certificate whose name
+matches. Credentials are separate from TLS: `schema.registry.user`/`schema.registry.password` send
+HTTP basic auth, `schema.registry.token` sends a bearer token, and neither is allowed without
+`schema.registry.url`.
+
 ---
 
 ## 4. The server and the SDK

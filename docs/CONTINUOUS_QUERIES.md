@@ -695,7 +695,16 @@ pravaha:
         bootstrap.servers: "kafka-1.internal:9093,kafka-2.internal:9093"
         topic: orders
         schema: "order_id:INT64,customer:STRING,amount:DECIMAL(12,2),placed_at:TIMESTAMP"
-        format: json                   # json | changelog (kafka-sink's changelog mode, weights and all)
+        format: json                   # json | changelog | avro | protobuf
+        # format: avro, with the writer schema on disk:
+        # schema.file: /etc/pravaha/schemas/orders.avsc
+        # ...or from a schema registry, by the id in each record's five-byte prefix:
+        # schema.registry.url: https://registry.internal:8081
+        # schema.registry.user: pravaha
+        # schema.registry.password: "${REGISTRY_PASSWORD}"   # or schema.registry.token for a bearer token
+        # format: protobuf:
+        # schema.descriptor: /etc/pravaha/schemas/orders.desc   # protoc --include_imports --descriptor_set_out
+        # schema.message: acme.orders.Order
         event.time: placed_at          # optional TIMESTAMP column; on a node, the stream's event-time
         start.from: earliest           # earliest | latest -- only when there is no checkpoint
         isolation.level: read_committed
@@ -713,7 +722,12 @@ pravaha:
 | `bootstrap.servers` | yes | — |
 | `topic` | yes | — must exist; the source never creates it |
 | `schema` | yes | — `name:TYPE`, as every other connector; `?` marks a nullable column |
-| `format` | no | `json`: each value a JSON object of the row, matched to the schema by column name, every row `+1`. `changelog`: `kafka-sink`'s `{"op","weight","row"}` envelope, its weight applied |
+| `format` | no | `json`: each value a JSON object of the row, matched to the schema by column name, every row `+1`. `changelog`: `kafka-sink`'s `{"op","weight","row"}` envelope, its weight applied. `avro`: Avro's binary encoding, every row `+1`. `protobuf`: one message of a descriptor set, every row `+1` |
+| `schema.file` | with `format: avro` | — | The writer schema, as Avro JSON. Exactly one of this and `schema.registry.url`; either with another format is refused by name |
+| `schema.registry.url` | with `format: avro` | — | A Confluent-compatible registry (Confluent, Karapace, Apicurio's `ccompat` path). Each value must then carry the wire format's `0x00` and four-byte schema id; the schema of an id is fetched once and cached. With `format: protobuf` it means only that the prefix and Confluent's message-index array are read past — the message still comes from `schema.descriptor` |
+| `schema.registry.user` / `schema.registry.password` / `schema.registry.token` | no | none | Basic auth, or a bearer token. Refused without `schema.registry.url`. TLS for an `https` registry is the same `tls.*` as the brokers'; `tls.verify-hostname: false` with an `https` registry is refused |
+| `schema.registry.timeout` | no | `10s` | Per attempt; three attempts a short pause apart, then `PRV-5109` |
+| `schema.descriptor` / `schema.message` | with `format: protobuf` | — | A `FileDescriptorSet` (`protoc --include_imports --descriptor_set_out=x.desc`) and the message in it a record holds, by full name or an unambiguous simple name |
 | `event.time` | no | on a node, the stream's declared `event-time` column (handed down as this option); the record's Kafka timestamp only when the stream declares none |
 | `start.from` | no | `earliest`; `latest` starts after what the topic already holds. A restore ignores it |
 | `isolation.level` | no | `read_committed`; `read_uncommitted` also delivers what aborted transactions wrote |
@@ -737,6 +751,33 @@ named `topic/partition@offset`, or, with no dead-letter queue, stops the source 
 **Deletes only in `format: changelog`.** A tombstone in an upsert topic deletes a key without saying
 what row it held, so there is nothing to retract; to feed retractions from one query to another,
 write the first with `kafka-sink`'s `mode: changelog` and read it with `format: changelog`.
+
+**`format: avro`** reads Avro's binary encoding with a reader of this repository's own — no
+`org.apache.avro` on the classpath. A column takes: `BOOLEAN` from `boolean`; the integer columns
+from `int` or `long`, refused rather than truncated out of range; `FLOAT32` from `float`, `FLOAT64`
+from `float` or `double`; `STRING` from `string` or an `enum`'s symbol; `BYTES` from `bytes` or
+`fixed`; `DECIMAL` from `bytes`/`fixed` with `logicalType: decimal`; `DATE` from `int`/`date`; `TIME`
+from `int`/`time-millis` or `long`/`time-micros`; `TIMESTAMP` from `long`/`timestamp-millis` or
+`timestamp-micros`. A plain `int` is not a `DATE` and a plain `long` is not a `TIMESTAMP`, and
+`local-timestamp-*` is refused rather than assumed to be UTC. A `["null", T]` union reads NULL or its
+branch. A field no column names is skipped whole; a column no field carries is `PRV-5108` at
+registration.
+
+**`format: protobuf`** reads one message with `DynamicMessage`. A column takes: `BOOLEAN` from
+`bool`; the integer columns from any integer type, unsigned widened and refused out of range;
+`FLOAT32`/`FLOAT64` from `float`/`double`; `STRING` from `string` or an `enum`'s symbol; `BYTES` from
+`bytes`; `DECIMAL` from a `string` holding the number exactly; `TIMESTAMP` from
+`google.protobuf.Timestamp` or an ISO-8601 `string`; `DATE` and `TIME` from an ISO-8601 `string`.
+**A proto3 scalar without `optional` has no presence**: absent and set-to-default are the same bytes,
+so such a column is filled with `0`, `""` or `false` and is never NULL. Presence-carrying fields —
+proto3 `optional`, message fields, proto2 `optional` — are NULL when absent.
+
+**With a registry**, each value is `0x00`, a four-byte big-endian schema id, then the payload; the
+schema is fetched once per id over `GET <url>/schemas/ids/{id}` and kept. A record with no such
+prefix is a dead letter saying so; a registry that cannot be read stops the reader with `PRV-5109`;
+a registry schema that cannot be mapped to the columns makes each record carrying it a dead letter,
+naming the id. A value that begins with `0x00` while no registry is configured is refused with
+`schema.registry.url` named.
 
 **One consumer per partition per registration.** An exactly-once source is never shared between
 queries, so each registration reading this binding has its own consumer and fetch thread per

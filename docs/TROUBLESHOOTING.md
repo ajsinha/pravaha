@@ -283,7 +283,8 @@ recorded, which are then lost to the topic: raise `staging.retention.ms` and re-
 
 - `PRV-5101` — at registration: the brokers did not answer within `start.timeout`, the topic does not
   exist (the source never creates it), or the credentials or ACLs refused `Describe`/`Read`.
-- `PRV-5105` — a record does not fit the declared schema (not JSON, a string in an `INT64` column, a
+- `PRV-5105` — a record does not fit the declared schema (not JSON, not the Avro or protobuf the
+  schema describes, a string in an `INT64` column, a
   missing `NOT NULL` column, a tombstone in `format: json`), and there is no dead-letter queue. The
   message names it as `topic/partition@offset`. Set `pravaha.dlq.directory` to set such records aside
   and read on, fix the producer, or for an upsert topic's tombstones set `tombstone: skip`. The
@@ -296,6 +297,21 @@ recorded, which are then lost to the topic: raise `staging.retention.ms` and re-
 - `PRV-5104` — a checkpoint holds a position this source did not write, or one for another topic or
   partition: the binding's `topic` was changed under an existing checkpoint. Register afresh.
 - `PRV-5107` — fetching failed in a way retrying will not fix, such as an ACL revoked mid-stream.
+- `PRV-5108` — at registration, with `format: avro` or `format: protobuf`: the writer schema cannot
+  become rows of this stream. The message names the column with no field, or the field and the
+  column whose types cannot meet — `schema.file` that is not an Avro schema, `schema.descriptor`
+  that is not a `FileDescriptorSet` or has no message of that name, an Avro `long` where the column
+  is a `TIMESTAMP` (declare it `timestamp-millis`), a `repeated` field where the column is one
+  value. Fix the binding's `schema`, or the schema the producer writes. A schema that arrives with
+  the record, from the registry, cannot be checked this early: those records become dead letters
+  (`PRV-5105` with no dead-letter queue), and the message names the schema id.
+- `PRV-5109` — the schema registry could not be read: unreachable or timed out after three attempts
+  (`schema.registry.timeout`), the credentials refused (401/403 — set `schema.registry.user` and
+  `schema.registry.password`, or `schema.registry.token`), no schema with that id (404 — the records
+  were written against another registry), or an answer that is not the documented shape of
+  `GET /schemas/ids/{id}`, which is usually a proxy's error page. The reader stops rather than
+  dead-lettering records that are probably fine; it resumes from its checkpoint once the registry is
+  back.
 
 A source that seems stuck with nothing refused is usually `read_committed` waiting behind a producer's
 open transaction — the position cannot pass it until it commits or `transaction.timeout.ms` aborts it.
@@ -571,6 +587,8 @@ way it was registered.
 | `PRV-5105` | KAFKA_UNDECODABLE_RECORD | plugins |
 | `PRV-5106` | KAFKA_RESUME_POINT_GONE | plugins |
 | `PRV-5107` | KAFKA_READ_FAILED | plugins |
+| `PRV-5108` | KAFKA_SCHEMA_UNMAPPABLE | plugins |
+| `PRV-5109` | KAFKA_REGISTRY_UNAVAILABLE | plugins |
 | `PRV-5110` | PGCDC_BAD_CONFIGURATION | plugins |
 | `PRV-5111` | PGCDC_CONNECT_FAILED | plugins |
 | `PRV-5112` | PGCDC_NOT_CAPTURABLE | plugins |

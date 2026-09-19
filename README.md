@@ -136,11 +136,17 @@ corrected by late data arrives as a retraction of the old answer followed by the
   PostgreSQL and a Kafka broker, under Testcontainers — so a machine without Docker skips those,
   by name, rather than passing. `kafka-sink` writes JSON only, and ships no lz4, snappy or zstd
   codec (they are native code): `none` and `gzip` compression work.
-- **The Kafka source reads JSON only.** No Avro, Protobuf or schema registry; a topic of JSON rows,
-  or `kafka-sink`'s changelog. An upsert topic's tombstones cannot be retractions (a tombstone does
-  not say what row it deletes), so they are refused or, with `tombstone: skip`, ignored. The
-  partition list is read at registration: partitions added later are read after a restart. Its
-  broker tests, like the sink's, need Docker.
+- **The Kafka source reads JSON, Avro and Protobuf — with no library for any of them.** JSON rows or
+  `kafka-sink`'s changelog; Avro's binary encoding through a reader written here from the
+  specification, against `schema.file` or a schema id fetched from a Confluent-compatible registry
+  over its REST API (Karapace and Apicurio included); and Protobuf through `DynamicMessage` over a
+  descriptor set the deployment supplies. No `org.apache.avro`, and no Confluent client. Columns are
+  matched by name and a schema that cannot be mapped is refused at registration (`PRV-5108`). A
+  proto3 scalar without `optional` has no presence, so it reads as its type's default and never as
+  NULL. An upsert topic's tombstones cannot be retractions (a tombstone does not say what row it
+  deletes), so they are refused or, with `tombstone: skip`, ignored. The partition list is read at
+  registration: partitions added later are read after a restart. Its broker tests, like the sink's,
+  need Docker.
 - **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
   ([ADR-041](docs/adr/041-change-data-capture-without-debezium.md)) streams one table per binding
   from PostgreSQL 14 or later, with a slot per registration. Rows already in the table are delivered
