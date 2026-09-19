@@ -168,8 +168,11 @@ public final class SpscRowRing implements AutoCloseable {
      */
     public boolean offer(MemoryRegion source, int offset, int length) {
         if (length > cellBytes) {
+            // PF-3/DOCX-20: this named `lane.exchange.cell.size`, which has never been a key.
+            // The exchange ring is built from LaneConfig.inboxCellBytes (LaneExchange:85), so the
+            // setting that actually widens it is the one named here.
             throw new IllegalArgumentException("row of " + length + " bytes exceeds the exchange cell size of "
-                    + cellBytes + "; raise lane.exchange.cell.size for this query");
+                    + cellBytes + "; raise pravaha.lane.inbox.cell-bytes, which sizes this ring too");
         }
         long sequence = claim();
         if (sequence == NO_SPACE) {

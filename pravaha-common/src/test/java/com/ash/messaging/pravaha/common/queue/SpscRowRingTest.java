@@ -90,10 +90,14 @@ class SpscRowRingTest {
     }
 
     @Test
-    void aRowTooLargeForACellSaysWhatToChange() {
+    void aRowTooLargeForACellNamesTheSettingThatExists() {
+        // PF-3/DOCX-20. It named `lane.exchange.cell.size`, which has never been a key. The ring
+        // is built from LaneConfig.inboxCellBytes, so that is the key that widens it, and an
+        // operator who follows the advice now sees the failure go away.
         assertThatThrownBy(() -> ring.offer(scratch, 0, ring.cellBytes() + 1))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("lane.exchange.cell.size");
+                .hasMessageContaining("pravaha.lane.inbox.cell-bytes")
+                .hasMessageNotContaining("lane.exchange.cell.size");
     }
 
     @Test

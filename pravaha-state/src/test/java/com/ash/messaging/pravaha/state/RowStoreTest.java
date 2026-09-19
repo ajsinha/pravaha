@@ -185,11 +185,16 @@ class RowStoreTest {
     private static final int MIN_SLAB = 1 << 12;
 
     @Test
-    void aRowTooLargeForASlabSaysWhichSettingToRaise() {
+    void aRowTooLargeForASlabSaysWhatToDoAndInventsNoSetting() {
+        // PF-3/DOCX-20. It used to say "raise state.slab.size for this query". There is no such
+        // key and never was: the slab size here is a constant of the operator holding the store.
+        // Advice naming a key nothing reads is worse than no advice, because it is followed.
         try (RowStore store = new RowStore(MemoryAccess.best(), MIN_SLAB, 4)) {
             assertThatThrownBy(() -> store.allocate(MIN_SLAB))
                     .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("state.slab.size");
+                    .hasMessageContaining("state slab")
+                    .hasMessageContaining("the row has to be narrower")
+                    .hasMessageNotContaining("state.slab.size");
         }
     }
 

@@ -199,8 +199,14 @@ public final class RowStore implements AutoCloseable {
         if (sizeClass >= freeHeads.length) {
             throw new PravahaException(
                     StateErrors.STATE_TOO_LARGE,
+                    // PF-3/DOCX-20: this used to send the operator to a `state.slab.size` setting
+                    // that has never existed. Advice naming a key nothing reads costs an edit, a
+                    // restart and the same failure, with nothing to search for. The slab size here
+                    // is fixed per operator, so the honest remedy is the row.
                     "a single row of " + payloadBytes + " bytes does not fit a " + slabBytes
-                            + "-byte slab; raise state.slab.size for this query");
+                            + "-byte state slab. The slab size is fixed per operator and is not a "
+                            + "configuration key: the row has to be narrower -- fewer or smaller "
+                            + "columns in the key or in what is accumulated against it.");
         }
         return allocateInClass(sizeClass, true);
     }

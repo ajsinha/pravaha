@@ -577,6 +577,43 @@ class DocumentationFreshnessTest {
     }
 
     @Test
+    void anEngineMessageDoesNotInventASettingByLeavingOffThePrefix() throws IOException {
+        // The check above only sees a name beginning `pravaha.`, and two messages survived it for
+        // a whole wave by not having the prefix: "raise state.slab.size" (RowStore) and "raise
+        // lane.exchange.cell.size" (SpscRowRing). Both read exactly like the real keys one level
+        // up -- pravaha.lane.arena.slab-bytes, pravaha.lane.inbox.cell-bytes -- and neither has
+        // ever existed. That is PF-3's defect surviving PF-3's test.
+        //
+        // Engine modules only. A plugin's messages name the plugin's own options (bootstrap
+        // .servers, deletes.max.keys), which are a different vocabulary and are not in
+        // application.yaml.
+        Set<String> declared = settingsDeclaredInApplicationYaml();
+        Pattern advice = Pattern.compile(
+                "(?:raise|reduce|lower|increase)\\s+`?([a-z][a-z0-9]*(?:\\.[a-z0-9-]+){2,})", Pattern.CASE_INSENSITIVE);
+
+        List<String> phantom = new ArrayList<>();
+        for (Path source : productionSources()) {
+            if (source.toString().contains("/plugins/") || source.toString().contains("/sdk/")) {
+                continue;
+            }
+            Matcher matcher = advice.matcher(Files.readString(source, StandardCharsets.UTF_8));
+            while (matcher.find()) {
+                String named = matcher.group(1);
+                if (!declared.contains(named) && !declared.contains("pravaha." + named)) {
+                    phantom.add(named + " (" + source.getFileName() + ")");
+                }
+            }
+        }
+
+        assertThat(phantom)
+                .as(
+                        "an engine message naming a dotted setting must name one application.yaml "
+                                + "declares, with or without the pravaha. prefix. These name nothing: %s",
+                        phantom)
+                .isEmpty();
+    }
+
+    @Test
     void everyLaneSettingAnOperatorCanTuneIsDocumented() throws IOException {
         // The knobs that decide what a node holding many queries costs. They existed for a whole
         // wave before any document named one, which is the same failure as not having them: an
