@@ -125,6 +125,11 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
         STORE.add(new long[] {id, amount});
     }
 
+    /** Appends the retraction of a record appended earlier: the same values at weight -1. LANE-2. */
+    static void retract(long id, long amount) {
+        STORE.add(new long[] {id, amount, -1L});
+    }
+
     @Override
     public String name() {
         return "counting-scan";
@@ -285,7 +290,7 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
                     writer.setUnread(1);
                 }
                 writer.setLong(2, record[1]);
-                writer.weight(1L)
+                writer.weight(record.length > 2 ? record[2] : 1L)
                         .eventTimestampNanos(System.currentTimeMillis() * 1_000_000L)
                         .sequence(++sequence)
                         .commit();

@@ -146,6 +146,22 @@ final class SharedSourceGroup {
         return --holders <= 0;
     }
 
+    /** Rows read, and copies of them written into lanes, summed over every partition's reader. */
+    long[] rowsReadAndCopiesWritten() {
+        long read = 0;
+        long written = 0;
+        for (SharedPartitionFeed feed : feeds) {
+            read += feed.rowsRead();
+            written += feed.copiesWritten();
+        }
+        return new long[] {read, written};
+    }
+
+    /** Members of any partition's reader still catching up on history of their own. */
+    int catchingUp() {
+        return feeds.stream().mapToInt(SharedPartitionFeed::catchingUp).sum();
+    }
+
     /** How many queries share this binding's readers, for {@code describe()}. */
     int queryCount() {
         return feeds.isEmpty() ? 0 : feeds.get(0).memberCount();

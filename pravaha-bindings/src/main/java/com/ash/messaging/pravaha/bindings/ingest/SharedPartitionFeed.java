@@ -29,7 +29,11 @@ import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
 import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
+import com.ash.messaging.pravaha.runtime.exec.SharedLaneInput;
+import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
+import com.ash.messaging.pravaha.runtime.lane.Lane;
+import com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer;
 
 /**
  * One reader of one partition, feeding every query bound to it.
@@ -103,6 +107,23 @@ import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
  *       not answers. So {@link #leave} records the narrower request and the feed's own thread
  *       applies it the next time the reader is idle.
  * </ul>
+ *
+ * <h2>One copy per shared lane (LANE-2)</h2>
+ *
+ * <p>Members whose queries are hosted on one multiplexed lane share that lane's inbox, so writing
+ * each of them its own copy would put N copies of every row into one inbox -- and the lane used to
+ * dispatch by stream, so each of those queries was handed all N (LANE-1). Such members are grouped
+ * by lane into a {@link LaneRoute}: the row is written into that lane <em>once</em>, stamped with a
+ * route of its own, and the lane's multiplexer hands the one copy to every member listening to it.
+ * A member on a lane of its own is written to exactly as before.
+ *
+ * <p>Listening is switched on and off by control tasks on the lane, submitted under this feed's lock
+ * -- that is, while nothing is writing the route -- so a member starts receiving at the exact row it
+ * was attached at, and a paused member stops at the exact row its resume position records. What a
+ * member is fed on its own, its catch-up, is stamped with that query's private route and reaches it
+ * alone. A checkpoint of any member still freezes that member's pump, and a poll still freezes every
+ * live member's pump before it writes, so the one copy is held between rows exactly as the N copies
+ * were.
  *
  * <h2>What sharing couples</h2>
  *
@@ -178,6 +199,12 @@ final class SharedPartitionFeed {
     /** Rows this reader has handed to its consumers, counted once however many received them. */
     private final AtomicLong rowsRead = new AtomicLong();
 
+    /** Copies of those rows written into lanes: one per own-lane member and one per shared lane. */
+    private final AtomicLong copiesWritten = new AtomicLong();
+
+    /** One route per shared lane some member is hosted on. Guarded by the lock. */
+    private final java.util.Map<Lane, LaneRoute> routes = new java.util.HashMap<>();
+
     SharedPartitionFeed(String stream, SourcePartition partition, StreamSourcePlugin plugin) {
         this.stream = stream;
         this.partition = partition;
@@ -192,13 +219,16 @@ final class SharedPartitionFeed {
      * @param wanted what this query would have pushed down had it opened its own reader
      * @param pumpFactory builds the query's pump around the reader handed to it; the caller owns
      *     what a pump needs -- the lane, the schema, the dead-letter queue -- and this does not
+     * @param laneInput how the query's lane takes one copy shared with other queries on it, or null
+     *     when the query has a lane of its own (LANE-2)
      */
     Member join(
             String queryName,
             SourceOffset from,
             ReadRequest wanted,
             Runnable afterDelivery,
-            Function<PartitionReader, IngestPump> pumpFactory) {
+            Function<PartitionReader, IngestPump> pumpFactory,
+            SharedLaneInput laneInput) {
         lock.lock();
         try {
             if (closed) {
@@ -231,6 +261,15 @@ final class SharedPartitionFeed {
                 }
             }
             member.pump = pumpFactory.apply(new MemberReader(member));
+            if (laneInput != null) {
+                // Listening from here: every row this reader writes from now on reaches this query
+                // through the lane's one copy, and nothing it wrote before does. The catch-up below
+                // covers what came before, through this query's own route.
+                member.laneInput = laneInput;
+                member.route = routeOn(laneInput);
+                member.route.members.add(member);
+                laneInput.listen(member.route.id);
+            }
             if (catchUpFrom != null) {
                 startCatchUp(member, catchUpFrom);
             }
@@ -245,6 +284,33 @@ final class SharedPartitionFeed {
         } finally {
             lock.unlock();
         }
+    }
+
+    /** The route shared by every member hosted on {@code input}'s lane, made on first use. Lock held. */
+    private LaneRoute routeOn(SharedLaneInput input) {
+        return routes.computeIfAbsent(input.lane(), lane -> {
+            int id = LaneMultiplexer.newRoute();
+            LaneRoute route = new LaneRoute(id);
+            route.writer = input.openRoute(id, BackpressurePolicy.defaults());
+            route.writer.observeEventTimeWith(route::observe);
+            return route;
+        });
+    }
+
+    /** Members still reading history of their own, which a test waits out before changing the source. */
+    int catchingUp() {
+        lock.lock();
+        try {
+            return (int)
+                    members.stream().filter(member -> member.catchUp != null).count();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** Copies written into lanes, one per lane per row however many queries each copy serves. */
+    long copiesWritten() {
+        return copiesWritten.get();
     }
 
     /** How many queries this reader feeds, for an operator asking what a source is doing. */
@@ -283,6 +349,17 @@ final class SharedPartitionFeed {
             members.remove(member);
             closeQuietly(member.catchUp);
             member.catchUp = null;
+            if (member.route != null) {
+                // Off the fan-out at this row, rather than whenever the query's pipeline is dropped:
+                // the other members on the lane keep this route busy until then.
+                member.laneInput.stopListening(member.route.id);
+                member.route.members.remove(member);
+                if (member.route.members.isEmpty()) {
+                    routes.values().remove(member.route);
+                    closeQuietly(member.route.writer);
+                }
+                member.route = null;
+            }
             if (!members.isEmpty()) {
                 // Narrower, never wider: the remaining members wanted a subset of what is being
                 // read. Applied by the feed thread at the reader's next idle poll -- see the class
@@ -356,6 +433,8 @@ final class SharedPartitionFeed {
         try {
             closeQuietly(reader);
             reader = null;
+            routes.values().forEach(route -> closeQuietly(route.writer));
+            routes.clear();
         } finally {
             lock.unlock();
         }
@@ -372,6 +451,11 @@ final class SharedPartitionFeed {
             // whatever the catch-up had not reached.
             member.resumeAt = member.catchUp != null ? member.catchUp.position() : position();
             member.paused = true;
+            if (member.route != null) {
+                // At the row resumeAt names: everything written before it has been, or will be,
+                // handed to this query, and nothing after it will be.
+                member.laneInput.stopListening(member.route.id);
+            }
         } finally {
             lock.unlock();
         }
@@ -386,6 +470,10 @@ final class SharedPartitionFeed {
             member.paused = false;
             SourceOffset resumeAt = member.resumeAt;
             member.resumeAt = null;
+            if (member.route != null) {
+                // Back on the fan-out from here; the catch-up below covers the gap, as for a join.
+                member.laneInput.listen(member.route.id);
+            }
             if (resumeAt == null || resumeAt.equals(position())) {
                 // Nothing moved while it was paused -- the common case, because a group of one
                 // stops reading entirely when its only consumer pauses. Identical to what a private
@@ -503,14 +591,26 @@ final class SharedPartitionFeed {
         }
         try {
             List<PartitionReader.RecordSink> sinks = new ArrayList<>(live.size());
+            for (LaneRoute route : routes.values()) {
+                route.listening.clear();
+            }
             for (Member member : live) {
-                sinks.add(member.pump.sharedSink());
+                if (member.route == null) {
+                    sinks.add(member.pump.sharedSink());
+                } else {
+                    // One copy per shared lane, whoever else on it is listening (LANE-2).
+                    if (member.route.listening.isEmpty()) {
+                        sinks.add(member.route);
+                    }
+                    member.route.listening.add(member);
+                }
             }
             int read = reader.poll(new BroadcastSink(sinks), room);
             // Nothing returned is the one moment the position covers exactly what was handed over.
             readerIdle = read == 0;
             if (read > 0) {
                 rowsRead.addAndGet(read);
+                copiesWritten.addAndGet((long) read * sinks.size());
                 for (Member member : live) {
                     member.pump.countSharedRows(read);
                 }
@@ -577,10 +677,16 @@ final class SharedPartitionFeed {
     /**
      * Publishes what every consumer has applied, on the same cadence one feed thread used to.
      *
-     * <p>Under the lock, which is not an oversight: leaving it means a query that has just been
-     * dropped can still have its commit called on the execution it is in the middle of closing.
-     * Taking the lock is what makes "left the group" mean "will not be called again" -- {@link
-     * #leave} cannot return until any publish in flight has finished.
+     * <p>Each member under the lock, which is not an oversight: leaving it means a query that has
+     * just been dropped can still have its commit called on the execution it is in the middle of
+     * closing. Taking the lock is what makes "left the group" mean "will not be called again" --
+     * {@link #leave} cannot return until a publish of that member in flight has finished.
+     *
+     * <p>Per member rather than once for the whole round. A commit waits for its lane to publish
+     * the query's continuous aggregates, so a round over a thousand members is a thousand lane
+     * round trips; held for all of them, the lock kept every join, pause and drop waiting for the
+     * whole round -- measured at seconds per registration once a thousand queries shared one
+     * reader (LANE-2's density test), which made registering the thousandth take minutes.
      */
     private void publishPeriodically() {
         long now = System.nanoTime();
@@ -588,13 +694,33 @@ final class SharedPartitionFeed {
             return;
         }
         lastPublishedNanos = now;
+        List<Member> round;
         lock.lock();
         try {
-            for (Member member : members) {
-                member.afterDelivery.run();
-            }
+            round = List.copyOf(members);
         } finally {
             lock.unlock();
+        }
+        for (Member member : round) {
+            lock.lock();
+            try {
+                if (member.publishFailure != null || !members.contains(member)) {
+                    continue;
+                }
+                member.afterDelivery.run();
+            } catch (RuntimeException e) {
+                // One query's commit refusing must not stop the reader every other query on this
+                // binding is fed by. It used to: this ran outside run()'s catch, so the throw ended
+                // the group's thread unrecorded and every member froze at RUNNING. Recorded on the
+                // member, whose describe() says so, as PumpingFeed does for a query with a reader of
+                // its own.
+                member.publishFailure = new PravahaException(
+                        IngestErrors.FEED_FAILED,
+                        "publishing query '" + member.queryName + "' failed: " + e.getMessage(),
+                        e);
+            } finally {
+                lock.unlock();
+            }
         }
     }
 
@@ -624,10 +750,16 @@ final class SharedPartitionFeed {
         private final Runnable afterDelivery;
 
         private IngestPump pump;
+        private SharedLaneInput laneInput;
+        private LaneRoute route;
         private PartitionReader catchUp;
         private boolean catchUpPolled;
         private boolean paused;
         private SourceOffset resumeAt;
+
+        /** Why publishing this query stopped, or null. Guarded by the feed's lock. */
+        private volatile PravahaException publishFailure;
+
         private SharedPartitionFeed feed;
 
         Member(String queryName, ReadRequest request, Runnable afterDelivery) {
@@ -656,9 +788,60 @@ final class SharedPartitionFeed {
             return feed;
         }
 
+        PravahaException publishFailure() {
+            return publishFailure;
+        }
+
         @Override
         public void close() {
             feed.leave(this);
+        }
+    }
+
+    /**
+     * One copy of each row into one shared lane, for every member hosted on it (LANE-2).
+     *
+     * <p>A sink to the reader's {@link BroadcastSink} like any member's own: the row is written
+     * through {@link #writer}, stamped with {@link #id}, and the lane hands it to every query
+     * listening. Guarded by the feed's lock, and touched only by a caller holding it.
+     */
+    private static final class LaneRoute implements PartitionReader.RecordSink {
+
+        final int id;
+        final List<Member> members = new ArrayList<>();
+
+        /** The members this poll is writing for: the live ones, set before every poll. */
+        final List<Member> listening = new ArrayList<>();
+
+        IngestPump writer;
+
+        LaneRoute(int id) {
+            this.id = id;
+        }
+
+        @Override
+        public com.ash.messaging.pravaha.api.data.RowWriter beginRow() {
+            return writer.sharedSink().beginRow();
+        }
+
+        /**
+         * Offers an undecodable record to each listening query's own dead-letter queue, true only
+         * when every one of them took it -- for the reason {@link BroadcastSink#reject} gives.
+         */
+        @Override
+        public boolean reject(byte[] raw, String sourceOffset, String reason) {
+            boolean all = true;
+            for (Member member : listening) {
+                all = member.pump.sharedSink().reject(raw, sourceOffset, reason) && all;
+            }
+            return all;
+        }
+
+        /** Each listening query's watermark hears the event time of the one copy they share. */
+        void observe(long eventTimeNanos) {
+            for (Member member : listening) {
+                member.pump.eventTimeObserver().accept(eventTimeNanos);
+            }
         }
     }
 
@@ -700,6 +883,13 @@ final class SharedPartitionFeed {
             SharedPartitionFeed feed = member.feed;
             feed.lock.lock();
             try {
+                if (member.paused && member.resumeAt != null) {
+                    // Paused: this query has been handed nothing since resumeAt, however far the
+                    // shared reader has read for the others since. A checkpoint that recorded the
+                    // reader's position instead resumed a restored query past every row it missed
+                    // while paused -- silent loss, and a pause is exactly when an operator takes one.
+                    return member.resumeAt;
+                }
                 return feed.position();
             } finally {
                 feed.lock.unlock();

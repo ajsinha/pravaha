@@ -108,6 +108,9 @@ final class SharedFeed implements SourceFeed {
         }
         for (SharedPartitionFeed.Member member : members) {
             PravahaException failure = member.feed().failure();
+            if (failure == null) {
+                failure = member.publishFailure();
+            }
             if (failure != null) {
                 return text.append(" -- stopped: ").append(failure.getMessage()).toString();
             }

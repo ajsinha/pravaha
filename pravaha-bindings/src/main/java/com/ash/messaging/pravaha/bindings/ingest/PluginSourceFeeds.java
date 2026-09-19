@@ -192,11 +192,20 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     for (int index = 0; index < group.partitionCount(); index++) {
                         String token = resumeFrom.get("partition-" + partitionOrdinal[0]++);
                         SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
-                        members.add(group.feed(index).join(queryName, from, shared, publish, reader -> {
-                            IngestPump pump = execution.pumpInto(0, stream, reader, policy);
-                            attachDeadLetters(pump, queryName, sharedResources);
-                            return pump;
-                        }));
+                        // LANE-2: a query hosted on a shared lane takes the one copy the reader writes
+                        // into that lane for every member on it, rather than a copy of its own.
+                        members.add(group.feed(index)
+                                .join(
+                                        queryName,
+                                        from,
+                                        shared,
+                                        publish,
+                                        reader -> {
+                                            IngestPump pump = execution.pumpInto(0, stream, reader, policy);
+                                            attachDeadLetters(pump, queryName, sharedResources);
+                                            return pump;
+                                        },
+                                        execution.sharedLaneInput(stream)));
                     }
                     continue;
                 }
@@ -313,6 +322,32 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             }
             group.retain();
             return group;
+        }
+    }
+
+    /**
+     * Rows every shared reader has read, and the copies of them it wrote into lanes: one per lane of
+     * its own that a member holds, and one per shared lane however many members are on it (LANE-2).
+     * The ratio is what sharing a lane's ingest saves.
+     */
+    long[] sharedRowsReadAndCopiesWritten() {
+        long[] total = new long[2];
+        synchronized (sharing) {
+            for (SharedSourceGroup group : groups.values()) {
+                long[] each = group.rowsReadAndCopiesWritten();
+                total[0] += each[0];
+                total[1] += each[1];
+            }
+        }
+        return total;
+    }
+
+    /** Queries still reading history of their own from a shared source: a join or resume settling. */
+    int catchUpsInFlight() {
+        synchronized (sharing) {
+            return groups.values().stream()
+                    .mapToInt(SharedSourceGroup::catchingUp)
+                    .sum();
         }
     }
 
