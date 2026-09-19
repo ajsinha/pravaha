@@ -330,7 +330,8 @@ Each is authorized exactly as the calls below are — a principal who may not dr
 drop through the other — and `SHOW` lists only what `pravaha queries` would show the same principal.
 
 ```bash
-pravaha queries                       # name, state, fingerprint, rows in
+pravaha queries                       # name, state, fingerprint, rows in; a stopped source is marked
+pravaha queries --verbose             # ...and each query's feed
 pravaha pause  --name card_velocity   # keeps answering, stops advancing
 pravaha resume --name card_velocity
 pravaha drop   --name card_velocity
@@ -354,9 +355,16 @@ doing work.
 the same question, dropping yours leaves theirs running — neither of you knows the other exists.
 
 `queries()` in both SDKs also reports each query's key ordinals, its sink binding and its retention.
+**A source can stop under a running query.** If a source fails mid-read — a deleted file, a revoked
+credential, a line it cannot decode — its feed stops and is not retried; the query stays `RUNNING` and
+its view answers at the frontier it reached. `pravaha queries` shows it as `RUNNING (source stopped)`
+with the code, `stream#partition` and time on a line beneath; `queries()` in both SDKs carries the same
+as `feed`/`feedStop` (Java) and `feed`/`feed_stop` (Python). Fix the cause, then drop and re-register.
+
 The engine's HTTP API describes a query in full — keys by name, retention, sink and whether it is still
 attached (`PRV-8009` if it was detached), rows in, the other names sharing its computation that you
-may see, the streams it reads — and its running plan as a graph:
+may see, the streams it reads, its feed (each source partition's state, and a stopped one's code and
+time) — and its running plan as a graph:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" http://engine:8080/api/v1/queries/card_velocity

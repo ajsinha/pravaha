@@ -120,7 +120,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
   pass, so neither claims a partial. A windowed aggregate is never pre-combined, nor a `MIN`/`MAX`
   (not retractable), nor anything filtered by a predicate SQL cannot carry. Cassandra pushes no
   filter (it would need `ALLOW FILTERING`). `EXPLAIN` shows the plan, not what a source was asked
-  for; a query's feed description does
+  for; a query's feed description does (`feed.description` on `GET /api/v1/queries/{name}`)
   ([ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 6).
 - **Transactional sinks cost a second write.** `jdbc-sink` and `kafka-sink` are transactional, and
   neither uses its store's own two-phase commit: `jdbc-sink` stages each checkpoint's changes in a

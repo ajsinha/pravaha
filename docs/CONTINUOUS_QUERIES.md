@@ -877,7 +877,8 @@ registration so a restart keeps it.
 query's key ordinals, sink and retention (trailing fields 5–7 of the `pravaha.list` action, after the
 original five, so an older client reads what it always did). The HTTP API describes a query in full
 (`GET /api/v1/queries/{name}`: keys by name, retention, sink and whether it is still attached, rows in,
-the other names sharing it, the streams it reads), its running plan as a graph
+the other names sharing it, the streams it reads, and its feed — each source partition's state and a
+stopped one's code), its running plan as a graph
 (`GET /api/v1/queries/{name}/plan`), its view without reading it (`GET /api/v1/views/{name}`), and the
 node's sinks with what each accepts (`GET /api/v1/sinks`). Each decides what you may see exactly as the
 listing does — a denied name is refused whether or not it exists, and a query reading a stream you may
@@ -1127,6 +1128,17 @@ correctness.
 
 `FAILED` and `DROPPED` are terminal. A failed query's rows are still held and were correct as of the
 failure — what it will not do is hand them over as though they were current.
+
+**A stopped source is not a state.** When a source fails mid-read — a deleted file, a revoked
+credential, a line it cannot decode — its feed stops and is not retried, and the query stays
+`RUNNING`: its view is correct up to the frontier it reached and keeps answering, it can still be
+paused, resumed and dropped. `FAILED` would make the view refuse reads, and a fifth state would be a
+value every client switching on the state has never seen, so the stop is reported beside the state
+instead (FEED-1): the feed's own state (`RUNNING`, `PAUSED`, `STOPPED`, or `NONE` when nothing is
+bound) and, for a stopped source, the code, the stream and partition, and when. It is on
+`GET /api/v1/queries/{name}` (`feed`), in `pravaha queries` (`RUNNING (source stopped)`), in both
+SDKs' `queries()`, in `pravaha_query_feed_stopped`, on `/status`, in the health indicator
+(`DEGRADED`) and on the console's query and operations pages. See OPERATIONS, *A source that stopped*.
 
 ---
 

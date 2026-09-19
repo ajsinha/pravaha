@@ -130,6 +130,17 @@ doing work.
 pravaha queries        # state column
 ```
 
+**Has a source stopped?** A source that fails mid-read — a deleted file, a revoked credential, a
+line it cannot decode — stops its feed and is not retried; the query stays `RUNNING` and its view
+answers at the frontier it reached. `pravaha queries` shows it as `RUNNING (source stopped)` with a
+line giving the code, the stream#partition and the time; `GET /api/v1/queries/{name}` has the same
+under `feed`; the console marks it on the query page and makes it a critical finding on Operations;
+`pravaha_query_feed_stopped{query=}` is 1; and the node logged an `ERROR` line when it happened. The
+code is the source's own (`PRV-5040` for a file it could not decode, `PRV-5107` for a Kafka read) or
+`PRV-5092` when the feed stopped for a reason that was not the source's. Fix the cause, then drop and
+register the query again, or restart the node. For records a source cannot decode, a dead-letter
+queue (`pravaha.dlq.directory`) keeps the source going instead.
+
 **Has the sink stopped?** A query registered with `--sink` keeps its view current even after the sink
 refuses a batch: the sink is detached with `PRV-8009` and an `ERROR` line names it, and nothing more
 is written to it, because writing past a lost batch would leave the sink missing a change with

@@ -438,11 +438,12 @@ Three files hold what a customer would call their data, and all three are now cr
 | Checkpoints | Serialised operator state, which is the aggregated data itself |
 | The dead-letter queue | The raw bytes of every record that failed |
 
-The dead-letter queue is written only when something asks for one, and `pravaha run --dlq <file>`
-is the only thing that can today — a server has no `pravaha.dlq.*` key yet. Without it a record that
-cannot be decoded still fails loudly rather than being discarded: the `run` command exits non-zero
-naming the line, the column and the value, and on a server the source feed for that query stops and
-says so in `describe()`, though the query goes on reporting `RUNNING`. With it, the run finishes,
+The dead-letter queue is written only when something asks for one: `pravaha run --dlq <file>`, or
+`pravaha.dlq.directory` on a server (one `<query>.dlq` per query). Without it a record that cannot be
+decoded still fails loudly rather than being discarded: the `run` command exits non-zero naming the
+line, the column and the value, and on a server the source feed for that query stops — the query goes
+on reporting `RUNNING`, and the stop is shown with its code wherever the query is described (*A
+source that stopped*, below). With it, the run finishes,
 the good rows are written, and every rejected record is one JSON object per line — timestamp, query,
 correlation id, source offset, reason, and the original bytes in Base64 — meant to be read with
 `grep` and `jq` during an incident. The count of rejects is printed next to the row counts, and if
@@ -1047,6 +1048,8 @@ Prometheus metrics are at `/actuator/prometheus`. Per continuous query:
 | Metric | Question it answers |
 |---|---|
 | `pravaha_query_running{query=}` | Is it alive — 1 running, 0 terminal |
+| `pravaha_query_feed_stopped{query=}` | 1 while a source of the query has stopped mid-read. **Alert on it**: the query stays `RUNNING`, so the line above says 1, and its view has stopped moving (FEED-1) |
+| `pravaha_query_feed_failures_total{query=}` | Distinct failures that stopped a source of the query — one failure on a feed thread reading four partitions counts once |
 | `pravaha_query_rows_in{query=}` | Is anything arriving |
 | `pravaha_query_state_held{query=}` | Accumulators and join rows the query holds **now** |
 | `pravaha_query_state_ceiling{query=}` | What those are refused at. Zero means the plan has no bounded state at all, which is not the same as empty |
@@ -1092,6 +1095,36 @@ zero — zero would show it as perfectly up to date.
 Meters are removed when a query is dropped. That matters more than it sounds: a gauge registered per
 query and never removed leaks the meter *and* the query state its reference keeps alive, and nothing
 in Micrometer would complain.
+
+### A source that stopped
+
+A source that fails mid-read — a file deleted or truncated, a credential revoked, a topic deleted, a
+line it cannot decode with no dead-letter queue configured — stops its feed and is **not retried**:
+retrying a reason like that produces a log line a millisecond and no progress. The query stays
+`RUNNING`, its view answers at the frontier it reached, and nothing about its state says it has
+stopped moving. What does:
+
+| Where | What it shows |
+|---|---|
+| The node's log | One `ERROR` line when it happens: the query, `stream#partition`, the code, the message |
+| `GET /api/v1/queries/{name}` | `feed.state` `STOPPED`; per partition `state`, `failure` (code, message, help URL), `stoppedAt`, whether its reader is `shared` and whether this partition's own read raised it (`origin`). A row-filtered caller gets the code and not the text |
+| `pravaha queries` | `RUNNING (source stopped)` in the state cell, and a line with the code, `stream#partition`, the time and the message. `--verbose` adds a `FEED` column for every query |
+| Both SDKs | `feed()` / `feedStop()` in Java, `feed` / `feed_stop` in Python, on `queries()` |
+| `pravaha_query_feed_stopped{query=}` | 1 |
+| `/status`, `/api/v1/status` | `stoppedFeeds`: how many queries, not which |
+| `/actuator/health` | The `engine` indicator is `DEGRADED` (not `DOWN` — every view is still served) with `stoppedFeeds` and the first stop's code and place; `DEGRADED` is ordered between `OUT_OF_SERVICE` and `UP`, so the probe answers 200 |
+| The console | The query page's **Source** row, a mark in the lists, a critical finding on Operations with the code linked to its help |
+
+The code is the source's own when it has one — `PRV-5040` for a file it could not decode, `PRV-5107`
+for a Kafka read — and `PRV-5092` when the feed stopped for a
+reason that was not the source's (an uncoded exception, a commit that threw). A reader shared by
+several queries (SRC-3) stops all of them at once, and each reports the same stop with `shared`.
+A binding's option values are struck out of the message before it is recorded, as a sink's are.
+
+To recover: fix the cause, then drop the query and register it again, or restart the node — either
+opens a new feed, which resumes from the last checkpoint if the query checkpoints. For a source whose
+records sometimes cannot be decoded, set `pravaha.dlq.directory` and the bad records go there while
+the rest keep flowing.
 
 ## Restarts: what survives
 
