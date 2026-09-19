@@ -55,5 +55,18 @@ class SpillSettingsTest {
         assertThat(settings.enabled()).isTrue();
         assertThat(settings.directory()).isEqualTo("/tmp/spill");
         assertThat(settings.maxOverflowSlabs()).isEqualTo(512);
+        assertThat(settings.compactionThreshold()).isEqualTo(0.5);
+    }
+
+    @Test
+    void aCompactionThresholdOutsideZeroToOneIsRefusedByName() {
+        for (double threshold : new double[] {0, -0.1, 1.5, Double.NaN}) {
+            assertThatThrownBy(() -> new SpillSettings(true, "/tmp/spill", 512, threshold))
+                    .as("threshold %s", threshold)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("pravaha.state.spill.compaction-threshold");
+        }
+        assertThat(new SpillSettings(true, "/tmp/spill", 512, 1.0).compactionThreshold())
+                .isEqualTo(1.0);
     }
 }

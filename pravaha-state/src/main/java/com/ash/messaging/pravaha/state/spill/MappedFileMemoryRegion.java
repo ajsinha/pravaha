@@ -21,8 +21,10 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 
@@ -54,11 +56,11 @@ import com.ash.messaging.pravaha.common.memory.MemoryRegion;
  *
  * <p><strong>Release.</strong> Java 21 has no supported way to unmap a {@link MappedByteBuffer}
  * eagerly -- the same limitation {@code ByteBufferMemoryRegion} documents for a direct buffer, and
- * for the same underlying reason. {@link #close()} drops the reference and best-effort deletes the
- * backing file; on POSIX filesystems this succeeds even while a mapping to the file's former inode
- * is still live in another thread's view of the same {@link MappedByteBuffer} object, and a failure
- * to delete is not surfaced, because a leftover temp file is a cleanup nuisance and not a correctness
- * problem for the query that produced it.
+ * for the same underlying reason. {@link #close()} drops the reference, truncates the backing file to
+ * nothing -- which frees its disk blocks at once, where a delete alone would leave them allocated
+ * until the collector unmapped the buffer -- and best-effort deletes it; a failure of either is not
+ * surfaced, because a leftover temp file is a cleanup nuisance and not a correctness problem for the
+ * query that produced it.
  */
 public final class MappedFileMemoryRegion implements MemoryRegion {
 
@@ -219,6 +221,17 @@ public final class MappedFileMemoryRegion implements MemoryRegion {
         }
         closed = true;
         buffer = null;
+        // Truncated before it is deleted. Java cannot unmap the buffer, and a deleted file's blocks
+        // stay allocated for as long as any mapping of it lives -- which is until the collector
+        // finds the buffer, however long that is. Truncating frees them now: compaction releases a
+        // slab to give its disk back (ADR-044), and "at some later collection" is not that. Safe
+        // because nothing reads through the buffer again -- every accessor goes through buf(),
+        // which refuses a closed region before it touches the mapping.
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE)) {
+            channel.truncate(0);
+        } catch (IOException e) {
+            // Best-effort, for the same reason as the delete below.
+        }
         try {
             Files.deleteIfExists(file);
         } catch (IOException e) {

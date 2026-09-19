@@ -228,4 +228,94 @@ class SymmetricHashJoinSpillTest {
     private RowProcessor restoredCollector() {
         return row -> out.add(row.getLong(0));
     }
+
+    private void feedLeft(SymmetricHashJoin join, long id, String key, long weight) {
+        RowLayout layout = RowLayout.of(left());
+        BinaryRowWriter writer = new BinaryRowWriter(layout);
+        long handle = arena.allocate(layout.rowSize(128));
+        writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+        writer.setLong(0, id).setString(1, key);
+        writer.weight(weight).eventTimestampNanos(id).sequence(id).commit();
+        arena.trimTo(handle, writer.sizeSoFar());
+        join.leftInput().process(new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+    }
+
+    private static byte[] snapshot(SymmetricHashJoin join) throws java.io.IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            join.writeTo(out);
+        }
+        return bytes.toByteArray();
+    }
+
+    private static long filesIn(Path dir) throws java.io.IOException {
+        try (var files = java.nio.file.Files.list(dir)) {
+            return files.count();
+        }
+    }
+
+    /**
+     * ADR-044: a join whose state churned -- most of what spilled has been retracted -- compacts its
+     * overflow slabs back down, and every row it still holds is still found by the other side, from
+     * a chain whose links compaction rewrote. Four rows share each key, so the chains are real ones,
+     * and the retractions take rows out of the middle of them.
+     */
+    @Test
+    void aChurnedJoinCompactsItsOverflowSlabsAndStillMatchesEveryRowItHolds(@TempDir Path dir) throws Exception {
+        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir);
+                SymmetricHashJoin join = new SymmetricHashJoin(plan(), arena, collector(), 1, overflow, 64)) {
+            int rows = 60_000;
+            int keys = rows / 4;
+            for (int i = 0; i < rows; i++) {
+                feedLeft(join, i, "key-" + (i % keys), 1);
+                if (i % 5_000 == 4_999) {
+                    arena.reset();
+                }
+            }
+            long peakFiles = filesIn(dir);
+            assertThat(join.overflowSlabsUsed()).isGreaterThan(4);
+
+            // Retract every row but one in eight, taking rows from heads, middles and tails of chains.
+            java.util.Set<Integer> kept = new java.util.TreeSet<>();
+            for (int i = 0; i < rows; i++) {
+                if (i % 8 == 3) {
+                    kept.add(i);
+                } else {
+                    feedLeft(join, i, "key-" + (i % keys), -1);
+                }
+                if (i % 5_000 == 4_999) {
+                    arena.reset();
+                }
+            }
+            assertThat(join.rowsHeldLeft()).isEqualTo(kept.size());
+            byte[] before = snapshot(join);
+
+            int released = join.compactIfFragmented(0.5);
+
+            assertThat(released).isPositive();
+            assertThat(join.spillStatistics().slabsReleased()).isEqualTo(released);
+            assertThat(filesIn(dir))
+                    .as("files after compaction, from %d", peakFiles)
+                    .isLessThan(peakFiles)
+                    .isEqualTo(join.spillStatistics().overflowBytesReserved() / STATE_SLAB_BYTES);
+            assertThat(snapshot(join))
+                    .as("compaction moves rows, it does not change them or their order in a chain")
+                    .isEqualTo(before);
+
+            // Every row still held is matched by a right row with its key -- read back through bucket
+            // heads and chain links that compaction rewrote.
+            out.clear();
+            for (int key = 0; key < keys; key++) {
+                feedRight(join, "key-" + key, key);
+                if (key % 5_000 == 4_999) {
+                    arena.reset();
+                }
+            }
+            assertThat(new java.util.TreeSet<>(out))
+                    .isEqualTo(kept.stream()
+                            .map(Integer::longValue)
+                            .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new)));
+            assertThat(out).hasSize(kept.size());
+        }
+    }
 }

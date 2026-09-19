@@ -68,9 +68,21 @@ pravaha:
   state:
     spill:
       directory: /var/lib/pravaha/spill   # a directory alone switches it on
-      max-overflow-slabs: 512             # the tier's own ceiling
+      max-overflow-slabs: 512             # per state store: the most overflow slabs it holds at once
+      compaction-threshold: 0.5           # compact a store once this much of its overflow is free
       # enabled: false                    # explicit, and wins in both directions
 ```
+
+**Compaction.** Released state is reused within its size class, but a slab is never handed back
+by reuse alone, so a churning query — windows expiring, join rows retracted — would hold every file it
+ever carved. When `pravaha.state.spill.compaction-threshold` of a store's carved overflow space is free
+(default `0.5`), the live blocks in its sparse slabs are moved into the rest, and those slabs' files are
+truncated and deleted. It runs at the end of a batch on the query's own lane thread — the one moment no
+operator holds a handle into its state — so it costs that lane a pause proportional to what it moves,
+and nothing on any other lane. A slab that cannot be emptied (no room elsewhere under the tier's
+ceiling) is simply kept; compaction never loses a block. Per query, `pravaha_query_spill_bytes`,
+`_live_bytes`, `_fragmentation`, `_compactions` and `_slabs_released` (below) show whether it is
+keeping up.
 
 With it, join and windowed-aggregate state that outgrows memory is written to mapped files and the
 query keeps running, slower, instead of dying with `PRV-4001`. It is off by default. Every state
@@ -736,6 +748,11 @@ Prometheus metrics are at `/actuator/prometheus`. Per continuous query:
 | `pravaha_query_state_held{query=}` | Accumulators and join rows the query holds **now** |
 | `pravaha_query_state_ceiling{query=}` | What those are refused at. Zero means the plan has no bounded state at all, which is not the same as empty |
 | `pravaha_query_state_fraction{query=}` | The ratio, 0 to 1. **The one to alert on** — `PRV-4001` used to be the first anybody heard of a query's state, and the query at nine tenths could not be seen at all (ADR-037 B1) |
+| `pravaha_query_spill_bytes{query=}` | Bytes of overflow slab the query's state holds on disk now (ADR-044). Zero until it spills |
+| `pravaha_query_spill_live_bytes{query=}` | How much of that is live state |
+| `pravaha_query_spill_fragmentation{query=}` | `1 - live / held`, 0 to 1. Staying high while `_compactions` is flat means the threshold is set above what this query's churn reaches |
+| `pravaha_query_spill_compactions{query=}` | Compaction passes that emptied at least one slab |
+| `pravaha_query_spill_slabs_released{query=}` | Overflow slabs (files) compaction gave back |
 | `pravaha_query_view_size{query=}` | How many keys the view holds |
 | `pravaha_query_view_evicted{query=}` | What retention has removed. **Flat at zero on a long-running query** means either nothing is old enough yet or retention is longer than anyone intended |
 | `pravaha_query_view_updates` | Corrections applied |

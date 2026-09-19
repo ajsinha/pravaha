@@ -86,4 +86,19 @@ class StateSpillPropertiesTest {
         properties.setMaxOverflowSlabs(4096);
         assertThat(properties.getMaxOverflowSlabs()).isEqualTo(4096);
     }
+
+    @Test
+    void theCompactionThresholdDefaultsToHalfAndReachesTheRuntime() {
+        StateSpillProperties properties = new StateSpillProperties();
+        properties.setDirectory("/var/lib/pravaha/spill");
+        assertThat(properties.toSpillSettings().compactionThreshold()).isEqualTo(0.5);
+
+        properties.setCompactionThreshold(0.8);
+        assertThat(properties.toSpillSettings().compactionThreshold()).isEqualTo(0.8);
+
+        properties.setCompactionThreshold(0);
+        assertThatThrownBy(properties::toSpillSettings)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("compaction-threshold");
+    }
 }

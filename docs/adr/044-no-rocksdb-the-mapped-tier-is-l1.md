@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — **supersedes the RocksDB tier of [ADR-006](006-tiered-state.md) and design D5**. The mapped tier exists (ADR-037 B2); of the four improvements below, `COUNT(DISTINCT)` spilling is built and the other three are not |
+| Status | Accepted — **supersedes the RocksDB tier of [ADR-006](006-tiered-state.md) and design D5**. The mapped tier exists (ADR-037 B2); of the four improvements below, `COUNT(DISTINCT)` spilling and slab compaction are built and the other two are not |
 | Date | 2026-09-19 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-006 (tiered state), ADR-037 (state that degrades), design D5 and §14 |
@@ -41,7 +41,7 @@ RocksDB is not added, and design D5's "L1 = RocksDB for spill/recovery" no longe
 
 | RocksDB gives | The mapped tier when this was decided | What closes it | Status |
 |---|---|---|---|
-| Compaction: space reclaimed as keys churn | Freed blocks are reused within their size class and never defragmented, so a churning query's files can outgrow its live state | **Slab compaction**: move live blocks out of sparse slabs and release them | Not built |
+| Compaction: space reclaimed as keys churn | Freed blocks are reused within their size class and never defragmented, so a churning query's files can outgrow its live state | **Slab compaction**: move live blocks out of sparse slabs and release them | **Built** 2026-09-19: `RowStore.compactOverflow`, driven by each state's owner between batches, triggered by `pravaha.state.spill.compaction-threshold` |
 | A disk budget in bytes | A ceiling in slabs (`max-overflow-slabs`); a full disk surfaces as an I/O failure | **A byte quota**, and a coded refusal before the directory runs out rather than after | Not built |
 | Every state shape spills | `COUNT(DISTINCT)` keeps an on-heap set per group and is refused with the tier on (`PRV-3023`) | **Distinct sets in `RowStore`**, so they spill like everything else | **Built** 2026-09-19: one off-heap entry per `(group, slice, column, value)` with a count, in a `RowStore` that takes the overflow tier (`DistinctValueCounts`); `PRV-3023` retired |
 | Years of production measurement | Correctness-tested, never measured with state much larger than RAM | **A measurement** at several multiples of RAM, and a decision from it on whether the tier should be on by default | Not built |
@@ -72,6 +72,41 @@ Proven by `DistinctValueCountsPropertyTest`: 20,000 random inserts and retractio
 values, weights of 1 and 2, nulls) over 40 groups and a hopping window, against the on-heap model,
 with a two-slice ceiling so the state is in the overflow tier, a checkpoint restored into a fresh
 directory halfway through, and slices discarded at the end — every window compared, four fixed seeds.
+
+### Slab compaction
+
+A moved block has a new handle, and a store cannot know where its handles are kept — so compaction
+is driven by the **owner** of the handles, which is the only thing that can rewrite them.
+`RowStore.compactOverflow(threshold, owner)` picks the overflow slabs no more than `1 - threshold` full (never
+the one being carved), rethreads the free lists without them, and calls the owner with a relocation
+function; the owner presents every handle it holds once and stores what comes back. A handle into a
+slab being emptied is moved to a same-class block elsewhere (a free one first, RAM before overflow,
+else freshly carved), the payload copied whole; any other is returned unchanged. Slabs left with no
+live block are released: the region is closed, and its file **truncated** before it is deleted, because
+Java cannot unmap a `MappedByteBuffer` and a deleted file's blocks stay allocated while any mapping of
+it lives. A released index is reused by the next overflow slab, so no surviving handle changes meaning.
+A block that cannot be placed — the tier's ceiling, its quota or the disk refused a new slab — stays
+where it is and its slab is kept: compaction can fail to free a slab, never lose a block.
+
+The owners: `VariableKeyStateMap` rewrites its slot (the fingerprint does not change, so no slot
+moves), which covers a windowed aggregate's accumulators and distinct values; a join walks each
+side's chains from the bucket head, rewriting the head or the previous entry's `next` link. It runs
+from `InterpretedPipeline.endOfBatch()` — the end of an input batch, a watermark advance, an emission —
+on the lane thread, the one moment no operator holds a handle anywhere but in its own index, which is
+the rule a checkpoint's `writeTo` already lives by. Triggered when a store has at least two overflow
+slabs, something was freed since its last pass, and `1 - live / carved` over its overflow slabs reaches
+`pravaha.state.spill.compaction-threshold` (default 0.5). Exposed per query as
+`pravaha_query_spill_{bytes,live_bytes,fragmentation,compactions,slabs_released}`.
+
+Proven by `RowStoreCompactionTest`: 20,000 blocks in three size classes spilled over ~140 overflow
+slabs, nine in ten released at random, one compaction — every surviving block reads back its key and
+check value through its rewritten handle, the overflow slabs held come to within two of the live bytes
+rounded up to slabs, the directory holds exactly one file per slab held, and the store carries on
+allocating into released indices; four fixed seeds. The operators' own tests show the owners do their
+part: a join with four rows per key, seven in eight retracted from heads, middles and tails of chains,
+compacts, checkpoints byte-for-byte as it did before, and every surviving row is matched from the
+other side; a windowed aggregate with distinct values fires identically and checkpoints identically
+after compacting away its discarded slices.
 
 ## What would make this wrong
 

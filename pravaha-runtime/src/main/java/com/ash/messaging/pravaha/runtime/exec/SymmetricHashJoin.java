@@ -310,6 +310,29 @@ final class SymmetricHashJoin implements AutoCloseable {
         return store.overflowSlabsUsed();
     }
 
+    /**
+     * Compacts the row store both sides share, if its overflow tier is at least {@code threshold}
+     * fragmented (ADR-044). The join is the owner of every handle into that store -- each side's
+     * bucket heads and chain links -- so it is the one that presents them. Called between batches,
+     * on the lane thread.
+     *
+     * @return how many overflow slabs were released
+     */
+    int compactIfFragmented(double threshold) {
+        if (!store.needsCompaction(threshold)) {
+            return 0;
+        }
+        return store.compactOverflow(threshold, relocation -> {
+            leftState.relocateRows(relocation);
+            rightState.relocateRows(relocation);
+        });
+    }
+
+    /** The overflow tier's numbers for this join's row store. */
+    com.ash.messaging.pravaha.state.SpillStatistics spillStatistics() {
+        return com.ash.messaging.pravaha.state.SpillStatistics.of(store);
+    }
+
     private static int[] ordinals(java.util.List<Integer> list) {
         int[] result = new int[list.size()];
         for (int i = 0; i < result.length; i++) {

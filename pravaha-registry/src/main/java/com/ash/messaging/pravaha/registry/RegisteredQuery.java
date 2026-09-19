@@ -149,6 +149,11 @@ public final class RegisteredQuery implements AutoCloseable {
         return execution.stateUsage();
     }
 
+    /** What this query's state holds in the overflow tier, and what compaction has given back (ADR-044). */
+    public com.ash.messaging.pravaha.state.SpillStatistics spillStatistics() {
+        return execution.spillStatistics();
+    }
+
     /** The view this computation keeps current. */
     public ServedView view() {
         return view;

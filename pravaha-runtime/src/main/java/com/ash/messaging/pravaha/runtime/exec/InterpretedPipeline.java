@@ -182,7 +182,46 @@ public final class InterpretedPipeline implements AutoCloseable {
     public void endOfBatch() {
         if (!abandoned) {
             output.endOfBatch();
+            compactSpilledState();
         }
+    }
+
+    /**
+     * Gives back overflow slabs that churn has left sparse (ADR-044).
+     *
+     * <p>Here, at the end of a unit, because this is the one moment the rule compaction needs holds:
+     * no operator is in the middle of a row, so no handle into a state store is held anywhere but in
+     * the operator's own index -- which is exactly what each operator presents to its store to be
+     * rewritten. On the lane thread, like everything else that touches state. A store that has not
+     * spilled, or is not fragmented past the threshold, answers from two counters and does nothing.
+     *
+     * @return how many overflow slabs were released
+     */
+    int compactSpilledState() {
+        double threshold = spillSettings.compactionThreshold();
+        int released = 0;
+        for (WindowedAggregate aggregate : windowed) {
+            released += aggregate.state().compactIfFragmented(threshold);
+        }
+        for (SymmetricHashJoin join : joins) {
+            released += join.compactIfFragmented(threshold);
+        }
+        return released;
+    }
+
+    /**
+     * The overflow tier's numbers across this pipeline's joins and windowed aggregates: what is on
+     * disk, how much of it is live, and what compaction has done (ADR-044).
+     */
+    public com.ash.messaging.pravaha.state.SpillStatistics spillStatistics() {
+        com.ash.messaging.pravaha.state.SpillStatistics total = com.ash.messaging.pravaha.state.SpillStatistics.NONE;
+        for (WindowedAggregate aggregate : windowed) {
+            total = total.plus(aggregate.state().spillStatistics());
+        }
+        for (SymmetricHashJoin join : joins) {
+            total = total.plus(join.spillStatistics());
+        }
+        return total;
     }
 
     /**

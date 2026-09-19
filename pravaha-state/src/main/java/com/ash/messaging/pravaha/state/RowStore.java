@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.state;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -39,6 +40,14 @@ import com.ash.messaging.pravaha.common.memory.MemoryRegion;
  * is always usable by any later request in the same class, with no splitting, no coalescing and no
  * search.
  *
+ * <p><strong>Compaction (ADR-044).</strong> Reuse keeps a flat row count from growing the store, but it
+ * never gives a slab back: a churning query whose live state shrank still holds every slab it ever
+ * carved, and in the overflow tier every one of those is a file. {@link #compactOverflow} moves the live
+ * blocks out of sparse overflow slabs and releases those slabs -- their files truncated and deleted.
+ * A moved block has a new handle, so compaction is driven by the owner of every handle into this
+ * store, on the thread that owns it, between batches: the store says which handles moved, and the
+ * owner writes the new ones back where it keeps them. See {@link #compactOverflow} for the contract.
+ *
  * <p><strong>Not thread-safe, on purpose.</strong> One store belongs to one lane, like everything
  * else on the row path. The single-writer rule is what makes the free list a plain field rather than
  * a compare-and-swap loop.
@@ -52,6 +61,12 @@ public final class RowStore implements AutoCloseable {
 
     /** Smallest block. Below this the header dominates and the class table gains nothing. */
     public static final int MIN_BLOCK_BYTES = 64;
+
+    /**
+     * The fragmentation at which a spilled store is worth compacting, when nothing else is said:
+     * half of what the overflow tier has carved is free.
+     */
+    public static final double DEFAULT_COMPACTION_THRESHOLD = 0.5;
 
     /** Bytes reserved before the payload: the size class, then the free-list link. */
     private static final int HEADER_BYTES = 16;
@@ -68,8 +83,33 @@ public final class RowStore implements AutoCloseable {
     private final int maxSlabs;
     private final MemoryAccess overflowAccess;
     private final int maxOverflowSlabs;
+
+    /**
+     * Every slab, by index. RAM slabs are indices {@code 0 .. maxSlabs - 1}, always contiguous; an
+     * overflow slab's index is at or past {@code maxSlabs}, and a released one leaves a {@code null}
+     * behind that the next overflow slab reuses -- which is what keeps every other slab's handles
+     * meaning what they meant.
+     */
     private final List<MemoryRegion> slabs = new ArrayList<>();
+
     private final long[] freeHeads;
+
+    /** Per slab: how far it has been carved. Blocks lie back to back from zero to here. */
+    private int[] carvedBytes = new int[8];
+
+    /** Per slab: bytes in live blocks. What compaction reads to find the sparse ones. */
+    private int[] liveBytesBySlab = new int[8];
+
+    /** Released overflow slab indices, reused before a new index is appended. */
+    private int[] releasedSlots = new int[8];
+
+    private int releasedSlotCount;
+
+    /** Non-null only while {@link #compactOverflow} runs: which slabs are being emptied. */
+    private boolean[] evacuating;
+
+    /** Set once a relocation cannot be placed, so the rest of that pass leaves blocks where they are. */
+    private boolean relocationStalled;
 
     private int currentSlab = -1;
     private int cursor;
@@ -77,7 +117,15 @@ public final class RowStore implements AutoCloseable {
     private long bytesFree;
     private long liveBlocks;
     private long reuses;
+    private int slabsHeld;
     private int overflowSlabsUsed;
+    private int overflowSlabsLive;
+    private long overflowLiveBytes;
+    private long overflowCarvedBytes;
+    private long releasesSinceCompaction;
+    private long compactions;
+    private long slabsReleased;
+    private long blocksRelocated;
     private boolean closed;
 
     /**
@@ -105,11 +153,12 @@ public final class RowStore implements AutoCloseable {
      *
      * @param overflowAccess where slabs beyond {@code maxSlabs} are carved from, or {@code null} for
      *     no overflow tier -- today's behaviour, unchanged
-     * @param maxOverflowSlabs the ceiling on {@code overflowAccess} slabs, ignored when {@code
-     *     overflowAccess} is {@code null}. Reaching {@code maxSlabs + maxOverflowSlabs} still throws
-     *     {@link StateErrors#STATE_TOO_LARGE}: a second tier moves the ceiling, and does not remove
-     *     it -- eviction is not an option for a Z-set (a retraction whose insert was evicted can
-     *     never be withdrawn), so a bound has to exist somewhere and be enforced loudly when reached.
+     * @param maxOverflowSlabs the ceiling on {@code overflowAccess} slabs held at once, ignored when
+     *     {@code overflowAccess} is {@code null}. Reaching {@code maxSlabs + maxOverflowSlabs} still
+     *     throws {@link StateErrors#STATE_TOO_LARGE}: a second tier moves the ceiling, and does not
+     *     remove it -- eviction is not an option for a Z-set (a retraction whose insert was evicted
+     *     can never be withdrawn), so a bound has to exist somewhere and be enforced loudly when
+     *     reached. A slab {@link #compactOverflow} released no longer counts against it.
      */
     public RowStore(
             MemoryAccess access, int slabBytes, int maxSlabs, MemoryAccess overflowAccess, int maxOverflowSlabs) {
@@ -130,7 +179,7 @@ public final class RowStore implements AutoCloseable {
         this.overflowAccess = overflowAccess;
         this.maxOverflowSlabs = overflowAccess == null ? 0 : maxOverflowSlabs;
         this.freeHeads = new long[classCount(slabBytes)];
-        java.util.Arrays.fill(this.freeHeads, ArenaHandle.NULL);
+        Arrays.fill(this.freeHeads, ArenaHandle.NULL);
     }
 
     /**
@@ -153,17 +202,22 @@ public final class RowStore implements AutoCloseable {
                     "a single row of " + payloadBytes + " bytes does not fit a " + slabBytes
                             + "-byte slab; raise state.slab.size for this query");
         }
+        return allocateInClass(sizeClass, true);
+    }
 
+    private long allocateInClass(int sizeClass, boolean countReuse) {
         long recycled = freeHeads[sizeClass];
         if (recycled != ArenaHandle.NULL) {
-            MemoryRegion region = slabs.get(ArenaHandle.slab(recycled));
+            int slab = ArenaHandle.slab(recycled);
+            MemoryRegion region = slabs.get(slab);
             int base = ArenaHandle.offset(recycled);
             freeHeads[sizeClass] = region.getLong(base + OFFSET_LINK);
             region.putInt(base + OFFSET_STATE, STATE_LIVE);
             bytesFree -= blockBytes(sizeClass);
-            bytesLive += blockBytes(sizeClass);
-            liveBlocks++;
-            reuses++;
+            addLive(slab, blockBytes(sizeClass));
+            if (countReuse) {
+                reuses++;
+            }
             return recycled;
         }
         return carveFresh(sizeClass);
@@ -179,7 +233,7 @@ public final class RowStore implements AutoCloseable {
                                 + maxSlabs
                                 + (maxOverflowSlabs > 0
                                         ? (" in-memory slabs and " + maxOverflowSlabs + " overflow slabs ("
-                                                + overflowSlabsUsed + " of which were used)")
+                                                + overflowSlabsLive + " of which are in use)")
                                         : " slabs")
                                 + ", with " + liveBlocks + " live blocks. A join or aggregate is holding "
                                 + "rows it will never match again; bound it with a window, a TTL or a tighter "
@@ -191,30 +245,80 @@ public final class RowStore implements AutoCloseable {
         }
         int offset = cursor;
         cursor += bytes;
+        carvedBytes[currentSlab] = cursor;
+        if (currentSlab >= maxSlabs) {
+            overflowCarvedBytes += bytes;
+        }
         long handle = ArenaHandle.of(currentSlab, offset);
         MemoryRegion region = slabs.get(currentSlab);
         region.putInt(offset + OFFSET_CLASS, sizeClass);
         region.putInt(offset + OFFSET_STATE, STATE_LIVE);
-        bytesLive += bytes;
-        liveBlocks++;
+        addLive(currentSlab, bytes);
         return handle;
     }
 
+    /**
+     * Moves carving to a fresh slab: the next RAM slab while there is one, then an overflow slab --
+     * into the lowest index {@link #compactOverflow} released, if any, or a new one.
+     *
+     * <p>The overflow tier may refuse ({@code StateErrors#SPILL_QUOTA_REACHED}, {@code
+     * StateErrors#SPILL_DISK_FULL}); that happens before anything here changes, so a refused carve
+     * leaves the store exactly as it was.
+     */
     private boolean advanceSlab() {
-        if (currentSlab + 1 >= maxSlabs + maxOverflowSlabs) {
-            return false;
-        }
-        currentSlab++;
-        if (currentSlab == slabs.size()) {
-            boolean overflow = currentSlab >= maxSlabs;
-            MemoryAccess source = overflow ? overflowAccess : access;
-            slabs.add(source.allocate(slabBytes));
-            if (overflow) {
-                overflowSlabsUsed++;
+        int next;
+        if (slabs.size() < maxSlabs) {
+            MemoryRegion region = access.allocate(slabBytes);
+            next = slabs.size();
+            slabs.add(region);
+        } else {
+            if (overflowAccess == null || overflowSlabsLive >= maxOverflowSlabs) {
+                return false;
             }
+            MemoryRegion region = overflowAccess.allocate(slabBytes);
+            if (releasedSlotCount > 0) {
+                next = releasedSlots[--releasedSlotCount];
+                slabs.set(next, region);
+            } else {
+                next = slabs.size();
+                slabs.add(region);
+            }
+            overflowSlabsUsed++;
+            overflowSlabsLive++;
         }
+        ensureSlabCapacity(next + 1);
+        carvedBytes[next] = 0;
+        liveBytesBySlab[next] = 0;
+        slabsHeld++;
+        currentSlab = next;
         cursor = 0;
         return true;
+    }
+
+    private void ensureSlabCapacity(int slabCount) {
+        if (carvedBytes.length < slabCount) {
+            int length = Math.max(slabCount, carvedBytes.length * 2);
+            carvedBytes = Arrays.copyOf(carvedBytes, length);
+            liveBytesBySlab = Arrays.copyOf(liveBytesBySlab, length);
+        }
+    }
+
+    private void addLive(int slab, int bytes) {
+        liveBytesBySlab[slab] += bytes;
+        bytesLive += bytes;
+        liveBlocks++;
+        if (slab >= maxSlabs) {
+            overflowLiveBytes += bytes;
+        }
+    }
+
+    private void subtractLive(int slab, int bytes) {
+        liveBytesBySlab[slab] -= bytes;
+        bytesLive -= bytes;
+        liveBlocks--;
+        if (slab >= maxSlabs) {
+            overflowLiveBytes -= bytes;
+        }
     }
 
     /**
@@ -227,19 +331,25 @@ public final class RowStore implements AutoCloseable {
      */
     public void release(long handle) {
         checkOpen();
-        MemoryRegion region = slabs.get(ArenaHandle.slab(handle));
+        int slab = ArenaHandle.slab(handle);
+        MemoryRegion region = slabs.get(slab);
         int base = ArenaHandle.offset(handle);
         if (region.getInt(base + OFFSET_STATE) != STATE_LIVE) {
-            throw new IllegalStateException("block " + ArenaHandle.slab(handle) + ":" + base
-                    + " was released twice, or was never " + "allocated by this store");
+            throw new IllegalStateException(
+                    "block " + slab + ":" + base + " was released twice, or was never " + "allocated by this store");
         }
         int sizeClass = region.getInt(base + OFFSET_CLASS);
         region.putInt(base + OFFSET_STATE, STATE_FREE);
+        subtractLive(slab, blockBytes(sizeClass));
+        releasesSinceCompaction++;
+        if (isEvacuating(slab)) {
+            // Freed, but not handed out again: this slab is being emptied, and a block reused here
+            // would be one more thing keeping it.
+            return;
+        }
         region.putLong(base + OFFSET_LINK, freeHeads[sizeClass]);
         freeHeads[sizeClass] = handle;
-        bytesLive -= blockBytes(sizeClass);
         bytesFree += blockBytes(sizeClass);
-        liveBlocks--;
     }
 
     /** The slab a handle points into. */
@@ -258,6 +368,188 @@ public final class RowStore implements AutoCloseable {
         return blockBytes(region.getInt(ArenaHandle.offset(handle) + OFFSET_CLASS)) - HEADER_BYTES;
     }
 
+    // ------------------------------------------------------------------------------ compaction
+
+    /**
+     * Where a moved block now is. Given every handle an owner holds into this store, once each,
+     * during {@link #compactOverflow}; returns the handle unchanged for a block that did not move, and for
+     * {@link ArenaHandle#NULL}.
+     */
+    @FunctionalInterface
+    public interface Relocation {
+        long relocate(long handle);
+    }
+
+    /** The owner of every handle into a store: visits each of them, writing back what {@link Relocation} returns. */
+    @FunctionalInterface
+    public interface HandleOwner {
+        void relocateAll(Relocation relocation);
+    }
+
+    /**
+     * How much of what the overflow tier has carved is free: {@code 0} with nothing spilled or nothing
+     * freed, approaching {@code 1} as a churning store's live state shrinks inside slabs it still holds.
+     * The uncarved tail of the slab being filled is not counted -- it is about to be used, not wasted.
+     */
+    public double overflowFragmentation() {
+        return overflowCarvedBytes == 0 ? 0 : 1.0 - (double) overflowLiveBytes / overflowCarvedBytes;
+    }
+
+    /**
+     * Whether {@link #compactOverflow} could release something: at least two overflow slabs (the one being
+     * carved is never a candidate), fragmentation at or past {@code threshold}, and something freed
+     * since the last pass -- so a store that compacted and found nothing to move is not asked again
+     * until its state changes.
+     */
+    public boolean needsCompaction(double threshold) {
+        return overflowSlabsLive >= 2 && releasesSinceCompaction > 0 && overflowFragmentation() >= threshold;
+    }
+
+    /**
+     * Moves every live block out of each overflow slab no more than {@code 1 - threshold} full, and
+     * releases those slabs -- the memory unmapped as far as Java allows and the file truncated and
+     * deleted, so the disk space comes back now rather than at the next collection.
+     *
+     * <p><strong>The contract.</strong> {@code owner} must present every handle it holds into this
+     * store to the {@link Relocation} exactly once, and store what comes back in place of what it
+     * gave -- a slot in an index, the link in the entry before it in a chain. A handle into a slab
+     * being emptied is moved (a same-class block elsewhere, the payload copied whole) and the old
+     * block freed; any other is returned as it is. Nothing may hold a handle anywhere else while this
+     * runs, which is why it is called by the owner, on the lane thread, between batches -- the same
+     * rule a checkpoint's {@code writeTo} already lives by. A slab that still has a live block when
+     * {@code owner} returns -- one it did not present, or one that could not be placed because the
+     * tier refused a new slab -- is simply kept: compaction never loses a block, it only fails to
+     * free a slab.
+     *
+     * @param threshold the fraction of a slab that must be free for it to be emptied; see {@link
+     *     #needsCompaction}
+     * @return how many slabs were released
+     */
+    public int compactOverflow(double threshold, HandleOwner owner) {
+        checkOpen();
+        releasesSinceCompaction = 0;
+        boolean[] candidates = new boolean[slabs.size()];
+        int count = 0;
+        for (int slab = maxSlabs; slab < slabs.size(); slab++) {
+            if (slabs.get(slab) != null
+                    && slab != currentSlab
+                    && liveBytesBySlab[slab] <= (1 - threshold) * carvedBytes[slab]) {
+                candidates[slab] = true;
+                count++;
+            }
+        }
+        if (count == 0) {
+            return 0;
+        }
+        evacuating = candidates;
+        relocationStalled = false;
+        int released = 0;
+        try {
+            rebuildFreeLists();
+            owner.relocateAll(this::relocate);
+        } finally {
+            for (int slab = 0; slab < candidates.length; slab++) {
+                if (candidates[slab] && liveBytesBySlab[slab] == 0) {
+                    releaseSlab(slab);
+                    released++;
+                }
+            }
+            evacuating = null;
+            rebuildFreeLists();
+            compactions++;
+            slabsReleased += released;
+        }
+        return released;
+    }
+
+    private boolean isEvacuating(int slab) {
+        return evacuating != null && slab < evacuating.length && evacuating[slab];
+    }
+
+    private long relocate(long handle) {
+        if (handle == ArenaHandle.NULL || relocationStalled) {
+            return handle;
+        }
+        int slab = ArenaHandle.slab(handle);
+        if (!isEvacuating(slab)) {
+            return handle;
+        }
+        MemoryRegion from = slabs.get(slab);
+        int base = ArenaHandle.offset(handle);
+        if (from.getInt(base + OFFSET_STATE) != STATE_LIVE) {
+            throw new IllegalStateException("block " + slab + ":" + base + " was presented for relocation but is not "
+                    + "live; its owner is holding a handle it already released, or presented one twice");
+        }
+        int sizeClass = from.getInt(base + OFFSET_CLASS);
+        long moved;
+        try {
+            moved = allocateInClass(sizeClass, false);
+        } catch (PravahaException | java.io.UncheckedIOException e) {
+            // No room for it outside the slabs being emptied: the tier's ceiling, its quota or the
+            // disk. The block stays where it is, its slab is kept, and nothing is lost -- this pass
+            // simply frees less than it hoped to.
+            relocationStalled = true;
+            return handle;
+        }
+        int payload = blockBytes(sizeClass) - HEADER_BYTES;
+        byte[] bytes = new byte[payload];
+        // Through an array rather than MemoryRegion.copyFrom: the two regions are usually of
+        // different kinds (a mapped slab and a RAM one), and a RAM region copies only from its own.
+        from.getBytes(base + HEADER_BYTES, bytes, 0, payload);
+        regionOf(moved).putBytes(offsetOf(moved), bytes, 0, payload);
+        from.putInt(base + OFFSET_STATE, STATE_FREE);
+        subtractLive(slab, blockBytes(sizeClass));
+        blocksRelocated++;
+        return moved;
+    }
+
+    private void releaseSlab(int slab) {
+        MemoryRegion region = slabs.set(slab, null);
+        region.close();
+        slabsHeld--;
+        overflowSlabsLive--;
+        overflowCarvedBytes -= carvedBytes[slab];
+        carvedBytes[slab] = 0;
+        liveBytesBySlab[slab] = 0;
+        if (releasedSlotCount == releasedSlots.length) {
+            releasedSlots = Arrays.copyOf(releasedSlots, releasedSlots.length * 2);
+        }
+        releasedSlots[releasedSlotCount++] = slab;
+    }
+
+    /**
+     * Rethreads every free list from the blocks themselves, skipping the slabs being emptied.
+     *
+     * <p>Every carved slab is a run of blocks back to back from offset zero, each starting with its
+     * class and state, so the free blocks can be found by walking rather than by trusting lists
+     * that point into slabs about to go. Highest index first, so a RAM block ends up at the head of
+     * its list and is what a relocation lands in when one is free. Only compaction calls this.
+     */
+    private void rebuildFreeLists() {
+        Arrays.fill(freeHeads, ArenaHandle.NULL);
+        bytesFree = 0;
+        for (int slab = slabs.size() - 1; slab >= 0; slab--) {
+            MemoryRegion region = slabs.get(slab);
+            if (region == null || isEvacuating(slab)) {
+                continue;
+            }
+            int end = carvedBytes[slab];
+            int offset = 0;
+            while (offset < end) {
+                int sizeClass = region.getInt(offset + OFFSET_CLASS);
+                int bytes = blockBytes(sizeClass);
+                if (region.getInt(offset + OFFSET_STATE) == STATE_FREE) {
+                    region.putLong(offset + OFFSET_LINK, freeHeads[sizeClass]);
+                    freeHeads[sizeClass] = ArenaHandle.of(slab, offset);
+                    bytesFree += bytes;
+                }
+                offset += bytes;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------------ accounting
+
     /** Bytes in live blocks, including their headers and the slack their size class wastes. */
     public long bytesLive() {
         return bytesLive;
@@ -268,9 +560,9 @@ public final class RowStore implements AutoCloseable {
         return bytesFree;
     }
 
-    /** Bytes taken from the operating system. */
+    /** Bytes taken from the operating system -- or, for the overflow tier, mapped from files. */
     public long bytesReserved() {
-        return (long) slabs.size() * slabBytes;
+        return (long) slabsHeld * slabBytes;
     }
 
     public long liveBlocks() {
@@ -282,13 +574,44 @@ public final class RowStore implements AutoCloseable {
         return reuses;
     }
 
+    /** Slabs held now, both tiers. */
     public int slabCount() {
-        return slabs.size();
+        return slabsHeld;
     }
 
-    /** How many slabs have been carved from the overflow tier. Zero when nothing has spilled yet. */
+    /** How many slabs have ever been carved from the overflow tier. Zero when nothing has spilled yet. */
     public int overflowSlabsUsed() {
         return overflowSlabsUsed;
+    }
+
+    /** Overflow slabs held now: {@link #overflowSlabsUsed} less what compaction released. */
+    public int overflowSlabsLive() {
+        return overflowSlabsLive;
+    }
+
+    /** Bytes of overflow slab held now -- the files this store has on disk. */
+    public long overflowBytesReserved() {
+        return (long) overflowSlabsLive * slabBytes;
+    }
+
+    /** Bytes in live blocks inside overflow slabs. */
+    public long overflowBytesLive() {
+        return overflowLiveBytes;
+    }
+
+    /** Compaction passes that found a slab worth emptying. */
+    public long compactions() {
+        return compactions;
+    }
+
+    /** Overflow slabs compaction released. */
+    public long slabsReleased() {
+        return slabsReleased;
+    }
+
+    /** Blocks compaction moved. */
+    public long blocksRelocated() {
+        return blocksRelocated;
     }
 
     /** Whether this store has ever carved a slab from its overflow tier. */
@@ -302,7 +625,11 @@ public final class RowStore implements AutoCloseable {
             return;
         }
         closed = true;
-        slabs.forEach(MemoryRegion::close);
+        for (MemoryRegion region : slabs) {
+            if (region != null) {
+                region.close();
+            }
+        }
         slabs.clear();
     }
 
@@ -331,6 +658,8 @@ public final class RowStore implements AutoCloseable {
     @Override
     public String toString() {
         return "RowStore[live=" + bytesLive + "B in " + liveBlocks + " blocks, free=" + bytesFree + "B, reserved="
-                + bytesReserved() + "B, reuses=" + reuses + "]";
+                + bytesReserved() + "B, reuses=" + reuses + ", overflow " + overflowSlabsLive + " slabs "
+                + String.format("%.0f%%", overflowFragmentation() * 100) + " fragmented, " + compactions
+                + " compactions]";
     }
 }

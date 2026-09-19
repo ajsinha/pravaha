@@ -184,6 +184,65 @@ class SlicedAggregateStateSpillTest {
         }
     }
 
+    /**
+     * ADR-044: the churn a windowed aggregate always has -- every watermark discards the slices it
+     * passed -- leaves its overflow slabs sparse, and compaction gives them back without changing a
+     * single answer or a single checkpointed byte.
+     */
+    @Test
+    void discardedSlicesAreCompactedAwayAndNoAnswerChanges(@TempDir Path dir) throws Exception {
+        SlicedAggregateState.Kind[] kinds = {
+            SlicedAggregateState.Kind.COUNT, SlicedAggregateState.Kind.SUM, SlicedAggregateState.Kind.COUNT_DISTINCT
+        };
+        SlicedWindows windows = new SlicedWindows(WindowSpec.tumbling(10 * SECOND));
+        try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir);
+                SlicedAggregateState state = new SlicedAggregateState(windows, kinds, 2, overflow, 1024)) {
+            for (long slice = 0; slice < 10; slice++) {
+                for (long group = 0; group < 1_500; group++) {
+                    long time = slice * 10 * SECOND + SECOND;
+                    state.update(group, group * 31, new Object[] {group}, time, new long[] {0, group, group % 7}, 1);
+                    state.update(group, group * 31, new Object[] {group}, time, new long[] {0, 1, group % 11}, 1);
+                }
+            }
+            assertThat(state.hasSpilled()).isTrue();
+            // A watermark past the first eight windows: eight tenths of the state goes.
+            state.discardSlicesEndingBefore(80 * SECOND, 0);
+            List<SlicedAggregateState.WindowResult> ninth = state.fire(90 * SECOND);
+            List<SlicedAggregateState.WindowResult> tenth = state.fire(100 * SECOND);
+            ByteArrayOutputStream before = new ByteArrayOutputStream();
+            try (DataOutputStream out = new DataOutputStream(before)) {
+                state.writeTo(out);
+            }
+            long reservedBefore = state.spillStatistics().overflowBytesReserved();
+
+            int released = state.compactIfFragmented(0.5);
+
+            assertThat(released).isPositive();
+            assertThat(state.spillStatistics().overflowBytesReserved()).isLessThan(reservedBefore / 2);
+            try (var files = java.nio.file.Files.list(dir)) {
+                assertThat(files.count()).isEqualTo(state.spillStatistics().overflowBytesReserved() / (1 << 16));
+            }
+            assertThat(state.fire(90 * SECOND))
+                    .usingRecursiveFieldByFieldElementComparator()
+                    .isEqualTo(ninth);
+            assertThat(state.fire(100 * SECOND))
+                    .usingRecursiveFieldByFieldElementComparator()
+                    .isEqualTo(tenth);
+            assertThat(ninth)
+                    .hasSize(1_500)
+                    .allSatisfy(result -> assertThat(result.values()[2])
+                            .isEqualTo((Long) result.keyValues()[0] % 7 == (Long) result.keyValues()[0] % 11 ? 1 : 2));
+            ByteArrayOutputStream after = new ByteArrayOutputStream();
+            try (DataOutputStream out = new DataOutputStream(after)) {
+                state.writeTo(out);
+            }
+            assertThat(after.toByteArray()).isEqualTo(before.toByteArray());
+            assertThat(state.compactIfFragmented(0.5))
+                    .as("nothing freed since: not asked again")
+                    .isZero();
+        }
+    }
+
     @Test
     void aVersion1CheckpointIsRefusedByName() {
         // Version 1 kept each distinct set inside its accumulator and no non-null counts: its bytes

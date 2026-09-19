@@ -349,6 +349,56 @@ class VariableKeyStateMapTest {
         }
     }
 
+    /**
+     * ADR-044: a spilled map that churned compacts its overflow slabs, and every key it still holds is
+     * found, by the same probe, with its value -- the slots were rewritten with the moved handles, and
+     * no slot moved, since the fingerprints did not change.
+     */
+    @Test
+    void compactionGivesBackSparseOverflowSlabsAndEveryKeyIsStillFound(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        Random random = new Random(20260919);
+        try (var overflow = new com.ash.messaging.pravaha.state.spill.MappedFileMemoryAccess(dir);
+                VariableKeyStateMap map = new VariableKeyStateMap(access, 64, 1 << 14, 2, overflow, 512)) {
+            Map<String, Long> reference = new HashMap<>();
+            for (int i = 0; i < 30_000; i++) {
+                String key = "user-" + i + "-" + "x".repeat(random.nextInt(40));
+                long handle = map.getOrCreate(scratch, 0, stringKey(key), Long.BYTES);
+                map.valueRegionOf(handle).putLong(map.valueOffsetOf(handle), i * 7L);
+                reference.put(key, i * 7L);
+            }
+            assertThat(map.hasSpilled()).isTrue();
+            for (String key : new java.util.ArrayList<>(reference.keySet())) {
+                if (random.nextInt(6) != 0) {
+                    assertThat(map.remove(scratch, 0, stringKey(key))).isTrue();
+                    reference.remove(key);
+                }
+            }
+            long reservedBefore = map.spillStatistics().overflowBytesReserved();
+            assertThat(map.needsCompaction(0.5)).isTrue();
+
+            int released = map.compactOverflow(0.5);
+
+            assertThat(released).isPositive();
+            assertThat(map.spillStatistics().overflowBytesReserved()).isLessThan(reservedBefore / 2);
+            try (var files = java.nio.file.Files.list(dir)) {
+                assertThat(files.count() * (1 << 14))
+                        .isEqualTo(map.spillStatistics().overflowBytesReserved());
+            }
+            assertThat(map.size()).isEqualTo(reference.size());
+            reference.forEach((key, value) -> {
+                long handle = map.find(scratch, 0, stringKey(key));
+                assertThat(handle).as(key).isNotEqualTo(ArenaHandle.NULL);
+                assertThat(map.valueRegionOf(handle).getLong(map.valueOffsetOf(handle)))
+                        .as(key)
+                        .isEqualTo(value);
+            });
+            int[] visited = {0};
+            map.forEach(handle -> visited[0]++);
+            assertThat(visited[0]).isEqualTo(reference.size());
+        }
+    }
+
     @Test
     void misconfigurationIsRefused() {
         assertThatThrownBy(() -> new VariableKeyStateMap(access, 1, 4096, 4))

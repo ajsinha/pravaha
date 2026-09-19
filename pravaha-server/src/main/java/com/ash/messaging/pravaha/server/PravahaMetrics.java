@@ -134,6 +134,33 @@ public class PravahaMetrics implements AutoCloseable {
                 "pravaha.query.state.ceiling", tags, query, q -> q.stateUsage().ceiling()));
         ids.add(gauge(
                 "pravaha.query.state.fraction", tags, query, q -> q.stateUsage().fraction()));
+        // The overflow tier (ADR-044): what the query's state holds on disk, how much of that is
+        // live, and whether compaction is keeping the two close. All zero until it spills.
+        ids.add(gauge(
+                "pravaha.query.spill.bytes",
+                tags,
+                query,
+                q -> q.spillStatistics().overflowBytesReserved()));
+        ids.add(gauge(
+                "pravaha.query.spill.live.bytes",
+                tags,
+                query,
+                q -> q.spillStatistics().overflowBytesLive()));
+        ids.add(gauge(
+                "pravaha.query.spill.fragmentation",
+                tags,
+                query,
+                q -> q.spillStatistics().fragmentation()));
+        ids.add(gauge(
+                "pravaha.query.spill.compactions",
+                tags,
+                query,
+                q -> q.spillStatistics().compactions()));
+        ids.add(gauge(
+                "pravaha.query.spill.slabs.released",
+                tags,
+                query,
+                q -> q.spillStatistics().slabsReleased()));
         ids.add(gauge("pravaha.query.view.size", tags, query, q -> q.view().size()));
         // Rising steadily is retention doing its job. Flat at zero on a long-running query means
         // either nothing is old enough yet or the retention is longer than anyone intended.

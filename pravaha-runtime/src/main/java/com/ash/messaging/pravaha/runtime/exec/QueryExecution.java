@@ -945,6 +945,19 @@ public final class QueryExecution implements AutoCloseable {
         return new InterpretedPipeline.StateUsage(held, ceiling);
     }
 
+    /**
+     * The overflow tier's numbers for this execution, summed across lanes: what it holds on disk,
+     * how much of that is live state, and what compaction has done (ADR-044). Read from another
+     * thread, like {@link #stateUsage}: counters only, never a walk of the state.
+     */
+    public com.ash.messaging.pravaha.state.SpillStatistics spillStatistics() {
+        com.ash.messaging.pravaha.state.SpillStatistics total = com.ash.messaging.pravaha.state.SpillStatistics.NONE;
+        for (InterpretedPipeline pipeline : pipelines) {
+            total = total.plus(pipeline.spillStatistics());
+        }
+        return total;
+    }
+
     public List<LaneMetrics> metrics() {
         return lanes.metrics();
     }

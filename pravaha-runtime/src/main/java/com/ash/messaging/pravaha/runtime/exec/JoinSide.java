@@ -271,6 +271,37 @@ final class JoinSide implements AutoCloseable {
         return removed;
     }
 
+    /**
+     * Presents every row handle this side holds to a compaction of the shared row store (ADR-044),
+     * writing back the ones that moved.
+     *
+     * <p>A row's handle lives in exactly one place: the bucket's head if it is first in its chain,
+     * otherwise the {@code next} link of the entry before it. So each chain is walked from its head,
+     * relocating as it goes, and the link that pointed at a moved row is rewritten -- in the entry
+     * before it, which has itself already been relocated, so the write lands in the live copy. Nothing
+     * else in this class keeps a handle between calls.
+     */
+    void relocateRows(RowStore.Relocation relocation) {
+        buckets.forEach(bucketHandle -> {
+            MemoryRegion bucket = buckets.valueRegionOf(bucketHandle);
+            int bucketOffset = buckets.valueOffsetOf(bucketHandle);
+            long head = bucket.getLong(bucketOffset);
+            long previous = relocation.relocate(head);
+            if (previous != head) {
+                bucket.putLong(bucketOffset, previous);
+            }
+            long next = nextOf(previous);
+            while (next != ArenaHandle.NULL) {
+                long moved = relocation.relocate(next);
+                if (moved != next) {
+                    store.regionOf(previous).putLong(store.offsetOf(previous) + OFFSET_NEXT, moved);
+                }
+                previous = moved;
+                next = nextOf(moved);
+            }
+        });
+    }
+
     /** Records that a stored row has matched, so eviction knows not to emit it null-padded. */
     private void markMatched(long entry) {
         store.regionOf(entry).putInt(store.offsetOf(entry) + OFFSET_MATCHED, 1);

@@ -465,6 +465,47 @@ public final class VariableKeyStateMap implements AutoCloseable {
         return store.overflowSlabsUsed();
     }
 
+    /** Whether this map's key/value store is fragmented enough for {@link #compactOverflow} to be worth it. */
+    public boolean needsCompaction(double threshold) {
+        return store.needsCompaction(threshold);
+    }
+
+    /**
+     * Compacts the key/value store's overflow slabs (ADR-044), releasing the sparse ones.
+     *
+     * <p>This map is the only holder of handles into its store -- one per occupied slot -- so it is
+     * the one that can do this: each slot's handle is presented to the store once and the slot
+     * rewritten if the entry moved. The fingerprint does not change, because the key did not, so no
+     * slot moves and no probe chain is disturbed. A caller must not hold a handle this map returned
+     * across the call; every caller in this codebase takes handles within one operation and lets
+     * them go, which is why compaction runs between batches.
+     *
+     * @return how many slabs were released
+     */
+    public int compactOverflow(double threshold) {
+        return store.compactOverflow(threshold, relocation -> {
+            for (int slot = 0; slot < capacity; slot++) {
+                long handle = handleAt(slot);
+                if (handle != EMPTY && handle != TOMBSTONE) {
+                    long moved = relocation.relocate(handle);
+                    if (moved != handle) {
+                        slotTable.putLong(slot * SLOT_BYTES + OFFSET_HANDLE, moved);
+                    }
+                }
+            }
+        });
+    }
+
+    /** Compacts if {@link #needsCompaction}; the call an owner makes between batches. */
+    public int compactIfFragmented(double threshold) {
+        return needsCompaction(threshold) ? compactOverflow(threshold) : 0;
+    }
+
+    /** The overflow tier's numbers for this map's key/value store. */
+    public com.ash.messaging.pravaha.state.SpillStatistics spillStatistics() {
+        return com.ash.messaging.pravaha.state.SpillStatistics.of(store);
+    }
+
     @Override
     public void close() {
         slotTable.close();

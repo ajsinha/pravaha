@@ -658,6 +658,29 @@ public final class SlicedAggregateState implements AutoCloseable {
                 + (distinct == null ? 0 : distinct.map().bytesAllocated());
     }
 
+    /**
+     * Compacts the accumulators' and the distinct values' stores if either's overflow tier is at
+     * least {@code threshold} fragmented (ADR-044) -- which a windowed aggregate reaches every time it
+     * discards the slices a watermark has passed. Between batches, on the lane thread: nothing here
+     * keeps a handle across calls.
+     *
+     * @return how many overflow slabs were released
+     */
+    public int compactIfFragmented(double threshold) {
+        int released = offHeap.map().compactIfFragmented(threshold);
+        if (distinct != null) {
+            released += distinct.map().compactIfFragmented(threshold);
+        }
+        return released;
+    }
+
+    /** The overflow tier's numbers for this aggregate's stores. */
+    public com.ash.messaging.pravaha.state.SpillStatistics spillStatistics() {
+        com.ash.messaging.pravaha.state.SpillStatistics statistics =
+                offHeap.map().spillStatistics();
+        return distinct == null ? statistics : statistics.plus(distinct.map().spillStatistics());
+    }
+
     /** Releases the off-heap resources this aggregate holds. */
     @Override
     public void close() {

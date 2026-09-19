@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.exec;
 
+import com.ash.messaging.pravaha.state.RowStore;
+
 /**
  * ADR-037 item B2's overflow tier, resolved to one plain, already-decided answer.
  *
@@ -27,15 +29,27 @@ package com.ash.messaging.pravaha.runtime.exec;
  *
  * @param enabled whether joins compiled after {@link InterpretedPipeline#configureSpill} may spill
  * @param directory where slab files are created; required, and validated, when {@code enabled}
- * @param maxOverflowSlabs the ceiling on overflow slabs a join may carve; required, and validated,
- *     when {@code enabled}
+ * @param maxOverflowSlabs the ceiling on overflow slabs one state store may hold at once; required,
+ *     and validated, when {@code enabled}
+ * @param compactionThreshold how much of a store's overflow tier must be free before its sparse slabs
+ *     are compacted away and their files released (ADR-044): a fraction above 0 and at most 1
  */
-public record SpillSettings(boolean enabled, String directory, int maxOverflowSlabs) {
+public record SpillSettings(boolean enabled, String directory, int maxOverflowSlabs, double compactionThreshold) {
 
     /** No overflow tier: every join refuses at its in-memory ceiling, exactly as it always has. */
     public static final SpillSettings DISABLED = new SpillSettings(false, "", 0);
 
+    /** With the default compaction threshold, {@link RowStore#DEFAULT_COMPACTION_THRESHOLD}. */
+    public SpillSettings(boolean enabled, String directory, int maxOverflowSlabs) {
+        this(enabled, directory, maxOverflowSlabs, RowStore.DEFAULT_COMPACTION_THRESHOLD);
+    }
+
     public SpillSettings {
+        if (!(compactionThreshold > 0 && compactionThreshold <= 1)) {
+            throw new IllegalArgumentException("pravaha.state.spill.compaction-threshold is the fraction of the "
+                    + "overflow tier that must be free before it is compacted, above 0 and at most 1; got "
+                    + compactionThreshold);
+        }
         if (enabled && (directory == null || directory.isBlank())) {
             throw new IllegalArgumentException(
                     "pravaha.state.spill.enabled is true but pravaha.state.spill.directory is not set; spilling "

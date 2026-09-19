@@ -30,6 +30,7 @@ import com.ash.messaging.pravaha.runtime.exec.SpillSettings;
  *       enabled: true
  *       directory: /var/lib/pravaha/spill
  *       max-overflow-slabs: 512
+ *       compaction-threshold: 0.5
  * </pre>
  *
  * <p>{@code prefix = "pravaha.state.spill"} directly, the way {@code LaneProperties} binds {@code
@@ -65,8 +66,15 @@ public class StateSpillProperties {
      * resolves to enabled. */
     private String directory = "";
 
-    /** The ceiling on overflow slabs a join may carve once spilling is enabled. */
+    /** The ceiling on overflow slabs one state store may hold at once once spilling is enabled. */
     private int maxOverflowSlabs = 512;
+
+    /**
+     * How much of a store's overflow tier must be free before its sparse slabs are compacted away
+     * and their files released (ADR-044). Half, by default: a store holding twice the disk its live
+     * state needs is worth a pass; one holding a little more is not.
+     */
+    private double compactionThreshold = com.ash.messaging.pravaha.state.RowStore.DEFAULT_COMPACTION_THRESHOLD;
 
     public Boolean getEnabled() {
         return enabled;
@@ -92,6 +100,14 @@ public class StateSpillProperties {
         this.maxOverflowSlabs = maxOverflowSlabs;
     }
 
+    public double getCompactionThreshold() {
+        return compactionThreshold;
+    }
+
+    public void setCompactionThreshold(double compactionThreshold) {
+        this.compactionThreshold = compactionThreshold;
+    }
+
     /**
      * Whether spilling is on: {@link #enabled} decides outright when it is present, in either
      * direction; absent, it is inferred from whether a directory was configured. An operator who
@@ -105,6 +121,8 @@ public class StateSpillProperties {
 
     /** This configuration, resolved into the plain settings {@code pravaha-runtime} consumes. */
     public SpillSettings toSpillSettings() {
-        return resolvedEnabled() ? new SpillSettings(true, directory, maxOverflowSlabs) : SpillSettings.DISABLED;
+        return resolvedEnabled()
+                ? new SpillSettings(true, directory, maxOverflowSlabs, compactionThreshold)
+                : SpillSettings.DISABLED;
     }
 }
