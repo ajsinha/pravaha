@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **313 findings carrying a
-status — 197 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
+only part that is kept current. Counting the register as it stands: **314 findings carrying a
+status — 198 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6659,4 +6659,10 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** FIXED — `d3c9a1f`: Bootstrap's link colour is mapped to the theme's accent token, and alerts, `text-danger` and `btn-outline-danger` are themed; `test_browser_accessibility.py` runs axe on 24 pages in both themes and 7 interaction states and fails on any WCAG 2.x A/AA violation, and `test_contrast.py` checks every allowed token pair. The same run found and fixed empty "On this page" help links, misapplied ARIA on tabs, 23 skipped heading levels, keyboard-unreachable scroll regions and editor syntax colours at 2.7:1.
 > **Why it mattered:** the §23.20 accessibility bar had never been measured, and it was not met.
+
+### CKPT-4 (HIGH) — a windowed AVG restored from a checkpoint came back as 0
+
+> **Status:** FIXED — `e3c9117`: the windowed-aggregate section of the checkpoint (format 2) saves each accumulator's non-null count, and format 1 is refused by name rather than restored wrong. Covered by the restore cases in `SlicedAggregateStateSpillTest` and `DistinctValueCountsPropertyTest`, which checkpoint and restore mid-run and compare with an on-heap model.
+> **Found while moving `COUNT(DISTINCT)` off-heap.** Format 1 wrote sums but never the count of non-null values an `AVG` divides by, so a window whose accumulators were restored from a checkpoint published an average of 0 -- a silently wrong answer on the recovery path, the same class as CKPT-2 in a different operator.
+> **Why it mattered:** a correct query gave a wrong answer after a restart.
 
