@@ -419,6 +419,24 @@ public final class ServedView {
     }
 
     /**
+     * Every committed row as a change that would build it from nothing: its values, and its net
+     * weight -- a key inserted twice is present with weight 2, and a subscriber summing weights must
+     * be told so or the first retraction of it would empty its copy while the view still holds it.
+     *
+     * <p>The committed map only, never the overlay: this is what a subscription's snapshot is made
+     * of (SUB-1), and a snapshot is a state some commit published. The frontier it is true at is
+     * {@link #committedFrontier()} read under the same lock; {@link ViewSink} takes both inside
+     * the critical section that orders it against every commit.
+     */
+    public synchronized List<ViewChange> committedRows() {
+        List<ViewChange> rows = new ArrayList<>(visible.size());
+        for (Map.Entry<Key, Object[]> entry : visible.entrySet()) {
+            rows.add(new ViewChange(entry.getValue(), weights.getOrDefault(entry.getKey(), 1L)));
+        }
+        return rows;
+    }
+
+    /**
      * Marks a view snapshot, so a snapshot of another format -- or bytes that are not one -- is
      * refused rather than read as rows.
      */

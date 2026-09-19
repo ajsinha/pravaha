@@ -37,4 +37,25 @@ public interface ViewChangeListener {
      * @param frontier the frontier now committed; every change in this batch belongs at or before it
      */
     void onCommit(List<ViewChange> changes, long frontier);
+
+    /**
+     * The view as it stood at a commit boundary, delivered once, before any {@link #onCommit}, to a
+     * listener attached with {@link ViewSink#onCommitFromSnapshot} (SUB-1).
+     *
+     * <p>Every committed row with its net weight, so applying it to nothing and then applying every
+     * later commit's changes gives the view, with no commit missing and none counted twice. Always
+     * delivered, even when the view is empty: an empty snapshot is how a listener learns where its
+     * copy starts.
+     *
+     * <p>The default hands a non-empty snapshot to {@link #onCommit} as a batch of inserts, which is
+     * what a listener that never heard of snapshots would make of it anyway.
+     *
+     * @param rows the committed rows, each with weight equal to its multiplicity in the view
+     * @param frontier the committed frontier the rows are the view at
+     */
+    default void onSnapshot(List<ViewChange> rows, long frontier) {
+        if (!rows.isEmpty()) {
+            onCommit(rows, frontier);
+        }
+    }
 }

@@ -95,6 +95,18 @@ public final class ViewSink {
      */
     private List<ViewChangeListener> batchAudience;
 
+    /**
+     * Listeners waiting for their snapshot at the end of the commit in flight (SUB-1).
+     *
+     * <p>A listener that asks for a snapshot while a commit is under way -- rows applied that no
+     * commit has published -- cannot be given the committed state now: that state lacks the rows in
+     * flight, and the commit publishing them was staged for an audience this listener is not in. It
+     * waits here instead, and the commit that publishes those rows takes its snapshot and makes it a
+     * listener in the same critical section, so the next commit is its first. Mutated only under
+     * {@link #publishLock}; copy-on-write so {@link #listenerCount} can read it without the lock.
+     */
+    private final List<Handoff> joiners = new CopyOnWriteArrayList<>();
+
     public ViewSink(ServedView view, StreamSchema schema) {
         this.view = view;
         this.schema = schema;
@@ -149,6 +161,7 @@ public final class ViewSink {
     private void commit(long requestedFrontier, boolean atApplied) {
         List<ViewChange> batch = List.of();
         List<ViewChangeListener> audience = null;
+        List<Handoff> promoted = List.of();
         long committedFrontier = requestedFrontier;
         // In a finally, because view.commit can throw. ServedView.commit applies and evicts and
         // *then* refuses with VIEW_TOO_LARGE, so the rows are in the view by the time it throws --
@@ -191,6 +204,12 @@ public final class ViewSink {
                         batch = audience == null || audience.isEmpty() ? List.of() : List.copyOf(pending);
                         pending.clear();
                     }
+                    // Whoever was waiting for this commit to end gets the view it produced, and is
+                    // a listener from the next commit on -- in this critical section, so no commit
+                    // can fall between the two (SUB-1). Taken even when view.commit threw: it
+                    // applies before it refuses, so the committed state is still the one to start
+                    // from.
+                    promoted = promoteJoiners();
                 }
             }
         } finally {
@@ -198,6 +217,9 @@ public final class ViewSink {
             // rather than the lane's next batch; to the audience the commit began with, not to
             // whoever is attached now (STRM-11).
             deliver(batch, audience, committedFrontier);
+            for (Handoff handoff : promoted) {
+                handoff.handOver();
+            }
             if (applied && changed) {
                 view.recordCommitNanos(System.nanoTime() - started);
             }
@@ -280,14 +302,96 @@ public final class ViewSink {
         return () -> listeners.remove(listener);
     }
 
-    /** How many listeners are attached. */
+    /**
+     * Registers a listener that starts from the view's committed state, with no gap and no overlap
+     * between that state and the commits it hears about afterwards (SUB-1).
+     *
+     * <p>{@link #onCommit} alone cannot do this. A listener registered there joins at the next
+     * commit boundary -- the audience of a commit is fixed when its first batch is applied (STRM-11)
+     * -- and the committed state a caller reads beside it lacks the commit in flight. Whichever order
+     * the two are done in, a commit can land in neither.
+     *
+     * <p>Here both are one step, under the lock every batch and every commit takes:
+     *
+     * <ul>
+     *   <li><strong>No commit in flight</strong> -- nothing applied since the last commit. The
+     *       committed state is everything applied, so it is the snapshot, taken now with its
+     *       frontier; the listener is registered in the same critical section, so the next commit's
+     *       first batch finds it in the audience.
+     *   <li><strong>A commit in flight</strong> -- rows applied, not yet published, and staged for
+     *       an audience fixed before this listener existed. The listener waits for that commit to
+     *       end; the commit takes the snapshot, which now contains those rows, and registers it,
+     *       inside its own critical section.
+     * </ul>
+     *
+     * <p>Either way the snapshot is the view at some commit C, the listener is in the audience of
+     * every commit after C and of none up to C, and every commit is delivered whole: the snapshot
+     * plus the changes is the view, at every commit after it. Nothing is logged to do it -- the
+     * snapshot is a copy of the committed rows, bounded by the view's own ceiling.
+     *
+     * <p>{@link ViewChangeListener#onSnapshot} is called exactly once and before any {@link
+     * ViewChangeListener#onCommit}, on the subscribing thread or on the thread of the commit that
+     * ended the one in flight. Something must commit for the second case to finish: the engine does
+     * on its own schedule, and {@code RegisteredQuery} commits at once when it subscribes this way.
+     *
+     * @return a handle that removes the listener, whether or not its snapshot has been delivered
+     */
+    public AutoCloseable onCommitFromSnapshot(ViewChangeListener listener) {
+        Handoff handoff = new Handoff(listener);
+        boolean now;
+        synchronized (publishLock) {
+            now = batchAudience == null && view.pendingChanges() == 0;
+            if (now) {
+                handoff.capture(view.committedRows(), view.committedFrontier());
+                listeners.add(handoff);
+            } else {
+                joiners.add(handoff);
+            }
+        }
+        if (now) {
+            handoff.handOver();
+        }
+        return () -> {
+            handoff.close();
+            listeners.remove(handoff);
+            synchronized (publishLock) {
+                joiners.remove(handoff);
+            }
+        };
+    }
+
+    /**
+     * Whether a listener attached by {@link #onCommitFromSnapshot} is still waiting for the commit
+     * in flight to end, so a caller that can commit knows a commit would hand it its snapshot.
+     */
+    public boolean awaitingSnapshot() {
+        return !joiners.isEmpty();
+    }
+
+    /** Takes every waiting listener's snapshot and makes it a listener. Under the publish lock. */
+    private List<Handoff> promoteJoiners() {
+        if (joiners.isEmpty()) {
+            return List.of();
+        }
+        List<Handoff> promoted = List.copyOf(joiners);
+        joiners.clear();
+        List<ViewChange> rows = view.committedRows();
+        long at = view.committedFrontier();
+        for (Handoff handoff : promoted) {
+            handoff.capture(rows, at);
+            listeners.add(handoff);
+        }
+        return promoted;
+    }
+
+    /** How many listeners are attached, counting those still waiting for their snapshot. */
     public int listenerCount() {
-        return listeners.size();
+        return listeners.size() + joiners.size();
     }
 
     /** Whether anybody is listening, which is worth knowing before doing work for them. */
     public boolean hasListeners() {
-        return !listeners.isEmpty();
+        return !listeners.isEmpty() || !joiners.isEmpty();
     }
 
     public long rowsApplied() {
@@ -296,6 +400,64 @@ public final class ViewSink {
 
     public ServedView view() {
         return view;
+    }
+
+    /**
+     * A listener attached with its snapshot, which it is handed before anything else.
+     *
+     * <p>The snapshot is captured under the publish lock, before the listener can be in any
+     * commit's audience, and handed over after the lock is released -- by whichever comes first of
+     * the thread that captured it and a commit delivering to this listener. The monitor on this
+     * object orders the two, so a commit that races the handover waits for it rather than arriving
+     * first. A slow listener holds up only its own deliveries, as before.
+     */
+    private static final class Handoff implements ViewChangeListener {
+
+        private final ViewChangeListener target;
+        private List<ViewChange> snapshot;
+        private long snapshotFrontier;
+        private boolean closed;
+
+        Handoff(ViewChangeListener target) {
+            this.target = target;
+        }
+
+        synchronized void capture(List<ViewChange> rows, long frontier) {
+            snapshot = rows;
+            snapshotFrontier = frontier;
+        }
+
+        synchronized void handOver() {
+            List<ViewChange> rows = snapshot;
+            if (rows == null || closed) {
+                return;
+            }
+            snapshot = null;
+            try {
+                target.onSnapshot(rows, snapshotFrontier);
+            } catch (RuntimeException | Error escaped) {
+                // The same backstop deliver() is: a listener owns its failures.
+                LOG.log(
+                        System.Logger.Level.WARNING,
+                        "a view change listener threw on its snapshot; the listener is responsible for "
+                                + "its own failure and this is only the backstop",
+                        escaped);
+            }
+        }
+
+        synchronized void close() {
+            closed = true;
+            snapshot = null;
+        }
+
+        @Override
+        public synchronized void onCommit(List<ViewChange> changes, long frontier) {
+            if (closed) {
+                return;
+            }
+            handOver();
+            target.onCommit(changes, frontier);
+        }
     }
 
     /**
