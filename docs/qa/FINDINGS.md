@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **305 findings carrying a
-status — 190 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
+only part that is kept current. Counting the register as it stands: **307 findings carrying a
+status — 192 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6614,4 +6614,16 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Status:** FIXED — `7832120`: the view is committed and snapshotted inside the lane's control task, at the marker (`QueryExecution.cuttingOutputWith`, `RegisteredQuery.cutOutput`, under a `commitLock` every view commit also holds). `TransactionalSinkDeliveryTest#aRowAppliedButNotYetCommittedWhenTheCheckpointIsTakenIsInsideIt`, seed-proven by skipping the commit at the marker.
 > **Found while tying transactional sinks to checkpoints.** The checkpoint snapshotted the view from the checkpointing thread after the lanes had answered, capturing whatever had been committed by then rather than the cut. A row applied before the marker but not yet committed was in neither the snapshot nor the replay -- lost at a restore -- and a row after the marker that had already been committed was in both, so it was restored and then replayed. Single-lane registered queries, which is every registered query.
 > **Why it mattered:** a restore that silently lost or doubled rows of the served answer, independent of any sink.
+
+### VIEW-1 (HIGH) — a view commit could publish half of a lane's batch
+
+> **Status:** FIXED — `f9c586f`: `RowOutput.endOfBatch` marks every unit end on the lane; `ViewSink.laneOutput` stages rows per lane without a lock and applies each whole batch under the lock a commit takes, so a commit ends at a finished batch. `ViewCommitBatchBoundaryTest` forces the interleaving (the old wiring read `[]` where `[[2,30]]` was right) and races two committers for 3 s (old code: 15 to 22 of about 2,840 reads missing the answer, 4 of 4 runs); seed-proven by restoring per-row publication, which also fails the hardened `MultiplexedRegistryTest` 2 of 40 times under CPU contention.
+> **Found as a full-reactor flake in `MultiplexedRegistryTest`.** The lane applied each output row to the view as it was written, and commits came from the feed's timer or a caller with no tie to the lane's batch boundaries. An unwindowed aggregate re-emits its answer as a retraction and an insert on every publish, so a commit between the two withdrew the answer: the view read empty, and subscribers and sinks were handed a batch retracting it with no replacement -- the half-applied batch STRM-11's promise rules out.
+> **Why it mattered:** readers, subscribers and sinks could see a correct answer disappear, intermittently and under load.
+
+### VIEW-2 (HIGH) — a restored view held values of different classes from the ones it was checkpointed with
+
+> **Status:** FIXED — `8ce8095`: the view snapshot is versioned (v2) and class-exact -- every integral and floating width, `BigDecimal` with its scale, bytes, strings of any length -- keys compare deeply, and a v1 snapshot is refused with `PRV-4002` before any lane state is restored. `ViewSnapshotTypesTest` (4 of 4 failing on the old code) and `ViewCheckpointTypesTest` (an `INT32` point lookup found nothing after a restart); seed-proven by writing `Integer` as a long again, and by removing the pre-restore check, which doubles a restored windowed sum (200 where 100 was fed).
+> **Reported by the exactly-once work, confirmed and found worse.** Integral values came back as `Long`, `FLOAT32` as `Double`, and `DECIMAL` through `longValue()` (12.345 became 12). After a restore an `INT32` lookup missed, an update added a second row for one key, a retraction missed its row, and `changesSince` missed decimal changes, so a joining sink was sent wrong deltas. Separately, `BYTES` keys compared by identity and never matched anything, restored or live.
+> **Why it mattered:** a checkpoint restore -- the recovery path -- silently changed the answer.
 
