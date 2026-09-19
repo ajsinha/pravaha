@@ -204,8 +204,9 @@ is not confused with it.
     The `jdbc` source writes weight `+1` on every row: a deleted database row is simply never seen
     again. The same holds for scans of Aerospike and Cassandra. Where deletes must reduce a total,
     a source that sees them is the shape: [postgres-cdc](/help/topics/source-postgres-cdc), which
-    turns a PostgreSQL `DELETE` into a `−1` and an `UPDATE` into a `−1` and a `+1`; Delta; or a file
-    with an operation column.
+    turns a PostgreSQL `DELETE` into a `−1` and an `UPDATE` into a `−1` and a `+1`; Delta; the
+    [Kafka source](/help/topics/source-kafka) reading `kafka-sink`'s changelog, weights and all; or a
+    file with an operation column.
 
 ## Where next
 

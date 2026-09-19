@@ -7,9 +7,9 @@ icon: plug
 summary: "PRV-5001 to PRV-5117: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
 badge: PRV-5XXX
 audience: Operators
-keywords: [plugin, classpath, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
+keywords: [plugin, classpath, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
 guide: connectors
-related: [sources-overview, sinks-overview, source-jdbc, source-postgres-cdc, sink-kafka, source-delta, connector-security, errors-overview]
+related: [sources-overview, sinks-overview, source-jdbc, source-postgres-cdc, source-kafka, sink-kafka, source-delta, connector-security, errors-overview]
 ---
 
 Every source, lookup and sink is a **plugin**, found on the classpath by its name
@@ -68,7 +68,7 @@ pravaha:
 
 No plugin on the classpath answers to the name. The message lists the names that *are* available.
 Only `filesystem` is inside the server jar; `feedfile`, `jdbc`, `delta`, `aerospike`, `cassandra`,
-`postgres-cdc` and `kafka-sink` are separate modules, added by dropping the jar on the classpath. Discovery happens when a query is
+`postgres-cdc`, `kafka` and `kafka-sink` are separate modules, added by dropping the jar on the classpath. Discovery happens when a query is
 first registered against the stream, **not at startup** — so a binding naming a missing plugin starts
 a server cleanly and fails at the registration that needs it.
 
@@ -342,13 +342,16 @@ No sink plugin answers to the name a `pravaha.sinks.*` binding gave. The shipped
 The sink plugin refused its configuration or could not open its target at registration — before the
 query's first commit, so nothing is half-written.
 
-## kafka-sink
+## Kafka: kafka-sink and the kafka source
 
-Every option, the staging topic and the guarantee are on [the Kafka sink](/help/topics/sink-kafka).
+One plugin, one block of codes. PRV-5100 and PRV-5101 are either direction's; PRV-5102 and PRV-5103
+are the sink's, PRV-5104 to PRV-5107 the source's. Every option, the staging topic and the sink's
+guarantee are on [the Kafka sink](/help/topics/sink-kafka); the source's offsets, formats and
+recoveries on [the Kafka source](/help/topics/source-kafka).
 
 ### PRV-5100 — Kafka: bad configuration
 
-The binding's options cannot make a sink: a required option missing (`bootstrap.servers`, `topic`,
+The binding's options cannot make a sink or a source. For the **sink**: a required option missing (`bootstrap.servers`, `topic`,
 `schema`), `key.columns` missing in upsert mode or naming a floating-point or nullable column, an
 unknown `format` or `mode`, a `kafka.*` property the sink sets itself or that would weaken its
 guarantee (`kafka.acks` below `all`, `kafka.enable.idempotence: false`, serializers, `kafka.ssl.*`)
@@ -357,10 +360,19 @@ whose library is not on the classpath. `none` and `gzip` work as shipped; lz4, s
 native code the plugin does not bundle, and are refused by name rather than failing at the first
 write unless you add the codec's library yourself.
 
+For the **source**: `bootstrap.servers`, `topic` or `schema` missing, a `format` other than `json` or
+`changelog`, `tombstone` not `reject` or `skip`, `start.from` not `earliest` or `latest`, an
+`isolation.level` other than `read_committed` or `read_uncommitted`, `event.time` naming a column
+that is not in `schema` or is not a `TIMESTAMP`, a `kafka.*` property that is not a consumer property
+or that would move the position (`kafka.group.id`, `kafka.enable.auto.commit`,
+`kafka.auto.offset.reset`, the deserializers, `kafka.allow.auto.create.topics`), and the same TLS and
+SASL refusals as the sink. The message says what to do instead.
+
 ### PRV-5101 — Kafka: connect failed
 
-At registration, before anything is written: the brokers unreachable, the target topic missing (the
-sink never creates it), or the credentials or ACLs refused.
+At registration, before anything is written or read: the brokers unreachable (for the source, within
+`start.timeout`), the topic missing — neither the sink nor the source ever creates the topic it
+names — or the credentials or ACLs refused (the source needs `Describe` and `Read` on its topic).
 
 ### PRV-5102 — Kafka: write failed
 
@@ -378,28 +390,35 @@ lost to the topic. Raise `staging.retention.ms` and register again.
 
 ### PRV-5104 — Kafka: malformed offset
 
-The `kafka` source was handed a checkpointed position it did not write, or one for another topic or
-partition: the binding's `topic` was changed under an existing checkpoint. Register afresh.
+At a restore: the checkpoint holds a source position this plugin did not write, or one for another
+topic or partition — the binding's `topic` was changed under a checkpoint that still holds the old
+topic's offsets. An offset means nothing in another partition, so it is refused rather than seeked
+to. If the change was deliberate, drop the query and register it afresh.
 
 ### PRV-5105 — Kafka: undecodable record
 
-A record does not fit the declared schema — not JSON, a string in an `INT64` column, a missing
-`NOT NULL` column, a tombstone in `format: json` — and there is no dead-letter queue. The message
-names it as `topic/partition@offset`. Set `pravaha.dlq.directory` to set such records aside and read
-on, fix the producer, or for an upsert topic's tombstones set `tombstone: skip`. The position stays
-before the record, so a restart meets it again rather than skipping it.
+A record the source cannot turn into a row — not JSON, a value of the wrong type for its column, a
+`NOT NULL` column missing, a changelog record without `row` or `weight`, or a **tombstone** in
+`format: json` — and no dead-letter queue to set it aside in. The message names it as
+`topic/partition@offset`. The position stays before it, so a restart meets it again. Set
+`pravaha.dlq.directory` to set such records aside and read on, fix the producer, or, for an upsert
+topic's tombstones, set `tombstone: skip`.
 
 ### PRV-5106 — Kafka: resume point gone
 
-The offset a checkpoint resumes from is no longer in the partition: retention deleted records the
-checkpoint had not read (the node was down longer than the topic's `retention.ms`), or the topic was
-deleted and recreated and the offset is past its end. Those records are lost to every reader, and
-resuming anywhere else would hide it. Raise retention, then drop the checkpoint and register again.
+The offset the source must read from is no longer in the partition: retention deleted records the
+checkpoint had not yet read (a node down, or a query paused, longer than the topic's
+`retention.ms`), or the checkpoint's offset is past the partition's end because the topic was deleted
+and recreated. Those records are lost to every reader, and resuming anywhere else would hide it. Raise
+the topic's retention, then drop the query and register it again; it starts from `start.from`,
+without them.
 
 ### PRV-5107 — Kafka: read failed
 
-Fetching failed in a way retrying will not fix: authorization revoked mid-stream, or the topic
-deleted.
+Fetching failed in a way retrying will not fix — an ACL revoked mid-stream, the topic deleted. The
+source's health turns `UNHEALTHY` with the reason. Fix the cause. A node restart resumes the query
+from its checkpoint's offsets; dropping and registering it instead starts it afresh from
+`start.from`.
 
 ## postgres-cdc
 
@@ -457,7 +476,7 @@ directory, drop the slot, register again.
 ## Where next
 
 - [Sources](/help/topics/sources-overview) and [Sinks](/help/topics/sinks-overview), and each
-  connector's own page — among them [postgres-cdc](/help/topics/source-postgres-cdc) and
-  [kafka-sink](/help/topics/sink-kafka)
+  connector's own page — among them [postgres-cdc](/help/topics/source-postgres-cdc),
+  [the kafka source](/help/topics/source-kafka) and [kafka-sink](/help/topics/sink-kafka)
 - [Connector security](/help/topics/connector-security) — credentials and TLS per connector
 - [Dead letters](/help/topics/dead-letters)

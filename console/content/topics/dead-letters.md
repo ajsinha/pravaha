@@ -6,9 +6,9 @@ order: 100
 icon: envelope-exclamation
 summary: "pravaha.dlq.directory: where records a source cannot decode are written, one JSON line each, so one bad field does not stop a feed. What goes there, which sources use it, reading it during an incident, and PRV-4090."
 audience: Operators
-keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, PRV-4090, PRV-5040, jq, base64, pravaha run --dlq]
+keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, PRV-4090, PRV-5040, PRV-5105, kafka, tombstone, jq, base64, pravaha run --dlq]
 guide: operations#files-that-hold-data
-related: [source-filesystem, metrics-alerts, checkpoints-recovery, configuration]
+related: [source-filesystem, source-kafka, metrics-alerts, checkpoints-recovery, configuration]
 ---
 
 A dead-letter queue keeps two rules that pull against each other: **never drop a record silently**,
@@ -63,9 +63,9 @@ queue that loses its last few in a buffer loses exactly those:
 | `timestamp` | When it was rejected: a monotonic nanosecond reading, for ordering entries — not a wall-clock time |
 | `query` | The registered query whose feed rejected it |
 | `correlationId` | A fresh id per rejection, to quote in a ticket or a log search |
-| `offset` | Where in the source: for a file, `line N` |
+| `offset` | Where in the source: for a file, `line N`; for a Kafka record, `topic/partition@offset` (`orders/3@1041`) |
 | `reason` | Why it could not be decoded, as the source's decoder said it |
-| `raw` | The **original bytes**, Base64 — exactly what arrived, for replay or forensics |
+| `raw` | The **original bytes**, Base64 — exactly what arrived, for replay or forensics. For a Kafka record, its value (a tombstone's key, having no value) |
 
 (The reason text above is illustrative; it is whatever the decoder reported.)
 
@@ -99,9 +99,12 @@ file itself); the dead-letter file is a record, not an input.
 ## Which sources use it
 
 The queue is offered to every source feed, and it is used by a source whose reader hands an
-undecodable record back rather than failing. **Today that is the `filesystem` source**, the one whose
-decoder rejects a line at a time. Other sources fail as they did without a queue — and a source that
-reads typed values (a database, a table format) rarely has a record it cannot decode.
+undecodable record back rather than failing. **Today that is the `filesystem` source**, whose decoder
+rejects a line at a time, and **the [`kafka` source](/help/topics/source-kafka)**, which rejects a
+record that is not JSON, does not fit the declared schema, or is a tombstone in `format: json`.
+Without a queue the Kafka source stops with PRV-5105, its position still before the record. Other
+sources fail as they did without a queue — and a source that reads typed values (a database, a table
+format) rarely has a record it cannot decode.
 
 ## PRV-4090: a queue the node cannot write
 
@@ -154,5 +157,6 @@ a run that reports `ok` while having discarded input is what the queue exists to
 ## Where next
 
 - [The filesystem source](/help/topics/source-filesystem)
+- [The Kafka source](/help/topics/source-kafka) — its dead letters are named `topic/partition@offset`
 - [Metrics and alerts](/help/topics/metrics-alerts)
 - [Configuring a node](/help/topics/configuration)

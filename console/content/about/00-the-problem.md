@@ -24,8 +24,8 @@ three — and the answer in the serving store is only as right as the last time 
 ## Asking once instead
 
 Pravaha turns the question around. You register the SQL **once**, under a name. The engine reads
-the stores you already have — Aerospike, Cassandra, any JDBC database, PostgreSQL's change log, Delta
-tables, files —
+the stores you already have — Aerospike, Cassandra, any JDBC database, PostgreSQL's change log, Kafka
+topics, Delta tables, files —
 computes the answer incrementally as rows change, and **keeps it**: a maintained, keyed view that
 applications read by key, or subscribe to and receive every committed change. There is no job to
 submit and no second database, because a view that is already indexed by its key *is* the serving

@@ -28,7 +28,7 @@ connectors dialling someone else's database — and one rule holds across all of
 | PostgreSQL gateway, port 5432 | `psql`/BI tools → node | `pravaha.pgwire.tls.certificate`, `pravaha.pgwire.tls.key` | plaintext |
 | HTTP API and Prometheus, port 8080 | clients → node | Spring Boot's own `server.ssl.*` keys | plaintext |
 | CLI, Java and Python SDKs | client → node | the endpoint URL (`grpc+tls://`) and the SDK's TLS options | TLS is the SDKs' default; `grpc://` must be spelled out |
-| Connectors (Aerospike, Cassandra, the Kafka sink) | node → store | the plugin's shared `tls.*` options | off unless configured |
+| Connectors (Aerospike, Cassandra, the Kafka source and sink) | node → store | the plugin's shared `tls.*` options | off unless configured |
 | JDBC source, lookup, sink; postgres-cdc | node → database | the JDBC `url` (`sslmode=verify-full`, ...) | whatever the URL says |
 
 ## The node: Flight
@@ -154,7 +154,7 @@ the right word — silently ignoring it would mean plaintext.
 
 ## Connectors dialling out
 
-Aerospike, Cassandra and the Kafka sink take the shared `tls.*` options inside the binding's
+Aerospike, Cassandra and the Kafka source and sink take the shared `tls.*` options inside the binding's
 `options:`; JDBC and postgres-cdc take TLS in the URL and refuse `tls.*` (PRV-5074, PRV-5110). The details — Aerospike's separate `tls.name`,
 Cassandra's hostname verification, PostgreSQL's `sslmode` ladder — are on
 [connector security](/help/topics/connector-security).

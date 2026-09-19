@@ -9,7 +9,7 @@ badge: SINK
 audience: Engineers
 keywords: [kafka, kafka-sink, topic, compacted, compaction, tombstone, upsert, changelog, json, read_committed, isolation.level, transactional.id, staging topic, staging.topic, commit.group, exactly once, sasl, scram, gzip, compression, ktable, ksqldb]
 guide: connectors#a-transactional-sink-on-a-store-with-no-prepare-kafka
-related: [sinks-overview, delivery-guarantees, sink-jdbc, checkpoints-recovery, zset-weights, connector-security, source-postgres-cdc]
+related: [sinks-overview, delivery-guarantees, source-kafka, sink-jdbc, checkpoints-recovery, zset-weights, connector-security, source-postgres-cdc]
 ---
 
 `kafka-sink` writes every commit of a query's view to a **Kafka topic**. In its default mode the
@@ -24,7 +24,9 @@ checkpoints, every change reaches the topic exactly once **as seen by a consumer
 is that every change is written twice (to a staging topic, then to the target) and the topic trails
 the view by up to one checkpoint interval.
 
-The Kafka plugin ships this sink. It does not read from Kafka.
+The same plugin ships a **source**, `kafka`, which reads a topic back — this sink's changelog
+included, weights and all, so one query's retractions reach the next query through a topic, exactly
+once ([the Kafka source](/help/topics/source-kafka)).
 
 ## At a glance
 
@@ -110,7 +112,8 @@ value: {"op":"delete","weight":-1,"row":{"txn_id":9001,"user_id":"u1","merchant"
 The key is `key.columns` when set, otherwise the whole row — so a row's insertion and its later
 retraction land on the same partition, in order, which a null key would not promise. A consumer of a
 changelog **must apply the weight**: summing `row.amount` without it double-counts at the first
-correction ([Z-set weights](/help/topics/zset-weights)).
+correction ([Z-set weights](/help/topics/zset-weights)). A Pravaha [`kafka` source](/help/topics/source-kafka)
+with `format: changelog` reads this envelope and applies the weight itself.
 
 ### How values are written
 
@@ -315,9 +318,11 @@ no staging topic, no lag behind the checkpoint:
 | `upsert` | **effectively once** on a compacted topic | a replay rewrites keys with the values they already hold |
 | `changelog` | **at least once** | a replayed change is a second record, indistinguishable from a new one |
 
-On a node with no `pravaha.checkpoint.directory`, a transactional sink is at least once too — there
-is no checkpoint to tie a transaction to — and the registration's log line says so. See
-[delivery guarantees](/help/topics/delivery-guarantees).
+On a node with no `pravaha.checkpoint.directory` there is no checkpoint to tie a transaction to, so
+each commit is its own transaction and a restart repeats it: a transactional sink is then
+**effectively once** in upsert mode (the repeat rewrites keys with the values they already hold) and
+**at least once** in changelog mode. The registration's log line and `GET /api/v1/sinks` both say
+which. See [delivery guarantees](/help/topics/delivery-guarantees).
 
 ## Compression
 
@@ -380,6 +385,7 @@ topic, a repeat of every row on a changelog.
 - [How a query writes to a sink](/help/topics/sinks-overview) — the shape check, the retraction check
   and detach
 - [Delivery guarantees](/help/topics/delivery-guarantees) — how the four shipped sinks compare
+- [The Kafka source](/help/topics/source-kafka) — reading a changelog topic back into another query
 - [The postgres-cdc source](/help/topics/source-postgres-cdc) — deletes and updates that reach the
   topic as tombstones
 - [Z-set weights](/help/topics/zset-weights) — what a changelog consumer must do with `weight`

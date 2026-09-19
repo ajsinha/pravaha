@@ -9,7 +9,7 @@ badge: SOURCE
 audience: Operators
 keywords: [postgres-cdc, cdc, change data capture, postgresql, logical replication, pgoutput, wal, wal_level, replication slot, slot, publication, replica identity full, lsn, heartbeat, slot lag, truncate, debezium, retraction, delete]
 guide: operations#change-data-capture-the-replication-slot
-related: [sources-overview, source-jdbc, zset-weights, checkpoints-recovery, sink-kafka, delivery-guarantees, connector-security]
+related: [sources-overview, source-jdbc, zset-weights, checkpoints-recovery, sink-kafka, source-kafka, delivery-guarantees, connector-security]
 ---
 
 The `postgres-cdc` plugin reads a PostgreSQL table's **changes** — every committed `INSERT`, `UPDATE`
@@ -17,7 +17,7 @@ and `DELETE` — from the database's own write-ahead log, through PostgreSQL's l
 replication slot, a publication, and the built-in `pgoutput` stream, decoded by the plugin. It is
 built natively rather than through Debezium ([ADR-041](/help/decisions/041-change-data-capture-without-debezium)).
 
-It is the one shipped source that is a true **changelog**. Every other database source sees a row's
+It is the one shipped source that reads a database as a true **changelog**. Every other database source sees a row's
 value at the moment it looks: a poll or a scan cannot see a delete, and an update is a new value with
 nothing withdrawn. Here an insert arrives at weight `+1`, a delete as the whole old row at `−1`, and an
 update as **both** — the old row at `−1`, then the new one at `+1` — so a query's answer goes *down*
@@ -395,6 +395,7 @@ DROP PUBLICATION IF EXISTS pravaha_orders;
 ## Where next
 
 - [The Kafka sink](/help/topics/sink-kafka) — deletes in the table reaching a topic as tombstones
+- [The Kafka source](/help/topics/source-kafka) — a view's changes read back from a topic by another query
 - [Z-set weights](/help/topics/zset-weights) — what `+1` and `−1` do in every operator
 - [Checkpoints and recovery](/help/topics/checkpoints-recovery) — what the slot's confirmation rests on
 - [The jdbc source](/help/topics/source-jdbc) — polling, when CDC is not available

@@ -40,8 +40,9 @@ Pravaha collapses them:
 | A second copy of the pipeline for each team asking the same question | Sharing by fingerprint: identical questions become one computation with several names |
 
 It reads the stores you already have — files, directories of feed files, JDBC databases, a
-PostgreSQL table's change log, Delta tables, Aerospike, Cassandra — and can write each answer back
-out to a sink (a file, a JDBC table, an Aerospike set, a Kafka topic) as well as serving it.
+PostgreSQL table's change log, Kafka topics, Delta tables, Aerospike, Cassandra — and can write each
+answer back out to a sink (a file, a JDBC table, an Aerospike set, a Kafka topic) as well as serving
+it.
 
 ## The three nouns
 
