@@ -18,7 +18,6 @@ package com.ash.messaging.pravaha.flight;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import org.apache.arrow.flight.Action;
 import org.apache.arrow.flight.FlightClient;
@@ -31,15 +30,8 @@ import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
-import com.ash.messaging.pravaha.api.plugin.PartitionReader;
-import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
-import com.ash.messaging.pravaha.backfill.BackfillPlan;
-import com.ash.messaging.pravaha.backfill.OffsetSplicedReader;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
-import com.ash.messaging.pravaha.registry.SourceFeed;
-import com.ash.messaging.pravaha.registry.SourceFeedFactory;
-import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
@@ -75,7 +67,7 @@ class FlightReplacementTest {
         allocator = new RootAllocator(Long.MAX_VALUE);
         ViewCatalog views = new ViewCatalog();
         registry = new QueryRegistry(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, TRADE)
-                .feedingFrom(new QuietSource());
+                .feedingFrom(new QuietBackfillSource());
         server = new PravahaFlightServer(views, allocator).hosting(registry).start("localhost", 0);
         client = FlightClient.builder(allocator, Location.forGrpcInsecure("localhost", server.port()))
                 .build();
@@ -185,69 +177,5 @@ class FlightReplacementTest {
         client.doAction(new Action(type, ControlWire.encode(fields)))
                 .forEachRemaining(result -> results.add(ControlWire.decode(result.getBody())));
         return results;
-    }
-
-    /**
-     * A source with no records at all, which is all this needs: what is under test is the wire, and
-     * a backfill over an empty stream reaches the live phase at its first poll.
-     */
-    private static final class QuietSource implements SourceFeedFactory {
-
-        @Override
-        public SourceFeed open(
-                String queryName,
-                QueryExecution execution,
-                List<String> sourceStreams,
-                Runnable afterDelivery,
-                Map<String, String> resumeFrom) {
-            return SourceFeed.NONE;
-        }
-
-        @Override
-        public SourceFeed openBackfill(
-                String queryName,
-                QueryExecution execution,
-                List<String> sourceStreams,
-                Runnable afterDelivery,
-                Map<String, String> resumeFrom,
-                BackfillPlan plan) {
-            OffsetSplicedReader reader =
-                    new OffsetSplicedReader(at -> new Empty(), SourceOffset.BEGINNING, null, plan.job(), false);
-            // One poll is enough: an empty history is behind us at the first poll that finds
-            // nothing, and from there the reader is on the live stream.
-            reader.poll(
-                    () -> {
-                        throw new IllegalStateException("an empty partition writes no rows");
-                    },
-                    1);
-            return SourceFeed.NONE;
-        }
-
-        @Override
-        public java.util.Optional<String> backfillRefusal(String stream) {
-            return java.util.Optional.empty();
-        }
-    }
-
-    /** A partition with nothing in it, and a position that says so. */
-    private static final class Empty implements PartitionReader {
-        @Override
-        public int poll(RecordSink sink, int maxRecords) {
-            return 0;
-        }
-
-        @Override
-        public SourceOffset position() {
-            return SourceOffset.BEGINNING;
-        }
-
-        @Override
-        public void pause() {}
-
-        @Override
-        public void resume() {}
-
-        @Override
-        public void close() {}
     }
 }

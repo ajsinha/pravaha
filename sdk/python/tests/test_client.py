@@ -362,6 +362,86 @@ def test_a_query_can_be_paused_resumed_and_dropped(client):
     assert "py_life" not in [q.name for q in client.queries()]
 
 
+# --- Blue/green replacement (ADR-046) -----------------------------------------------------
+
+REPLACEMENT_SQL = "SELECT trade_id, product_type, trade_json, 'reviewed' AS status FROM trade"
+
+
+def _await_caught_up(client, name):
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        status = client.replacement(name)
+        if status is not None and status.state == "CAUGHT_UP":
+            return status
+        time.sleep(0.02)
+    raise AssertionError(f"{name} never caught up")
+
+
+def test_a_query_is_replaced_cut_over_and_rolled_back(client):
+    client.register("py_replace", TRADE_SQL, [0])
+    try:
+        started = client.replace("py_replace", REPLACEMENT_SQL, [0], cutover="manual")
+        # The name still answers the version it answers now: a replacement is not a swap.
+        assert started.state in ("BACKFILLING", "CAUGHT_UP")
+        assert started.sql == REPLACEMENT_SQL
+        assert started.active
+        assert [q.sql for q in client.queries() if q.name == "py_replace"] == [TRADE_SQL]
+
+        _await_caught_up(client, "py_replace")
+        cut = client.cut_over("py_replace")
+        assert cut.state == "CUT_OVER"
+        assert cut.rollback_available
+        assert [q.sql for q in client.queries() if q.name == "py_replace"] == [REPLACEMENT_SQL]
+
+        back = client.roll_back("py_replace")
+        assert back.state == "ROLLED_BACK"
+        assert [q.sql for q in client.queries() if q.name == "py_replace"] == [TRADE_SQL]
+    finally:
+        client.drop("py_replace")
+
+
+def test_a_backfill_is_throttled_paused_and_resumed_from_python(client):
+    client.register("py_throttled", TRADE_SQL, [0])
+    try:
+        client.replace("py_throttled", REPLACEMENT_SQL, [0], rate_limit=500, cutover="manual")
+        assert client.throttle_backfill("py_throttled", 50).rate_limit == 50
+        assert client.pause_backfill("py_throttled").paused is True
+        assert client.resume_backfill("py_throttled").paused is False
+
+        listed = [r.name for r in client.replacements()]
+        assert "py_throttled" in listed
+
+        # A rate above the ceiling it was started with is refused: a ceiling is a ceiling.
+        with pytest.raises(QueryError) as refused:
+            client.throttle_backfill("py_throttled", 100_000)
+        assert "PRV-4018" in str(refused.value)
+
+        client.abandon_replacement("py_throttled")
+        assert client.replacement("py_throttled").state == "ABANDONED"
+    finally:
+        client.drop("py_throttled")
+
+
+def test_the_replacement_refusals_reach_python_with_their_codes(client):
+    client.register("py_refused", TRADE_SQL, [0])
+    try:
+        with pytest.raises(QueryError) as no_replacement:
+            client.cut_over("py_refused")
+        assert "PRV-4016" in str(no_replacement.value)
+
+        with pytest.raises(QueryError) as same_question:
+            client.replace("py_refused", TRADE_SQL, [0])
+        assert "PRV-4017" in str(same_question.value)
+
+        with pytest.raises(QueryError) as not_built:
+            client.replace("py_refused", REPLACEMENT_SQL, [0], backfill="window")
+        assert "PRV-4018" in str(not_built.value)
+
+        assert client.replacement("py_never_replaced") is None
+    finally:
+        client.drop("py_refused")
+
+
 def test_dropping_an_unknown_query_is_refused(client):
     with pytest.raises(QueryError) as refused:
         client.drop("py_never_registered")

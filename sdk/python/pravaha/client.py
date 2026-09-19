@@ -559,6 +559,100 @@ class Client:
         """
         self._act(_ACTION_DROP, [name])
 
+    # ---------------------------------------------------------------------------------
+    # Blue/green replacement: a new version beside the running one, backfilled, cut over
+    # to at a position both have consumed exactly, and rolled back from (ADR-046).
+    # ---------------------------------------------------------------------------------
+
+    def replace(
+        self,
+        name: str,
+        sql: str,
+        key_columns: Sequence[int],
+        *,
+        backfill: str | None = None,
+        rate_limit: int | None = None,
+        cutover: str | None = None,
+        rollback_retention: str | None = None,
+    ) -> "Replacement":
+        """Starts replacing ``name`` with a new version, and says where that has got to.
+
+        The name goes on answering the version it answers now. What this starts is a
+        shadow: it reads the same sources from the beginning, splices onto the live stream
+        at the position the running version has reached, and is compared with it.
+        :meth:`cut_over` is what moves the name, and only when the two have consumed
+        exactly the same input -- so a reader sees the old answer up to the seam and the
+        new one after it, with no gap and nothing counted twice.
+
+        Requires the administer permission on the name, as dropping it does.
+
+        ``backfill`` is ``"history"`` (the default: replay it) or ``"none"`` (start where
+        the running version is, with empty state -- correct only for a query whose answer
+        does not depend on history). ``rate_limit`` is a ceiling in records a second, and
+        the one an operator may lower while it runs and may not raise. ``cutover`` is
+        ``"manual"`` (the default) or ``"auto"``. An option this engine does not build is
+        refused by name with ``PRV-4018`` rather than ignored.
+        """
+        options = []
+        if backfill is not None:
+            options.append(f"backfill={backfill}")
+        if rate_limit is not None:
+            options.append(f"backfill.rate.limit={int(rate_limit)}")
+        if cutover is not None:
+            options.append(f"cutover={cutover}")
+        if rollback_retention is not None:
+            options.append(f"rollback.retention={rollback_retention}")
+        ordinals = ",".join(str(int(c)) for c in key_columns)
+        fields = [name, sql, ordinals]
+        if options:
+            fields.append(";".join(options))
+        return _one_replacement(self._act(_ACTION_REPLACE, fields), name)
+
+    def replacement(self, name: str) -> "Optional[Replacement]":
+        """How the replacement of ``name`` is getting on, or ``None`` when there is not one."""
+        rows = self._act(_ACTION_REPLACEMENT, [name])
+        return _replacement(rows[0]) if rows else None
+
+    def replacements(self) -> "list[Replacement]":
+        """Every replacement this server knows about, in flight or finished."""
+        return [_replacement(row) for row in self._act(_ACTION_REPLACEMENT, [])]
+
+    def cut_over(self, name: str) -> "Replacement":
+        """Moves the name to the new version.
+
+        Refused with ``PRV-4014`` when it has not caught up, or when the two versions
+        cannot be brought to the same position in their input: a cutover at different
+        positions would leave the records between them in neither version's output, or in
+        both. Every subscription to the name ends with ``PRV-4019`` -- subscribe again,
+        and a snapshot subscription starts from a fresh snapshot of the new version.
+        """
+        return _one_replacement(self._act(_ACTION_CUTOVER, [name]), name)
+
+    def roll_back(self, name: str) -> "Replacement":
+        """Puts the replaced version back, while it is still retained."""
+        return _one_replacement(self._act(_ACTION_ROLLBACK, [name]), name)
+
+    def abandon_replacement(self, name: str) -> "Replacement":
+        """Ends a replacement that has not cut over, releasing the candidate."""
+        return _one_replacement(self._act(_ACTION_ABANDON, [name]), name)
+
+    def finish_replacement(self, name: str) -> "Replacement":
+        """Confirms a cutover: the replaced version is released, and there is no rollback."""
+        return _one_replacement(self._act(_ACTION_FINISH, [name]), name)
+
+    def throttle_backfill(self, name: str, records_per_second: int) -> "Replacement":
+        """Sets how fast the backfill reads history, up to the ceiling it was started with."""
+        return _one_replacement(
+            self._act(_ACTION_BACKFILL, [name, "throttle", str(int(records_per_second))]), name
+        )
+
+    def pause_backfill(self, name: str) -> "Replacement":
+        """Stops the backfill reading, without giving up what it has read."""
+        return _one_replacement(self._act(_ACTION_BACKFILL, [name, "pause"]), name)
+
+    def resume_backfill(self, name: str) -> "Replacement":
+        return _one_replacement(self._act(_ACTION_BACKFILL, [name, "resume"]), name)
+
     def subscribe(
         self,
         view: str,
@@ -864,6 +958,13 @@ _ACTION_DROP = "pravaha.drop"
 _ACTION_LIST = "pravaha.list"
 _ACTION_PAUSE = "pravaha.pause"
 _ACTION_RESUME = "pravaha.resume"
+_ACTION_REPLACE = "pravaha.replace"
+_ACTION_REPLACEMENT = "pravaha.replacement"
+_ACTION_CUTOVER = "pravaha.cutover"
+_ACTION_ROLLBACK = "pravaha.rollback"
+_ACTION_ABANDON = "pravaha.abandon"
+_ACTION_FINISH = "pravaha.finish"
+_ACTION_BACKFILL = "pravaha.backfill"
 
 
 def _wire_encode(fields: Sequence[str]) -> bytes:
@@ -920,6 +1021,95 @@ def _ordinals(text: str) -> "tuple[int, ...]":
 def _segment(name: str) -> str:
     """A name as one URL path segment, so a name cannot address a different endpoint."""
     return urllib.parse.quote(str(name), safe="")
+
+
+def _number(text: str) -> int:
+    try:
+        return int(text)
+    except ValueError:
+        return 0
+
+
+def _replacement(row: Sequence[str]) -> "Replacement":
+    """Reads a status from the wire's positional fields, which are append-only."""
+    return Replacement(
+        name=_at(row, 0),
+        state=_at(row, 1),
+        sql=_at(row, 2),
+        candidate=_at(row, 3) or None,
+        replacing=_at(row, 4) or None,
+        sink=_at(row, 5) or None,
+        options=_at(row, 6),
+        owner=_at(row, 7) or None,
+        started_at=_at(row, 8) or None,
+        cut_over_at=_at(row, 9) or None,
+        rollback_until=_at(row, 10) or None,
+        rollback_available=_at(row, 11) == "true",
+        history_rows=_number(_at(row, 12)),
+        live_rows=_number(_at(row, 13)),
+        rows_per_second=_number(_at(row, 14)),
+        partitions=_number(_at(row, 15)),
+        partitions_live=_number(_at(row, 16)),
+        history_complete=_at(row, 17) == "true",
+        rate_limit=_number(_at(row, 18)),
+        paused=_at(row, 19) == "true",
+        lag_nanos=_number(_at(row, 20)),
+        failure_code=_at(row, 21) or None,
+        failure=_at(row, 22) or None,
+    )
+
+
+def _one_replacement(rows: "Sequence[Sequence[str]]", name: str) -> "Replacement":
+    if not rows:
+        raise QueryError(
+            f"the server accepted the request but said nothing about the replacement of {name!r}"
+        )
+    return _replacement(rows[0])
+
+
+@dataclass(frozen=True)
+class Replacement:
+    """A blue/green replacement as the server reports it (ADR-046).
+
+    One answer rather than three calls: a screen that has to ask separately for the state,
+    the progress and the rollback window shows three moments instead of one.
+    """
+
+    name: str
+    #: ``BACKFILLING``, ``CAUGHT_UP``, ``CUT_OVER``, ``ROLLED_BACK``, ``ABANDONED``,
+    #: ``FAILED`` or ``FINISHED``.
+    state: str
+    sql: str
+    #: The fingerprint of the computation being prepared.
+    candidate: Optional[str] = None
+    #: The fingerprint of the one serving the name.
+    replacing: Optional[str] = None
+    sink: Optional[str] = None
+    options: str = ""
+    owner: Optional[str] = None
+    started_at: Optional[str] = None
+    cut_over_at: Optional[str] = None
+    rollback_until: Optional[str] = None
+    rollback_available: bool = False
+    history_rows: int = 0
+    live_rows: int = 0
+    rows_per_second: int = 0
+    partitions: int = 0
+    partitions_live: int = 0
+    history_complete: bool = False
+    rate_limit: int = 0
+    paused: bool = False
+    lag_nanos: int = 0
+    failure_code: Optional[str] = None
+    failure: Optional[str] = None
+
+    @property
+    def active(self) -> bool:
+        """Still doing something: backfilling, caught up, or cut over and retaining."""
+        return self.state in ("BACKFILLING", "CAUGHT_UP", "CUT_OVER")
+
+    def __str__(self) -> str:
+        return f"{self.name} [{self.state}, {self.history_rows} history rows]"
 
 
 @dataclass(frozen=True)

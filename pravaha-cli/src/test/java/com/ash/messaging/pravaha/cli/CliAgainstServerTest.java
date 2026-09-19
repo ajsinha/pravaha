@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
@@ -69,7 +70,11 @@ class CliAgainstServerTest {
     @BeforeEach
     void start() {
         views = new ViewCatalog();
-        registry = new QueryRegistry(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, TRADE);
+        registry = new QueryRegistry(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, TRADE)
+                // A source with nothing in it, so the replacement commands have something to drive:
+                // a backfill over an empty stream is caught up at its first poll. Rows still arrive
+                // by being pushed, exactly as the rest of this class feeds them.
+                .feedingFrom(new QuietSource());
         server = new PravahaFlightServer(views).hosting(registry).start("localhost", 0);
         arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
         url = "grpc://localhost:" + server.port();
@@ -104,6 +109,80 @@ class CliAgainstServerTest {
         CliResult {
             System.out.println("CLI[" + code + "] out=" + out.replace('\n', '|') + " err=" + err.replace('\n', '|'));
         }
+    }
+
+    /** A source with no records at all: enough for a replacement, nothing for the data. */
+    private static final class QuietSource implements com.ash.messaging.pravaha.registry.SourceFeedFactory {
+        @Override
+        public com.ash.messaging.pravaha.registry.SourceFeed open(
+                String queryName,
+                com.ash.messaging.pravaha.runtime.exec.QueryExecution execution,
+                java.util.List<String> sourceStreams,
+                Runnable afterDelivery,
+                java.util.Map<String, String> resumeFrom) {
+            return com.ash.messaging.pravaha.registry.SourceFeed.NONE;
+        }
+
+        @Override
+        public com.ash.messaging.pravaha.registry.SourceFeed openBackfill(
+                String queryName,
+                com.ash.messaging.pravaha.runtime.exec.QueryExecution execution,
+                java.util.List<String> sourceStreams,
+                Runnable afterDelivery,
+                java.util.Map<String, String> resumeFrom,
+                com.ash.messaging.pravaha.backfill.BackfillPlan plan) {
+            com.ash.messaging.pravaha.backfill.OffsetSplicedReader reader =
+                    new com.ash.messaging.pravaha.backfill.OffsetSplicedReader(
+                            at -> new Empty(),
+                            com.ash.messaging.pravaha.api.plugin.SourceOffset.BEGINNING,
+                            null,
+                            plan.job(),
+                            false);
+            // Until the empty history is behind it: one poll is usually enough, and a throttled
+            // backfill has no budget in the instant it is created.
+            for (int attempt = 0;
+                    attempt < 400 && reader.phase() != com.ash.messaging.pravaha.backfill.BackfillPhase.LIVE;
+                    attempt++) {
+                reader.poll(
+                        () -> {
+                            throw new IllegalStateException("an empty partition writes no rows");
+                        },
+                        64);
+                try {
+                    Thread.sleep(5);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            return com.ash.messaging.pravaha.registry.SourceFeed.NONE;
+        }
+
+        @Override
+        public java.util.Optional<String> backfillRefusal(String stream) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    private static final class Empty implements com.ash.messaging.pravaha.api.plugin.PartitionReader {
+        @Override
+        public int poll(RecordSink sink, int maxRecords) {
+            return 0;
+        }
+
+        @Override
+        public com.ash.messaging.pravaha.api.plugin.SourceOffset position() {
+            return com.ash.messaging.pravaha.api.plugin.SourceOffset.BEGINNING;
+        }
+
+        @Override
+        public void pause() {}
+
+        @Override
+        public void resume() {}
+
+        @Override
+        public void close() {}
     }
 
     private void feed(String tradeId, String product) {
@@ -331,6 +410,69 @@ class CliAgainstServerTest {
     void theUsageTextListsTheServerCommands() {
         CliResult help = cli("--help");
 
-        assertThat(help.out()).contains("query", "register", "queries", "subscribe", "drop");
+        assertThat(help.out())
+                .contains("query", "register", "queries", "subscribe", "drop", "replace", "cutover", "rollback");
+    }
+
+    @Test
+    void aQueryIsReplacedWatchedCutOverAndRolledBackFromTheCommandLine(@TempDir java.nio.file.Path directory)
+            throws Exception {
+        java.nio.file.Path sql = directory.resolve("v2.sql");
+        java.nio.file.Files.writeString(sql, SQL + " WHERE product_type <> 'NONE'");
+        cli("register", "--url", url, "--name", "trade_feed", "--sql", SQL, "--keys", "0");
+
+        CliResult started = cli(
+                "replace",
+                "--url",
+                url,
+                "--name",
+                "trade_feed",
+                "--sql-file",
+                sql.toString(),
+                "--keys",
+                "0",
+                "--rate-limit",
+                "500",
+                "--wait");
+        assertThat(started.code()).as(started.err()).isZero();
+        String plain = plain(started.out());
+        assertThat(plain).contains("caught up trade_feed").contains("history 0 rows");
+        assertThat(plain)
+                .as("the name has not moved yet, and the output says so")
+                .contains("still answers");
+
+        assertThat(plain(cli("replacements", "--url", url).out()))
+                .contains("NAME\tSTATE")
+                .contains("trade_feed");
+
+        assertThat(plain(cli("throttle", "--url", url, "--name", "trade_feed", "--rate", "50")
+                        .out()))
+                .contains("limit 50");
+        assertThat(plain(cli("pause-backfill", "--url", url, "--name", "trade_feed")
+                        .out()))
+                .contains("paused");
+        cli("resume-backfill", "--url", url, "--name", "trade_feed");
+
+        assertThat(plain(cli("cutover", "--url", url, "--name", "trade_feed").out()))
+                .contains("cut over trade_feed")
+                .contains("retained until");
+        assertThat(registry.require("trade_feed").sql()).contains("WHERE");
+
+        assertThat(plain(cli("rollback", "--url", url, "--name", "trade_feed").out()))
+                .contains("rolled back trade_feed");
+        assertThat(registry.require("trade_feed").sql()).isEqualTo(SQL);
+    }
+
+    @Test
+    void aCutoverOfSomethingNobodyIsReplacingKeepsTheServersOwnRefusal() {
+        cli("register", "--url", url, "--name", "trade_feed", "--sql", SQL, "--keys", "0");
+        CliResult refused = cli("cutover", "--url", url, "--name", "trade_feed");
+
+        assertThat(refused.code()).isEqualTo(1);
+        assertThat(refused.err()).contains("PRV-4016");
+    }
+
+    private static String plain(String text) {
+        return text.replaceAll("\u001B\\[[0-9;]*m", "");
     }
 }

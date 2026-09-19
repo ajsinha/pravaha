@@ -406,6 +406,111 @@ public final class PravahaFlightClient implements AutoCloseable {
         return queries;
     }
 
+    // -------------------------------------------------------------------------------------
+    // Blue/green replacement (ADR-046): a new version beside the running one, backfilled, cut
+    // over to at a position both have consumed exactly, and rolled back from while it is retained.
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * Starts replacing {@code name} with a new version, and returns where that has got to.
+     *
+     * <p>The name goes on answering the version it answers now. What this starts is a shadow: it
+     * reads the same sources from the beginning, splices onto the live stream at the position the
+     * running version has reached, and is compared with it. {@link #cutOver} is what moves the
+     * name, and only when the two have consumed exactly the same input.
+     *
+     * <p>Requires the administer permission on the name, as dropping it does.
+     *
+     * @param options {@code backfill} ({@code history} or {@code none}), {@code
+     *     backfill.rate.limit}, {@code cutover} ({@code manual} or {@code auto}) and {@code
+     *     rollback.retention}, or null for the defaults. An option the server does not build is
+     *     refused by name rather than ignored
+     */
+    public ReplacementInfo replace(String name, String sql, List<Integer> keyColumns, String options) {
+        String ordinals = keyColumns.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+        List<List<String>> results = options == null || options.isBlank()
+                ? act(ControlWire.REPLACE, name, sql, ordinals)
+                : act(ControlWire.REPLACE, name, sql, ordinals, options);
+        return one(results, name);
+    }
+
+    /** {@link #replace(String, String, List, String)} with the server's default options. */
+    public ReplacementInfo replace(String name, String sql, List<Integer> keyColumns) {
+        return replace(name, sql, keyColumns, null);
+    }
+
+    /** How the replacement of {@code name} is getting on, or empty when there is not one. */
+    public java.util.Optional<ReplacementInfo> replacement(String name) {
+        List<List<String>> results = act(ControlWire.REPLACEMENT, name);
+        return results.isEmpty()
+                ? java.util.Optional.empty()
+                : java.util.Optional.of(ReplacementInfo.of(results.get(0)));
+    }
+
+    /** Every replacement this server knows about, in flight or finished. */
+    public List<ReplacementInfo> replacements() {
+        List<ReplacementInfo> all = new java.util.ArrayList<>();
+        for (List<String> row : act(ControlWire.REPLACEMENT)) {
+            all.add(ReplacementInfo.of(row));
+        }
+        return all;
+    }
+
+    /**
+     * Moves the name to the new version.
+     *
+     * <p>Refused with {@code PRV-4014} when the new version has not caught up, or when the two
+     * cannot be brought to the same position in their input: a cutover at different positions
+     * would leave the records between them in neither version's output, or in both.
+     */
+    public ReplacementInfo cutOver(String name) {
+        return one(act(ControlWire.CUTOVER, name), name);
+    }
+
+    /** Puts the replaced version back, while it is still retained. */
+    public ReplacementInfo rollBack(String name) {
+        return one(act(ControlWire.ROLLBACK, name), name);
+    }
+
+    /** Ends a replacement that has not cut over, releasing the candidate. */
+    public ReplacementInfo abandonReplacement(String name) {
+        return one(act(ControlWire.ABANDON, name), name);
+    }
+
+    /** Confirms a cutover: the replaced version is released, and there is no rollback after this. */
+    public ReplacementInfo finishReplacement(String name) {
+        return one(act(ControlWire.FINISH, name), name);
+    }
+
+    /**
+     * Sets how fast the backfill reads history, up to the ceiling the replacement was started with.
+     *
+     * <p>A ceiling, not a suggestion: above it the server refuses rather than quietly reading
+     * faster than an operator allowed.
+     */
+    public ReplacementInfo throttleBackfill(String name, long recordsPerSecond) {
+        return one(act(ControlWire.BACKFILL, name, "throttle", Long.toString(recordsPerSecond)), name);
+    }
+
+    /** Stops the backfill reading, without giving up what it has read. */
+    public ReplacementInfo pauseBackfill(String name) {
+        return one(act(ControlWire.BACKFILL, name, "pause"), name);
+    }
+
+    public ReplacementInfo resumeBackfill(String name) {
+        return one(act(ControlWire.BACKFILL, name, "resume"), name);
+    }
+
+    private static ReplacementInfo one(List<List<String>> results, String name) {
+        if (results.isEmpty()) {
+            throw new PravahaClientException(
+                    ClientErrors.QUERY_REFUSED,
+                    "the server accepted the request but said nothing about the replacement of '" + name + "'",
+                    false);
+        }
+        return ReplacementInfo.of(results.get(0));
+    }
+
     /** Stops a query without releasing it; its view keeps answering at the frontier it reached. */
     public void pause(String name) {
         act(ControlWire.PAUSE, name);

@@ -73,6 +73,10 @@ public final class PravahaCli {
                 case "register" -> new ServerCommand(out, err).register(rest);
                 case "queries" -> new ServerCommand(out, err).queries(rest);
                 case "drop", "pause", "resume" -> new ServerCommand(out, err).lifecycle(command, rest);
+                case "replace" -> new ServerCommand(out, err).replace(rest);
+                case "cutover", "rollback", "abandon", "finish", "throttle", "pause-backfill", "resume-backfill" ->
+                    new ServerCommand(out, err).replacement(command, rest);
+                case "replacements" -> new ServerCommand(out, err).replacements(rest);
                 case "subscribe" -> new ServerCommand(out, err).subscribe(rest);
                 case "version" -> {
                     out.println("pravaha " + version());
@@ -139,6 +143,24 @@ public final class PravahaCli {
         out.println("            --snapshot prints the view's rows first ('-- snapshot at frontier F'), then");
         out.println("            every commit after them, none missed; without it the stream starts at the");
         out.println("            next commit and a read of the view beside it can miss the one in flight.");
+        out.println();
+        out.println("  replace   --name <view> --sql-file <path> [--keys 0,1] [--backfill history|none]");
+        out.println("            [--rate-limit N] [--cutover manual|auto] [--rollback-retention PT1H] [--wait]");
+        out.println("            Start a blue/green replacement: a new version beside the running one,");
+        out.println("            backfilled from the source and spliced onto the live stream. The name keeps");
+        out.println("            answering the old version until you cut over.");
+        out.println();
+        out.println("  replacements [--name <view>] [--url ...]");
+        out.println("            How the replacements this server knows about are getting on.");
+        out.println();
+        out.println("  cutover | rollback | abandon | finish   --name <view> [--url ...]");
+        out.println("            Move the name to the new version; put the old one back while it is still");
+        out.println("            retained; end a replacement that has not cut over; or confirm one, which");
+        out.println("            releases the version it replaced and ends the chance to roll back.");
+        out.println();
+        out.println("  throttle  --name <view> --rate N   |   pause-backfill | resume-backfill --name <view>");
+        out.println("            Control a backfill while it runs. The rate is a ceiling the replacement was");
+        out.println("            started with; above it the server refuses.");
         out.println();
         out.println("  pause | resume | drop   --name <view> [--url ...]");
         out.println("            Lifecycle. A computation is released when its last name is dropped.");

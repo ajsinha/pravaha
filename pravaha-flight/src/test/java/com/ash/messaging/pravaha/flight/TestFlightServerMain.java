@@ -71,7 +71,7 @@ public final class TestFlightServerMain {
      * trade#0}, so an SDK's listing can be checked against a real server. Every other name has no
      * feed of its own and is fed by {@link #startFeeding}, as before.
      */
-    private static com.ash.messaging.pravaha.registry.SourceFeed stalledFeeds(
+    static com.ash.messaging.pravaha.registry.SourceFeed stalledFeeds(
             String name,
             com.ash.messaging.pravaha.runtime.exec.QueryExecution execution,
             List<String> streams,
@@ -240,8 +240,11 @@ public final class TestFlightServerMain {
                                 "tier = '" + principal.claim("tier").orElse("none") + "'")
                         : AccessDecision.deny("only analysts read " + viewName)
                 : SecurityPolicy.PERMISSIVE;
-        QueryRegistry registry = new QueryRegistry(catalog, policy, AuditSink.NONE, tradeSchema)
-                .feedingFrom(TestFlightServerMain::stalledFeeds);
+        // A source that has nothing in it, so that a client in another language can drive a
+        // blue/green replacement here (ADR-046): a backfill over an empty stream is caught up at
+        // its first poll. Rows still arrive by being pushed, exactly as they did before.
+        QueryRegistry registry =
+                new QueryRegistry(catalog, policy, AuditSink.NONE, tradeSchema).feedingFrom(new QuietBackfillSource());
 
         PravahaFlightServer configured = new PravahaFlightServer(catalog).hosting(registry);
         if (authenticated) {

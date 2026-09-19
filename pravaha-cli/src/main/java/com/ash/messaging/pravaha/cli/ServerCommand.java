@@ -27,6 +27,7 @@ import com.ash.messaging.pravaha.sdk.ClientOptions;
 import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;
 import com.ash.messaging.pravaha.sdk.flight.QueryResult;
 import com.ash.messaging.pravaha.sdk.flight.RegisteredQueryInfo;
+import com.ash.messaging.pravaha.sdk.flight.ReplacementInfo;
 import com.ash.messaging.pravaha.sdk.flight.Row;
 import com.ash.messaging.pravaha.sdk.flight.Subscription;
 
@@ -117,6 +118,132 @@ final class ServerCommand {
             return PravahaCli.EXIT_OK;
         } catch (RuntimeException e) {
             return fail(e);
+        }
+    }
+
+    /**
+     * {@code pravaha replace}: a new version of a registered query, beside the running one.
+     *
+     * <p>It prints what the server says and stops. The cutover is a separate command on purpose --
+     * it is the moment the answer changes -- unless {@code --cutover auto} says the operator does
+     * not want to be asked. {@code --wait} holds the terminal until the backfill has caught up, so
+     * a script can start one and then cut over without polling.
+     */
+    int replace(List<String> arguments) {
+        Args args = Args.parse(arguments);
+        String name = args.require("name");
+        String sql = sqlFrom(args);
+        List<Integer> keys = new ArrayList<>();
+        for (String ordinal : args.get("keys", "0").split(",")) {
+            keys.add(Integer.parseInt(ordinal.strip()));
+        }
+        List<String> options = new ArrayList<>();
+        args.get("backfill").ifPresent(value -> options.add("backfill=" + value.strip()));
+        args.get("rate-limit").ifPresent(value -> options.add("backfill.rate.limit=" + value.strip()));
+        args.get("cutover").ifPresent(value -> options.add("cutover=" + value.strip()));
+        args.get("rollback-retention").ifPresent(value -> options.add("rollback.retention=" + value.strip()));
+
+        try (PravahaFlightClient client = connect(args)) {
+            ReplacementInfo replacement =
+                    client.replace(name, sql, keys, options.isEmpty() ? null : String.join(";", options));
+            print(replacement);
+            if (args.has("wait")) {
+                replacement = awaitCaughtUp(client, name);
+                print(replacement);
+            }
+            out.println(Ansi.dim("'" + name + "' still answers the version it answered before; "
+                    + "`pravaha cutover --name " + name + "` is what moves it"));
+            return PravahaCli.EXIT_OK;
+        } catch (RuntimeException e) {
+            return fail(e);
+        }
+    }
+
+    /** {@code cutover}, {@code rollback}, {@code abandon} and {@code finish}, which take a name. */
+    int replacement(String verb, List<String> arguments) {
+        Args args = Args.parse(arguments);
+        String name = args.require("name");
+        try (PravahaFlightClient client = connect(args)) {
+            ReplacementInfo replacement =
+                    switch (verb) {
+                        case "cutover" -> client.cutOver(name);
+                        case "rollback" -> client.rollBack(name);
+                        case "abandon" -> client.abandonReplacement(name);
+                        case "finish" -> client.finishReplacement(name);
+                        case "throttle" -> client.throttleBackfill(name, Long.parseLong(args.require("rate")));
+                        case "pause-backfill" -> client.pauseBackfill(name);
+                        case "resume-backfill" -> client.resumeBackfill(name);
+                        default -> throw new Args.UsageException("unknown replacement command '" + verb + "'");
+                    };
+            print(replacement);
+            return PravahaCli.EXIT_OK;
+        } catch (RuntimeException e) {
+            return fail(e);
+        }
+    }
+
+    /** {@code pravaha replacements}: every replacement a server knows about, in flight or finished. */
+    int replacements(List<String> arguments) {
+        Args args = Args.parse(arguments);
+        try (PravahaFlightClient client = connect(args)) {
+            java.util.Optional<String> name = args.get("name");
+            List<ReplacementInfo> all = name.isPresent()
+                    ? client.replacement(name.get()).map(List::of).orElse(List.of())
+                    : client.replacements();
+            if (all.isEmpty()) {
+                out.println(Ansi.dim("no query is being replaced"));
+                return PravahaCli.EXIT_OK;
+            }
+            out.println(Ansi.bold("NAME\tSTATE\tHISTORY\tROWS/S\tLIVE\tROLLBACK"));
+            for (ReplacementInfo replacement : all) {
+                out.println(replacement.name() + "\t" + replacement.state() + "\t" + replacement.historyRows()
+                        + "\t" + replacement.rowsPerSecond() + "\t"
+                        + replacement.partitionsLive() + "/" + replacement.partitions() + "\t"
+                        + (replacement.rollbackAvailable() ? "until " + replacement.rollbackUntil() : "-"));
+            }
+            return PravahaCli.EXIT_OK;
+        } catch (RuntimeException e) {
+            return fail(e);
+        }
+    }
+
+    private ReplacementInfo awaitCaughtUp(PravahaFlightClient client, String name) {
+        long deadline = System.nanoTime() + java.time.Duration.ofHours(24).toNanos();
+        while (System.nanoTime() < deadline) {
+            ReplacementInfo replacement = client.replacement(name)
+                    .orElseThrow(() -> new IllegalStateException("'" + name + "' is no longer being replaced"));
+            if (!"BACKFILLING".equals(replacement.state())) {
+                return replacement;
+            }
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return replacement;
+            }
+        }
+        throw new IllegalStateException("'" + name + "' has not caught up in a day");
+    }
+
+    private void print(ReplacementInfo replacement) {
+        out.println(Ansi.good(
+                        replacement.state().toLowerCase(java.util.Locale.ROOT).replace('_', ' '))
+                + " " + replacement.name()
+                + Ansi.dim("  candidate=" + replacement.candidate() + "  replacing=" + replacement.replacing()));
+        out.println(Ansi.dim("  history " + replacement.historyRows() + " rows"
+                + (replacement.partitions() > 0
+                        ? ", " + replacement.partitionsLive() + " of " + replacement.partitions()
+                                + " partitions on the live stream"
+                        : "")
+                + ", " + replacement.rowsPerSecond() + " rows/s"
+                + (replacement.rateLimit() > 0 ? " (limit " + replacement.rateLimit() + ")" : "")
+                + (replacement.paused() ? ", paused" : "")
+                + ", lag " + replacement.lagNanos() / 1_000_000 + " ms"));
+        if (replacement.rollbackAvailable()) {
+            out.println(Ansi.dim("  the version it replaced is retained until " + replacement.rollbackUntil()));
+        }
+        if (replacement.failure() != null) {
+            err.println(Ansi.bad(replacement.failureCode() + "  " + replacement.failure()));
         }
     }
 
