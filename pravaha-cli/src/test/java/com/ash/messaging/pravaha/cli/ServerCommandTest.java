@@ -162,6 +162,17 @@ class ServerCommandTest {
     }
 
     @Test
+    void registerRefusesAParameterRatherThanDroppingIt() {
+        // HLP-12: `register --param` was documented and never existed; an ignored value would have
+        // registered the query without it.
+        Result result = run(
+                "register", "--url", "grpc://localhost:1", "--name", "v", "--sql", "SELECT 1 FROM t", "--param", "EU");
+
+        assertThat(result.code()).isEqualTo(PravahaCli.EXIT_USAGE);
+        assertThat(result.err()).contains("register takes no parameters");
+    }
+
+    @Test
     void anUnknownCommandIsAUsageError() {
         Result result = run("subcsribe", "--view", "v");
 

@@ -183,6 +183,19 @@ class CliAgainstServerTest {
     }
 
     @Test
+    void aPlaceholderInARegistrationIsRefusedBecauseNothingOnTheWireBindsIt() {
+        // HLP-12. CONTINUOUS_QUERIES §9 documented `pravaha register --param`, which never existed:
+        // the Flight register action carries no values, so only an embedded QueryRegistry binds
+        // them. What a `?` registered over the wire meets is a refusal, and this pins which one.
+        CliResult refused = cli(
+                "register", "--url", url, "--name", "swaps", "--sql", SQL + " WHERE product_type = ?", "--keys", "0");
+
+        assertThat(refused.code()).isEqualTo(PravahaCli.EXIT_FAILED);
+        assertThat(refused.err()).contains("PRV-2060");
+        assertThat(registry.names()).doesNotContain("swaps");
+    }
+
+    @Test
     void lifecycleCommandsWork() {
         cli("register", "--url", url, "--name", "trade_feed", "--sql", SQL, "--keys", "0");
 

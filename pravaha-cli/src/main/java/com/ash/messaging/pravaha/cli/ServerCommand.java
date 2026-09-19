@@ -81,6 +81,14 @@ final class ServerCommand {
 
     int register(List<String> arguments) {
         Args args = Args.parse(arguments);
+        // HLP-12. CONTINUOUS_QUERIES once documented `register --param`, and an unknown option is
+        // otherwise ignored, so a value copied from it would have been dropped without a word. The
+        // register action carries no parameters; only an embedded QueryRegistry binds them.
+        if (args.has("param") || args.has("params")) {
+            throw new Args.UsageException("register takes no parameters: the server's register action cannot "
+                    + "carry bound values. Write the value into the SQL, or register once without it and "
+                    + "filter by that column at read time (subscribe --filter, or query with --params)");
+        }
         String name = args.require("name");
         String sql = sqlFrom(args);
         List<Integer> keys = new ArrayList<>();

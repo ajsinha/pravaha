@@ -896,11 +896,18 @@ client.query("SELECT total FROM user_volume WHERE user_id = ?", "u1");
 client.query("SELECT total FROM user_volume WHERE user_id = ?", ["u1"])
 ```
 
-A registered query may also carry bound values:
+A registered query may also carry bound values, **in embedded use only** — through
+`QueryRegistry.register(name, sql, keys, principal, BoundParameters.of(...))`:
 
-```bash
-pravaha register --name eu_spend --sql "SELECT ... WHERE region = ?" --param EU
+```java
+registry.register("eu_spend", "SELECT ... WHERE region = ?", List.of(0), principal, BoundParameters.of("EU"));
 ```
+
+Nothing that registers over the wire binds values: the Flight `register` action (and so
+`pravaha register` and both SDKs) carries a name, SQL, keys, a sink and a retention, and no
+parameters. A `?` in a query registered that way is refused with `PRV-2060` (no value bound), and
+`pravaha register` refuses `--param` rather than ignore it. Write the literal into the SQL — or,
+better, let the view carry the column, as below.
 
 **A bound value is part of the plan, so it is part of the fingerprint**: two bindings of the same SQL
 are two computations, not one shared. That is the truth rather than a policy — and it is precisely
