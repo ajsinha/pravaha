@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **304 findings carrying a
-status — 189 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
+only part that is kept current. Counting the register as it stands: **305 findings carrying a
+status — 190 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6608,4 +6608,10 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** OPEN — the fix for LANE-1 keeps a shared lane to one query per stream. Lifting it needs one ingest per stream per shared lane, fanned out by the multiplexer to every pipeline reading that stream, where today each registration opens its own feed.
 > **Disposition:** POST-GA — a node reaches its query target without lane sharing (W9-11); this limits how much memory sharing saves for a thousand queries over one source, not whether answers are right
+
+### CKPT-1 (HIGH) — a registered query's view was snapshotted after the checkpoint's cut, not at it
+
+> **Status:** FIXED — `7832120`: the view is committed and snapshotted inside the lane's control task, at the marker (`QueryExecution.cuttingOutputWith`, `RegisteredQuery.cutOutput`, under a `commitLock` every view commit also holds). `TransactionalSinkDeliveryTest#aRowAppliedButNotYetCommittedWhenTheCheckpointIsTakenIsInsideIt`, seed-proven by skipping the commit at the marker.
+> **Found while tying transactional sinks to checkpoints.** The checkpoint snapshotted the view from the checkpointing thread after the lanes had answered, capturing whatever had been committed by then rather than the cut. A row applied before the marker but not yet committed was in neither the snapshot nor the replay -- lost at a restore -- and a row after the marker that had already been committed was in both, so it was restored and then replayed. Single-lane registered queries, which is every registered query.
+> **Why it mattered:** a restore that silently lost or doubled rows of the served answer, independent of any sink.
 
