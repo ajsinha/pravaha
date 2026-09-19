@@ -203,6 +203,21 @@ is refused with `PRV-4001`, not degraded; with it, the refusal moves out to the 
 (`max-overflow-slabs` per store, `max-bytes` per node). [`OPERATIONS.md`](OPERATIONS.md) has the
 settings and what the tier costs.
 
+**A key index spills with its state, including its slot table.** A join side and a windowed
+aggregate are a fixed-width slot table (sixteen bytes a slot, at most 0.7 full) over the same
+`RowStore` everything else uses. With the tier on, the table is held in segments of 16 MiB: up to
+the store's own RAM ceiling in RAM, the rest in mapped files. So a spilled query's *memory* stops
+growing with its key count — which it used to do, about 100 bytes a key — and the table can pass the
+two-gigabyte limit a single region has (its ceiling is 2<sup>30</sup> slots, refused by `PRV-4001`).
+
+**How much it slows down depends entirely on whether the page cache still holds the state.** While
+it does, spilled state runs within about 2x of RAM. When state passes the memory the node can give
+it, every lookup at a random key becomes a page fault — two or three of them, for the slot table,
+the index block and the row — and throughput on an NVMe falls to a thousand or two operations a
+second, with a tail measured in seconds while the kernel reclaims. ADR-044 has both measurements and
+OPERATIONS turns them into sizing advice: **size the page cache for the index**, and treat the tier
+as survival rather than capacity.
+
 ---
 
 ## 7. Control tasks, and the aligned barrier

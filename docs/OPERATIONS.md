@@ -99,15 +99,53 @@ ceiling) is simply kept; compaction never loses a block. Per query, `pravaha_que
 `_live_bytes`, `_fragmentation`, `_compactions` and `_slabs_released` (below) show whether it is
 keeping up.
 
-**Should you turn it on?** ADR-044's measurement drove join and windowed-aggregate state to 16 times
-a 64 MiB ceiling on an NVMe laptop: spilled state ran at 0.44–1.15x of the same load in RAM (inserts
-the worst, probes and window firing nearly unaffected) while the files stayed in the page cache, and
-compaction brought the files back to the live state in about a second per gigabyte freed. So: on a
-node with a local disk whose queries could surprise it, yes — with `max-bytes` below what the disk
-holds, and the directory on a **real disk** (a tmpfs `/tmp` is RAM, and spilling there only moves the
-out-of-memory to the kernel). What was not measured is state larger than free RAM, which will be
-slower than those numbers. A join's key index spills with its rows, except its slot table: 16 bytes a
-slot, at most 0.7 full, always in RAM.
+**Should you turn it on?** Yes on a node with a local disk whose queries could surprise it — with
+`max-bytes` below what the disk holds, and the directory on a **real disk** (a tmpfs `/tmp` is RAM,
+and spilling there only moves the out-of-memory to the kernel). But turn it on knowing what it is
+for: **surviving state you cannot hold, not serving it.** ADR-044 measured it twice.
+
+*While the page cache holds the spilled files* — the state is bigger than the query's memory ceiling
+but smaller than the node's free RAM — spilled state ran at 0.44–1.15x of the same load all in RAM
+(inserts the worst, probes and window firing nearly unaffected), at 1–16x a 64 MiB ceiling, and
+compaction brought the files back down to the live state in about a second per gigabyte freed.
+
+*Past that* — the second measurement caps the whole process, page cache included (cgroup v2
+`MemoryMax`, swap off), so the state really is larger than the memory it may use. On the same NVMe
+laptop, a join at 1–4x the cap and a windowed aggregate at 1–4x:
+
+| | inside the page cache | past it |
+|---|---|---|
+| Join insert (sequential) | 1.2–2.2 M rows/s | 1.3 M/s until the index no longer fits, then 5–6 k/s |
+| Join probe at a random key | 160 k–540 k /s | 1,400–2,600 /s |
+| Join retract at a random key | 75 k–1.4 M /s | 1,000–1,100 /s |
+| Aggregate update at a random key | 480 k–1 M /s | 1,300–4,700 /s |
+| Latency, p50 / p99 | 0.3–13 µs / 1–25 µs | 0.05–1 ms / 0.8–6 ms, with maxima of 0.7–1.6 s |
+
+Each random lookup past the cache is two or three major faults — the index's slot table, its block,
+then the row — and each fault reads `read_ahead_kb` (128 KiB here) to use 4 KiB of it, so the device
+is saturated at a few thousand operations a second rather than by its IOPS. Lowering
+`/sys/block/<device>/queue/read_ahead_kb` for the spill device is the lever that exists today; the
+engine cannot ask for `MADV_RANDOM` on JDK 21. The maxima are the kernel reclaiming (and writing
+dirty pages back) inside an operation, not the device.
+
+**So size the page cache for the index.** Roughly 100 bytes per distinct key per join side (the slot
+table, 16 bytes a slot at a load of at most 0.7, plus its key/value block) and about 340 bytes per
+windowed accumulator, plus whatever rows the workload actually touches; keep that inside the node's
+free RAM and the first set of numbers holds. A key index spills whole now — its slot table included,
+in 16 MiB segments — so a spilled query's memory stops growing with its key count, at the cost of
+those page faults once the table is not cached. A table is bounded at 2<sup>30</sup> slots (about 750
+million keys), past which a growth is refused with `PRV-4001`.
+
+**And leave room for the RAM tier itself.** The ceiling is per state *store*, and a store's key index
+has a slot table budgeted at the same ceiling, so one spilling query's floor is *up to twice* the
+ceiling per store — a windowed aggregate with `COUNT(DISTINCT)` has two stores, so about four times.
+In the measurement a query with a 64 MiB ceiling held ~480 MiB of anonymous memory (including a
+160 MiB heap) before anything spilled, and under a 512 MiB cgroup limit the kernel OOM-killed it
+rather than the tier saving it. Budget RAM for that floor, page cache for the index, and only then
+count on the disk. Firing a window is separate again: `fire` builds the window's groups on the
+**heap**, one entry per accumulator, so a query with millions of live accumulators needs hundreds of
+megabytes of heap at every watermark advance (1.6 M accumulators threw `OutOfMemoryError` with a
+160 MiB heap; the same window fired at ~375,000 groups/s with 1 GiB).
 
 With it, join and windowed-aggregate state that outgrows memory is written to mapped files and the
 query keeps running, slower, instead of dying with `PRV-4001`. It is off by default, and stays so

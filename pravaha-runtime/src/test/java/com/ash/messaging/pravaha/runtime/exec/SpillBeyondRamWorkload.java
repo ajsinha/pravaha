@@ -367,7 +367,12 @@ public final class SpillBeyondRamWorkload {
                     throw new IllegalStateException(fired + " results for " + groups + " groups");
                 }
             } catch (OutOfMemoryError e) {
-                out.put("fire", "OutOfMemoryError(heap " + Runtime.getRuntime().maxMemory() / MIB + "MiB)");
+                // fire() puts every accumulator's handle in an ArrayList<Long>, a HashMap entry per
+                // group and a WindowResult per group on the heap, so a window of a few million
+                // groups needs hundreds of MiB of heap whatever the tier holds. Recorded, not hidden.
+                out.put(
+                        "fire",
+                        "OutOfMemoryError-at-heap-" + Runtime.getRuntime().maxMemory() / MIB + "MiB");
             }
             out.put("mapped_mib", mib(overflow.bytesMapped()));
             out.put("on_disk_mib", mib(du(dir)));

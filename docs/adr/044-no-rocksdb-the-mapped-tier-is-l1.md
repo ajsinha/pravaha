@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — **supersedes the RocksDB tier of [ADR-006](006-tiered-state.md) and design D5**. The mapped tier exists (ADR-037 B2); the four improvements below are built and the measurement is recorded, with its recommendation: the tier stays off by default |
+| Status | Accepted — **supersedes the RocksDB tier of [ADR-006](006-tiered-state.md) and design D5**. The mapped tier exists (ADR-037 B2); the four improvements below are built, a key index's slot table spills too, and the tier is measured twice — page-cached, and with the process capped below its state. Recommendation unchanged: the tier stays off by default, and is sized as survival rather than capacity |
 | Date | 2026-09-19 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-006 (tiered state), ADR-037 (state that degrades), design D5 and §14 |
@@ -44,9 +44,11 @@ RocksDB is not added, and design D5's "L1 = RocksDB for spill/recovery" no longe
 | Compaction: space reclaimed as keys churn | Freed blocks are reused within their size class and never defragmented, so a churning query's files can outgrow its live state | **Slab compaction**: move live blocks out of sparse slabs and release them | **Built** 2026-09-19: `RowStore.compactOverflow`, driven by each state's owner between batches, triggered by `pravaha.state.spill.compaction-threshold` |
 | A disk budget in bytes | A ceiling in slabs (`max-overflow-slabs`); a full disk surfaces as an I/O failure | **A byte quota**, and a coded refusal before the directory runs out rather than after | **Built** 2026-09-19: `pravaha.state.spill.max-bytes`, the node's budget across every query (`PRV-4005`), and a free-space check before every slab (`PRV-4006`); `max-overflow-slabs` kept as the per-store ceiling |
 | Every state shape spills | `COUNT(DISTINCT)` keeps an on-heap set per group and is refused with the tier on (`PRV-3023`) | **Distinct sets in `RowStore`**, so they spill like everything else | **Built** 2026-09-19: one off-heap entry per `(group, slice, column, value)` with a count, in a `RowStore` that takes the overflow tier (`DistinctValueCounts`); `PRV-3023` retired |
-| Years of production measurement | Correctness-tested, never measured with state much larger than RAM | **A measurement** at several multiples of RAM, and a decision from it on whether the tier should be on by default | **Done** 2026-09-19: `SpillTierMeasurementIT`, 1x–16x a 64 MiB ceiling (below); recommendation: stays off by default |
+| Years of production measurement | Correctness-tested, never measured with state much larger than RAM | **A measurement** at several multiples of RAM, and a decision from it on whether the tier should be on by default | **Done** 2026-09-19, twice: `SpillTierMeasurementIT`, 1x–16x a 64 MiB ceiling with the files page-cached, and `SpillBeyondRamMeasurementIT`, state 1x–16x the memory the process may use at all (cgroup v2, swap off). Both below; recommendation: stays off by default |
+| An index that does not grow the heap or the RAM as keys arrive | The key index's slot table stayed in RAM at 16 bytes a slot, and could not pass 2<sup>26</sup> slots | **Segments, and the tier for the ones past a RAM budget** | **Built** 2026-09-19: `SlotTable`, 16 MiB segments, RAM up to the store's own ceiling and mapped past it, to 2<sup>30</sup> slots |
 
-Those four are the work this ADR commits to. None of them needs a key-value store.
+Those four were the work this ADR committed to; the fifth row is what the first measurement found
+and the second closed. None of them needs a key-value store.
 
 ## As built
 
@@ -136,6 +138,47 @@ space stubbed below a slab, the slab is refused with `PRV-4006`, no file, and it
 returned; a `RowStore` over a two-slab quota stops with `PRV-4005` holding exactly two overflow slabs
 and carries on through its free list.
 
+### A key index's slot table spills too
+
+`VariableKeyStateMap` — a join side's key index, a windowed aggregate's accumulators, the distinct
+values — is a slot table (sixteen bytes a slot, fingerprint and handle, at most 0.7 full) over a
+`RowStore`. The store spilled; the table did not, so a spilled map's RAM still grew with its keys, and
+the table was one `int`-addressed region, which stopped it at 2<sup>26</sup> slots (about 47 million
+keys) — the next doubling computed `capacity * 16` as a negative size. Both are gone:
+
+- **Segments.** The table is held as segments of 2<sup>20</sup> slots (16 MiB) (`SlotTable`), so it
+  reaches 2<sup>30</sup> slots, 16 GiB of table, about 750 million keys. A growth past that is
+  refused with `PRV-4001` by message rather than overflowing.
+- **Mapped past a budget.** With the tier on, segments up to the store's own RAM ceiling
+  (`storeMaxSlabs × storeSlabBytes`: 64 MiB for a join side) are RAM and the rest are mapped files
+  from the same `MappedFileMemoryAccess`, counted against `max-bytes` like any slab. A spilled
+  map's RAM is now bounded — store ceiling plus table budget — whatever its key count. The handle
+  word is stored complemented, so an empty slot is zero: a fresh sparse segment needs no write, and
+  its disk is taken only where keys land.
+- **A refusal leaves the map as it was.** A growth is decided before the entry is created, and the
+  new table is built whole before the old one is released, so a segment the quota or the disk
+  refuses (`PRV-4005`, `PRV-4006`) leaves every key in place and the asking key absent. While a table
+  grows the old and new are both held: a growth needs room for both, 1.5 times the new table.
+- **Counted.** The mapped segments are files in the spill directory beside the slabs, and
+  `spillStatistics()` (hence `pravaha_query_spill_bytes`) counts them as held and live.
+
+Proven by `SlotTableSpillPropertyTest` (7): 200,000 random creates, updates, removals and lookups
+over 40,000 variable-width keys against a `HashMap`, with 4 KiB segments and a two-segment RAM budget
+so the table is mostly mapped, the store compacted every 10,000 operations, and the table's RAM
+asserted inside its budget after every operation — four seeds; a table of many RAM segments against
+a `HashMap`; a growth refused by a 64 KiB quota with the map unchanged. And by
+`JoinIndexSpillPropertyTest` (four seeds): a join whose left slot table is mapped, driven with random
+inserts, duplicate rows, retractions and probes against an on-heap model, compacted between batches,
+checkpointed and restored into a fresh join over a fresh spill directory halfway, and every key
+probed at the end. Seed-proven: with every segment kept in RAM 9 of the 11 fail; with the growth
+after the insert, the quota test fails on the asking key; with every slot addressed in segment 0, 6
+fail; with compaction not rewriting slots, all four map seeds fail.
+
+What this does and does not buy is in the second measurement below: it bounds a spilled join's RAM
+(at 4x the cap, 192 MiB of the left table was mapped; held in RAM it would have been anonymous
+memory on top of the 431 MiB the cgroup measured, past a 512 MiB cap with swap forbidden), and it
+does not make a probe of a mapped table cheap once the table is not in the page cache.
+
 ## Measurement, 2026-09-19
 
 `SpillTierMeasurementIT` (`pravaha-runtime`, `exec`; excluded from the default build as `*IT`, run with
@@ -206,9 +249,12 @@ key index entirely in RAM: 690 MiB of index at 16x beside a 64 MiB row ceiling �
 bounded only by a four-gigabyte backstop, so a "spilled" join's memory still grew with its key count.
 The index's store now takes the tier too, under the same RAM ceiling as the rows (`JoinSide`, and it is
 compacted with them); the table above is the second run. What stays in RAM is the index's slot table,
-16 bytes a slot at a load of at most 0.7 — 256 MiB of the 320 MiB at 16x. That is the floor of this
-design: a probe walks the slot table, and moving it to disk would make every probe a page fault. A
-join with tens of millions of keys should be sized with it in mind.
+16 bytes a slot at a load of at most 0.7 — 256 MiB of the 320 MiB at 16x. This run called that the
+floor of the design, on the grounds that a mapped table makes a cold probe a page fault. It was
+moved to the tier anyway (*A key index's slot table spills too*, above), because the alternative is
+RAM that grows without bound, and the measurement beyond RAM below shows that once state is not
+cached a probe is a page fault with or without the table in RAM: the rows and the index store are
+mapped either way.
 
 **What the numbers show.**
 
@@ -222,7 +268,7 @@ join with tens of millions of keys should be sized with it in mind.
   lane that owns the state), and gives the disk back: 1,921 MiB to 513 MiB (aggregate), 1,171 MiB to
   197 MiB (join) — to the live state, as the unit tests assert.
 - **The memory ceiling now holds for everything but index slot tables**, which is what the tier is
-  for.
+  for. (Since closed: the slot tables spill too.)
 
 **Recommendation: leave the tier off by default.** The numbers do not argue against the tier — its
 cost is modest, bounded and flat across multiples — and a deployment with a local disk and state that
@@ -231,12 +277,166 @@ turning it on for everyone, for three reasons the measurement makes concrete: th
 that is safe to assume (on this very machine the obvious default, the temp directory, is RAM, where
 "spilling" would only move the out-of-memory to the kernel); the cost of state larger than free RAM —
 the only case where the tier is doing its real job — is unmeasured here and will be worse than the
-table; and a query that spills changes from failing loudly at its ceiling to running at half speed,
+table (the measurement below says how much worse: two to three orders of magnitude for random
+access); and a query that spills changes from failing loudly at its ceiling to running at half speed,
 which an operator should choose knowing `pravaha_query_spill_bytes` is there to watch. The default
 stays `enabled` unset with no directory, i.e. off.
+
+## Measurement beyond RAM, 2026-09-19
+
+The measurement above says what it did not measure: state larger than the machine's free RAM. This
+one measures it, by capping the process rather than by finding a smaller machine.
+
+**The method, and why it is honest.** `SpillBeyondRamMeasurementIT` (`pravaha-runtime`, `exec`; also
+excluded from the default build as `*IT`) runs each workload in a JVM of its own under
+
+```
+systemd-run --user --scope -p MemoryMax=512M -p MemorySwapMax=0 java -Xmx160m … SpillBeyondRamWorkload …
+```
+
+— a cgroup v2 whose `memory.max` the kernel charges **everything** to: the heap, the off-heap RAM
+tier, and the page cache of the mapped files, mapped pages included. Swap is forbidden, so anonymous
+memory cannot leave and the only thing reclaim can take is file pages: once the mapped state passes
+what is left, the kernel writes dirty pages back and faults pages in from the device, which is
+precisely the condition being measured. Nothing in the engine is changed to fake it — no `madvise`,
+no unmap-and-remap, no dropped caches — and the run proves the cap held by reading its own cgroup:
+`memory.max`, `memory.peak` (512.0 MiB, i.e. pinned at the cap in every capped run), `memory.events`
+`max` (79,810 reclaim events at 1x, 1,836,205 at 4x — at 0 there would have been no pressure), and
+its own major faults and block-device bytes from `/proc/self/{stat,io}`. Each size is run twice: once
+capped, once with no cap at all, where 35 GiB of free RAM holds the same files in the page cache.
+That pair is the curve: the same code, the same state, cached and not. The cap was 512 MiB for the join and 1 GiB for the windowed aggregate, which does not fit in 512 MiB at all — see below.
+
+The knobs (`pravaha.spill.beyond.*`) are in the test's javadoc. The test is **skipped, with the
+reason, where a scope cannot be given a memory limit** — no systemd user instance, or the memory
+controller not delegated to it; it checks by starting a scope with `MemoryMax=64M` and reading
+`memory.max` back from inside it. What produced the numbers below, on a spill directory on the NVMe:
+
+```
+./mvnw -o -pl pravaha-runtime -am test -Dtest=SpillBeyondRamMeasurementIT \
+    -Dsurefire.failIfNoSpecifiedTests=false -Dpravaha.spill.beyond.dir=<a real disk> \
+    -Dpravaha.spill.beyond.kinds=join -Dpravaha.spill.beyond.multiples=1,2,4,16 \
+    -Dpravaha.spill.beyond.timeoutMinutes=25
+# and, for the aggregate, -Dpravaha.spill.beyond.kinds=aggregate -Dpravaha.spill.beyond.capMiB=1024
+#   -Dpravaha.spill.beyond.multiples=1,2,4  (plus -Dpravaha.spill.beyond.heapMiB=1024 for the firing)
+```
+
+**The machine.** AMD Ryzen AI 9 HX 370 (Zen 5 + Zen 5c, 12 cores, 24 threads), 61 GiB RAM, Crucial
+P310 1 TB NVMe (`nvme0n1p2`, ext4, `read_ahead_kb` 128, `none` scheduler), kernel 7.0.4, JDK
+21.0.12. The spill directory was on that NVMe, never `/tmp` (a tmpfs here, i.e. RAM). Another
+session was using the machine, which the uncapped runs show as ±2x noise between sizes; the capped
+runs are limited by the device and are steadier. Single-threaded, as a lane is.
+
+**Join** (`BIGINT` and a short string per row, distinct keys, 252 bytes of state per row including
+its index; 64 MiB RAM tier; state is the sum of the RAM tier and every mapped byte). "capped" is the
+512 MiB process, "cached" the same run with no cap:
+
+| state / cap | state | rows | insert/s capped | cached | probe/s capped | cached | retract/s capped | cached |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 457 MiB | 2,133,246 | 1,144,643 | 2,225,777 | 20,498 | 544,197 | 14,404 | 1,378,335 |
+| 2x | 911 MiB | 4,266,493 | 1,276,012 | 699,311 | 2,556 | 160,234 | 1,086 | 118,805 |
+| 4x | 1,820 MiB | 8,532,986 | 19,500 | 1,546,514 | 1,437 | 310,796 | 1,045 | 798,682 |
+| 16x | 7,276 MiB | 34,131,944 | did not finish | 2,170,483 | — | 159,754 | — | 75,364 |
+
+Latency of one operation, capped, in the same runs (a probe is a right row in and out again):
+
+| state / cap | insert p50 / p99 / max | probe p50 / p99 / max | retract p50 / p99 / max |
+|---|---|---|---|
+| 1x | 0.4 µs / 14 µs / 191 ms | 3.8 µs / 393 µs / **1.25 s** | 4.6 µs / 360 µs / **1.63 s** |
+| 2x | 0.4 µs / 21 µs / 9.3 ms | 459 µs / 918 µs / 7.7 ms | 852 µs / 5.8 ms / 27 ms |
+| 4x | 0.5 µs / 590 µs / 27 ms | 786 µs / 1.3 ms / 12.7 ms | 1.05 ms / 1.7 ms / 7.9 ms |
+
+Cached, for the same phases, p50 is 0.3–13 µs and p99 1.2–25 µs at every size.
+
+**Windowed aggregate** (`COUNT`, `SUM`, `COUNT(DISTINCT)`, four slices, 341 bytes of state per
+accumulator including its index and its distinct value; 64 MiB RAM tier per store). At the 512 MiB
+cap only 1x ran: **4x and 16x were killed by the kernel OOM killer before any of this could be
+measured** (`Failed with result 'oom-kill'` in the journal), because a windowed aggregate with a
+distinct count has *four* RAM tiers — the accumulators' store and its slot table, the distinct
+values' store and its slot table, each budgeted at the 64 MiB ceiling — and 256 MiB of those plus a
+160 MiB heap and the JVM's own ~70 MiB is about 480 MiB of anonymous memory, which cannot be
+reclaimed with swap off. The rest of the aggregate line was measured at a **1 GiB cap**:
+
+| cap | state / cap | state | accumulators | update/s capped | cached | insert/s capped | cached |
+|---|---|---|---|---|---|---|---|
+| 512 MiB | 1x | 513 MiB | 1,575,384 | 4,119 | 1,028,136 | 745,279 | 832,473 |
+| 512 MiB | 4x, 16x | — | — | *OOM-killed: the RAM tiers do not fit the cap* | | | |
+| 1 GiB | 1x | 1,025 MiB | 3,150,768 | 4,701 | 491,143 | 328,997 | 485,806 |
+| 1 GiB | 2x | 2,050 MiB | 6,301,536 | 1,312 | 609,641 | 80,484 | 607,376 |
+| 1 GiB | 4x | 4,101 MiB | 12,603,076 | ~1,300 | 481,912 | ~11,800 | 681,958 |
+
+(4x capped did not finish its 500,000-update phase inside the 20-minute budget; its insert took
+1,065 s for 12.6 million accumulators and its updates ran at 1,300–1,400/s for 130 s.) Update
+latency capped at the 1 GiB cap: p50 53 µs / p99 786 µs / max 677 ms at 1x, and p50 786 µs / p99 1.7
+ms / max 8.8 ms at 2x, against p50 1.5–1.9 µs cached.
+
+**Firing a window is heap-bound before it is disk-bound.** `SlicedAggregateState.fire` puts every
+accumulator's handle in an `ArrayList<Long>`, then a `HashMap` entry and a `WindowResult` per group,
+so its heap is the size of the *whole state*, not of the window: with a 160 MiB heap it threw
+`OutOfMemoryError` at every size measured, including 1.58 million accumulators, capped and uncapped
+alike. With a 1 GiB heap and the files cached it ran at 375,070 groups/s (394k groups) and 306,793/s
+(1.58M groups). A node running windowed aggregates with millions of live accumulators has to be given
+heap for the firing, whatever the spill tier does with the state itself — which is a separate finding
+from this ADR's subject, recorded here because the measurement is what found it.
+
+**Where it degrades, and why.**
+
+- **The cliff is the index leaving the page cache, not the rows.** Inserting is sequential — fresh
+  blocks carved in order — and stays above a million rows a second at 1x and 2x. At 4x it collapses
+  to 19,500/s, and the per-second trace in the log says exactly where: the first 5.9 million rows go
+  in at 1.4 M/s, and then the rate falls to 5–6 k/s. 5.9 million keys is where the slot table
+  doubles from 2<sup>23</sup> to 2<sup>24</sup> slots — 128 MiB of table to 256 MiB, of which 64 MiB
+  may be RAM — and the index (table plus its key/value store) no longer fits in the ~100 MiB of page
+  cache the cap leaves. From that point every insert is a random write into a mapped page that is not
+  resident. At 16x the run did not finish the insert in 25 minutes: 12.9 million rows of 34.1
+  million, the last stretch at about 4.3 k/s.
+- **Uniformly random probes are page faults, and each one costs far more than a page.** At 4x, 431,136
+  probes took 1,043,427 major faults — 2.4 per probe, which is the shape of the structure: the slot
+  table, then the index block, then the row, each a random address in a different mapped file. The
+  process read **124 GiB** for those probes: 124 KiB per fault, which is this device's
+  `read_ahead_kb` of 128 — the kernel's read-around for a file-backed fault. A 252-byte row is
+  fetched by reading about 300 KiB. The phase sustained ~423 MB/s, i.e. **the tier beyond RAM is
+  bandwidth-bound by read-around, not by the device's IOPS**: 1,043,427 faults of 4 KiB would have
+  been 4 GiB, not 124 GiB. Java 21 cannot ask for `MADV_RANDOM` (no `madvise` without JNI or a
+  preview API), so the levers available today are the device's `read_ahead_kb` and not letting the
+  index leave RAM.
+- **A probe writes.** Every match marks the stored row (`OFFSET_MATCHED`, which is what lets an
+  outer join know whether a row ever matched), so a probe dirties the row's page: 1.6 GiB written
+  during the 4x probe phase, which reclaim must write back before it can take the page.
+- **The tail is reclaim, not the device.** A capped probe's p99 is 0.4–1.3 ms — one or two faults —
+  but the maximum reached 1.25 s at 1x and a retraction 1.63 s, while the cgroup was at its limit:
+  an allocation that has to reclaim, and possibly write back, waits for it. There is no such tail in
+  any cached run (max 2.8–15 ms, those being the JIT and the table's growth).
+- **Throughput at the cliff is ~1,000–2,500 operations a second on this NVMe**, against 160,000–540,000
+  cached: 100–400x. That is the honest number for "state much larger than RAM, keys touched at
+  random". The windowed aggregate behaves the same way — 4,700 random updates a second at 1x of a
+  1 GiB cap, 1,312 at 2x, ~1,300 at 4x, against 480,000–610,000 cached — which is the point: the
+  cost is the page fault, not the operator.
+- **The RAM tiers are a floor the cap has to clear.** The ceilings are per *store*, and a map is a
+  store plus a slot table budgeted at the same ceiling, so a windowed aggregate with a distinct
+  count has four of them: at a 64 MiB ceiling its anonymous memory settles at about 256 MiB
+  (measured: `anon` 465–488 MiB with a 160 MiB heap) before a byte spills. A node must have that
+  much per such query *and* page cache for the index, or the kernel kills it rather than the tier
+  saving it. This is better than it was — the slot tables used to be unbounded RAM, 512 MiB of table
+  at the 4x point — but it is a floor, not nothing.
+
+**What this changes.** Nothing about the decision — an LSM tree would be reading the same device
+through the same page cache, with its own amplification — and everything about the sizing advice:
+the spill tier is a way for a query to survive state it cannot hold, not a way to serve it. The
+number to size is the *index*: about 100 bytes a key of slot table and index block per join side
+(and it is now bounded, not growing in RAM), plus the rows a workload actually touches. Keep that
+inside the node's free RAM and the first measurement's numbers hold; go past it with uniformly
+random keys and throughput falls to the device's fault rate. OPERATIONS says so with the numbers.
 
 ## What would make this wrong
 
 State that must be larger than a node's disk-backed address space, or random-access patterns over
-cold state so severe that page-cache behaviour loses to an LSM tree's. Either would show up in the
-measurement above, which is why the measurement is part of the decision rather than an afterthought.
+cold state so severe that page-cache behaviour loses to an LSM tree's. The second measurement is the
+closest this has come: uniformly random keys over state four times the memory the process may use
+run at about a thousand operations a second, and most of the device's bandwidth goes on read-around
+the workload never uses. An LSM tree would be reading the same device through the same page cache —
+with its own write amplification — so this is not yet an argument for RocksDB. It would become one
+if a deployment needed *sustained* random access over cold state at a rate a block cache with its
+own admission policy, and reads that fetch a block rather than a page-cache window, could serve and
+this cannot. The cheaper answers come first: `MADV_RANDOM` once the engine is on a JDK where it can
+ask for it (JDK 22's FFM, no preview flag), a lower `read_ahead_kb` on the spill device, and sizing
+the node's free RAM for the index.

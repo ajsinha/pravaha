@@ -157,13 +157,16 @@ corrected by late data arrives as a retraction of the old answer followed by the
   so, where a `jdbc` update moves the watermark column, does a poll: a keyed view of the rows is
   right, and an aggregate, a join or an append-only sink over such a stream is refused at
   registration with `PRV-2042` naming the fix, rather than counting a row again (SCAN-1).
-- **The spill tier, measured only while the page cache holds it.** There is no RocksDB, by decision
+- **The spill tier is survival, not capacity.** There is no RocksDB, by decision
   ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
-  the on-disk tier, and its last four pieces are built — `COUNT(DISTINCT)` spills, churned slabs are
-  compacted away, the disk is budgeted in bytes (`max-bytes`, refusing by code before it fills), and
-  a measurement at 1–16x a 64 MiB ceiling found spilled state within about 2x of RAM throughput. It
-  stays off by default. Not measured: state larger than the machine's free RAM, and a join's key
-  index keeps its slot table (16 bytes a slot) in RAM.
+  the on-disk tier, and it is finished — `COUNT(DISTINCT)` spills, churned slabs are compacted away,
+  the disk is budgeted in bytes (`max-bytes`, refusing by code before it fills), and a key index
+  spills whole, its slot table included, so a spilled query's memory no longer grows with its keys.
+  It stays off by default. Both measurements are in the ADR: while the page cache holds the files,
+  spilled state runs within about 2x of RAM; with the process capped below its state (cgroup v2,
+  swap off), uniformly random access falls to 1,000–2,500 operations a second on an NVMe — two or
+  three page faults each, and 124 KiB read per fault from the kernel's read-around — with a tail of
+  seconds while the kernel reclaims. Size the page cache for the index.
 - **The rest of the design's `CREATE CONTINUOUS QUERY` grammar.** The statement registers, and
   `DROP`, `PAUSE`, `RESUME CONTINUOUS QUERY` and `SHOW CONTINUOUS QUERIES` manage, over Flight SQL
   and in the embedded engine; the PostgreSQL gateway stays read-only and refuses them (`PRV-6211`).

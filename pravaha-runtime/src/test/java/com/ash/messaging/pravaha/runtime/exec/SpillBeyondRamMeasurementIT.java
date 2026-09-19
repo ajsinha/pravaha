@@ -165,7 +165,9 @@ class SpillBeyondRamMeasurementIT {
                 result.remove("last_progress");
                 for (String pair : line.substring(7).split(" ")) {
                     int eq = pair.indexOf('=');
-                    result.put(pair.substring(0, eq), pair.substring(eq + 1));
+                    if (eq > 0) {
+                        result.put(pair.substring(0, eq), pair.substring(eq + 1));
+                    }
                 }
             }
         }
