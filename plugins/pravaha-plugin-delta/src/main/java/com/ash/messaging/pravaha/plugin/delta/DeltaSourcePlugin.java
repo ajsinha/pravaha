@@ -54,7 +54,9 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * without an adapter in between.
  *
  * <p>Configuration: {@code path} (required, the table root); {@code stream} (optional, defaults to
- * the directory name); {@code start.version} (optional, defaults to the latest snapshot).
+ * the directory name); {@code start.version} (optional, defaults to the latest snapshot);
+ * {@code event.time} (optional, a {@code TIMESTAMP} column whose value stamps each row's event time;
+ * a server passes the stream's declared {@code eventTime} as this).
  */
 public final class DeltaSourcePlugin implements StreamSourcePlugin {
 
@@ -62,6 +64,7 @@ public final class DeltaSourcePlugin implements StreamSourcePlugin {
     private String path;
     private String streamName;
     private long startVersion = -1L;
+    private String eventTimeColumn = "";
     private Engine engine;
     private Table table;
     private StreamSchema schema;
@@ -86,6 +89,7 @@ public final class DeltaSourcePlugin implements StreamSourcePlugin {
                 asPath.getFileName() == null
                         ? instanceName
                         : asPath.getFileName().toString());
+        this.eventTimeColumn = context.get("event.time", "").strip();
         String start = context.get("start.version", "");
         if (!start.isBlank()) {
             try {
@@ -111,7 +115,7 @@ public final class DeltaSourcePlugin implements StreamSourcePlugin {
             Snapshot snapshot = startVersion < 0
                     ? table.getLatestSnapshot(engine)
                     : table.getSnapshotAsOfVersion(engine, startVersion);
-            this.schema = DeltaTypes.toStreamSchema(streamName, snapshot.getSchema());
+            this.schema = withEventTime(DeltaTypes.toStreamSchema(streamName, snapshot.getSchema()));
         } catch (TableNotFoundException e) {
             throw new PravahaException(
                     DeltaErrors.TABLE_UNREADABLE,
@@ -120,6 +124,28 @@ public final class DeltaSourcePlugin implements StreamSourcePlugin {
                             + "files is not one.",
                     e);
         }
+    }
+
+    /**
+     * Marks the {@code event.time} column as the schema's event time (HLP-6). Every row used to be
+     * stamped zero whatever the table held, so a watermark never left 1970 and an event-time window
+     * over a Delta table never closed.
+     */
+    private StreamSchema withEventTime(StreamSchema derived) {
+        if (eventTimeColumn.isEmpty()) {
+            return derived;
+        }
+        if (!derived.hasField(eventTimeColumn)
+                || derived.field(derived.indexOf(eventTimeColumn)).type().typeName()
+                        != com.ash.messaging.pravaha.api.data.TypeName.TIMESTAMP_LTZ) {
+            throw new com.ash.messaging.pravaha.api.ConfigurationException(
+                    DeltaErrors.TABLE_UNREADABLE,
+                    "plugin '" + instanceName + "' event.time names '" + eventTimeColumn + "', which is not a "
+                            + "TIMESTAMP column of the table at " + path + "; its columns are " + derived.fields());
+        }
+        StreamSchema.Builder builder = StreamSchema.builder(derived.name());
+        derived.fields().forEach(field -> builder.field(field.name(), field.type()));
+        return builder.eventTime(eventTimeColumn).build();
     }
 
     @Override
@@ -171,7 +197,8 @@ public final class DeltaSourcePlugin implements StreamSourcePlugin {
 
     @Override
     public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
-        return new DeltaPartitionReader(engine, table, partition.streamName(), startVersion, resumeFrom);
+        return new DeltaPartitionReader(engine, table, partition.streamName(), startVersion, resumeFrom)
+                .stampingEventTimeFrom(eventTimeColumn);
     }
 
     /** The stream this plugin exposes. */

@@ -86,6 +86,43 @@ class DeltaSourcePluginTest {
     }
 
     @Test
+    void aDeclaredEventTimeColumnStampsEachRowWithItsOwnTime(@TempDir Path dir) {
+        // HLP-6. Every row was stamped zero whatever the table held, so the watermark never left
+        // 1970 and an event-time window over a Delta table never closed.
+        Path table = dir.resolve("people");
+        new DeltaTableFixture(table.toString())
+                .appendTimed(
+                        List.of(1L, 2L, 3L),
+                        List.of("a", "b", "c"),
+                        java.util.Arrays.asList(1_700_000_000_000_000L, 1_700_000_005_000_000L, null));
+
+        DeltaSourcePlugin plugin = new DeltaSourcePlugin();
+        plugin.configure(new Ctx("delta", Map.of("path", table.toString(), "stream", "people", "event.time", "ts")));
+        plugin.open();
+        StreamSchema schema = plugin.discoverSchemas().get(0);
+        assertThat(schema.eventTimeOrdinal()).hasValue(2);
+        try (DeltaCollector collector = new DeltaCollector(schema);
+                PartitionReader reader =
+                        plugin.createReader(plugin.partitions("people").get(0), SourceOffset.BEGINNING)) {
+            List<RowView> rows = drain(plugin, reader, collector);
+
+            assertThat(rows.stream().map(RowView::eventTimestampNanos))
+                    .as("Delta's microseconds as nanoseconds, and zero where the row has none")
+                    .containsExactlyInAnyOrder(1_700_000_000_000_000_000L, 1_700_000_005_000_000_000L, 0L);
+        }
+    }
+
+    @Test
+    void anEventTimeThatIsNotATimestampColumnIsRefused(@TempDir Path dir) {
+        Path table = dir.resolve("people");
+        DeltaTableFixture.withRows(table.toString(), 1, 1, "row");
+        DeltaSourcePlugin plugin = new DeltaSourcePlugin();
+        plugin.configure(new Ctx("delta", Map.of("path", table.toString(), "stream", "people", "event.time", "name")));
+
+        assertThatThrownBy(plugin::open).hasMessageContaining("event.time").hasMessageContaining("name");
+    }
+
+    @Test
     void aLaterCommitArrivesAsMoreInsertions(@TempDir Path dir) {
         Path table = dir.resolve("people");
         DeltaTableFixture fixture = DeltaTableFixture.withRows(table.toString(), 1, 2, "row");

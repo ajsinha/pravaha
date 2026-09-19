@@ -52,12 +52,15 @@ final class ParquetDecoder implements FeedRecordDecoder {
     private Path file;
     private long recordNumber;
     private Group current;
+    private int eventTimeOrdinal = -1;
+    private long lastEventTimeNanos = Long.MIN_VALUE;
 
     @Override
     public void open(Path path, StreamSchema streamSchema) {
         close();
         this.file = path;
         this.schema = streamSchema;
+        this.eventTimeOrdinal = streamSchema.eventTimeOrdinal().orElse(-1);
         this.recordNumber = 0;
         try {
             this.reader = ParquetReader.builder(new GroupReadSupport(), new org.apache.hadoop.fs.Path(path.toUri()))
@@ -77,6 +80,7 @@ final class ParquetDecoder implements FeedRecordDecoder {
     @Override
     public void write(RowWriter writer) {
         Group group = current;
+        lastEventTimeNanos = Long.MIN_VALUE;
         for (int ordinal = 0; ordinal < schema.fieldCount(); ordinal++) {
             String name = schema.field(ordinal).name();
             if (group.getFieldRepetitionCount(name) == 0) {
@@ -93,6 +97,11 @@ final class ParquetDecoder implements FeedRecordDecoder {
         }
     }
 
+    @Override
+    public long lastEventTimeNanos() {
+        return lastEventTimeNanos;
+    }
+
     private void setField(RowWriter writer, int ordinal, Group group, String name) {
         TypeName type = schema.field(ordinal).type().typeName();
         try {
@@ -101,7 +110,13 @@ final class ParquetDecoder implements FeedRecordDecoder {
                 case INT8 -> writer.setByte(ordinal, (byte) group.getInteger(name, 0));
                 case INT16 -> writer.setShort(ordinal, (short) group.getInteger(name, 0));
                 case INT32, DATE -> writer.setInt(ordinal, group.getInteger(name, 0));
-                case INT64, TIMESTAMP_LTZ, TIME -> writer.setLong(ordinal, group.getLong(name, 0));
+                case INT64, TIMESTAMP_LTZ, TIME -> {
+                    long value = group.getLong(name, 0);
+                    writer.setLong(ordinal, value);
+                    if (ordinal == eventTimeOrdinal) {
+                        lastEventTimeNanos = value;
+                    }
+                }
                 case FLOAT32 -> writer.setFloat(ordinal, group.getFloat(name, 0));
                 case FLOAT64 -> writer.setDouble(ordinal, group.getDouble(name, 0));
                 case BYTES -> writer.setBytes(ordinal, group.getBinary(name, 0).getBytes());

@@ -485,6 +485,13 @@ should get three tolerances rather than the worst of them. Configuration does th
 time. Without it every row carries the time it was read, the watermark runs at wall-clock, and a
 windowed query reports `RUNNING` over an empty view for ever.
 
+The node hands that column to the stream's source as its `event.time` option, and each source
+stamps a row with the column's value. `feedfile` and `delta` did not until HLP-6: they ignored the
+option and stamped every row zero, so the watermark stayed at 1970 and no event-time window over a
+feed or a Delta table ever closed. Both use it now; the column must be a `TIMESTAMP` (for `delta`, a
+Delta `TIMESTAMP`, whose microseconds become nanoseconds), a row whose value is null is stamped zero,
+and a column that is missing or of another type is refused when the source is configured.
+
 ### How hard a source is polled
 
 **Aerospike: `scan.interval.ms`, one second by default.** The plugin is scan-only (ADR-029), and

@@ -58,6 +58,9 @@ final class DeltaTableFixture {
 
     static final StructType SCHEMA = new StructType().add("id", LongType.LONG).add("name", StringType.STRING);
 
+    /** {@link #SCHEMA} with a third column, {@code ts}, a Delta TIMESTAMP (microseconds). */
+    static final StructType TIMED_SCHEMA = SCHEMA.add("ts", io.delta.kernel.types.TimestampType.TIMESTAMP);
+
     private final Engine engine;
     private final String path;
     private boolean created;
@@ -77,16 +80,24 @@ final class DeltaTableFixture {
 
     /** Appends one commit's worth of rows, creating the table on the first call. */
     long append(List<Long> ids, List<String> names) {
+        return append(new SimpleBatch(ids, names, null));
+    }
+
+    /** Appends rows with a {@code ts} column, in microseconds since the epoch as Delta stores it. */
+    long appendTimed(List<Long> ids, List<String> names, List<Long> micros) {
+        return append(new SimpleBatch(ids, names, micros));
+    }
+
+    private long append(SimpleBatch batch) {
         Table table = Table.forPath(engine, path);
         TransactionBuilder builder = table.createTransactionBuilder(
                 engine, "Pravaha-Test", created ? Operation.WRITE : Operation.CREATE_TABLE);
         if (!created) {
-            builder = builder.withSchema(engine, SCHEMA);
+            builder = builder.withSchema(engine, batch.getSchema());
         }
         Transaction txn = builder.build(engine);
         Row txnState = txn.getTransactionState(engine);
 
-        ColumnarBatch batch = new SimpleBatch(ids, names);
         CloseableIterator<FilteredColumnarBatch> logical = closeable(
                 List.of(new FilteredColumnarBatch(batch, Optional.empty())).iterator());
         CloseableIterator<FilteredColumnarBatch> physical =
@@ -123,17 +134,21 @@ final class DeltaTableFixture {
         };
     }
 
-    /** Two columns, held as boxed lists because a fixture's job is to be obviously correct. */
-    private record SimpleBatch(List<Long> ids, List<String> names) implements ColumnarBatch {
+    /** Two columns, or three with times, held as boxed lists because a fixture's job is to be obviously correct. */
+    private record SimpleBatch(List<Long> ids, List<String> names, List<Long> micros) implements ColumnarBatch {
 
         @Override
         public StructType getSchema() {
-            return SCHEMA;
+            return micros == null ? SCHEMA : TIMED_SCHEMA;
         }
 
         @Override
         public ColumnVector getColumnVector(int ordinal) {
-            return ordinal == 0 ? new LongVector(ids) : new StringVector(names);
+            return switch (ordinal) {
+                case 0 -> new LongVector(ids, LongType.LONG);
+                case 1 -> new StringVector(names);
+                default -> new LongVector(micros, io.delta.kernel.types.TimestampType.TIMESTAMP);
+            };
         }
 
         @Override
@@ -142,10 +157,10 @@ final class DeltaTableFixture {
         }
     }
 
-    private record LongVector(List<Long> values) implements ColumnVector {
+    private record LongVector(List<Long> values, DataType type) implements ColumnVector {
         @Override
         public DataType getDataType() {
-            return LongType.LONG;
+            return type;
         }
 
         @Override

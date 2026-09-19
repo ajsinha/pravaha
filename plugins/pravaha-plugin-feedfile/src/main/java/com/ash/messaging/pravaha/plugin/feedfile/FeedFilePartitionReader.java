@@ -121,11 +121,14 @@ final class FeedFilePartitionReader implements PartitionReader {
                 quarantine(e);
                 return emitted;
             }
+            // A feed file carries no event time unless a column holds one, and inventing one from
+            // the file's timestamp would move every window boundary to whenever the partner happened
+            // to upload. When the stream declares the column, the row carries its value: stamping
+            // zero regardless kept the watermark in 1970, and no event-time window ever closed
+            // (HLP-6).
+            long eventTime = decoder.lastEventTimeNanos();
             writer.weight(1L)
-                    // A feed file carries no event time unless a column holds one, and inventing one
-                    // from the file's timestamp would move every window boundary to whenever the
-                    // partner happened to upload.
-                    .eventTimestampNanos(0L)
+                    .eventTimestampNanos(eventTime == Long.MIN_VALUE ? 0L : eventTime)
                     .sequence(sequence++)
                     .commit();
             recordsInFile++;

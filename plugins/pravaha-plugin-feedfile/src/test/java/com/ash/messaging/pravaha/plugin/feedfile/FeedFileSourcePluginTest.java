@@ -261,4 +261,41 @@ class FeedFileSourcePluginTest {
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("single character");
     }
+
+    @Test
+    void aDeclaredEventTimeColumnStampsEachRowWithItsOwnTime(@TempDir Path dir) throws IOException {
+        // HLP-6. Every row was stamped with event time zero whatever the file held, so the watermark
+        // never left 1970 and an event-time window over a feed never closed.
+        Files.writeString(dir.resolve("orders-01.csv"), "1,1700000000000000000\n2,1700000005000000000\n3,\n");
+        Map<String, String> config = new HashMap<>(Map.of(
+                "dir", dir.toString(),
+                "schema", "id:INT64,ts:TIMESTAMP?",
+                "stream", "orders",
+                "completion", "immediate",
+                "event.time", "ts"));
+        FeedFileSourcePlugin plugin = new FeedFileSourcePlugin();
+        plugin.configure(new Ctx("orders", config));
+        plugin.open();
+        try (FeedCollector collector = new FeedCollector(plugin.schema());
+                PartitionReader reader =
+                        plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
+            List<RowView> rows = drain(plugin, reader, collector);
+
+            assertThat(rows.stream().map(RowView::eventTimestampNanos))
+                    .as("the column's value, and zero where the row has none")
+                    .containsExactly(1_700_000_000_000_000_000L, 1_700_000_005_000_000_000L, 0L);
+        }
+    }
+
+    @Test
+    void anEventTimeNamingNoColumnIsRefused(@TempDir Path dir) {
+        assertThatThrownBy(() -> open(dir, Map.of("event.time", "nope")))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("event.time")
+                .hasMessageContaining("nope");
+        assertThatThrownBy(() -> open(dir, Map.of("event.time", "name")))
+                .as("a text column cannot be an event time")
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name");
+    }
 }

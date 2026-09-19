@@ -75,6 +75,12 @@ final class DeltaPartitionReader implements PartitionReader {
     private StructType logicalSchema;
     private List<DataType> columnTypes;
 
+    /** The column whose value is each row's event time, or blank to stamp zero (HLP-6). */
+    private String eventTimeColumn = "";
+
+    /** {@link #eventTimeColumn}'s ordinal in {@link #logicalSchema}, or -1. */
+    private int eventTimeOrdinal = -1;
+
     private CloseableIterator<FilteredColumnarBatch> openFile;
     /** The file {@link #openFile} reads, kept only so a failure on it can be reported by name. */
     private DeltaScanFiles.ScanFile openFileHandle;
@@ -89,6 +95,12 @@ final class DeltaPartitionReader implements PartitionReader {
         this.streamName = streamName;
         this.startVersion = startVersion;
         this.offset = DeltaOffset.parse(resumeFrom);
+    }
+
+    /** Stamps each row with this column's value rather than zero; blank keeps zero. */
+    DeltaPartitionReader stampingEventTimeFrom(String column) {
+        this.eventTimeColumn = column == null ? "" : column;
+        return this;
     }
 
     @Override
@@ -233,6 +245,7 @@ final class DeltaPartitionReader implements PartitionReader {
         if (logicalSchema == null) {
             logicalSchema = snapshot.getSchema();
             columnTypes = DeltaTypes.columnTypes(logicalSchema);
+            eventTimeOrdinal = eventTimeColumn.isEmpty() ? -1 : logicalSchema.indexOf(eventTimeColumn);
         }
     }
 
@@ -310,11 +323,19 @@ final class DeltaPartitionReader implements PartitionReader {
                 ColumnVector vector = batch.getColumnVector(column);
                 DeltaTypes.copyValue(vector, batchCursor, writer, column, columnTypes.get(column));
             }
+            // No event time is invented: deriving one from the commit timestamp would silently move
+            // window boundaries to whenever the table happened to be written. The stream's declared
+            // column is used when there is one; stamping zero regardless kept the watermark in
+            // 1970, and no event-time window over a table ever closed (HLP-6).
+            long eventTime = 0L;
+            if (eventTimeOrdinal >= 0) {
+                ColumnVector times = batch.getColumnVector(eventTimeOrdinal);
+                if (!times.isNullAt(batchCursor)) {
+                    eventTime = Math.multiplyExact(times.getLong(batchCursor), 1_000L);
+                }
+            }
             writer.weight(weight)
-                    // No event time is invented. A query that needs event time names the column in
-                    // its DDL; deriving one from the commit timestamp would silently move window
-                    // boundaries to whenever the table happened to be written.
-                    .eventTimestampNanos(0L)
+                    .eventTimestampNanos(eventTime)
                     .sequence(rowInFile)
                     .commit();
             batchCursor++;

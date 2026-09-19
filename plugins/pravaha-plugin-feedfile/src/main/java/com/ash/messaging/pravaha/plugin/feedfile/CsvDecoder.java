@@ -50,6 +50,8 @@ final class CsvDecoder implements FeedRecordDecoder {
     private Path file;
     private long lineNumber;
     private String current;
+    private int eventTimeOrdinal = -1;
+    private long lastEventTimeNanos = Long.MIN_VALUE;
 
     CsvDecoder(char delimiter, String nullLiteral, boolean skipHeader) {
         this.delimiter = delimiter;
@@ -62,6 +64,7 @@ final class CsvDecoder implements FeedRecordDecoder {
         close();
         this.file = path;
         this.schema = streamSchema;
+        this.eventTimeOrdinal = streamSchema.eventTimeOrdinal().orElse(-1);
         this.lineNumber = 0;
         try {
             this.reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
@@ -90,9 +93,15 @@ final class CsvDecoder implements FeedRecordDecoder {
                     file.getFileName() + " line " + lineNumber + " has " + fields.size() + " fields, but the "
                             + "declared schema has " + schema.fieldCount() + ": " + line);
         }
+        lastEventTimeNanos = Long.MIN_VALUE;
         for (int i = 0; i < fields.size(); i++) {
             setField(writer, i, fields.get(i));
         }
+    }
+
+    @Override
+    public long lastEventTimeNanos() {
+        return lastEventTimeNanos;
     }
 
     private String readLine() {
@@ -167,7 +176,13 @@ final class CsvDecoder implements FeedRecordDecoder {
                 case INT8 -> writer.setByte(ordinal, Byte.parseByte(value));
                 case INT16 -> writer.setShort(ordinal, Short.parseShort(value));
                 case INT32, DATE -> writer.setInt(ordinal, Integer.parseInt(value));
-                case INT64, TIMESTAMP_LTZ, TIME -> writer.setLong(ordinal, Long.parseLong(value));
+                case INT64, TIMESTAMP_LTZ, TIME -> {
+                    long parsed = Long.parseLong(value);
+                    writer.setLong(ordinal, parsed);
+                    if (ordinal == eventTimeOrdinal) {
+                        lastEventTimeNanos = parsed;
+                    }
+                }
                 case FLOAT32 -> writer.setFloat(ordinal, Float.parseFloat(value));
                 case FLOAT64 -> writer.setDouble(ordinal, Double.parseDouble(value));
                 default -> writer.setString(ordinal, value);

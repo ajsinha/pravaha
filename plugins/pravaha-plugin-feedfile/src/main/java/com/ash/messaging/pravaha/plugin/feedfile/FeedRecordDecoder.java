@@ -49,6 +49,12 @@ interface FeedRecordDecoder extends AutoCloseable {
     /** Writes the record {@link #advance} positioned on. */
     void write(RowWriter writer);
 
+    /**
+     * The event time of the record {@link #write} last wrote: the value of the schema's event-time
+     * column, or {@link Long#MIN_VALUE} when the schema marks none or the record's is null (HLP-6).
+     */
+    long lastEventTimeNanos();
+
     /** Skips {@code count} records, for resuming mid-file. */
     void skip(long count);
 

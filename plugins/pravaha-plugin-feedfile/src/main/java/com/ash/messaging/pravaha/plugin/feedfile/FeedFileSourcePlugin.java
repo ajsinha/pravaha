@@ -27,6 +27,7 @@ import java.util.function.Supplier;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
@@ -60,7 +61,8 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * ({@code marker}, {@code stable} or {@code immediate}, default {@code stable}),
  * {@code completion.marker.suffix} (default {@code .done}), {@code completion.quiet.ms} (default
  * {@code 5000}), {@code archive.dir}, {@code quarantine.dir}, {@code delimiter}, {@code skip.header},
- * {@code null.literal}.
+ * {@code null.literal}, {@code event.time} (the column holding each row's event time; a server
+ * passes the stream's declared {@code eventTime} as this).
  */
 public final class FeedFileSourcePlugin implements StreamSourcePlugin {
 
@@ -79,6 +81,34 @@ public final class FeedFileSourcePlugin implements StreamSourcePlugin {
         return "feedfile";
     }
 
+    /**
+     * Marks the column {@code event.time} names as the schema's event time, so the decoders stamp
+     * each row with its value (HLP-6). The {@code name:TYPE} grammar cannot mark one, and a server
+     * passes the stream's declared {@code eventTime} as this option, as it does to every source.
+     */
+    private StreamSchema withEventTime(StreamSchema parsed, PluginContext context) {
+        String column = context.get("event.time", "").strip();
+        if (column.isEmpty()) {
+            return parsed;
+        }
+        if (!parsed.hasField(column)) {
+            throw new ConfigurationException(
+                    FeedFileErrors.BAD_CONFIGURATION,
+                    "plugin '" + instanceName + "' event.time names '" + column + "', which is not a column of "
+                            + "stream '" + streamName + "'");
+        }
+        TypeName type = parsed.field(parsed.indexOf(column)).type().typeName();
+        if (type != TypeName.TIMESTAMP_LTZ) {
+            throw new ConfigurationException(
+                    FeedFileErrors.BAD_CONFIGURATION,
+                    "plugin '" + instanceName + "' event.time names '" + column + "', a " + type + " column; an "
+                            + "event time is a TIMESTAMP column (nanoseconds since the epoch)");
+        }
+        StreamSchema.Builder builder = StreamSchema.builder(parsed.name());
+        parsed.fields().forEach(field -> builder.field(field.name(), field.type()));
+        return builder.eventTime(column).build();
+    }
+
     @Override
     public Version version() {
         return new Version(0, 1, 0);
@@ -90,7 +120,7 @@ public final class FeedFileSourcePlugin implements StreamSourcePlugin {
         this.directory = Path.of(context.require("dir"));
         this.streamName = context.get("stream", instanceName);
         String glob = context.get("glob", "*.csv");
-        this.schema = FeedSchemas.parse(streamName, context.require("schema"));
+        this.schema = withEventTime(FeedSchemas.parse(streamName, context.require("schema")), context);
 
         String format = context.get("format", glob.toLowerCase(Locale.ROOT).endsWith(".parquet") ? "parquet" : "csv");
         this.decoders = decoderFactory(format, context);

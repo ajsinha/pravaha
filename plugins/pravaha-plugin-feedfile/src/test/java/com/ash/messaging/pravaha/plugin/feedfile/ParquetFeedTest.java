@@ -113,6 +113,33 @@ class ParquetFeedTest {
     }
 
     @Test
+    void aDeclaredEventTimeColumnStampsParquetRowsToo(@TempDir Path dir) throws IOException {
+        // HLP-6, in the other format: an int64 of nanoseconds read as a TIMESTAMP, named by event.time.
+        writeParquet(dir.resolve("orders-01.parquet"), 7L, 9L);
+        FeedFileSourcePlugin plugin = new FeedFileSourcePlugin();
+        plugin.configure(new Ctx(
+                "orders",
+                Map.of(
+                        "dir", dir.toString(),
+                        "glob", "*.parquet",
+                        "format", "parquet",
+                        "schema", "id:TIMESTAMP,name:STRING,amount:FLOAT64",
+                        "stream", "orders",
+                        "completion", "immediate",
+                        "event.time", "id")));
+        plugin.open();
+        try (FeedCollector collector = new FeedCollector(plugin.schema());
+                PartitionReader reader =
+                        plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
+            while (reader.poll(collector, 64) > 0) {
+                // drain
+            }
+            assertThat(collector.rows().stream().map(RowView::eventTimestampNanos))
+                    .containsExactly(7L, 9L);
+        }
+    }
+
+    @Test
     void aParquetFeedResumesMidFile(@TempDir Path dir) throws IOException {
         writeParquet(dir.resolve("orders-01.parquet"), 1L, 2L, 3L, 4L);
         FeedFileSourcePlugin plugin = open(dir);
