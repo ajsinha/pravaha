@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **307 findings carrying a
-status — 192 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
+only part that is kept current. Counting the register as it stands: **308 findings carrying a
+status — 193 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6626,4 +6626,9 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Status:** FIXED — `8ce8095`: the view snapshot is versioned (v2) and class-exact -- every integral and floating width, `BigDecimal` with its scale, bytes, strings of any length -- keys compare deeply, and a v1 snapshot is refused with `PRV-4002` before any lane state is restored. `ViewSnapshotTypesTest` (4 of 4 failing on the old code) and `ViewCheckpointTypesTest` (an `INT32` point lookup found nothing after a restart); seed-proven by writing `Integer` as a long again, and by removing the pre-restore check, which doubles a restored windowed sum (200 where 100 was fed).
 > **Reported by the exactly-once work, confirmed and found worse.** Integral values came back as `Long`, `FLOAT32` as `Double`, and `DECIMAL` through `longValue()` (12.345 became 12). After a restore an `INT32` lookup missed, an update added a second row for one key, a retraction missed its row, and `changesSince` missed decimal changes, so a joining sink was sent wrong deltas. Separately, `BYTES` keys compared by identity and never matched anything, restored or live.
 > **Why it mattered:** a checkpoint restore -- the recovery path -- silently changed the answer.
+
+### APIX-1 (MEDIUM) — asking the REST API for a stream that does not exist listed every stream that does
+
+> **Status:** FIXED — `ef88578`: `GET /api/v1/streams/{name}` for an unknown name answers without naming the declared streams. Found while building the console's catalog endpoints, which apply the Flight listing's rules through one shared `QueryListing`; `RegistryEndpointsTest` covers the existence rules on the new query, plan and view endpoints (a denied name is 403 whether or not it exists) and that no configured sink credential appears in any response.
+> **Why it mattered:** the SX-5 shape through the HTTP door -- a caller entitled to nothing learned the whole stream catalogue from one refusal.
 
