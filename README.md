@@ -104,7 +104,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
   registered queries on shared lanes, sharing inbox and arena as well as thread — but a shared lane
   carries only one query per stream, because each query is fed separately and two over one stream
   on one lane would count each other's rows. One ingest per stream per lane is not built, so a
-  thousand queries over one source still hold most of their inboxes each (W9-8).
+  thousand queries over one source still hold most of their inboxes each (LANE-2).
 - **Pushdown beyond filters.** Projection and `COUNT`/`SUM` partial-aggregate pushdown are built in
   the planner and the engine and declared by no shipped plugin, so a deployment only pushes filters.
   And when one shared reader serves queries with different filters, it reads unfiltered;
@@ -272,7 +272,7 @@ console is its own artefact in [`console`](console).
 | 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built · blue/green reachable from nothing |
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built |
 | 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ✅ built · gate P7 passed |
-| 9 | — | One node, thousands of queries ([ADR-036](docs/adr/036-one-node-thousands-of-queries.md), [ADR-037](docs/adr/037-state-that-degrades-instead-of-dying.md)) | ✅ built · one item open (W9-8) |
+| 9 | — | One node, thousands of queries ([ADR-036](docs/adr/036-one-node-thousands-of-queries.md), [ADR-037](docs/adr/037-state-that-degrades-instead-of-dying.md)) | ✅ built · lane sharing limited to one query per stream (LANE-2) |
 | 10–11 | 46–62 | GA: ADR-039's known gaps, then cluster mode | ▫️ not started |
 
 Waves 10 and 11 were redefined twice: [ADR-038](docs/adr/038-one-node-ga.md) moved the time-travel

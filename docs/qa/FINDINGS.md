@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **302 findings carrying a
-status — 187 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
+only part that is kept current. Counting the register as it stands: **304 findings carrying a
+status — 189 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6225,8 +6225,7 @@ for a query fed by a source that scans once a second and will never produce one.
 
 ### W9-8 (HIGH) — `LaneMultiplexer` is built, tested and wired to nothing, and it is the answer to the per-query inbox
 
-> **Status:** OPEN — narrowed to the node. The row-format blocker below is gone (W9-9) and the registry now hosts queries on shared lanes through `QueryExecution.startOn` when `QueryRegistry.multiplexingLanes(true)` is called (`0990ed2`, `MultiplexedRegistryTest`). What remains: `PravahaNode` never calls it and no `pravaha.lane.*` key reaches it, so a server always runs a lane per query, and nothing decides which shared lane a registration lands on. The original status, kept for its reasoning: blocked on the row format -- `LaneMultiplexer` was referenced from nothing in `src/main`, and wiring it then would have delivered one stream's rows to queries subscribed to another.
-> **Disposition:** POST-GA — demoted by W9-11: an optimisation on a target already reached
+> **Status:** FIXED — `ebcc6bf`: `pravaha.lane.multiplex.{enabled,lanes,max-queries-per-lane}` (off by default) reaches the registry, and `SharedLanes` places each registration on the least-loaded shared lane below a per-lane ceiling; one that fits nowhere gets a lane of its own rather than a refusal. `pravaha_lane_shared_queries{lane=}`, `pravaha_lane_own_queries` and a `lanes:` describe line show where queries went. `SharedLanePlacementTest`, `NodeLaneSharingTest`, seed-proven three ways. Narrowed by LANE-1: a shared lane carries one query per stream, and a join is never hosted; LANE-2 is what would lift that.
 
 A fourth built-but-unreachable mechanism, after the three Wave 8 found (W8-11 … W8-13). Its own
 javadoc states the goal this wave is for: *"At the density design section 13.7 asks for — ten thousand
@@ -6598,4 +6597,15 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Status:** OPEN — `QueryRegistry.register` asks `mayRegisterQuery` and `mayRead` for every stream the query reads, and nothing about the sink. The `register` audit event records the SQL and not the sink name.
 > **Disposition:** POST-GA — a registrant can only write what they may already read, so this moves permitted data to a destination rather than disclosing forbidden data; but a sink is read by people outside Pravaha, and "who put this there" should be answerable from the audit
 > **What would close it:** a `SecurityPolicy.mayWriteTo(principal, sinkName)` with a default that allows, asked beside `mayRegisterQuery`, and the sink name on the audit event. Until then `SECURITY.md` tells operators to bind only sinks every registrant may write to.
+
+### LANE-1 (HIGH) — two queries over one stream on a shared lane each counted the other's rows
+
+> **Status:** FIXED — `ebcc6bf`: `SharedLanes` never places a second query over the same stream on a shared lane, nor a query reading more than one stream. `SharedLanePlacementTest` and `NodeLaneSharingTest` register two queries over one stream and require each count to be right; with the exclusion removed, `MultiplexedRegistryTest` reads `[8, 1600]` where `[4, 800]` is right.
+> **Found while wiring W9-8.** `LaneMultiplexer` dispatches a row to every pipeline on the lane that reads its stream, which assumes one ingest per stream per lane. The feed layer gives every registration its own feed, so two feeds each copied every row into the one shared inbox and each pipeline was handed both copies. Reachable before this round through `QueryRegistry.multiplexingLanes(true)`, the embedder switch. The old `MultiplexedRegistryTest` passed because it used keyed projections, where a duplicate upsert leaves no trace.
+> **Why it mattered:** a silently doubled answer on the path that was about to become a node setting.
+
+### LANE-2 (MEDIUM) — many queries over one source cannot share a lane, because nothing shares one ingest per stream per lane
+
+> **Status:** OPEN — the fix for LANE-1 keeps a shared lane to one query per stream. Lifting it needs one ingest per stream per shared lane, fanned out by the multiplexer to every pipeline reading that stream, where today each registration opens its own feed.
+> **Disposition:** POST-GA — a node reaches its query target without lane sharing (W9-11); this limits how much memory sharing saves for a thousand queries over one source, not whether answers are right
 
