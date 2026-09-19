@@ -811,6 +811,17 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     /**
+     * Whether rows are still reaching this computation, source by source (FEED-1).
+     *
+     * <p>A source that fails mid-read stops its feed and leaves the query {@code RUNNING}, its view
+     * answering at the frontier it reached; this is where that shows. Every name on the computation
+     * reports the same feed, because they are one computation reading one set of sources.
+     */
+    public FeedStatus feedStatus() {
+        return feed.status();
+    }
+
+    /**
      * The streams this computation reads, in plan order, spelled as {@link #accept(String,
      * RowView)} expects them.
      *

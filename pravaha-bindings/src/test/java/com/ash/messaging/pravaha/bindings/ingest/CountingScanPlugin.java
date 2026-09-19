@@ -96,6 +96,12 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     /** The gate {@link #holdEmptyPollForReaderNumber}'s held poll waits on. Set by the test. */
     static volatile java.util.concurrent.CountDownLatch heldPollGate;
 
+    /**
+     * FEED-1. Thrown by the next scan of any reader once set, as a store that goes away mid-read
+     * throws: a revoked credential, a dropped set. Null means scans succeed.
+     */
+    static volatile RuntimeException failNextScan;
+
     static final StreamSchema SCHEMA = StreamSchema.builder("shared")
             .field("id", Types.int64())
             .field("user_id", Types.string())
@@ -118,6 +124,7 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
         pollDelayMillis = 0;
         holdEmptyPollForReaderNumber = 0;
         heldPollGate = null;
+        failNextScan = null;
     }
 
     /** Appends a record, as a writer to the store would. */
@@ -267,6 +274,10 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
                 // position moves past it once the scan is drained, exactly as LutScanReader's does:
                 // until then position() still names where this scan began.
                 SCANS.incrementAndGet();
+                RuntimeException failure = failNextScan;
+                if (failure != null) {
+                    throw failure;
+                }
                 int size = STORE.size();
                 scanStart = watermark;
                 for (int i = watermark; i < size; i++) {

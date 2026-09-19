@@ -179,6 +179,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         }
 
         List<IngestPump> pumps = new ArrayList<>();
+        // Which stream and partition each pump reads, beside it, so a feed that stops can say where.
+        List<FeedInput> inputs = new ArrayList<>();
         List<AutoCloseable> resources = new ArrayList<>();
         List<AutoCloseable> sharedResources = new ArrayList<>();
         List<SharedPartitionFeed.Member> members = new ArrayList<>();
@@ -271,6 +273,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                             execution.pumpInto(0, stream, reader, policy);
                     attachDeadLetters(pump, queryName, resources);
                     pumps.add(pump);
+                    inputs.add(new FeedInput(stream, partition.index()));
                 }
                 pushed.put(stream, summarise(request.withoutAggregates()) + (partials ? ", partial aggregate" : ""));
             }
@@ -288,19 +291,29 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         String description = describe(partitionCounts, pushed);
         if (members.isEmpty()) {
             // Nothing shared: exactly the feed this returned before SRC-3, including the thread.
-            PumpingFeed feed = new PumpingFeed(queryName, pumps, resources, description, publish);
+            PumpingFeed feed = new PumpingFeed(queryName, pumps, inputs, resources, description, publish)
+                    .redacting(boundTo(bound));
             feed.start();
             return feed;
         }
         // A feed thread only for the streams that kept a reader of their own. A query whose sources
         // are all shared has none at all, which is the other half of what sharing buys.
-        PumpingFeed unshared =
-                pumps.isEmpty() ? null : new PumpingFeed(queryName, pumps, resources, description, publish);
+        PumpingFeed unshared = pumps.isEmpty()
+                ? null
+                : new PumpingFeed(queryName, pumps, inputs, resources, description, publish).redacting(boundTo(bound));
         List<AutoCloseable> owned = new ArrayList<>(sharedResources);
         List<SharedSourceGroup> held = List.copyOf(joined);
         SharedFeed feed = new SharedFeed(members, held, () -> release(held), unshared, owned, description);
         feed.start();
         return feed;
+    }
+
+    /** The bindings of these streams, for {@link FeedRedaction}. */
+    private List<SourceBinding> boundTo(List<String> streams) {
+        return streams.stream()
+                .map(bindings::get)
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     /**

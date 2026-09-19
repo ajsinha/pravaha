@@ -15,11 +15,14 @@
  */
 package com.ash.messaging.pravaha.bindings.ingest;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.registry.FeedStatus;
 import com.ash.messaging.pravaha.registry.SourceFeed;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
 
@@ -60,8 +63,11 @@ final class PumpingFeed implements SourceFeed {
     /** How often the applied frontier is published, and so the visibility latency of a new row. */
     private static final long PUBLISH_INTERVAL_NANOS = 20_000_000L;
 
+    private static final System.Logger LOG = System.getLogger(PumpingFeed.class.getName());
+
     private final String queryName;
     private final List<IngestPump> pumps;
+    private final List<FeedInput> inputs;
     private final List<AutoCloseable> resources;
     private final String description;
     private final Runnable afterDelivery;
@@ -73,14 +79,36 @@ final class PumpingFeed implements SourceFeed {
     private volatile boolean closed;
     private volatile PravahaException failure;
 
+    /** When {@link #failure} was recorded. Written before it, so a reader that sees one sees both. */
+    private volatile Instant stoppedAt;
+
+    /** The pump whose read raised {@link #failure}, or -1 when it was not a read that failed. */
+    private volatile int failedPump = -1;
+
+    /** The pump being polled right now, or -1 between polls. Feed thread only. */
+    private int polling = -1;
+
+    /** Whose option values a recorded failure must not carry. */
+    private volatile List<SourceBinding> bindings = List.of();
+
+    /**
+     * @param inputs which stream and partition each pump reads, in the same order as {@code pumps},
+     *     so a stop can say where it happened (FEED-1)
+     */
     PumpingFeed(
             String queryName,
             List<IngestPump> pumps,
+            List<FeedInput> inputs,
             List<AutoCloseable> resources,
             String description,
             Runnable afterDelivery) {
+        if (inputs.size() != pumps.size()) {
+            throw new IllegalArgumentException(
+                    "one input per pump: " + pumps.size() + " pumps and " + inputs.size() + " inputs");
+        }
         this.queryName = queryName;
         this.pumps = List.copyOf(pumps);
+        this.inputs = List.copyOf(inputs);
         this.resources = List.copyOf(resources);
         this.description = description;
         this.afterDelivery = afterDelivery == null ? () -> {} : afterDelivery;
@@ -116,9 +144,11 @@ final class PumpingFeed implements SourceFeed {
             }
             int moved = 0;
             try {
-                for (IngestPump pump : pumps) {
-                    moved += pump.pumpOnce(BATCH);
+                for (int index = 0; index < pumps.size(); index++) {
+                    polling = index;
+                    moved += pumps.get(index).pumpOnce(BATCH);
                 }
+                polling = -1;
                 if (moved > 0) {
                     rowsFed.addAndGet(moved);
                 } else {
@@ -133,23 +163,53 @@ final class PumpingFeed implements SourceFeed {
                 // Recorded rather than retried. A source that fails mid-read fails for a reason --
                 // a deleted file, a revoked credential, a schema that no longer matches -- and
                 // spinning on it produces a log line per millisecond and no progress. The query
-                // stays up and its view keeps answering at the frontier it reached; describe()
-                // says why it stopped moving.
-                failure = e;
+                // stays up and its view keeps answering at the frontier it reached; status() says
+                // which source stopped, when, and why (FEED-1).
+                stop(e);
                 return;
             } catch (RuntimeException e) {
-                failure = new PravahaException(
-                        IngestErrors.FEED_FAILED, "the source feed for '" + queryName + "' stopped: " + e, e);
+                stop(new PravahaException(
+                        IngestErrors.FEED_FAILED, "the source feed for '" + queryName + "' stopped: " + e, e));
                 return;
             } catch (Throwable e) {
                 // Everything, including Error. A feed thread that dies leaves a query that looks
                 // healthy and has silently stopped, which is the worst shape a failure can take --
                 // so nothing is allowed to leave this loop unrecorded, whatever its type.
-                failure = new PravahaException(
-                        IngestErrors.FEED_FAILED, "the source feed for '" + queryName + "' stopped: " + e, e);
+                stop(new PravahaException(
+                        IngestErrors.FEED_FAILED, "the source feed for '" + queryName + "' stopped: " + e, e));
                 return;
             }
         }
+    }
+
+    /**
+     * Records why this feed stopped, and says so once in the log.
+     *
+     * <p>The log line is part of the fix rather than a courtesy: TIME-4 was a source reduced to zero
+     * rows with no line anywhere, and a stop that only an API call can find is found by nobody who
+     * is reading the log at the time.
+     */
+    private void stop(PravahaException cause) {
+        PravahaException recorded = FeedRedaction.redact(cause, bindings);
+        failedPump = polling;
+        stoppedAt = Instant.now();
+        failure = recorded;
+        String where = polling >= 0 ? " reading " + inputs.get(polling).where() : "";
+        LOG.log(
+                System.Logger.Level.ERROR,
+                "the source feed for query '" + queryName + "' stopped" + where + " with "
+                        + cause.errorCode().code() + " and will not retry; the view keeps answering at the "
+                        + "frontier it reached: " + recorded.getMessage(),
+                cause);
+    }
+
+    /**
+     * The bindings this feed reads, whose option values are struck out of a failure's message before
+     * it is recorded (see {@link FeedRedaction}). Called before {@link #start()}.
+     */
+    PumpingFeed redacting(java.util.Collection<SourceBinding> read) {
+        this.bindings = List.copyOf(read);
+        return this;
     }
 
     /**
@@ -192,6 +252,42 @@ final class PumpingFeed implements SourceFeed {
     @Override
     public long rowsFed() {
         return rowsFed.get();
+    }
+
+    @Override
+    public FeedStatus status() {
+        return FeedStatus.of(description, sources(false));
+    }
+
+    /**
+     * One entry per pump.
+     *
+     * @param shared how to label them; a {@link SharedFeed} lists its own unshared half through this
+     */
+    List<FeedStatus.Source> sources(boolean shared) {
+        PravahaException stopped = failure;
+        Instant at = stoppedAt;
+        int origin = failedPump;
+        List<FeedStatus.Source> sources = new ArrayList<>(inputs.size());
+        for (int index = 0; index < inputs.size(); index++) {
+            FeedInput input = inputs.get(index);
+            if (stopped != null) {
+                sources.add(new FeedStatus.Source(
+                        input.stream(),
+                        input.partition(),
+                        shared,
+                        FeedStatus.SourceState.STOPPED,
+                        new FeedStatus.Stop(stopped, at, index == origin)));
+            } else {
+                sources.add(new FeedStatus.Source(
+                        input.stream(),
+                        input.partition(),
+                        shared,
+                        paused ? FeedStatus.SourceState.PAUSED : FeedStatus.SourceState.RUNNING,
+                        null));
+            }
+        }
+        return sources;
     }
 
     @Override

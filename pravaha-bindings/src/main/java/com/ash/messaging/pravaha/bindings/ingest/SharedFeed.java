@@ -15,9 +15,11 @@
  */
 package com.ash.messaging.pravaha.bindings.ingest;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.registry.FeedStatus;
 import com.ash.messaging.pravaha.registry.SourceFeed;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
 
@@ -41,6 +43,9 @@ final class SharedFeed implements SourceFeed {
     private final PumpingFeed unshared;
     private final List<AutoCloseable> resources;
     private final String description;
+
+    /** Whether this query paused its reading, for {@link #status()}; the group reads on for the others. */
+    private volatile boolean paused;
 
     SharedFeed(
             List<SharedPartitionFeed.Member> members,
@@ -72,10 +77,12 @@ final class SharedFeed implements SourceFeed {
         if (unshared != null) {
             unshared.pause();
         }
+        paused = true;
     }
 
     @Override
     public void resume() {
+        paused = false;
         members.forEach(SharedPartitionFeed.Member::resumeReading);
         if (unshared != null) {
             unshared.resume();
@@ -91,21 +98,40 @@ final class SharedFeed implements SourceFeed {
         return rows;
     }
 
+    /**
+     * The shared readers this query joined, then its own.
+     *
+     * <p>A shared reader's stop is the reader's, so it is attributed to the partition as its origin
+     * and every member of the group reports it; a publish that failed for this query alone is this
+     * query's, and reported as stopping the partition it arrived through without being its cause.
+     */
+    @Override
+    public FeedStatus status() {
+        List<FeedStatus.Source> sources = new ArrayList<>(members.size());
+        for (SharedPartitionFeed.Member member : members) {
+            SharedPartitionFeed feed = member.feed();
+            PravahaException read = feed.failure();
+            PravahaException publish = member.publishFailure();
+            FeedStatus.Stop stop = null;
+            if (read != null) {
+                stop = new FeedStatus.Stop(read, feed.stoppedAt(), true);
+            } else if (publish != null) {
+                stop = new FeedStatus.Stop(publish, member.publishFailedAt(), false);
+            }
+            FeedStatus.SourceState state = stop != null
+                    ? FeedStatus.SourceState.STOPPED
+                    : paused ? FeedStatus.SourceState.PAUSED : FeedStatus.SourceState.RUNNING;
+            sources.add(new FeedStatus.Source(feed.stream(), feed.partitionIndex(), true, state, stop));
+        }
+        if (unshared != null) {
+            sources.addAll(unshared.sources(false));
+        }
+        return FeedStatus.of(sharingText(), sources);
+    }
+
     @Override
     public String describe() {
-        StringBuilder text = new StringBuilder(description);
-        int sharing = 0;
-        for (SharedSourceGroup group : groups) {
-            sharing = Math.max(sharing, group.queryCount());
-        }
-        if (sharing > 1) {
-            // The number an operator needs when asking why a source is slower than they expected:
-            // the poll is sized to the smallest free inbox among these, so a stalled one of them
-            // stalls the rest.
-            text.append(" -- one reader shared with ")
-                    .append(sharing - 1)
-                    .append(sharing == 2 ? " other query" : " other queries");
-        }
+        StringBuilder text = new StringBuilder(sharingText());
         for (SharedPartitionFeed.Member member : members) {
             PravahaException failure = member.feed().failure();
             if (failure == null) {
@@ -120,6 +146,24 @@ final class SharedFeed implements SourceFeed {
             if (rest.contains("stopped:")) {
                 return text.append(" -- ").append(rest).toString();
             }
+        }
+        return text.toString();
+    }
+
+    /** What this query reads, and how many others share the reader. */
+    private String sharingText() {
+        StringBuilder text = new StringBuilder(description);
+        int sharing = 0;
+        for (SharedSourceGroup group : groups) {
+            sharing = Math.max(sharing, group.queryCount());
+        }
+        if (sharing > 1) {
+            // The number an operator needs when asking why a source is slower than they expected:
+            // the poll is sized to the smallest free inbox among these, so a stalled one of them
+            // stalls the rest.
+            text.append(" -- one reader shared with ")
+                    .append(sharing - 1)
+                    .append(sharing == 2 ? " other query" : " other queries");
         }
         return text.toString();
     }

@@ -155,6 +155,7 @@ final class SharedPartitionFeed {
 
     private final String stream;
     private final SourcePartition partition;
+    private final SourceBinding binding;
     private final StreamSourcePlugin plugin;
 
     /**
@@ -194,7 +195,13 @@ final class SharedPartitionFeed {
     private Thread thread;
     private volatile boolean closed;
     private volatile PravahaException failure;
+
+    /** When {@link #failure} was recorded. Written before it, so a reader that sees one sees both. */
+    private volatile java.time.Instant stoppedAt;
+
     private long lastPublishedNanos;
+
+    private static final System.Logger LOG = System.getLogger(SharedPartitionFeed.class.getName());
 
     /** Rows this reader has handed to its consumers, counted once however many received them. */
     private final AtomicLong rowsRead = new AtomicLong();
@@ -206,6 +213,12 @@ final class SharedPartitionFeed {
     private final java.util.Map<Lane, LaneRoute> routes = new java.util.HashMap<>();
 
     SharedPartitionFeed(String stream, SourcePartition partition, StreamSourcePlugin plugin) {
+        this(stream, partition, plugin, null);
+    }
+
+    /** @param binding what this reads, whose option values a recorded failure must not carry; may be null */
+    SharedPartitionFeed(String stream, SourcePartition partition, StreamSourcePlugin plugin, SourceBinding binding) {
+        this.binding = binding;
         this.stream = stream;
         this.partition = partition;
         this.plugin = plugin;
@@ -329,6 +342,37 @@ final class SharedPartitionFeed {
 
     PravahaException failure() {
         return failure;
+    }
+
+    /** When {@link #failure()} was recorded, or null while this reader is reading. */
+    java.time.Instant stoppedAt() {
+        return stoppedAt;
+    }
+
+    /** The stream this reader reads, for a stop that has to say where it happened (FEED-1). */
+    String stream() {
+        return stream;
+    }
+
+    /** The partition this reader reads. */
+    int partitionIndex() {
+        return partition.index();
+    }
+
+    /**
+     * Records why this reader stopped, and says so once in the log, as {@link PumpingFeed} does for
+     * a reader of its own. Every member of the group stops with it.
+     */
+    private void stop(PravahaException cause) {
+        PravahaException recorded = binding == null ? cause : FeedRedaction.redact(cause, java.util.List.of(binding));
+        stoppedAt = java.time.Instant.now();
+        failure = recorded;
+        LOG.log(
+                System.Logger.Level.ERROR,
+                "the shared source feed reading " + stream + "#" + partition.index() + " stopped with "
+                        + cause.errorCode().code() + " and will not retry; every query it fed keeps answering "
+                        + "at the frontier it reached: " + recorded.getMessage(),
+                cause);
     }
 
     /**
@@ -508,11 +552,11 @@ final class SharedPartitionFeed {
                 // a source that fails mid-read fails for a reason and spinning on it produces a log
                 // line a millisecond and no progress. It stops every query in this group rather
                 // than one, which is the cost of sharing and is why describe() names the group.
-                failure = e;
+                stop(e);
                 return;
             } catch (Throwable e) {
-                failure = new PravahaException(
-                        IngestErrors.FEED_FAILED, "the shared source feed for '" + stream + "' stopped: " + e, e);
+                stop(new PravahaException(
+                        IngestErrors.FEED_FAILED, "the shared source feed for '" + stream + "' stopped: " + e, e));
                 return;
             }
             if (moved == 0) {
@@ -714,9 +758,16 @@ final class SharedPartitionFeed {
                 // the group's thread unrecorded and every member froze at RUNNING. Recorded on the
                 // member, whose describe() says so, as PumpingFeed does for a query with a reader of
                 // its own.
+                member.publishFailedAt = java.time.Instant.now();
                 member.publishFailure = new PravahaException(
                         IngestErrors.FEED_FAILED,
                         "publishing query '" + member.queryName + "' failed: " + e.getMessage(),
+                        e);
+                LOG.log(
+                        System.Logger.Level.ERROR,
+                        "the shared source feed stopped publishing query '" + member.queryName
+                                + "'; the other queries on " + stream + "#" + partition.index()
+                                + " carry on: " + e.getMessage(),
                         e);
             } finally {
                 lock.unlock();
@@ -760,6 +811,9 @@ final class SharedPartitionFeed {
         /** Why publishing this query stopped, or null. Guarded by the feed's lock. */
         private volatile PravahaException publishFailure;
 
+        /** When {@link #publishFailure} was recorded. Written before it. */
+        private volatile java.time.Instant publishFailedAt;
+
         private SharedPartitionFeed feed;
 
         Member(String queryName, ReadRequest request, Runnable afterDelivery) {
@@ -790,6 +844,10 @@ final class SharedPartitionFeed {
 
         PravahaException publishFailure() {
             return publishFailure;
+        }
+
+        java.time.Instant publishFailedAt() {
+            return publishFailedAt;
         }
 
         @Override

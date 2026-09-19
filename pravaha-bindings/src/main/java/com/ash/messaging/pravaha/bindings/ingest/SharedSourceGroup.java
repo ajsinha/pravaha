@@ -62,7 +62,7 @@ final class SharedSourceGroup {
         this.partitions = List.copyOf(partitions);
         List<SharedPartitionFeed> built = new ArrayList<>(partitions.size());
         for (SourcePartition partition : this.partitions) {
-            built.add(new SharedPartitionFeed(key.stream(), partition, plugin));
+            built.add(new SharedPartitionFeed(key.stream(), partition, plugin, key.binding()));
         }
         this.feeds = List.copyOf(built);
     }

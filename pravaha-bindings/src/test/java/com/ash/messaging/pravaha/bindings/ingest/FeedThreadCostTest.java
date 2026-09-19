@@ -49,7 +49,7 @@ final class FeedThreadCostTest {
             for (int i = 0; i < FEEDS; i++) {
                 // No pumps: the loop naps rather than polling, which is precisely the state a quiet
                 // query's feed sits in and the state whose cost this is about.
-                PumpingFeed feed = new PumpingFeed("q-" + i, List.of(), List.of(), "no sources", () -> {});
+                PumpingFeed feed = new PumpingFeed("q-" + i, List.of(), List.of(), List.of(), "no sources", () -> {});
                 feed.start();
                 feeds.add(feed);
             }

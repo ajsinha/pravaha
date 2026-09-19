@@ -55,6 +55,11 @@ public interface SourceFeed extends AutoCloseable {
         public String describe() {
             return "no source is bound to this query's streams";
         }
+
+        @Override
+        public FeedStatus status() {
+            return FeedStatus.none(describe());
+        }
     };
 
     /** Stops reading. Rows already in flight are not recalled. */
@@ -73,6 +78,17 @@ public interface SourceFeed extends AutoCloseable {
      * something is bound and quiet -- and telling them apart is most of diagnosing a silent query.
      */
     String describe();
+
+    /**
+     * Whether each source is still reading, and why not when one has stopped (FEED-1).
+     *
+     * <p>What every operator-facing surface reads, rather than parsing {@link #describe()}. The
+     * default -- running, no sources listed -- is what a feed that predates this reports: it never
+     * said it had stopped, and this does not invent that it has.
+     */
+    default FeedStatus status() {
+        return FeedStatus.of(describe(), java.util.List.of());
+    }
 
     @Override
     void close();
