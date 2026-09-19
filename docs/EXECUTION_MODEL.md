@@ -140,7 +140,7 @@ Three properties worth knowing before tuning it:
 ### Backpressure, not overflow
 
 When an inbox fills, the producer is **paused** — at 80 % by default, resuming at 50 %. Nothing
-overflows, nothing is dropped, nothing spills. A slow query becomes a slow *read of its source*,
+overflows, nothing is dropped, and an inbox never spills to disk. A slow query becomes a slow *read of its source*,
 which is the correct shape: the alternative is dropping rows, which is a wrong answer rather than a
 slow one.
 
@@ -149,8 +149,12 @@ slow one.
 | Strategy | Behaviour | Use |
 |---|---|---|
 | `BUSY_SPIN` | `Thread.onSpinWait()` | Lowest latency, burns a core |
-| `SPIN_THEN_YIELD` | Spin, then yield | The lane default |
-| `BACKOFF_PARK` | Escalates to parking | Many lanes per thread; the runner parks **once for the whole runner** rather than once per lane, so a thousand idle queries do not wake a thousand times to discover they are still idle |
+| `SPIN_THEN_YIELD` | Spin, then yield | `LaneConfig.defaults()`, so a lane built directly through the runtime API. Nothing that registers a query uses it |
+| `BACKOFF_PARK` | Escalates to parking | **The default for every registered query** — `QueryRegistry`'s own, `pravaha.lane.wait-strategy` on a node, and `pravaha run`. Many lanes per thread; the runner parks **once for the whole runner** rather than once per lane, so a thousand idle queries do not wake a thousand times to discover they are still idle |
+
+Spinning costs a core per handful of idle queries — nine idle registrations once burned 92 % of one —
+which is why nothing that registers queries spins by default. A node running one latency-critical
+query sets `pravaha.lane.wait-strategy: BUSY_SPIN` deliberately.
 
 ---
 
@@ -185,13 +189,18 @@ So "how many lanes" is a division rather than a constant. At the advised sizing,
 fit in a few gigabytes. **Threads stopped being the constraint and the inbox became it**, which is
 why the sizing advice matters more than it looks.
 
-### It is all RAM. Nothing spills.
+### The inbox and the arena are RAM. Operator state can spill, when a node says so.
 
 The inbox and the arena are off-heap: allocated directly, invisible to the garbage collector, and
-**never paged to disk by this engine**. One level up, a query whose *operator state* outgrows its
-ceiling is refused with `PRV-4001`, not degraded. An on-disk tier is
-[ADR-037](adr/037-state-that-degrades-instead-of-dying.md)'s B2 — scoped, not built. So "how much
-state can a query hold" has a hard answer today, not a slow one.
+**never paged to disk by this engine**. One level up, a query's *operator state* — stream-to-stream
+join state, windowed-aggregate state, and the per-value counts of `COUNT(DISTINCT)` — has a
+memory-mapped overflow tier ([ADR-037](adr/037-state-that-degrades-instead-of-dying.md) B2,
+[ADR-044](adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): once a query's memory ceiling is reached,
+further slabs are carved from mapped files under `pravaha.state.spill.directory`, and the query slows
+down instead of being refused. **It is off by default.** Without it, state that outgrows its ceiling
+is refused with `PRV-4001`, not degraded; with it, the refusal moves out to the tier's own limits
+(`max-overflow-slabs` per store, `max-bytes` per node). [`OPERATIONS.md`](OPERATIONS.md) has the
+settings and what the tier costs.
 
 ---
 
