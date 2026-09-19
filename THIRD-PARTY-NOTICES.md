@@ -62,11 +62,36 @@ engine core. Each carries its own licence; see the `THIRD-PARTY-NOTICES.md` of t
 plugin module concerned. Some are commercially licensed by their vendors, and using
 them may require a separate agreement with that vendor.
 
+## Console browser assets — vendored and redistributed
+
+The console (`console/`) serves every script, stylesheet and font from its own
+`web/static/vendor/` directory, so it renders with no network access (design §23.4a).
+These files are redistributed unmodified, except that Monaco is a subset of its `min/`
+build (the editor core, its loader and its editor worker; the language workers and
+bundled grammars the console does not use are left out). Each directory carries the
+upstream licence file named below.
+
+| Component | Version | Licence | Licence file | Project |
+|---|---|---|---|---|
+| Monaco Editor | 0.56.0 | MIT License | `vendor/monaco/LICENSE`, `vendor/monaco/ThirdPartyNotices.txt` | https://github.com/microsoft/monaco-editor |
+| Apache ECharts | 6.1.0 | Apache License 2.0 (includes code under the BSD 3-Clause licence of d3) | `vendor/echarts/LICENSE`, `vendor/echarts/NOTICE`, `vendor/echarts/LICENSE-d3` | https://echarts.apache.org |
+| elkjs (Eclipse Layout Kernel) | 0.12.0 | Eclipse Public License 2.0 (used under EPL-2.0 of its EPL-2.0 OR GPL-3.0-or-later dual licence) | `vendor/elkjs/LICENSE.md` | https://github.com/kieler/elkjs |
+| Preact (with Preact Hooks) | 10.29.8 | MIT License | `vendor/preact/LICENSE` | https://preactjs.com |
+| htm | 3.1.1 | Apache License 2.0 | `vendor/htm/LICENSE` | https://github.com/developit/htm |
+| Bootstrap | 5.3.8 | MIT License | `vendor/bootstrap/LICENSE` | https://getbootstrap.com |
+| Bootstrap Icons | 1.x (an earlier 1.x build than 1.13.1) | MIT License | `vendor/bootstrap-icons/LICENSE` | https://icons.getbootstrap.com |
+
+**elkjs note.** elkjs is offered under EPL-2.0 or GPL-3.0-or-later; Pravaha relies on
+the EPL-2.0 grant. It is shipped as the unmodified upstream JavaScript file, so the
+EPL-2.0 source-availability obligation is met by the file itself and the upstream
+repository above.
+
 ## Fonts and brand assets
 
 The Pravaha name, flow mark and slogan are proprietary to Ashutosh Sinha and are not
-licensed for third-party use. IBM Plex, referenced by the design system, is licensed
-under the SIL Open Font License 1.1.
+licensed for third-party use. The console's typefaces — Source Sans 3, Source Serif 4
+and Source Code Pro, vendored under `console/web/static/vendor/fonts/` — and IBM Plex,
+referenced by the design system, are licensed under the SIL Open Font License 1.1.
 
 ## Reporting
 
