@@ -68,7 +68,7 @@ final class KafkaPartitionReader implements PartitionReader {
     /** What the fetch thread hands the lane, in offset order. */
     private sealed interface Item permits Decoded, Rejected, Skipped {}
 
-    private record Decoded(long offset, KafkaRecordDecoder.Row row) implements Item {}
+    private record Decoded(long offset, KafkaValueDecoder.Row row) implements Item {}
 
     private record Rejected(long offset, byte[] raw, String reason) implements Item {}
 
@@ -77,7 +77,7 @@ final class KafkaPartitionReader implements PartitionReader {
 
     private final TopicPartition partition;
     private final StreamSchema schema;
-    private final KafkaRecordDecoder decoder;
+    private final KafkaValueDecoder decoder;
     private final boolean skipTombstones;
     private final boolean commitsForMonitoring;
     private final Consumer<byte[], byte[]> consumer;
@@ -105,8 +105,7 @@ final class KafkaPartitionReader implements PartitionReader {
             KafkaSourceOptions options, TopicPartition partition, Consumer<byte[], byte[]> consumer, long start) {
         this.partition = partition;
         this.schema = options.schema;
-        this.decoder = new KafkaRecordDecoder(
-                options.schema, options.format == KafkaSourceOptions.Format.CHANGELOG, options.eventTimeOrdinal);
+        this.decoder = options.newDecoder();
         this.skipTombstones = options.skipTombstones;
         this.commitsForMonitoring = !options.monitoringGroup.isEmpty();
         this.consumer = consumer;
@@ -182,7 +181,7 @@ final class KafkaPartitionReader implements PartitionReader {
     }
 
     private void write(RecordSink sink, Decoded decoded) {
-        KafkaRecordDecoder.Row row = decoded.row();
+        KafkaValueDecoder.Row row = decoded.row();
         RowWriter writer = sink.beginRow();
         try {
             Object[] values = row.values();
@@ -288,6 +287,12 @@ final class KafkaPartitionReader implements PartitionReader {
                 failure = new PravahaException(
                         KafkaErrors.READ_FAILED, "reading " + partition + " failed: " + e.getMessage(), e);
             }
+        } catch (PravahaException e) {
+            // A schema registry that cannot be read (PRV-5109) is already the right refusal, with the
+            // right code: it is not a Kafka read failure and must not be reported as one.
+            if (!closed) {
+                failure = e;
+            }
         } catch (RuntimeException e) {
             if (!closed) {
                 failure = new PravahaException(KafkaErrors.READ_FAILED, "reading " + partition + " failed: " + e, e);
@@ -316,7 +321,7 @@ final class KafkaPartitionReader implements PartitionReader {
         }
         try {
             return new Decoded(record.offset(), decoder.decode(value, record.timestamp()));
-        } catch (KafkaRecordDecoder.Undecodable e) {
+        } catch (KafkaValueDecoder.Undecodable e) {
             return new Rejected(record.offset(), value, e.getMessage());
         }
     }

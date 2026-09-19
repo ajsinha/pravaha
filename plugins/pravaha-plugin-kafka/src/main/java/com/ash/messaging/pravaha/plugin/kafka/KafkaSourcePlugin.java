@@ -341,6 +341,10 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
                 metadata = null;
             }
         }
+        if (options != null) {
+            // The schema registry's HTTP client, when the binding has one.
+            options.close();
+        }
     }
 
     /** The topic's partitions in partition order, refusing a topic that does not exist. */

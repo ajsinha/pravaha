@@ -67,6 +67,14 @@
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-core</artifactId>
     </dependency>
+    <!-- format: protobuf reads a record with DynamicMessage over a FileDescriptorSet the deployment
+         supplies, so no generated class and no protoc are needed at run time. Already in the build
+         through gRPC and Avatica, and pinned by the root pom so which version is a decision rather
+         than a consequence of the dependency tree. -->
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java</artifactId>
+    </dependency>
     <!-- The end-to-end tests register a real continuous query writing to Kafka, with checkpoints,
          through the registry that delivers to sinks in production. -->
     <dependency>

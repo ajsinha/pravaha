@@ -62,7 +62,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  * <p>Anything else is {@link Undecodable}, with a sentence saying what -- which becomes a dead letter
  * or stops the source, never a guessed value.
  */
-final class KafkaRecordDecoder {
+final class KafkaRecordDecoder implements KafkaValueDecoder {
 
     private static final JsonFactory JSON = new JsonFactory();
 
@@ -82,27 +82,8 @@ final class KafkaRecordDecoder {
         }
     }
 
-    /**
-     * A decoded record.
-     *
-     * @param values one per column, in the Java type {@link KafkaPartitionReader} writes: {@code
-     *     Boolean}, {@code Byte}, {@code Short}, {@code Integer} (also a {@code DATE}'s epoch day),
-     *     {@code Long} (also a {@code TIME}'s nanosecond of day and a {@code TIMESTAMP}'s epoch
-     *     nanoseconds), {@code Float}, {@code Double}, {@code BigDecimal} at the column's scale,
-     *     {@code byte[]}, {@code String}, or null
-     */
-    record Row(Object[] values, long weight, long eventTimeNanos) {}
-
-    /** Why a record could not be decoded, as a sentence. Carries no stack: it is data, not a bug. */
-    static final class Undecodable extends Exception {
-        private static final long serialVersionUID = 1L;
-
-        Undecodable(String reason) {
-            super(reason, null, false, false);
-        }
-    }
-
-    Row decode(byte[] value, long recordTimestampMillis) throws Undecodable {
+    @Override
+    public Row decode(byte[] value, long recordTimestampMillis) throws Undecodable {
         Object[] values = new Object[schema.fieldCount()];
         long weight = 1L;
         try (JsonParser parser = JSON.createParser(value)) {
@@ -120,25 +101,7 @@ final class KafkaRecordDecoder {
         } catch (IOException e) {
             throw new Undecodable("the value is not valid JSON: " + firstLine(e.getMessage()));
         }
-        for (int ordinal = 0; ordinal < values.length; ordinal++) {
-            if (values[ordinal] == null && !schema.field(ordinal).type().nullable()) {
-                throw new Undecodable("column '" + schema.field(ordinal).name() + "' is "
-                        + "missing or null, and is declared NOT NULL");
-            }
-        }
-        long eventTime;
-        if (eventTimeOrdinal >= 0) {
-            if (values[eventTimeOrdinal] == null) {
-                throw new Undecodable("event.time column '"
-                        + schema.field(eventTimeOrdinal).name() + "' is missing or null, so the row has no event time");
-            }
-            eventTime = (Long) values[eventTimeOrdinal];
-        } else {
-            // A record with no timestamp (-1, a pre-0.10 message format) gets the epoch rather than a
-            // negative time a watermark would have to reason about.
-            eventTime = recordTimestampMillis < 0 ? 0L : Math.multiplyExact(recordTimestampMillis, 1_000_000L);
-        }
-        return new Row(values, weight, eventTime);
+        return KafkaValueDecoder.finish(schema, values, eventTimeOrdinal, weight, recordTimestampMillis);
     }
 
     /** {@code {"op":..,"weight":n,"row":{..}}}, in any member order; returns the weight. */

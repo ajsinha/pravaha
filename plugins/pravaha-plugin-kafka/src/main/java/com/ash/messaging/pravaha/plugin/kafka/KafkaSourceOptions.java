@@ -15,12 +15,21 @@
  */
 package com.ash.messaging.pravaha.plugin.kafka;
 
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeSet;
 
+import javax.net.ssl.SSLContext;
+
+import com.google.protobuf.Descriptors.Descriptor;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
@@ -29,6 +38,7 @@ import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.api.plugin.PluginTls;
 
 /**
  * A {@code kafka} source binding's options, checked, and turned into its consumers' configuration.
@@ -43,7 +53,11 @@ final class KafkaSourceOptions {
         /** The value is a JSON object of the row's columns, by name: what {@code kafka-sink} upsert mode writes. */
         JSON,
         /** The value is {@code kafka-sink}'s changelog envelope, {@code {"op":..,"weight":n,"row":{..}}}. */
-        CHANGELOG
+        CHANGELOG,
+        /** The value is Avro's binary encoding, against {@code schema.file} or the registry's schema. */
+        AVRO,
+        /** The value is one protobuf message of {@code schema.descriptor}, read with {@code DynamicMessage}. */
+        PROTOBUF
     }
 
     /**
@@ -62,8 +76,8 @@ final class KafkaSourceOptions {
                 "offsets are committed only after a durable checkpoint, and only for monitoring.group");
         refused.put(
                 "auto.offset.reset", "the source seeks to exact offsets; start.from chooses where a new one starts");
-        refused.put("key.deserializer", "the source reads the value itself, as JSON");
-        refused.put("value.deserializer", "the source reads the value itself, as JSON");
+        refused.put("key.deserializer", "the source reads the value itself, in the format the binding declares");
+        refused.put("value.deserializer", "the source reads the value itself, in the format the binding declares");
         refused.put("allow.auto.create.topics", "the source never creates the topic it reads");
         refused.put("security.protocol", "it follows from the tls.* options and user/password");
         refused.put("sasl.mechanism", "set sasl.mechanism on the binding itself");
@@ -92,6 +106,27 @@ final class KafkaSourceOptions {
     /** Security and pass-through properties. */
     private final Map<String, Object> shared;
 
+    /** {@code format: avro} with {@code schema.file}: the mapping, made and refused here. */
+    private final AvroRowReader avroReader;
+
+    /** {@code format: protobuf}: the message {@code schema.message} names in {@code schema.descriptor}. */
+    private final Descriptor protobufMessage;
+
+    /** {@code schema.registry.url}, or empty; with what it takes to dial it, checked at configure. */
+    private final String registryUrl;
+
+    private final SSLContext registryTls;
+    private final String registryAuthorization;
+    private final Duration registryTimeout;
+
+    /**
+     * The registry client, made when the first reader asks and shared by every reader of this
+     * binding so that its cache is one cache. Guarded by {@code this}: it is made on whichever
+     * thread opens a reader and closed when the source closes, and a source that is opened again
+     * after that makes a new one rather than using a client somebody shut.
+     */
+    private SchemaRegistry registry;
+
     KafkaSourceOptions(PluginContext context) {
         this.instanceName = context.instanceName();
         this.bootstrapServers = context.require("bootstrap.servers").strip();
@@ -101,10 +136,14 @@ final class KafkaSourceOptions {
         this.format = switch (formatName) {
             case "json" -> Format.JSON;
             case "changelog" -> Format.CHANGELOG;
+            case "avro" -> Format.AVRO;
+            case "protobuf" -> Format.PROTOBUF;
             default ->
-                throw refusal("format '" + formatName + "' is not json or changelog. json reads a value that is "
-                        + "a JSON object of the row, as kafka-sink's upsert mode writes it; changelog reads "
-                        + "kafka-sink's changelog mode, weights and all.");
+                throw refusal("format '" + formatName + "' is not json, changelog, avro or protobuf. json reads a "
+                        + "value that is a JSON object of the row, as kafka-sink's upsert mode writes it; "
+                        + "changelog reads kafka-sink's changelog mode, weights and all; avro reads Avro's binary "
+                        + "encoding against schema.file or the schema registry; protobuf reads one message of "
+                        + "schema.descriptor.");
         };
         String tombstone = context.get("tombstone", "reject").strip().toLowerCase(Locale.ROOT);
         this.skipTombstones = switch (tombstone) {
@@ -161,6 +200,184 @@ final class KafkaSourceOptions {
         Map<String, Object> merged = new LinkedHashMap<>(passThrough(context));
         merged.putAll(new KafkaSecurity(this::refusal).properties(context));
         this.shared = merged;
+
+        // Last, because the mapping needs the declared schema and the event-time column above it.
+        this.registryUrl = requireFormatOptions(context);
+        this.registryTls = registryUrl.isEmpty() ? null : registryTls(context);
+        this.registryAuthorization = SchemaRegistry.authorizationHeader(
+                context.get("schema.registry.user", "").strip(),
+                context.get("schema.registry.password", ""),
+                context.get("schema.registry.token", "").strip());
+        this.registryTimeout = duration(context, "schema.registry.timeout", Duration.ofSeconds(10));
+        this.avroReader = format == Format.AVRO && registryUrl.isEmpty()
+                ? avroReader(context.get("schema.file", "").strip())
+                : null;
+        this.protobufMessage = format == Format.PROTOBUF
+                ? protobufMessage(
+                        context.get("schema.descriptor", "").strip(),
+                        context.get("schema.message", "").strip())
+                : null;
+    }
+
+    /**
+     * Refuses, by name, every combination of {@code format} and the schema options that cannot work;
+     * returns {@code schema.registry.url}, or empty when there is none.
+     *
+     * <p>At {@code configure}, so a binding that names a descriptor for a JSON topic, or an Avro
+     * format with nowhere to get the schema, is a registration that fails rather than a reader that
+     * dead-letters every record.
+     */
+    private String requireFormatOptions(PluginContext context) {
+        String schemaFile = context.get("schema.file", "").strip();
+        String descriptor = context.get("schema.descriptor", "").strip();
+        String messageName = context.get("schema.message", "").strip();
+        String registryUrl = context.get("schema.registry.url", "").strip();
+        boolean registryCredentials =
+                !context.get("schema.registry.user", "").strip().isEmpty()
+                        || !context.get("schema.registry.password", "").strip().isEmpty()
+                        || !context.get("schema.registry.token", "").strip().isEmpty();
+        switch (format) {
+            case JSON, CHANGELOG -> {
+                refuseUnless(schemaFile.isEmpty(), "schema.file", "avro");
+                refuseUnless(descriptor.isEmpty(), "schema.descriptor", "protobuf");
+                refuseUnless(messageName.isEmpty(), "schema.message", "protobuf");
+                refuseUnless(registryUrl.isEmpty(), "schema.registry.url", "avro");
+            }
+            case AVRO -> {
+                refuseUnless(descriptor.isEmpty(), "schema.descriptor", "protobuf");
+                refuseUnless(messageName.isEmpty(), "schema.message", "protobuf");
+                if (schemaFile.isEmpty() == registryUrl.isEmpty()) {
+                    throw refusal("format: avro needs exactly one of schema.file (the writer schema as Avro JSON, "
+                            + "for a topic whose values are bare Avro) and schema.registry.url (for a topic whose "
+                            + "values carry a schema id), and "
+                            + (schemaFile.isEmpty() ? "has neither" : "has both"));
+                }
+            }
+            case PROTOBUF -> {
+                refuseUnless(schemaFile.isEmpty(), "schema.file", "avro");
+                if (descriptor.isEmpty() || messageName.isEmpty()) {
+                    throw refusal("format: protobuf needs schema.descriptor (a FileDescriptorSet, written with "
+                            + "protoc --include_imports --descriptor_set_out=x.desc) and schema.message (the "
+                            + "message in it a record holds), and "
+                            + (descriptor.isEmpty() ? "has no schema.descriptor" : "has no schema.message"));
+                }
+            }
+        }
+        if (registryCredentials && registryUrl.isEmpty()) {
+            throw refusal("sets schema.registry.user, schema.registry.password or schema.registry.token without "
+                    + "schema.registry.url, so there is no registry to send them to");
+        }
+        return registryUrl;
+    }
+
+    private void refuseUnless(boolean absent, String option, String itsFormat) {
+        if (!absent) {
+            throw refusal("sets " + option + " with format: " + format.name().toLowerCase(Locale.ROOT)
+                    + ", which does not read it; " + option + " belongs to format: " + itsFormat);
+        }
+    }
+
+    /**
+     * Checks {@code schema.registry.url} is dialable and returns the TLS the JDK's client will use
+     * for it -- the same {@code tls.*} as the brokers', so one trust decision covers both.
+     */
+    private SSLContext registryTls(PluginContext context) {
+        if (!registryUrl.startsWith("http://") && !registryUrl.startsWith("https://")) {
+            throw refusal("schema.registry.url '" + registryUrl + "' is not an http:// or https:// URL");
+        }
+        try {
+            URI.create(registryUrl);
+        } catch (IllegalArgumentException e) {
+            throw refusal("schema.registry.url '" + registryUrl + "' is not a URL: " + e.getMessage());
+        }
+        if (!registryUrl.startsWith("https://")) {
+            return null;
+        }
+        if (!PluginTls.verifyHostname(context)) {
+            throw refusal("sets tls.verify-hostname: false with an https schema.registry.url. The JDK's HTTP "
+                    + "client verifies the certificate's name and cannot be told not to for one client, so "
+                    + "the registry would be dialled with a check the brokers are not: use http:// for the "
+                    + "registry, or a certificate whose name matches");
+        }
+        return PluginTls.from(context, KafkaErrors.BAD_CONFIGURATION).orElse(null);
+    }
+
+    /** The one registry client of this binding, made when a reader first needs it. */
+    private synchronized SchemaRegistry registry() {
+        if (registryUrl.isEmpty()) {
+            return null;
+        }
+        if (registry == null) {
+            registry =
+                    new SchemaRegistry(instanceName, registryUrl, registryTls, registryAuthorization, registryTimeout);
+        }
+        return registry;
+    }
+
+    private AvroRowReader avroReader(String path) {
+        String text;
+        try {
+            text = Files.readString(Path.of(path), StandardCharsets.UTF_8);
+        } catch (IOException | InvalidPathException e) {
+            throw refusal("cannot read schema.file '" + path + "': " + e.getMessage());
+        }
+        try {
+            return AvroRowReader.map(schema, AvroSchema.parse(text), eventTimeOrdinal);
+        } catch (AvroSchema.Invalid e) {
+            throw new ConfigurationException(
+                    KafkaErrors.SCHEMA_UNMAPPABLE,
+                    "source '" + instanceName + "': schema.file '" + path + "' is not an Avro schema: "
+                            + e.getMessage());
+        } catch (KafkaValueDecoder.Unmappable e) {
+            throw new ConfigurationException(
+                    KafkaErrors.SCHEMA_UNMAPPABLE,
+                    "source '" + instanceName + "': schema.file '" + path + "' cannot be read into this stream's "
+                            + "columns: " + e.getMessage());
+        }
+    }
+
+    private Descriptor protobufMessage(String path, String messageName) {
+        byte[] bytes;
+        try {
+            bytes = Files.readAllBytes(Path.of(path));
+        } catch (IOException | InvalidPathException e) {
+            throw refusal("cannot read schema.descriptor '" + path + "': " + e.getMessage());
+        }
+        try {
+            Descriptor message = ProtobufSchemas.message(bytes, messageName);
+            // Made and thrown away: what matters is that it refuses here rather than per record.
+            ProtobufValueDecoder.map(schema, eventTimeOrdinal, message, !registryUrl.isEmpty());
+            return message;
+        } catch (KafkaValueDecoder.Unmappable e) {
+            throw new ConfigurationException(
+                    KafkaErrors.SCHEMA_UNMAPPABLE,
+                    "source '" + instanceName + "': schema.descriptor '" + path + "' cannot be read into this "
+                            + "stream's columns: " + e.getMessage());
+        }
+    }
+
+    /** A decoder for one reader: the formats hold no state between records, bar the registry's cache. */
+    KafkaValueDecoder newDecoder() {
+        return switch (format) {
+            case JSON -> new KafkaRecordDecoder(schema, false, eventTimeOrdinal);
+            case CHANGELOG -> new KafkaRecordDecoder(schema, true, eventTimeOrdinal);
+            case AVRO -> new AvroValueDecoder(instanceName, schema, eventTimeOrdinal, avroReader, registry());
+            case PROTOBUF ->
+                ProtobufValueDecoder.map(schema, eventTimeOrdinal, protobufMessage, !registryUrl.isEmpty());
+        };
+    }
+
+    /** Closes the registry's HTTP client, when one was made. Called when the source closes. */
+    synchronized void close() {
+        if (registry != null) {
+            registry.close();
+            registry = null;
+        }
+    }
+
+    /** What a test counts to prove an id is fetched once; -1 when no registry is configured. */
+    synchronized int registryRequests() {
+        return registry == null ? (registryUrl.isEmpty() ? -1 : 0) : registry.requestCount();
     }
 
     /** The consumer that reads one partition, fetching on the reader's own thread. */

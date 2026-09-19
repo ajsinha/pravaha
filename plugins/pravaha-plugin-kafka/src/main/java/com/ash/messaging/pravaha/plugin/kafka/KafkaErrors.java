@@ -54,9 +54,9 @@ public final class KafkaErrors {
     public static final ErrorCode MALFORMED_OFFSET = new ErrorCode(5104, "KAFKA_MALFORMED_OFFSET");
 
     /**
-     * A record the {@code kafka} source cannot turn into a row -- not JSON, a column of the wrong
-     * type, a required column missing, a tombstone where none is expected -- and no dead-letter
-     * queue to set it aside in.
+     * A record the {@code kafka} source cannot turn into a row -- not JSON, not the Avro or protobuf
+     * the schema describes, a column of the wrong type, a required column missing, a tombstone where
+     * none is expected -- and no dead-letter queue to set it aside in.
      */
     public static final ErrorCode UNDECODABLE_RECORD = new ErrorCode(5105, "KAFKA_UNDECODABLE_RECORD");
 
@@ -69,6 +69,23 @@ public final class KafkaErrors {
 
     /** Fetching from the brokers failed in a way retrying will not fix: authorization, a deleted topic. */
     public static final ErrorCode READ_FAILED = new ErrorCode(5107, "KAFKA_READ_FAILED");
+
+    /**
+     * A writer schema that cannot become rows of the stream the binding feeds: an Avro {@code
+     * schema.file} or a protobuf {@code schema.descriptor} that is not one, has no field for a
+     * column, or types a column cannot hold -- refused when the binding is configured, before a
+     * record moves. A schema that arrives <em>with</em> a record (the registry's) cannot be refused
+     * then: the record is a dead letter, or {@code PRV-5105}.
+     */
+    public static final ErrorCode SCHEMA_UNMAPPABLE = new ErrorCode(5108, "KAFKA_SCHEMA_UNMAPPABLE");
+
+    /**
+     * The schema registry could not be reached, refused the credentials, has no schema with the id a
+     * record names, or answered with something that is not the documented shape of {@code GET
+     * /schemas/ids/{id}}. Not the record's fault, so the reader stops rather than setting good
+     * records aside.
+     */
+    public static final ErrorCode REGISTRY_UNAVAILABLE = new ErrorCode(5109, "KAFKA_REGISTRY_UNAVAILABLE");
 
     private KafkaErrors() {}
 }
