@@ -219,8 +219,13 @@ class SlicedAggregateStateSpillTest {
 
             assertThat(released).isPositive();
             assertThat(state.spillStatistics().overflowBytesReserved()).isLessThan(reservedBefore / 2);
+            // Slabs and the index's mapped slot-table segments alike: every file is counted as held.
             try (var files = java.nio.file.Files.list(dir)) {
-                assertThat(files.count()).isEqualTo(state.spillStatistics().overflowBytesReserved() / (1 << 16));
+                long bytes = 0;
+                for (Path file : files.toList()) {
+                    bytes += java.nio.file.Files.size(file);
+                }
+                assertThat(bytes).isEqualTo(state.spillStatistics().overflowBytesReserved());
             }
             assertThat(state.fire(90 * SECOND))
                     .usingRecursiveFieldByFieldElementComparator()

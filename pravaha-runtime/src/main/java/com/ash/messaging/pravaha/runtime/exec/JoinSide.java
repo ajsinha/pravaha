@@ -130,8 +130,8 @@ final class JoinSide implements AutoCloseable {
      * <p>The rows spilled and the index over them did not: ADR-044's measurement found a spilled join
      * still carrying an index of about 100 bytes a key in RAM, bounded by nothing but a four-gigabyte
      * backstop. With a tier, the index's own store gets the same RAM
-     * ceiling as the rows and spills past it; its slot table -- sixteen bytes a slot -- stays in RAM,
-     * which is the part a probe walks.
+     * ceiling as the rows and spills past it, and so does its slot table -- sixteen bytes a slot, the
+     * part a probe walks: up to that ceiling in RAM, the rest in mapped segments.
      *
      * @param indexRamSlabs the RAM ceiling of the index's store, in {@link #BUCKET_STORE_SLAB_BYTES}
      *     slabs
@@ -172,6 +172,11 @@ final class JoinSide implements AutoCloseable {
 
     boolean indexHasSpilled() {
         return buckets.hasSpilled();
+    }
+
+    /** Bytes of this side's key-index slot table held in the overflow tier. */
+    long indexTableBytesMapped() {
+        return buckets.indexBytesMapped();
     }
 
     /** The chain head for a hash, or {@link ArenaHandle#NULL} if no bucket exists for it yet. */

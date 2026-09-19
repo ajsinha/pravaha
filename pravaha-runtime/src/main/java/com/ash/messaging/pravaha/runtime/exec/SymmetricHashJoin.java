@@ -334,9 +334,14 @@ final class SymmetricHashJoin implements AutoCloseable {
                 });
     }
 
-    /** RAM both sides' key indexes hold -- their slot tables, and their stores up to the RAM ceiling. */
+    /** RAM both sides' key indexes hold -- their slot tables and their stores, each up to the RAM ceiling. */
     long indexRamBytes() {
         return leftState.indexRamBytes() + rightState.indexRamBytes();
+    }
+
+    /** Bytes of both sides' key-index slot tables held in the overflow tier (ADR-044). */
+    long indexTableBytesMapped() {
+        return leftState.indexTableBytesMapped() + rightState.indexTableBytesMapped();
     }
 
     /** The overflow tier's numbers for this join's row store. */

@@ -381,10 +381,9 @@ class VariableKeyStateMapTest {
 
             assertThat(released).isPositive();
             assertThat(map.spillStatistics().overflowBytesReserved()).isLessThan(reservedBefore / 2);
-            try (var files = java.nio.file.Files.list(dir)) {
-                assertThat(files.count() * (1 << 14))
-                        .isEqualTo(map.spillStatistics().overflowBytesReserved());
-            }
+            // The slot table's mapped segments are files beside the slabs, and counted with them.
+            assertThat(map.indexBytesMapped()).isPositive();
+            assertThat(bytesOfFilesIn(dir)).isEqualTo(map.spillStatistics().overflowBytesReserved());
             assertThat(map.size()).isEqualTo(reference.size());
             reference.forEach((key, value) -> {
                 long handle = map.find(scratch, 0, stringKey(key));
@@ -397,6 +396,17 @@ class VariableKeyStateMapTest {
             map.forEach(handle -> visited[0]++);
             assertThat(visited[0]).isEqualTo(reference.size());
         }
+    }
+
+    /** Bytes of every file in a directory: the mapped slabs and slot-table segments on disk. */
+    static long bytesOfFilesIn(java.nio.file.Path dir) throws java.io.IOException {
+        long bytes = 0;
+        try (var files = java.nio.file.Files.list(dir)) {
+            for (java.nio.file.Path file : files.toList()) {
+                bytes += java.nio.file.Files.size(file);
+            }
+        }
+        return bytes;
     }
 
     @Test

@@ -15,10 +15,13 @@
  */
 package com.ash.messaging.pravaha.runtime.state;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 import com.ash.messaging.pravaha.state.RowStore;
+import com.ash.messaging.pravaha.state.SpillStatistics;
+import com.ash.messaging.pravaha.state.StateErrors;
 
 /**
  * An off-heap hash index over a key of any width, keyed by the key's own bytes rather than a digest.
@@ -39,7 +42,9 @@ import com.ash.messaging.pravaha.state.RowStore;
  *   <li>A fixed-width, off-heap, open-addressed <strong>slot table</strong> -- sixteen bytes per
  *       slot, a 64-bit fingerprint and a 64-bit handle -- which is what a probe walks. This is the
  *       part {@code L0StateMap} got right and this class keeps: linear probing over cache-resident
- *       fixed-width slots, no object per entry, no collector involvement in a lookup.
+ *       fixed-width slots, no object per entry, no collector involvement in a lookup. It is held
+ *       as segments ({@link SlotTable}), so it can pass two gigabytes, and with an overflow tier
+ *       the segments past its RAM budget are mapped files (ADR-044).
  *   <li>A {@link RowStore} holding the actual key bytes, value bytes and a small header, one block
  *       per live entry, individually freed on removal and reused by later insertions of a similar
  *       size. This is the indirection: a slot holds a <em>handle</em> into the store rather than the
@@ -78,9 +83,12 @@ import com.ash.messaging.pravaha.state.RowStore;
  */
 public final class VariableKeyStateMap implements AutoCloseable {
 
-    private static final int SLOT_BYTES = 16;
-    private static final int OFFSET_FINGERPRINT = 0;
-    private static final int OFFSET_HANDLE = 8;
+    /**
+     * Slots per slot-table segment: 2<sup>20</sup>, sixteen MiB -- one mapped file each once the table
+     * is past its RAM budget, so the index of a hundred million keys is about a hundred files, far
+     * inside {@code vm.max_map_count}.
+     */
+    public static final int DEFAULT_SEGMENT_SLOTS = 1 << 20;
 
     /** A slot that has never held anything. */
     private static final long EMPTY = ArenaHandle.NULL;
@@ -95,10 +103,13 @@ public final class VariableKeyStateMap implements AutoCloseable {
     private static final long TOMBSTONE = -2L;
 
     private final MemoryAccess access;
+    private final MemoryAccess overflowAccess;
     private final RowStore store;
     private final double maxLoadFactor = 0.7;
+    private final long slotTableRamBytes;
+    private final int segmentSlots;
 
-    private MemoryRegion slotTable;
+    private SlotTable slotTable;
     private int capacity;
     private int mask;
     private int size;
@@ -123,10 +134,11 @@ public final class VariableKeyStateMap implements AutoCloseable {
     /**
      * ADR-037 item B2: the key/value store's ceiling can be moved by carving overflow slabs from a
      * second {@link MemoryAccess} instead of refusing outright -- see {@link RowStore}'s own
-     * overflow-aware constructor, which this passes straight through to. The slot table itself is
-     * never given an overflow tier: at sixteen bytes a slot it is a small fraction of what a large
-     * key or value costs, and {@code RowStore} is where the actual bytes -- the part that can grow
-     * without bound -- live.
+     * overflow-aware constructor, which this passes straight through to. The slot table follows it
+     * (ADR-044): with a tier, the table may hold as many bytes of RAM as the store's own RAM ceiling,
+     * {@code storeMaxSlabs * storeSlabBytes}, and its segments past that are mapped. It used to stay
+     * in RAM at sixteen bytes a slot whatever the key count -- the one part of a spilled map whose
+     * memory still grew with its keys.
      *
      * @param overflowAccess where slabs beyond {@code storeMaxSlabs} are carved from, or {@code null}
      *     for no overflow tier -- today's behaviour, unchanged
@@ -140,21 +152,56 @@ public final class VariableKeyStateMap implements AutoCloseable {
             int storeMaxSlabs,
             MemoryAccess overflowAccess,
             int maxOverflowSlabs) {
-        if (initialCapacity < 2) {
-            throw new IllegalArgumentException("initial capacity must be at least 2, got " + initialCapacity);
-        }
-        this.access = access;
-        this.store = new RowStore(access, storeSlabBytes, storeMaxSlabs, overflowAccess, maxOverflowSlabs);
-        allocateTable(nextPowerOfTwo(initialCapacity));
+        this(
+                access,
+                initialCapacity,
+                storeSlabBytes,
+                storeMaxSlabs,
+                overflowAccess,
+                maxOverflowSlabs,
+                (long) storeMaxSlabs * storeSlabBytes,
+                DEFAULT_SEGMENT_SLOTS);
     }
 
-    private void allocateTable(int newCapacity) {
-        this.capacity = newCapacity;
-        this.mask = newCapacity - 1;
-        this.slotTable = access.allocate(newCapacity * SLOT_BYTES, MemoryAccess.CACHE_LINE_BYTES);
-        for (int slot = 0; slot < newCapacity; slot++) {
-            slotTable.putLong(slot * SLOT_BYTES + OFFSET_HANDLE, EMPTY);
+    /**
+     * With the slot table's RAM budget and segment size given, which is how a test puts a small
+     * table's segments in the overflow tier.
+     *
+     * @param slotTableRamBytes bytes of slot table held in RAM before further segments are mapped;
+     *     ignored without an overflow tier
+     * @param segmentSlots slots per slot-table segment, a power of two
+     */
+    public VariableKeyStateMap(
+            MemoryAccess access,
+            int initialCapacity,
+            int storeSlabBytes,
+            int storeMaxSlabs,
+            MemoryAccess overflowAccess,
+            int maxOverflowSlabs,
+            long slotTableRamBytes,
+            int segmentSlots) {
+        if (initialCapacity < 2 || initialCapacity > SlotTable.MAX_CAPACITY) {
+            throw new IllegalArgumentException("initial capacity must be from 2 to 2^30, got " + initialCapacity);
         }
+        if (segmentSlots < 2 || Integer.bitCount(segmentSlots) != 1 || segmentSlots > SlotTable.MAX_CAPACITY) {
+            throw new IllegalArgumentException("segment slots must be a power of two, got " + segmentSlots);
+        }
+        this.access = access;
+        this.overflowAccess = overflowAccess;
+        this.slotTableRamBytes = slotTableRamBytes;
+        this.segmentSlots = segmentSlots;
+        this.store = new RowStore(access, storeSlabBytes, storeMaxSlabs, overflowAccess, maxOverflowSlabs);
+        useTable(newTable(nextPowerOfTwo(initialCapacity)));
+    }
+
+    private SlotTable newTable(int newCapacity) {
+        return SlotTable.allocate(newCapacity, segmentSlots, access, slotTableRamBytes, overflowAccess);
+    }
+
+    private void useTable(SlotTable table) {
+        this.slotTable = table;
+        this.capacity = table.capacity();
+        this.mask = capacity - 1;
     }
 
     private static int nextPowerOfTwo(int value) {
@@ -207,16 +254,23 @@ public final class VariableKeyStateMap implements AutoCloseable {
             probes++;
             long handle = handleAt(slot);
             if (handle == EMPTY) {
+                // Absent. The table grows (or sweeps its tombstones) before the entry exists, not
+                // after: a table that cannot be had -- the tier's quota, a full disk, the largest
+                // table there is -- is then refused with the map exactly as it was, rather than
+                // holding an entry whose caller never got its handle back to fill in.
+                int occupiedAfter = size + tombstones + (firstTombstone >= 0 ? 0 : 1);
+                if ((double) occupiedAfter / capacity > maxLoadFactor) {
+                    rehash();
+                    return getOrCreate(keyRegion, keyOffset, keyLength, valueBytes);
+                }
                 int insertSlot = firstTombstone >= 0 ? firstTombstone : slot;
-                if (handleAt(insertSlot) == TOMBSTONE) {
+                long created = createEntry(keyRegion, keyOffset, keyLength, valueBytes);
+                if (firstTombstone >= 0) {
                     tombstones--;
                 }
-                long created = createEntry(keyRegion, keyOffset, keyLength, valueBytes);
-                slotTable.putLong(insertSlot * SLOT_BYTES + OFFSET_FINGERPRINT, fingerprint);
-                slotTable.putLong(insertSlot * SLOT_BYTES + OFFSET_HANDLE, created);
+                slotTable.put(insertSlot, fingerprint, created);
                 size++;
                 peakSize = Math.max(peakSize, size);
-                maybeGrow();
                 return created;
             }
             if (handle == TOMBSTONE) {
@@ -248,7 +302,7 @@ public final class VariableKeyStateMap implements AutoCloseable {
                 // Marked rather than cleared, for the reason L0StateMap's javadoc gave: clearing
                 // would break the probe chain for every key that collided with this one and landed
                 // behind it.
-                slotTable.putLong(slot * SLOT_BYTES + OFFSET_HANDLE, TOMBSTONE);
+                slotTable.putHandle(slot, TOMBSTONE);
                 store.release(handle);
                 size--;
                 tombstones++;
@@ -313,11 +367,11 @@ public final class VariableKeyStateMap implements AutoCloseable {
     }
 
     private long handleAt(int slot) {
-        return slotTable.getLong(slot * SLOT_BYTES + OFFSET_HANDLE);
+        return slotTable.handle(slot);
     }
 
     private long fingerprintAt(int slot) {
-        return slotTable.getLong(slot * SLOT_BYTES + OFFSET_FINGERPRINT);
+        return slotTable.fingerprint(slot);
     }
 
     private boolean keyEquals(long handle, MemoryRegion keyRegion, int keyOffset, int keyLength) {
@@ -344,21 +398,35 @@ public final class VariableKeyStateMap implements AutoCloseable {
      * <p>Cheaper than {@code L0StateMap}'s rehash: only the sixteen-byte slots move. The key and
      * value bytes stay exactly where they are in the {@link RowStore}, because a slot holds a handle
      * to them rather than the bytes themselves -- resizing the index never touches the data.
+     *
+     * <p>The new table is built whole before the old one is let go, so a refusal part-way -- the
+     * overflow tier's quota or free space ({@code PRV-4005}, {@code PRV-4006}), or a table already at
+     * {@link SlotTable#MAX_CAPACITY} ({@code PRV-4001}) -- leaves the map as it was.
      */
-    private void maybeGrow() {
-        if ((double) (size + tombstones) / capacity <= maxLoadFactor) {
-            return;
+    private void rehash() {
+        int newCapacity = capacity;
+        if (size + 1 > capacity / 2) {
+            if (capacity >= SlotTable.MAX_CAPACITY) {
+                throw new PravahaException(
+                        StateErrors.STATE_TOO_LARGE,
+                        "a state index holds " + size + " keys in " + capacity + " slots, the most one index can "
+                                + "have (2^30 slots, 16 GiB of slot table), and cannot take another. Bound the "
+                                + "key space the query keeps -- a window, a tighter predicate -- or split it "
+                                + "into queries over disjoint key ranges.");
+            }
+            newCapacity = capacity * 2;
         }
-        MemoryRegion old = slotTable;
+        SlotTable old = slotTable;
+        SlotTable rebuilt = newTable(newCapacity);
         int oldCapacity = capacity;
-        allocateTable(size > capacity / 2 ? capacity * 2 : capacity);
-        tombstones = 0;
+        useTable(rebuilt);
         for (int slot = 0; slot < oldCapacity; slot++) {
-            long handle = old.getLong(slot * SLOT_BYTES + OFFSET_HANDLE);
+            long handle = old.handle(slot);
             if (handle != EMPTY && handle != TOMBSTONE) {
-                reinsert(old.getLong(slot * SLOT_BYTES + OFFSET_FINGERPRINT), handle);
+                reinsert(old.fingerprint(slot), handle);
             }
         }
+        tombstones = 0;
         old.close();
         resizes++;
     }
@@ -369,8 +437,7 @@ public final class VariableKeyStateMap implements AutoCloseable {
         while (handleAt(slot) != EMPTY) {
             slot = (slot + 1) & mask;
         }
-        slotTable.putLong(slot * SLOT_BYTES + OFFSET_FINGERPRINT, fingerprint);
-        slotTable.putLong(slot * SLOT_BYTES + OFFSET_HANDLE, handle);
+        slotTable.put(slot, fingerprint, handle);
     }
 
     private static IllegalStateException noFreeSlot() {
@@ -421,9 +488,14 @@ public final class VariableKeyStateMap implements AutoCloseable {
         return lookups == 0 ? 0 : (double) probes / lookups;
     }
 
-    /** Bytes the fixed-width slot table occupies. Independent of key or value width. */
+    /** Bytes the fixed-width slot table occupies, RAM and mapped together. Independent of key or value width. */
     public long indexBytesAllocated() {
-        return (long) capacity * SLOT_BYTES;
+        return slotTable.bytes();
+    }
+
+    /** Bytes of the slot table held in the overflow tier rather than RAM (ADR-044). */
+    public long indexBytesMapped() {
+        return slotTable.bytesMapped();
     }
 
     /** Bytes the key/value store has reserved from the operating system, live and free together. */
@@ -455,9 +527,9 @@ public final class VariableKeyStateMap implements AutoCloseable {
         return store.reuses();
     }
 
-    /** Whether this map's key/value store has ever carved a slab from its overflow tier. */
+    /** Whether this map's key/value store has ever carved a slab from its overflow tier, or its slot table is mapped now. */
     public boolean hasSpilled() {
-        return store.hasSpilled();
+        return store.hasSpilled() || slotTable.bytesMapped() > 0;
     }
 
     /** How many overflow-tier slabs this map's key/value store has used. */
@@ -489,7 +561,7 @@ public final class VariableKeyStateMap implements AutoCloseable {
                 if (handle != EMPTY && handle != TOMBSTONE) {
                     long moved = relocation.relocate(handle);
                     if (moved != handle) {
-                        slotTable.putLong(slot * SLOT_BYTES + OFFSET_HANDLE, moved);
+                        slotTable.putHandle(slot, moved);
                     }
                 }
             }
@@ -501,9 +573,15 @@ public final class VariableKeyStateMap implements AutoCloseable {
         return needsCompaction(threshold) ? compactOverflow(threshold) : 0;
     }
 
-    /** The overflow tier's numbers for this map's key/value store. */
-    public com.ash.messaging.pravaha.state.SpillStatistics spillStatistics() {
-        return com.ash.messaging.pravaha.state.SpillStatistics.of(store);
+    /**
+     * The overflow tier's numbers for this map: its key/value store's, with the slot table's mapped
+     * segments counted as held and live -- they are files in the spill directory like any slab, and
+     * every byte of them is table in use.
+     */
+    public SpillStatistics spillStatistics() {
+        long tableMapped = slotTable.bytesMapped();
+        SpillStatistics ofStore = SpillStatistics.of(store);
+        return tableMapped == 0 ? ofStore : ofStore.plus(new SpillStatistics(tableMapped, tableMapped, 0, 0, 0));
     }
 
     @Override
