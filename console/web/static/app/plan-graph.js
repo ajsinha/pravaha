@@ -54,11 +54,17 @@ function el(name, attrs = {}, parent) {
   return node;
 }
 
+let drawn = 0;
+/* How a compared plan marks an operator (the workbench's diff, design 23.7): never by colour
+   alone -- a glyph in the node and a word in its accessible name say it too. */
+const MARKS = { added: "+", removed: "\u2212", changed: "~" };
+
 /**
  * Renders `graph` ({nodes, edges} from the console's /sql/explain) into `container`.
- * `onSelect(node)` is called when a node is clicked or chosen with Enter.
+ * `onSelect(node)` is called when a node is clicked or chosen with Enter. `marks`, from a plan
+ * diff, maps a node id to added / removed / changed / same; `label` names the whole graph.
  */
-export async function renderPlan(container, graph, { onSelect } = {}) {
+export async function renderPlan(container, graph, { onSelect, marks = null, label = null } = {}) {
   container.replaceChildren();
   if (!graph || !graph.nodes || !graph.nodes.length) {
     container.innerHTML = `<div class="state"><h2>${t("plan.empty.title")}</h2><p>${t("plan.empty.body")}</p></div>`;
@@ -77,7 +83,8 @@ export async function renderPlan(container, graph, { onSelect } = {}) {
     },
     children: graph.nodes.map((n) => {
       const detail = n.detail.length > 44 ? n.detail.slice(0, 43) + "…" : n.detail;
-      return { id: n.id, width: Math.max(120, textWidth(n.op, 12) + 34, textWidth(detail, 10.5) + 26),
+      const badge = marks && MARKS[marks[n.id]] ? 18 : 0;
+      return { id: n.id, width: Math.max(120, textWidth(n.op, 12) + 34 + badge, textWidth(detail, 10.5) + 26),
                height: detail ? 48 : 34, _detail: detail };
     }),
     edges: graph.edges.map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] })),
@@ -86,9 +93,11 @@ export async function renderPlan(container, graph, { onSelect } = {}) {
   const byId = Object.fromEntries(graph.nodes.map((n) => [n.id, n]));
 
   const svg = el("svg", { width: laid.width, height: laid.height, viewBox: `0 0 ${laid.width} ${laid.height}`,
-                          role: "group", "aria-label": t("plan.label", { n: graph.nodes.length }) });
+                          role: "group", "aria-label": label || t("plan.label", { n: graph.nodes.length }) });
   const defs = el("defs", {}, svg);
-  const marker = el("marker", { id: "plan-arrow", viewBox: "0 0 10 10", refX: 9, refY: 5,
+  /* One id per drawing: two plans side by side must not share an arrowhead's id. */
+  const arrow = "plan-arrow-" + (drawn += 1);
+  const marker = el("marker", { id: arrow, viewBox: "0 0 10 10", refX: 9, refY: 5,
                                 markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs);
   el("path", { d: "M0,0 L10,5 L0,10 z", class: "plan-arrow" }, marker);
 
@@ -96,19 +105,25 @@ export async function renderPlan(container, graph, { onSelect } = {}) {
     for (const section of edge.sections || []) {
       const points = [section.startPoint, ...(section.bendPoints || []), section.endPoint];
       el("path", { d: "M" + points.map((p) => `${p.x},${p.y}`).join(" L"), class: "plan-edge",
-                   "marker-end": "url(#plan-arrow)" }, svg);
+                   "marker-end": `url(#${arrow})` }, svg);
     }
   }
 
   const nodes = [];
   for (const child of laid.children) {
     const n = byId[child.id];
-    const g = el("g", { class: "plan-node", transform: `translate(${child.x},${child.y})`, tabindex: 0,
-                        role: "button", "aria-label": `${n.op} ${n.detail}`.trim() }, svg);
-    el("title", {}, g).textContent = n.label;
+    const mark = marks ? marks[n.id] : null;
+    const said = mark && MARKS[mark] ? ", " + t("plan.mark." + mark) : "";
+    const g = el("g", { class: "plan-node" + (mark ? " diff-" + mark : ""), transform: `translate(${child.x},${child.y})`,
+                        tabindex: 0, role: "button", "aria-label": `${n.op} ${n.detail}`.trim() + said,
+                        "data-op": n.op }, svg);
+    el("title", {}, g).textContent = n.label + said;
     el("rect", { width: child.width, height: child.height, rx: 6 }, g);
     el("rect", { class: "bar fam-" + n.family, width: 5, height: child.height, rx: 2 }, g);
     el("text", { x: 14, y: 20, "font-weight": 600 }, g).textContent = n.op;
+    if (mark && MARKS[mark]) {
+      el("text", { x: child.width - 16, y: 20, class: "mark", "aria-hidden": "true" }, g).textContent = MARKS[mark];
+    }
     if (child._detail) el("text", { x: 14, y: 37, class: "detail" }, g).textContent = child._detail;
     const choose = () => {
       nodes.forEach((x) => x.classList.remove("selected"));

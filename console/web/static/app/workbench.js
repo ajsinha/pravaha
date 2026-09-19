@@ -16,10 +16,11 @@
  * save, and the status line says exactly which part is unavailable and why.
  */
 import { html, render, call, announce, debounce, token, onThemeChange, store, copyText,
-         errorView, isNumericType } from "pravaha/lib.js";
+         errorView, isNumericType, t } from "pravaha/lib.js";
 import { useEffect, useRef, useState, useCallback } from "preact/hooks";
 import { Grid } from "pravaha/grid.js";
 import { renderPlan, legend, exportSvg, loadGlobalScript } from "pravaha/plan-graph.js";
+import { DiffPanel } from "pravaha/diff.js";
 
 const mount = document.getElementById("workbench-app");
 /* Read before the island replaces the server-rendered form it came in. */
@@ -145,6 +146,17 @@ function defineThemes(monaco) {
       "editor.wordHighlightBackground": "#" + hex("--info-soft", "#E8EDF3"),
       "editor.wordHighlightStrongBackground": "#" + hex("--info-soft", "#E8EDF3"),
       "editor.selectionHighlightBackground": "#" + hex("--info-soft", "#E8EDF3"),
+      /* The Compare panel's SQL diff. A changed line is tinted from the semantic soft tokens,
+         which every syntax colour above is held readable on, and marked + or − in the gutter.
+         The changed words are not tinted again: a second wash over the first took the number
+         colour to 4.2:1 (found by axe), and the line, its sign and the plan diff say enough. */
+      "diffEditor.insertedLineBackground": "#" + hex("--ok-soft", "#E6F2EA"),
+      "diffEditor.removedLineBackground": "#" + hex("--bad-soft", "#F9E8E8"),
+      "diffEditor.insertedTextBackground": "#00000000",
+      "diffEditor.removedTextBackground": "#00000000",
+      "diffEditorGutter.insertedLineBackground": "#" + hex("--ok-soft", "#E6F2EA"),
+      "diffEditorGutter.removedLineBackground": "#" + hex("--bad-soft", "#F9E8E8"),
+      "diffEditor.diagonalFill": "#" + hex("--rule", "#D9DEE6"),
     },
   });
   monaco.editor.setTheme("pravaha");
@@ -601,7 +613,7 @@ function Library({ onOpen, onInsert, currentSql, selection }) {
 }
 
 const PANELS = [["diagnostics", "Diagnostics"], ["explain", "Explain"], ["run", "Run"],
-                ["register", "Register"], ["library", "Library"]];
+                ["register", "Register"], ["diff", t("wb.diff.tab")], ["library", "Library"]];
 
 function Workbench() {
   const init = useRef(initialTabs()).current;
@@ -857,6 +869,11 @@ function Workbench() {
           setParams=${(p) => update(tab.id, { params: p })} paramsRef=${paramsRef} /></div>
         <div hidden=${panel !== "register"}><${RegisterPanel} sql=${tab ? tab.sql : ""} validation=${validation}
           sinkRef=${sinkRef} sink=${sink} setSink=${setSink} /></div>
+        <div hidden=${panel !== "diff"}><${DiffPanel} sql=${tab ? tab.sql : ""}
+          title=${t("wb.diff.this_draft", { title: tab ? tab.title || "untitled" : "untitled" })}
+          origin=${tab ? tab.origin || "" : ""} drafts=${tabs.filter((d) => d.id !== active && d.sql.trim())}
+          active=${panel === "diff"} getMonaco=${() => (editorState === "monaco" ? monacoRef.current : null)}
+          onNewDraft=${() => addTab()} editorReady=${editorState !== "loading"} /></div>
         <div hidden=${panel !== "library"}><${Library} currentSql=${tab ? tab.sql : ""} onOpen=${(item) => addTab(item.sql, item.title)}
           onInsert=${insert} selection=${() => (editor.current ? editor.current.getModel().getValueInRange(editor.current.getSelection()) : "")} /></div>
       </div>

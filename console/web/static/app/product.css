@@ -99,7 +99,7 @@ kbd{background:var(--stripe);color:var(--slate);border:1px solid var(--rule);bor
 .diag.warn{border-left-color:var(--warn);background:var(--warn-soft);}
 .diag .where{font-family:var(--code);font-size:.72rem;color:var(--muted);}
 .diag .actions{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.35rem;}
-.panel-tabs{display:flex;gap:.2rem;border-bottom:1px solid var(--rule);}
+.panel-tabs{display:flex;flex-wrap:wrap;gap:.2rem;border-bottom:1px solid var(--rule);}
 .panel-tabs button{border:0;background:none;padding:.4rem .75rem;font-size:.82rem;color:var(--muted);
   border-bottom:2px solid transparent;margin-bottom:-1px;}
 .panel-tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--flow);font-weight:600;}
@@ -124,6 +124,31 @@ kbd{background:var(--stripe);color:var(--slate);border:1px solid var(--rule);bor
 .plan-legend{display:flex;flex-wrap:wrap;gap:.8rem;font-size:.74rem;color:var(--muted);margin:.4rem 0;}
 .plan-legend span{display:inline-flex;align-items:center;gap:.3rem;}
 .plan-legend i{width:10px;height:10px;border-radius:2px;display:inline-block;}
+
+/* ------------------------------------------------------------ the workbench's Compare panel (23.7) */
+/* An operator's mark is a glyph and a word in its name as well as a colour (WCAG 1.4.1): a
+   removed one is dashed, an added one heavy, a changed one amber. */
+.plan-node.diff-added rect:first-of-type{stroke:var(--ok);stroke-width:2.5;}
+.plan-node.diff-removed rect:first-of-type{stroke:var(--bad);stroke-width:2;stroke-dasharray:5 3;}
+.plan-node.diff-changed rect:first-of-type{stroke:var(--warn);stroke-width:2.5;}
+.plan-node text.mark{font-family:var(--code);font-size:14px;font-weight:700;}
+.plan-node.diff-added text.mark{fill:var(--ok);} .plan-node.diff-removed text.mark{fill:var(--bad);}
+.plan-node.diff-changed text.mark{fill:var(--warn);}
+.plan-legend i.mark-key{width:auto;height:auto;background:none;font-style:normal;font-family:var(--code);
+  font-weight:700;padding:0 .3rem;border:1.5px solid currentColor;border-radius:3px;}
+.plan-legend i.mark-key.added{color:var(--ok);} .plan-legend i.mark-key.removed{color:var(--bad);border-style:dashed;}
+.plan-legend i.mark-key.changed{color:var(--warn);}
+.diff-plan{max-height:22rem;}
+.diff-sql{height:220px;border:1px solid var(--rule);border-radius:6px;overflow:hidden;background:var(--surface);}
+.diff-text{border:1px solid var(--rule);border-radius:6px;padding:.5rem .7rem;max-height:18rem;}
+.diff-text .add{background:var(--ok-soft);color:var(--ink);} .diff-text .del{background:var(--bad-soft);color:var(--ink);}
+.diff-consequences{padding-left:1.1rem;margin-bottom:.4rem;}
+.diff-consequences li{margin-bottom:.3rem;max-width:80ch;}
+.diff-list{list-style:none;padding:0;margin:.4rem 0 0;}
+.diff-list li{padding:.2rem .5rem;border-left:3px solid var(--rule);margin-bottom:.2rem;overflow-wrap:anywhere;}
+.diff-list li.diff-added{border-left-color:var(--ok);background:var(--ok-soft);}
+.diff-list li.diff-removed{border-left-color:var(--bad);background:var(--bad-soft);}
+.diff-list li.diff-changed{border-left-color:var(--warn);background:var(--warn-soft);}
 
 /* ------------------------------------------------------------ virtualised grid */
 .vgrid{border:1px solid var(--rule);border-radius:6px;overflow:auto;position:relative;background:var(--surface);
