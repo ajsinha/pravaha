@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **331 findings carrying a
-status — 214 FIXED, 104 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 104 open, **1 is
-GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **334 findings carrying a
+status — 218 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **1 is
+GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 1 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The blockers, by what they break — one open: `SUB-1`**, a client mirroring a view by snapshot plus
@@ -6601,14 +6601,13 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### LANE-1 (HIGH) — two queries over one stream on a shared lane each counted the other's rows
 
-> **Status:** FIXED — `ebcc6bf`: `SharedLanes` never places a second query over the same stream on a shared lane, nor a query reading more than one stream. `SharedLanePlacementTest` and `NodeLaneSharingTest` register two queries over one stream and require each count to be right; with the exclusion removed, `MultiplexedRegistryTest` reads `[8, 1600]` where `[4, 800]` is right.
+> **Status:** FIXED — `ebcc6bf`: `SharedLanes` never places a second query over the same stream on a shared lane, nor a query reading more than one stream. Since superseded by LANE-2's routes, which make such placement correct rather than refused; the same test still reads `[4, 800]`. `SharedLanePlacementTest` and `NodeLaneSharingTest` register two queries over one stream and require each count to be right; with the exclusion removed, `MultiplexedRegistryTest` reads `[8, 1600]` where `[4, 800]` is right.
 > **Found while wiring W9-8.** `LaneMultiplexer` dispatches a row to every pipeline on the lane that reads its stream, which assumes one ingest per stream per lane. The feed layer gives every registration its own feed, so two feeds each copied every row into the one shared inbox and each pipeline was handed both copies. Reachable before this round through `QueryRegistry.multiplexingLanes(true)`, the embedder switch. The old `MultiplexedRegistryTest` passed because it used keyed projections, where a duplicate upsert leaves no trace.
 > **Why it mattered:** a silently doubled answer on the path that was about to become a node setting.
 
 ### LANE-2 (MEDIUM) — many queries over one source cannot share a lane, because nothing shares one ingest per stream per lane
 
-> **Status:** OPEN — the fix for LANE-1 keeps a shared lane to one query per stream. Lifting it needs one ingest per stream per shared lane, fanned out by the multiplexer to every pipeline reading that stream, where today each registration opens its own feed.
-> **Disposition:** POST-GA — a node reaches its query target without lane sharing (W9-11); this limits how much memory sharing saves for a thousand queries over one source, not whether answers are right
+> **Status:** FIXED — `0ea4cd4`, `456757a`, `bc3212b`: a shared lane dispatches on a route id rather than the stream id — each query's own feed (its reader, pushed rows, a catch-up) reaches it alone, and a shared reader (SRC-3) writes one copy per shared lane that reaches every query on it. Join, pause, resume and drop take effect at an exact row through a task queued on the lane while the shared reader holds still; any query's checkpoint holds the reader between rows, so state and offset describe one point. The one-query-per-stream and no-joins placement rules are gone. `SharedLaneIngestTest` (8), `SharedLaneIngestPropertyTest` (40 random scripts), `SharedLaneDensityTest`: 1,000 queries over one source on 8 shared lanes rather than 1,000 own lanes, 0.5 MiB of lane memory rather than 62.5 MiB at test sizing, 3,200 inbox copies rather than 400,000. Seed-proven: double counting restored gives `[80, 15080]` for `[40, 7540]`. Sources promising exactly-once or order still read once per query (SRC-3's decision), sharing the lane, inbox and arena.
 
 ### CKPT-1 (HIGH) — a registered query's view was snapshotted after the checkpoint's cut, not at it
 
@@ -6747,3 +6746,16 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** OPEN — `ViewSink` decides a commit's audience when its first batch is applied (STRM-11), so a subscription starts at the *next* commit boundary, and a subscription carries no snapshot of its own. A client that subscribes and then reads the view — the natural way to mirror it — reads the last *committed* state, which does not contain the commit already in flight, while its subscription was not in that commit's audience either: those rows reach the client by neither path, and nothing says so. Reading first and subscribing second loses a commit landing between the two in the same way. Found by the Spring Boot starter's `PravahaTester.awaitView`, which waited for ever in 3 of 3 full-suite runs until it forced a commit after subscribing; `PravahaTesterCommitGapTest` makes the interleaving deterministic.
 > **Disposition:** GA-BLOCKER — silent loss for any client that mirrors a view by snapshot plus subscription; the fix is a handoff with no gap: a subscription that can start with the view's snapshot at a stated frontier and then every commit after it, or a read that returns the frontier a subscription can be told to resume from
+
+### LANE-3 (HIGH) — a paused query's checkpoint recorded the shared reader's position, so a restore skipped every row it was paused through
+
+> **Status:** FIXED — `bc3212b`: a paused query's checkpoint now records the position at which it stopped receiving, not the shared reader's current one. Found while building LANE-2 and present on lanes of a query's own as well. `SharedLaneIngestTest`; seed-proven — recording the reader's position restores `[7, 1295]` where `[27, 4653]` is right, 20 rows lost.
+> **Why it mattered:** silent loss on the recovery path, for any paused query over a shared reader.
+
+### LANE-4 (HIGH) — a view restored from a checkpoint and committed before its first new row killed the shared reader for every query on the source
+
+> **Status:** FIXED — `3b9d9a8`: the commit threw "frontier went backwards" on the shared reader's publishing thread, which ended the reader for every query it fed. A restored view now commits without its frontier moving back. Found while building LANE-2; present on lanes of a query's own too.
+
+### LANE-5 (MEDIUM) — one query's failed commit ended the shared reader's thread, recording nothing
+
+> **Status:** FIXED — `bc3212b`: the failure is now recorded on that query (its describe line shows it) and the reader carries on for the rest. The reader also takes its lock per query rather than for a whole round of commits, which made each join wait seconds with 1,000 queries.
