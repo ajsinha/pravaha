@@ -29,6 +29,7 @@ const ACTIVE_KEY = "pravaha.workbench.active";
 const SNIPPETS_KEY = "pravaha.workbench.snippets";
 const MONACO = "/static/vendor/monaco/vs";
 const WORKER = MONACO + "/assets/editor.worker-lj3bdIIn.js";
+const CONTRIBUTIONS = "vs/toggleHighContrast-qGX7E9o7";
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function newId() { return Math.random().toString(36).slice(2, 9); }
@@ -67,7 +68,11 @@ function loadMonaco() {
     });
     self.MonacoEnvironment = { getWorker: () => new Worker(WORKER) };
     window.require.config({ paths: { vs: MONACO } });
-    return new Promise((resolve, reject) => window.require(["vs/editor"], resolve, reject));
+    /* `vs/editor` is the editor core and its API; the Vite-named chunk beside it carries the
+       editor contributions -- suggest, hover, find, quick fix, bracket matching. Without it
+       the editor edits but completion and code actions never appear. */
+    return new Promise((resolve, reject) =>
+      window.require(["vs/editor", CONTRIBUTIONS], (editor) => resolve(editor), reject));
   })();
   return monacoPromise;
 }

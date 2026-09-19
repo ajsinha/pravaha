@@ -130,7 +130,7 @@ exists; a service does not know a browser does; an island knows only the console
 
 | Library | Version | Where | Used for |
 |---|---|---|---|
-| Monaco Editor | 0.56.0 | `vendor/monaco/vs/` — the editor core, AMD loader and editor worker from the prebuilt `min/` tree; language workers left out | the workbench editor, with Pravaha's own SQL language |
+| Monaco Editor | 0.56.0 | `vendor/monaco/vs/` — the editor core, its contributions chunk (suggest, hover, quick fix), the AMD loader and the editor worker from the prebuilt `min/` tree; language workers left out | the workbench editor, with Pravaha's own SQL language |
 | Apache ECharts | 6.1.0 | `vendor/echarts/echarts.min.js` | canvas charts on the live and operations screens |
 | elkjs | 0.12.0 | `vendor/elkjs/elk.bundled.js` | deterministic layered layout of the plan graph |
 | Preact (+ hooks) | 10.29.8 | `vendor/preact/*.module.js` | the islands' components |

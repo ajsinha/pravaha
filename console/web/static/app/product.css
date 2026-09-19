@@ -187,3 +187,6 @@ tr.retracted td{text-decoration:line-through;color:var(--muted);}
   tr.changed{animation:none;}
   .wb-side summary::before{transition:none;}
 }
+
+/* Monaco renders suggestion labels as <a>; Bootstrap would underline every one. */
+.monaco-editor a{text-decoration:none;color:inherit;}

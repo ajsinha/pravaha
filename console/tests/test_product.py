@@ -520,6 +520,7 @@ def test_no_secret_reaches_any_new_page_or_endpoint(signed_in):
 VENDORED = [
     "/static/vendor/monaco/vs/loader.js",
     "/static/vendor/monaco/vs/editor.js",
+    "/static/vendor/monaco/vs/toggleHighContrast-qGX7E9o7.js",
     "/static/vendor/monaco/vs/editor/editor.main.css",
     "/static/vendor/monaco/vs/assets/editor.worker-lj3bdIIn.js",
     "/static/vendor/echarts/echarts.min.js",
@@ -540,7 +541,7 @@ def test_vendored_assets_are_served_by_the_console_itself(anonymous, path):
 def test_every_monaco_module_the_editor_loads_is_vendored():
     """The editor's AMD modules name their dependencies; every one must be on disk."""
     vs = CONSOLE_ROOT / "web" / "static" / "vendor" / "monaco" / "vs"
-    pending, seen = ["editor"], set()
+    pending, seen = ["editor", "toggleHighContrast-qGX7E9o7"], set()
     while pending:
         module = pending.pop()
         if module in seen:

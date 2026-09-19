@@ -2989,7 +2989,7 @@ during an incident.
 | Bootstrap 5 (CSS + bundle JS) | ~320 KB |
 | Bootstrap Icons | ~300 KB |
 | Source Sans 3, Source Serif 4, Source Code Pro (latin subsets) | ~390 KB |
-| Monaco 0.56 (editor core, loader, editor worker) | ~3.4 MB, loaded only by the workbench |
+| Monaco 0.56 (editor core and contributions, loader, editor worker) | ~4.6 MB, loaded only by the workbench |
 | ECharts 6.1 | ~1.1 MB, loaded only by the live and operations screens |
 | elkjs 0.12 | ~1.6 MB, loaded only when a plan is drawn |
 | Preact 10 + hooks, htm 3 | ~20 KB, every page (the command palette) |

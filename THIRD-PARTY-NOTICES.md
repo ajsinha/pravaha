@@ -67,7 +67,7 @@ them may require a separate agreement with that vendor.
 The console (`console/`) serves every script, stylesheet and font from its own
 `web/static/vendor/` directory, so it renders with no network access (design §23.4a).
 These files are redistributed unmodified, except that Monaco is a subset of its `min/`
-build (the editor core, its loader and its editor worker; the language workers and
+build (the editor core, its contributions chunk, its loader and its editor worker; the language workers and
 bundled grammars the console does not use are left out). Each directory carries the
 upstream licence file named below.
 
