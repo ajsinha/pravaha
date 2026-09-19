@@ -171,6 +171,24 @@ class PluginSourceFeedsTest {
     }
 
     @Test
+    void aFileWithAnOperationColumnIsASourceThatDeletes(@TempDir Path dir) throws Exception {
+        // HLP-15: with op.column a filesystem source emits rows at weight -1, so PRV-2041 must see it
+        // as a change feed; without one it is an append-only log.
+        Path file = dir.resolve("txn.csv");
+        java.nio.file.Files.writeString(file, "");
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding(
+                        "changes",
+                        "filesystem",
+                        Map.of("path", file.toString(), "schema", SCHEMA_SPEC + ",op:STRING", "op.column", "op")))
+                .bind(new SourceBinding(
+                        "inserts", "filesystem", Map.of("path", file.toString(), "schema", SCHEMA_SPEC)));
+
+        assertThat(feeds.retracts("changes")).isTrue();
+        assertThat(feeds.retracts("inserts")).isFalse();
+    }
+
+    @Test
     void aFailedBindingDoesNotLeaveTheQueryHalfStarted(@TempDir Path dir) {
         // Without the unwind, a registration that failed here left a lane thread and an arena alive
         // for the lifetime of the process, holding memory nothing could reach.

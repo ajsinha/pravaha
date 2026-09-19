@@ -361,6 +361,19 @@ class FilesystemPluginTest {
     // ------------------------------------------------------------------ capabilities
 
     @Test
+    void aFileWithAnOperationColumnDeclaresThatItDeletes(@TempDir Path dir) throws IOException {
+        // HLP-15. With op.column a row can arrive at weight -1, so the source retracts, and PRV-2041
+        // reads exactly this answer to decide whether a query may reach an append-only sink.
+        Path input = dir.resolve("in.csv");
+        Files.writeString(input, "1,a,1.0,true,I\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA, "op.column", "note")));
+            assertThat(source.capabilities().emitsDeletes()).isTrue();
+            assertThat(source.capabilities().emitsBeforeImage()).isFalse();
+        }
+    }
+
+    @Test
     void capabilitiesAreDeclaredHonestly(@TempDir Path dir) throws IOException {
         Path input = dir.resolve("in.csv");
         Files.writeString(input, "1,a,1.0,true,x\n");

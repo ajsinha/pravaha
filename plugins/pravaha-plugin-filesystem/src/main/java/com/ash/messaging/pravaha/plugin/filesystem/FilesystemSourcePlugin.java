@@ -258,9 +258,12 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
                 // A byte offset genuinely resumes, so exactly-once is honest here.
                 true,
                 true,
-                // A file cannot express a delete or a before-image, and saying so is what lets the
-                // planner refuse a query that needs one.
-                false,
+                // A plain file cannot express a delete, and saying so is what lets the planner
+                // refuse a query that needs one. With op.column it can: a row whose operation is a
+                // delete value arrives at weight -1, and PRV-2041 must know that before it lets the
+                // query reach an append-only sink (HLP-15). Never a before-image: the file says only
+                // which row leaves, not what it replaced.
+                !opColumn.isEmpty(),
                 false,
                 DeliveryGuarantee.EXACTLY_ONCE,
                 EnumSet.noneOf(com.ash.messaging.pravaha.api.plugin.PushdownKind.class),
