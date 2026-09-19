@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.services import ServiceError
 from routes.auth_routes import current_user, login_required
-from routes.base import Routes
+from routes.base import Routes, failure
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,14 @@ class UIRoutes(Routes):
                 logger.warning("rendering without engine data: %s", exc)
                 return fallback
 
+        def _attempt(fn, fallback, what: str = ""):
+            """``_safe``, keeping what failed: a Failure the page renders as its error or partial
+            state (design 23.12), with the correlation id that is also on the log line."""
+            try:
+                return fn(), None
+            except ServiceError as exc:
+                return fallback, failure(exc, what=what)
+
         # ---------------------------------------------------------- overview
         @self.app.get("/overview", response_class=HTMLResponse, tags=["ui"])
         def overview(request: Request):
@@ -92,12 +100,12 @@ class UIRoutes(Routes):
             """
             if (refusal := login_required(request)) is not None:
                 return refusal
-            page = _safe(
+            page, page_error = _attempt(
                 lambda: services.queries.find(search=search, state=state, sort=sort,
                                               offset=offset, limit=page_size),
-                None)
+                None, "the query list")
             return self.page(request, "queries.html", current="/queries",
-                             page=page, search=search, state_filter=state,
+                             page=page, page_error=page_error, search=search, state_filter=state,
                              sort=sort, offset=offset, page_size=page_size)
 
         @self.app.get("/queries/{name}", response_class=HTMLResponse, tags=["ui"])
@@ -115,17 +123,19 @@ class UIRoutes(Routes):
                 siblings = services.queries.siblings(name)
             except ServiceError as exc:
                 return self.page(request, "not_found.html", http_status=404,
-                                 current="/queries", what="query", identifier=name,
-                                 back_href="/queries", back_label="Back to queries",
+                                 current="/queries", what=self.t("not_found.what.query"), identifier=name,
+                                 back_href="/queries", back_label=self.t("not_found.back.queries"),
                                  detail=str(exc))
             # The engine's description: keys by name, retention, the sink and whether it is still
             # attached. Rendered without it (older engine, HTTP port down) rather than refused.
-            detail = _safe(lambda: services.queries.detail(name), None)
+            detail, detail_error = _attempt(lambda: services.queries.detail(name), None,
+                                            "the query's description")
             # Pause, resume and drop are offered only when the engine's policy would allow them;
             # refused, they are disabled with its reason (design 23.16), not left to fail on click.
             refused = services.admin.affordances().administer_refused(name)
             return self.page(request, "query_detail.html", current="/queries",
-                             query=query, siblings=siblings, detail=detail, refused=refused)
+                             query=query, siblings=siblings, detail=detail, detail_error=detail_error,
+                             refused=refused)
 
         # The lifecycle actions as ordinary form posts. The module intercepts
         # them so the page does not reload, but they work without it: a control
@@ -142,9 +152,9 @@ class UIRoutes(Routes):
                 services.queries.act(name, action)
             except ServiceError as exc:
                 return self.page(request, "refused.html", http_status=400,
-                                 current="/queries", what=f"{action} '{name}'",
+                                 current="/queries", what=self.t("refused.what.action", action=action, name=name),
                                  detail=str(exc), code=exc.code or "",
-                                 back_href=f"/queries/{name}", back_label="Back to the query")
+                                 back_href=f"/queries/{name}", back_label=self.t("not_found.back.query"))
             # Drop removes the thing this page was about, so it returns to the
             # list; the others come back here. Redirect-after-POST either way, so
             # a refresh does not repeat the action.
@@ -166,8 +176,8 @@ class UIRoutes(Routes):
             """
             if not gallery:
                 return self.page(request, "not_found.html", http_status=404, current="",
-                                 what="page", identifier="/_components", back_href="/",
-                                 back_label="Back to the start", detail="")
+                                 what=self.t("not_found.what.page"), identifier="/_components",
+                                 back_href="/", back_label=self.t("not_found.back.start"), detail="")
             if (refusal := login_required(request)) is not None:
                 return refusal
             return self.page(request, "components.html", current="/_components")
@@ -245,7 +255,7 @@ class UIRoutes(Routes):
                                           retention=retention or None)
             except ServiceError as exc:
                 return self.page(request, "refused.html", http_status=400,
-                                 current="/workbench", what=f"register '{name}'",
+                                 current="/workbench", what=self.t("refused.what.register", name=name),
                                  detail=str(exc), code=exc.code or "",
-                                 back_href="/workbench", back_label="Back to the workbench")
+                                 back_href="/workbench", back_label=self.t("not_found.back.workbench"))
             return RedirectResponse(f"/queries/{name}", status_code=303)

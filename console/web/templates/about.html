@@ -60,63 +60,63 @@
       </defs>
       {# sources #}
       <rect class="box" x="10" y="40" width="170" height="220" rx="10"/>
-      <text class="lbl" x="95" y="68" text-anchor="middle">Your stores</text>
-      <text class="sub" x="95" y="96" text-anchor="middle">Aerospike</text>
-      <text class="sub" x="95" y="118" text-anchor="middle">Cassandra</text>
-      <text class="sub" x="95" y="140" text-anchor="middle">PostgreSQL · any JDBC</text>
-      <text class="sub" x="95" y="162" text-anchor="middle">Delta Lake · Kafka</text>
-      <text class="sub" x="95" y="184" text-anchor="middle">files · feed directories</text>
-      <text class="sub" x="95" y="208" text-anchor="middle">polled · scanned · followed</text>
-      <text class="sub" x="95" y="226" text-anchor="middle">or captured from a change log</text>
-      <text class="sub" x="95" y="244" text-anchor="middle">filters and columns pushed</text>
+      <text class="lbl" x="95" y="68" text-anchor="middle">{{ t('about.diagram.l.your_stores') }}</text>
+      <text class="sub" x="95" y="96" text-anchor="middle">{{ t('about.diagram.l.aerospike') }}</text>
+      <text class="sub" x="95" y="118" text-anchor="middle">{{ t('about.diagram.l.cassandra') }}</text>
+      <text class="sub" x="95" y="140" text-anchor="middle">{{ t('about.diagram.l.postgresql_any_jdbc') }}</text>
+      <text class="sub" x="95" y="162" text-anchor="middle">{{ t('about.diagram.l.delta_lake_kafka') }}</text>
+      <text class="sub" x="95" y="184" text-anchor="middle">{{ t('about.diagram.l.files_feed_directories') }}</text>
+      <text class="sub" x="95" y="208" text-anchor="middle">{{ t('about.diagram.l.polled_scanned_followed') }}</text>
+      <text class="sub" x="95" y="226" text-anchor="middle">{{ t('about.diagram.l.or_captured_from_a_change') }}</text>
+      <text class="sub" x="95" y="244" text-anchor="middle">{{ t('about.diagram.l.filters_and_columns_pushed') }}</text>
       {# streams #}
       <path class="edge" d="M180 150 H222" marker-end="url(#arrowhead)"/>
       <rect class="box" x="226" y="95" width="140" height="110" rx="10"/>
-      <text class="lbl" x="296" y="125" text-anchor="middle">Streams</text>
-      <text class="sub" x="296" y="148" text-anchor="middle">typed schema</text>
-      <text class="sub" x="296" y="166" text-anchor="middle">event-time column</text>
-      <text class="sub" x="296" y="184" text-anchor="middle">out-of-orderness</text>
+      <text class="lbl" x="296" y="125" text-anchor="middle">{{ t('about.diagram.l.streams') }}</text>
+      <text class="sub" x="296" y="148" text-anchor="middle">{{ t('about.diagram.l.typed_schema') }}</text>
+      <text class="sub" x="296" y="166" text-anchor="middle">{{ t('about.diagram.l.event_time_column') }}</text>
+      <text class="sub" x="296" y="184" text-anchor="middle">{{ t('about.diagram.l.out_of_orderness') }}</text>
       {# the query #}
       <path class="edge" d="M366 150 H408" marker-end="url(#arrowhead)"/>
       <rect class="box core" x="412" y="40" width="230" height="220" rx="12"/>
-      <text class="lbl" x="527" y="68" text-anchor="middle">Continuous query</text>
-      <text class="sub" x="527" y="92" text-anchor="middle">registered once, by name</text>
-      <text class="sub" x="527" y="120" text-anchor="middle">Calcite plans · Pravaha runs</text>
-      <text class="sub" x="527" y="140" text-anchor="middle">generated code on a lane</text>
-      <text class="sub" x="527" y="168" text-anchor="middle">every change a Z-set delta:</text>
-      <text class="sub" x="527" y="186" text-anchor="middle">+1 inserted · −1 retracted</text>
-      <text class="sub" x="527" y="214" text-anchor="middle">watermarks close windows;</text>
-      <text class="sub" x="527" y="232" text-anchor="middle">late rows correct them</text>
+      <text class="lbl" x="527" y="68" text-anchor="middle">{{ t('about.diagram.l.continuous_query') }}</text>
+      <text class="sub" x="527" y="92" text-anchor="middle">{{ t('about.diagram.l.registered_once_by_name') }}</text>
+      <text class="sub" x="527" y="120" text-anchor="middle">{{ t('about.diagram.l.calcite_plans_pravaha_runs') }}</text>
+      <text class="sub" x="527" y="140" text-anchor="middle">{{ t('about.diagram.l.generated_code_on_a_lane') }}</text>
+      <text class="sub" x="527" y="168" text-anchor="middle">{{ t('about.diagram.l.every_change_a_z_set') }}</text>
+      <text class="sub" x="527" y="186" text-anchor="middle">{{ t('about.diagram.l.plus1_inserted_minus_1_retracted') }}</text>
+      <text class="sub" x="527" y="214" text-anchor="middle">{{ t('about.diagram.l.watermarks_close_windows') }}</text>
+      <text class="sub" x="527" y="232" text-anchor="middle">{{ t('about.diagram.l.late_rows_correct_them') }}</text>
       {# the view #}
       <path class="edge" d="M642 150 H684" marker-end="url(#arrowhead)"/>
       <rect class="box" x="688" y="95" width="120" height="110" rx="10"/>
-      <text class="lbl" x="748" y="125" text-anchor="middle">View</text>
-      <text class="sub" x="748" y="148" text-anchor="middle">maintained</text>
-      <text class="sub" x="748" y="166" text-anchor="middle">keyed · retained</text>
-      <text class="sub" x="748" y="184" text-anchor="middle">shared by fingerprint</text>
+      <text class="lbl" x="748" y="125" text-anchor="middle">{{ t('about.diagram.l.view') }}</text>
+      <text class="sub" x="748" y="148" text-anchor="middle">{{ t('about.diagram.l.maintained') }}</text>
+      <text class="sub" x="748" y="166" text-anchor="middle">{{ t('about.diagram.l.keyed_retained') }}</text>
+      <text class="sub" x="748" y="184" text-anchor="middle">{{ t('about.diagram.l.shared_by_fingerprint') }}</text>
       {# readers #}
       <path class="edge" d="M808 130 C840 130 840 70 872 70" marker-end="url(#arrowhead)"/>
       <path class="edge" d="M808 150 H872" marker-end="url(#arrowhead)"/>
       <path class="edge" d="M808 170 C840 170 840 230 872 230" marker-end="url(#arrowhead)"/>
       <rect class="box" x="876" y="42" width="98" height="56" rx="8"/>
-      <text class="lbl" x="925" y="64" text-anchor="middle">Read</text>
-      <text class="sub" x="925" y="84" text-anchor="middle">by key · SQL</text>
+      <text class="lbl" x="925" y="64" text-anchor="middle">{{ t('about.diagram.l.read') }}</text>
+      <text class="sub" x="925" y="84" text-anchor="middle">{{ t('about.diagram.l.by_key_sql') }}</text>
       <rect class="box" x="876" y="122" width="98" height="56" rx="8"/>
-      <text class="lbl" x="925" y="144" text-anchor="middle">Subscribe</text>
-      <text class="sub" x="925" y="164" text-anchor="middle">each commit</text>
+      <text class="lbl" x="925" y="144" text-anchor="middle">{{ t('about.diagram.l.subscribe') }}</text>
+      <text class="sub" x="925" y="164" text-anchor="middle">{{ t('about.diagram.l.each_commit') }}</text>
       <rect class="box" x="876" y="202" width="98" height="56" rx="8"/>
-      <text class="lbl" x="925" y="220" text-anchor="middle">Sink</text>
-      <text class="sub" x="925" y="236" text-anchor="middle">JDBC · Aerospike</text>
-      <text class="sub" x="925" y="250" text-anchor="middle">Kafka · files</text>
+      <text class="lbl" x="925" y="220" text-anchor="middle">{{ t('about.diagram.l.sink') }}</text>
+      <text class="sub" x="925" y="236" text-anchor="middle">{{ t('about.diagram.l.jdbc_aerospike') }}</text>
+      <text class="sub" x="925" y="250" text-anchor="middle">{{ t('about.diagram.l.kafka_files') }}</text>
       {# durability #}
       <path class="edge" d="M527 260 V300" marker-end="url(#arrowhead)"/>
       <path class="edge" d="M748 205 V300" marker-end="url(#arrowhead)"/>
       <rect class="box" x="412" y="304" width="396" height="62" rx="10"/>
-      <text class="lbl" x="610" y="328" text-anchor="middle">Checkpoints and the registry journal</text>
-      <text class="sub" x="610" y="350" text-anchor="middle">one cut across every input · a restart resumes, it does not replay from scratch</text>
-      <text class="edge-lbl" x="200" y="140" text-anchor="middle">rows</text>
-      <text class="edge-lbl" x="387" y="140" text-anchor="middle">deltas</text>
-      <text class="edge-lbl" x="663" y="140" text-anchor="middle">commit</text>
+      <text class="lbl" x="610" y="328" text-anchor="middle">{{ t('about.diagram.l.checkpoints_and_the_registry_journal') }}</text>
+      <text class="sub" x="610" y="350" text-anchor="middle">{{ t('about.diagram.l.one_cut_across_every_input') }}</text>
+      <text class="edge-lbl" x="200" y="140" text-anchor="middle">{{ t('about.diagram.l.rows') }}</text>
+      <text class="edge-lbl" x="387" y="140" text-anchor="middle">{{ t('about.diagram.l.deltas') }}</text>
+      <text class="edge-lbl" x="663" y="140" text-anchor="middle">{{ t('about.diagram.l.commit') }}</text>
     </svg>
     <ol class="mt-3 mb-0 small" style="line-height:1.7;color:var(--slate)">
       <li>{{ t('about.how.1') }}</li>

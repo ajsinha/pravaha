@@ -24,7 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from core.admin import AUDIT_FILTERS
 from core.services import ServiceError
 from routes.auth_routes import login_required
-from routes.base import Routes
+from routes.base import Routes, failure, sign_in_first
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def _refuse_anonymous(request: Request) -> JSONResponse | None:
     from routes.auth_routes import current_user
 
     if current_user(request) is None:
-        return JSONResponse({"error": "sign in to the console first", "status": 401}, status_code=401)
+        return sign_in_first()
     return None
 
 
@@ -70,8 +70,7 @@ class AdminRoutes(Routes):
             try:
                 permissions, error = services.admin.permissions(), None
             except ServiceError as exc:
-                logger.info("rendering access without engine data: %s", exc)
-                permissions, error = None, str(exc)
+                permissions, error = None, failure(exc, request, "the permissions")
             return self.page(request, "admin_access.html", current="/admin", tab="access",
                              permissions=permissions, permissions_error=error)
 
@@ -88,13 +87,13 @@ class AdminRoutes(Routes):
                 if not answer["permitted"]:
                     http_status = 403
             except ServiceError as exc:
-                logger.info("rendering the audit screen without engine data: %s", exc)
-                error, http_status = _problem(exc)
+                error, http_status = failure(exc, request, "the audit trail"), _problem(exc)[1]
             page = (answer or {}).get("page") or {}
             next_cursor = page.get("nextCursor")
             return self.page(
                 request, "admin_audit.html", http_status=http_status, current="/admin", tab="audit",
                 filters=(answer or {}).get("filters") or filters, answer=answer, audit_error=error,
+                filtered=any(filters.values()),
                 cursor=cursor, newest_href=_link(filters) if cursor else None,
                 older_href=_link(filters, cursor=next_cursor) if next_cursor else None,
                 principal_href=lambda who: _link({**filters, "principal": who}),

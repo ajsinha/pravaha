@@ -31,7 +31,7 @@ export function loadGlobalScript(src, globalName) {
     const script = document.createElement("script");
     script.src = src;
     script.onload = () => { window.define = saved; resolve(window[globalName]); };
-    script.onerror = () => { window.define = saved; reject(new Error("could not load " + src)); };
+    script.onerror = () => { window.define = saved; reject(new Error(t("plan.not_loaded", { src }))); };
     document.head.appendChild(script);
   });
 }

@@ -34,7 +34,7 @@
         <div class="form-check">
           <input class="form-check-input" type="radio" name="role" id="role-{{ key }}" value="{{ key }}"
                  {{ 'checked' if key == role else '' }}>
-          <label class="form-check-label small" for="role-{{ key }}"><strong>{{ meta.blurb }}</strong>
+          <label class="form-check-label small" for="role-{{ key }}"><strong>{{ t(meta.blurb) }}</strong>
             <span class="text-muted">— {{ t('login.lands_on', path=meta.landing) }}</span></label>
         </div>
         {% endfor %}

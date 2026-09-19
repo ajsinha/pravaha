@@ -43,6 +43,7 @@ from core.help_catalog import HelpCatalog
 from core.i18n import Messages
 from core.services import Services
 from routes import ALL_ROUTES
+from routes.base import use_messages
 
 logger = logging.getLogger("pravaha.console")
 
@@ -110,7 +111,9 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     templates.env.filters["thousands"] = _thousands
     templates.env.filters["truncate_sql"] = _truncate
     # UI strings by key from web/i18n/<language>.json; one language today, a file per language later.
-    templates.env.globals["t"] = Messages(config.get("ui.language", "en"))
+    messages = Messages(config.get("ui.language", "en"))
+    templates.env.globals["t"] = messages
+    use_messages(messages)
     content = ContentLibrary(ROOT / "content")
     help_catalog = HelpCatalog(content)
     content = ContentLibrary(ROOT / "content")

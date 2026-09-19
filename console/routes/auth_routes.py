@@ -78,7 +78,7 @@ class AuthRoutes(Routes):
                                request.client.host if request.client else "unknown")
                 return self.page(request, "login.html", http_status=401, current="/login",
                                  next=local_path(next), configured=bool(secret),
-                                 error="That is not the console password.")
+                                 error=self.t("login.wrong_password"))
             request.session["user"] = SHARED_PRINCIPAL
             # Where this person lands and what the palette offers first. A preference, not a
             # permission: every role can reach every screen, and the server re-checks the

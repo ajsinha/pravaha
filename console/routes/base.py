@@ -15,15 +15,70 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Self
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 
+from core.i18n import Messages
 from core.services import ServiceError
 
 logger = logging.getLogger(__name__)
+
+#: The catalog a Routes built without a template environment speaks from, and what a module-level
+#: helper (the 401 every JSON route answers anonymously) says. The entry point replaces it with
+#: the configured language's (``use_messages``).
+_MESSAGES = Messages()
+
+
+def use_messages(messages: Messages) -> None:
+    global _MESSAGES
+    _MESSAGES = messages
+
+
+def ui_text(key: str, **params: Any) -> str:
+    """A UI string by key, for code that has no Routes at hand."""
+    return str(_MESSAGES(key, **params))
+
+
+class Failure(str):
+    """A call that failed while a page was being rendered, as design 23.12's error state needs it:
+    the message (the string itself, so a template that prints it is unchanged), the engine's PRV
+    code, whether retrying can help, and a correlation id -- the same id is in the console's log
+    line for it, which is what makes "paste the correlation id into a ticket" find something."""
+
+    code: str
+    correlation: str
+    retryable: bool
+
+    def __new__(cls, message: str, code: str = "", correlation: str = "",
+                retryable: bool = True) -> Self:
+        made = super().__new__(cls, message)
+        made.code, made.correlation, made.retryable = code or "", correlation, retryable
+        return made
+
+
+def failure(exc: BaseException, request: Request | None = None, what: str = "") -> Failure:
+    """``exc`` as a :class:`Failure`, logged once with its correlation id. The browser's own id
+    when the request carried one (api.js sends it), else a fresh one."""
+    import uuid
+
+    cid = _correlation(request)
+    if cid == "-":
+        cid = uuid.uuid4().hex[:8]
+    status = getattr(exc, "status", 503)
+    code = getattr(exc, "code", None) or ""
+    # A refusal (4xx) will be refused again; an engine that did not answer may answer next time.
+    retryable = not isinstance(status, int) or status >= 500 or status in (0, 408, 429)
+    logger.warning("page rendered without %s (%s) [%s]: %s", what or "engine data", code or "-", cid, exc)
+    return Failure(str(exc), code=code, correlation=cid, retryable=retryable)
+
+
+def sign_in_first() -> JSONResponse:
+    """The JSON API's answer to a request without a session: 401, not a redirect to a login page
+    a fetch would read as data."""
+    return JSONResponse({"error": ui_text("api.sign_in_first"), "status": 401}, status_code=401)
 
 
 def _signed_in(request: Request | None) -> bool:
@@ -59,15 +114,17 @@ SHARED_PRINCIPAL = "operator"
 #: landing is for. A role picks a landing, not a permission: the admin persona lands on Access,
 #: and what the audit screen shows is still decided by the engine's policy for the console's
 #: identity, whoever chose which role.
+#: ``label`` and ``blurb`` are keys into the UI string catalog, not English: a template says
+#: ``t(meta.label)``, so the words are where every other string is.
 ROLES: dict[str, dict[str, str]] = {
-    "analyst": {"label": "Analyst", "landing": "/workbench",
-                "blurb": "Write and iterate on continuous SQL"},
-    "operator": {"label": "Operator", "landing": "/operations",
-                 "blurb": "Keep it running; find what is wrong"},
-    "developer": {"label": "Developer", "landing": "/views",
-                  "blurb": "Consume views from a service"},
-    "admin": {"label": "Admin", "landing": "/admin/access",
-              "blurb": "See what the policy allows, and who asked for what"},
+    "analyst": {"label": "roles.analyst.label", "landing": "/workbench",
+                "blurb": "roles.analyst.blurb"},
+    "operator": {"label": "roles.operator.label", "landing": "/operations",
+                 "blurb": "roles.operator.blurb"},
+    "developer": {"label": "roles.developer.label", "landing": "/views",
+                  "blurb": "roles.developer.blurb"},
+    "admin": {"label": "roles.admin.label", "landing": "/admin/access",
+              "blurb": "roles.admin.blurb"},
 }
 
 
@@ -163,6 +220,13 @@ class Routes:
 
     def register(self) -> None:                                # pragma: no cover
         raise NotImplementedError
+
+    def t(self, key: str, **params: Any) -> str:
+        """A UI string from the catalog the templates use, for what a route hands a page as data
+        (a not-found page's "Back to …", the palette's entries): keys cross into Python, and
+        English stays in ``web/i18n``."""
+        messages = self.templates.env.globals.get("t") if self.templates is not None else None
+        return str((messages if isinstance(messages, Messages) else _MESSAGES)(key, **params))
 
     # ----------------------------------------------------------------- domain
     def guard(self, fn: Callable[[], Any], request: Request | None = None) -> Any:

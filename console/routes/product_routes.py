@@ -37,15 +37,14 @@ from core import authoring
 from core.services import ServiceError, jsonable
 from core.snippets import SnippetError, snippets
 from routes.auth_routes import current_user, local_path, login_required
-from routes.base import ROLES, Routes, role_of
+from routes.base import ROLES, Routes, failure, role_of, sign_in_first
 
 logger = logging.getLogger(__name__)
 
 
 def _refuse_anonymous(request: Request) -> JSONResponse | None:
     if current_user(request) is None:
-        return JSONResponse({"error": "sign in to the console first", "status": 401},
-                            status_code=401)
+        return sign_in_first()
     return None
 
 
@@ -55,12 +54,14 @@ class ProductRoutes(Routes):
         config = self.ctx["config"]
         api = self.api
 
-        def safe(fn, fallback):
+        def safe(fn, fallback, what: str = ""):
+            """The engine's answer, or the fallback and a Failure the page renders as its error
+            or partial state (design 23.12): message, code, whether a retry can help, and the
+            correlation id that is also on the log line."""
             try:
                 return fn(), None
             except ServiceError as exc:
-                logger.info("rendering without engine data: %s", exc)
-                return fallback, str(exc)
+                return fallback, failure(exc, what=what)
 
         def default_role() -> str:
             return config.get("ui.default_role", "operator")
@@ -131,10 +132,11 @@ class ProductRoutes(Routes):
                 stream = services.catalog.stream(name)
             except ServiceError as exc:
                 return self.page(request, "not_found.html", http_status=exc.status if exc.status == 404 else 503,
-                                 current="/catalog", what="stream", identifier=name,
-                                 back_href="/catalog", back_label="Back to the catalog",
+                                 current="/catalog", what=self.t("not_found.what.stream"), identifier=name,
+                                 back_href="/catalog", back_label=self.t("not_found.back.catalog"),
                                  detail=str(exc))
-            queries, _ = safe(lambda: services.queries.find(limit=services.queries.MAX_LIMIT).items, [])
+            queries, readers_error = safe(
+                lambda: services.queries.find(limit=services.queries.MAX_LIMIT).items, [], "the queries")
             # Lineage from the engine -- the streams each query's plan reads -- when it says;
             # a name match in the SQL text only for an engine that does not.
             reads, _ = safe(services.queries.reads, None)
@@ -147,7 +149,8 @@ class ProductRoutes(Routes):
                 readers = [q for q in queries if _names(q.sql, stream["name"])]
                 lineage = "name"
             return self.page(request, "stream_detail.html", current="/catalog", stream=stream,
-                             readers=readers, lineage=lineage, templates=authoring.templates(stream))
+                             readers=readers, readers_error=readers_error, lineage=lineage,
+                             templates=authoring.templates(stream))
 
         @self.app.get("/views", response_class=HTMLResponse, tags=["ui"])
         def views(request: Request):
@@ -169,8 +172,9 @@ class ProductRoutes(Routes):
                 query = services.queries.get(name)
             except ServiceError as exc:
                 return self.page(request, "not_found.html", http_status=404 if exc.status == 404 else 503,
-                                 current="/views", what="view", identifier=name,
-                                 back_href="/views", back_label="Back to views", detail=str(exc))
+                                 current="/views", what=self.t("not_found.what.view"), identifier=name,
+                                 back_href="/views", back_label=self.t("not_found.back.views"),
+                                 detail=str(exc))
             # The engine's own description of the view: schema, key, retention, sink.
             view, schema_error = safe(lambda: services.views.describe(name), {})
             schema = list((view or {}).get("schema") or [])
@@ -186,7 +190,7 @@ class ProductRoutes(Routes):
                 snippet_error = None
             except SnippetError as exc:
                 code, snippet_error = {}, str(exc)
-            siblings, _ = safe(lambda: services.queries.siblings(name), [])
+            siblings, _ = safe(lambda: services.queries.siblings(name), [], "the shared names")
             return self.page(request, "view_detail.html", current="/views", query=query,
                              schema=schema, schema_error=schema_error, view=view, key=key, key_value=value,
                              result=result, lookup_error=lookup_error, snippets=code,
@@ -200,8 +204,9 @@ class ProductRoutes(Routes):
                 query = services.queries.get(name)
             except ServiceError as exc:
                 return self.page(request, "not_found.html", http_status=404 if exc.status == 404 else 503,
-                                 current="/views", what="view", identifier=name,
-                                 back_href="/views", back_label="Back to views", detail=str(exc))
+                                 current="/views", what=self.t("not_found.what.view"), identifier=name,
+                                 back_href="/views", back_label=self.t("not_found.back.views"),
+                                 detail=str(exc))
             schema, _ = safe(lambda: services.views.schema(name), [])
             return self.page(request, "live.html", current="/views", query=query, schema=schema,
                              tail_buffer=config.get_int("ui.tail_buffer", 256))
@@ -219,8 +224,11 @@ class ProductRoutes(Routes):
             """The plugins the node loaded, their health, and what each is bound as."""
             if (refusal := login_required(request)) is not None:
                 return refusal
-            return self.page(request, "plugins.html", current="/plugins",
-                             inventory=services.plugins.inventory())
+            inventory = services.plugins.inventory()
+            # Each call that failed, logged once with the correlation id the page shows (23.12).
+            inventory["errors"] = {call: failure(ServiceError(message, 503), what=f"the {call} call")
+                                   for call, message in inventory["errors"].items()}
+            return self.page(request, "plugins.html", current="/plugins", inventory=inventory)
 
         # ================================================================== JSON
 
@@ -352,8 +360,8 @@ class ProductRoutes(Routes):
             body = await _body(request)
             filters = body.get("filters") or {}
             if not isinstance(filters, dict):
-                return JSONResponse({"error": "filters must be an object of column: value",
-                                     "status": 400}, status_code=400)
+                return JSONResponse({"error": self.t("api.filters_object"), "status": 400},
+                                    status_code=400)
             return self.json_guard(lambda: services.views.lookup(name, filters), request=request)
 
         @self.app.get(f"{api}/views/{{name}}/snippets", tags=["api"])
@@ -415,33 +423,30 @@ class ProductRoutes(Routes):
             and stream, and the lifecycle actions each query's state and the engine's policy
             allow -- an action a query cannot take is absent rather than offered and refused.
             """
+            t = self.t
+
+            def page(key: str, href: str) -> dict[str, Any]:
+                return {"kind": "page", "title": t(f"palette.page.{key}"), "href": href,
+                        "hint": t(f"palette.hint.{key}")}
+
             items: list[dict[str, Any]] = [
-                {"kind": "page", "title": "Landing", "href": "/", "hint": "what Pravaha is"},
-                {"kind": "page", "title": "Help", "href": "/help", "hint": "documentation"},
-                {"kind": "page", "title": "Tutorials", "href": "/tutorials", "hint": "worked walkthroughs"},
+                page("landing", "/"), page("help", "/help"), page("tutorials", "/tutorials"),
             ]
             if current_user(request) is None:
-                items.append({"kind": "page", "title": "Sign in", "href": "/login", "hint": ""})
+                items.append({"kind": "page", "title": t("palette.page.sign_in"), "href": "/login", "hint": ""})
                 return JSONResponse({"signed_in": False, "items": items})
             role = role_of(request, default_role())
             items += [
-                {"kind": "page", "title": "SQL Workbench", "href": "/workbench", "hint": "write, validate, explain, register"},
-                {"kind": "page", "title": "Catalog", "href": "/catalog", "hint": "streams, queries, sinks"},
-                {"kind": "page", "title": "Views", "href": "/views", "hint": "point queries and client code"},
-                {"kind": "page", "title": "Operations", "href": "/operations", "hint": "is everything healthy?"},
-                {"kind": "page", "title": "Queries", "href": "/queries", "hint": "the full list, filterable"},
-                {"kind": "page", "title": "Get started", "href": "/start", "hint": "first-run onboarding"},
-                {"kind": "page", "title": "Plugins", "href": "/plugins", "hint": "loaded plugins, health, bindings"},
-                {"kind": "page", "title": "Admin · Access", "href": "/admin/access",
-                 "hint": "what the engine's policy lets this console do"},
-                {"kind": "page", "title": "Admin · Audit trail", "href": "/admin/audit",
-                 "hint": "who asked for what, and what they were told"},
-                {"kind": "action", "title": "New query in the workbench", "href": "/workbench?new=1", "hint": "blank tab"},
+                page("workbench", "/workbench"), page("catalog", "/catalog"), page("views", "/views"),
+                page("operations", "/operations"), page("queries", "/queries"), page("start", "/start"),
+                page("plugins", "/plugins"), page("access", "/admin/access"), page("audit", "/admin/audit"),
+                {"kind": "action", "title": t("palette.action.new_query"), "href": "/workbench?new=1",
+                 "hint": t("palette.hint.new_query")},
             ]
             for key, meta in ROLES.items():
                 if key != role:
-                    items.append({"kind": "role", "title": f"Switch to the {meta['label'].lower()} view",
-                                  "role": key, "hint": meta["blurb"]})
+                    items.append({"kind": "role", "title": t("palette.role", role=t(meta["label"]).lower()),
+                                  "role": key, "hint": t(meta["blurb"])})
             queries, _ = safe(lambda: services.queries.find(limit=services.queries.MAX_LIMIT).items, [])
             # Lifecycle actions the engine's policy refuses this identity are absent (design 23.16):
             # the query's own page says why, and a palette is no place for a refusal.
@@ -449,26 +454,27 @@ class ProductRoutes(Routes):
             for q in queries:
                 items.append({"kind": "query", "title": q.name, "href": f"/queries/{q.name}",
                               "hint": q.state, "state": q.state})
-                items.append({"kind": "view", "title": f"{q.name} — browse view",
-                              "href": f"/views/{q.name}", "hint": "point query, snippets"})
-                items.append({"kind": "view", "title": f"{q.name} — watch live",
-                              "href": f"/views/{q.name}/live", "hint": "committed changes"})
-                items.append({"kind": "action", "title": f"Open {q.name} in the workbench",
-                              "href": f"/workbench?query={q.name}", "hint": "prefilled"})
+                items.append({"kind": "view", "title": t("palette.view.browse", name=q.name),
+                              "href": f"/views/{q.name}", "hint": t("palette.hint.browse")})
+                items.append({"kind": "view", "title": t("palette.view.live", name=q.name),
+                              "href": f"/views/{q.name}/live", "hint": t("palette.hint.live")})
+                items.append({"kind": "action", "title": t("palette.action.open", name=q.name),
+                              "href": f"/workbench?query={q.name}", "hint": t("palette.hint.open")})
                 if may.administer_refused(q.name) is not None:
                     continue
                 if q.state == "RUNNING":
-                    items.append({"kind": "lifecycle", "title": f"Pause {q.name}", "query": q.name,
-                                  "action": "pause", "hint": "keeps the state"})
+                    items.append({"kind": "lifecycle", "title": t("palette.action.pause", name=q.name),
+                                  "query": q.name, "action": "pause", "hint": t("palette.hint.pause")})
                 elif q.state in {"PAUSED"}:
-                    items.append({"kind": "lifecycle", "title": f"Resume {q.name}", "query": q.name,
-                                  "action": "resume", "hint": "from its frontier"})
-                items.append({"kind": "lifecycle", "title": f"Drop {q.name}…", "query": q.name,
-                              "action": "drop", "hint": "asks for the name", "href": f"/queries/{q.name}#drop"})
+                    items.append({"kind": "lifecycle", "title": t("palette.action.resume", name=q.name),
+                                  "query": q.name, "action": "resume", "hint": t("palette.hint.resume")})
+                items.append({"kind": "lifecycle", "title": t("palette.action.drop", name=q.name),
+                              "query": q.name, "action": "drop", "hint": t("palette.hint.drop"),
+                              "href": f"/queries/{q.name}#drop"})
             for s in services.catalog.streams_or_empty():
                 items.append({"kind": "stream", "title": s.get("name"),
                               "href": f"/catalog/streams/{s.get('name')}",
-                              "hint": f"stream · {len(s.get('fields') or [])} columns"})
+                              "hint": t("palette.hint.stream", n=len(s.get("fields") or []))})
             return JSONResponse({"signed_in": True, "role": role, "items": items})
 
 

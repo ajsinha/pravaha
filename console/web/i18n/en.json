@@ -172,7 +172,8 @@
         "added": "added",
         "removed": "removed",
         "changed": "changed"
-      }
+      },
+      "not_loaded": "could not load {src}"
     },
     "live": {
       "no_numeric": "no numeric column",
@@ -271,9 +272,7 @@
       "returned_one": "{n} row in {ms} ms",
       "returned_other": "{n} rows in {ms} ms",
       "truncated": " — the first {n} only",
-      "announce": "{n} rows",
-      "correlation": "correlation {id}",
-      "no_correlation": "n/a"
+      "announce": "{n} rows"
     },
     "api": {
       "failed": "request failed with {status}"
@@ -298,10 +297,17 @@
       "refreshing": "refreshing…",
       "never_loaded": "never loaded",
       "just_now": "just now",
-      "ago": "{seconds}s ago"
+      "ago": "{seconds}s ago",
+      "loading": "Loading",
+      "stale_since_load": "Not updated since this page loaded."
     },
     "tail": {
-      "dropped": "{n} rows dropped — this browser is behind the stream"
+      "dropped": "{n} rows dropped — this browser is behind the stream",
+      "state": {
+        "live": "live",
+        "lagging": "lagging",
+        "stale": "disconnected"
+      }
     },
     "theme": {
       "system": "theme follows the system",
@@ -348,8 +354,6 @@
         "compare_again": "Compare again",
         "unified": "Unified view",
         "comparing": "comparing…",
-        "retry": "Try again",
-        "no_retry": "not retryable",
         "how": "How comparing works",
         "new_draft": "Open a new draft",
         "never_title": "Nothing compared yet",
@@ -432,7 +436,180 @@
           "state_changed": "changed {ops}",
           "not_determinable": "Not determinable here: how long this version takes to fill, and how much state it will hold. The engine does not estimate either before registration."
         }
+      },
+      "untitled": "untitled",
+      "editor_failed": "the editor did not load",
+      "editor_label": "SQL editor. Ctrl+Enter runs, Ctrl+Shift+Enter explains.",
+      "not_null": "not null",
+      "withheld": "withheld",
+      "drafts": "Drafts",
+      "panels": "Workbench panels",
+      "new_draft": "New draft",
+      "tab_title": "{title} — Delete closes this draft",
+      "close_confirm": "Close “{title}”? Its SQL is not saved anywhere else.",
+      "fix_applied": "Fix applied: {title}",
+      "complete": {
+        "stream_columns": "stream · {n} columns",
+        "stream": "stream",
+        "stream_named": "stream {name}",
+        "view": "view",
+        "view_doc": "A registered query's view: read it with SELECT.",
+        "function": "function",
+        "event_time": "event time must be the stream's declared event-time column"
+      },
+      "diag": {
+        "idle_title": "Nothing to check yet",
+        "idle_body": "Validation runs as you type, against the engine's own planner, and every refusal lands here with its code and, where one is known, a fix.",
+        "unavailable_title": "Validation is unavailable",
+        "unavailable_body": "The editor still edits and your drafts still save; validation resumes when the engine's HTTP API answers.",
+        "valid": "Valid — the engine's planner accepts it",
+        "took": "({ms} ms)",
+        "output_schema": "Output schema",
+        "refused": "refused",
+        "where": "line {line}, column {column}",
+        "means": "What {code} means",
+        "this": "this"
+      },
+      "explain": {
+        "ready": "Plan ready",
+        "not_drawn": "The plan could not be drawn: {error}",
+        "level": "Level",
+        "physical": "Physical — what runs",
+        "logical": "Logical — what was asked",
+        "codegen": "Generated Java",
+        "button": "Explain",
+        "export": "Export SVG",
+        "not_valid": "The query does not validate yet; the plan may be refused.",
+        "idle_title": "No plan yet",
+        "idle_body": "Explain draws the engine's own plan for this query as a graph — operators as nodes, rows flowing left to right.",
+        "emits": "Emits:",
+        "keeps_state": "keeps state",
+        "per_operator": "Per-operator numbers are not shown: {note}",
+        "per_operator_note": "the engine does not count rows or state per operator.",
+        "select": "Select an operator (click, or Tab to it and press Enter) for its detail. Arrow keys move between operators.",
+        "measured": "Measured for the registered query as a whole:",
+        "totals": "{rows} rows in · state {held} of {ceiling} · view {view} rows · {subscribers} · watermark {watermark}",
+        "subscriber": "{n} subscriber",
+        "subscribers": "{n} subscribers",
+        "no_watermark": "none yet",
+        "as_text": "The plan as text",
+        "refreshing": "explaining…"
+      },
+      "made": {
+        "is": "is {state} — fingerprint",
+        "keys": ", keys [{keys}]",
+        "writing": ", writing to {sink}",
+        "keeping": ", keeping {retention}",
+        "watch": "Watch it change",
+        "browse": "Browse the view",
+        "manage": "Manage"
+      },
+      "run": {
+        "registered": "{name} registered",
+        "announce": "{n} rows in {ms} milliseconds",
+        "caption": "Query result",
+        "params": "Parameters — comma-separated, one per",
+        "params_placeholder": "e.g. 40, ACME",
+        "once": "Run once",
+        "csv": "Download CSV",
+        "statement_before": "A continuous-query statement: Run executes it, as you, exactly as",
+        "statement_middle": "would.",
+        "statement_after": "registers a query that runs until it is dropped.",
+        "read_before": "A one-off read, answered from the views the engine maintains. Nothing is registered. Numbers stay numbers:",
+        "read_after": "is an integer, not the string “40”.",
+        "idle_title": "Nothing run yet",
+        "idle_body": "Run reads a view once. To keep an answer current, register the query instead.",
+        "truncated": "Showing the first {n} rows; the answer was larger. These are the first rows, not a sample.",
+        "none_title": "No rows",
+        "none_body": "It ran in {ms} ms and matched nothing. On a stream this often means a window has not closed: a window closes when data says it is over, not when the clock does.",
+        "summary": "{n} rows in {ms} ms",
+        "refreshing": "running…"
+      },
+      "reg": {
+        "name": "Name — what clients put in",
+        "name_invalid": "Letters, digits and underscores, starting with a letter.",
+        "sink": "Sink — optional",
+        "sink_none": "none — the view only",
+        "accepts_revisions": "accepts revisions",
+        "append_only": "append only",
+        "sinks_failed": "The sink list did not load ({error}).",
+        "row_shape": "Row shape:",
+        "any_shape": "Takes any row shape",
+        "keyed_by": "keyed by",
+        "append_only_refused": "a query that revises its answer is refused here.",
+        "sink_help": "Its changes are also written there, retractions included, at least once. A query that revises its answer needs a sink that accepts updates",
+        "keys": "Key columns — what a row replaces",
+        "keys_wait": "Keys are chosen by name from the output schema the engine validated. Make the query valid and its columns appear here.",
+        "key_n": "key {n}",
+        "keys_help": "A second row with the same key supersedes the first. Two registrations differing only in keys are two computations.",
+        "retention": "Retention",
+        "retention_placeholder": "the engine's default",
+        "retention_how": "How much",
+        "retention_event_time": "event time",
+        "retention_keeps": "the view keeps: an ISO-8601 duration such as",
+        "or": "or",
+        "or_comma": ", or",
+        "retention_after": ". Empty takes the engine's default. The engine refuses what it cannot read rather than keeping something else.",
+        "registering": "Registering…",
+        "submit": "Register continuous query",
+        "not_permitted": "Not permitted",
+        "refused": "The engine's policy does not let this console register a query: {reason}.",
+        "what_may": "What this console may do",
+        "needs_valid": "Needs a valid query.",
+        "needs_name": "Needs a name.",
+        "needs_key": "Needs at least one key."
+      },
+      "lib": {
+        "name_prompt": "Name this snippet",
+        "saved": "Snippet saved",
+        "open": "Open in a tab",
+        "insert": "Insert",
+        "remove": "Remove",
+        "templates": "Templates — written against your first stream",
+        "snippets": "Your snippets — kept in this browser",
+        "save": "Save selection",
+        "none": "None yet. Select some SQL and save it here; it stays in this browser only."
+      },
+      "panel": {
+        "diagnostics": "Diagnostics",
+        "explain": "Explain",
+        "run": "Run",
+        "register": "Register",
+        "library": "Library"
+      },
+      "toolbar": {
+        "run": "Run",
+        "explain": "Explain",
+        "register": "Register…",
+        "copy": "Copy SQL"
+      },
+      "status": {
+        "valid": "valid",
+        "problem": "{n} problem",
+        "problems": "{n} problems",
+        "unavailable": "validation unavailable",
+        "statement": "continuous-query statement — Run executes it",
+        "unchecked": "not checked",
+        "checking": "checking…",
+        "loading_editor": "loading editor…",
+        "plain_editor": "plain editor",
+        "plain_editor_why": "The Monaco editor did not load",
+        "drafts_here": "drafts saved in this browser"
+      },
+      "stale": {
+        "title": "Out of date.",
+        "plan": "The SQL has changed since this plan was drawn, so it is the plan of the previous text.",
+        "run": "The SQL has changed since this ran, so these rows answer the previous text.",
+        "explain_again": "Explain again",
+        "run_again": "Run again"
       }
+    },
+    "lib": {
+      "copied": "Copied",
+      "copied_announce": "Copied to the clipboard"
+    },
+    "components": {
+      "block": "Not a table"
     }
   },
   "admin": {
@@ -537,7 +714,11 @@
       "about_title": "How the trail is kept",
       "about_permission": "The engine decides who may read this, with a question of its own (SecurityPolicy.mayReadAudit): being entitled to read every view is not being entitled to learn who else read them.",
       "about_recorded": "Reading the trail is recorded in it, allowed or refused, with the filter that was asked for.",
-      "about_window": "The engine keeps a bounded window of recent decisions readable here; with audit set to file, everything older is in the audit file on the node."
+      "about_window": "The engine keeps a bounded window of recent decisions readable here; with audit set to file, everything older is in the audit file on the node.",
+      "never": {
+        "title": "Nothing recorded yet",
+        "body": "The engine is recording, and has no decision to show: none has been made on this node since it started, or every one has been evicted from the window it keeps. Each read, registration and lifecycle action appears here as it is decided."
+      }
     }
   },
   "operations": {
@@ -746,20 +927,48 @@
     "feed_none": "No source is bound to this query's streams: rows arrive only when something pushes them.",
     "feed_stopped": "Not retried: the view answers at the frontier it reached. Fix the cause, then drop and register the query again, or restart the node.",
     "feed_source": "{where}, stopped {at}",
-    "source_stopped": "source stopped"
+    "source_stopped": "source stopped",
+    "tail_empty": "No change has been committed since this page opened. Each one the view commits appears here, newest last.",
+    "detail_missing": "The engine's description of this query did not load ({error}), so its keys, retention, sink and the streams it reads are not shown."
   },
   "refused": {
     "title": "Refused",
     "kicker": "REFUSED",
     "heading": "The engine would not {what}",
-    "what_code_means": "what this code means"
+    "what_code_means": "what this code means",
+    "what": {
+      "action": "{action} '{name}'",
+      "register": "register '{name}'"
+    }
   },
   "not_found": {
     "title": "Not found",
     "kicker": "NOT FOUND",
     "heading": "There is no such {what}",
     "body_before": "Nothing is registered or filed as",
-    "body_after": ". It may have been dropped, or the name may be\n  misspelt."
+    "body_after": ". It may have been dropped, or the name may be\n  misspelt.",
+    "what": {
+      "topic": "{area} topic",
+      "help_topic": "help topic",
+      "decision": "decision record",
+      "code": "error code",
+      "stream": "stream",
+      "view": "view",
+      "query": "query",
+      "page": "page"
+    },
+    "back": {
+      "area": "Back to {area}",
+      "help": "Back to help",
+      "decisions": "Every decision",
+      "codes": "Every code",
+      "catalog": "Back to the catalog",
+      "views": "Back to views",
+      "queries": "Back to queries",
+      "query": "Back to the query",
+      "start": "Back to the start",
+      "workbench": "Back to the workbench"
+    }
   },
   "workbench": {
     "title": "Workbench",
@@ -900,7 +1109,46 @@
     },
     "diagram": {
       "title": "How Pravaha works",
-      "desc": "Rows from your stores feed declared streams. A continuous query, registered once, turns every change into a Z-set delta and maintains a keyed view. The view is read by key, subscribed to commit by commit, or written to a sink. Checkpoints and the registry journal let a restart resume."
+      "desc": "Rows from your stores feed declared streams. A continuous query, registered once, turns every change into a Z-set delta and maintains a keyed view. The view is read by key, subscribed to commit by commit, or written to a sink. Checkpoints and the registry journal let a restart resume.",
+      "l": {
+        "your_stores": "Your stores",
+        "aerospike": "Aerospike",
+        "cassandra": "Cassandra",
+        "postgresql_any_jdbc": "PostgreSQL · any JDBC",
+        "delta_lake_kafka": "Delta Lake · Kafka",
+        "files_feed_directories": "files · feed directories",
+        "polled_scanned_followed": "polled · scanned · followed",
+        "or_captured_from_a_change": "or captured from a change log",
+        "filters_and_columns_pushed": "filters and columns pushed",
+        "streams": "Streams",
+        "typed_schema": "typed schema",
+        "event_time_column": "event-time column",
+        "out_of_orderness": "out-of-orderness",
+        "continuous_query": "Continuous query",
+        "registered_once_by_name": "registered once, by name",
+        "calcite_plans_pravaha_runs": "Calcite plans · Pravaha runs",
+        "generated_code_on_a_lane": "generated code on a lane",
+        "every_change_a_z_set": "every change a Z-set delta:",
+        "plus1_inserted_minus_1_retracted": "+1 inserted · −1 retracted",
+        "watermarks_close_windows": "watermarks close windows;",
+        "late_rows_correct_them": "late rows correct them",
+        "view": "View",
+        "maintained": "maintained",
+        "keyed_retained": "keyed · retained",
+        "shared_by_fingerprint": "shared by fingerprint",
+        "read": "Read",
+        "by_key_sql": "by key · SQL",
+        "subscribe": "Subscribe",
+        "each_commit": "each commit",
+        "sink": "Sink",
+        "jdbc_aerospike": "JDBC · Aerospike",
+        "kafka_files": "Kafka · files",
+        "checkpoints_and_the_registry_journal": "Checkpoints and the registry journal",
+        "one_cut_across_every_input": "one cut across every input · a restart resumes, it does not replay from scratch",
+        "rows": "rows",
+        "deltas": "deltas",
+        "commit": "commit"
+      }
     },
     "how": {
       "1": "A stream is declared — its schema, which column is event time, how late its rows may arrive — and bound to a source plugin that reads one of your stores.",
@@ -976,7 +1224,9 @@
       "none_title": "Nothing matched",
       "none_body": "Every word has to appear somewhere on a page for it to match. Try fewer words, or the name of a setting, a function or a code.",
       "browse": "Browse the help",
-      "empty": "Type a word, a setting, a SQL keyword or a PRV code."
+      "empty": "Type a word, a setting, a SQL keyword or a PRV code.",
+      "clear": "Clear the search",
+      "never_title": "Nothing asked yet"
     },
     "topic": {
       "breadcrumb": "Breadcrumb",
@@ -1022,7 +1272,22 @@
       "tutorials": "Five worked systems",
       "about": "About Pravaha"
     },
-    "screen_help": "Help for this screen"
+    "screen_help": "Help for this screen",
+    "area": {
+      "help": {
+        "kicker": "HELP",
+        "heading": "Documentation",
+        "title": "Help",
+        "blurb": "Everything below is available over Flight SQL and both SDKs; nothing requires this console. These pages are markdown files under content/help/, rendered at request time — so they are versioned, reviewable in a pull request alongside the behaviour they describe, and cannot drift from the release that shipped them."
+      },
+      "tutorials": {
+        "kicker": "TUTORIALS",
+        "heading": "Working through Pravaha",
+        "title": "Tutorials",
+        "blurb": "Worked walkthroughs, end to end and with real calls: registering a continuous query and watching it maintained, joining two streams with a time bound, subscribing from both SDKs, and reading the case studies the engine ships with."
+      }
+    },
+    "decision_records": "Decision records"
   },
   "login": {
     "kicker": "CONSOLE",
@@ -1037,7 +1302,8 @@
     "purpose": "I am here to",
     "lands_on": "lands on {path}",
     "role_note": "Changeable at any time from the account menu. It picks where you land and what the command palette offers first; it grants nothing.",
-    "gate_note": "This gate protects the console's own controls. It is not the engine's identity model — the engine authenticates its clients through the deployment's own provider, and a second, weaker account system beside it would be worse than an honest lock."
+    "gate_note": "This gate protects the console's own controls. It is not the engine's identity model — the engine authenticates its clients through the deployment's own provider, and a second, weaker account system beside it would be worse than an honest lock.",
+    "wrong_password": "That is not the console password."
   },
   "catalog": {
     "title": "Catalog",
@@ -1114,6 +1380,9 @@
       "append_only_title": "A revising query pointed here is refused with PRV-2041",
       "note_promises": "What each sink promises comes from asking its plugin, the question registration asks before it will attach one. A binding's options — where credentials live — are never part of the engine's answer. A query that revises its answer needs a sink that accepts revisions",
       "note_shape": "a sink's configured row shape and key must match the query's"
+    },
+    "queries_error": {
+      "title": "The registered queries did not load"
     }
   },
   "live": {
@@ -1215,7 +1484,8 @@
     "lineage_engine": "From the engine: the streams each query's plan reads.",
     "lineage_name": "Matched by name in each query's SQL — this engine did not say what each query reads.",
     "no_readers": "None yet.",
-    "from_template": "Start from a template"
+    "from_template": "Start from a template",
+    "readers_missing": "The registered queries did not load ({error}), so which of them read this stream is not known."
   },
   "view": {
     "title": "{name} · view",
@@ -1279,8 +1549,7 @@
     "down": {
       "title": "The engine is not answering",
       "before": "Views are listed from the engine at",
-      "after": ". The bar above says the same; this page fills in when it answers.",
-      "retry": "Try again"
+      "after": ". The bar above says the same; this page fills in when it answers."
     },
     "empty": {
       "title": "No views yet",
@@ -1303,7 +1572,8 @@
     },
     "count_one": "{n} view",
     "count_other": "{n} views",
-    "count_match": "{shown} of {n} views match “{needle}”"
+    "count_match": "{shown} of {n} views match “{needle}”",
+    "filtered_body": "There are views, but no name matches what you have typed."
   },
   "components": {
     "title": "Components",
@@ -1341,7 +1611,81 @@
     "sample": {
       "what": "query",
       "error": "no registered query named 'hot' that you may see",
-      "missing": "node n2's metrics"
+      "missing": "node n2's metrics",
+      "reason": "administering 'hot' needs one of the roles [ops]"
     }
+  },
+  "roles": {
+    "analyst": {
+      "label": "Analyst",
+      "blurb": "Write and iterate on continuous SQL"
+    },
+    "operator": {
+      "label": "Operator",
+      "blurb": "Keep it running; find what is wrong"
+    },
+    "developer": {
+      "label": "Developer",
+      "blurb": "Consume views from a service"
+    },
+    "admin": {
+      "label": "Admin",
+      "blurb": "See what the policy allows, and who asked for what"
+    }
+  },
+  "palette": {
+    "page": {
+      "landing": "Landing",
+      "help": "Help",
+      "tutorials": "Tutorials",
+      "sign_in": "Sign in",
+      "workbench": "SQL Workbench",
+      "catalog": "Catalog",
+      "views": "Views",
+      "operations": "Operations",
+      "queries": "Queries",
+      "start": "Get started",
+      "plugins": "Plugins",
+      "access": "Admin · Access",
+      "audit": "Admin · Audit trail"
+    },
+    "hint": {
+      "landing": "what Pravaha is",
+      "help": "documentation",
+      "tutorials": "worked walkthroughs",
+      "workbench": "write, validate, explain, register",
+      "catalog": "streams, queries, sinks",
+      "views": "point queries and client code",
+      "operations": "is everything healthy?",
+      "queries": "the full list, filterable",
+      "start": "first-run onboarding",
+      "plugins": "loaded plugins, health, bindings",
+      "access": "what the engine's policy lets this console do",
+      "audit": "who asked for what, and what they were told",
+      "new_query": "blank tab",
+      "browse": "point query, snippets",
+      "live": "committed changes",
+      "open": "prefilled",
+      "pause": "keeps the state",
+      "resume": "from its frontier",
+      "drop": "asks for the name",
+      "stream": "stream · {n} columns"
+    },
+    "action": {
+      "new_query": "New query in the workbench",
+      "open": "Open {name} in the workbench",
+      "pause": "Pause {name}",
+      "resume": "Resume {name}",
+      "drop": "Drop {name}…"
+    },
+    "role": "Switch to the {role} view",
+    "view": {
+      "browse": "{name} — browse view",
+      "live": "{name} — watch live"
+    }
+  },
+  "api": {
+    "sign_in_first": "sign in to the console first",
+    "filters_object": "filters must be an object of column: value"
   }
 }

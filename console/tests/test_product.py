@@ -1303,6 +1303,77 @@ def test_every_ui_string_key_a_template_or_island_uses_is_in_the_catalog():
         assert any(k.startswith(prefix) for k in messages.catalog), prefix
 
 
+def test_every_key_a_route_hands_a_page_is_in_the_catalog():
+    """Routes pass keys, not sentences: the palette's entries, a not-found page's "Back to …",
+    the roles. A key a route names and the catalog lacks would reach the browser as the key."""
+    from core.i18n import Messages
+    from routes.base import ROLES
+
+    messages = Messages()
+    used: set[str] = set()
+    for module in (CONSOLE_ROOT / "routes").glob("*.py"):
+        text = module.read_text(encoding="utf-8")
+        used |= set(re.findall(r"""\b(?:t|ui_text)\(\s*f?["']([a-z0-9_.]+)["']""", text))
+        # page("landing", "/") in the palette: palette.page.<key> and palette.hint.<key>
+        for key in re.findall(r"""\bpage\(\s*"([a-z_]+)",\s*"/""", text):
+            used |= {f"palette.page.{key}", f"palette.hint.{key}"}
+    for meta in ROLES.values():
+        used |= {meta["label"], meta["blurb"]}
+    for area in ("help", "tutorials"):
+        used |= {f"help.area.{area}.{part}" for part in ("kicker", "heading", "title", "blurb")}
+    assert len(used) > 50
+    missing = sorted(k for k in used if "." in k and k not in messages.catalog)
+    assert not missing, f"keys a route uses but web/i18n/en.json lacks: {missing}"
+
+
+def test_no_user_visible_english_bypasses_the_catalog():
+    """The islands, the classic scripts and the templates say nothing to a person that is not
+    looked up by key. A new hard-coded sentence, label, placeholder or title fails here with its
+    file and line; tests/i18n_scan.py says what it reads and ALLOWED what it lets through."""
+    from i18n_scan import scan
+
+    found = scan()
+    assert not found, "user-visible English outside web/i18n/en.json:\n  " + "\n  ".join(found)
+
+
+def test_the_english_guard_has_teeth():
+    """What the guard must catch, and what it must leave alone, on snippets written for it."""
+    from i18n_scan import _css_classes, scan_script_text, scan_template_text
+
+    classes = _css_classes()
+    caught = [
+        'const v = html`<p class="small text-muted">Nothing here yet</p>`;',
+        'const v = html`<button title="Close the panel">×</button>`;',
+        'const v = html`<input placeholder="type a name" />`;',
+        'const v = html`<div>${ok ? html`<span>Saved</span>` : null}</div>`;',
+        'announce("Snippet saved");',
+        'button.textContent = "Copied";',
+        'const PANELS = [["run", "Run"]];',
+        'const v = html`<span>${busy ? "Registering…" : "Register"}</span>`;',
+        'throw new Error("the editor did not load");',
+    ]
+    for snippet in caught:
+        assert scan_script_text("x.js", snippet, classes), snippet
+    left_alone = [
+        'const v = html`<p class="small text-muted">${t("wb.run.idle_body")}</p>`;',
+        'const v = html`<div class="d-flex gap-2"><code>PT24H</code> ${t("wb.reg.or")}</div>`;',
+        'el.className = "btn btn-sm btn-outline-secondary";',
+        'if (event.key === "ArrowRight") next();',
+        'setState({ status: "loading" });',
+        '/* A comment in English is for the next person reading the code. */ go();',
+        'const re = /\\bFROM\\s+([A-Za-z_]\\w*)/i;',
+        'call("/sql/validate", { json: { sql } });',
+    ]
+    for snippet in left_alone:
+        assert not scan_script_text("x.js", snippet, classes), snippet
+    assert scan_template_text("x.html", "<h1>Hello there</h1>", classes)
+    assert scan_template_text("x.html", '<input placeholder="a name">', classes)
+    assert not scan_template_text("x.html", "<h1>{{ t('nav.catalog') }}</h1>", classes)
+    assert not scan_template_text("x.html", '<p><a href="/help/codes/PRV-2041">PRV-2041</a></p>', classes)
+    assert not scan_template_text("x.html", '<span translate="no">RUNNING</span>', classes)
+    assert not scan_template_text("x.html", "<script>const a = 'Some words';</script>", classes)
+
+
 def test_the_catalog_fills_named_parameters_and_says_when_one_is_missing():
     from core.i18n import Messages, MissingMessage
 

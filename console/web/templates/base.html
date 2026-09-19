@@ -394,7 +394,7 @@ footer .principle{font-family:var(--serif);font-style:italic;}
             <div class="dropdown">
               <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" id="account-menu"
                       data-bs-toggle="dropdown" aria-expanded="false" title="{{ t('shell.account_title') }}">
-                <i class="bi bi-person-circle" aria-hidden="true"></i> {{ roles[role].label }}</button>
+                <i class="bi bi-person-circle" aria-hidden="true"></i> {{ t(roles[role].label) }}</button>
               <div class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="account-menu" style="min-width:17rem">
                 <div class="small text-muted px-2 pb-1">{{ t('shell.land_on') }}</div>
                 {# Real forms: the role switch works with scripting off, like every control. #}
@@ -404,7 +404,7 @@ footer .principle{font-family:var(--serif);font-style:italic;}
                   <input type="hidden" name="next" value="/home">
                   <button class="dropdown-item small{{ ' active' if key == role else '' }}" type="submit"
                           {% if key == role %}aria-current="true"{% endif %}>
-                    <strong>{{ meta.label }}</strong> <span class="text-muted">— {{ meta.blurb|lower }}</span></button>
+                    <strong>{{ t(meta.label) }}</strong> <span class="text-muted">— {{ t(meta.blurb)|lower }}</span></button>
                 </form>
                 {% endfor %}
                 <div class="dropdown-divider"></div>

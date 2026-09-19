@@ -69,25 +69,10 @@ class PublicRoutes(Routes):
 
         # Two content areas, one renderer. Adding a third is a directory and a
         # dictionary entry, not another pair of routes.
-        AREAS = {
-            "help": {
-                "kicker": "HELP", "heading": "Documentation",
-                "title": "Help", "path": "/help",
-                "blurb": ("Everything below is available over Flight SQL and both SDKs; "
-                          "nothing requires this console. These pages are markdown files "
-                          "under content/help/, rendered at request time — so they are "
-                          "versioned, reviewable in a pull request alongside the behaviour "
-                          "they describe, and cannot drift from the release that shipped them."),
-            },
-            "tutorials": {
-                "kicker": "TUTORIALS", "heading": "Working through Pravaha",
-                "title": "Tutorials", "path": "/tutorials",
-                "blurb": ("Worked walkthroughs, end to end and with real calls: registering "
-                          "a continuous query and watching it maintained, joining two streams "
-                          "with a time bound, subscribing from both SDKs, and reading the "
-                          "case studies the engine ships with."),
-            },
-        }
+        # Its words are in the string catalog, under help.area.<area>.*.
+        AREAS = {area: {**{part: self.t(f"help.area.{area}.{part}")
+                           for part in ("kicker", "heading", "title", "blurb")}, "path": "/" + area}
+                 for area in ("help", "tutorials")}
 
         # The OTHER area, so each index points at its sibling. The bar carries
         # Help and not Tutorials, which would otherwise leave the walkthroughs
@@ -114,10 +99,10 @@ class PublicRoutes(Routes):
                 # A 404, not a 200 with an apology in it. The allow-list refused
                 # the name, and "not found" is both true and actionable.
                 return self.page(request, "not_found.html", http_status=404,
-                                 current="/help", what=f"{area} topic",
+                                 current="/help", what=self.t("not_found.what.topic", area=area),
                                  identifier=f"{area}/{slug}",
                                  back_href=AREAS[area]["path"],
-                                 back_label=f"Back to {AREAS[area]['title'].lower()}")
+                                 back_label=self.t("not_found.back.area", area=AREAS[area]["title"].lower()))
             related = [t for t in content.topics(area) if t.section == found.section]
             return self.page(request, "help_topic.html", current="/help",
                              topic=found, related=related, **area_context(area))
@@ -147,8 +132,8 @@ class PublicRoutes(Routes):
             found = catalog.topic(slug)
             if found is None:
                 return self.page(request, "not_found.html", http_status=404, current="/help",
-                                 what="help topic", identifier=slug, back_href="/help",
-                                 back_label="Back to help")
+                                 what=self.t("not_found.what.help_topic"), identifier=slug,
+                                 back_href="/help", back_label=self.t("not_found.back.help"))
             before, after = catalog.neighbours(found)
             return self.page(request, "help_topic_page.html", current="/help", topic=found,
                              footer=catalog.related(found), before=before, after=after)
@@ -176,13 +161,13 @@ class PublicRoutes(Routes):
             path = known.get(record)
             if path is None:
                 return self.page(request, "not_found.html", http_status=404, current="/help",
-                                 what="decision record", identifier=record, back_href="/help/decisions",
-                                 back_label="Every decision")
+                                 what=self.t("not_found.what.decision"), identifier=record,
+                                 back_href="/help/decisions", back_label=self.t("not_found.back.decisions"))
             html, headings = content.renderer.render(path.read_text(encoding="utf-8"))
             from core.content.library import Topic
 
             title = next((h["name"] for h in headings if h["level"] == 1), record)
-            decision = Topic(slug=record, title=title, section="Decision records", html=html,
+            decision = Topic(slug=record, title=title, section=self.t("help.decision_records"), html=html,
                              headings=headings, source=f"docs/adr/{path.name}")
             return self.page(request, "help_topic.html", current="/help", topic=decision,
                              related=[], **area_context("help"))
@@ -199,8 +184,8 @@ class PublicRoutes(Routes):
             entry = lookup(code, content.include_root / "docs")
             if entry is None:
                 return self.page(request, "not_found.html", http_status=404, current="/help",
-                                 what="error code", identifier=code, back_href="/help/codes",
-                                 back_label="Every code")
+                                 what=self.t("not_found.what.code"), identifier=code,
+                                 back_href="/help/codes", back_label=self.t("not_found.back.codes"))
             renderer = content.renderer
             sections = [(doc, heading, renderer.render(body)[0])
                         for doc, heading, body in entry.sections]

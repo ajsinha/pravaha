@@ -21,7 +21,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from routes.auth_routes import current_user
-from routes.base import Routes
+from routes.base import Routes, sign_in_first
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,7 @@ class ApiRoutes(Routes):
             handling a login page as data is a worse failure than an honest status.
             """
             if current_user(request) is None:
-                return JSONResponse(
-                    {"error": "sign in to the console first", "status": 401}, status_code=401)
+                return sign_in_first()
             return None
 
         @self.app.get(f"{api}/health", tags=["api"])
