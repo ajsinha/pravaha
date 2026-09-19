@@ -90,3 +90,47 @@ class AdminService:
             return self._engine.permissions()
         except Exception as exc:
             raise _refusal(exc) from exc
+
+    def affordances(self) -> Affordances:
+        """The same answers, as the screens that offer an action need them (design 23.16).
+
+        Never raises: an engine that did not answer, or one too old to have the endpoint, is
+        an unknown, and an unknown keeps the control -- the engine re-checks every action
+        anyway, so the worst case is the refusal it always gave. Only a policy that said *no*
+        takes a control away.
+        """
+        try:
+            return Affordances(self._engine.permissions())
+        except Exception:  # noqa: BLE001 -- an unknown keeps the control; see above
+            return Affordances(None)
+
+
+class Affordances:
+    """Which actions the engine's policy refuses this console's identity, and why.
+
+    "RBAC drives affordances" (design 23.16): an action the policy refuses is disabled with
+    the policy's reason beside it, never a button that fails on click (the *unauthorized*
+    state of 23.12). The answer is the engine's -- ``GET /api/v1/me/permissions`` -- so a
+    grant made in the deployment's identity system shows here on the next page load, and the
+    console adds no rule of its own.
+    """
+
+    def __init__(self, permissions: dict | None) -> None:
+        self._permissions = permissions or {}
+        self._views = {str(v.get("name")): v for v in self._permissions.get("views") or []
+                       if isinstance(v, dict)}
+
+    @staticmethod
+    def _refusal(decision: Any) -> str | None:
+        if isinstance(decision, dict) and decision.get("allowed") is False:
+            return str(decision.get("reason") or "the engine's policy refuses it")
+        return None
+
+    def register_refused(self) -> str | None:
+        """Why this identity may not register a query, or None when it may (or nobody said)."""
+        return self._refusal(self._permissions.get("register"))
+
+    def administer_refused(self, name: str) -> str | None:
+        """Why this identity may not pause, resume or drop ``name``, or None."""
+        view = self._views.get(name)
+        return self._refusal(view.get("administer")) if view else None

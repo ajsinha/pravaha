@@ -14,7 +14,8 @@
 <p class="lede">{{ t('start.lede') }}</p>
 
 <div id="start-app" data-engine-up="{{ 'true' if engine_up else 'false' }}"
-     data-streams='{{ streams|tojson }}' data-chosen="{{ chosen.name if chosen else '' }}">
+     data-streams='{{ streams|tojson }}' data-chosen="{{ chosen.name if chosen else '' }}"{% if register_refused %}
+     data-register-refused="{{ register_refused }}"{% endif %}>
   <ol class="steps" aria-label="{{ t('start.progress') }}">
     <li aria-current="step">{{ t('start.step.stream') }}</li><li>{{ t('start.step.question') }}</li><li>{{ t('start.step.register') }}</li><li>{{ t('start.step.watch') }}</li>
   </ol>

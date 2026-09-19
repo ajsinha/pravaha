@@ -79,6 +79,10 @@ class FakeEngine:
         #: Whether the engine's policy lets the console's identity read the audit trail.
         self.audit_allowed = True
         self.audit_calls: list[dict] = []
+        #: The policy's other refusals, by view name and for registering: what a deployment's
+        #: identity system decides, and what a grant made there changes.
+        self.administer_refused: dict[str, str] = {}
+        self.register_refusal: str | None = None
         self.plugins_list = [
             {"name": "filesystem", "version": "0.1.0", "requiredApiVersion": "0.1.0", "compatible": True,
              "loaded": True, "kinds": ["sink", "source"],
@@ -244,8 +248,12 @@ class FakeEngine:
                  {"allowed": False, "reason": AUDIT_REFUSAL})
         return {"principal": "console", "tenant": "public", "roles": ["admin"] if self.audit_allowed else [],
                 "anonymous": False, "policy": "authenticated",
-                "register": {"allowed": True, "reason": None}, "readAudit": audit,
-                "views": [{"name": q.name, "read": "full", "administer": {"allowed": True, "reason": None}}
+                "register": ({"allowed": False, "reason": self.register_refusal} if self.register_refusal
+                             else {"allowed": True, "reason": None}), "readAudit": audit,
+                "views": [{"name": q.name, "read": "full",
+                           "administer": ({"allowed": False, "reason": self.administer_refused[q.name]}
+                                          if q.name in self.administer_refused
+                                          else {"allowed": True, "reason": None})}
                           for q in self._queries],
                 "streams": [{"name": s["name"], "read": "full", "administer": {"allowed": True, "reason": None}}
                             for s in self.streams_list]}

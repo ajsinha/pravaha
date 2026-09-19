@@ -102,7 +102,8 @@ class ProductRoutes(Routes):
                           streams[0] if streams else None)
             return self.page(request, "start.html", current="/start", streams=streams,
                              streams_error=streams_error, chosen=chosen,
-                             templates=authoring.templates(chosen))
+                             templates=authoring.templates(chosen),
+                             register_refused=services.admin.affordances().register_refused())
 
         @self.app.get("/catalog", response_class=HTMLResponse, tags=["ui"])
         def catalog(request: Request, tab: str = "streams"):
@@ -398,8 +399,8 @@ class ProductRoutes(Routes):
             """Everything the command palette can jump to or do.
 
             Signed out, it offers only pages that are public. Signed in, every query, view
-            and stream, and the lifecycle actions each query's state allows -- an action a
-            query cannot take is absent rather than offered and refused.
+            and stream, and the lifecycle actions each query's state and the engine's policy
+            allow -- an action a query cannot take is absent rather than offered and refused.
             """
             items: list[dict[str, Any]] = [
                 {"kind": "page", "title": "Landing", "href": "/", "hint": "what Pravaha is"},
@@ -429,6 +430,9 @@ class ProductRoutes(Routes):
                     items.append({"kind": "role", "title": f"Switch to the {meta['label'].lower()} view",
                                   "role": key, "hint": meta["blurb"]})
             queries, _ = safe(lambda: services.queries.find(limit=services.queries.MAX_LIMIT).items, [])
+            # Lifecycle actions the engine's policy refuses this identity are absent (design 23.16):
+            # the query's own page says why, and a palette is no place for a refusal.
+            may = services.admin.affordances()
             for q in queries:
                 items.append({"kind": "query", "title": q.name, "href": f"/queries/{q.name}",
                               "hint": q.state, "state": q.state})
@@ -438,6 +442,8 @@ class ProductRoutes(Routes):
                               "href": f"/views/{q.name}/live", "hint": "committed changes"})
                 items.append({"kind": "action", "title": f"Open {q.name} in the workbench",
                               "href": f"/workbench?query={q.name}", "hint": "prefilled"})
+                if may.administer_refused(q.name) is not None:
+                    continue
                 if q.state == "RUNNING":
                     items.append({"kind": "lifecycle", "title": f"Pause {q.name}", "query": q.name,
                                   "action": "pause", "hint": "keeps the state"})

@@ -488,7 +488,10 @@ function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {
   useEffect(() => { setKeys((k) => k.filter((x) => fields.some((f) => f.name === x))); }, [fields.map((f) => f.name).join(",")]);
 
   const nameOk = IDENT.test(name);
-  const ready = nameOk && keys.length && validation.status === "valid";
+  /* The engine's policy, read by the server when the page was rendered (design 23.16): a
+     registration it refuses is disabled here with its reason, never a button that fails. */
+  const refused = (mount && mount.dataset.registerRefused) || "";
+  const ready = !refused && nameOk && keys.length && validation.status === "valid";
   async function submit(event) {
     event.preventDefault();
     if (!ready) return;
@@ -545,7 +548,10 @@ function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {
         what it cannot read rather than keeping something else.</div>
       <button type="submit" class="btn btn-primary btn-sm mt-3" disabled=${!ready || state.status === "loading"}>
         ${state.status === "loading" ? "Registering…" : "Register continuous query"}</button>
-      ${!ready ? html`<div class="small text-muted mt-1">${validation.status !== "valid" ? "Needs a valid query. " : ""}${!nameOk ? "Needs a name. " : ""}${!keys.length ? "Needs at least one key." : ""}</div>` : null}
+      ${refused ? html`<div class="alert alert-info py-2 small mt-2 mb-0" id="register-refused" role="note">
+        <div class="fw-semibold">Not permitted</div>The engine's policy does not let this console register a
+        query: ${refused}. <a href="/admin/access">What this console may do</a></div>`
+      : !ready ? html`<div class="small text-muted mt-1">${validation.status !== "valid" ? "Needs a valid query. " : ""}${!nameOk ? "Needs a name. " : ""}${!keys.length ? "Needs at least one key." : ""}</div>` : null}
     </div>
     <div class="col-12">
       ${state.status === "error" ? errorView(state.err) : null}

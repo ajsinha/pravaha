@@ -121,8 +121,11 @@ class UIRoutes(Routes):
             # The engine's description: keys by name, retention, the sink and whether it is still
             # attached. Rendered without it (older engine, HTTP port down) rather than refused.
             detail = _safe(lambda: services.queries.detail(name), None)
+            # Pause, resume and drop are offered only when the engine's policy would allow them;
+            # refused, they are disabled with its reason (design 23.16), not left to fail on click.
+            refused = services.admin.affordances().administer_refused(name)
             return self.page(request, "query_detail.html", current="/queries",
-                             query=query, siblings=siblings, detail=detail)
+                             query=query, siblings=siblings, detail=detail, refused=refused)
 
         # The lifecycle actions as ordinary form posts. The module intercepts
         # them so the page does not reload, but they work without it: a control
@@ -177,7 +180,8 @@ class UIRoutes(Routes):
             return self.page(request, "workbench.html", current="/workbench",
                              result=None, sql=prefill, params="", origin=origin,
                              streams=streams, sinks=services.catalog.sinks_or_empty(),
-                             library=authoring.templates(streams[0] if streams else None))
+                             library=authoring.templates(streams[0] if streams else None),
+                             register_refused=services.admin.affordances().register_refused())
 
         @self.app.post("/workbench", response_class=HTMLResponse, tags=["ui"])
         def run(request: Request, sql: str = Form(...), params: str = Form("")):

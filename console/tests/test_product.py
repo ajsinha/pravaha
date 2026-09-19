@@ -865,6 +865,49 @@ def test_the_audit_screen_says_not_permitted_when_the_engine_refuses_this_identi
     assert "refused" in access
 
 
+def test_an_action_the_policy_refuses_is_disabled_with_its_reason_not_offered(signed_in, engine):
+    """Design 23.16: RBAC drives affordances. Before this, the query page offered Pause, Resume and
+    Drop, and the palette its lifecycle actions, whatever the engine's policy said -- a control that
+    failed on click with the engine's refusal."""
+    engine.administer_refused["hot"] = "administering 'hot' needs one of the roles [ops]"
+    engine.register_refusal = "registering needs one of the roles [author]"
+    page = signed_in.get("/queries/hot").text
+    assert 'id="controls-refused"' in page and "needs one of the roles [ops]" in page
+    assert 'action="/queries/hot/drop"' not in page and 'id="dropConfirmModal"' not in page
+    assert re.search(r'id="drop" type="button" disabled', page)
+    # Another query, which the policy allows, keeps its controls.
+    other = signed_in.get("/queries/big_txn").text
+    assert 'action="/queries/big_txn/drop"' in other and 'id="controls-refused"' not in other
+
+    items = signed_in.get("/api/v1/palette").json()["items"]
+    lifecycle = {(i["action"], i["query"]) for i in items if i["kind"] == "lifecycle"}
+    assert not {a for a in lifecycle if a[1] == "hot"}, lifecycle
+    assert ("pause", "big_txn") in lifecycle and ("drop", "big_txn") in lifecycle
+    assert any(i.get("href") == "/queries/hot" for i in items), "the query itself is still found"
+
+    workbench = signed_in.get("/workbench").text
+    assert 'data-register-refused="registering needs one of the roles [author]"' in workbench
+    assert 'id="register-refused"' in workbench
+    assert 'data-register-refused=' in signed_in.get("/start").text
+
+    # The grant is made where grants live -- the deployment's identity system -- and the console
+    # follows the engine's next answer.
+    engine.administer_refused.clear()
+    engine.register_refusal = None
+    assert 'action="/queries/hot/drop"' in signed_in.get("/queries/hot").text
+    assert "data-register-refused" not in signed_in.get("/workbench").text
+
+
+def test_an_unknown_policy_keeps_the_controls():
+    """An engine that did not answer the permissions call is not a refusal: the engine re-checks
+    every action anyway, so the control stays and the engine's own answer is what fails."""
+    from core.admin import Affordances
+
+    assert Affordances(None).administer_refused("hot") is None
+    assert Affordances(None).register_refused() is None
+    assert Affordances({"views": [{"name": "x"}]}).administer_refused("x") is None
+
+
 def test_a_malformed_time_is_refused_before_the_engine_is_asked(signed_in, engine):
     page = signed_in.get("/admin/audit?since=yesterday")
     assert page.status_code == 400 and "is not a time" in page.text

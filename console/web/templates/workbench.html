@@ -66,7 +66,7 @@
   <section aria-label="{{ t('workbench.editor') }}">
     {# The island mounts here. Until it does -- or if it never does -- this is a working
        form: run the SQL once, or register it, with the server rendering the answer. #}
-    <div id="workbench-app" data-origin="{{ origin }}">
+    <div id="workbench-app" data-origin="{{ origin }}"{% if register_refused %} data-register-refused="{{ register_refused }}"{% endif %}>
       <form method="post" action="/workbench" id="run-form">
         <div class="card"><div class="card-body">
           <div class="mb-3">
@@ -105,9 +105,10 @@
             <input class="form-control form-control-sm" id="retention" name="retention" placeholder="{{ t('workbench.retention_placeholder') }}">
           </div>
           <div class="col-auto">
-            <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t('workbench.register') }}</button>
+            <button class="btn btn-sm btn-outline-secondary" type="submit"{% if register_refused %} disabled aria-describedby="register-refused"{% endif %}>{{ t('workbench.register') }}</button>
           </div>
         </div>
+        {% if register_refused %}<div class="small text-muted mt-2" id="register-refused">{{ t('workbench.register_refused', reason=register_refused) }}</div>{% endif %}
         <input type="hidden" name="sql" id="register-sql" value="{{ sql }}">
         <div class="form-text small mt-2">{{ t('workbench.keys_note') }}</div>
       </div></form>

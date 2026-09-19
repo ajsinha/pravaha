@@ -255,7 +255,9 @@
       "done": "Done",
       "down_title": "The engine is not answering yet",
       "down_before": "Start",
-      "down_after": "and reload. Every step below needs it."
+      "down_after": "and reload. Every step below needs it.",
+      "register_refused": "The engine's policy does not let this console register a query: {reason}.",
+      "refused_access": "What this console may do"
     },
     "views": {
       "no_row_title": "No row has that key",
@@ -617,7 +619,10 @@
     },
     "tail": "Live tail",
     "tail_label": "Live changes",
-    "tail_note": "One engine subscription serves every browser watching this view.\n  Ten tabs are ten connections here and one subscriber on the engine."
+    "tail_note": "One engine subscription serves every browser watching this view.\n  Ten tabs are ten connections here and one subscriber on the engine.",
+    "refused_title": "Not permitted",
+    "refused_body": "The engine's policy does not let this console pause, resume or drop this query: {reason}.",
+    "refused_access": "What this console may do"
   },
   "refused": {
     "title": "Refused",
@@ -673,7 +678,8 @@
     "no_rows": "No rows",
     "no_rows_body": "The query ran in {ms}ms and matched nothing. On a stream this often means\n              the window has not closed yet: a window closes when data says it is over, not when the\n              clock does.",
     "nothing_run": "Nothing run yet",
-    "nothing_run_body": "Write a query above and run it. Nothing is registered until you ask for it."
+    "nothing_run_body": "Write a query above and run it. Nothing is registered until you ask for it.",
+    "register_refused": "The engine's policy does not let this console register a query: {reason}."
   },
   "landing": {
     "tag": "STREAMING SQL, INCREMENTALLY MAINTAINED",

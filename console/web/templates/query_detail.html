@@ -49,6 +49,20 @@
     <div class="card h-100">
       <div class="card-header">{{ t('query.controls') }}</div>
       <div class="card-body">
+        {% if refused %}
+        {# The engine's policy refuses this console's identity these actions (design 23.16): each
+           is shown disabled, and the reason is on the page rather than in a title a disabled
+           button cannot show -- never a control that fails on click (23.12, unauthorized). #}
+        <div class="d-flex gap-2" id="controls-refused-buttons">
+          <button class="btn btn-sm btn-outline-secondary" id="pause" type="button" disabled aria-describedby="controls-refused">{{ t('query.pause') }}</button>
+          <button class="btn btn-sm btn-outline-secondary" id="resume" type="button" disabled aria-describedby="controls-refused">{{ t('query.resume') }}</button>
+          <button class="btn btn-sm btn-outline-danger" id="drop" type="button" disabled aria-describedby="controls-refused">{{ t('query.drop') }}</button>
+        </div>
+        <div class="alert alert-info py-2 small mt-3 mb-0" id="controls-refused" role="note">
+          <div class="fw-semibold">{{ t('query.refused_title') }}</div>
+          {{ t('query.refused_body', reason=refused) }}
+          <a href="/admin/access">{{ t('query.refused_access') }}</a></div>
+        {% else %}
         <div class="d-flex gap-2">
           {# Real forms, so the controls work with scripting off; the module
              intercepts them to avoid a full page load when it is on. #}
@@ -77,6 +91,7 @@
           <button type="button" class="btn btn-sm btn-outline-danger d-none" id="dropModalTrigger"
                   data-bs-toggle="modal" data-bs-target="#dropConfirmModal">{{ t('query.drop') }}</button>
         </div>
+        {% endif %}
         <p class="small text-muted mt-3 mb-0">{{ t('query.controls_note_before') }} <strong>{{ t('query.controls_note_last') }}</strong> {{ t('query.controls_note_after') }}</p>
         {% if siblings %}
         <div class="alert alert-info mt-3 mb-0 py-2">
@@ -91,6 +106,7 @@
   </div>
 </div>
 
+{% if not refused %}
 <div class="modal fade" id="dropConfirmModal" tabindex="-1" aria-labelledby="dropConfirmLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -114,6 +130,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 <h2>{{ t('query.tail') }} <span class="freshness ms-2" id="tail-state"></span></h2>
 <div class="tail" id="tail" role="log" aria-live="polite" aria-label="{{ t('query.tail_label') }}"

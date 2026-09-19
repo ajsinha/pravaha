@@ -121,8 +121,11 @@ function RegisterStep({ chosen, sql, validation, back, done }) {
   const [keys, setKeys] = useState(suggested.length ? suggested : fields.slice(0, 1).map((f) => f.name));
   const [state, setState] = useState({ status: "idle" });
   const toggle = (k) => setKeys((all) => (all.includes(k) ? all.filter((x) => x !== k) : all.concat(k)));
+  /* A registration the engine's policy refuses is disabled with its reason (design 23.16). */
+  const refused = root.dataset.registerRefused || "";
   async function submit(event) {
     event.preventDefault();
+    if (refused) return;
     setState({ status: "loading" });
     try {
       const answer = await call("/queries", { json: { name, sql, key_names: keys } });
@@ -143,8 +146,10 @@ function RegisterStep({ chosen, sql, validation, back, done }) {
           <label class="form-check-label small mono" for=${"ob-key-" + f.name}>${f.name}</label></div>`)}
         <div class="form-text small">${t("start.key_help")}</div></fieldset></div>
       ${state.status === "error" ? html`<div class="col-12">${errorView(state.err)}</div>` : null}
+      ${refused ? html`<div class="col-12"><div class="alert alert-info py-2 small mb-0" id="register-refused" role="note">
+        ${t("start.register_refused", { reason: refused })} <a href="/admin/access">${t("start.refused_access")}</a></div></div>` : null}
       <div class="col-12 d-flex gap-2"><button type="button" class="btn btn-outline-secondary" onClick=${back}>${t("start.back")}</button>
-        <button type="submit" class="btn btn-primary" disabled=${!IDENT.test(name) || !keys.length || state.status === "loading"}>
+        <button type="submit" class="btn btn-primary" disabled=${!!refused || !IDENT.test(name) || !keys.length || state.status === "loading"}>
           ${state.status === "loading" ? t("start.registering") : t("start.register")}</button></div>
     </form></section>`;
 }
