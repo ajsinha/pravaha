@@ -197,6 +197,7 @@ public final class ApiDtos {
             Problem failure,
             Instant stoppedAt) {}
 
+    /**
      * How a backfill is getting on (design section 16.2).
      *
      * <p>No estimate and no ETA: a source does not say how much history it holds, and a progress
