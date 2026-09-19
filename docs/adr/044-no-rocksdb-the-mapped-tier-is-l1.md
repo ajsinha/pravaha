@@ -361,7 +361,7 @@ reclaimed with swap off. The rest of the aggregate line was measured at a **1 Gi
 | cap | state / cap | state | accumulators | update/s capped | cached | insert/s capped | cached |
 |---|---|---|---|---|---|---|---|
 | 512 MiB | 1x | 513 MiB | 1,575,384 | 4,119 | 1,028,136 | 745,279 | 832,473 |
-| 512 MiB | 4x, 16x | — | — | *OOM-killed: the RAM tiers do not fit the cap* | | | |
+| 512 MiB | 4x, 16x | 2,050 / 8,202 MiB | 6,301,536 / 25,206,152 | *OOM-killed* | 839,506 / 199,877 | *OOM-killed* | 665,701 / 616,581 |
 | 1 GiB | 1x | 1,025 MiB | 3,150,768 | 4,701 | 491,143 | 328,997 | 485,806 |
 | 1 GiB | 2x | 2,050 MiB | 6,301,536 | 1,312 | 609,641 | 80,484 | 607,376 |
 | 1 GiB | 4x | 4,101 MiB | 12,603,076 | ~1,300 | 481,912 | ~11,800 | 681,958 |
