@@ -79,26 +79,54 @@ class ArchitectureRulesTest {
         return p;
     }
 
+    /**
+     * Everything the embedded engine is built from. The enforcer rule in pravaha-embedded refuses a
+     * Spring <em>dependency</em>; this refuses a Spring <em>import</em>, which a dependency arriving
+     * some other way -- a shaded jar, a provided scope, a sibling module -- would otherwise let through.
+     */
+    private static final String[] SPRING_FREE = {
+        "com.ash.messaging.pravaha.api..",
+        "com.ash.messaging.pravaha.common..",
+        "com.ash.messaging.pravaha.algebra..",
+        "com.ash.messaging.pravaha.catalog..",
+        "com.ash.messaging.pravaha.sql..",
+        "com.ash.messaging.pravaha.runtime..",
+        "com.ash.messaging.pravaha.state..",
+        "com.ash.messaging.pravaha.connect..",
+        // What the embedded engine assembles at start (ADR-019, ADR-020): the engine itself, the
+        // registry it hosts, the views it serves, the policy types it runs under, and the plugin
+        // bindings it shares with the server.
+        "com.ash.messaging.pravaha.embedded..",
+        "com.ash.messaging.pravaha.registry..",
+        "com.ash.messaging.pravaha.serving..",
+        "com.ash.messaging.pravaha.security..",
+        "com.ash.messaging.pravaha.bindings.."
+    };
+
     @Test
     void engineCoreContainsNoSpring() {
         // Design section 22.1. An embedded engine inherits its host application's Spring version; the core
         // dragging in its own would forfeit embeddability, which is a moat the product is sold on.
         ArchRule rule = noClasses()
                 .that()
-                .resideInAnyPackage(
-                        "com.ash.messaging.pravaha.api..",
-                        "com.ash.messaging.pravaha.common..",
-                        "com.ash.messaging.pravaha.algebra..",
-                        "com.ash.messaging.pravaha.catalog..",
-                        "com.ash.messaging.pravaha.sql..",
-                        "com.ash.messaging.pravaha.runtime..",
-                        "com.ash.messaging.pravaha.state..",
-                        "com.ash.messaging.pravaha.connect..")
+                .resideInAnyPackage(SPRING_FREE)
                 .should()
                 .dependOnClassesThat()
                 .resideInAnyPackage("org.springframework..")
                 .because("Spring is a bootstrap layer above the engine, never inside it (design section 22.1)");
         rule.check(engine);
+    }
+
+    @Test
+    void theSpringFreeRuleSeesTheEmbeddedEngineAndItsBindings() {
+        // The packages added to the rule above, present in what it checks: a rule over a package that
+        // was never imported passes while enforcing nothing.
+        for (String pkg : List.of("embedded", "registry", "serving", "security", "bindings")) {
+            String prefix = "com.ash.messaging.pravaha." + pkg;
+            assertThat(engine.stream().map(c -> c.getPackageName()))
+                    .as("classes under %s", prefix)
+                    .anyMatch(p -> p.startsWith(prefix));
+        }
     }
 
     @Test

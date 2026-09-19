@@ -747,6 +747,18 @@ public final class RegisteredQuery implements AutoCloseable {
         return feed;
     }
 
+    /**
+     * The streams this computation reads, in plan order, spelled as {@link #accept(String,
+     * RowView)} expects them.
+     *
+     * <p>What an embedder pushing a row into a stream needs to know: which computations that row
+     * must reach. Without it the only way to find out is to offer the row and read the refusal --
+     * and a refused {@code accept} fails the query it was offered to.
+     */
+    public java.util.List<String> sourceStreams() {
+        return execution.streams();
+    }
+
     @Override
     public String toString() {
         return "RegisteredQuery[" + anyName() + ", " + state + ", " + fingerprint + "]";

@@ -38,9 +38,38 @@
     </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-security</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-sql</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-serving</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-registry</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- The Spring-free plugin bindings the server uses too: one copy of source, lookup and sink
+         resolution, not one per bootstrap. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-bindings</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- Compile scope for its schema parser: `name:TYPE,...` is the one spelling of a schema the
+         CLI, the server and pravaha.streams all use, and it lives here. It also makes `filesystem`
+         a source and sink an embedded engine can bind with no further jar. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-plugin-filesystem</artifactId>
       <version>${project.version}</version>
-      <scope>test</scope>
     </dependency>
   </dependencies>
 
