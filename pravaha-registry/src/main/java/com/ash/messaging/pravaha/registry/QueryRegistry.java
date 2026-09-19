@@ -1373,7 +1373,7 @@ public final class QueryRegistry implements AutoCloseable {
         // transactional sink's open transaction is committed now or never.
         SinkDelivery delivery = deliveries.remove(name);
         if (delivery != null) {
-            delivery.finish();
+            delivery.commitAndRelease();
         }
         // The view goes with the name. A dropped view that keeps answering serves whatever the
         // closed computation last committed, for ever, to a caller with no way to know that nothing

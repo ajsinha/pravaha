@@ -344,7 +344,7 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * is recovered at the next start and replays from its checkpoint, so committing here would
      * repeat that tail.
      */
-    synchronized void finish() {
+    synchronized void commitAndRelease() {
         if (!closed && failure == null && transactional) {
             try {
                 while (!prepared.isEmpty()) {
