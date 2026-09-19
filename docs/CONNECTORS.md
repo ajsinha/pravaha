@@ -36,7 +36,7 @@ Three kinds, and a connector may be more than one:
 
 | Interface | What it does | Shipped examples |
 |---|---|---|
-| `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra, `postgres-cdc` (a changelog: deletes and before-images) |
+| `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra, `postgres-cdc` (a changelog: deletes and before-images), `kafka` (a topic, one reader per partition, exactly once from the checkpoint's offsets) |
 | `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, so exactly once on a checkpointed node), `kafka-sink` (keyed JSON upserts with a tombstone for a retraction, or an explicit changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | aerospike, jdbc |
 
@@ -90,8 +90,10 @@ are given is a cell in the lane's inbox and copying defeats the whole memory des
 The engine calls it, from the checkpointing thread, once the checkpoint recording that offset is
 durable (`PeriodicCheckpointer`, after `CheckpointStore.store` returns) — the only moment it is safe
 to release history, because a restart can only resume from a durable checkpoint. `postgres-cdc`
-confirms its replication slot here and nowhere else; every other shipped source keeps its position in
-the checkpoint alone and leaves the default no-op. A reader shared between queries is not told.
+confirms its replication slot here and nowhere else; `kafka`, which keeps its position in the
+checkpoint alone, uses it only to report that position to a consumer group for lag monitoring when
+`monitoring.group` is set; every other shipped source leaves the default no-op. A reader shared
+between queries is not told.
 
 ### `SourceCapabilities` — the part that is load-bearing
 
@@ -718,8 +720,8 @@ simply does not ask for it.
 else, `I` included, is an insertion. There is no value meaning "update": an update is a retraction
 and an insertion, which is the same two rows Debezium's `u` event produces above.
 
-**Every other shipped source plugin but `postgres-cdc` hard-codes `weight(+1)`.** Until it arrived, this
-was the one route a retraction had into a configured deployment, which is why the Z-set model went so
+**Every other shipped source plugin but `postgres-cdc` and `kafka` (in `format: changelog`) hard-codes
+`weight(+1)`.** Until `postgres-cdc` arrived, this was the one route a retraction had into a configured deployment, which is why the Z-set model went so
 long without one — and why a CDC connector matters beyond the convenience of not writing the file
 yourself.
 
@@ -758,6 +760,7 @@ What the shipped plugins claim, and why not more (ADR-039 item 6):
 | `aerospike` | yes — server-side expressions, `alternatives` as `Exp.or` | yes — the scan's bin names | no — server-side aggregation needs Lua stream UDFs registered on the cluster, and a last-update-time scan has no retraction for an overwritten record |
 | `cassandra` | no — anything but the partition key needs `ALLOW FILTERING` | yes — the CQL `SELECT` list | no — every pass re-reads the whole range, so no partial could cover "new rows only" |
 | `filesystem`, `feedfile`, `delta` | no | no | no |
+| `kafka` | no — a broker has no server-side filter; every record is fetched whole | no | no |
 
 The source TCK verifies two of these: that resuming from a recorded offset loses nothing, and that a
 source claiming exactly-once resumes without duplicates too (`SourcePluginTck.replayableOffsetsActuallyReplay`,
@@ -772,7 +775,7 @@ plugins' container ITs against Postgres, Aerospike and Cassandra).
 
 | Connector | Kind | Proves |
 |---|---|---|
-| **Kafka** | streaming | replayable offsets and real exactly-once resumption. The **sink** is built (`kafka-sink`, `plugins/pravaha-plugin-kafka`; its transactional mapping is below); the source is not |
+| **Kafka** | streaming | replayable offsets and real exactly-once resumption — **built, both ways**, `plugins/pravaha-plugin-kafka`: the source `kafka` (one reader per partition, its offsets in the checkpoint; below) and the sink `kafka-sink` (its transactional mapping is below) |
 | **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model. **Proved for PostgreSQL by `postgres-cdc`**, built natively ([ADR-041](adr/041-change-data-capture-without-debezium.md)); Debezium is the route for a second database |
 | **Cassandra** | table scan | the scan path generalises beyond Aerospike — **built**, ADR-039 item 6: a full `token()`-range scan with projection pushdown, `plugins/pravaha-plugin-cassandra` |
 | **ScyllaDB** | table scan | speaks the same CQL wire protocol as Cassandra; not built or tested against — the `cassandra` plugin has not been run against it |
@@ -785,6 +788,58 @@ The queue connectors are architecturally different and it is worth saying so bef
 queue gives you *acknowledgement*, not a position you can return to. They cannot be `EXACTLY_ONCE`,
 and `SharedSourceGroup` will decline to share their readers for the same reason it declines JDBC's.
 
+
+### A replayable source: Kafka
+
+`kafka` is the source the SPI's `SourceOffset` was written for. A topic's partitions are its
+partitions — one `SourcePartition` per Kafka partition, in partition order, and one reader on each,
+*assigned* its partition rather than subscribed, so no consumer group moves partitions between
+readers behind the engine's back. A reader's position is the next Kafka offset to read, written
+`topic/partition@next` (`orders/3@42`), and **it lives in the engine's checkpoint and nowhere else**:
+a restore seeks each partition to the offset the checkpoint recorded, the log replays
+deterministically from there, and the engine receives exactly the records the checkpoint does not
+hold. That is the whole of the exactly-once argument ([ADR-008](adr/008-aligned-checkpoints.md)), so
+the source declares `EXACTLY_ONCE` — and is therefore never shared between queries.
+
+What it deliberately does not do:
+
+- **A consumer group's committed offset is never read.** A group offset is committed when a consumer
+  says so, not when a checkpoint is durable, so resuming from it would lose or repeat whatever lay
+  between the two. `monitoring.group`, when set, is *committed* the offset each durable checkpoint
+  recorded (from `PartitionReader.checkpointed`), so `kafka-consumer-groups` and lag dashboards see
+  where a restore would resume. It is a report, never a position.
+- **A position the log no longer has is not skipped past.** If retention deletes records a checkpoint
+  has not yet read, or a checkpoint's offset is past the partition's end (the topic was deleted and
+  recreated), the reader refuses with `PRV-5106` rather than reading on from wherever the log now
+  starts. `auto.offset.reset` is `none` and cannot be passed through.
+- **Aborted transactions are never delivered.** `isolation.level` defaults to `read_committed`, so a
+  topic written transactionally — `kafka-sink`'s, or any exactly-once producer's — reads back exactly
+  once too. The position steps over commit markers and aborted records only once everything before
+  them has been handed over, so a checkpoint never records a position past a row the engine has not
+  seen. `read_uncommitted` is an option, and reads what was aborted.
+
+`poll` never touches the network: a fetch thread per reader owns the (not thread-safe) consumer and
+decodes into a bounded queue, and while the engine has the reader paused, the partition is paused at
+the consumer. Two value formats, stated precisely:
+
+| `format` | A record's value | Weight | Deletes |
+|---|---|---|---|
+| `json` (default) | a JSON object of the row's columns, matched by name — what `kafka-sink` upsert mode writes | `+1` | none: `emitsDeletes` false. A **tombstone** (null value) says a key was deleted without saying what row it held, so there is nothing to retract: it is a dead letter (or `PRV-5105`), unless `tombstone: skip` reads the topic as insertions only |
+| `changelog` | `kafka-sink`'s changelog envelope, `{"op":"insert"\|"delete","weight":n,"row":{...}}` | the envelope's | yes: a retraction written by one query's sink is a retraction in the next query's source. `emitsDeletes` and `emitsBeforeImage` true |
+
+Upsert-mode tombstones are not read as retractions because doing so would need the last value of
+every key — state the source would have to hold, and a checkpoint to hold it in, to replay exactly.
+Read `kafka-sink`'s changelog mode instead when a downstream query must see retractions. Values are
+decoded the way `kafka-sink` encodes them, and anything that does not fit the declared schema — not
+JSON, a fraction in an integer column, a decimal with more places than its scale — is a dead letter
+with a reason, never a guessed value. No Avro, Protobuf or schema registry.
+
+Proved against a real broker (Testcontainers): the source TCK; an aborted transaction skipped, and
+resumption from an offset between it and its markers exact; three partitions restarted from
+checkpointed positions with every record once; and through the registry's own checkpoints
+(`KafkaSourceRegistrationTest`), a restart that counts every record once, and a `kafka-sink`
+changelog topic read back by a `kafka` source with its retraction applied. The binding's options are in
+[`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1.
 
 ### A transactional sink on a store with no prepare: Kafka
 

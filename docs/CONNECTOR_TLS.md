@@ -198,8 +198,9 @@ refuse it in plaintext), and nothing about TLS differs.
 
 ### 3.4 Kafka — the shared options, mapped to Kafka's `ssl.*`
 
-The Kafka client takes files and properties, not an `SSLContext`, so `kafka-sink` maps the shared
-options onto Kafka's own. `PluginTls` still reads them first, so everything in §2 holds: an unknown
+The Kafka client takes files and properties, not an `SSLContext`, so the Kafka plugin maps the shared
+options onto Kafka's own — one mapping (`KafkaSecurity`) for the source `kafka` and the sink
+`kafka-sink` alike. `PluginTls` still reads them first, so everything in §2 holds: an unknown
 `tls.*` option, half a certificate pair, both forms of one thing, an unreadable file or a PKCS#1 key
 is refused (`PRV-5100`) with the same words every other connector uses.
 
@@ -230,9 +231,28 @@ pravaha:
         tls.key: /etc/pravaha/tls/pravaha.key
 ```
 
+The source takes the same options under its own binding:
+
+```yaml
+pravaha:
+  sources:
+    orders:
+      plugin: kafka
+      options:
+        bootstrap.servers: "kafka-1.internal:9093"
+        topic: orders
+        schema: "order_id:INT64,customer:STRING,amount:INT64"
+        user: pravaha
+        password: "${KAFKA_PASSWORD}"
+        sasl.mechanism: SCRAM-SHA-512
+        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+```
+
+Its consumers need `Describe` and `Read` on the topic, and `Read` on `monitoring.group` if one is set.
+
 Tested: the mapping, and that Kafka's own loader accepts the result (the producer builds its TLS
-engine in its constructor). Not tested here: a handshake with a TLS listener — the broker tests run
-in plaintext.
+engine in its constructor); the source's refusals, in its own words, by `KafkaSourceOptionsTest`. Not
+tested here: a handshake with a TLS listener — the broker tests run in plaintext.
 
 ---
 

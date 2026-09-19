@@ -95,11 +95,11 @@ current as its laggiest input, which is correct and surprises people.
 
 ### 2.1 Every source type, configured
 
-Seven stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
+Eight stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
 without the engine changing — [`CONNECTORS.md`](CONNECTORS.md) is how you add one.
 
 **Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta`, `aerospike`,
-`cassandra` and `postgres-cdc` are separate modules, and adding one to a deployment means dropping a jar on the
+`cassandra`, `postgres-cdc` and `kafka` are separate modules, and adding one to a deployment means dropping a jar on the
 classpath rather than rebuilding the server — which is why a server that only reads a directory does
 not carry Hadoop and Parquet.
 
@@ -535,6 +535,80 @@ since the slot was created. The operational side — slot lag, the heartbeat, dr
 `drop.slot.on.close: "true"` drops the slot when the source closes — a node shutdown included — so
 the next start has no position to resume from and a restored view would miss everything in between.
 It is for tests and throwaway environments.
+
+#### `kafka` — a Kafka topic, one reader per partition
+
+A topic read as a stream: one reader per Kafka partition, each seeked to an exact offset, and that
+offset kept in the query's checkpoint — so a restore resumes every partition exactly where the
+checkpoint left it, and the source is **exactly once** end to end with checkpointing
+([`CONNECTORS.md`](CONNECTORS.md) §7 has the argument). Every option:
+
+```yaml
+pravaha:
+  streams:
+    orders:
+      schema: "order_id:INT64,customer:STRING,amount:DECIMAL(12,2),placed_at:TIMESTAMP"
+      event-time: placed_at
+  sources:
+    orders:
+      plugin: kafka
+      options:
+        bootstrap.servers: "kafka-1.internal:9093,kafka-2.internal:9093"
+        topic: orders
+        schema: "order_id:INT64,customer:STRING,amount:DECIMAL(12,2),placed_at:TIMESTAMP"
+        format: json                   # json | changelog (kafka-sink's changelog mode, weights and all)
+        event.time: placed_at          # optional TIMESTAMP column; default: each record's Kafka timestamp
+        start.from: earliest           # earliest | latest -- only when there is no checkpoint
+        isolation.level: read_committed
+        tombstone: reject              # reject | skip -- what a null value is in format: json
+        monitoring.group: pravaha-orders   # optional: checkpointed offsets committed here for lag monitoring
+        user: pravaha
+        password: "${KAFKA_PASSWORD}"
+        sasl.mechanism: SCRAM-SHA-512
+        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        # kafka.fetch.max.bytes: "52428800"   # any other Kafka consumer property, with its kafka. prefix
+```
+
+| Option | Required | Default |
+|---|---|---|
+| `bootstrap.servers` | yes | — |
+| `topic` | yes | — must exist; the source never creates it |
+| `schema` | yes | — `name:TYPE`, as every other connector; `?` marks a nullable column |
+| `format` | no | `json`: each value a JSON object of the row, matched to the schema by column name, every row `+1`. `changelog`: `kafka-sink`'s `{"op","weight","row"}` envelope, its weight applied |
+| `event.time` | no | the record's Kafka timestamp |
+| `start.from` | no | `earliest`; `latest` starts after what the topic already holds. A restore ignores it |
+| `isolation.level` | no | `read_committed`; `read_uncommitted` also delivers what aborted transactions wrote |
+| `tombstone` | no | `reject`: a null value is a dead letter, or stops the source. `skip` reads an upsert topic as insertions only |
+| `monitoring.group` | no | none. Never read: the checkpoint is the position |
+| `buffer.records` | no | `10000` decoded records per partition waiting for the engine before fetching pauses |
+| `start.timeout` | no | `30s`: opening waits this long for the brokers, and for a reader to queue what the partition already holds |
+| `lag.warn.records` | no | `100000`: health is `DEGRADED` when a partition is this far behind |
+| `user` / `password` / `sasl.mechanism` | no | SASL `PLAIN` (refused without TLS), `SCRAM-SHA-256` or `SCRAM-SHA-512` |
+| `tls.*` | no | the shared options ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md) §3.4) |
+| `kafka.<property>` | no | any consumer property, except the ones that would move the position or that the source sets: `group.id`, `enable.auto.commit`, `auto.offset.reset`, `isolation.level`, the deserializers, `allow.auto.create.topics`, and security, which have options of their own |
+
+**Values** are read the way `kafka-sink` writes them: numbers as JSON numbers (a `DECIMAL` exactly,
+refused rather than rounded if it has more places than its scale), a float also from `"NaN"` or
+`"Infinity"`, `BYTES` as base64, `DATE` as `2026-09-19`, `TIME` as `10:15:30.5`, `TIMESTAMP` as an
+ISO-8601 instant or epoch milliseconds. A member the schema does not name is ignored; a missing
+column is null, and refused if it is not nullable. The record's key is not read — `kafka-sink` puts
+every column in the value. A record that does not fit is a dead letter (`pravaha.dlq.directory`)
+named `topic/partition@offset`, or, with no dead-letter queue, stops the source with `PRV-5105`.
+
+**Deletes only in `format: changelog`.** A tombstone in an upsert topic deletes a key without saying
+what row it held, so there is nothing to retract; to feed retractions from one query to another,
+write the first with `kafka-sink`'s `mode: changelog` and read it with `format: changelog`.
+
+**One consumer per partition per registration.** An exactly-once source is never shared between
+queries, so each registration reading this binding has its own consumer and fetch thread per
+partition. The partition list is read at registration; partitions added to the topic later are read
+after the next restart or re-registration.
+
+**Retention is the limit.** If retention deletes records before a checkpoint has read them — a node
+down longer than the topic's `retention.ms` — the restore is refused (`PRV-5106`) rather than
+resumed from wherever the log now starts; so is a checkpoint whose offsets are past the end of a
+recreated topic (`PRV-5106`) or that belong to another topic (`PRV-5104`). Lag, the monitoring group
+and what to do about each are in [`OPERATIONS.md`](OPERATIONS.md), *Kafka as a source*.
 
 ### 2.2 Lookup sources, for temporal joins
 

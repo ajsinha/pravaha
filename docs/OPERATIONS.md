@@ -647,6 +647,45 @@ and the recovery is the one above.
 for tests and throwaway environments; in production it throws away the position every restart
 resumes from.
 
+## Kafka as a source
+
+A `kafka` source ([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1) leaves nothing on the
+brokers: its position is each partition's next offset, and that lives in the query's checkpoint.
+So there is no slot to drop and nothing to clean up after a registration is gone — and, the other
+side of the same fact, **checkpointing is what makes it exactly once**. Without
+`pravaha.checkpoint.*` a restart has no offsets to resume from and starts again from `start.from`.
+
+**Lag.** The source's health reports each partition's lag in records — the brokers' end offset
+minus what the engine has been handed — and goes `DEGRADED` past `lag.warn.records` (100 000),
+`UNHEALTHY` when the brokers do not answer within two seconds or a reader has stopped. As with the
+replication slot above, alert from the other side too: Kafka's own tooling sees the source only if
+the binding sets `monitoring.group`: each durable checkpoint's offsets are then
+committed to that group, and
+
+```
+kafka-consumer-groups --bootstrap-server kafka-1:9092 --describe --group pravaha-orders
+```
+
+shows where a restore would resume, one checkpoint interval behind the live position. The group is
+never read back — resetting its offsets moves nothing — and no member ever joins it, so it shows as
+`Empty` with offsets, which is correct.
+
+**Retention is the outage budget.** A node down, or a query paused, for longer than the topic's
+`retention.ms` comes back to a log that has deleted records its checkpoint never read. The source
+refuses that restore with `PRV-5106` rather than silently starting from the log's new beginning.
+Set retention comfortably beyond the longest outage you plan for; if it happens anyway, the records
+are gone for every reader, and the recovery is to drop the checkpoint and re-register the query,
+knowing the view starts without them. Compaction removes records too: on a compacted topic a
+restore reads what compaction left, which for `format: json` is the latest value per key.
+
+**Transactions.** `read_committed`, the default, never delivers an aborted transaction's records
+and waits behind a transaction that is still open — so a producer that hangs mid-transaction holds
+the source's position until `transaction.timeout.ms` aborts it, which shows here as lag.
+
+**Threads.** One consumer and one fetch thread per partition per registration, since an exactly-once
+source is never shared between queries: ten queries over a 12-partition topic are 120 consumers.
+`buffer.records` (10 000 per partition) bounds what each holds decoded in memory.
+
 ## One engine, and what the server still lacks
 
 A registered continuous query now runs on the engine proper: its own lane and thread, an off-heap

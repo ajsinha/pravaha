@@ -233,6 +233,27 @@ creates it), or the credentials or ACLs refused; `PRV-5103` is the staging topic
 creatable, or — at a restart after a long outage — already past the staged changes a checkpoint
 recorded, which are then lost to the topic: raise `staging.retention.ms` and re-register.
 
+**A `kafka` source stopped, or its registration was refused.** The code says which:
+
+- `PRV-5101` — at registration: the brokers did not answer within `start.timeout`, the topic does not
+  exist (the source never creates it), or the credentials or ACLs refused `Describe`/`Read`.
+- `PRV-5105` — a record does not fit the declared schema (not JSON, a string in an `INT64` column, a
+  missing `NOT NULL` column, a tombstone in `format: json`), and there is no dead-letter queue. The
+  message names it as `topic/partition@offset`. Set `pravaha.dlq.directory` to set such records aside
+  and read on, fix the producer, or for an upsert topic's tombstones set `tombstone: skip`. The
+  position stays before the record, so a restart meets it again rather than skipping it.
+- `PRV-5106` — the offset the checkpoint resumes from is gone: retention deleted records the checkpoint
+  had not read (the node was down longer than the topic's `retention.ms`), or the offset is past the
+  partition's end because the topic was deleted and recreated. Those records are lost to every
+  reader, and resuming anywhere else would hide it. Raise retention, then drop the checkpoint and
+  re-register the query; it starts from `start.from` without them.
+- `PRV-5104` — a checkpoint holds a position this source did not write, or one for another topic or
+  partition: the binding's `topic` was changed under an existing checkpoint. Register afresh.
+- `PRV-5107` — fetching failed in a way retrying will not fix, such as an ACL revoked mid-stream.
+
+A source that seems stuck with nothing refused is usually `read_committed` waiting behind a producer's
+open transaction — the position cannot pass it until it commits or `transaction.timeout.ms` aborts it.
+
 **A `postgres-cdc` source is refused at registration with `PRV-5112`.** The database cannot support
 change capture as configured, and the message names the statement that fixes it: `wal_level` is not
 `logical` (`ALTER SYSTEM SET wal_level = logical;` and a **restart** — a reload changes nothing), the
@@ -454,6 +475,10 @@ way it was registered.
 | `PRV-5101` | KAFKA_CONNECT_FAILED | plugins |
 | `PRV-5102` | KAFKA_WRITE_FAILED | plugins |
 | `PRV-5103` | KAFKA_STAGING_UNUSABLE | plugins |
+| `PRV-5104` | KAFKA_MALFORMED_OFFSET | plugins |
+| `PRV-5105` | KAFKA_UNDECODABLE_RECORD | plugins |
+| `PRV-5106` | KAFKA_RESUME_POINT_GONE | plugins |
+| `PRV-5107` | KAFKA_READ_FAILED | plugins |
 | `PRV-5110` | PGCDC_BAD_CONFIGURATION | plugins |
 | `PRV-5111` | PGCDC_CONNECT_FAILED | plugins |
 | `PRV-5112` | PGCDC_NOT_CAPTURABLE | plugins |
