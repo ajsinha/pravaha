@@ -191,6 +191,26 @@ public interface PravahaEngine extends AutoCloseable {
     Subscription subscribe(String queryName, SubscriptionOptions options, Consumer<List<RowChange>> consumer);
 
     /**
+     * Receives {@code queryName}'s view as it stands, then every commit after it, with nothing
+     * between the two (SUB-1).
+     *
+     * <p>{@link #subscribe(String, Consumer)} starts at the next commit and carries no state, so
+     * subscribing and then reading the view -- or reading and then subscribing -- can lose the commit
+     * in flight at the time: it is in neither the read nor the subscription, and nothing says so.
+     * This is the way to keep a copy of a view, or to wait for it to reach an answer.
+     *
+     * <p>The snapshot has normally been delivered when this returns, and is always delivered before
+     * the first commit.
+     */
+    Subscription subscribeFromSnapshot(String queryName, RowChangeListener listener);
+
+    /**
+     * {@link #subscribeFromSnapshot(String, RowChangeListener)} with an explicit buffer and overflow
+     * policy for the commits after the snapshot; the snapshot itself is never conflated or dropped.
+     */
+    Subscription subscribeFromSnapshot(String queryName, SubscriptionOptions options, RowChangeListener listener);
+
+    /**
      * Pushes rows into {@code stream}, one {@code Object[]} per row in column order, and returns once
      * every running query reading the stream has applied and committed them.
      *

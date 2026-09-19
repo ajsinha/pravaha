@@ -23,6 +23,8 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import com.ash.messaging.pravaha.embedded.PravahaEngine;
+import com.ash.messaging.pravaha.embedded.RowChange;
+import com.ash.messaging.pravaha.embedded.RowChangeListener;
 import com.ash.messaging.pravaha.embedded.RowMapping;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.registry.Subscription;
@@ -144,21 +146,31 @@ public class PravahaTester {
         Object commits = new Object();
         long[] seen = {0};
         long deadline = System.nanoTime() + timeout.toNanos();
-        // Subscribed before the first read, so a commit landing between the read and the wait is a
-        // wake-up rather than a missed one.
-        try (Subscription subscription = engine.subscribe(query, changes -> {
-            synchronized (commits) {
-                seen[0]++;
-                commits.notifyAll();
+        // Subscribed from the view's snapshot, before the first read, so every commit after the
+        // snapshot wakes this wait and the snapshot itself wakes it too (SUB-1). A plain subscription
+        // starts at the next commit boundary: rows a source had already handed the query when it
+        // attached were published to everyone but this wait, after a read that saw none of them, and
+        // the wait slept through the answer it was waiting for. This used to force a commit to close
+        // that gap; the engine's handoff has none to close.
+        RowChangeListener wake = new RowChangeListener() {
+            @Override
+            public void onSnapshot(List<RowChange> rows, long frontier) {
+                woken();
             }
-        })) {
-            // Then the query's applied rows published once, which closes the one gap the
-            // subscription leaves. A commit goes to the listeners attached when its first change was
-            // staged (STRM-11), so rows a source had already handed the query when this subscribed
-            // would be published to everyone but this wait -- after a read that saw none of them --
-            // and the wait would sleep through the answer it was waiting for. The source's own feed
-            // makes the same call every twenty milliseconds; this one only makes it now.
-            registered.commit();
+
+            @Override
+            public void onCommit(List<RowChange> changes, long frontier) {
+                woken();
+            }
+
+            private void woken() {
+                synchronized (commits) {
+                    seen[0]++;
+                    commits.notifyAll();
+                }
+            }
+        };
+        try (Subscription subscription = engine.subscribeFromSnapshot(query, wake)) {
             while (true) {
                 long before;
                 synchronized (commits) {

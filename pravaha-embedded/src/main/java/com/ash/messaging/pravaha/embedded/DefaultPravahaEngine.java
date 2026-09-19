@@ -55,11 +55,13 @@ import com.ash.messaging.pravaha.registry.QueryState;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.registry.Subscription;
+import com.ash.messaging.pravaha.registry.SubscriptionListener;
 import com.ash.messaging.pravaha.registry.SubscriptionOptions;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
+import com.ash.messaging.pravaha.serving.ViewChange;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 import com.ash.messaging.pravaha.sql.ContinuousStatement;
 import com.ash.messaging.pravaha.sql.ContinuousStatements;
@@ -551,6 +553,35 @@ final class DefaultPravahaEngine implements PravahaEngine {
                 changes -> consumer.accept(changes.stream()
                         .map(change -> new RowChange(schema, change))
                         .toList()));
+    }
+
+    @Override
+    public Subscription subscribeFromSnapshot(String queryName, RowChangeListener listener) {
+        return subscribeFromSnapshot(queryName, SubscriptionOptions.DEFAULT, listener);
+    }
+
+    @Override
+    public Subscription subscribeFromSnapshot(
+            String queryName, SubscriptionOptions options, RowChangeListener listener) {
+        Objects.requireNonNull(listener, "listener");
+        RegisteredQuery query = registry().require(queryName);
+        StreamSchema schema = query.outputSchema();
+        return query.subscribeFromSnapshot(
+                options, com.ash.messaging.pravaha.registry.SubscriptionFilter.none(), new SubscriptionListener() {
+                    @Override
+                    public void onSnapshot(List<ViewChange> rows, long frontier) {
+                        listener.onSnapshot(rowChanges(schema, rows), frontier);
+                    }
+
+                    @Override
+                    public void onCommit(List<ViewChange> changes, long frontier) {
+                        listener.onCommit(rowChanges(schema, changes), frontier);
+                    }
+                });
+    }
+
+    private static List<RowChange> rowChanges(StreamSchema schema, List<ViewChange> changes) {
+        return changes.stream().map(change -> new RowChange(schema, change)).toList();
     }
 
     @Override

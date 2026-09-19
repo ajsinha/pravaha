@@ -15,69 +15,106 @@
  */
 package com.ash.messaging.pravaha.spring.test;
 
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
+import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.common.arena.RowArena;
+import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.common.row.BinaryRowView;
+import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
+import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.embedded.PravahaEngine;
-import com.ash.messaging.pravaha.registry.QueryState;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
-import com.ash.messaging.pravaha.registry.SourceFeed;
-import com.ash.messaging.pravaha.registry.Subscription;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
- * The one moment {@link PravahaTester#awaitView} cannot learn about from its subscription, made to
- * happen every time rather than when the timing allows.
+ * The one moment {@link PravahaTester#awaitView} could not learn about from a plain subscription,
+ * made to happen every time rather than when the timing allows (SUB-1).
  *
  * <p>A commit is delivered to the listeners attached when its first change was staged (STRM-11). So
  * when a source has handed the query rows that are applied but not yet committed, a wait that
- * subscribes now reads an empty view and is then not told about the commit that publishes them. In a
- * real engine that window is up to the feed's twenty-millisecond publishing tick, and a full test run
- * hit it three times in three; here the engine is a stand-in whose commit publishes the rows and
- * tells no subscriber, which is that window held open.
+ * subscribes plainly and reads sees an empty view, and is then not told about the commit that
+ * publishes them. In a real engine that window is up to the feed's twenty-millisecond publishing
+ * tick, and a full test run hit it three times in three.
+ *
+ * <p>Here the engine is real and the window is held open: the row is applied and uncommitted when
+ * the wait begins, and the commit that publishes it happens only after the wait's first read, as the
+ * feed's tick would. A wait on a plain subscription sleeps through it and times out; a wait on the
+ * engine's snapshot subscription cannot, and forces no commit of its own to get there.
  */
+@Timeout(60)
 class PravahaTesterCommitGapTest {
 
     record Row(String id) {}
 
+    private static final StreamSchema EVENTS =
+            StreamSchema.builder("events").field("id", Types.string()).build();
+
     @Test
-    void rowsAppliedBeforeTheWaitSubscribedArePublishedRatherThanWaitedFor() {
-        AtomicBoolean published = new AtomicBoolean();
-        RegisteredQuery query = mock(RegisteredQuery.class);
-        when(query.state()).thenReturn(QueryState.RUNNING);
-        SourceFeed feed = mock(SourceFeed.class);
-        when(feed.describe()).thenReturn("a stand-in feed");
-        when(query.feed()).thenReturn(feed);
-        doAnswer(invocation -> {
-                    published.set(true);
-                    return null;
-                })
-                .when(query)
-                .commit();
-        PravahaEngine engine = mock(PravahaEngine.class);
-        when(engine.find("gap")).thenReturn(Optional.of(query));
-        Subscription subscription = mock(Subscription.class);
-        // Never called: the staged batch belongs to the subscribers that were there before.
-        when(engine.subscribe(eq("gap"), any(Consumer.class))).thenReturn(subscription);
-        when(engine.query(eq(Row.class), anyString()))
-                .thenAnswer(invocation -> published.get() ? List.of(new Row("r1")) : List.of());
+    void rowsAppliedBeforeTheWaitSubscribedAreSeenWithoutTheWaitForcingACommit() {
+        try (PravahaEngine real = PravahaEngine.createDefault();
+                RowArena arena = new RowArena(MemoryAccess.best(), 1 << 16, 1)) {
+            real.declareStream(EVENTS);
+            real.start();
+            RegisteredQuery query = real.register("gap", "SELECT id FROM events", "id");
+            assertThat(query.accept(row(arena, "r1"))).isTrue();
+            assertThat(query.awaitApplied(Duration.ofSeconds(10))).isTrue();
+            assertThat(real.query("SELECT * FROM gap").rows())
+                    .as("applied and not committed")
+                    .isEmpty();
 
-        List<Row> answer = new PravahaTester(engine, null)
-                .withTimeout(Duration.ofSeconds(2))
-                .awaitView("gap", Row.class, rows -> !rows.isEmpty());
+            // The feed's tick, after the wait has read: a commit the wait must hear about.
+            AtomicBoolean ticked = new AtomicBoolean();
+            PravahaEngine engine = afterFirstRead(real, () -> {
+                if (ticked.compareAndSet(false, true)) {
+                    query.commit();
+                }
+            });
 
-        assertThat(answer).containsExactly(new Row("r1"));
+            List<Row> answer = new PravahaTester(engine, null)
+                    .withTimeout(Duration.ofSeconds(3))
+                    .awaitView("gap", Row.class, rows -> !rows.isEmpty());
+
+            assertThat(answer).containsExactly(new Row("r1"));
+        }
+    }
+
+    private static BinaryRowView row(RowArena arena, String id) {
+        RowLayout layout = RowLayout.of(EVENTS);
+        BinaryRowWriter writer = new BinaryRowWriter(layout);
+        long handle = arena.allocate(layout.rowSize(64));
+        writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+        writer.setString(0, id);
+        writer.weight(1L).eventTimestampNanos(0).sequence(1).commit();
+        arena.trimTo(handle, writer.sizeSoFar());
+        return new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle));
+    }
+
+    /** The engine, running {@code tick} each time a query returns -- after the read, before the wait. */
+    private static PravahaEngine afterFirstRead(PravahaEngine engine, Runnable tick) {
+        InvocationHandler handler = (proxy, method, arguments) -> {
+            Object result;
+            try {
+                result = method.invoke(engine, arguments);
+            } catch (InvocationTargetException e) {
+                throw e.getCause();
+            }
+            if (method.getName().equals("query")) {
+                tick.run();
+            }
+            return result;
+        };
+        return (PravahaEngine) Proxy.newProxyInstance(
+                PravahaEngine.class.getClassLoader(), new Class<?>[] {PravahaEngine.class}, handler);
     }
 }
