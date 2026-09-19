@@ -132,6 +132,9 @@ class PravahaActuatorTest {
                     assertThat(query.rowsIn()).isEqualTo(1);
                     assertThat(query.sql()).contains("amount > 100");
                     assertThat(query.failure()).isNull();
+                    assertThat(query.feed().state())
+                            .as("nothing is bound: the application pushes its rows")
+                            .isEqualTo("NONE");
                     assertThat(query.watermarkLagSeconds())
                             .as("no event time, so no lag -- not a lag of zero")
                             .isNull();
@@ -159,6 +162,61 @@ class PravahaActuatorTest {
                             .containsEntry("listeners", 1)
                             .containsEntry("listenerFailures", 1L);
                 });
+    }
+
+    @Test
+    void aSourceThatStopsIsInTheEndpointAndDegradesTheHealth(@TempDir Path dir) throws Exception {
+        // FEED-1: a followed file gains a line it cannot decode while the query is running.
+        Path incoming = dir.resolve("txn.csv");
+        java.nio.file.Files.writeString(incoming, "u1,300\n");
+        runner.withPropertyValues(
+                        "management.endpoints.web.exposure.include=pravaha",
+                        "pravaha.sources.txn.plugin=filesystem",
+                        "pravaha.sources.txn.options.path=" + incoming,
+                        "pravaha.sources.txn.options.schema=user_id:STRING,amount:INT64",
+                        "pravaha.sources.txn.options.follow=true")
+                .run(context -> {
+                    PravahaEngine engine = context.getBean(PravahaEngine.class);
+                    PravahaEndpoint endpoint = context.getBean(PravahaEndpoint.class);
+                    PravahaHealthIndicator indicator = context.getBean(PravahaHealthIndicator.class);
+                    awaitFeed(endpoint, "RUNNING");
+                    assertThat(endpoint.query("big_txn").feed().sources())
+                            .singleElement()
+                            .satisfies(source -> {
+                                assertThat(source.stream()).isEqualTo("txn");
+                                assertThat(source.state()).isEqualTo("RUNNING");
+                                assertThat(source.code()).isNull();
+                            });
+                    assertThat(indicator.health().getStatus()).isEqualTo(Status.UP);
+
+                    java.nio.file.Files.writeString(incoming, "u2,lots\n", java.nio.file.StandardOpenOption.APPEND);
+                    awaitFeed(endpoint, "STOPPED");
+
+                    PravahaEndpoint.QueryDescriptor query = endpoint.query("big_txn");
+                    assertThat(query.state()).as("the state keeps its meaning").isEqualTo("RUNNING");
+                    assertThat(query.feed().sources()).singleElement().satisfies(source -> {
+                        assertThat(source.state()).isEqualTo("STOPPED");
+                        assertThat(source.code()).isEqualTo("PRV-5040");
+                        assertThat(source.stoppedAt()).isNotNull();
+                    });
+                    Health health = indicator.health();
+                    assertThat(health.getStatus()).isEqualTo(PravahaHealthIndicator.DEGRADED);
+                    assertThat(health.getDetails().get("stoppedFeeds"))
+                            .asString()
+                            .contains("big_txn: PRV-5040 reading txn#0");
+                    assertThat(engine.state().name()).isEqualTo("RUNNING");
+                });
+    }
+
+    private static void awaitFeed(PravahaEndpoint endpoint, String state) throws InterruptedException {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(15).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (state.equals(endpoint.query("big_txn").feed().state())) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        assertThat(endpoint.query("big_txn").feed().state()).isEqualTo(state);
     }
 
     @Test

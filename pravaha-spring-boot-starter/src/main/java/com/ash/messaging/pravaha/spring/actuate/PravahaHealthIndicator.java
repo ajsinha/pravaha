@@ -15,14 +15,17 @@
  */
 package com.ash.messaging.pravaha.spring.actuate;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.actuate.health.Status;
 
 import com.ash.messaging.pravaha.api.EngineState;
 import com.ash.messaging.pravaha.embedded.PravahaEngine;
+import com.ash.messaging.pravaha.registry.FeedStatus;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.spring.ListenerContainer;
@@ -32,12 +35,25 @@ import com.ash.messaging.pravaha.spring.PravahaListenerProcessor;
  * The embedded engine's contribution to {@code /actuator/health}, as {@code pravaha}.
  *
  * <p>DOWN when the engine is not running, because then nothing the application asks of it will be
- * answered. Otherwise UP, with what went wrong as detail: failed queries, sinks that were detached,
- * listeners that were stopped or fell behind. The same judgement as the server's own indicator --
+ * answered. DEGRADED when a query's source has stopped mid-read (FEED-1): the query reports RUNNING
+ * and its view has stopped moving, which is the one failure nothing else here would show. Otherwise
+ * UP, with what went wrong as detail: failed queries, sinks that were detached, listeners that were
+ * stopped or fell behind. The same judgement as the server's own indicator --
  * one broken query is not a broken application, and taking the instance out of rotation would take
  * its healthy queries with it -- but never a silent UP: every one of those is counted in the detail.
  */
 public class PravahaHealthIndicator implements HealthIndicator {
+
+    /**
+     * The engine runs and answers, and at least one query's source has stopped (FEED-1).
+     *
+     * <p>Not DOWN, for the reason a failed query is not: taking the instance out of rotation would
+     * take its healthy queries with it. Boot's aggregator ignores a status it has no order for, so an
+     * application that wants the aggregate to say it adds {@code DEGRADED} to {@code
+     * management.endpoint.health.status.order} (between {@code OUT_OF_SERVICE} and {@code UP});
+     * without that, this component says DEGRADED and the aggregate is unchanged.
+     */
+    public static final Status DEGRADED = new Status("DEGRADED", "a source feed has stopped");
 
     private final PravahaEngine engine;
     private final PravahaListenerProcessor listeners;
@@ -71,6 +87,20 @@ public class PravahaHealthIndicator implements HealthIndicator {
                 .filter(name -> registry.sinkFailure(name).isPresent())
                 .toList();
         health.withDetail("detachedSinks", detachedSinks);
+        // FEED-1. A query whose source stopped mid-read is RUNNING and not moving; named with the
+        // code it stopped with, which is what an operator looks up.
+        List<String> stoppedFeeds = new ArrayList<>();
+        for (String name : engine.queries()) {
+            engine.find(name)
+                    .map(RegisteredQuery::feedStatus)
+                    .flatMap(FeedStatus::firstStopped)
+                    .ifPresent(source ->
+                            stoppedFeeds.add(name + ": " + source.stop().code() + " reading " + source.where()));
+        }
+        health.withDetail("stoppedFeeds", stoppedFeeds);
+        if (!stoppedFeeds.isEmpty()) {
+            health.status(DEGRADED);
+        }
         List<ListenerContainer> containers = listeners == null ? List.of() : listeners.containers();
         health.withDetail("listeners", containers.size());
         health.withDetail(

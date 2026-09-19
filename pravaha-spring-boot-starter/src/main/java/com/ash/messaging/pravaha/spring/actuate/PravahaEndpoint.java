@@ -26,6 +26,7 @@ import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
 import org.springframework.boot.actuate.endpoint.annotation.Selector;
 
 import com.ash.messaging.pravaha.embedded.PravahaEngine;
+import com.ash.messaging.pravaha.registry.FeedStatus;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.spring.ListenerContainer;
@@ -35,8 +36,9 @@ import com.ash.messaging.pravaha.spring.PravahaListenerProcessor;
  * {@code /actuator/pravaha}: the embedded engine's queries, as an operator asks about them.
  *
  * <p>For each registered query: its state, the lane it runs on, its sink and what that sink is
- * promised, how far behind it is -- watermark lag, and the commits each {@code @PravahaListener} on
- * it has waiting -- and why it failed, if it did. {@code /actuator/pravaha/{name}} is one query.
+ * promised, its feed -- each source partition, and the code a stopped one stopped with -- how far
+ * behind it is -- watermark lag, and the commits each {@code @PravahaListener} on it has waiting --
+ * and why it failed, if it did. {@code /actuator/pravaha/{name}} is one query.
  *
  * <p><strong>Read-only, and not exposed unless asked for.</strong> There are no write or delete
  * operations: pausing, resuming or dropping a query is the application's decision, through {@code
@@ -99,7 +101,25 @@ public class PravahaEndpoint {
                 query.lastCheckpoint().orElse(null),
                 sink,
                 onQuery,
-                query.failure().map(Throwable::getMessage).orElse(null));
+                query.failure().map(Throwable::getMessage).orElse(null),
+                describe(query.feedStatus()));
+    }
+
+    /** Whether rows still reach the query, source by source, and why not when one has stopped (FEED-1). */
+    private static FeedDescriptor describe(FeedStatus status) {
+        return new FeedDescriptor(
+                status.state().name(),
+                status.description(),
+                status.sources().stream()
+                        .map(source -> new SourceDescriptor(
+                                source.stream(),
+                                source.partition(),
+                                source.state().name(),
+                                source.shared(),
+                                source.stop() == null ? null : source.stop().code(),
+                                source.stop() == null ? null : source.stop().message(),
+                                source.stop() == null ? null : source.stop().at()))
+                        .toList());
     }
 
     private static ListenerDescriptor describe(ListenerContainer container) {
@@ -127,6 +147,8 @@ public class PravahaEndpoint {
      * @param watermarkLagSeconds how far event time trails the wall clock; null until a watermark
      *     exists, because a query that has never seen a row is not zero seconds behind
      * @param failure why it failed, or null
+     * @param feed whether rows still reach it: a source that fails mid-read stops its feed and leaves the
+     *     query {@code RUNNING}, and this is where that shows (FEED-1)
      */
     public record QueryDescriptor(
             String state,
@@ -139,7 +161,26 @@ public class PravahaEndpoint {
             Instant lastCheckpoint,
             SinkDescriptor sink,
             List<ListenerDescriptor> listeners,
-            String failure) {}
+            String failure,
+            FeedDescriptor feed) {}
+
+    /**
+     * A query's feed.
+     *
+     * @param state {@code RUNNING}, {@code PAUSED}, {@code STOPPED} (a source has stopped) or {@code
+     *     NONE} (nothing is bound: the application pushes rows itself)
+     */
+    public record FeedDescriptor(String state, String description, List<SourceDescriptor> sources) {}
+
+    /** One partition of one bound stream; {@code code}, {@code failure} and {@code stoppedAt} once it stopped. */
+    public record SourceDescriptor(
+            String stream,
+            int partition,
+            String state,
+            boolean shared,
+            String code,
+            String failure,
+            Instant stoppedAt) {}
 
     /** The sink a query writes to, what its delivery is promised, and why it stopped if it did. */
     public record SinkDescriptor(String name, String guarantee, long rowsWritten, String failure) {}
