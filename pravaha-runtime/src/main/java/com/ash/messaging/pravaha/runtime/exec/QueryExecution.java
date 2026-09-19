@@ -1327,6 +1327,26 @@ public final class QueryExecution implements AutoCloseable {
     }
 
     /**
+     * Tells each source the offset a now-durable checkpoint recorded for it, keyed as {@link
+     * #checkpoint} wrote them. Only after the store has the checkpoint: a source that lets go of
+     * history here (a replication slot) must never let go of what a restore could still ask for.
+     */
+    public void sourcesCheckpointed(com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint) {
+        for (int index = 0; index < pumps.size(); index++) {
+            String token = checkpoint.offsets().get("partition-" + index);
+            if (token != null) {
+                pumps.get(index).checkpointed(new com.ash.messaging.pravaha.api.plugin.SourceOffset(token));
+            }
+        }
+        for (int index = 0; index < partitionedPumps.size(); index++) {
+            String token = checkpoint.offsets().get(SHUFFLED_OFFSET_PREFIX + index);
+            if (token != null) {
+                partitionedPumps.get(index).checkpointed(new com.ash.messaging.pravaha.api.plugin.SourceOffset(token));
+            }
+        }
+    }
+
+    /**
      * Restores state from a checkpoint.
      *
      * <p>Before the lanes are fed anything, and the caller is responsible for creating readers at

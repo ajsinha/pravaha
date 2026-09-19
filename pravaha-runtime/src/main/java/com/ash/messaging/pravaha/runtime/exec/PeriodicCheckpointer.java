@@ -193,10 +193,17 @@ public final class PeriodicCheckpointer implements AutoCloseable {
             // prepared at the cut -- must never happen for a checkpoint a restart might not find.
             onDurable.accept(checkpoint);
         } finally {
-            // Pruned whatever the listener did: the checkpoint is stored either way.
-            int removed = store.prune(keep);
-            if (removed > 0) {
-                pruned.addAndGet(removed);
+            try {
+                // The sources too, on the same rule: a replication slot may release write-ahead log
+                // only up to a position a restart is certain to resume from. Whatever the sink
+                // listener did, because the checkpoint is durable either way.
+                execution.sourcesCheckpointed(checkpoint);
+            } finally {
+                // Pruned whatever the listeners did: the checkpoint is stored either way.
+                int removed = store.prune(keep);
+                if (removed > 0) {
+                    pruned.addAndGet(removed);
+                }
             }
         }
         return checkpoint;

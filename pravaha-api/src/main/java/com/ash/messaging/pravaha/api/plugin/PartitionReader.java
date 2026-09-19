@@ -62,6 +62,28 @@ public interface PartitionReader extends AutoCloseable {
 
     void resume();
 
+    /**
+     * Tells the reader that a checkpoint recording {@code offset} for this partition is durable.
+     *
+     * <p>For a source that holds something on the store's side until it is told it may let go -- a
+     * PostgreSQL replication slot retains write-ahead log until its client confirms a position --
+     * this is the only safe moment to confirm. Confirming at delivery instead lets the store discard
+     * changes a restore from the last checkpoint would need to read again; never confirming makes
+     * the store keep everything for ever. Between the two is this call: a restart can only ever
+     * resume from a durable checkpoint, so nothing before the newest one will be asked for again.
+     *
+     * <p>The offset is one this reader returned from {@link #position()}, possibly some time ago:
+     * the reader may have moved on since. Called from the checkpointing thread, not the thread that
+     * polls, so an implementation must be safe to call concurrently with {@link #poll}. It must not
+     * block for long and must not throw for a store that is momentarily unreachable -- the next
+     * checkpoint will say the same thing again.
+     *
+     * <p>A no-op by default, which is right for every source whose position lives only in the
+     * checkpoint. A reader shared by several queries is not told: the queries checkpoint at
+     * different positions, and confirming any one of them could release what another still needs.
+     */
+    default void checkpointed(SourceOffset offset) {}
+
     @Override
     void close();
 

@@ -423,6 +423,11 @@ public final class IngestPump implements AutoCloseable {
         return reader.position();
     }
 
+    /** Passes on that a checkpoint recording {@code offset} is durable. See {@code PartitionReader}. */
+    public void checkpointed(SourceOffset offset) {
+        reader.checkpointed(offset);
+    }
+
     public boolean isPaused() {
         return paused;
     }
