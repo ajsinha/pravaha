@@ -128,22 +128,69 @@ final class ServerCommand {
                 out.println(Ansi.dim("no continuous queries are registered"));
                 return PravahaCli.EXIT_OK;
             }
-            out.println(Ansi.bold("NAME\tSTATE\tFINGERPRINT\tROWS IN"));
+            boolean verbose = args.has("verbose");
+            out.println(Ansi.bold("NAME\tSTATE\tFINGERPRINT\tROWS IN" + (verbose ? "\tFEED" : "")));
             boolean anyWithheld = false;
+            List<RegisteredQueryInfo> stopped = new ArrayList<>();
             for (RegisteredQueryInfo query : queries) {
                 anyWithheld = anyWithheld || query.rowsIn() < 0;
-                out.println(query.name() + "\t" + query.state() + "\t" + query.fingerprint() + "\t"
-                        + rowsInText(query.rowsIn()));
+                if (query.isSourceStopped()) {
+                    stopped.add(query);
+                }
+                out.println(query.name() + "\t" + stateText(query) + "\t" + query.fingerprint() + "\t"
+                        + rowsInText(query.rowsIn())
+                        + (verbose ? "\t" + (query.feed() == null ? "-" : query.feed()) : ""));
             }
             if (anyWithheld) {
                 out.println(Ansi.dim("a '-' under ROWS IN means the server did not disclose the count: your "
                         + "access to that view is a filtered subset of its rows, and its total is not "
                         + "part of what you may see"));
             }
+            // FEED-1. Not behind --verbose: a query that says RUNNING and is not moving is the one line
+            // of this listing somebody must not have to ask for.
+            for (RegisteredQueryInfo query : stopped) {
+                out.println(Ansi.bad(query.name() + ": " + stopText(query.feedStop())));
+            }
+            if (!stopped.isEmpty()) {
+                out.println(Ansi.dim("a stopped source is not retried: the view keeps answering at the frontier it "
+                        + "reached. Fix the cause, then drop the query and register it again, or restart the "
+                        + "node. Each code has a help page: https://docs.pravaha.io/errors/<code>"));
+            }
             return PravahaCli.EXIT_OK;
         } catch (RuntimeException e) {
             return fail(e);
         }
+    }
+
+    /**
+     * The {@code STATE} cell: the query's state, and -- when a source of a running query has stopped --
+     * that too (FEED-1).
+     *
+     * <p>A marker in the state cell rather than a column, so the listing an operator already reads, and
+     * every example of it, keeps its shape; {@code --verbose} adds the feed as a column of its own. The
+     * state itself is not changed: the query is running, and its view answers at the frontier it
+     * reached.
+     */
+    static String stateText(RegisteredQueryInfo query) {
+        return query.isSourceStopped() ? query.state() + " (source stopped)" : query.state();
+    }
+
+    /** One stopped source, as the line under the listing says it: code, where, when, and why. */
+    static String stopText(RegisteredQueryInfo.FeedStop stop) {
+        if (stop == null) {
+            return "a source stopped, and this server did not say why";
+        }
+        StringBuilder text = new StringBuilder("source stopped with ").append(stop.code());
+        if (stop.where() != null && !stop.where().isEmpty()) {
+            text.append(" reading ").append(stop.where());
+        }
+        if (stop.at() != null && !stop.at().isEmpty()) {
+            text.append(" at ").append(stop.at());
+        }
+        if (stop.message() != null && !stop.message().isEmpty()) {
+            text.append(": ").append(stop.message());
+        }
+        return text.toString();
     }
 
     /**

@@ -385,6 +385,10 @@ public final class PravahaFlightClient implements AutoCloseable {
             // as empty, which is what "unknown" means here.
             String sink = field(row, 6);
             String retention = field(row, 7);
+            // 8-12 are the feed (FEED-1): its state, and the first stopped source's code, message,
+            // stream#partition and time. Empty from a server that predates them, read as unknown.
+            String feed = field(row, 8);
+            String code = field(row, 9);
             queries.add(new RegisteredQueryInfo(
                     field(row, 0),
                     field(row, 1),
@@ -393,7 +397,11 @@ public final class PravahaFlightClient implements AutoCloseable {
                     rowsIn,
                     ordinalsOf(field(row, 5)),
                     sink.isEmpty() ? null : sink,
-                    retention.isEmpty() ? null : retention));
+                    retention.isEmpty() ? null : retention,
+                    feed.isEmpty() ? null : feed,
+                    code.isEmpty()
+                            ? null
+                            : new RegisteredQueryInfo.FeedStop(code, field(row, 10), field(row, 11), field(row, 12))));
         }
         return queries;
     }

@@ -51,6 +51,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.registry.ContinuousQueryStatements;
+import com.ash.messaging.pravaha.registry.FeedStatus;
 import com.ash.messaging.pravaha.registry.QueryListing;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
@@ -578,8 +579,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         // Fields 0-4 are the original contract; 5-7 were added after it and are
                         // trailing, so a client that reads five fields reads exactly what it always
                         // did. Key ordinals comma-separated as REGISTER takes them, the sink's binding
-                        // name or empty, and the retention as ISO-8601 or "forever".
-                        listener.onNext(new Result(ControlWire.encode(
+                        // name or empty, and the retention as ISO-8601 or "forever". 8-12 are the
+                        // feed (FEED-1), trailing for the same reason; see feedFields.
+                        List<String> row = new java.util.ArrayList<>(List.of(
                                 entry.name(),
                                 query.state().name(),
                                 query.sql(),
@@ -587,7 +589,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 Long.toString(entry.rowsIn()),
                                 ordinals(query.view().keyOrdinals()),
                                 entry.sink().orElse(""),
-                                query.view().retention().toString())));
+                                query.view().retention().toString()));
+                        row.addAll(feedFields(entry));
+                        listener.onNext(new Result(ControlWire.encode(row.toArray(new String[0]))));
                     }
                 }
                 default ->
@@ -636,6 +640,31 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     "'" + text + "' is not a retention. Give an ISO-8601 duration of event time, such as PT24H "
                             + "or P7D, or 'forever'; the age must be positive.");
         }
+    }
+
+    /**
+     * The LIST row's feed fields (FEED-1), trailing after the retention.
+     *
+     * <p>8: the feed's state -- {@code RUNNING}, {@code PAUSED}, {@code STOPPED} or {@code NONE}. 9:
+     * the first stopped source's code ({@code PRV-5092} or the source's own), empty while every
+     * source reads. 10: its message, or a note that it is withheld from a row-filtered caller -- a
+     * source's failure text can quote the row it could not read, which is the reason SX-18 withholds
+     * a sink's. 11: where, {@code stream#partition}. 12: when, ISO-8601. A client reading eight
+     * fields reads exactly what it always did.
+     */
+    private static List<String> feedFields(QueryListing.Entry entry) {
+        FeedStatus status = entry.query().feedStatus();
+        return status.firstStopped()
+                .map(source -> List.of(
+                        status.state().name(),
+                        source.stop().code(),
+                        entry.restricted()
+                                ? "the message is withheld: your access to this view is row-filtered, and a "
+                                        + "failure's text can quote rows outside your entitlement"
+                                : source.stop().message(),
+                        source.where(),
+                        source.stop().at() == null ? "" : source.stop().at().toString()))
+                .orElseGet(() -> List.of(status.state().name(), "", "", "", ""));
     }
 
     private static String ordinals(List<Integer> keys) {

@@ -120,8 +120,7 @@ class FeedStatusSurfacesTest {
     @Test
     void aSourceThatFailsMidReadIsShownByTheApiStatusMetricsAndHealth() throws Exception {
         QueryRegistry registry = node.registry().orElseThrow();
-        RegisteredQuery stalled =
-                registry.register("stalled", "SELECT id, amount FROM broken", List.of(0), DANA);
+        RegisteredQuery stalled = registry.register("stalled", "SELECT id, amount FROM broken", List.of(0), DANA);
         registry.register("healthy", "SELECT id, amount FROM good", List.of(0), DANA);
         awaitRows(stalled, 2);
 
@@ -171,13 +170,25 @@ class FeedStatusSurfacesTest {
 
         // Prometheus.
         metrics.sync();
-        assertThat(meters.find("pravaha.query.feed.stopped").tag("query", "stalled").gauge().value())
+        assertThat(meters.find("pravaha.query.feed.stopped")
+                        .tag("query", "stalled")
+                        .gauge()
+                        .value())
                 .isEqualTo(1);
-        assertThat(meters.find("pravaha.query.feed.stopped").tag("query", "healthy").gauge().value())
+        assertThat(meters.find("pravaha.query.feed.stopped")
+                        .tag("query", "healthy")
+                        .gauge()
+                        .value())
                 .isZero();
-        assertThat(meters.find("pravaha.query.feed.failures").tag("query", "stalled").functionCounter().count())
+        assertThat(meters.find("pravaha.query.feed.failures")
+                        .tag("query", "stalled")
+                        .functionCounter()
+                        .count())
                 .isEqualTo(1);
-        assertThat(meters.find("pravaha.query.running").tag("query", "stalled").gauge().value())
+        assertThat(meters.find("pravaha.query.running")
+                        .tag("query", "stalled")
+                        .gauge()
+                        .value())
                 .as("running says 1, which is why the feed gauge exists")
                 .isEqualTo(1);
 
@@ -198,12 +209,22 @@ class FeedStatusSurfacesTest {
                 .bind(new SourceBinding(
                         "txn",
                         "filesystem",
-                        Map.of("path", file.toString(), "schema", SCHEMA_SPEC, "follow", "true", "password", password)));
+                        Map.of(
+                                "path",
+                                file.toString(),
+                                "schema",
+                                SCHEMA_SPEC,
+                                "follow",
+                                "true",
+                                "password",
+                                password)));
         Principal sliced = new Principal("bob", "acme", Set.of("sliced"), Map.of());
         SecurityPolicy policy = new SecurityPolicy() {
             @Override
             public AccessDecision mayRead(Principal principal, String view) {
-                return principal.hasRole("sliced") ? AccessDecision.allowWithRowFilter("amount > 0") : AccessDecision.allow();
+                return principal.hasRole("sliced")
+                        ? AccessDecision.allowWithRowFilter("amount > 0")
+                        : AccessDecision.allow();
             }
 
             @Override
@@ -211,8 +232,8 @@ class FeedStatusSurfacesTest {
                 return AccessDecision.allow();
             }
         };
-        try (QueryRegistry registry = new QueryRegistry(new ViewCatalog(), policy, AuditSink.NONE, schema("txn"))
-                .feedingFrom(feeds)) {
+        try (QueryRegistry registry =
+                new QueryRegistry(new ViewCatalog(), policy, AuditSink.NONE, schema("txn")).feedingFrom(feeds)) {
             RegisteredQuery query = registry.register("txn_view", "SELECT id, amount FROM txn", List.of(0), DANA);
             awaitRows(query, 1);
             // The file's own content carries the credential into the decode failure's message.

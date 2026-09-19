@@ -31,6 +31,10 @@ package com.ash.messaging.pravaha.sdk.flight;
  *     server predates the field)
  * @param retention how much event time its view keeps, ISO-8601 such as {@code PT24H}, or {@code
  *     forever}; null from a server that predates the field
+ * @param feed whether rows still reach it: {@code RUNNING}, {@code PAUSED}, {@code STOPPED} (a source
+ *     failed mid-read and is not retried; the query stays {@code RUNNING} and its view stops moving)
+ *     or {@code NONE} (nothing is bound); null from a server that predates the field (FEED-1)
+ * @param feedStop why the first stopped source stopped, or null while every source reads
  */
 public record RegisteredQueryInfo(
         String name,
@@ -40,7 +44,9 @@ public record RegisteredQueryInfo(
         long rowsIn,
         java.util.List<Integer> keyColumns,
         String sink,
-        String retention) {
+        String retention,
+        String feed,
+        FeedStop feedStop) {
 
     public RegisteredQueryInfo {
         keyColumns = keyColumns == null ? java.util.List.of() : java.util.List.copyOf(keyColumns);
@@ -51,8 +57,40 @@ public record RegisteredQueryInfo(
         this(name, state, sql, fingerprint, rowsIn, java.util.List.of(), null, null);
     }
 
+    /** Eight fields, as a server that predates the feed reports them. */
+    public RegisteredQueryInfo(
+            String name,
+            String state,
+            String sql,
+            String fingerprint,
+            long rowsIn,
+            java.util.List<Integer> keyColumns,
+            String sink,
+            String retention) {
+        this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, null, null);
+    }
+
+    /**
+     * Why a source stopped (FEED-1).
+     *
+     * @param code {@code PRV-5092}, or the source's own code
+     * @param message what it said, or a note that the server withheld it: a row-filtered caller is not
+     *     sent a failure's text, which can quote a row
+     * @param where {@code stream#partition}
+     * @param at when, ISO-8601
+     */
+    public record FeedStop(String code, String message, String where, String at) {}
+
     public boolean isRunning() {
         return "RUNNING".equals(state);
+    }
+
+    /**
+     * True when a source of this query has stopped: it reports {@code RUNNING} and its view has
+     * stopped moving. {@link #feedStop()} says why.
+     */
+    public boolean isSourceStopped() {
+        return "STOPPED".equals(feed);
     }
 
     @Override

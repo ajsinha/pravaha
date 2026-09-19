@@ -128,8 +128,10 @@ public final class PravahaCli {
         out.println("            its changes to a sink the server binds under pravaha.sinks.<name>. --retain");
         out.println("            is how much event time the view keeps (ISO-8601, or 'forever').");
         out.println();
-        out.println("  queries   [--url ...]");
-        out.println("            List the continuous queries a server is running.");
+        out.println("  queries   [--verbose] [--url ...]");
+        out.println("            List the continuous queries a server is running. A query whose source");
+        out.println("            stopped mid-read shows 'RUNNING (source stopped)' and a line naming the");
+        out.println("            code, the stream#partition and the time. --verbose adds each query's FEED.");
         out.println();
         out.println("  subscribe --view <name> [--filter col=val,col2=val2] [--snapshot] [--limit N] [--url ...]");
         out.println("            Stream changes as they are committed. Each change leads with its weight:");
