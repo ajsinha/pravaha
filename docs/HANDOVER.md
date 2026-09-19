@@ -22,7 +22,9 @@ otherwise have to rediscover the hard way.
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **45** |
 
-**Where it stands, 2026-09-19.** **No GA-BLOCKER and no GA-REQUIRED finding is open.** `S-3` was
+**Where it stands, 2026-09-19.** **One GA-BLOCKER is open, `SUB-1`**: a client that subscribes to a
+view and reads it can lose the commit in flight (docs/qa/FINDINGS.md). No GA-REQUIRED finding is
+open. `S-3` was
 reopened and closed again the same day: ADR-039 item 8's first slice had removed the refusal of
 `PARTITIONED` while nothing in a running node consumed partition ownership, and a node now refuses
 to serve in that mode (`PRV-9002`) until something does — the coordinator is still built, because as

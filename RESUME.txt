@@ -15,7 +15,8 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   main     merged from develop when the owner says "drill" or "drill to
            main", so between drills it is BEHIND develop. That is intended.
 
-  Findings register: 0 GA-BLOCKER, 0 GA-REQUIRED. The header of
+  Findings register: 1 GA-BLOCKER (SUB-1, the subscribe/read handoff gap,
+  next for the engine slot after E4), 0 GA-REQUIRED. The header of
   docs/qa/FINDINGS.md has the exact counts and FindingsRegisterTest holds it
   to them.
 
@@ -78,15 +79,12 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   spill tier's last pieces (ADR-044, no RocksDB), postgres-cdc (ADR-041),
   and the console's help system and About page.
 
+  Also built since: the Kafka source, HLP-1..15, the starter's @PravahaTest,
+  actuator endpoint, listener error handler and Boot profiles.
+
   Queue, in order (owner: build every "not built" item except multi-node):
-  - Engine defects found writing the help: HLP-1..9 and HLP-14 (filesystem
-    sink truncating on reopen, pgwire TLS not applied, PRV-2041 missing
-    joins, /api/v1/sinks overstating exactly-once, SUM over an INT CASE,
-    feedfile/delta event time 0, allowed lateness on a server, /status
-    counting streams, subscription filters on non-text columns, misleading
-    PRV-2020/2021/2050 messages).
-  - A Kafka source beside kafka-sink.
   - E4: LANE-2, one ingest per stream per shared lane, fanned out.
+  - SUB-1 (GA-BLOCKER): a gapless snapshot-plus-subscription handoff.
   - E5: blue/green query replacement with backfill splicing wired.
   - E6: the time-travel debugger engine (checkpoint fork, step protocol,
     sinks disabled). Console C3/C4 screens follow E5/E6.

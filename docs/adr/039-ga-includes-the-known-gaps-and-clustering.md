@@ -59,8 +59,9 @@ The blocker list is still not being waived and the gate packs still say what is 
 M6 not passed because its demo has never been performed. A longer road to GA is not a reason to start
 rounding anything up.
 
-**Progress against that rule, recorded 2026-09-19.** No GA-BLOCKER and no GA-REQUIRED finding is
-open — `S-3` was reopened and closed again the same day (above). `SX-1` was already fixed in code and gained the test it lacked; `SX-5` lost its code channel to
+**Progress against that rule, recorded 2026-09-19.** One GA-BLOCKER is open, `SUB-1` (a client
+mirroring a view by snapshot plus subscription can lose the commit in flight), found late that day;
+no GA-REQUIRED finding is open — `S-3` was reopened and closed again the same day (above). `SX-1` was already fixed in code and gained the test it lacked; `SX-5` lost its code channel to
 authorizing the parsed name before planning, and its latency channel was then re-measured rather than
 assumed — denied and absent reads cost 0.033 and 0.036 ms — and closed on the number. Item by item:
 
