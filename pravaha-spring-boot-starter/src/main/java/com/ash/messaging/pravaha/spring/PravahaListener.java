@@ -40,9 +40,11 @@ import java.lang.annotation.Target;
  *
  * <p>Changes are delivered after they are committed, never mid-window, and off the engine's thread:
  * a slow listener cannot slow the query. Within one key they arrive in commit order, so a row's
- * withdrawal is always seen before its replacement. A listener that throws is logged and keeps its
- * subscription; one that falls more than {@code pravaha.listener.max-pending} commits behind is
- * detached and logged at error, rather than handed a stream with a silent gap in it.
+ * withdrawal is always seen before its replacement. A listener that throws is handed to a {@link
+ * PravahaListenerErrorHandler}: by default logged with the query and the change, and kept
+ * subscribed; {@code pravaha.listener.on-error=stop} stops it instead. One that falls more than
+ * {@code pravaha.listener.max-pending} commits behind is detached and logged at error, rather than
+ * handed a stream with a silent gap in it.
  *
  * <p>The query must be registered by the time the application context has started -- declared under
  * {@code pravaha.queries}, or registered through {@code PravahaTemplate} from a bean's
@@ -61,4 +63,11 @@ public @interface PravahaListener {
      * to one key goes to the same thread and keeps its order; different keys run in parallel.
      */
     int concurrency() default 1;
+
+    /**
+     * The name of a {@link PravahaListenerErrorHandler} bean for this listener alone. Empty uses the
+     * application's handler: the one bean of that type, or the auto-configured one. A name no bean
+     * has fails the startup.
+     */
+    String errorHandler() default "";
 }

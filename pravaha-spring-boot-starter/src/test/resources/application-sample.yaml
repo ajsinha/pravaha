@@ -1,0 +1,16 @@
+# The sample application's configuration, read by OrderAlertsTest (@ActiveProfiles("sample")).
+# The two paths below point where no test may write: @PravahaTest clears them, and the test checks it.
+pravaha:
+  node:
+    id: sample-orders
+  checkpoint:
+    directory: /pravaha-sample-must-not-be-used/checkpoints
+  registry:
+    journal: /pravaha-sample-must-not-be-used/registry.log
+  streams:
+    orders:
+      schema: "order_id:STRING,amount:INT64"
+  queries:
+    big_orders:
+      sql: "SELECT order_id, amount FROM orders WHERE amount > 500"
+      keys: [order_id]

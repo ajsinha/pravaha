@@ -66,11 +66,17 @@ public final class ListenerContainer implements AutoCloseable {
     private final Method method;
     private final String queryName;
     private final int concurrency;
+    private final String errorHandlerName;
     private final Shape shape;
 
     private final AtomicLong delivered = new AtomicLong();
     private final AtomicLong failures = new AtomicLong();
     private final AtomicBoolean detached = new AtomicBoolean();
+    private final AtomicBoolean stopped = new AtomicBoolean();
+    private final AtomicLong undelivered = new AtomicLong();
+
+    private volatile PravahaListenerErrorHandler errorHandler = PravahaListenerErrorHandler.logAndContinue();
+    private volatile PravahaListenerErrorHandler.Failure lastFailure;
 
     private volatile Subscription subscription;
     private ThreadPoolExecutor[] workers = new ThreadPoolExecutor[0];
@@ -90,6 +96,7 @@ public final class ListenerContainer implements AutoCloseable {
         this.method = method;
         this.queryName = listener.query();
         this.concurrency = listener.concurrency();
+        this.errorHandlerName = listener.errorHandler();
         if (queryName == null || queryName.isBlank()) {
             throw refusal("names no query");
         }
@@ -127,8 +134,14 @@ public final class ListenerContainer implements AutoCloseable {
                 && parameterized.getActualTypeArguments()[0] == RowChange.class;
     }
 
+    /** The bean name {@link PravahaListener#errorHandler()} gives, or empty for the application's. */
+    String errorHandlerName() {
+        return errorHandlerName;
+    }
+
     /** Subscribes, and starts the threads that call the method. */
-    void start(PravahaEngine engine, int maxPending) {
+    void start(PravahaEngine engine, int maxPending, PravahaListenerErrorHandler handler) {
+        this.errorHandler = java.util.Objects.requireNonNull(handler, "errorHandler");
         if (maxPending < 1) {
             throw refusal("cannot start with pravaha.listener.max-pending=" + maxPending);
         }
@@ -169,7 +182,7 @@ public final class ListenerContainer implements AutoCloseable {
 
     /** On the engine's committing thread: sort by key onto workers, and return. */
     private void dispatch(List<RowChange> changes) {
-        if (detached.get() || changes.isEmpty()) {
+        if (detached.get() || stopped.get() || changes.isEmpty()) {
             return;
         }
         if (workers.length == 1) {
@@ -220,32 +233,106 @@ public final class ListenerContainer implements AutoCloseable {
 
     private void deliver(List<RowChange> batch) {
         if (shape == Shape.COMMIT) {
-            invoke(batch);
+            call(batch, () -> new Object[] {batch});
             return;
         }
         for (RowChange change : batch) {
             if (shape == Shape.CHANGE) {
-                invoke(change);
+                call(List.of(change), () -> new Object[] {change});
             } else {
-                invoke(rowReader.apply(change), change.isRetraction());
+                // Read inside the call, so a row the record cannot take is a failure the handler
+                // hears about rather than an exception lost on a pool thread.
+                call(List.of(change), () -> new Object[] {rowReader.apply(change), change.isRetraction()});
             }
         }
     }
 
-    private void invoke(Object... arguments) {
-        try {
-            method.invoke(bean, arguments);
-            delivered.incrementAndGet();
-        } catch (InvocationTargetException e) {
-            failures.incrementAndGet();
-            LOG.error(
-                    "@PravahaListener " + describe() + " threw; the change is not redelivered and the "
-                            + "listener stays subscribed",
-                    e.getCause());
-        } catch (IllegalAccessException | RuntimeException e) {
-            failures.incrementAndGet();
-            LOG.error("@PravahaListener " + describe() + " could not be called", e);
+    /** One call to the method, and what the error handler decides if it throws. */
+    private void call(List<RowChange> changes, java.util.function.Supplier<Object[]> arguments) {
+        if (stopped.get()) {
+            undelivered.addAndGet(changes.size());
+            return;
         }
+        Throwable thrown;
+        try {
+            method.invoke(bean, arguments.get());
+            delivered.incrementAndGet();
+            return;
+        } catch (InvocationTargetException e) {
+            thrown = e.getCause() == null ? e : e.getCause();
+        } catch (IllegalAccessException | RuntimeException e) {
+            thrown = e;
+        }
+        failures.incrementAndGet();
+        PravahaListenerErrorHandler.Failure failure =
+                new PravahaListenerErrorHandler.Failure(listenerName(), queryName, changes, thrown);
+        lastFailure = failure;
+        PravahaListenerErrorHandler.Decision decision;
+        try {
+            decision = errorHandler.handle(failure);
+        } catch (RuntimeException handlerFailure) {
+            handlerFailure.addSuppressed(thrown);
+            LOG.error(
+                    "@PravahaListener " + describe() + " threw on " + failure.describeChanges()
+                            + ", and its error handler threw too; the listener is stopped",
+                    handlerFailure);
+            decision = PravahaListenerErrorHandler.Decision.STOP;
+        }
+        if (decision == null) {
+            LOG.error(
+                    "@PravahaListener " + describe() + " threw on " + failure.describeChanges()
+                            + ", and its error handler returned no decision; the listener is stopped",
+                    thrown);
+            decision = PravahaListenerErrorHandler.Decision.STOP;
+        }
+        if (decision == PravahaListenerErrorHandler.Decision.STOP) {
+            stopDelivering();
+        }
+    }
+
+    /**
+     * Stops at the error handler's word: detaches from the query so nothing more is dispatched, and
+     * lets what is already queued drain as undelivered rather than calling the method again.
+     */
+    private void stopDelivering() {
+        if (!stopped.compareAndSet(false, true)) {
+            return;
+        }
+        Subscription current = subscription;
+        if (current != null) {
+            current.close();
+        }
+        LOG.warn("@PravahaListener " + describe() + " is stopped by its error handler and receives nothing more; "
+                + "the context must be restarted to deliver to it again");
+    }
+
+    /**
+     * Waits until every change dispatched to this listener so far has been handed to its method.
+     *
+     * <p>Each worker is one thread taking from one queue in order, so a marker queued behind what is
+     * already waiting runs only after all of it -- no polling, and no guess at how long is enough.
+     * A dispatch happens inside the engine's commit, so every commit that has returned is covered.
+     *
+     * @return whether it finished within {@code timeout}
+     */
+    public boolean awaitDelivered(java.time.Duration timeout) throws InterruptedException {
+        ThreadPoolExecutor[] current = workers;
+        java.util.concurrent.CountDownLatch drained = new java.util.concurrent.CountDownLatch(current.length);
+        for (ThreadPoolExecutor worker : current) {
+            try {
+                worker.execute(drained::countDown);
+            } catch (RejectedExecutionException e) {
+                if (!worker.isShutdown()) {
+                    throw new IllegalStateException(
+                            "@PravahaListener " + describe() + " has pravaha.listener.max-pending commits waiting; "
+                                    + "cannot queue behind them",
+                            e);
+                }
+                // Shut down: nothing more will run on it, so there is nothing left to wait for.
+                drained.countDown();
+            }
+        }
+        return drained.await(timeout.toNanos(), TimeUnit.NANOSECONDS);
     }
 
     /** Detaches, then lets each worker finish what it was already handed. */
@@ -295,11 +382,40 @@ public final class ListenerContainer implements AutoCloseable {
 
     /** Whether it is subscribed and its threads are running. */
     public boolean isRunning() {
-        return subscription != null && !subscription.isClosed() && !detached.get();
+        return subscription != null && !subscription.isClosed() && !detached.get() && !stopped.get();
+    }
+
+    /** Whether its error handler stopped it. */
+    public boolean isStopped() {
+        return stopped.get();
+    }
+
+    /** Changes that were waiting when its error handler stopped it, and so never reached the method. */
+    public long undelivered() {
+        return undelivered.get();
+    }
+
+    /** Commits handed to its threads and not yet delivered. */
+    public int pending() {
+        int waiting = 0;
+        for (ThreadPoolExecutor worker : workers) {
+            waiting += worker.getQueue().size();
+        }
+        return waiting;
+    }
+
+    /** The most recent call that threw, if any has. */
+    public java.util.Optional<PravahaListenerErrorHandler.Failure> lastFailure() {
+        return java.util.Optional.ofNullable(lastFailure);
+    }
+
+    /** The bean and method, as {@code bean.method}. */
+    public String listenerName() {
+        return beanName + "." + method.getName();
     }
 
     private String describe() {
-        return beanName + "." + method.getName() + " on '" + queryName + "'";
+        return listenerName() + " on '" + queryName + "'";
     }
 
     private IllegalStateException refusal(String what) {

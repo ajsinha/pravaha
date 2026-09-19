@@ -346,12 +346,27 @@ public class PravahaProperties {
          */
         private int maxPending = 10_000;
 
+        /**
+         * What the auto-configured {@link PravahaListenerErrorHandler} does after a listener method
+         * throws: log and go on to the next change, or log and stop the listener. Either way the
+         * failure is logged at error with the query and the change, and counted.
+         */
+        private PravahaListenerErrorHandler.Decision onError = PravahaListenerErrorHandler.Decision.CONTINUE;
+
         public int getMaxPending() {
             return maxPending;
         }
 
         public void setMaxPending(int maxPending) {
             this.maxPending = maxPending;
+        }
+
+        public PravahaListenerErrorHandler.Decision getOnError() {
+            return onError;
+        }
+
+        public void setOnError(PravahaListenerErrorHandler.Decision onError) {
+            this.onError = onError;
         }
     }
 }

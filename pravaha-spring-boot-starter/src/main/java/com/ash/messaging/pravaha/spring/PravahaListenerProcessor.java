@@ -21,8 +21,13 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.BeanFactoryAware;
+import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.core.MethodIntrospector;
 import org.springframework.core.annotation.AnnotatedElementUtils;
@@ -40,18 +45,29 @@ import com.ash.messaging.pravaha.embedded.PravahaEngine;
  *
  * <p>Stops first on the way down -- listeners are detached and their threads drained before the
  * engine they listen to is closed.
+ *
+ * <p>Each listener's {@link PravahaListenerErrorHandler} is resolved as it subscribes: the bean its
+ * {@link PravahaListener#errorHandler()} names, or else the application's -- the one handler bean
+ * no listener names (the {@code @Primary} one if there are several), or, with none, the logging
+ * handler {@code pravaha.listener.on-error} selects.
  */
-public class PravahaListenerProcessor implements BeanPostProcessor, SmartLifecycle {
+public class PravahaListenerProcessor implements BeanPostProcessor, SmartLifecycle, BeanFactoryAware {
 
     private final ObjectProvider<PravahaEngine> engine;
     private final ObjectProvider<PravahaProperties> properties;
     private final List<ListenerContainer> containers = new ArrayList<>();
     private volatile boolean running;
+    private BeanFactory beanFactory;
 
     public PravahaListenerProcessor(
             ObjectProvider<PravahaEngine> engine, ObjectProvider<PravahaProperties> properties) {
         this.engine = engine;
         this.properties = properties;
+    }
+
+    @Override
+    public void setBeanFactory(BeanFactory beanFactory) {
+        this.beanFactory = beanFactory;
     }
 
     @Override
@@ -81,8 +97,18 @@ public class PravahaListenerProcessor implements BeanPostProcessor, SmartLifecyc
             PravahaProperties settings = properties.getIfAvailable(PravahaProperties::new);
             List<ListenerContainer> started = new ArrayList<>();
             try {
+                PravahaListenerErrorHandler applicationWide = null;
                 for (ListenerContainer container : containers) {
-                    container.start(current, settings.getListener().getMaxPending());
+                    PravahaListenerErrorHandler handler;
+                    if (container.errorHandlerName().isBlank()) {
+                        if (applicationWide == null) {
+                            applicationWide = applicationErrorHandler(settings);
+                        }
+                        handler = applicationWide;
+                    } else {
+                        handler = namedErrorHandler(container);
+                    }
+                    container.start(current, settings.getListener().getMaxPending(), handler);
                     started.add(container);
                 }
             } catch (RuntimeException e) {
@@ -108,6 +134,53 @@ public class PravahaListenerProcessor implements BeanPostProcessor, SmartLifecyc
     @Override
     public boolean isRunning() {
         return running;
+    }
+
+    private PravahaListenerErrorHandler namedErrorHandler(ListenerContainer container) {
+        try {
+            return beanFactory.getBean(container.errorHandlerName(), PravahaListenerErrorHandler.class);
+        } catch (NoSuchBeanDefinitionException e) {
+            throw new IllegalStateException(
+                    "@PravahaListener " + container.listenerName() + " names errorHandler '"
+                            + container.errorHandlerName() + "', and no PravahaListenerErrorHandler bean has that name",
+                    e);
+        }
+    }
+
+    /** The handler for listeners that name none; see the class comment for the order. */
+    private PravahaListenerErrorHandler applicationErrorHandler(PravahaProperties settings) {
+        List<String> candidates = new ArrayList<>();
+        if (beanFactory instanceof ListableBeanFactory listable) {
+            List<String> named = containers.stream()
+                    .map(ListenerContainer::errorHandlerName)
+                    .filter(name -> !name.isBlank())
+                    .toList();
+            for (String name : listable.getBeanNamesForType(PravahaListenerErrorHandler.class)) {
+                if (!named.contains(name)) {
+                    candidates.add(name);
+                }
+            }
+        }
+        if (candidates.size() > 1 && beanFactory instanceof ConfigurableListableBeanFactory configurable) {
+            List<String> primary = candidates.stream()
+                    .filter(name -> configurable.containsBeanDefinition(name)
+                            && configurable.getBeanDefinition(name).isPrimary())
+                    .toList();
+            if (primary.size() == 1) {
+                candidates = primary;
+            }
+        }
+        if (candidates.size() > 1) {
+            throw new IllegalStateException("@PravahaListener methods that name no errorHandler have "
+                    + candidates.size() + " PravahaListenerErrorHandler beans to choose from " + candidates
+                    + "; mark one @Primary, or name one in each listener's errorHandler");
+        }
+        if (candidates.size() == 1) {
+            return beanFactory.getBean(candidates.get(0), PravahaListenerErrorHandler.class);
+        }
+        return settings.getListener().getOnError() == PravahaListenerErrorHandler.Decision.STOP
+                ? PravahaListenerErrorHandler.logAndStop()
+                : PravahaListenerErrorHandler.logAndContinue();
     }
 
     /** The listeners found, for tests and for anything reporting on them. */
