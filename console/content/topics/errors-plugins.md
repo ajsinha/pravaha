@@ -4,10 +4,10 @@ slug: errors-plugins
 category: errors
 order: 60
 icon: plug
-summary: "PRV-5001 to PRV-5094: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra — and attaching a source or a sink to a registered query."
+summary: "PRV-5001 to PRV-5117: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
 badge: PRV-5XXX
 audience: Operators
-keywords: [plugin, classpath, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, offset, sink, source, connect failed, schema]
+keywords: [plugin, classpath, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
 guide: connectors
 related: [sources-overview, sinks-overview, source-jdbc, source-delta, connector-security, errors-overview]
 ---
@@ -38,6 +38,8 @@ a support conversation should have to start with.
 | PRV-5080 – PRV-5084 | `aerospike`, `aerospike-lookup`, `aerospike-sink` |
 | PRV-5085 – PRV-5089 | `cassandra` |
 | PRV-5090 – PRV-5094 | Attaching a source or sink to a registered query |
+| PRV-5100 – PRV-5103 | `kafka-sink` |
+| PRV-5110 – PRV-5117 | `postgres-cdc` |
 
 ## Loading and naming plugins
 
@@ -333,12 +335,89 @@ it.
 ### PRV-5093 — egress: no such sink plugin
 
 No sink plugin answers to the name a `pravaha.sinks.*` binding gave. The shipped sinks are
-`filesystem`, `jdbc-sink` and `aerospike-sink`.
+`filesystem`, `jdbc-sink`, `aerospike-sink` and `kafka-sink`.
 
 ### PRV-5094 — egress: sink binding failed
 
 The sink plugin refused its configuration or could not open its target at registration — before the
 query's first commit, so nothing is half-written.
+
+## kafka-sink
+
+### PRV-5100 — Kafka: bad configuration
+
+The binding's options cannot make a sink: a required option missing (`bootstrap.servers`, `topic`),
+an unknown `format`, or a compression codec the plugin does not ship. Only `none` and `gzip` work;
+lz4, snappy and zstd are native code and are refused by name rather than failing at the first write.
+
+### PRV-5101 — Kafka: connect failed
+
+At registration, before anything is written: the brokers unreachable, the target topic missing (the
+sink never creates it), or the credentials or ACLs refused.
+
+### PRV-5102 — Kafka: write failed
+
+The sink detached after it had started. Most often another producer **fenced** it: two sinks opened
+with the same `transactional.id` — two nodes running one binding, or two registrations naming it —
+and the broker lets only the newest write. Give each registration its own binding (the default id is
+the binding's name). The same code follows a transaction that outlived
+`kafka.transaction.timeout.ms`.
+
+### PRV-5103 — Kafka: staging topic unusable
+
+The staging topic that makes the sink exactly once is compacted, cannot be created, or — at a restart
+after a long outage — has already expired the staged changes a checkpoint recorded, which are then
+lost to the topic. Raise `staging.retention.ms` and register again.
+
+## postgres-cdc
+
+### PRV-5110 — PostgreSQL CDC: bad configuration
+
+The binding's options are wrong: a required option missing, a value out of range, or a shared
+`tls.*` option (TLS for this source goes in the JDBC URL).
+
+### PRV-5111 — PostgreSQL CDC: connect failed
+
+The database unreachable, the credentials refused, or the PostgreSQL driver not on the classpath —
+the plugin uses the driver the deployment supplies, as `jdbc` does.
+
+### PRV-5112 — PostgreSQL CDC: not capturable
+
+The database cannot support change capture as configured, and the message names the statement that
+fixes it: `wal_level` is not `logical` (`ALTER SYSTEM SET wal_level = logical;` and a **restart**), the
+table is not `REPLICA IDENTITY FULL` (`ALTER TABLE ... REPLICA IDENTITY FULL;`, without which a delete
+could retract only the key), the publication does not publish updates and deletes or does not include
+the table, the server is older than PostgreSQL 14, or the slot is missing, invalidated or belongs to
+another plugin or database.
+
+### PRV-5113 — PostgreSQL CDC: schema mismatch
+
+The table's columns disagree with a declared `schema`, or a column has a type with no mapping. Leave
+that column out of a declared schema.
+
+### PRV-5114 — PostgreSQL CDC: malformed offset
+
+A checkpoint holds an offset this plugin did not write. It is refused rather than guessed at.
+
+### PRV-5115 — PostgreSQL CDC: resume point released
+
+At a restart: the slot has already been confirmed past the checkpoint being restored — the newest
+checkpoint was unreadable and recovery fell back to an older one, or the slot was recreated — and
+PostgreSQL has released the changes in between. Starting anyway would skip them silently.
+
+### PRV-5116 — PostgreSQL CDC: unrepresentable change
+
+The change stream carried something that cannot become rows: a `TRUNCATE` of the captured table (it
+carries no rows, so there is nothing to retract), or a before-image with only the key (the table's
+replica identity changed while it was being captured). Everything before it was delivered.
+
+### PRV-5117 — PostgreSQL CDC: stream failed
+
+The replication stream failed in a way no reconnect can fix: the slot dropped or invalidated, or the
+role's privileges revoked.
+
+For PRV-5115, 5116 and 5117 the recovery is the same: stop the registration, delete its checkpoint
+directory, drop the slot, register again.
 
 ## Where next
 

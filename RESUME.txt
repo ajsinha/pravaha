@@ -69,21 +69,29 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
 3. WHAT IS NEXT (ADR-039's road, as it stands)
 ====================================================================
 
-  - Item 2: no node setting turns on lane multiplexing (W9-8). The registry
-    supports it (QueryRegistry.multiplexingLanes); PravahaNode never calls it,
-    and there is no admission control. Note there is NO pravaha.lane.multiplex
-    key, whatever an old document says.
-  - Item 5 follow-ups: aerospike-sink (upsert + delete, composite keys) is
-    nameable and unit-tested against a fake client; its real-server test
-    (AerospikePluginIT) needs Docker, which this machine does not have.
-    Exactly-once is built on the engine side (the transactional sink SPI is
-    tied to checkpoints, ADR-043 "As built"), and jdbc-sink is transactional
-    through a staging table. `pravaha queries` does not show a query's sink or a detached
-    sink's PRV-8009. SINK-3: no per-sink authorization, and the audit does
-    not record the sink.
-  - Item 6: projection and COUNT/SUM partial-aggregate pushdown are built and
-    tested, but no shipped plugin declares either and no ingest path delivers
-    a partial, so a deployment only ever pushes filters.
+  Built since the last rewrite of this section (see git log for detail):
+  lane multiplexing behind pravaha.lane.multiplex.* (PravahaNode calls
+  QueryRegistry.multiplexingLanes), exactly-once sinks, jdbc-sink,
+  kafka-sink, CREATE/DROP/PAUSE/RESUME CONTINUOUS QUERY, the embedded
+  engine (pravaha-bindings, Spring-free) and the Spring Boot starter,
+  pushdown of projections and COUNT/SUM partials (ADR-039 item 6), the
+  spill tier's last pieces (ADR-044, no RocksDB), postgres-cdc (ADR-041),
+  and the console's help system and About page.
+
+  Queue, in order (owner: build every "not built" item except multi-node):
+  - Engine defects found writing the help: HLP-1..9 and HLP-14 (filesystem
+    sink truncating on reopen, pgwire TLS not applied, PRV-2041 missing
+    joins, /api/v1/sinks overstating exactly-once, SUM over an INT CASE,
+    feedfile/delta event time 0, allowed lateness on a server, /status
+    counting streams, subscription filters on non-text columns, misleading
+    PRV-2020/2021/2050 messages).
+  - A Kafka source beside kafka-sink.
+  - E4: LANE-2, one ingest per stream per shared lane, fanned out.
+  - E5: blue/green query replacement with backfill splicing wired.
+  - E6: the time-travel debugger engine (checkpoint fork, step protocol,
+    sinks disabled). Console C3/C4 screens follow E5/E6.
+  - E7: CKPT-3, SINK-3 (per-sink authorization, the sink in the audit),
+    `pravaha queries` showing a query's sink and a detached sink's PRV-8009.
   - Item 7: console design-system surface, not built by decision.
   - Item 8: cluster mode -- on hold by the owner. Designed in ADR-045: a node
     owns whole computations (by fingerprint), not rows; do NOT merge the
@@ -125,3 +133,8 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   One test class:
       ./mvnw -o -pl <module> test -Dtest='ClassName' -DfailIfNoSpecifiedTests=false
   Python SDK:  (cd sdk/python && .venv/bin/python -m pytest tests -q)
+  Container tests (Aerospike, PostgreSQL, Cassandra, Kafka) -- this session
+  predates the docker group, so wrap them:
+      sg docker -c "./mvnw -o -pl <modules> -am test -Dtest='*IT' -Dsurefire.failIfNoSpecifiedTests=false"
+  Console:  (cd console && JAVA_HOME=... make test), after
+      ./mvnw -o -pl pravaha-flight -am test-compile
