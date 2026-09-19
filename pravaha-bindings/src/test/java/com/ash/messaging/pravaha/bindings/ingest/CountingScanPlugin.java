@@ -105,6 +105,7 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     private DeliveryGuarantee guarantee = DeliveryGuarantee.AT_LEAST_ONCE;
     private boolean ordered;
     private boolean replayable = true;
+    private boolean deletes;
 
     static void reset() {
         STORE.clear();
@@ -139,6 +140,7 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
         this.guarantee = DeliveryGuarantee.valueOf(context.get("guarantee", DeliveryGuarantee.AT_LEAST_ONCE.name()));
         this.ordered = Boolean.parseBoolean(context.get("ordered", "false"));
         this.replayable = Boolean.parseBoolean(context.get("replayable", "true"));
+        this.deletes = Boolean.parseBoolean(context.get("deletes", "false"));
     }
 
     @Override
@@ -152,7 +154,7 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
         return new SourceCapabilities(
                 replayable,
                 ordered,
-                false,
+                deletes,
                 false,
                 guarantee,
                 EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT),

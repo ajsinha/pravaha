@@ -123,6 +123,24 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         return Map.copyOf(bindings);
     }
 
+    /**
+     * Whether the source bound to this stream emits deletes, asked of the configured plugin without
+     * opening it (HLP-3). A stream with no binding is fed by hand and is not this class's to judge.
+     */
+    @Override
+    public boolean retracts(String stream) {
+        SourceBinding binding = bindings.get(stream);
+        if (binding == null) {
+            return false;
+        }
+        StreamSourcePlugin plugin = configure(binding);
+        try {
+            return plugin.capabilities().emitsDeletes();
+        } finally {
+            closeQuietly(List.of(plugin));
+        }
+    }
+
     @Override
     public SourceFeed open(
             String queryName,

@@ -807,11 +807,15 @@ does, retractions included as rows with a negative weight. Three things to know
   sink must be keyed by exactly the query's `--keys`. Anything else is refused with `PRV-8010` at
   registration, because the alternative is every value read from another column's place.
 - **The query and the sink must agree about retractions.** A query that revises its answer — any
-  unwindowed aggregate, a window with `allowedLateness`, a join that can withdraw a match — needs a
-  sink that accepts updates. Pointed at an append-only sink, such as a file, the pair is refused
-  with `PRV-2041` at registration, because the alternative is a sink holding rows that are each
-  correct and a total that is wrong for ever (design §15.5). A filter, a projection, or a tumbling
-  window without lateness never revises, and goes anywhere.
+  unwindowed aggregate, a window with `allowedLateness`, anything read from a source that emits
+  deletes (`postgres-cdc`) — needs a sink that accepts updates. Pointed at an append-only sink, such
+  as a file, the pair is refused with `PRV-2041` at registration, because the alternative is a sink
+  holding rows that are each correct and a total that is wrong for ever (design §15.5). A join
+  passes on what its inputs do: over two append-only sources it only appends, and a delete on
+  either side retracts the pairs it made, so a join over a change feed is refused too (HLP-3; it
+  was admitted until then, because the check assumed every source only appends). A filter, a
+  projection, or a tumbling window without lateness over append-only sources never revises, and
+  goes anywhere.
 - **Delivery is as strong as the sink allows, and the node says which** in its log when you
   register. A restart replays from the last checkpoint. A *transactional* sink on a node that
   checkpoints is **exactly once**: what it is written between checkpoints is prepared at the

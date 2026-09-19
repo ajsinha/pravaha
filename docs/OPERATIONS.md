@@ -892,9 +892,12 @@ What an operator should know about that delivery:
   columns. Refused
   before the sink is opened, because the alternative is plausible nonsense and no error.
 - **A bad pair is refused before anything runs.** A query that revises its answer — a running
-  aggregate, a window with allowed lateness — pointed at a sink that can only append is refused
-  with `PRV-2041` at registration, before the sink is opened. A `filesystem` sink is append-only, so
-  it takes filters, projections and tumbling windows without lateness, and nothing that retracts.
+  aggregate, a window with allowed lateness, anything over a stream whose source emits deletes
+  (`postgres-cdc`), a join over one included — pointed at a sink that can only append is refused
+  with `PRV-2041` at registration, before the sink is opened. The node asks each bound source
+  whether it emits deletes, from its configuration, without connecting. A `filesystem` sink is
+  append-only, so it takes filters, projections, joins and tumbling windows without lateness over
+  append-only sources, and nothing that retracts.
 - **Rows arrive per commit**, retractions included as rows with a negative weight, never as half a
   window. The feed commits on its own timer, so a sink trails the source by about one commit.
 - **The guarantee depends on the sink, and is logged at registration** as `query 'q' writes to sink

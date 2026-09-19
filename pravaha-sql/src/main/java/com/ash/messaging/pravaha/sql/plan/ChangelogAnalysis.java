@@ -17,12 +17,14 @@ package com.ash.messaging.pravaha.sql.plan;
 
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.EmitMode;
 import com.ash.messaging.pravaha.api.plugin.SinkCapabilities;
 import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
+import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 import com.ash.messaging.pravaha.runtime.plan.WindowedAggregateOperator;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 
@@ -43,23 +45,11 @@ import com.ash.messaging.pravaha.sql.SqlErrors;
  * <p>The message names the operator responsible, because "this query produces updates" is not
  * actionable when the query is forty lines long and only one of its clauses is the reason.
  *
- * <p><strong>Nothing calls {@link #checkAgainst}, and that is the answer rather than an omission.</strong>
- * Wave 8 went looking for the registration it is supposed to happen at and there is none, because
- * there is nothing to register against: no {@code INSERT INTO}, no {@code pravaha.sinks} block, no
- * {@code ServiceLoader} declaration for {@code StreamSinkPlugin}, and no code that resolves a sink
- * by name. Every continuous query in this product writes to a {@code ViewSink}, which reads the
- * Z-set weight and applies a retraction as a removal -- so the mismatch this class exists to catch
- * cannot occur on the only path that revises. The one sink binding anywhere is {@code QueryRunner}'s
- * hard-coded append-only filesystem sink on {@code pravaha run}, and that is a bounded read where
- * every operator emits once at the end of input and no retraction is produced; checking it there
- * would refuse {@code examples/02-aggregate}, which is documented, runs today, and is correct.
- *
- * <p>So this is kept, unwired, and the reason is pinned by a test rather than a comment:
- * {@code ErrcSqlTest} asserts that no sink service declaration exists and that {@code QueryRunner}
- * is still the only file that binds one. The first binding that can carry a revising query fails
- * that test, and this is what it should call (W8-13). The analysis itself is the part worth keeping
- * -- which plan shapes revise is a fact about the algebra, not about the wiring -- but note it has
- * no notion of boundedness, which is exactly why it is wrong for {@code pravaha run}.
+ * <p><strong>Where it is called.</strong> {@code QueryRegistry} calls {@link #checkAgainst} for a
+ * registration that names a sink (ADR-043), before the sink is opened, telling it which streams are
+ * read from a source that emits deletes (HLP-3). It is not called for {@code pravaha run}: that is
+ * a bounded read where every operator emits once at the end of input, and this analysis has no
+ * notion of boundedness, so it would refuse {@code examples/02-aggregate}, which is correct.
  */
 public final class ChangelogAnalysis {
 
@@ -91,7 +81,30 @@ public final class ChangelogAnalysis {
      * says the stronger thing.
      */
     public static Result analyse(PhysicalOperator plan) {
+        return analyse(plan, stream -> false);
+    }
+
+    /**
+     * Works out what a plan emits, given which of the streams it reads can delete.
+     *
+     * <p>HLP-3. The one-argument form assumes every source only appends, which stopped being true
+     * with {@code postgres-cdc}: a delete arrives as a row at weight {@code -1}, and everything
+     * above the scan passes it on -- a filter as a retracted row, a join as the retracted pairs its
+     * insert produced (the bilinear rule). So a join over two streams, append-only over files and
+     * revising over a change feed, was admitted to an append-only sink either way.
+     *
+     * @param retracts whether rows read from the named stream can carry a negative weight; the
+     *     registry answers it from the source bound to the stream
+     */
+    public static Result analyse(PhysicalOperator plan, Predicate<String> retracts) {
         return switch (plan) {
+            case ScanOperator scan
+            when retracts.test(scan.streamName()) ->
+                new Result(
+                        EnumSet.of(EmitMode.RETRACT, EmitMode.UPSERT),
+                        "stream '" + scan.streamName() + "' is read from a source that emits deletes, so a "
+                                + "row it delivers can later be withdrawn, and whatever this query built from "
+                                + "it -- a join's pair included -- is withdrawn with it");
             case WindowedAggregateOperator windowed -> {
                 if (windowed.allowedLatenessNanos() > 0) {
                     yield new Result(
@@ -114,7 +127,7 @@ public final class ChangelogAnalysis {
             default -> {
                 Result strongest = new Result(EnumSet.of(EmitMode.APPEND, EmitMode.UPSERT, EmitMode.RETRACT), "");
                 for (PhysicalOperator input : plan.inputs()) {
-                    Result below = analyse(input);
+                    Result below = analyse(input, retracts);
                     if (below.producesUpdates()) {
                         strongest = below;
                     }
@@ -132,7 +145,13 @@ public final class ChangelogAnalysis {
      * blames the query sends somebody to rewrite something that was never wrong.
      */
     public static void checkAgainst(PhysicalOperator plan, SinkCapabilities sink, String sinkName) {
-        Result result = analyse(plan);
+        checkAgainst(plan, stream -> false, sink, sinkName);
+    }
+
+    /** As {@link #checkAgainst(PhysicalOperator, SinkCapabilities, String)}, knowing which streams delete. */
+    public static void checkAgainst(
+            PhysicalOperator plan, Predicate<String> retracts, SinkCapabilities sink, String sinkName) {
+        Result result = analyse(plan, retracts);
         for (EmitMode mode : result.produces()) {
             if (sink.accepts(mode)) {
                 return;

@@ -648,7 +648,10 @@ public final class QueryRegistry implements AutoCloseable {
             // be perfectly good against a different sink, and the fix is usually the sink rather
             // than the SQL.
             SinkFactory.Description sink = sinks.describe(sinkName);
-            com.ash.messaging.pravaha.sql.plan.ChangelogAnalysis.checkAgainst(plan, sink.capabilities(), sinkName);
+            // Knowing which streams delete (HLP-3): a join or a filter over a change feed passes its
+            // deletes on as retractions, and a sink that can only append would write them as rows.
+            com.ash.messaging.pravaha.sql.plan.ChangelogAnalysis.checkAgainst(
+                    plan, feeds::retracts, sink.capabilities(), sinkName);
             SinkShape.require(sink, plan.outputSchema(), keyColumns, sinkName);
         }
 

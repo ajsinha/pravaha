@@ -132,6 +132,22 @@ class ChangelogAnalysisTest {
     }
 
     @Test
+    void aFilterOverAStreamThatDeletesRevisesAndIsRefusedByAnAppendOnlySink() {
+        // HLP-3: a delete from a change feed is a row at weight -1, and a filter passes it on.
+        PhysicalOperator filter = plan("SELECT user_id FROM txn WHERE amount > 10");
+
+        ChangelogAnalysis.Result result = ChangelogAnalysis.analyse(filter, "txn"::equals);
+
+        assertThat(result.producesUpdates()).isTrue();
+        assertThat(result.reason()).contains("stream 'txn'").contains("emits deletes");
+        assertThatThrownBy(() -> ChangelogAnalysis.checkAgainst(
+                        filter, "txn"::equals, SinkCapabilities.appendOnly(), "orders_file"))
+                .hasMessageContaining("PRV-2041");
+        assertThat(ChangelogAnalysis.analyse(filter, "other"::equals).producesUpdates())
+                .isFalse();
+    }
+
+    @Test
     void anOperatorThatRevisesMakesEverythingAboveItRevise() {
         // A corrected input produces a corrected output. The analysis is pessimistic on purpose:
         // being wrong optimistically means admitting a query that corrupts a sink.

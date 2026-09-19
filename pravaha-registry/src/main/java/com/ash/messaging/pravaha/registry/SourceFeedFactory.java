@@ -52,4 +52,16 @@ public interface SourceFeedFactory {
             List<String> sourceStreams,
             Runnable afterDelivery,
             java.util.Map<String, String> resumeFrom);
+
+    /**
+     * Whether rows from this stream's source can carry a negative weight -- a delete, or the old
+     * half of an update.
+     *
+     * <p>Asked at registration, so {@code PRV-2041} can refuse an append-only sink for a query over
+     * such a stream (HLP-3). False by default and for a stream nothing is bound to: rows pushed by
+     * hand are the caller's to vouch for.
+     */
+    default boolean retracts(String stream) {
+        return false;
+    }
 }

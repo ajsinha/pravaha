@@ -156,6 +156,21 @@ class PluginSourceFeedsTest {
     }
 
     @Test
+    void whetherAStreamDeletesIsTheBoundSourcesOwnAnswer() {
+        // HLP-3: PRV-2041 asks this at registration, so a filter or join over a change feed is not
+        // admitted to a sink that can only append.
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding("changes", "counting-scan", Map.of("deletes", "true")))
+                .bind(new SourceBinding("inserts", "counting-scan", Map.of()));
+
+        assertThat(feeds.retracts("changes")).isTrue();
+        assertThat(feeds.retracts("inserts")).isFalse();
+        assertThat(feeds.retracts("unbound"))
+                .as("rows pushed by hand are the caller's")
+                .isFalse();
+    }
+
+    @Test
     void aFailedBindingDoesNotLeaveTheQueryHalfStarted(@TempDir Path dir) {
         // Without the unwind, a registration that failed here left a lane thread and an arena alive
         // for the lifetime of the process, holding memory nothing could reach.
