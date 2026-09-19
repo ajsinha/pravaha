@@ -54,6 +54,7 @@ public class LaneProperties {
 
     private final Inbox inbox = new Inbox();
     private final Arena arena = new Arena();
+    private final Multiplex multiplex = new Multiplex();
 
     /** Rows handed to an operator at once. */
     private int batchSize = LaneConfig.DEFAULT_BATCH_SIZE;
@@ -73,6 +74,10 @@ public class LaneProperties {
 
     public Arena getArena() {
         return arena;
+    }
+
+    public Multiplex getMultiplex() {
+        return multiplex;
     }
 
     public int getBatchSize() {
@@ -167,6 +172,76 @@ public class LaneProperties {
 
         public void setMaxSlabs(int maxSlabs) {
             this.maxSlabs = maxSlabs;
+        }
+    }
+
+    /**
+     * Whether registered queries share lanes, how many, and how many to a lane (W9-8).
+     *
+     * <p>Off by default. Sharing a lane shares its inbox -- the megabyte a query otherwise holds
+     * idle -- and it shares its fate: a pipeline that throws takes its lane down, and on a shared
+     * lane that is every query on it, where a lane per query loses one. W9-11 records that a node
+     * already reaches its query target without this, so it is a memory optimisation a deployment
+     * chooses, not a default it inherits.
+     *
+     * <p>When on, a registration is placed on the least loaded of {@code lanes} shared lanes that is
+     * below {@code maxQueriesPerLane} and carries no other query over the same stream; one that fits
+     * nowhere -- or reads more than one stream -- gets a lane of its own instead of being refused.
+     * The registry's {@code SharedLanes} gives the reasons for each rule.
+     */
+    public static class Multiplex {
+
+        /** Design section 13.7: ten thousand queries on a node sized by cores is about 300 a lane. */
+        public static final int DEFAULT_MAX_QUERIES_PER_LANE = 300;
+
+        private boolean enabled;
+
+        /** Zero means one per lane-runner thread, which is one per available processor. */
+        private int lanes;
+
+        private int maxQueriesPerLane = DEFAULT_MAX_QUERIES_PER_LANE;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getLanes() {
+            return lanes;
+        }
+
+        public void setLanes(int lanes) {
+            this.lanes = lanes;
+        }
+
+        public int getMaxQueriesPerLane() {
+            return maxQueriesPerLane;
+        }
+
+        public void setMaxQueriesPerLane(int maxQueriesPerLane) {
+            this.maxQueriesPerLane = maxQueriesPerLane;
+        }
+
+        /**
+         * The shared lane count the registry is given: zero when off, the configured count when set,
+         * and one per available processor when left at zero -- the lane runner has a thread per
+         * processor, so each can step a shared lane without any waiting on another.
+         */
+        public int effectiveLanes() {
+            if (!enabled) {
+                return 0;
+            }
+            if (lanes < 0) {
+                throw new IllegalArgumentException("pravaha.lane.multiplex.lanes cannot be negative, got " + lanes);
+            }
+            if (maxQueriesPerLane < 1) {
+                throw new IllegalArgumentException(
+                        "pravaha.lane.multiplex.max-queries-per-lane must be at least 1, got " + maxQueriesPerLane);
+            }
+            return lanes > 0 ? lanes : com.ash.messaging.pravaha.runtime.lane.LaneRunner.defaultThreads();
         }
     }
 }

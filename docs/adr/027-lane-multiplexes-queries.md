@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **partly built** (2026-09-15) — the *thread* half shipped in Wave 9: `LaneRunner` drives many lanes from a fixed pool of one thread per core and `QueryRegistry` owns one, so a query no longer costs a platform thread (W9-4, W9-5). The *memory* half is built in the registry and not reachable from a node: `QueryRegistry.multiplexingLanes(true)` hosts many pipelines on one lane through `QueryExecution.startOn`, a row carries the stream identity dispatch needs (W9-9), and a watermark is a level that does not clamp the batch (W9-10). No `pravaha.*` setting turns it on, so a server still runs a lane per query (W9-8) |
+| Status | Accepted; **partly built** (2026-09-15) — the *thread* half shipped in Wave 9: `LaneRunner` drives many lanes from a fixed pool of one thread per core and `QueryRegistry` owns one, so a query no longer costs a platform thread (W9-4, W9-5). The *memory* half is built and off by default: `pravaha.lane.multiplex.*` (`QueryRegistry.multiplexingLanes`) hosts many pipelines on one lane through `QueryExecution.startOn`, a row carries the stream identity dispatch needs (W9-9), and a watermark is a level that does not clamp the batch (W9-10). The registry places each registration on the least loaded shared lane below a per-lane ceiling, one query per stream per lane — each query is fed separately, so sharing the ingest is what remains (W9-8) |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

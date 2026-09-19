@@ -47,6 +47,11 @@ import com.ash.messaging.pravaha.common.row.RowLayout;
  * again -- copying per subscribed query would make ingest cost O(queries), which is the same mistake
  * as encoding per subscriber (section 20.3b) somewhere far less visible.
  *
+ * <p><strong>Which assumes one ingest per stream per lane, and the feed layer does not provide
+ * one.</strong> Each registered query is fed by its own feed, so two queries over one stream on one
+ * lane would each copy every row in and each pipeline would be handed both copies. The registry's
+ * placement keeps a lane to one pipeline per stream until ingest is shared (W9-8).
+ *
  * <p><strong>On quotas, a correction.</strong> The story this implements asked that a hot query be
  * held to a quota of lane batches. It cannot be, not without either dropping its rows -- which is a
  * wrong answer, not a slow one -- or copying them into a per-query backlog, which reintroduces the
@@ -55,8 +60,9 @@ import com.ash.messaging.pravaha.common.row.RowLayout;
  * have already consumed, so a heavy query yields its position to lighter ones rather than
  * accumulating an advantage. Combined with per-pipeline timing, a hot query becomes identifiable and
  * bounded in its effect on latency ordering, which is what the requirement was actually protecting
- * against. Enforcing a hard ceiling needs admission control at registration -- deciding which lane a
- * query lands on -- and that belongs with the query lifecycle.
+ * against. A hard ceiling is admission control at registration -- deciding which lane a query lands
+ * on -- and it lives with the query lifecycle: the registry's {@code SharedLanes}, bounded by
+ * {@code pravaha.lane.multiplex.max-queries-per-lane} (W9-8).
  *
  * <p>Confined to the lane thread, like everything a lane owns, except {@link #register} and
  * {@link #drop}, which a control-plane thread calls and which are therefore synchronised. Those are
@@ -147,6 +153,18 @@ public final class LaneMultiplexer implements LaneProcessor {
         synchronized (registrationLock) {
             return byQuery.size();
         }
+    }
+
+    /**
+     * The streams some pipeline on this lane is subscribed to, by stream id.
+     *
+     * <p>What placement has to ask before it adds a query here. Dispatch is by stream, so a second
+     * pipeline over a stream already on this lane is handed every row the first one's ingest
+     * copies in -- and each query is fed separately, so both see every row twice. Admission control
+     * keeps a lane to one pipeline per stream for that reason (W9-8).
+     */
+    public java.util.Set<Integer> streamIds() {
+        return byStream.keySet();
     }
 
     @Override

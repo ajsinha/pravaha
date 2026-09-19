@@ -100,9 +100,11 @@ corrected by late data arrives as a retraction of the old answer followed by the
   execution is single-node and a node refuses `PARTITIONED` mode (`PRV-9002`) rather than serve every
   partition while claiming to own some. Rebalance and handoff are built as a library and wired to
   nothing ([ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 8).
-- **Lane sharing is not a node setting.** The registry can host many queries on one lane, sharing its
-  inbox and arena as well as its thread, but only when an embedder asks it to; no `pravaha.*` setting
-  does, so a server runs a lane per query (W9-8).
+- **Lane sharing by stream, not by query.** `pravaha.lane.multiplex.enabled` (off by default) puts
+  registered queries on shared lanes, sharing inbox and arena as well as thread — but a shared lane
+  carries only one query per stream, because each query is fed separately and two over one stream
+  on one lane would count each other's rows. One ingest per stream per lane is not built, so a
+  thousand queries over one source still hold most of their inboxes each (W9-8).
 - **Pushdown beyond filters.** Projection and `COUNT`/`SUM` partial-aggregate pushdown are built in
   the planner and the engine and declared by no shipped plugin, so a deployment only pushes filters.
   And when one shared reader serves queries with different filters, it reads unfiltered;

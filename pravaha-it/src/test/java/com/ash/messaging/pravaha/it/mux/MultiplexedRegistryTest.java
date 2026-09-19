@@ -33,23 +33,22 @@ import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
-import com.ash.messaging.pravaha.serving.ViewQuery;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Many registered queries on one lane, through the registry rather than through the seam (W9-8).
+ * Registered queries on shared lanes, fed by real source feeds rather than by hand (W9-8).
  *
  * <p>{@code HostedQueryTest} proves {@code QueryExecution.startOn} shares a lane between two
- * executions. This proves the registry actually uses it: with {@code multiplexingLanes(true)} set, two
- * separately registered queries over the same stream run on <em>one</em> lane, and each still gets
- * its own answer.
+ * executions; {@code SharedLanePlacementTest} proves where the registry places them. This proves
+ * the two together with the feed layer a node actually uses, where each registration opens a feed
+ * of its own and every feed copies its stream into its query's lane.
  *
- * <p>The property worth testing is dispatch, not arithmetic. A multiplexer that handed every batch
- * to every pipeline would also produce two correct answers here, so the two queries are deliberately
- * given <em>different</em> filters over the same rows: a shared computation, a shared inbox and a
- * shared arena, and two answers that differ. Anything that fanned rows out wrongly gives the same
- * answer twice or the wrong counts.
+ * <p><strong>Counts, not projections.</strong> This test used to register two filtered projections
+ * over one stream on one lane and read back the right rows from each -- and it passed while every
+ * row reached each pipeline twice, once from each query's feed, because a keyed view absorbs a
+ * duplicate upsert without a trace. A count does not. Two queries over the same stream now never
+ * share a lane, and the second half of this test is what would fail if they did.
  */
 @Timeout(120)
 final class MultiplexedRegistryTest {
@@ -59,65 +58,90 @@ final class MultiplexedRegistryTest {
             .field("amount", Types.int64())
             .build();
 
+    private static final StreamSchema ORDERS = StreamSchema.builder("orders")
+            .field("user_id", Types.string())
+            .field("amount", Types.int64())
+            .build();
+
+    private static final String SCHEMA = "user_id:STRING,amount:INT64";
+
+    private static RegisteredQuery count(QueryRegistry registry, String name, String stream, String where) {
+        return registry.register(
+                name,
+                "SELECT COUNT(*) AS n, SUM(amount) AS total FROM " + stream + where,
+                List.of(0),
+                Principal.ANONYMOUS);
+    }
+
+    /** Waits for a count's view to reach {@code n}, then gives the row it settled on. */
+    private static List<Object> settled(RegisteredQuery query, long n) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        List<Object> row = List.of();
+        while (System.nanoTime() < deadline) {
+            query.commit();
+            List<Object[]> rows = query.view().scan();
+            row = rows.size() == 1 ? List.of(rows.get(0)) : List.of();
+            if (!row.isEmpty() && ((Long) row.get(0)) >= n) {
+                break;
+            }
+            Thread.sleep(20);
+        }
+        // Give a duplicate the time to arrive before the answer is judged: a count that reached n
+        // and is about to pass it is the failure this test is for.
+        Thread.sleep(300);
+        query.commit();
+        List<Object[]> rows = query.view().scan();
+        return rows.size() == 1 ? List.of(rows.get(0)) : List.of();
+    }
+
     @Test
-    void twoRegisteredQueriesShareOneLaneAndKeepTheirOwnAnswers(@TempDir Path dir) throws Exception {
-        Path data = dir.resolve("txn.csv");
-        // Four rows, chosen so the two filters below select different, overlapping subsets.
-        Files.writeString(data, "ann,100\nbob,250\ncat,50\ndan,400\n");
+    void queriesOverTwoStreamsShareOneLaneAndCountEachRowOnce(@TempDir Path dir) throws Exception {
+        Path txn = Files.writeString(dir.resolve("txn.csv"), "ann,100\nbob,250\ncat,50\ndan,400\n");
+        Path orders = Files.writeString(dir.resolve("orders.csv"), "eve,10\nfay,20\n");
 
         PluginSourceFeeds feeds = new PluginSourceFeeds()
-                .bind(new SourceBinding(
-                        "txn", "filesystem", Map.of("path", data.toString(), "schema", "user_id:STRING,amount:INT64")));
+                .bind(new SourceBinding("txn", "filesystem", Map.of("path", txn.toString(), "schema", SCHEMA)))
+                .bind(new SourceBinding("orders", "filesystem", Map.of("path", orders.toString(), "schema", SCHEMA)));
 
-        ViewCatalog views = new ViewCatalog();
-        try (QueryRegistry registry =
-                new QueryRegistry(views, TXN).feedingFrom(feeds).multiplexingLanes(true)) {
+        try (QueryRegistry registry = new QueryRegistry(new ViewCatalog(), TXN, ORDERS)
+                .feedingFrom(feeds)
+                .multiplexingLanes(1, 10)) {
+            RegisteredQuery onTxn = count(registry, "txn_count", "txn", "");
+            RegisteredQuery onOrders = count(registry, "orders_count", "orders", "");
 
-            RegisteredQuery big = registry.register(
-                    "big_spenders",
-                    "SELECT user_id, amount FROM txn WHERE amount > 200",
-                    List.of(0),
-                    Principal.ANONYMOUS);
-            RegisteredQuery small = registry.register(
-                    "small_spenders",
-                    "SELECT user_id, amount FROM txn WHERE amount < 200",
-                    List.of(0),
-                    Principal.ANONYMOUS);
-
-            big.awaitApplied(Duration.ofSeconds(30));
-            small.awaitApplied(Duration.ofSeconds(30));
-
-            // First, that multiplexing actually happened. Without this the test passes whether or
-            // not the switch does anything: two queries on two separate lanes produce these same
-            // two answers, so the answers alone prove nothing about sharing.
+            // First, that multiplexing actually happened: two queries on separate lanes would give
+            // these same answers, so the answers alone prove nothing about sharing.
             assertThat(registry.pipelinesPerSharedLane())
                     .as("one shared lane, carrying both registered queries")
                     .containsExactly(2);
 
-            ViewQuery reader = new ViewQuery(views);
-            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-            while (System.nanoTime() < deadline
-                    && (reader.execute("SELECT user_id FROM big_spenders").size() < 2
-                            || reader.execute("SELECT user_id FROM small_spenders")
-                                            .size()
-                                    < 2)) {
-                Thread.sleep(20);
-            }
+            assertThat(settled(onTxn, 4)).containsExactly(4L, 800L);
+            assertThat(settled(onOrders, 2)).containsExactly(2L, 30L);
+        }
+    }
 
-            assertThat(reader.execute("SELECT user_id FROM big_spenders").rows().stream()
-                            .map(row -> (String) row[0])
-                            .sorted()
-                            .toList())
-                    .as("only the two rows over 200, on a lane it shares with a query selecting the other two")
-                    .containsExactly("bob", "dan");
+    @Test
+    void twoQueriesOverOneStreamAreKeptApartAndEachCountsEachRowOnce(@TempDir Path dir) throws Exception {
+        Path txn = Files.writeString(dir.resolve("txn.csv"), "ann,100\nbob,250\ncat,50\ndan,400\n");
 
-            assertThat(reader.execute("SELECT user_id FROM small_spenders").rows().stream()
-                            .map(row -> (String) row[0])
-                            .sorted()
-                            .toList())
-                    .as("and only the two under 200. Two answers from one inbox and one arena is the "
-                            + "whole of W9-8; the same answer twice would mean the batch went to every pipeline")
-                    .containsExactly("ann", "cat");
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding("txn", "filesystem", Map.of("path", txn.toString(), "schema", SCHEMA)));
+
+        try (QueryRegistry registry =
+                new QueryRegistry(new ViewCatalog(), TXN).feedingFrom(feeds).multiplexingLanes(1, 10)) {
+            RegisteredQuery all = count(registry, "all_count", "txn", "");
+            RegisteredQuery big = count(registry, "big_count", "txn", " WHERE amount > 200");
+
+            assertThat(registry.pipelinesPerSharedLane()).containsExactly(1);
+            assertThat(registry.queriesOnOwnLanes())
+                    .as("the second query over txn, on a lane of its own")
+                    .isEqualTo(1);
+
+            // Each registration's feed copies all four rows into its own query's lane. Had both
+            // queries been on the one shared lane, each pipeline would have been handed both copies:
+            // eight and 1600, and four and 1300.
+            assertThat(settled(all, 4)).containsExactly(4L, 800L);
+            assertThat(settled(big, 2)).containsExactly(2L, 650L);
         }
     }
 }

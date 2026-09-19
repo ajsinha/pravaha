@@ -220,7 +220,7 @@ is sized by cores — roughly 30 of them on this class of box, whatever the quer
 > That combination is refused (`PRV-3020`) rather than left to be discovered in the numbers. Run a
 > keyed aggregate on one lane until key-partitioned ingestion exists.
 
-| Inbox, arena, timer wheel, thread | **0** *designed* | ~150 MB total | Per lane, ~30 of them. **As built on a node: the thread is shared and the inbox and arena are not.** `LaneRunner` gives the node one thread per core whatever the query count (W9-5), but a node's lane still runs one query — the registry can share one lane between many only when an embedder asks it to (W9-8) — so its inbox is per query — 1,024 KiB by default, and the arena's first slab is allocated on the first row rather than at registration (W9-6). Measured: **1,024 KiB per idle query, 1,328 KiB active**, down from ~5 MiB — and the lane's arena is **zero** for both a projection and a windowed aggregate, because operator output goes to the view rather than through the lane's scratch. The inbox is the whole of the idle cost; sized down (`inbox.cells: 256`, `cell-bytes: 256`) a thousand idle queries is about 64 MB |
+| Inbox, arena, timer wheel, thread | **0** *designed* | ~150 MB total | Per lane, ~30 of them. **As built on a node: the thread is shared and the inbox and arena are not.** `LaneRunner` gives the node one thread per core whatever the query count (W9-5), but by default a node's lane still runs one query — `pravaha.lane.multiplex.enabled` shares lanes, one query per stream per lane (W9-8) — so its inbox is per query — 1,024 KiB by default, and the arena's first slab is allocated on the first row rather than at registration (W9-6). Measured: **1,024 KiB per idle query, 1,328 KiB active**, down from ~5 MiB — and the lane's arena is **zero** for both a projection and a windowed aggregate, because operator output goes to the view rather than through the lane's scratch. The inbox is the whole of the idle cost; sized down (`inbox.cells: 256`, `cell-bytes: 256`) a thousand idle queries is about 64 MB |
 | Aerospike connections | **0** | one pool | Node-wide, shared |
 
 The 64 GB heap is therefore *not* where the money goes, and that is deliberate: the heap holds
@@ -273,11 +273,21 @@ fixed pool of one thread per core and `QueryRegistry` owns one runner, so a node
 follows its cores — `NodeScaleTest` measures 200 queries adding 24 platform threads where the same
 workload cost 400 before. `SharedClock` did the same for the watermark and checkpoint schedulers.
 
-**Built in the registry, not reachable from a node (W9-8):** `LaneMultiplexer` puts many pipelines on
-one lane and so shares the *inbox and arena* as well as the thread. `QueryRegistry` hosts queries on
-lanes it owns (`QueryExecution.startOn`) when `multiplexingLanes(true)` is called, so one query
-closing no longer stops a lane serving the rest — and no `pravaha.*` setting calls it, so a node
-still runs a lane per query.
+**Built, off by default (W9-8):** `LaneMultiplexer` puts many pipelines on one lane and so shares
+the *inbox and arena* as well as the thread. With `pravaha.lane.multiplex.enabled`, `QueryRegistry`
+hosts registrations on a fixed set of shared lanes it owns (`QueryExecution.startOn`), so one query
+closing no longer stops a lane serving the rest. `SharedLanes` is the admission control: each
+registration goes to the least loaded shared lane below `max-queries-per-lane`, and one that fits
+nowhere gets a lane of its own — never a refusal, because turning on a memory setting must not make
+a node accept fewer queries. Off by default because a shared lane shares its fate: one pipeline
+that throws stops every query on the lane.
+
+**A shared lane carries one query per stream.** The multiplexer dispatches by stream and assumes one
+ingest per stream per lane fanned out to every pipeline; the feed layer gives each registration its
+own feed, so two queries over one stream on one lane each received the other's copy of every row
+(a count of 4 read 8). Placement keeps them apart, and joins — two streams, where a shared lane has
+one inbox — are never hosted. Sharing the ingest is what would let a thousand queries over one
+stream share lanes, and it is not built.
 
 Two things had to be true first, and both are. A row carries a `streamId` the registry assigns, and
 the multiplexer refuses an unassigned one rather than guessing (W9-9) — before that every row of

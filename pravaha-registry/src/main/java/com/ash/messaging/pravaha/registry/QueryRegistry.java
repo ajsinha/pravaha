@@ -142,36 +142,37 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /**
-     * Whether registrations share multiplexed lanes rather than each taking one of their own.
+     * Whether registrations share multiplexed lanes rather than each taking one of their own, and
+     * if so, on how many lanes and at what ceiling. Null when every query gets a lane of its own.
      *
-     * <p>W9-8, and off by default because it changes where every registered query runs. ADR-027
-     * already removed the thread per query — {@link com.ash.messaging.pravaha.runtime.lane.LaneRunner}
-     * drives many lanes from a pool sized to the cores — so what is left on the table is the
-     * <em>inbox and arena</em> a lane owns, about 1,024 KiB idle per query. Multiplexing shares one
-     * of each between every pipeline on the lane.
+     * <p>W9-8. ADR-027 already removed the thread per query — {@link
+     * com.ash.messaging.pravaha.runtime.lane.LaneRunner} drives many lanes from a pool sized to the
+     * cores — so what is left on the table is the <em>inbox and arena</em> a lane owns, about 1,024
+     * KiB idle per query. Multiplexing shares one of each between every pipeline on the lane.
      *
-     * <p>It was blocked on two things and both are now settled. A row carries the identity of the
-     * stream it came from, so the multiplexer dispatches by schema id instead of asking three
-     * hundred pipelines whether a batch is theirs (W9-9); and a watermark advance no longer clamps
-     * the lane's batch, so hundreds of pipelines ticking once a second no longer cut the lane's
-     * batches hundreds of times a second (W9-10).
+     * <p>A row carries the identity of its stream (W9-9), and a watermark advance no longer clamps
+     * the lane's batch (W9-10). Which lane a registration lands on is {@link SharedLanes}'s
+     * decision, and its javadoc gives the rules and why they are what they are.
      *
-     * <p>Still opt-in, because the thing it has not got is admission control: nothing decides
-     * <em>which</em> lane a registration lands on, so every query on a node shares one lane's
-     * budget and a heavy query is bounded only by the multiplexer's fair-ordering, not by a
-     * ceiling. Turning it on is a deployment saying it would rather have the memory than the
-     * isolation.
+     * <p>Off unless asked for. A node reaches it through {@code pravaha.lane.multiplex.*}; an
+     * embedder through {@link #multiplexingLanes(int, int)}. It stays off by default because
+     * sharing a lane shares its fate: a pipeline that throws kills the lane, and with it every
+     * query on it, where a lane per query loses one.
      */
-    private boolean multiplexing;
+    private SharedLanes sharedLanes;
 
-    /** The lanes hosted queries share. Created on first use, like the runner, and for the same reason. */
-    private volatile com.ash.messaging.pravaha.runtime.lane.LaneGroup sharedLanes;
+    /** How many lanes and what ceiling {@link #sharedLanes} is built with, once multiplexing is on. */
+    private int sharedLaneCount;
 
-    private synchronized com.ash.messaging.pravaha.runtime.lane.LaneGroup sharedLanes() {
+    private int maxQueriesPerSharedLane;
+
+    /** Which shared lane each hosted computation is on. Absent means a lane of its own. */
+    private final Map<QueryFingerprint, Integer> sharedLaneOf = new java.util.HashMap<>();
+
+    private synchronized SharedLanes sharedLanes() {
         if (sharedLanes == null) {
-            sharedLanes = new com.ash.messaging.pravaha.runtime.lane.LaneGroup(
-                    1, laneConfig, access, context -> new com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer());
-            sharedLanes.startOn(laneRunner());
+            sharedLanes =
+                    new SharedLanes(sharedLaneCount, maxQueriesPerSharedLane, laneConfig, access, this::laneRunner);
         }
         return sharedLanes;
     }
@@ -179,24 +180,47 @@ public final class QueryRegistry implements AutoCloseable {
     /**
      * How many query pipelines are sharing each multiplexed lane, or empty when not multiplexing.
      *
-     * <p>The number ADR-036's density argument is actually about: with a lane per query this is
-     * meaningless, and with multiplexing on it is how many queries a lane's single inbox and arena
-     * are serving. An operator watching a node approach its budget wants this beside the per-query
-     * byte counts, because those attribute the <em>shared</em> lane to every query on it — two
-     * queries on one lane each report that lane's inbox, so summing them overstates the node.
+     * <p>One entry per configured lane, zero for a lane nothing has been placed on yet. The number
+     * ADR-036's density argument is actually about: with a lane per query this is meaningless, and
+     * with multiplexing on it is how many queries a lane's single inbox and arena are serving. An
+     * operator watching a node approach its budget wants this beside the per-query byte counts,
+     * because those attribute the <em>shared</em> lane to every query on it — two queries on one
+     * lane each report that lane's inbox, so summing them overstates the node.
      */
     public synchronized java.util.List<Integer> pipelinesPerSharedLane() {
-        if (sharedLanes == null) {
+        if (sharedLaneCount == 0) {
             return java.util.List.of();
         }
-        java.util.List<Integer> counts = new ArrayList<>(sharedLanes.laneCount());
-        for (com.ash.messaging.pravaha.runtime.lane.Lane lane : sharedLanes.lanes()) {
-            counts.add(
-                    lane.processor() instanceof com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer mux
-                            ? mux.pipelineCount()
-                            : 0);
-        }
-        return List.copyOf(counts);
+        return sharedLanes().pipelinesPerLane();
+    }
+
+    /**
+     * The shared lane a registered name's computation runs on, or empty when it has a lane of its
+     * own -- because multiplexing is off, or because admission control found no lane for it.
+     */
+    public synchronized java.util.Optional<Integer> sharedLaneOf(String name) {
+        return java.util.Optional.ofNullable(sharedLaneOf.get(require(name).fingerprint()));
+    }
+
+    /**
+     * Computations running on a lane of their own.
+     *
+     * <p>With multiplexing off, all of them. With it on, the ones admission control could not host:
+     * every lane at its ceiling, a lane for their stream already taken on each, or a query reading
+     * more than one stream. Each costs the inbox multiplexing was turned on to save, so a number
+     * that keeps rising on a multiplexing node is the signal to add shared lanes or raise the
+     * ceiling.
+     */
+    public synchronized int queriesOnOwnLanes() {
+        return byFingerprint.size()
+                - (int) byFingerprint.keySet().stream()
+                        .filter(sharedLaneOf::containsKey)
+                        .count();
+    }
+
+    /** The per-lane ceiling in force, or zero when not multiplexing. */
+    public synchronized int maxQueriesPerSharedLane() {
+        return sharedLaneCount == 0 ? 0 : maxQueriesPerSharedLane;
     }
 
     /** Where a registration's named sink is resolved. {@link SinkFactory#NONE} until one is given. */
@@ -244,13 +268,43 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /**
-     * Registrations share multiplexed lanes instead of each owning one.
+     * Registrations share one multiplexed lane instead of each owning one, or stop sharing.
      *
-     * <p>See {@link #multiplexing}. Only an embedder can turn it on today: no {@code pravaha.*}
-     * setting reaches this, so a {@code pravaha-server} node always runs a lane per query (W9-8).
+     * <p>The embedder's original switch, kept with its original meaning: one shared lane and no
+     * ceiling, so {@code true} is {@code multiplexingLanes(1, Integer.MAX_VALUE)}. Placement still
+     * applies -- a second query over a stream already on that lane, or a join, gets a lane of its
+     * own (see {@link SharedLanes}).
      */
     public QueryRegistry multiplexingLanes(boolean on) {
-        this.multiplexing = on;
+        return on ? multiplexingLanes(1, Integer.MAX_VALUE) : multiplexingLanes(0, 0);
+    }
+
+    /**
+     * Registrations share {@code lanes} multiplexed lanes, at most {@code maxQueriesPerLane} to a
+     * lane, and a registration that fits on none of them gets a lane of its own (W9-8).
+     *
+     * <p>{@code lanes} of zero turns multiplexing off. Settled before the first registration and not
+     * after: a lane already carrying queries cannot be resized under them.
+     */
+    public synchronized QueryRegistry multiplexingLanes(int lanes, int maxQueriesPerLane) {
+        if (lanes < 0) {
+            throw new IllegalArgumentException("shared lane count cannot be negative, got " + lanes);
+        }
+        if (lanes > 0 && maxQueriesPerLane < 1) {
+            throw new IllegalArgumentException(
+                    "a shared lane must be allowed at least one query, got " + maxQueriesPerLane);
+        }
+        if (!byFingerprint.isEmpty()) {
+            throw new IllegalStateException("queries are already registered on the lanes they were placed on; "
+                    + "configure multiplexing before the first registration");
+        }
+        if (sharedLanes != null) {
+            // Built by an earlier configuration and carrying nothing, since nothing is registered.
+            sharedLanes.close();
+            sharedLanes = null;
+        }
+        this.sharedLaneCount = lanes;
+        this.maxQueriesPerSharedLane = lanes == 0 ? 0 : maxQueriesPerLane;
         return this;
     }
 
@@ -339,8 +393,8 @@ public final class QueryRegistry implements AutoCloseable {
      *
      * <p>What "fine at tens" used to mean was the thread, and that is fixed. What is left is the
      * lane's own inbox -- about a megabyte a query -- which is per query only because each query has
-     * a lane. `LaneMultiplexer` is what makes many share one; W9-8 and W9-10 record what it still
-     * needs.
+     * a lane. `LaneMultiplexer` is what makes many share one, and {@link #multiplexingLanes(int, int)}
+     * is how a registry is told to use it (W9-8).
      */
     public QueryRegistry executingWith(LaneConfig laneConfig, MemoryAccess access) {
         this.laneConfig = laneConfig;
@@ -990,9 +1044,14 @@ public final class QueryRegistry implements AutoCloseable {
         // InterpretedPipeline and drove it on the caller's thread, which is why a registered query
         // had no lane, no arena, no checkpointing and no watermarks: everything the runtime offers
         // belonged to the other path, and the server ran this one.
-        QueryExecution execution = (multiplexing
+        //
+        // W9-8: when multiplexing, admission control picks the shared lane, and a query it cannot
+        // place runs on a lane of its own exactly as it would with multiplexing off.
+        Optional<SharedLanes.Placement> placement =
+                sharedLaneCount == 0 ? Optional.empty() : sharedLanes().place(streamIdsOf(plan));
+        QueryExecution execution = (placement.isPresent()
                         ? QueryExecution.startOn(
-                                sharedLanes(), name, plan, () -> (RowOutput) sink::begin, lookups, access)
+                                placement.get().group(), name, plan, () -> (RowOutput) sink::begin, lookups, access)
                         : QueryExecution.start(
                                 plan, 1, laneConfig, access, () -> (RowOutput) sink::begin, lookups, laneRunner()))
                 // The view goes in the checkpoint too. A filter or a projection has no operator
@@ -1036,7 +1095,21 @@ public final class QueryRegistry implements AutoCloseable {
             execution.close();
             throw e;
         }
+        placement.ifPresent(where -> sharedLaneOf.put(fingerprint, where.index()));
         return query;
+    }
+
+    /** The ids of the streams a plan reads, as this registry identified them. */
+    private List<Integer> streamIdsOf(PhysicalOperator plan) {
+        List<Integer> ids = new ArrayList<>();
+        for (String stream : sourceStreams(plan)) {
+            for (StreamSchema known : streams) {
+                if (known.name().equals(stream)) {
+                    ids.add(known.streamId());
+                }
+            }
+        }
+        return ids;
     }
 
     /**
@@ -1269,6 +1342,7 @@ public final class QueryRegistry implements AutoCloseable {
         views.remove(name);
         if (query.removeName(name)) {
             byFingerprint.remove(query.fingerprint());
+            sharedLaneOf.remove(query.fingerprint());
             query.close();
             // The checkpoints go with the computation. They are a fallback for a query that exists;
             // once nothing holds this one open they are state outliving its owner, and they
@@ -1299,7 +1373,8 @@ public final class QueryRegistry implements AutoCloseable {
         // directions: a hosted query's close only removes its pipelines and deliberately leaves the
         // lane running for the queries still on it, so somebody has to close the lane itself -- and
         // it can only finish while its runner is still stepping it.
-        com.ash.messaging.pravaha.runtime.lane.LaneGroup shared = sharedLanes;
+        sharedLaneOf.clear();
+        SharedLanes shared = sharedLanes;
         sharedLanes = null;
         if (shared != null) {
             shared.close();

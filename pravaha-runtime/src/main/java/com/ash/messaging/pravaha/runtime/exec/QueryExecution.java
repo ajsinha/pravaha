@@ -245,18 +245,20 @@ public final class QueryExecution implements AutoCloseable {
      * neither is checked lazily, because a query that registered into the wrong kind of processor
      * would fail at the first row rather than at the call that was wrong.
      *
-     * <p><strong>Used by the registry when {@code QueryRegistry.multiplexingLanes(true)} is set</strong>
-     * -- by an embedder; no node setting reaches it yet (W9-8). Both of
-     * the halves this paragraph used to name as unsettled are settled: a row carries the identity
-     * of the stream it came from (W9-9), and a watermark advance is a level rather than a cut, so
-     * it no longer clamps the lane's batch (W9-10) — which was the cost that made hundreds of
-     * pipelines on one lane untenable.
+     * <p><strong>Used by the registry when multiplexing is on</strong> -- {@code
+     * pravaha.lane.multiplex.enabled} on a node, {@code QueryRegistry.multiplexingLanes} for an
+     * embedder (W9-8). The registry's {@code SharedLanes} decides which group a registration is
+     * started on, under a per-lane ceiling. A row carries the identity of the stream it came from
+     * (W9-9), and a watermark advance is a level rather than a cut, so it no longer clamps the
+     * lane's batch (W9-10).
      *
-     * <p>What is still missing, and why the registry's switch defaults to off, is <em>admission
-     * control</em>: nothing decides which lane a registration lands on, so every hosted query shares
-     * one lane's budget. {@code LaneMultiplexer} bounds a heavy query's effect on latency ordering
-     * by running pipelines in ascending order of lane time consumed, but that is fair ordering, not
-     * a ceiling.
+     * <p><strong>Dispatch is by stream, and this execution's rows are not its own.</strong> Rows
+     * handed to {@link #accept} go into the shared inbox and are dispatched to every pipeline on the
+     * lane subscribed to their stream. Two executions over one stream on one lane therefore each
+     * receive the other's rows, and since each registration is fed separately, each counts every row
+     * twice. The caller must not put two queries over one stream on one group; the registry's
+     * placement refuses to, and a join (two streams, where a shared lane has one inbox) is never
+     * hosted at all.
      */
     public static QueryExecution startOn(
             LaneGroup group,

@@ -290,8 +290,8 @@ pravaha:
   # -- that megabyte becomes 64 KiB. One rule when sizing down: a cell must fit the widest row the
   # query will see, because a row that does not fit is refused at ingest rather than buffered.
   #
-  # The inbox is per query only because each query has a lane of its own. The registry can host many
-  # queries on one lane (LaneMultiplexer), but no setting here turns that on yet (W9-8).
+  # The inbox is per query only because each query has a lane of its own -- unless multiplex is on,
+  # below, and then queries share a fixed set of lanes and their inboxes (W9-8).
   #
   # Documented for operators in docs/OPERATIONS.md, "Sizing a node for many queries".
   lane:
@@ -303,6 +303,19 @@ pravaha:
     arena:
       slab-bytes: 4194304
       max-slabs: 8
+    # Registered queries share `lanes` lanes, at most `max-queries-per-lane` to each, instead of
+    # holding one lane -- and one inbox -- apiece. OFF by default: a shared lane shares its fate, so
+    # a query whose pipeline fails takes every query on its lane down with it.
+    #
+    # A registration lands on the least loaded shared lane below the ceiling that carries no other
+    # query over the same stream (two would each count the other's rows). One that fits nowhere, or
+    # that reads more than one stream (a join), gets a lane of its own -- never refused.
+    # Zero lanes means one per available processor. Watch pravaha_lane_shared_queries{lane=} and
+    # pravaha_lane_own_queries, or the "lanes:" line of the node's status.
+    multiplex:
+      enabled: false
+      lanes: 0
+      max-queries-per-lane: 300
 
   # Whether this node may write state into a directory another node already owns.
   #

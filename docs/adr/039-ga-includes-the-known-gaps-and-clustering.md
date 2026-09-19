@@ -67,7 +67,7 @@ assumed — denied and absent reads cost 0.033 and 0.036 ms — and closed on th
 | | Where it stands |
 |---|---|
 | 1 | **Closed** — one reader per source binding (SRC-3) |
-| 2 | **Closed in the registry, not reachable from a node.** A watermark no longer clamps a lane's batch (W9-10), and `QueryRegistry` hosts queries on shared lanes when asked to; no `pravaha.*` setting asks it to, and nothing decides which lane a registration lands on (W9-8) |
+| 2 | **Closed, off by default** — `pravaha.lane.multiplex.*` puts registered queries on a fixed set of shared lanes, each registration on the least loaded one below a per-lane ceiling, and one no lane will take gets a lane of its own rather than a refusal; `pravaha_lane_shared_queries` and `pravaha_lane_own_queries` show where they went (W9-8). A watermark no longer clamps a lane's batch (W9-10). **Narrower than the item hoped:** a shared lane carries one query per stream, because each query is fed separately and two over one stream on one lane each counted the other's rows — measured at 8 where 4 was right. One ingest per stream per lane would lift that and is not built |
 | 3 | **Closed, off by default** — `pravaha.state.spill.*` gives join and windowed-aggregate state a memory-mapped overflow tier; `COUNT(DISTINCT)` cannot spill and is refused by name with it on |
 | 4 | **Closed except `COUNT(DISTINCT)`** — join indexes and windowed-aggregate accumulators are off-heap in `VariableKeyStateMap` |
 | 5 | **Closed** — a registration names a sink, the changelog is checked before the sink opens, and every commit reaches it, at least once ([ADR-043](043-how-a-continuous-query-names-its-sink.md)) |

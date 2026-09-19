@@ -69,6 +69,7 @@ public class PravahaMetrics implements AutoCloseable {
     private final MeterRegistry meters;
     private final PravahaNode node;
     private final Map<String, List<Meter.Id>> published = new ConcurrentHashMap<>();
+    private final List<Meter.Id> laneMeters = new ArrayList<>();
     private final ScheduledExecutorService scheduler;
 
     public PravahaMetrics(MeterRegistry meters, PravahaNode node) {
@@ -93,6 +94,7 @@ public class PravahaMetrics implements AutoCloseable {
         if (registry == null) {
             return;
         }
+        publishLaneSharing(registry);
         Set<String> live = registry.names();
 
         for (String name : live) {
@@ -144,6 +146,43 @@ public class PravahaMetrics implements AutoCloseable {
         published.put(name, ids);
     }
 
+    /**
+     * The node's lane sharing, published once: queries on each shared lane, and queries holding a
+     * lane of their own (W9-8).
+     *
+     * <p>Per node, not per query, so these are not in {@link #published} and are not removed by a
+     * drop. The shared lane count is fixed when the registry is configured, so one gauge per lane is
+     * registered the first time a registry is seen and read through the node thereafter.
+     */
+    private void publishLaneSharing(QueryRegistry registry) {
+        if (!laneMeters.isEmpty()) {
+            return;
+        }
+        laneMeters.add(Gauge.builder("pravaha.lane.own.queries", node, PravahaMetrics::queriesOnOwnLanes)
+                .register(meters)
+                .getId());
+        int sharedLanes = registry.pipelinesPerSharedLane().size();
+        for (int i = 0; i < sharedLanes; i++) {
+            int lane = i;
+            laneMeters.add(Gauge.builder("pravaha.lane.shared.queries", node, n -> queriesOnSharedLane(n, lane))
+                    .tags(Tags.of("lane", Integer.toString(lane)))
+                    .register(meters)
+                    .getId());
+        }
+    }
+
+    private static double queriesOnOwnLanes(PravahaNode node) {
+        return node.registry().map(QueryRegistry::queriesOnOwnLanes).orElse(0);
+    }
+
+    private static double queriesOnSharedLane(PravahaNode node, int lane) {
+        return node.registry()
+                .map(QueryRegistry::pipelinesPerSharedLane)
+                .filter(counts -> lane < counts.size())
+                .map(counts -> counts.get(lane))
+                .orElse(0);
+    }
+
     private Meter.Id gauge(
             String name, Tags tags, RegisteredQuery query, java.util.function.ToDoubleFunction<RegisteredQuery> value) {
         // Micrometer holds the object weakly, so a query dropped between syncs cannot be kept alive
@@ -180,5 +219,7 @@ public class PravahaMetrics implements AutoCloseable {
         scheduler.shutdownNow();
         published.values().forEach(ids -> ids.forEach(meters::remove));
         published.clear();
+        laneMeters.forEach(meters::remove);
+        laneMeters.clear();
     }
 }

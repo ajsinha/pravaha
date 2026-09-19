@@ -704,6 +704,9 @@ public class PravahaNode implements SmartLifecycle {
         // path ever called executingWith, so every query on every node ran with the library's sizes
         // -- chosen for one high-throughput query, and paid for by each of a thousand small ones.
         registry.executingWith(lanes.toLaneConfig(), com.ash.messaging.pravaha.common.memory.MemoryAccess.best());
+        // W9-8. The registry could host queries on shared lanes and no node ever asked it to.
+        registry.multiplexingLanes(
+                lanes.getMultiplex().effectiveLanes(), lanes.getMultiplex().getMaxQueriesPerLane());
         // Said once at startup, because the ceiling it names is the one a node holding many sources
         // reaches first -- and reaches with an error that blames the network (SRC-4).
         com.ash.messaging.pravaha.common.io.FileDescriptors.usage()
@@ -720,6 +723,7 @@ public class PravahaNode implements SmartLifecycle {
                 lanes.getArena().getMaxSlabs(),
                 lanes.getWaitStrategy(),
                 lanes.idleBytesPerQuery() / 1024);
+        log.info("{}", laneSharing());
         log.info(
                 "security: authentication={}, policy={}, audit={}, flight transport={}",
                 security.authenticates() ? "token" : "none",
@@ -1044,7 +1048,28 @@ public class PravahaNode implements SmartLifecycle {
                                 : coordinator.guarantees().name()),
                 "flight: " + (flight == null ? "disabled" : flightHost + ":" + flight.port()),
                 "registry: " + (registry == null ? "not started" : registry.size() + " queries"),
+                laneSharing(),
                 "journal: " + journalPath.map(Path::toString).orElse("none (queries are lost on restart)"));
+    }
+
+    /**
+     * Whether queries share lanes, and how full each shared lane is (W9-8).
+     *
+     * <p>The line an operator reads to know what {@code pravaha.lane.multiplex.*} is doing: per
+     * shared lane, how many queries it carries against its ceiling, and how many queries could not
+     * be placed and hold a lane -- and an inbox -- of their own.
+     */
+    private String laneSharing() {
+        QueryRegistry current = registry;
+        if (current == null) {
+            return "lanes: not started";
+        }
+        if (current.maxQueriesPerSharedLane() == 0) {
+            return "lanes: one per query (pravaha.lane.multiplex.enabled is false)";
+        }
+        return "lanes: shared, queries per lane " + current.pipelinesPerSharedLane() + " of at most "
+                + current.maxQueriesPerSharedLane() + "; " + current.queriesOnOwnLanes()
+                + " on lanes of their own";
     }
 
     /** How long shutdown may take before Spring stops waiting. */
