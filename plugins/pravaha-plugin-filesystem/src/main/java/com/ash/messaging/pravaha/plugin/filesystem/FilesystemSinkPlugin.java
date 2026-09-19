@@ -93,8 +93,15 @@ public final class FilesystemSinkPlugin implements StreamSinkPlugin {
                             path, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)
                     : Files.newBufferedWriter(path, StandardCharsets.UTF_8);
         } catch (IOException e) {
+            // API-F3. This said "cannot open <path> for writing" and stopped, so a read-only
+            // directory, a full disk and a path whose parent is a file all read identically -- the
+            // cause was on the wrapped IOException and no surface prints one. The read side already
+            // carries it (FilesystemPartitionReader.why), and the same sentence answers the
+            // question an operator actually has.
             throw new ConfigurationException(
-                    DelimitedCodec.DECODE_FAILED, "cannot open " + path.toAbsolutePath() + " for writing", e);
+                    DelimitedCodec.DECODE_FAILED,
+                    "cannot open " + path.toAbsolutePath() + " for writing: " + FilesystemPartitionReader.why(e),
+                    e);
         }
     }
 

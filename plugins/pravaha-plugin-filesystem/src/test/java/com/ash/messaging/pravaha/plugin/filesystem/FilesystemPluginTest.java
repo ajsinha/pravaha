@@ -112,6 +112,38 @@ class FilesystemPluginTest {
                 .contains("almost certainly fine");
     }
 
+    /**
+     * The sink's open failure says why too, not only the read side's.
+     *
+     * <p>API-F3. The reader was fixed and the writer was not: {@code cannot open <path> for
+     * writing} and nothing else, so a read-only directory, a full disk and a parent that is a file
+     * were one message. Driven with a read-only directory, which is the case the finding names
+     * (API-050) and the one an operator most often hits.
+     */
+    @Test
+    void aSinkThatCannotOpenSaysWhatTheOperatingSystemSaid(@TempDir Path directory) throws IOException {
+        Path locked = Files.createDirectory(directory.resolve("locked"));
+        java.util.Set<java.nio.file.attribute.PosixFilePermission> original = Files.getPosixFilePermissions(locked);
+        Files.setPosixFilePermissions(locked, java.util.Set.of(java.nio.file.attribute.PosixFilePermission.OWNER_READ));
+        try {
+            FilesystemSinkPlugin sink = new FilesystemSinkPlugin();
+            sink.configure(new Ctx(
+                    "out",
+                    Map.of("path", locked.resolve("out.csv").toString(), "schema", "id:INT64", "append", "false")));
+
+            assertThatThrownBy(sink::open)
+                    .isInstanceOf(ConfigurationException.class)
+                    .as("the path, as before")
+                    .hasMessageContaining(locked.resolve("out.csv").toString())
+                    .as("and the word the operator needs, which appeared on neither side")
+                    .hasMessageContaining("permission denied")
+                    .as("and where to look, since the remedy for this one is not in the path")
+                    .hasMessageContaining("owner and mode");
+        } finally {
+            Files.setPosixFilePermissions(locked, original);
+        }
+    }
+
     // ------------------------------------------------------------------ schema parsing
 
     @Test

@@ -139,6 +139,14 @@ final class FilesystemPartitionReader implements PartitionReader {
         String reason = failure.getMessage() == null || failure.getMessage().isBlank()
                 ? failure.getClass().getSimpleName()
                 : failure.getMessage();
+        if (failure instanceof java.nio.file.AccessDeniedException) {
+            // API-F3. AccessDeniedException carries the path as its message and null as its
+            // reason, so the one word an operator needs -- permission -- reached neither side:
+            // the sentence repeated the path they had just typed. This is the commonest open
+            // failure there is and the only one whose remedy is not in the path at all.
+            return reason + ": permission denied. A node reads and writes as the user it runs as, "
+                    + "so check the file's owner and mode and its directory's";
+        }
         if (reason.toLowerCase(java.util.Locale.ROOT).contains("too many open files")) {
             return reason
                     + ". This is the process's file-descriptor limit, not this file: a node holds one "
