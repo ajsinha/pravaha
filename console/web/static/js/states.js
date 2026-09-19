@@ -27,7 +27,7 @@
     /* Never had any. Explains what this is and offers the action that makes the
        first one. */
     emptyNever: function (what, action) {
-      return '<div class="state"><h3>No ' + esc(what) + ' yet</h3>' +
+      return '<div class="state"><h2>No ' + esc(what) + ' yet</h2>' +
         "<p>A continuous query is registered once and maintained for as long as it is " +
         "registered. Nothing has been registered on this engine.</p>" + (action || "") + "</div>";
     },
@@ -36,7 +36,7 @@
        out. Conflating the two tells somebody there is no data when there is
        plenty and their filter is wrong. */
     emptyFiltered: function (onClear) {
-      return '<div class="state"><h3>Nothing matches this filter</h3>' +
+      return '<div class="state"><h2>Nothing matches this filter</h2>' +
         "<p>There are registered queries, but none match what you have typed. The filter is in " +
         "the URL, so this view is shareable either way.</p>" +
         '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="' +

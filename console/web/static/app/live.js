@@ -84,7 +84,7 @@ function start(root) {
     const live = [...current.values()].filter((r) => r.weight > 0);
     document.getElementById("c-rows").textContent = live.length.toLocaleString();
     if (!live.length) {
-      rowsBody.innerHTML = `<tr><td colspan="${Math.max(1, columns.length)}"><div class="state"><h3>The view is empty</h3>
+      rowsBody.innerHTML = `<tr><td colspan="${Math.max(1, columns.length)}"><div class="state"><h2>The view is empty</h2>
         <p>No row is present right now${filter ? " for this filter" : ""}. One appears when the data that makes it arrives.</p></div></td></tr>`;
       return;
     }

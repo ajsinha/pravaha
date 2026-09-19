@@ -26,231 +26,16 @@ CONSOLE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 REPO_ROOT = CONSOLE_ROOT.parent
 sys.path.insert(0, str(CONSOLE_ROOT))
 
+from fake_engine import PROMETHEUS, SINK_SECRET, TXN, FakeEngine
+
 from core import authoring, metrics, snippets
 from core.config.properties_configurator import PropertiesConfigurator
 from core.content.codes import lookup as code_lookup
-from core.engine import EngineHttpError, QueryRow
 from run_pravaha_web import create_app
 
 PASSWORD = "product-test-password"
 ENGINE_TOKEN = "s3cret-engine-token-must-never-reach-a-browser"
 SESSION_SECRET = "s3cret-session-key-must-never-reach-a-browser"
-
-SINK_SECRET = "jdbc-password-that-the-engine-never-publishes"
-
-TXN = {"name": "txn", "version": 1, "fieldCount": 4, "eventTime": "event_time",
-       "outOfOrderness": "PT10S", "source": "filesystem", "fields": [
-    {"name": "txn_id", "type": "BIGINT", "nullable": False, "ordinal": 0},
-    {"name": "user_id", "type": "VARCHAR", "nullable": False, "ordinal": 1},
-    {"name": "amount", "type": "BIGINT", "nullable": False, "ordinal": 2},
-    {"name": "event_time", "type": "TIMESTAMP(3)", "nullable": False, "ordinal": 3},
-]}
-
-PROMETHEUS = """\
-# HELP pravaha_query_rows_in
-# TYPE pravaha_query_rows_in gauge
-pravaha_query_rows_in{query="big_txn"} 1200.0
-pravaha_query_rows_in{query="hot"} 50.0
-pravaha_query_state_fraction{query="big_txn"} 0.2
-pravaha_query_state_fraction{query="hot"} 0.95
-pravaha_query_state_held{query="hot"} 950.0
-pravaha_query_state_ceiling{query="hot"} 1000.0
-pravaha_query_view_size{query="big_txn"} 17.0
-pravaha_query_watermark_lag_seconds{query="big_txn"} NaN
-pravaha_query_watermark_lag_seconds{query="hot"} 1200.0
-pravaha_query_running{query="big_txn"} 1.0
-pravaha_query_running{query="hot"} 1.0
-pravaha_query_subscribers{query="big_txn"} 3.0
-pravaha_query_checkpoint_last_success_timestamp_seconds{query="big_txn"} NaN
-pravaha_query_checkpoint_failures_total{query="big_txn"} 0.0
-jvm_memory_used_bytes{area="heap",id="G1 Eden Space"} 1048576.0
-jvm_memory_max_bytes{area="heap",id="G1 Old Gen"} 4194304.0
-process_uptime_seconds 42.5
-this line is not a sample
-"""
-
-
-class FakeEngine:
-    """Engine's public surface, answered from memory. ``down`` makes every call fail."""
-
-    def __init__(self, down: bool = False) -> None:
-        self.url = "grpc://engine.test:9090"
-        self.http_url = "http://engine.test:8080"
-        self.down = down
-        self.registered: list[dict] = []
-        self.queries_seen: list[tuple[str, list | None]] = []
-        self.rows = [[1, "u1", 150], [2, "u2", 900]]
-        self.streams_list = [dict(TXN)]
-        self.metrics_text = PROMETHEUS
-        self.sinks_list = [
-            {"name": "audit_out", "plugin": "filesystem",
-             "fields": [{"name": "txn_id", "type": "INT64", "nullable": False, "ordinal": 0}],
-             "keyColumns": [], "emitModes": ["APPEND"], "acceptsRetractions": False,
-             "guarantee": "AT_LEAST_ONCE", "writers": ["big_txn"], "problem": None},
-            {"name": "broken_out", "plugin": "nope", "fields": [], "keyColumns": [], "emitModes": [],
-             "acceptsRetractions": False, "guarantee": None, "writers": [],
-             "problem": {"code": "PRV-5093", "message": "the 'nope' plugin could not describe this sink",
-                         "helpUrl": ""}},
-        ]
-        self._queries = [
-            QueryRow("big_txn", "RUNNING", "SELECT txn_id, user_id, amount FROM txn WHERE amount > 100",
-                     "abc123def456", 1200, (0,), "audit_out", "PT24H"),
-            QueryRow("hot", "RUNNING", "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id", "fff000", 50),
-            QueryRow("hot_alias", "PAUSED", "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id", "fff000", 50),
-        ]
-        for q in self._queries:
-            object.__setattr__(q, "_shared", q.fingerprint == "fff000")
-
-    def _check(self):
-        if self.down:
-            raise EngineHttpError(0, "the engine's HTTP API at http://engine.test:8080 did not answer")
-
-    # Flight half
-    def health(self):
-        if self.down:
-            return {"reachable": False, "url": self.url, "error": "connection refused"}
-        return {"reachable": True, "url": self.url, "queries": len(self._queries)}
-
-    def queries(self):
-        if self.down:
-            raise ConnectionError("connection refused")
-        return list(self._queries)
-
-    def register(self, name, sql, keys, sink=None, retention=None):
-        self._check()
-        self.registered.append({"name": name, "sql": sql, "keys": list(keys), "sink": sink,
-                                "retention": retention})
-        return QueryRow(name, "RUNNING", sql, "newfp", 0, tuple(keys), sink, retention)
-
-    def lifecycle(self, action, name):
-        self._check()
-
-    def query(self, sql, parameters=None):
-        columns, rows, _ = self.query_typed(sql, parameters)
-        return columns, rows
-
-    def query_typed(self, sql, parameters=None):
-        self._check()
-        self.queries_seen.append((sql, parameters))
-        return ["txn_id", "user_id", "amount"], [list(r) for r in self.rows], ["int64", "string", "int64"]
-
-    def tail(self, view, filters=None):
-        yield {"txn_id": 1, "user_id": "u1", "amount": 150, "_weight": 1}
-        yield {"txn_id": 1, "user_id": "u1", "amount": 150, "_weight": -1}
-
-    # REST half
-    def streams(self):
-        self._check()
-        return list(self.streams_list)
-
-    def declare_stream(self, name, schema, event_time=None, out_of_orderness=None):
-        self._check()
-        fields = [{"name": p.split(":")[0], "type": p.split(":")[1], "nullable": True, "ordinal": i}
-                  for i, p in enumerate(schema.split(","))]
-        stream = {"name": name, "version": 1, "fieldCount": len(fields), "fields": fields,
-                  "eventTime": event_time, "outOfOrderness": out_of_orderness if event_time else None,
-                  "source": None}
-        self.streams_list.append(stream)
-        return stream
-
-    def validate(self, sql):
-        self._check()
-        # Positions as the engine sends them: from the parser, 1-based, end column inclusive.
-        for word, code in (("txm", "PRV-2003"), ("amout", "PRV-2002")):
-            if word in sql:
-                return {"valid": False, "diagnostics": [{"code": code, "severity": "error",
-                        "message": f"'{word}' is not known here",
-                        "helpUrl": f"https://docs.pravaha.io/errors/{code}",
-                        "range": _range_of(sql, word)}],
-                        "outputFields": [], "elapsedMicros": 900}
-        if "PLANONLY" in sql:
-            # A refusal about the plan, not the text: the engine gives no position.
-            return {"valid": False, "diagnostics": [{"code": "PRV-2050", "severity": "error",
-                    "message": "an unwindowed COUNT(DISTINCT) is refused", "helpUrl": ""}],
-                    "outputFields": [], "elapsedMicros": 500}
-        return {"valid": True, "diagnostics": [], "elapsedMicros": 1234, "outputFields": [
-            {"name": "txn_id", "type": "BIGINT", "nullable": False, "ordinal": 0},
-            {"name": "user_id", "type": "VARCHAR", "nullable": False, "ordinal": 1},
-            {"name": "amount", "type": "BIGINT", "nullable": False, "ordinal": 2}]}
-
-    def explain(self, sql, level="physical"):
-        self._check()
-        return {"level": level, "plan": "Project(txn_id, user_id)\n  Filter(amount > 100)\n    Scan(txn)\n",
-                "outputFields": [], "graph": dict(PLAN_GRAPH)}
-
-    def sinks(self):
-        self._check()
-        return [dict(s) for s in self.sinks_list]
-
-    def describe_queries(self):
-        self._check()
-        return [self.describe_query(q.name) for q in self._queries]
-
-    def describe_query(self, name):
-        self._check()
-        for q in self._queries:
-            if q.name == name:
-                return {"name": q.name, "state": q.state, "sql": q.sql, "fingerprint": q.fingerprint,
-                        "sharedWith": [o.name for o in self._queries
-                                       if o.fingerprint == q.fingerprint and o.name != q.name],
-                        "keyColumns": [{"name": "txn_id", "ordinal": 0}], "retention": q.retention or "forever",
-                        "sink": ({"name": q.sink, "attached": False,
-                                  "failure": {"code": "PRV-8009", "message": "sink 'audit_out' failed and has been detached",
-                                              "helpUrl": ""}, "rowsWritten": 7} if q.sink else None),
-                        "rowsIn": q.rows_in, "countsWithheld": False, "registeredAt": "2026-09-19T00:00:00Z",
-                        "failure": None, "reads": ["txn"]}
-        raise EngineHttpError(404, f"no registered query named '{name}' that you may see", "PRV-8002")
-
-    def query_plan(self, name):
-        self._check()
-        self.describe_query(name)
-        return dict(PLAN_GRAPH, query={"rowsIn": 1200, "stateHeld": 3, "stateCeiling": 100,
-                                       "viewSize": 17, "watermark": None, "subscribers": 2})
-
-    def describe_view(self, name):
-        self._check()
-        detail = self.describe_query(name)
-        return {"name": name, "schema": [
-            {"name": "txn_id", "type": "BIGINT", "nullable": False, "ordinal": 0},
-            {"name": "user_id", "type": "VARCHAR", "nullable": False, "ordinal": 1},
-            {"name": "amount", "type": "BIGINT", "nullable": False, "ordinal": 2}],
-            "keyColumns": detail["keyColumns"], "retention": detail["retention"],
-            "sink": detail["sink"]["name"] if detail["sink"] else None, "fingerprint": detail["fingerprint"]}
-
-    def status(self):
-        self._check()
-        return {"instanceId": "n1", "version": "0.1.0", "engineState": "RUNNING", "uptimeSeconds": 5,
-                "registeredQueries": 3, "plugins": [{"name": "filesystem", "version": "1", "health": "UP",
-                                                     "detail": ""}]}
-
-    def prometheus(self):
-        self._check()
-        return self.metrics_text
-
-
-PLAN_GRAPH = {
-    "nodes": [
-        {"id": "n0", "operator": "Project", "detail": "Project(txn_id, user_id)", "stateful": False,
-         "fields": ["txn_id", "user_id"]},
-        {"id": "n1", "operator": "Filter", "detail": "Filter(amount > 100)", "stateful": False,
-         "fields": ["txn_id", "user_id", "amount"]},
-        {"id": "n2", "operator": "Scan", "detail": "Scan(txn)", "stateful": False,
-         "fields": ["txn_id", "user_id", "amount"]},
-    ],
-    "edges": [{"from": "n1", "to": "n0"}, {"from": "n2", "to": "n1"}],
-    "operatorMetrics": None,
-    "metricsNote": "Per-operator rows, state and watermarks are not published.",
-    "query": None,
-}
-
-
-def _range_of(sql: str, word: str) -> dict:
-    for number, line in enumerate(sql.splitlines(), start=1):
-        at = line.find(word)
-        if at >= 0:
-            return {"startLine": number, "startColumn": at + 1, "endLine": number,
-                    "endColumn": at + len(word)}
-    raise AssertionError(word)
 
 
 def _app(engine: FakeEngine, **overrides):
@@ -290,13 +75,14 @@ def engine_down():
 NEW_PAGES = ["/home", "/start", "/catalog", "/catalog?tab=queries", "/catalog?tab=sinks",
              "/catalog/streams/txn", "/views", "/views/big_txn", "/views/big_txn?key=user_id&value=u1",
              "/views/big_txn/live", "/operations", "/workbench", "/workbench?query=big_txn",
-             "/workbench?template=tumble&stream=txn"]
+             "/workbench?template=tumble&stream=txn", "/plugins"]
 
 NEW_JSON_GETS = ["/api/v1/me", "/api/v1/catalog/streams", "/api/v1/catalog/streams/txn",
                  "/api/v1/catalog/completions", "/api/v1/catalog/templates?stream=txn",
                  "/api/v1/views/big_txn/schema", "/api/v1/views/big_txn/snippets?key=user_id&value=u1",
                  "/api/v1/catalog/sinks", "/api/v1/views/big_txn",
-                 "/api/v1/ops/snapshot", "/api/v1/ops/series?metric=rows_in", "/api/v1/ops/stream"]
+                 "/api/v1/ops/snapshot", "/api/v1/ops/series?metric=rows_in", "/api/v1/ops/stream",
+                 "/api/v1/plugins"]
 
 NEW_JSON_POSTS = [("/api/v1/sql/validate", {"sql": "SELECT * FROM txn"}),
                   ("/api/v1/sql/explain", {"sql": "SELECT * FROM txn"}),
@@ -674,7 +460,7 @@ VENDORED = [
     "/static/vendor/monaco/vs/toggleHighContrast-qGX7E9o7.js",
     "/static/vendor/monaco/vs/editor/editor.main.css",
     "/static/vendor/monaco/vs/assets/editor.worker-lj3bdIIn.js",
-    "/static/vendor/echarts/echarts.min.js",
+    "/static/vendor/echarts/echarts.common.min.js",
     "/static/vendor/elkjs/elk.bundled.js",
     "/static/vendor/preact/preact.module.js",
     "/static/vendor/preact/hooks.module.js",
@@ -687,6 +473,17 @@ VENDORED = [
 @pytest.mark.parametrize("path", VENDORED)
 def test_vendored_assets_are_served_by_the_console_itself(anonymous, path):
     assert anonymous.get(path).status_code == 200, path
+
+
+def test_scripts_and_pages_are_sent_compressed(signed_in):
+    """Design 23.15 states its budget gzipped; the console now sends what it measures. (That a
+    compressed console still streams a live view change by change is proven in a browser, by
+    test_browser_journeys' onboarding journey.)"""
+    script = signed_in.get("/static/vendor/bootstrap/js/bootstrap.bundle.min.js",
+                           headers={"Accept-Encoding": "gzip"})
+    assert script.headers.get("content-encoding") == "gzip"
+    page = signed_in.get("/catalog", headers={"Accept-Encoding": "gzip"})
+    assert page.headers.get("content-encoding") == "gzip" and "txn_id" in page.text
 
 
 def test_every_monaco_module_the_editor_loads_is_vendored():
@@ -967,3 +764,86 @@ def test_every_error_code_in_the_table_resolves():
     for code in codes:
         entry = code_lookup(code, docs)
         assert entry is not None and entry.constant, code
+
+
+# ============================================================ the plugins screen
+
+def test_the_plugins_screen_joins_health_with_what_binds_each_plugin(signed_in):
+    body = signed_in.get("/api/v1/plugins").json()
+    by_name = {p["name"]: p for p in body["plugins"]}
+    fs = by_name["filesystem"]
+    assert fs["registered"] and fs["healthy"] and fs["version"] == "1"
+    assert fs["bound_as"] == ["source", "sink"]
+    assert [s["name"] for s in fs["sources"]] == ["txn"] and fs["sources"][0]["event_time"] == "event_time"
+    assert [k["name"] for k in fs["sinks"]] == ["audit_out"] and fs["sinks"][0]["writers"] == ["big_txn"]
+    # A binding naming a plugin the engine never registered is shown, not dropped.
+    nope = by_name["nope"]
+    assert not nope["registered"] and nope["sinks"][0]["problem"]["code"] == "PRV-5093"
+    # Registered plugins first.
+    assert body["plugins"][0]["name"] == "filesystem"
+    page = signed_in.get("/plugins").text
+    assert "not loaded" in page and "Not published by the engine" in page
+    assert "requiredApiVersion" in page and "configSchema" in page
+    assert SINK_SECRET not in page and SINK_SECRET not in json.dumps(body)
+
+
+def test_the_plugins_screen_names_the_call_that_failed_with_the_engine_down(engine_down):
+    page = engine_down.get("/plugins")
+    assert page.status_code == 200
+    assert "status endpoint is not answering" in page.text
+    assert "stream catalog is not answering" in page.text
+    body = engine_down.get("/api/v1/plugins").json()
+    assert body["available"] is False and set(body["errors"]) == {"status", "streams", "sinks"}
+
+
+def test_the_plugins_screen_is_reachable_from_the_account_menu_and_the_palette(signed_in):
+    assert 'href="/plugins"' in signed_in.get("/catalog").text
+    items = signed_in.get("/api/v1/palette").json()["items"]
+    assert any(i.get("href") == "/plugins" for i in items)
+
+
+# ============================================================ the UI string catalog
+
+def test_every_ui_string_key_a_template_or_island_uses_is_in_the_catalog():
+    """A typo in a key renders the key; this is what stops `nav.catlog` shipping in a nav bar."""
+    from core.i18n import Messages
+
+    messages = Messages()
+    used: set[str] = set()
+    prefixes: set[str] = set()
+    for template in (CONSOLE_ROOT / "web" / "templates").glob("*.html"):
+        text = template.read_text(encoding="utf-8")
+        used |= set(re.findall(r"""\bt\(\s*["']([a-z0-9_.]+)["']\s*[,)]""", text))
+        prefixes |= set(re.findall(r"""\bt\(\s*["']([a-z0-9_.]+\.)["']\s*~""", text))
+    for island in (CONSOLE_ROOT / "web" / "static" / "app").glob("*.js"):
+        text = island.read_text(encoding="utf-8")
+        used |= {"js." + k for k in re.findall(r"""\bt\(\s*"([a-z0-9_.]+)"\s*[,)]""", text)}
+        prefixes |= {"js." + k for k in re.findall(r"""\bt\(\s*"([a-z0-9_.]+\.)"\s*\+""", text)}
+    assert len(used) > 40
+    missing = sorted(k for k in used if k not in messages.catalog)
+    assert not missing, f"keys used but not in web/i18n/en.json: {missing}"
+    for prefix in prefixes:
+        assert any(k.startswith(prefix) for k in messages.catalog), prefix
+
+
+def test_the_catalog_fills_named_parameters_and_says_when_one_is_missing():
+    from core.i18n import Messages, MissingMessage
+
+    messages = Messages()
+    assert messages("plugins.columns", n=4) == "4 columns"
+    assert messages("no.such.key") == "no.such.key"
+    strict = Messages(strict=True)
+    with pytest.raises(MissingMessage):
+        strict("no.such.key")
+    with pytest.raises(MissingMessage):
+        strict("plugins.columns")  # needs n
+    assert messages.for_script()["palette.label"] == "Command palette"
+    # An unknown language falls back to English rather than rendering keys.
+    assert Messages("xx")("nav.catalog") == "Catalog"
+
+
+def test_the_shell_and_the_palette_speak_from_the_catalog(signed_in):
+    page = signed_in.get("/catalog").text
+    assert '<script type="application/json" id="i18n-messages">' in page
+    assert '"palette.placeholder"' in page
+    assert ">Skip to content<" in page and 'aria-label="Primary"' in page

@@ -17,6 +17,7 @@ so a section can be linked to directly from a runbook.
 """
 from __future__ import annotations
 
+import html as html_text
 import logging
 import re
 from typing import Any, ClassVar
@@ -66,6 +67,9 @@ class MarkdownRenderer:
     def render(self, text: str) -> tuple[str, list[dict[str, Any]]]:
         engine = markdown.Markdown(extensions=EXTENSIONS, extension_configs=CONFIG)
         html = self._relink(engine.convert(text))
+        # A code block wider than its card scrolls, and a region that scrolls must be reachable
+        # by keyboard (WCAG 2.1.1; axe's scrollable-region-focusable), so every <pre> is a tab stop.
+        html = html.replace("<pre>", '<pre tabindex="0">')
         return html, self._headings(getattr(engine, "toc_tokens", []))
 
     def _relink(self, html: str) -> str:
@@ -93,6 +97,9 @@ class MarkdownRenderer:
         """Flatten the nested toc into a list a template can iterate."""
         out: list[dict[str, Any]] = []
         for t in tokens:
-            out.append({"id": t["id"], "name": t["name"], "level": t["level"]})
+            # The toc extension hands the name back HTML-escaped; unescaped here so the template's
+            # own escaping is the only one. (The template read a `text` key that never existed, so
+            # every "On this page" link was empty -- found by the axe audit's link-name rule.)
+            out.append({"id": t["id"], "name": html_text.unescape(t["name"]), "level": t["level"]})
             out.extend(self._headings(t.get("children", [])))
         return out

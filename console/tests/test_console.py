@@ -7,8 +7,8 @@ would prove the fake works.
 import os
 import pathlib
 import subprocess
-import threading
 import sys
+import threading
 import time
 
 import pytest
@@ -258,7 +258,8 @@ def test_a_query_can_be_paused_resumed_and_dropped(client):
     assert "RUNNING" in client.get("/queries/life").text
 
     client.post("/queries/life/drop")
-    assert "life" not in client.get("/").text
+    # By name in the registry, not by substring on a page: "life" is in "lifecycle".
+    assert "life" not in [q["name"] for q in client.get("/api/v1/queries").json()["items"]]
 
 
 def test_registering_something_invalid_shows_the_engines_message(client):
@@ -376,7 +377,7 @@ def test_a_guide_renders_from_the_repositorys_own_documentation(client):
     # question arose, and sending them elsewhere loses the thread.
     assert "soundness rule" in page
     assert "<table>" in page          # its tables survive
-    assert "<pre>" in page            # its code blocks survive
+    assert "<pre tabindex=\"0\">" in page   # its code blocks survive, and a keyboard can scroll them
 
 
 def test_a_guide_links_to_other_guides_inside_the_console(client):
@@ -661,7 +662,7 @@ def test_a_browser_watching_a_view_receives_what_the_engine_publishes(engine, fe
         subscriber.close()
         try:
             services.engine.drop("ui_tail")
-        except Exception:  # noqa: BLE001 -- the drop is cleanup, not the assertion
+        except Exception:  # noqa: BLE001,S110 -- the drop is cleanup, not the assertion
             pass
 
 

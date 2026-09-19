@@ -90,7 +90,7 @@ function start() {
         <td class="num">${fmt(q.subscribers)}</td>
         <td class="num">${q.commit_latency_mean_seconds === null || q.commit_latency_mean_seconds === undefined ? "—" : (q.commit_latency_mean_seconds * 1000).toFixed(1) + " ms"}</td>
         <td class="small">${checkpoint(q)}</td></tr>`;
-    }).join("") : '<tr><td colspan="10"><div class="state"><h3>No queries registered</h3><p>Once one is, its throughput, state and lag are here.</p><a class="btn btn-sm btn-primary" href="/start">Get started</a></div></td></tr>';
+    }).join("") : '<tr><td colspan="10"><div class="state"><h2>No queries registered</h2><p>Once one is, its throughput, state and lag are here.</p><a class="btn btn-sm btn-primary" href="/start">Get started</a></div></td></tr>';
   }
 
   function build(table, { yName, fixed100 }) {

@@ -86,6 +86,21 @@ the EPL-2.0 grant. It is shipped as the unmodified upstream JavaScript file, so 
 EPL-2.0 source-availability obligation is met by the file itself and the upstream
 repository above.
 
+## Console test tools — vendored, never served
+
+The console's browser tests inject one third-party script into the pages they audit. It
+lives under `console/tests/vendor/`, is not part of the console's wheel and is never sent
+to a browser by the console itself.
+
+| Component | Version | Licence | Licence file | Project |
+|---|---|---|---|---|
+| axe-core | 4.13.0 | Mozilla Public License 2.0 (bundles code under the MIT licence, listed in its third-party file) | `console/tests/vendor/axe-core/LICENSE`, `console/tests/vendor/axe-core/LICENSE-3RD-PARTY.txt` | https://github.com/dequelabs/axe-core |
+
+**axe-core note.** `axe.min.js` is the unmodified file from the npm tarball
+`axe-core-4.13.0.tgz` (sha512 `UzGt8zg7…Kcy0A==`, as published in the registry's
+integrity field). MPL-2.0 is file-level copyleft: the file is redistributed unmodified,
+and its source is the upstream repository above.
+
 ## Fonts and brand assets
 
 The Pravaha name, flow mark and slogan are proprietary to Ashutosh Sinha and are not

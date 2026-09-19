@@ -13,9 +13,9 @@
 <div class="rule"></div>
 
 <nav class="tabs-bar" aria-label="Catalog sections">
-  <a href="/catalog?tab=streams" aria-selected="{{ 'true' if tab == 'streams' else 'false' }}" {% if tab == 'streams' %}aria-current="page"{% endif %}>Streams<span class="count">{{ streams|length }}</span></a>
-  <a href="/catalog?tab=queries" aria-selected="{{ 'true' if tab == 'queries' else 'false' }}" {% if tab == 'queries' %}aria-current="page"{% endif %}>Registered queries<span class="count">{{ queries|length }}</span></a>
-  <a href="/catalog?tab=sinks" aria-selected="{{ 'true' if tab == 'sinks' else 'false' }}" {% if tab == 'sinks' %}aria-current="page"{% endif %}>Sinks</a>
+  <a href="/catalog?tab=streams" {% if tab == 'streams' %}aria-current="page"{% endif %}>Streams<span class="count">{{ streams|length }}</span></a>
+  <a href="/catalog?tab=queries" {% if tab == 'queries' %}aria-current="page"{% endif %}>Registered queries<span class="count">{{ queries|length }}</span></a>
+  <a href="/catalog?tab=sinks" {% if tab == 'sinks' %}aria-current="page"{% endif %}>Sinks</a>
 </nav>
 
 {% if tab == 'streams' %}
@@ -23,7 +23,7 @@
   <div class="alert alert-warning small" role="status"><div class="fw-semibold">The stream catalog is not answering</div>
     {{ streams_error }}. Streams are read from the engine's REST API at <span class="mono">{{ engine_http or 'engine.http_url (not set)' }}</span>.</div>
   {% elif not streams %}
-  <div class="state"><h3>No streams declared</h3><p>A stream is declared under <code>pravaha.streams</code> in the
+  <div class="state"><h2>No streams declared</h2><p>A stream is declared under <code>pravaha.streams</code> in the
     engine's configuration, or through its REST API. The get-started guide can declare one.</p>
     <a class="btn btn-sm btn-primary" href="/start">Declare a stream</a></div>
   {% else %}
@@ -52,7 +52,7 @@
   {% if queries_error %}
   <div class="alert alert-warning small">{{ queries_error }}</div>
   {% elif not queries %}
-  <div class="state"><h3>Nothing registered</h3><p>A continuous query is registered once and maintained until it is dropped.</p>
+  <div class="state"><h2>Nothing registered</h2><p>A continuous query is registered once and maintained until it is dropped.</p>
     <a class="btn btn-sm btn-primary" href="/workbench">Open the workbench</a></div>
   {% else %}
   <div class="card"><div class="table-responsive"><table class="table mb-0">
@@ -80,7 +80,7 @@
   <div class="alert alert-warning small" role="status"><div class="fw-semibold">The sink list is not answering</div>
     {{ sinks_error }}. Sinks are read from the engine's <code>GET /api/v1/sinks</code>.</div>
   {% elif not sinks %}
-  <div class="state"><h3>No sinks you can see</h3><p>A sink is bound in the engine's configuration under
+  <div class="state"><h2>No sinks you can see</h2><p>A sink is bound in the engine's configuration under
     <code>pravaha.sinks.&lt;name&gt;</code> and named at registration. None is bound, or none is visible to this console's identity.</p></div>
   {% else %}
   <div class="card"><div class="table-responsive"><table class="table mb-0" id="sinks-table">

@@ -11,13 +11,14 @@
  * rather than offered. Drop is never run from here: it goes to the query's page, where
  * the typed-name confirmation lives (design 23.16).
  */
-import { html, render, call, announce } from "pravaha/lib.js";
+import { html, render, call, announce, t } from "pravaha/lib.js";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
-const KIND_LABEL = {
-  page: "Page", action: "Open", query: "Query", view: "View", stream: "Stream",
-  lifecycle: "Action", role: "Role",
-};
+/* Item kinds, from the UI string catalog; an unknown kind shows as itself. */
+function kindLabel(kind) {
+  const label = t("palette.kind." + kind);
+  return label === "palette.kind." + kind ? kind : label;
+}
 
 /* Subsequence match, scored so a match at a word start or a run of letters ranks higher. */
 function score(text, needle) {
@@ -94,7 +95,7 @@ function Palette({ onClose, opener }) {
       setBusy(item.title);
       try {
         await call(`/queries/${encodeURIComponent(item.query)}/${item.action}`, { method: "POST" });
-        announce(`${item.query}: ${item.action} requested`);
+        announce(t("palette.requested", { query: item.query, action: item.action }));
         onClose();
         if (location.pathname.startsWith("/queries") || location.pathname.startsWith("/operations")) {
           location.reload();
@@ -114,25 +115,25 @@ function Palette({ onClose, opener }) {
   }
 
   return html`<div class="palette-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown=${onKey}>
+    <div class="palette" role="dialog" aria-modal="true" aria-label=${t("palette.label")} onKeyDown=${onKey}>
       <input ref=${input} type="text" role="combobox" aria-expanded="true" aria-controls="palette-list"
         aria-activedescendant=${matches.length ? "palette-item-" + active : ""}
-        placeholder="Jump to a query, view, stream or page -- or type an action"
+        aria-label=${t("palette.label")} placeholder=${t("palette.placeholder")}
         value=${needle} onInput=${(e) => setNeedle(e.target.value)} autocomplete="off" spellcheck="false" />
       ${error ? html`<div class="px-3 pt-2 small text-danger" role="alert">${error.message}</div>` : null}
       ${busy ? html`<div class="px-3 pt-2 small text-muted" role="status">${busy}…</div>` : null}
       <ul id="palette-list" role="listbox" ref=${list}>
-        ${items === null && !error ? html`<li aria-disabled="true"><span class="kind">…</span>Loading</li>` : null}
-        ${items !== null && !matches.length ? html`<li aria-disabled="true">Nothing matches “${needle}”.</li>` : null}
+        ${items === null && !error ? html`<li aria-disabled="true"><span class="kind">…</span>${t("palette.loading")}</li>` : null}
+        ${items !== null && !matches.length ? html`<li aria-disabled="true">${t("palette.nothing", { needle })}</li>` : null}
         ${matches.map(({ item, m }, i) => html`<li id=${"palette-item-" + i} role="option"
             aria-selected=${i === active ? "true" : "false"}
             onMouseMove=${() => setActive(i)} onClick=${() => run(item)}>
-          <span class="kind">${KIND_LABEL[item.kind] || item.kind}</span>
+          <span class="kind">${kindLabel(item.kind)}</span>
           <span>${highlight(item.title, m.marks)}</span>
           <span class="hint">${item.hint || ""}</span></li>`)}
       </ul>
-      <div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> go</span>
-        <span><kbd>Esc</kbd> close</span></div>
+      <div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${t("palette.move")}</span><span><kbd>Enter</kbd> ${t("palette.go")}</span>
+        <span><kbd>Esc</kbd> ${t("palette.close")}</span></div>
     </div></div>`;
 }
 

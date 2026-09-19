@@ -55,10 +55,10 @@
 
 {% if page %}
 <div class="d-flex align-items-center gap-3 mt-3">
-  <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if offset == 0 else '' }}"
+  <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if offset == 0 else '' }}"{% if offset == 0 %} aria-disabled="true" tabindex="-1"{% endif %}
      href="/queries?search={{ search }}&state={{ state_filter }}&sort={{ sort }}&offset={{ [offset - page_size, 0]|max }}">Previous</a>
   <span class="freshness" id="count">Showing {{ page.items|length }} of {{ page.total }}</span>
-  <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if offset + page_size >= page.total else '' }}"
+  <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if offset + page_size >= page.total else '' }}"{% if offset + page_size >= page.total %} aria-disabled="true" tabindex="-1"{% endif %}
      href="/queries?search={{ search }}&state={{ state_filter }}&sort={{ sort }}&offset={{ offset + page_size }}">Next</a>
 </div>
 {% endif %}

@@ -84,7 +84,7 @@
     <td class="num">{{ '{:,.1f} ms'.format(q.commit_latency_mean_seconds * 1000) if q.commit_latency_mean_seconds is not none else '—' }}</td>
     <td class="small">{% if q.checkpoint_age_seconds is not none %}{{ lag(q.checkpoint_age_seconds) }} ago{% if q.checkpoint_duration_seconds is not none %} · took {{ '%.2f'|format(q.checkpoint_duration_seconds) }} s{% endif %}{% else %}<span class="text-muted">not checkpointing</span>{% endif %}{% if q.checkpoint_failures %} · <span class="chip warn">{{ q.checkpoint_failures|int }} failed</span>{% endif %}</td></tr>
   {% else %}
-  <tr><td colspan="10"><div class="state"><h3>No queries registered</h3><p>Once one is, its throughput, state and lag are here.</p>
+  <tr><td colspan="10"><div class="state"><h2>No queries registered</h2><p>Once one is, its throughput, state and lag are here.</p>
     <a class="btn btn-sm btn-primary" href="/start">Get started</a></div></td></tr>
   {% endfor %}
   </tbody></table></div></div>

@@ -61,7 +61,7 @@ function el(name, attrs = {}, parent) {
 export async function renderPlan(container, graph, { onSelect } = {}) {
   container.replaceChildren();
   if (!graph || !graph.nodes || !graph.nodes.length) {
-    container.innerHTML = '<div class="state"><h3>No plan to draw</h3><p>Explain a query that validates to see its operators.</p></div>';
+    container.innerHTML = '<div class="state"><h2>No plan to draw</h2><p>Explain a query that validates to see its operators.</p></div>';
     return null;
   }
   const layoutGraph = {

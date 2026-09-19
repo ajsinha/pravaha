@@ -23,7 +23,7 @@ kbd{background:var(--stripe);color:var(--slate);border:1px solid var(--rule);bor
 .tabs-bar{display:flex;gap:.2rem;border-bottom:1px solid var(--rule);margin-bottom:1rem;flex-wrap:wrap;}
 .tabs-bar a,.tabs-bar button{border:0;background:none;padding:.45rem .8rem;color:var(--muted);
   font-size:.86rem;border-bottom:2px solid transparent;margin-bottom:-1px;text-decoration:none;}
-.tabs-bar a[aria-selected="true"],.tabs-bar button[aria-selected="true"]{color:var(--ink);
+.tabs-bar a[aria-current="page"],.tabs-bar button[aria-selected="true"]{color:var(--ink);
   border-bottom-color:var(--flow);font-weight:600;}
 .tabs-bar a:hover,.tabs-bar button:hover{color:var(--ink);}
 .tabs-bar .count{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:400;margin-left:.25rem;}
@@ -77,13 +77,14 @@ kbd{background:var(--stripe);color:var(--slate);border:1px solid var(--rule);bor
 .wb-side .field-list{padding-left:.9rem;}
 .wb-side .field-list li{font-size:.76rem;cursor:pointer;}
 .wb-side .field-list li:hover{color:var(--flow);}
-.wb-tabs{display:flex;gap:.15rem;align-items:flex-end;border-bottom:1px solid var(--rule);overflow-x:auto;}
+.wb-tabbar{display:flex;align-items:flex-end;gap:.15rem;border-bottom:1px solid var(--rule);}
+.wb-tabs{display:flex;gap:.15rem;align-items:flex-end;overflow-x:auto;min-width:0;}
 .wb-tab{display:flex;align-items:center;gap:.35rem;padding:.35rem .6rem;border:1px solid transparent;
   border-bottom:0;border-radius:6px 6px 0 0;font-size:.8rem;color:var(--muted);background:none;
   white-space:nowrap;}
 .wb-tab[aria-selected="true"]{background:var(--raised);border-color:var(--rule);color:var(--ink);
   margin-bottom:-1px;}
-.wb-tab .close{border:0;background:none;color:var(--muted);padding:0 .1rem;line-height:1;}
+.wb-tab .close{border:0;background:none;color:var(--muted);padding:0 .1rem;line-height:1;cursor:pointer;}
 .wb-tab .dirty{width:6px;height:6px;border-radius:50%;background:var(--warn);}
 .wb-editor{height:340px;border:1px solid var(--rule);border-top:0;background:var(--surface);}
 .wb-editor textarea{width:100%;height:100%;border:0;resize:none;padding:.6rem;font-family:var(--code);
@@ -190,3 +191,7 @@ tr.retracted td{text-decoration:line-through;color:var(--muted);}
 
 /* Monaco renders suggestion labels as <a>; Bootstrap would underline every one. */
 .monaco-editor a{text-decoration:none;color:inherit;}
+/* The plugins screen: one fact per row, label beside value. */
+.plugin-facts{display:grid;grid-template-columns:max-content 1fr;gap:.25rem .9rem;align-items:baseline;}
+.plugin-facts dt{font-weight:600;color:var(--muted);}
+.plugin-facts dd{margin:0;}

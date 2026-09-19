@@ -29,6 +29,21 @@ export async function call(path, options = {}) {
 
 export const esc = (value) => legacy().escapeHtml(value);
 
+/* The `js.*` keys of the UI string catalog (web/i18n/<language>.json), embedded by the shell
+   as JSON so an island needs no request to speak the page's language. */
+let messages = null;
+
+/** A UI string by key, with {named} parameters; the key itself when the catalog lacks it. */
+export function t(key, params = {}) {
+  if (messages === null) {
+    try { messages = JSON.parse(document.getElementById("i18n-messages").textContent || "{}"); }
+    catch (e) { messages = {}; }
+  }
+  const template = messages[key];
+  if (template === undefined) return key;
+  return template.replace(/\{(\w+)\}/g, (whole, name) => (name in params ? String(params[name]) : whole));
+}
+
 /** Spoken to a screen reader through the shell's one live region, never stealing focus. */
 export function announce(message) {
   const region = document.getElementById("live-region");

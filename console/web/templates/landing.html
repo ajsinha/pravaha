@@ -2,14 +2,20 @@
 {% block title %}{{ app_name }} — {{ tagline }}{% endblock %}
 {% block head %}<style>
 .hero{background:linear-gradient(135deg,var(--flow-d) 0%,var(--flow) 55%,var(--flow-d) 100%);
-      color:var(--on-accent);border-radius:6px;padding:3.2rem 2.6rem;margin-bottom:2.2rem;
+      color:var(--on-flow);border-radius:6px;padding:3.2rem 2.6rem;margin-bottom:2.2rem;
       position:relative;overflow:hidden}
 .hero h1{font-size:2.8rem;line-height:1.14;margin-bottom:.7rem}
-.hero .lede{color:rgba(255,255,255,.88);font-size:1.05rem;max-width:44rem;line-height:1.55}
+.hero .lede{color:var(--on-flow-dim);font-size:1.05rem;max-width:44rem;line-height:1.55}
+/* On the hero the text is --on-flow, which is white on the light theme's blue and near-black on
+   the dark theme's lighter blue; a hardcoded white was 2:1 in dark. */
+.hero .btn-cta{background:var(--on-flow);color:var(--flow-d);border-color:var(--on-flow);font-weight:600}
+.hero .btn-cta:hover{color:var(--flow-d);opacity:.92}
+.hero .btn-ghost{color:var(--on-flow);border-color:var(--on-flow-dim);background:transparent}
+.hero .btn-ghost:hover{background:var(--on-flow);color:var(--flow-d)}
 .hero .mark{position:absolute;right:-30px;bottom:-36px;opacity:.13;width:290px}
-.tag{display:inline-block;background:rgba(255,255,255,.16);color:var(--on-accent);font-size:.7rem;
+.tag{display:inline-block;background:rgba(127,127,127,.16);color:var(--on-flow);font-size:.7rem;
      letter-spacing:.10em;font-weight:700;padding:.3rem .7rem;border-radius:3px;margin-bottom:1.1rem}
-.gold{height:4px;background:rgba(255,255,255,.55);border-radius:2px;width:76px;margin:1.4rem 0}
+.gold{height:4px;background:var(--on-flow-dim);border-radius:2px;width:76px;margin:1.4rem 0}
 .tclass{border-left:3px solid var(--flow);padding-left:.85rem;margin-bottom:1.05rem}
 .tclass .code{font-weight:700;color:var(--flow);font-size:.82rem;letter-spacing:.04em}
 .pillar{border:1px solid var(--rule);border-radius:4px;padding:1.15rem;height:100%}
@@ -25,12 +31,12 @@
   <p class="lede">A query you register is a question the engine keeps answering. Not a job you
      submit and wait on — a view that is already correct when you read it, maintained row by
      row as the data arrives, and shared by everyone who asked the same thing.</p>
-  <p class="serif" style="font-size:1.25rem;color:var(--on-accent);margin:1.5rem 0 1.7rem">
+  <p class="serif" style="font-size:1.25rem;color:var(--on-flow);margin:1.5rem 0 1.7rem">
      <em>{{ slogan }}</em></p>
-  <a href="/home" class="btn btn-light btn-sm px-3" style="color:var(--flow-d);font-weight:600">
+  <a href="/home" class="btn btn-cta btn-sm px-3">
      Open the console</a>
-  <a href="/about" class="btn btn-outline-light btn-sm px-3 ms-2">What this is</a>
-  <a href="/help/quickstart" class="btn btn-outline-light btn-sm px-3 ms-2">Quick start</a>
+  <a href="/about" class="btn btn-ghost btn-sm px-3 ms-2">What this is</a>
+  <a href="/help/quickstart" class="btn btn-ghost btn-sm px-3 ms-2">Quick start</a>
 </div>
 
 <div class="row g-4 mb-4">

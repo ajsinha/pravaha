@@ -126,4 +126,8 @@
   Ten tabs are ten connections here and one subscriber on the engine.</p>
 {{ helpcards([   ('user-guide', 'Subscriptions', 'Tap filters, bounded buffers, and what a dropped row means.'),   ('concepts', 'Watermarks', 'Why a window closes on data rather than on the clock.'),   ('operations', 'Retention', 'What a view forgets, when, and how to tell if it is not.'), ]) }}
 {% endblock %}
-{% block scripts %}<script src="/static/js/query-detail.js"></script>{% endblock %}
+{# tail.js defines window.PravahaLiveTail, which query-detail.js constructs. It was never
+   included, so on every query page the script threw before it wired the live tail or the
+   typed-name drop dialog -- found by the first browser journey that pressed Drop. #}
+{% block scripts %}<script src="/static/js/tail.js"></script>
+<script src="/static/js/query-detail.js"></script>{% endblock %}

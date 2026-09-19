@@ -20,12 +20,12 @@
   the client code that reads it.</p>
 
 {% if queries is none %}
-<div class="state"><h3>The engine is not answering</h3>
+<div class="state"><h2>The engine is not answering</h2>
   <p>Views are listed from the engine at <span class="mono">{{ engine_url }}</span>. The bar above says the same;
     this page fills in when it answers.</p>
   <button type="button" class="btn btn-sm btn-primary" onclick="location.reload()">Try again</button></div>
 {% elif not queries %}
-<div class="state"><h3>No views yet</h3>
+<div class="state"><h2>No views yet</h2>
   <p>A view exists once a continuous query is registered. The get-started guide gets one running in a few
     minutes, from a stream to a view that changes as rows arrive.</p>
   <a class="btn btn-sm btn-primary" href="/start">Get started</a>

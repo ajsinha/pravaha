@@ -150,7 +150,7 @@ def fixes_for(code: str, sql: str, streams: list[dict],
     word = _text_at(sql, where)
 
     if code == "PRV-2003":
-        if word and word.lower() not in {n.lower() for n in names}:
+        if word and where is not None and word.lower() not in {n.lower() for n in names}:
             for candidate in difflib.get_close_matches(word, names, n=2, cutoff=0.6):
                 out.append({"title": f"Replace '{word}' with '{candidate}'",
                             "edits": [_edit(where, candidate)]})
@@ -159,7 +159,7 @@ def fixes_for(code: str, sql: str, streams: list[dict],
     elif code == "PRV-2002":
         columns = sorted({f.get("name", "") for s in streams for f in s.get("fields", [])
                           if f.get("name")})
-        if word and word.lower() not in {c.lower() for c in columns}:
+        if word and where is not None and word.lower() not in {c.lower() for c in columns}:
             for candidate in difflib.get_close_matches(word, columns, n=2, cutoff=0.6):
                 out.append({"title": f"Replace '{word}' with '{candidate}'",
                             "edits": [_edit(where, candidate)]})

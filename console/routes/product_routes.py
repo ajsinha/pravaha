@@ -213,7 +213,21 @@ class ProductRoutes(Routes):
             return self.page(request, "operations.html", current="/operations",
                              snapshot=snapshot, snapshot_data=jsonable(snapshot))
 
+        @self.app.get("/plugins", response_class=HTMLResponse, tags=["ui"])
+        def plugins(request: Request):
+            """The plugins the node loaded, their health, and what each is bound as."""
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            return self.page(request, "plugins.html", current="/plugins",
+                             inventory=services.plugins.inventory())
+
         # ================================================================== JSON
+
+        @self.app.get(f"{api}/plugins", tags=["api"])
+        def api_plugins(request: Request):
+            if (refusal := _refuse_anonymous(request)) is not None:
+                return refusal
+            return JSONResponse(jsonable(services.plugins.inventory()))
 
         @self.app.get(f"{api}/me", tags=["api"])
         def me(request: Request):
@@ -403,6 +417,7 @@ class ProductRoutes(Routes):
                 {"kind": "page", "title": "Operations", "href": "/operations", "hint": "is everything healthy?"},
                 {"kind": "page", "title": "Queries", "href": "/queries", "hint": "the full list, filterable"},
                 {"kind": "page", "title": "Get started", "href": "/start", "hint": "first-run onboarding"},
+                {"kind": "page", "title": "Plugins", "href": "/plugins", "hint": "loaded plugins, health, bindings"},
                 {"kind": "action", "title": "New query in the workbench", "href": "/workbench?new=1", "hint": "blank tab"},
             ]
             for key, meta in ROLES.items():

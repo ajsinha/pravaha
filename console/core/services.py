@@ -834,6 +834,89 @@ class OpsService:
         return {"metric": metric, "series": self.history.series(metric)}
 
 
+#: What the engine does not publish about a plugin, named on the plugins screen instead of
+#: guessed. Each entry is (what, the engine API that would answer it).
+PLUGINS_NOT_EXPOSED: list[tuple[str, str]] = [
+    ("What a plugin declares it can be — a source, a sink, both — before anything binds it",
+     "the plugin manifest's declared kinds on GET /api/v1/status (or GET /api/v1/plugins)"),
+    ("The API version a plugin was built against, and whether it is compatible",
+     "PluginManifest.requiredApiVersion in the same answer"),
+    ("The settings a plugin accepts (names and descriptions, never values)",
+     "PluginManifest.configSchema keys in the same answer"),
+    ("Per-plugin throughput, errors and last activity",
+     "pravaha_plugin_* meters on /actuator/prometheus"),
+]
+
+
+class PluginService:
+    """The plugins the engine has loaded, joined with what binds them.
+
+    Three published answers, and nothing inferred beyond them: ``GET /api/v1/status`` names each
+    registered plugin with its version and health; each stream in the catalog names the plugin
+    that feeds it (``source``); each sink binding names the plugin that writes it and what that
+    binding accepts. A plugin's *declared* capabilities are in its manifest, which the engine does
+    not publish, so "source" and "sink" here mean "bound as", never "able to be".
+    """
+
+    def __init__(self, engine: Engine, catalog: CatalogService) -> None:
+        self._engine = engine
+        self._catalog = catalog
+
+    def inventory(self) -> dict:
+        errors: dict[str, str] = {}
+        try:
+            status = self._engine.status()
+        except Exception as exc:  # noqa: BLE001 -- the screen names which call failed
+            status, errors["status"] = {}, str(exc)
+        try:
+            streams = self._catalog.streams()
+        except ServiceError as exc:
+            streams, errors["streams"] = [], str(exc)
+        try:
+            sinks = self._catalog.sinks()
+        except ServiceError as exc:
+            sinks, errors["sinks"] = [], str(exc)
+
+        plugins: dict[str, dict[str, Any]] = {}
+
+        def entry(name: str, registered: bool) -> dict[str, Any]:
+            key = name.lower()
+            if key not in plugins:
+                plugins[key] = {"name": name, "version": None, "health": None, "detail": "",
+                                "registered": registered, "sources": [], "sinks": []}
+            return plugins[key]
+
+        for plugin in status.get("plugins") or []:
+            found = entry(str(plugin.get("name", "")), True)
+            found.update(version=plugin.get("version"), health=plugin.get("health"),
+                         detail=plugin.get("detail") or "", registered=True)
+        for stream in streams:
+            if stream.get("source"):
+                entry(str(stream["source"]), False)["sources"].append(
+                    {"name": stream.get("name"), "event_time": stream.get("eventTime"),
+                     "lateness": stream.get("outOfOrderness"),
+                     "columns": len(stream.get("fields") or [])})
+        for sink in sinks:
+            if sink.get("plugin"):
+                entry(str(sink["plugin"]), False)["sinks"].append(
+                    {"name": sink.get("name"), "emit_modes": list(sink.get("emitModes") or []),
+                     "accepts_retractions": bool(sink.get("acceptsRetractions")),
+                     "guarantee": sink.get("guarantee"), "writers": list(sink.get("writers") or []),
+                     "problem": sink.get("problem")})
+        items = sorted(plugins.values(), key=lambda p: (not p["registered"], p["name"].lower()))
+        for item in items:
+            item["bound_as"] = [kind for kind, key in (("source", "sources"), ("sink", "sinks")) if item[key]]
+            item["healthy"] = str(item["health"] or "").upper() in {"HEALTHY", "UP", "OK"}
+        return {
+            "available": "status" not in errors,
+            "node": {"instance": status.get("instanceId"), "version": status.get("version"),
+                     "state": status.get("engineState")},
+            "plugins": items,
+            "errors": errors,
+            "not_exposed": [{"what": what, "needs": needs} for what, needs in PLUGINS_NOT_EXPOSED],
+        }
+
+
 class Services:
     """Everything the API layer needs, constructed once."""
 
@@ -848,3 +931,4 @@ class Services:
         self.authoring = AuthoringService(engine, self.catalog)
         self.views = ViewService(engine, self.queries, self.authoring, row_limit)
         self.ops = OpsService(engine, self.queries, self.feeds, lag_warn_seconds)
+        self.plugins = PluginService(engine, self.catalog)

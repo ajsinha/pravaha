@@ -57,7 +57,7 @@
         <div class="card-body p-0"><div class="table-responsive" style="max-height:24rem">
           <table class="table table-sm mb-0" id="current-rows"><thead><tr>
             {% for f in schema %}<th>{{ f.name }}</th>{% endfor %}</tr></thead>
-            <tbody><tr><td colspan="{{ schema|length or 1 }}"><div class="state"><h3>Connecting…</h3>
+            <tbody><tr><td colspan="{{ schema|length or 1 }}"><div class="state"><h2>Connecting…</h2>
               <p>The current rows appear here, then change as the engine commits.</p></div></td></tr></tbody></table>
         </div></div></div>
     </div>
@@ -65,7 +65,7 @@
       <div class="card"><div class="card-header">Change log</div>
         <div class="card-body p-0"><div class="table-responsive" style="max-height:24rem">
           <table class="table table-sm mb-0" id="change-log"><thead><tr><th>At</th><th>Weight</th><th>Row</th></tr></thead>
-            <tbody><tr><td colspan="3"><div class="state"><h3>Nothing yet</h3><p>Changes land here the moment they commit.
+            <tbody><tr><td colspan="3"><div class="state"><h2>Nothing yet</h2><p>Changes land here the moment they commit.
               A quiet stream and a stopped one look alike, so the connection state is shown above.</p></div></td></tr></tbody></table>
         </div></div></div>
     </div>

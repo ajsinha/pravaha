@@ -46,3 +46,6 @@ artifacts = ["web/**", "content/**", "config/**", "run_pravaha_web.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "browser: drives a real headless Chrome over the DevTools protocol; skips when none is installed (PRAVAHA_CHROME, PRAVAHA_BROWSER_TESTS=0)",
+]

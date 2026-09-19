@@ -62,7 +62,7 @@ if (form) {
         { json: { filters: key ? { [key]: value } : {} } });
       document.getElementById("lookup-sql").textContent = answer.sql;
       if (!answer.rows.length) {
-        target.innerHTML = '<div class="state"><h3>No row has that key</h3><p>The view is correct as of its last commit; ' +
+        target.innerHTML = '<div class="state"><h2>No row has that key</h2><p>The view is correct as of its last commit; ' +
           "nothing in it matches. A row appears when the data that makes it arrives.</p></div>";
       } else {
         target.innerHTML = "";

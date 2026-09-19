@@ -128,13 +128,13 @@
           </table></div>
           <p class="small text-muted mt-2 mb-0">{{ result.returned }} rows in {{ result.took_ms }}ms</p>
           {% else %}
-          <div class="state"><h3>No rows</h3>
+          <div class="state"><h2>No rows</h2>
             <p>The query ran in {{ result.took_ms }}ms and matched nothing. On a stream this often means
               the window has not closed yet: a window closes when data says it is over, not when the
               clock does.</p></div>
           {% endif %}
         {% else %}
-          <div class="state"><h3>Nothing run yet</h3>
+          <div class="state"><h2>Nothing run yet</h2>
             <p>Write a query above and run it. Nothing is registered until you ask for it.</p></div>
         {% endif %}
       </div></div>

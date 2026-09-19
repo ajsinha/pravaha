@@ -29,6 +29,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 ROOT = Path(__file__).resolve().parent
@@ -38,6 +39,7 @@ if str(ROOT) not in sys.path:
 from core.config.properties_configurator import PropertiesConfigurator
 from core.content.library import ContentLibrary
 from core.engine import Engine
+from core.i18n import Messages
 from core.services import Services
 from routes import ALL_ROUTES
 
@@ -85,6 +87,20 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     secret = config.get("console.session_secret") or secrets.token_urlsafe(32)
     app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax", https_only=False)
 
+    # Compressed, because the console is opened during incidents over whatever link the
+    # operator has: the shell's scripts are 122 kB as files and 41 kB gzipped (design 23.15
+    # states its budget gzipped). Only on a Starlette that knows to leave server-sent events
+    # alone -- an older one buffers a compressed stream, and a live view that arrives in
+    # bursts is a live view that is wrong between them.
+    try:
+        from starlette.middleware.gzip import (
+            DEFAULT_EXCLUDED_CONTENT_TYPES,  # noqa: F401
+        )
+    except ImportError:
+        logger.info("responses are not compressed: this Starlette would buffer event streams")
+    else:
+        app.add_middleware(GZipMiddleware, minimum_size=1024)
+
     # Vendored assets only: the console renders with no external network. A
     # streaming engine is deployed inside networks that do not reach the
     # internet far more often than not.
@@ -92,6 +108,8 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     templates = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
     templates.env.filters["thousands"] = _thousands
     templates.env.filters["truncate_sql"] = _truncate
+    # UI strings by key from web/i18n/<language>.json; one language today, a file per language later.
+    templates.env.globals["t"] = Messages(config.get("ui.language", "en"))
 
     ctx = {
         "config": config,

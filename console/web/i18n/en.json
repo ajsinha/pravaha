@@ -1,0 +1,107 @@
+{
+  "shell": {
+    "skip": "Skip to content",
+    "menu": "Menu",
+    "primary_nav": "Primary",
+    "palette_open": "Open the command palette",
+    "palette_title": "Command palette (Ctrl+K)",
+    "engine_up": "engine up",
+    "engine_down": "engine unreachable",
+    "account_title": "Your view of the console",
+    "land_on": "Land on, and see first",
+    "get_started": "Get started guide",
+    "plugins": "Plugins",
+    "sign_in": "Sign in",
+    "sign_in_title": "Sign in to act",
+    "sign_out": "Sign out",
+    "sign_out_title": "End this session",
+    "theme": "Change theme",
+    "theme_title": "Theme (t)",
+    "density": "Change density",
+    "density_title": "Density (d)",
+    "footer_engine": "engine at"
+  },
+  "nav": {
+    "workbench": "Workbench",
+    "workbench_gloss": "write, validate, explain and register SQL",
+    "catalog": "Catalog",
+    "catalog_gloss": "streams, registered queries and sinks",
+    "views": "Views",
+    "views_gloss": "point queries, live changes and client code",
+    "operations": "Operations",
+    "operations_gloss": "is everything healthy, and if not, where?",
+    "queries": "Queries",
+    "queries_gloss": "what is registered, and what it costs",
+    "help": "Help",
+    "help_gloss": "the documentation that ships with the engine"
+  },
+  "plugins": {
+    "title": "Plugins",
+    "kicker": "PLUGINS",
+    "heading": "What this node loaded, and what binds it",
+    "node": "node {instance} · {version} · {state}",
+    "lede": "Each plugin the engine registered, with the health it reports, joined with the streams it feeds and the sinks it writes. \"Bound as\" is what the configuration uses a plugin for; what a plugin could do is in its manifest, which the engine does not publish yet.",
+    "error": {
+      "status": "The engine's status endpoint is not answering, so loaded plugins and their health are unknown",
+      "streams": "The stream catalog is not answering, so source bindings are not shown",
+      "sinks": "The sink list is not answering, so sink bindings are not shown"
+    },
+    "empty": {
+      "title": "No plugins to show",
+      "body": "The engine reported no registered plugins and nothing is bound to one. A source or sink plugin is a jar on the node's plugin path, named in pravaha.streams or pravaha.sinks."
+    },
+    "not_loaded": "not loaded",
+    "not_loaded_body": "A binding names this plugin, but the engine has not registered a plugin by that name. Anything bound to it cannot run.",
+    "health_unknown": "health unknown",
+    "version": "Version",
+    "bound_as": "Bound as",
+    "unbound": "loaded, bound to nothing you can see",
+    "detail": "Health detail",
+    "kind": {
+      "source": "source",
+      "sink": "sink"
+    },
+    "sources": "Feeds these streams",
+    "sinks": "Writes these sinks",
+    "columns": "{n} columns",
+    "event_time": "event time {column}",
+    "no_event_time": "no event time",
+    "revisions": "revisions",
+    "append_only": "append only",
+    "written_by": "Written by",
+    "nothing_visible": "nothing you can see",
+    "not_exposed": {
+      "title": "Not published by the engine",
+      "lede": "Named here rather than guessed. Each is one answer the engine would have to add.",
+      "what": "What",
+      "needs": "The engine API that would answer it"
+    },
+    "help": {
+      "connectors": "Connectors",
+      "connectors_body": "Every source and sink plugin, and how to configure it.",
+      "operations": "Operations",
+      "operations_body": "Health, degraded plugins, and what to do about them."
+    }
+  },
+  "js": {
+    "palette": {
+      "label": "Command palette",
+      "placeholder": "Jump to a query, view, stream or page -- or type an action",
+      "loading": "Loading",
+      "nothing": "Nothing matches “{needle}”.",
+      "move": "move",
+      "go": "go",
+      "close": "close",
+      "requested": "{query}: {action} requested",
+      "kind": {
+        "page": "Page",
+        "action": "Open",
+        "query": "Query",
+        "view": "View",
+        "stream": "Stream",
+        "lifecycle": "Action",
+        "role": "Role"
+      }
+    }
+  }
+}

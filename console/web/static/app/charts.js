@@ -14,8 +14,24 @@
 import { token, onThemeChange } from "pravaha/lib.js";
 import { loadGlobalScript } from "pravaha/plan-graph.js";
 
-export function loadECharts() {
-  return loadGlobalScript("/static/vendor/echarts/echarts.min.js", "echarts");
+/* After the page has loaded and gone idle. The verdict, the tables and the counters are
+   server-rendered and live without a chart; fetching the chart library before the load event
+   put 370 kB (gzipped) between an operator and a working dashboard, over the 250 kB budget of
+   design 23.15 on its own. */
+function afterLoad() {
+  return new Promise((resolve) => {
+    const idle = () => (window.requestIdleCallback
+      ? window.requestIdleCallback(() => resolve(), { timeout: 400 }) : setTimeout(resolve, 0));
+    if (document.readyState === "complete") idle();
+    else window.addEventListener("load", idle, { once: true });
+  });
+}
+
+/* The "common" build (line, bar, scatter, pie; grid, legend, tooltip, dataZoom, graphic):
+   everything these charts use, at 234 kB gzipped against the full build's 370. */
+export async function loadECharts() {
+  await afterLoad();
+  return loadGlobalScript("/static/vendor/echarts/echarts.common.min.js", "echarts");
 }
 
 export function seriesColor(index) {

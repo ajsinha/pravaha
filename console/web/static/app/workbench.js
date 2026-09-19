@@ -119,21 +119,29 @@ function defineThemes(monaco) {
   monaco.editor.defineTheme("pravaha", {
     base: dark ? "vs-dark" : "vs",
     inherit: true,
+    /* Syntax colours are TEXT, so they come from the text tokens that the contrast test holds
+       at 4.5:1 on --surface in every theme -- never from the data palette (--series-*), which is
+       for marks on a chart and measured 2.7:1 as text. */
     rules: [
       { token: "keyword", foreground: hex("--flow", "#1B5FA8"), fontStyle: "bold" },
-      { token: "predefined", foreground: hex("--series-7", "#4a3aa7") },
-      { token: "type", foreground: hex("--series-3", "#1baf7a") },
-      { token: "type.identifier", foreground: hex("--series-2", "#eb6834"), fontStyle: "bold" },
+      { token: "predefined", foreground: hex("--info", "#274B6D") },
+      { token: "type", foreground: hex("--slate", "#464C57") },
+      { token: "type.identifier", foreground: hex("--ink", "#15181D"), fontStyle: "bold underline" },
       { token: "string", foreground: hex("--ok", "#1B6B3A") },
-      { token: "number", foreground: hex("--series-5", "#e87ba4") },
+      { token: "number", foreground: hex("--warn", "#8A5A12") },
       { token: "comment", foreground: hex("--muted", "#646B78"), fontStyle: "italic" },
-      { token: "variable.parameter", foreground: hex("--warn", "#8A5A12"), fontStyle: "bold" },
+      { token: "variable.parameter", foreground: hex("--bad", "#A82121"), fontStyle: "bold" },
     ],
     colors: {
       "editor.background": "#" + hex("--surface", "#ffffff"),
       "editor.foreground": "#" + hex("--ink", "#15181D"),
       "editorLineNumber.foreground": "#" + hex("--muted", "#646B78"),
       "editorCursor.foreground": "#" + hex("--flow", "#1B5FA8"),
+      /* Monaco's default occurrence highlight is a 25% grey that took the keyword colour
+         under 4.5:1; the info tint keeps every syntax colour readable on it. */
+      "editor.wordHighlightBackground": "#" + hex("--info-soft", "#E8EDF3"),
+      "editor.wordHighlightStrongBackground": "#" + hex("--info-soft", "#E8EDF3"),
+      "editor.selectionHighlightBackground": "#" + hex("--info-soft", "#E8EDF3"),
     },
   });
   monaco.editor.setTheme("pravaha");
@@ -282,7 +290,7 @@ function initialTabs() {
 
 function Diagnostics({ validation, onFix }) {
   if (validation.status === "idle") {
-    return html`<div class="state"><h3>Nothing to check yet</h3><p>Validation runs as you type, against the
+    return html`<div class="state"><h2>Nothing to check yet</h2><p>Validation runs as you type, against the
       engine's own planner, and every refusal lands here with its code and, where one is known, a fix.</p></div>`;
   }
   if (validation.status === "unavailable") {
@@ -353,7 +361,7 @@ function ExplainPanel({ sql, valid, origin }) {
           Export SVG</button>` : null}
       ${!valid ? html`<span class="small text-muted">The query does not validate yet; the plan may be refused.</span>` : null}
     </div>
-    ${state.status === "idle" ? html`<div class="state"><h3>No plan yet</h3><p>Explain draws the engine's own plan
+    ${state.status === "idle" ? html`<div class="state"><h2>No plan yet</h2><p>Explain draws the engine's own plan
       for this query as a graph — operators as nodes, rows flowing left to right.</p></div>` : null}
     ${state.status === "loading" ? html`<div class="skeleton" style="height:180px"></div>` : null}
     ${state.status === "error" ? errorView(state.err) : null}
@@ -423,14 +431,14 @@ function RunPanel({ sql, params, setParams, paramsRef }) {
     </div>
     <p class="small text-muted">A one-off read, answered from the views the engine maintains. Nothing is registered.
       Numbers stay numbers: <code>40</code> is an integer, not the string “40”.</p>
-    ${state.status === "idle" ? html`<div class="state"><h3>Nothing run yet</h3><p>Run reads a view once. To keep an
+    ${state.status === "idle" ? html`<div class="state"><h2>Nothing run yet</h2><p>Run reads a view once. To keep an
       answer current, register the query instead.</p></div>` : null}
     ${state.status === "loading" ? html`<div class="skeleton" style="height:120px"></div>` : null}
     ${state.status === "error" ? errorView(state.err) : null}
     ${state.status === "ok" ? html`<div>
       ${state.answer.truncated ? html`<div class="alert alert-warning py-2 small">Showing the first ${state.answer.returned} rows;
         the answer was larger. These are the first rows, not a sample.</div>` : null}
-      ${state.answer.rows.length ? html`<div ref=${gridRef}></div>` : html`<div class="state"><h3>No rows</h3><p>It ran in
+      ${state.answer.rows.length ? html`<div ref=${gridRef}></div>` : html`<div class="state"><h2>No rows</h2><p>It ran in
         ${state.answer.took_ms} ms and matched nothing. On a stream this often means a window has not closed:
         a window closes when data says it is over, not when the clock does.</p></div>`}
       <p class="small text-muted mt-2 mb-0">${state.answer.returned} rows in ${state.answer.took_ms} ms</p></div>` : null}
@@ -568,6 +576,7 @@ function Workbench() {
   const init = useRef(initialTabs()).current;
   const [tabs, setTabs] = useState(init.tabs);
   const [active, setActive] = useState(init.active);
+  const keyboardTabs = useRef(false);
   const [panel, setPanel] = useState(PANELS.some(([k]) => k === urlParam("panel")) ? urlParam("panel") : "diagnostics");
   const [validation, setValidation] = useState({ status: "idle", diagnostics: [], output_fields: [] });
   const [editorState, setEditorState] = useState("loading");
@@ -676,7 +685,10 @@ function Workbench() {
       models.current[tab.id] = model;
     }
     ed.setModel(model);
-    ed.focus();
+    /* Into the editor after a click or a new draft, but not out of the tab strip while somebody
+       is moving along it with the arrow keys: stealing focus there left a keyboard user unable
+       to reach the second draft. */
+    if (keyboardTabs.current) keyboardTabs.current = false; else ed.focus();
     validate(model.getValue());
   }, [active, editorState]);
 
@@ -686,6 +698,29 @@ function Workbench() {
     const t = { id: newId(), title: title || tabTitle(sql), sql, params: "", named: Boolean(title) };
     setTabs((all) => all.concat(t)); setActive(t.id);
   }
+  /* The ARIA tabs pattern: arrows move between drafts, Home and End jump, Enter or Space
+     selects, Delete closes. Focus follows the selection, so the roving tabindex stays true. */
+  function onTabKey(event, tab, index) {
+    const focusTab = (id) => setTimeout(() => {
+      const el = document.getElementById("wb-tab-" + id);
+      if (el) el.focus();
+    }, 0);
+    let next = null;
+    if (event.key === "ArrowRight") next = tabs[(index + 1) % tabs.length];
+    else if (event.key === "ArrowLeft") next = tabs[(index - 1 + tabs.length) % tabs.length];
+    else if (event.key === "Home") next = tabs[0];
+    else if (event.key === "End") next = tabs[tabs.length - 1];
+    if (next) { event.preventDefault(); keyboardTabs.current = true; setActive(next.id); focusTab(next.id); return; }
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setActive(tab.id); return; }
+    if (event.key === "Delete") {
+      event.preventDefault();
+      const neighbour = tabs[index + 1] || tabs[index - 1];
+      keyboardTabs.current = active === tab.id;  /* the effect runs only if the selection moves */
+      closeTab(tab.id);
+      if (neighbour) focusTab(neighbour.id);
+    }
+  }
+
   function closeTab(id) {
     if (tabs.length === 1) { update(id, { sql: "", title: "untitled" }); if (models.current[id]) models.current[id].setValue(""); return; }
     const t = tabs.find((x) => x.id === id);
@@ -744,15 +779,22 @@ function Workbench() {
     : validation.status === "unavailable" ? html`<span class="validity idle" title=${validation.error}><i class="bi bi-plug"></i> validation unavailable</span>`
     : html`<span class="validity idle"><i class="bi bi-circle"></i> not checked</span>`;
 
+  /* The tablist holds tabs and nothing else: ARIA lets a tablist own only tabs, and a tab
+     may not contain another control. So "new draft" sits beside the list, and closing is
+     Delete on the focused tab; the × does the same for a pointer and is hidden from
+     assistive technology, which has the key (aria-keyshortcuts). */
   return html`<div>
-    <div class="wb-tabs" role="tablist" aria-label="Drafts">
-      ${tabs.map((t) => html`<div class="wb-tab" role="tab" aria-selected=${t.id === active ? "true" : "false"}
-          tabindex=${t.id === active ? 0 : -1} onClick=${() => setActive(t.id)}
-          onKeyDown=${(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActive(t.id); } }}>
-        <span class="mono">${t.title || "untitled"}</span>
-        <button type="button" class="close" aria-label=${"Close " + (t.title || "untitled")}
-          onClick=${(e) => { e.stopPropagation(); closeTab(t.id); }}>×</button></div>`)}
-      <button type="button" class="wb-tab" onClick=${() => addTab()} aria-label="New draft" title="New draft">+</button>
+    <div class="wb-tabbar">
+      <div class="wb-tabs" role="tablist" aria-label="Drafts">
+        ${tabs.map((t, i) => html`<div class="wb-tab" role="tab" id=${"wb-tab-" + t.id}
+            aria-selected=${t.id === active ? "true" : "false"} aria-keyshortcuts="Delete"
+            title=${(t.title || "untitled") + " — Delete closes this draft"}
+            tabindex=${t.id === active ? 0 : -1} onClick=${() => setActive(t.id)}
+            onKeyDown=${(e) => onTabKey(e, t, i)}>
+          <span class="mono">${t.title || "untitled"}</span>
+          <span class="close" aria-hidden="true" onClick=${(e) => { e.stopPropagation(); closeTab(t.id); }}>×</span></div>`)}
+      </div>
+      <button type="button" class="wb-tab wb-new" onClick=${() => addTab()} aria-label="New draft" title="New draft">+</button>
     </div>
     <div class="wb-editor" ref=${editorHost} hidden=${editorState === "textarea"}></div>
     ${editorState === "textarea" && tab ? html`<div class="wb-editor"><textarea aria-label="SQL" spellcheck="false"

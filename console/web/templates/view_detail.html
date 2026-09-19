@@ -71,11 +71,11 @@
         </table></div>
         <p class="small text-muted mt-2 mb-0">{{ result.returned }} row{{ '' if result.returned == 1 else 's' }} in {{ result.took_ms }} ms{% if result.truncated %} — the first {{ result.returned }} only{% endif %}</p>
         {% else %}
-        <div class="state"><h3>No row has that key</h3><p>The view is correct as of its last commit; nothing in it
+        <div class="state"><h2>No row has that key</h2><p>The view is correct as of its last commit; nothing in it
           matches. A row appears when the data that makes it arrives.</p></div>
         {% endif %}
       {% else %}
-        <div class="state"><h3>Ask it something</h3><p>Pick a column and a value for a point read, or leave the column empty
+        <div class="state"><h2>Ask it something</h2><p>Pick a column and a value for a point read, or leave the column empty
           to scan the view. The code to do the same from a service is below.</p></div>
       {% endif %}
     </div></div>
@@ -97,10 +97,10 @@
 {% for id, s in snippets.items() %}
 <div class="row g-3 client-panel" data-client="{{ id }}" role="tabpanel" {{ '' if id == client else 'hidden' }}>
   <div class="col-xl-6"><div class="section-label mt-0">Read</div>
-    <div class="copyable"><pre id="snippet-{{ id }}-read">{{ s.read }}</pre>
+    <div class="copyable"><pre tabindex="0" id="snippet-{{ id }}-read">{{ s.read }}</pre>
       <button type="button" class="btn btn-sm btn-outline-secondary copy" data-copy-target="snippet-{{ id }}-read" hidden>Copy</button></div></div>
   <div class="col-xl-6"><div class="section-label mt-0">Subscribe to changes</div>
-    <div class="copyable"><pre id="snippet-{{ id }}-subscribe">{{ s.subscribe }}</pre>
+    <div class="copyable"><pre tabindex="0" id="snippet-{{ id }}-subscribe">{{ s.subscribe }}</pre>
       <button type="button" class="btn btn-sm btn-outline-secondary copy" data-copy-target="snippet-{{ id }}-subscribe" hidden>Copy</button></div></div>
 </div>
 {% endfor %}

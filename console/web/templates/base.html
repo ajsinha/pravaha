@@ -187,6 +187,23 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
 }
 
 body{background:var(--canvas);color:var(--ink);font-family:var(--sans);}
+/* Links wear the accent token, not Bootstrap's #0d6efd: that blue is 4.3:1 on the light
+   canvas and 3.5:1 on a dark card, so every plain link on every page failed WCAG 1.4.3. */
+a{color:var(--flow);}
+a:hover{color:var(--flow-d);}
+/* Alerts follow the theme too. Bootstrap's are keyed to data-bs-theme, which this console
+   does not set, so a dark page carried pastel alerts with accent links on them. */
+.alert{--bs-alert-color:var(--ink);--bs-alert-link-color:var(--flow);}
+.alert-danger{--bs-alert-bg:var(--bad-soft);--bs-alert-border-color:var(--bad);}
+.alert-warning{--bs-alert-bg:var(--warn-soft);--bs-alert-border-color:var(--warn);}
+.alert-info{--bs-alert-bg:var(--info-soft);--bs-alert-border-color:var(--info);}
+.alert-success{--bs-alert-bg:var(--ok-soft);--bs-alert-border-color:var(--ok);}
+.alert a{color:var(--flow);}
+/* Bootstrap's danger red is 3.5:1 on a dark card; the theme's --bad holds 4.5 in every theme. */
+.text-danger{color:var(--bad)!important;}
+.btn-outline-danger{--bs-btn-color:var(--bad);--bs-btn-border-color:var(--bad);
+  --bs-btn-hover-bg:var(--bad);--bs-btn-hover-border-color:var(--bad);--bs-btn-hover-color:var(--canvas);
+  --bs-btn-active-bg:var(--bad);--bs-btn-active-color:var(--canvas);}
 h1,h2,h3,.serif{font-family:var(--serif);letter-spacing:-.01em;}
 h1{font-size:1.5rem;font-weight:600;}
 h2{font-size:1.05rem;font-weight:600;margin:1.6rem 0 .6rem;}
@@ -271,16 +288,23 @@ pre{background:var(--stripe);border:1px solid var(--rule);border-radius:4px;
 /* Stale data dims and says how old it is. It is never shown as if it were live. */
 .stale{opacity:.55;filter:saturate(.5);}
 .state{padding:2.2rem 1rem;text-align:center;color:var(--muted);}
-.state h3{font-size:.98rem;color:var(--ink);margin-bottom:.4rem;}
+/* An empty state's title is an h2 wherever it sits, so the outline never skips a level
+   (h1 -> h3 was the commonest axe finding before this); it only looks like a small one. */
+.state h2,.state h3{font-size:.98rem;color:var(--ink);margin-bottom:.4rem;font-family:var(--serif);}
 .state p{max-width:46ch;margin:0 auto .9rem;font-size:.86rem;}
 
 @media (prefers-reduced-motion: reduce){
   .skeleton,.tail div.new{animation:none;}
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;scroll-behavior:auto!important;}
 }
 
 .skip-link{position:absolute;left:-9999px;top:.4rem;background:var(--flow);
   color:var(--on-accent);padding:.4rem .8rem;border-radius:4px;z-index:1080;}
 .skip-link:focus{left:.4rem;}
+/* Scrollable code and tables are focusable (tabindex=0) so a keyboard can scroll them;
+   their ring is the same as a link's. */
+pre:focus-visible,[tabindex]:focus-visible,.form-select:focus-visible,.form-check-input:focus-visible,
 a:focus-visible,button:focus-visible,.form-control:focus-visible,
 .navbar a:focus-visible{outline:2px solid var(--flow);outline-offset:2px;}
 .navbar a:focus-visible{outline-color:var(--on-bar);}
@@ -292,12 +316,12 @@ footer .principle{font-family:var(--serif);font-style:italic;}
 {% block head %}{% endblock %}
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
+<a class="skip-link" href="#main">{{ t('shell.skip') }}</a>
 <!-- The one announcer, present from the first byte. It used to be created lazily by theme.js, so
      every screen's async updates -- a filter applied, a query paused, a failed run -- were silent to
      a screen reader unless somebody had happened to toggle the theme first. -->
 <div id="live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
-<nav class="navbar navbar-expand-lg navbar-dark mb-4">
+<nav class="navbar navbar-expand-lg navbar-dark mb-4" aria-label="{{ t('shell.primary_nav') }}">
   <div class="container">
     <a class="navbar-brand d-flex align-items-center gap-2" href="{{ '/home' if signed_in else '/' }}">
       <img src="/static/img/pravaha-mark.svg" alt="" width="24" height="24">{{ app_name }}
@@ -305,7 +329,7 @@ footer .principle{font-family:var(--serif);font-style:italic;}
     <span class="slogan d-none d-xl-inline">{{ slogan }}</span>
     <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse"
             data-bs-target="#pravaha-nav" aria-controls="pravaha-nav"
-            aria-expanded="false" aria-label="Menu">
+            aria-expanded="false" aria-label="{{ t('shell.menu') }}">
       <span class="navbar-toggler-icon"></span>
     </button>
     <div class="collapse navbar-collapse" id="pravaha-nav">
@@ -321,12 +345,12 @@ footer .principle{font-family:var(--serif);font-style:italic;}
         {# Six now, one per job rather than one per feature: author, discover, consume,
            operate, manage, learn. The persona landings (design 23.2) are the first four. #}
         {% set nav_sections = [
-          ("/workbench", "Workbench", "write, validate, explain and register SQL"),
-          ("/catalog", "Catalog", "streams, registered queries and sinks"),
-          ("/views", "Views", "point queries, live changes and client code"),
-          ("/operations", "Operations", "is everything healthy, and if not, where?"),
-          ("/queries", "Queries", "what is registered, and what it costs"),
-          ("/help", "Help", "the documentation that ships with the engine")
+          ("/workbench", t("nav.workbench"), t("nav.workbench_gloss")),
+          ("/catalog", t("nav.catalog"), t("nav.catalog_gloss")),
+          ("/views", t("nav.views"), t("nav.views_gloss")),
+          ("/operations", t("nav.operations"), t("nav.operations_gloss")),
+          ("/queries", t("nav.queries"), t("nav.queries_gloss")),
+          ("/help", t("nav.help"), t("nav.help_gloss"))
         ] %}
         {% for path, label, gloss in nav_sections %}
         <li class="nav-item">
@@ -337,23 +361,23 @@ footer .principle{font-family:var(--serif);font-style:italic;}
         {% endfor %}
         <li class="nav-item ms-lg-3 d-flex align-items-center gap-2">
           <button type="button" class="btn btn-sm btn-outline-light palette-trigger" id="palette-trigger"
-                  title="Command palette (Ctrl+K)" aria-label="Open the command palette" hidden>
+                  title="{{ t('shell.palette_title') }}" aria-label="{{ t('shell.palette_open') }}" hidden>
             <i class="bi bi-search" aria-hidden="true"></i><kbd class="ms-1">Ctrl K</kbd></button>
           {# The engine's reachability on every page, not only the one that
              failed: an operator who navigates away must not lose the single
              fact that explains why the next screen is empty. #}
           {% if engine_up %}
-            <span class="chip ok" title="{{ engine_url }}"><span class="dot"></span>engine up</span>
+            <span class="chip ok" title="{{ engine_url }}"><span class="dot"></span>{{ t('shell.engine_up') }}</span>
           {% else %}
-            <span class="chip bad" title="{{ engine_error }}"><span class="dot"></span>engine unreachable</span>
+            <span class="chip bad" title="{{ engine_error }}"><span class="dot"></span>{{ t('shell.engine_down') }}</span>
           {% endif %}
           {% if signed_in %}
             <div class="dropdown">
               <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" id="account-menu"
-                      data-bs-toggle="dropdown" aria-expanded="false" title="Your view of the console">
+                      data-bs-toggle="dropdown" aria-expanded="false" title="{{ t('shell.account_title') }}">
                 <i class="bi bi-person-circle" aria-hidden="true"></i> {{ roles[role].label }}</button>
               <div class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="account-menu" style="min-width:17rem">
-                <div class="small text-muted px-2 pb-1">Land on, and see first</div>
+                <div class="small text-muted px-2 pb-1">{{ t('shell.land_on') }}</div>
                 {# Real forms: the role switch works with scripting off, like every control. #}
                 {% for key, meta in roles.items() %}
                 <form method="post" action="/preferences/role" class="m-0">
@@ -365,17 +389,18 @@ footer .principle{font-family:var(--serif);font-style:italic;}
                 </form>
                 {% endfor %}
                 <div class="dropdown-divider"></div>
-                <a class="dropdown-item small" href="/start">Get started guide</a>
-                <a class="dropdown-item small" href="/logout" title="End this session">Sign out</a>
+                <a class="dropdown-item small" href="/start">{{ t('shell.get_started') }}</a>
+                <a class="dropdown-item small" href="/plugins">{{ t('shell.plugins') }}</a>
+                <a class="dropdown-item small" href="/logout" title="{{ t('shell.sign_out_title') }}">{{ t('shell.sign_out') }}</a>
               </div>
             </div>
           {% else %}
-            <a class="btn btn-sm btn-outline-light" href="/login" title="Sign in to act">Sign in</a>
+            <a class="btn btn-sm btn-outline-light" href="/login" title="{{ t('shell.sign_in_title') }}">{{ t('shell.sign_in') }}</a>
           {% endif %}
           <button type="button" class="btn btn-sm btn-outline-light" id="theme-toggle"
-                  title="Theme (t)" aria-label="Change theme"><i class="bi bi-circle-half"></i></button>
+                  title="{{ t('shell.theme_title') }}" aria-label="{{ t('shell.theme') }}"><i class="bi bi-circle-half" aria-hidden="true"></i></button>
           <button type="button" class="btn btn-sm btn-outline-light" id="density-toggle"
-                  title="Density (d)" aria-label="Change density"><i class="bi bi-list"></i></button>
+                  title="{{ t('shell.density_title') }}" aria-label="{{ t('shell.density') }}"><i class="bi bi-list" aria-hidden="true"></i></button>
         </li>
       </ul>
     </div>
@@ -384,7 +409,7 @@ footer .principle{font-family:var(--serif);font-style:italic;}
 <main class="{% block main_class %}container{% endblock %}" id="main" tabindex="-1">{% block content %}{% endblock %}</main>
 <footer><div class="container d-flex flex-wrap gap-3 justify-content-between">
   <span class="principle">{{ principle }}</span>
-  <span>{{ app_name }} {{ version }} — engine at <span class="mono">{{ engine_url }}</span></span>
+  <span>{{ app_name }} {{ version }} — {{ t('shell.footer_engine') }} <span class="mono">{{ engine_url }}</span></span>
 </div></footer>
 <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/static/js/theme.js"></script>
@@ -400,6 +425,7 @@ footer .principle{font-family:var(--serif);font-style:italic;}
   "pravaha/": "/static/app/"
 }}
 </script>
+<script type="application/json" id="i18n-messages">{{ t.for_script()|tojson }}</script>
 <script type="module" src="/static/app/palette.js?v={{ asset_version }}"></script>
 {% block scripts %}{% endblock %}
 </body>
