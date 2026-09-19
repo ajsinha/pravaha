@@ -85,10 +85,10 @@ export async function copyText(text, button) {
   }
   if (button) {
     const before = button.textContent;
-    button.textContent = "Copied";
+    button.textContent = t("lib.copied");
     setTimeout(() => { button.textContent = before; }, 1400);
   }
-  announce("Copied to the clipboard");
+  announce(t("lib.copied_announce"));
 }
 
 /** Wires every [data-copy-target] button on the page to copy its target's text. */
@@ -125,11 +125,41 @@ export function formatValue(value) {
   return String(value);
 }
 
-export function errorView(err) {
-  const code = err && err.code
-    ? html`<a class="ms-1" href=${"/help/codes/" + encodeURIComponent(err.code)}>${err.code}</a>` : null;
-  return html`<div class="alert alert-danger py-2 mb-2" role="alert">
-    <div class="fw-semibold small">${err.message || String(err)}${code}</div>
-    <div class="small mono text-muted">correlation ${err.correlation || "n/a"}${
-      err.retryable ? " · retryable" : ""}</div></div>`;
+/* The eight states of design 23.12 for an island: the markup of the shared states.js functions
+   (window.PravahaStates, which every screen and the component gallery call), with an action --
+   retry, clear the filter -- wired to a callback rather than to an inline handler. */
+const S = () => window.PravahaStates;
+
+function stateBlock(markup, actions = {}, attrs = {}) {
+  const onClick = (event) => {
+    const button = event.target.closest("[data-state-action]");
+    const act = button && actions[button.dataset.stateAction];
+    if (act) act();
+  };
+  return html`<div class="state-host" ...${attrs} onClick=${onClick} dangerouslySetInnerHTML=${{ __html: markup }}></div>`;
+}
+
+export const states = {
+  /** A skeleton the height of the answer that is coming (the first load, never a spinner). */
+  loading: (height, attrs) => stateBlock(S().loadingBlock(height), {}, attrs),
+  /** Never had any: what this is, and the action that makes the first one (HTML, escaped by the caller). */
+  never: (what, body, actionHtml, attrs) => stateBlock(S().emptyNever(what, actionHtml || "", body), {}, attrs),
+  /** Filtered to nothing, with the way out. */
+  filtered: (onClear, body, attrs) => stateBlock(S().emptyFiltered(true, body), { clear: onClear }, attrs),
+  /** What failed, whether a retry can help (and the button when it can), and the correlation id. */
+  error: (err, onRetry, attrs) => stateBlock(
+    S().error({ message: (err && err.message) || String(err), code: err && err.code, title: err && err.title,
+                correlation: err && err.correlation, retryable: Boolean(err && err.retryable) },
+              onRetry ? true : null), { retry: onRetry }, attrs),
+  /** Some of it answered; says what did not. */
+  partial: (missing, attrs) => stateBlock(S().partial(missing), {}, attrs),
+  /** Disconnected: how old what is shown is, and whether it is reconnecting. */
+  stale: (ageSeconds, reconnecting, attrs) => stateBlock(S().stale(ageSeconds, reconnecting), {}, attrs),
+  /** Disabled, with the reason on the page. */
+  unauthorized: (action, reason, attrs) => stateBlock(S().unauthorized(action, reason), {}, attrs),
+};
+
+/** A failed call, as design 23.12's error state: `onRetry`, when given, is offered if retrying can help. */
+export function errorView(err, onRetry) {
+  return states.error(err, onRetry);
 }

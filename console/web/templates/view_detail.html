@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
 {% block title %}{{ t('view.title', name=query.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/views">&larr; {{ t('view.back') }}</a></p>
@@ -44,7 +45,7 @@
         <div class="col-12 d-flex gap-2"><button class="btn btn-sm btn-primary" type="submit">{{ t('view.look_up') }}</button>
           <span class="small text-muted align-self-center">{{ t('view.numbers_before') }} <code>40</code> {{ t('view.numbers_middle') }} <code>'40'</code>.</span></div>
       </form>
-      {% if schema_error %}<div class="alert alert-warning py-2 small mt-3 mb-0">{{ t('view.schema_error', error=schema_error) }}</div>{% endif %}
+      {% if schema_error %}<div class="mt-3">{{ states.partial(body=t('view.schema_error', error=schema_error), id='schema-partial') }}</div>{% endif %}
       <div class="section-label">{{ t('view.schema') }}</div>
       {% if schema %}
       <ul class="field-list">{% for f in schema %}<li><span class="mono">{{ f.name }}</span><span class="field-type">{{ f.type }}{{ '' if f.nullable else ' ' ~ t('view.not_null') }}</span></li>{% endfor %}</ul>
@@ -62,7 +63,7 @@
       <span class="small text-muted mono" id="lookup-sql">{{ result.sql if result else '' }}</span></div>
       <div class="card-body" id="lookup-result">
       {% if lookup_error %}
-        <div class="alert alert-danger py-2 small" role="alert">{{ lookup_error }}</div>
+        {{ states.error(lookup_error, retry_href='/views/' ~ query.name ~ '?key=' ~ key|urlencode ~ '&value=' ~ key_value|urlencode, id='lookup-error') }}
       {% elif result %}
         {% if result.rows %}
         <div class="table-responsive" style="max-height:22rem"><table class="table table-sm mb-0">
@@ -71,7 +72,7 @@
         </table></div>
         <p class="small text-muted mt-2 mb-0">{% if result.returned == 1 %}{{ t('view.returned_one', n=result.returned, ms=result.took_ms) }}{% else %}{{ t('view.returned_other', n=result.returned, ms=result.took_ms) }}{% endif %}{% if result.truncated %} — {{ t('view.truncated', n=result.returned) }}{% endif %}</p>
         {% else %}
-        <div class="state"><h2>{{ t('view.no_row.title') }}</h2><p>{{ t('view.no_row.body') }}</p></div>
+        {{ states.filtered('/views/' ~ query.name, body=t('view.no_row.title') ~ '. ' ~ t('view.no_row.body'), id='lookup-none') }}
         {% endif %}
       {% else %}
         <div class="state"><h2>{{ t('view.ask.title') }}</h2><p>{{ t('view.ask.body') }}</p></div>
@@ -84,7 +85,7 @@
 <p class="small text-muted">{{ t('view.for') }} <span class="mono">{{ query.name }}</span>{% if key %}, {{ t('view.keyed_on') }} <span class="mono">{{ key }} = {{ key_value }}</span>{% endif %}.
   {{ t('view.paste_before') }} <code>PRAVAHA_TOKEN</code>{{ t('view.paste_after') }}</p>
 {% if snippet_error %}
-<div class="alert alert-warning py-2 small">{{ snippet_error }}</div>
+{{ states.error(snippet_error, id='snippet-error') }}
 {% else %}
 <div class="tabs-bar" role="tablist" id="client-tabs">
   {% for id, s in snippets.items() %}

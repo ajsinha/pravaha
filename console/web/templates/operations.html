@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
 {% block title %}{{ t('operations.title') }} — {{ app_name }}{% endblock %}
 {% macro pct(v) %}{% if v is none %}—{% else %}{{ '%.0f'|format(v * 100) }}%{% endif %}{% endmacro %}
 {% macro lag(v) %}{% if v is none %}<span class="text-muted" title="{{ t('operations.no_watermark_title') }}">{{ t('operations.no_watermark') }}</span>{% elif v < 90 %}{{ t('operations.unit.seconds', n='%.0f'|format(v)) }}{% elif v < 5400 %}{{ t('operations.unit.minutes', n='%.0f'|format(v / 60)) }}{% else %}{{ t('operations.unit.hours', n='%.1f'|format(v / 3600)) }}{% endif %}{% endmacro %}
@@ -13,6 +14,8 @@
   <span class="freshness" id="ops-freshness" data-state="fresh"><span class="dot"></span><span>{{ t('operations.as_of_load') }}</span></span>
 </div>
 <div class="rule"></div>
+{# Stale (23.12): written by ops.js when the stream drops -- outside #ops-app, which dims. #}
+<div id="ops-banner"></div>
 
 <div id="ops-app">
 {% set v = snapshot.verdict %}
@@ -30,7 +33,7 @@
         <div><div class="fw-semibold">{% if f.query %}<a class="mono" href="/queries/{{ f.query }}">{{ f.query }}</a> — {% endif %}{{ f.title }}{% if f.code %} · <a class="mono" href="/help/codes/{{ f.code }}">{{ f.code }}</a>{% endif %}</div>
           <div class="small text-muted">{{ f.detail }}</div></div></div>
       {% else %}
-      <div class="state py-4"><h3>{{ t('operations.nothing') }}</h3><p>{{ t('operations.nothing_body') }}</p></div>
+      <div class="state py-4"><h2>{{ t('operations.nothing') }}</h2><p>{{ t('operations.nothing_body') }}</p></div>
       {% endfor %}
     </div></div>
   </div>
@@ -60,8 +63,7 @@
 </div>
 
 {% if not snapshot.metrics.reachable %}
-<div class="alert alert-warning mt-3 small" role="status"><div class="fw-semibold">{{ t('operations.metrics_down') }}</div>
-  {{ t('operations.metrics_down_body', error=snapshot.metrics.error) }}</div>
+<div class="mt-3" id="ops-partial">{{ states.partial(body=t('operations.metrics_down') ~ ': ' ~ t('operations.metrics_down_body', error=snapshot.metrics.error)) }}</div>
 {% endif %}
 
 <h2>{{ t('operations.queries') }}</h2>

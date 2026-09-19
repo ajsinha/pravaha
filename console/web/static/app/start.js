@@ -73,7 +73,7 @@ function StreamStep({ streams, setStreams, chosen, setChosen, next }) {
             disabled=${!timestampColumns.includes(eventTime)} onInput=${(e) => setLateness(e.target.value.trim())} placeholder="PT10S" /></div>
       </div>
       <div class="form-text small mt-2">${t("start.declare.help_before")} <code>pravaha.sources.${name || "<name>"}</code> ${t("start.declare.help_after")}</div>
-      ${state.status === "error" ? html`<div class="mt-2">${errorView(state.err)}</div>` : null}
+      ${state.status === "error" ? html`<div class="mt-2">${errorView(state.err, () => declare({ preventDefault() {} }))}</div>` : null}
       <button type="submit" class="btn btn-sm btn-primary mt-2" disabled=${!IDENT.test(name) || !schema.trim() || state.status === "loading"}>
         ${state.status === "loading" ? t("start.declare.busy") : t("start.declare.submit")}</button>
     </div></form>` : html`<button type="button" class="btn btn-sm btn-link px-0 mb-3" onClick=${() => setDeclaring(true)}>
@@ -145,7 +145,7 @@ function RegisterStep({ chosen, sql, validation, back, done }) {
           id=${"ob-key-" + f.name} checked=${keys.includes(f.name)} onChange=${() => toggle(f.name)} />
           <label class="form-check-label small mono" for=${"ob-key-" + f.name}>${f.name}</label></div>`)}
         <div class="form-text small">${t("start.key_help")}</div></fieldset></div>
-      ${state.status === "error" ? html`<div class="col-12">${errorView(state.err)}</div>` : null}
+      ${state.status === "error" ? html`<div class="col-12">${errorView(state.err, () => submit({ preventDefault() {} }))}</div>` : null}
       ${refused ? html`<div class="col-12"><div class="alert alert-info py-2 small mb-0" id="register-refused" role="note">
         ${t("start.register_refused", { reason: refused })} <a href="/admin/access">${t("start.refused_access")}</a></div></div>` : null}
       <div class="col-12 d-flex gap-2"><button type="button" class="btn btn-outline-secondary" onClick=${back}>${t("start.back")}</button>

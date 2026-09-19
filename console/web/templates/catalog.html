@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
 {% block title %}{{ t('catalog.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -13,15 +14,15 @@
 <div class="rule"></div>
 
 <nav class="tabs-bar" aria-label="{{ t('catalog.sections') }}">
-  <a href="/catalog?tab=streams" {% if tab == 'streams' %}aria-current="page"{% endif %}>{{ t('catalog.tab.streams') }}<span class="count">{{ streams|length }}</span></a>
-  <a href="/catalog?tab=queries" {% if tab == 'queries' %}aria-current="page"{% endif %}>{{ t('catalog.tab.queries') }}<span class="count">{{ queries|length }}</span></a>
+  <a href="/catalog?tab=streams" {% if tab == 'streams' %}aria-current="page"{% endif %}>{{ t('catalog.tab.streams') }}<span class="count">{{ '?' if streams_error else streams|length }}</span></a>
+  <a href="/catalog?tab=queries" {% if tab == 'queries' %}aria-current="page"{% endif %}>{{ t('catalog.tab.queries') }}<span class="count">{{ '?' if queries_error else queries|length }}</span></a>
   <a href="/catalog?tab=sinks" {% if tab == 'sinks' %}aria-current="page"{% endif %}>{{ t('catalog.tab.sinks') }}</a>
 </nav>
 
 {% if tab == 'streams' %}
   {% if streams_error %}
-  <div class="alert alert-warning small" role="status"><div class="fw-semibold">{{ t('catalog.streams_error.title') }}</div>
-    {{ streams_error }}. {{ t('catalog.streams_error.where') }} <span class="mono">{{ engine_http or t('catalog.streams_error.unset') }}</span>.</div>
+  {{ states.error(streams_error, retry_href='/catalog?tab=streams', id='streams-error', title=t('catalog.streams_error.title'),
+                  hint=t('catalog.streams_error.where') ~ ' ' ~ (engine_http or t('catalog.streams_error.unset')) ~ '.') }}
   {% elif not streams %}
   <div class="state"><h2>{{ t('catalog.no_streams.title') }}</h2><p>{{ t('catalog.no_streams.before') }} <code>pravaha.streams</code> {{ t('catalog.no_streams.after') }}</p>
     <a class="btn btn-sm btn-primary" href="/start">{{ t('catalog.no_streams.action') }}</a></div>
@@ -49,7 +50,7 @@
 
 {% elif tab == 'queries' %}
   {% if queries_error %}
-  <div class="alert alert-warning small">{{ queries_error }}</div>
+  {{ states.error(queries_error, retry_href='/catalog?tab=queries', id='queries-error', title=t('catalog.queries_error.title')) }}
   {% elif not queries %}
   <div class="state"><h2>{{ t('catalog.no_queries.title') }}</h2><p>{{ t('catalog.no_queries.body') }}</p>
     <a class="btn btn-sm btn-primary" href="/workbench">{{ t('catalog.no_queries.action') }}</a></div>
@@ -75,8 +76,8 @@
 
 {% else %}
   {% if sinks_error %}
-  <div class="alert alert-warning small" role="status"><div class="fw-semibold">{{ t('catalog.sinks_error.title') }}</div>
-    {{ sinks_error }}. {{ t('catalog.sinks_error.where') }} <code>GET /api/v1/sinks</code>.</div>
+  {{ states.error(sinks_error, retry_href='/catalog?tab=sinks', id='sinks-error', title=t('catalog.sinks_error.title'),
+                  hint=t('catalog.sinks_error.where') ~ ' GET /api/v1/sinks.') }}
   {% elif not sinks %}
   <div class="state"><h2>{{ t('catalog.no_sinks.title') }}</h2><p>{{ t('catalog.no_sinks.before') }}
     <code>pravaha.sinks.&lt;name&gt;</code> {{ t('catalog.no_sinks.after') }}</p></div>

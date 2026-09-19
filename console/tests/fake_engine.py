@@ -11,6 +11,8 @@ lets a screenshot of a page be compared with yesterday's.
 from __future__ import annotations
 
 import dataclasses
+import sys
+import time
 
 from core.engine import EngineHttpError, QueryRow
 
@@ -55,6 +57,9 @@ class FakeEngine:
         self.url = "grpc://engine.test:9090"
         self.http_url = "http://engine.test:8080"
         self.down = down
+        #: Calls that fail, and calls that take this many seconds, by method name (``_check``).
+        self.failing: dict[str, Exception] = {}
+        self.slow: dict[str, float] = {}
         self.registered: list[dict] = []
         self.queries_seen: list[tuple[str, list | None]] = []
         self.rows = [[1, "u1", 150], [2, "u2", 900]]
@@ -82,8 +87,10 @@ class FakeEngine:
         #: every name on it reports the stop. Empty by default: the screenshots are of a healthy
         #: engine, and a test that wants a stopped source calls :meth:`stop_source`.
         self.feed_stops: dict[str, dict] = {}
-        #: Whether the engine's policy lets the console's identity read the audit trail.
+        #: Whether the engine's policy lets the console's identity read the audit trail, and
+        #: the decisions it has to show (empty: a node that has recorded nothing yet).
         self.audit_allowed = True
+        self.audit_events: list[dict] = list(AUDIT_EVENTS)
         self.audit_calls: list[dict] = []
         #: The policy's other refusals, by view name and for registering: what a deployment's
         #: identity system decides, and what a grant made there changes.
@@ -124,8 +131,26 @@ class FakeEngine:
         ]
 
     def _check(self):
+        """Every call passes through here: ``down`` fails them all, and ``failing`` and ``slow``
+        -- keyed by the calling method's name -- fail or delay one, which is how a test puts a
+        screen in its partial, error or first-loading state (design 23.12)."""
         if self.down:
             raise EngineHttpError(0, "the engine's HTTP API at http://engine.test:8080 did not answer")
+        call = sys._getframe(1).f_code.co_name
+        if self.slow.get(call):
+            time.sleep(self.slow[call])
+        if call in self.failing:
+            raise self.failing[call]
+
+    def fail(self, *calls: str, status: int = 503, code: str | None = None,
+             message: str = "the engine did not answer this call") -> None:
+        """Make each named call fail as the engine's HTTP API would, until ``heal``."""
+        for call in calls:
+            self.failing[call] = EngineHttpError(status, f"{message} ({call})", code)
+
+    def heal(self) -> None:
+        self.failing.clear()
+        self.slow.clear()
 
     # Flight half
     def health(self):
@@ -151,6 +176,10 @@ class FakeEngine:
     def queries(self):
         if self.down:
             raise ConnectionError("connection refused")
+        if self.slow.get("queries"):
+            time.sleep(self.slow["queries"])
+        if "queries" in self.failing:
+            raise ConnectionError(str(self.failing["queries"]))
         return [self._with_feed(q) for q in self._queries]
 
     def register(self, name, sql, keys, sink=None, retention=None):
@@ -326,7 +355,7 @@ class FakeEngine:
         self.audit_calls.append({k: v for k, v in asked.items() if v is not None})
         if not self.audit_allowed:
             raise EngineHttpError(403, "console may not read the audit trail: " + AUDIT_REFUSAL, "PRV-7002")
-        matching = [e for e in reversed(AUDIT_EVENTS)
+        matching = [e for e in reversed(self.audit_events)
                     if (principal is None or e["principal"] == principal)
                     and (view is None or (e["target"] or "").lower() == view.lower())
                     and (action is None or e["action"] == action)
@@ -335,9 +364,9 @@ class FakeEngine:
                     and (cursor is None or e["sequence"] < int(cursor))]
         page = matching[: int(limit or 100)]
         more = len(matching) > len(page)
-        return {"recording": True, "sink": "file", "capacity": 10000, "retained": len(AUDIT_EVENTS),
-                "evicted": 0, "oldestRetained": AUDIT_EVENTS[0]["at"],
-                "actions": sorted({e["action"] for e in AUDIT_EVENTS}), "events": [dict(e) for e in page],
+        return {"recording": True, "sink": "file", "capacity": 10000, "retained": len(self.audit_events),
+                "evicted": 0, "oldestRetained": self.audit_events[0]["at"] if self.audit_events else None,
+                "actions": sorted({e["action"] for e in self.audit_events}), "events": [dict(e) for e in page],
                 "nextCursor": str(page[-1]["sequence"]) if more and page else None,
                 "note": "The most recent 10000 decisions on this node are readable here; none has been "
                         "evicted since it started."}

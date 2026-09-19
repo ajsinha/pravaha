@@ -207,7 +207,10 @@ a:hover{color:var(--flow-d);}
 .alert-warning{--bs-alert-bg:var(--warn-soft);--bs-alert-border-color:var(--warn);}
 .alert-info{--bs-alert-bg:var(--info-soft);--bs-alert-border-color:var(--info);}
 .alert-success{--bs-alert-bg:var(--ok-soft);--bs-alert-border-color:var(--ok);}
-.alert a{color:var(--flow);}
+/* A link inside an alert wears the accent -- unless it is a button, whose own colour pair
+   (white on --flow) is the one the contrast test holds: the accent on the accent is invisible,
+   which is what the error state's Try again looked like before this. */
+.alert a:not(.btn){color:var(--flow);}
 /* Bootstrap's danger red is 3.5:1 on a dark card; the theme's --bad holds 4.5 in every theme. */
 .text-danger{color:var(--bad)!important;}
 .btn-outline-danger{--bs-btn-color:var(--bad);--bs-btn-border-color:var(--bad);

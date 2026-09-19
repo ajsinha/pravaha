@@ -141,12 +141,13 @@ routes/
                          palette
   ui_routes.py           overview, queries, detail, workbench
 web/
-  templates/             Jinja2; base.html holds the tokens, the chrome and the import map
-  static/js/             the classic per-screen scripts: theme, api, states, tail, lists
+  templates/             Jinja2; base.html holds the tokens, the chrome and the import map, and
+                         _states.html the eight states of 23.12 for a server-rendered screen
+  static/js/             the classic per-screen scripts: theme, api, states (the eight), tail, lists
   static/app/            the islands: lib, palette, workbench, diff, plan-graph, grid, charts, live,
                          ops, views, start, and product.css
   static/vendor/         Bootstrap, Bootstrap Icons, fonts, Monaco, ECharts, elkjs, Preact, htm
-  i18n/en.json           every UI string the templates, islands and classic scripts show
+  i18n/en.json           every UI string the templates, islands, classic scripts and routes show
 content/
   topics/                the help topics: front matter (category, order, icon, summary, guide,
                          related, keywords) and the page, in markdown
@@ -155,7 +156,10 @@ content/
 tests/
   cdp.py                 a Chrome DevTools Protocol driver over --remote-debugging-pipe, stdlib only
   browser_harness.py     the console on a real port with the fake engine; pages, axe, PNG compare
-  fake_engine.py         the one adapter replaced, shared by the product and browser tests
+  fake_engine.py         the one adapter replaced, shared by the product and browser tests; its
+                         `fail`, `slow` and `fresh` are how a screen is put in each of the eight
+                         states of 23.12
+  i18n_scan.py           finds user-visible English that bypasses the string catalog
   vendor/axe-core/       axe.min.js, for the accessibility audit
   visual/baselines/      the screenshots the visual-regression test compares against
 ```
@@ -295,20 +299,55 @@ DevTools protocol by `tests/cdp.py`, about 350 lines of standard-library Python.
 
 | §23.20 item | Status | Proven by |
 |---|---|---|
-| Every screen implements the eight states of §23.12 | implemented, **not audited** screen by screen. The eight state components themselves are on the component gallery, audited by axe and photographed in both themes and densities — which found two of them failing WCAG (below) | `test_browser_accessibility.py`, `test_browser_visual.py` |
-| Light and dark designed and visually regression-tested; both densities | **met, for the pages photographed**: 30 pages — among them the help index, a topic, a connector topic, help search, the guides browser, About, the component gallery and the workbench's Compare panel (both whole page) — and the audit trail's *not permitted* state × 2 themes × 2 viewports (1280×800, 390×844) × 2 densities (comfortable, compact), **248 baselines**. Documents included verbatim are not photographed | `test_browser_visual.py`, `tests/visual/baselines/` |
-| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 34 pages × 2 themes and again in compact density (the help index, a topic, a connector topic, search, the code and guide browsers, About, the component gallery and the workbench compared with a registered query among them), and 10 interaction states (open palette, workbench refusal / plan / register / library / result, the Compare panel never compared / engine unreachable / compared / unified with every operator / out of date / not permitted / partly compared, live view with changes, the audit trail not permitted, controls the policy refuses, drop dialog, each onboarding step); every token pair checked for contrast in all three themes, and again as the stale state draws it. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would | `test_browser_accessibility.py`, `test_contrast.py` |
+| Every screen implements the eight states of §23.12 | **audited screen by screen** (the table below): every data-bearing component on every product screen, each state either implemented from the shared `states.js` functions or marked not applicable with its reason, each implemented one driven in a real browser and audited by axe. The eight components themselves are also on the component gallery, photographed in both themes and densities | `test_browser_states.py`, `test_browser_accessibility.py`, `test_browser_visual.py` |
+| Light and dark designed and visually regression-tested; both densities | **met, for the pages photographed**: 30 pages — among them the help index, a topic, a connector topic, help search, the guides browser, About, the component gallery and the workbench's Compare panel (both whole page) — and two states a screen is in rather than pages — the audit trail's *not permitted*, and the catalog when the engine did not answer (§23.12's error state, retry and correlation id included) — × 2 themes × 2 viewports (1280×800, 390×844) × 2 densities (comfortable, compact), **256 baselines**. Documents included verbatim are not photographed | `test_browser_visual.py`, `tests/visual/baselines/` |
+| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 34 pages × 2 themes and again in compact density (the help index, a topic, a connector topic, search, the code and guide browsers, About, the component gallery and the workbench compared with a registered query among them), and 10 interaction states (open palette, workbench refusal / plan / register / library / result, the Compare panel never compared / engine unreachable / compared / unified with every operator / out of date / not permitted / partly compared, live view with changes, the audit trail not permitted, controls the policy refuses, drop dialog, each onboarding step), and **43 states of design 23.12 driven screen by screen** (the table below) — which found three empty and error states skipping a heading level. Every token pair is checked for contrast in all three themes, and again as the stale state draws it. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would — the invisible *Try again* below is one it did not | `test_browser_accessibility.py`, `test_browser_states.py`, `test_contrast.py` |
 | Every workflow completable by keyboard alone | **partly proven**: skip link, tab order and a visible focus ring on every stop, the palette (open, filter, act, Escape returns focus), a point query from sign-in to answer with keys only, the admin persona from sign-in through the audit trail (palette, cursor paging, the filter form) with keys only, the drop dialog (Escape returns focus), the draft tabs (arrows, Home, End, Delete), the Compare panel's unified toggle, the help from a word to its full reference (filter, search, open a topic, follow a related one by keyboard, open the guide at its section). Not proven for every workflow: plan-graph node inspection, the register form, onboarding | `test_browser_journeys.py` |
 | Every view deep-linkable; every filter in the URL | implemented (catalog tabs, the queries filter, a view's key and value, workbench `?query=` `?sql=` `?template=` `?panel=`); exercised by the journeys and product tests, **not audited as a whole** | `test_product.py`, `test_browser_journeys.py` |
 | Every destructive action confirmed, audited and reversible where possible | drop is confirmed by the typed name. The engine now serves its audit trail (Admin · Audit), and the product and journey tests read it through the console; **that a drop made from the console appears in it is not asserted end to end** — the real-engine tests reach a Flight-only test server with no HTTP surface | `test_console.py`, `test_product.py` |
 | Every error message names the cause, the fix and a correlation id | cause and code everywhere, fix where one is certain; the correlation id is the console's own — **the engine does not mint one** that travels across its surfaces | — |
 | Every latency chart shows percentiles; no averages | **not met**: the engine publishes a commit-latency count and sum, so the mean is shown and labelled as a mean | — |
-| Stale data visibly stale; partial data visibly partial | implemented (freshness indicator, greyed and fenced stale data, "sampled — N dropped"); the states themselves audited on the gallery, the screens not audited | `test_contrast.py` |
+| Stale data visibly stale; partial data visibly partial | implemented and **audited on every screen that can be either** (the table above): a freshness indicator, data greyed inside a dashed fence with a banner giving its age and whether it is reconnecting, "sampled — N dropped", a count that did not load shown as `?` and never as `0`, and an answer about SQL that has since changed marked out of date | `test_browser_states.py`, `test_contrast.py` |
 | §23.15 budgets met and gated | **met and gated for what can be measured here** (numbers below). Not measured: a mid-range laptop over a real network, frame times while streaming, memory over hours | `test_browser_performance.py` |
 | Onboarding in under five minutes, with real people | **not measured** — it needs people. The journey itself is automated and passes | `test_browser_journeys.py` |
 | The eight critical journeys on every PR | **8 of 8 automated; 2 end to end, 6 as far as the engine goes.** End to end: first run to a live view that changes; author, validate, fix, explain, run, register. The other six drive the console as their persona would and stop, with an assertion that the console offers nothing it cannot honour, where an engine feature is missing — table below | `test_browser_journeys.py` |
 | No secret serialised to the browser | met | `test_console.py`, `test_product.py` |
-| Storybook covers every component | **not adopted, and replaced**: Storybook is a Node tool, and the console is no-build and air-gapped by decision (§23.3) — there is no Node toolchain and no component library to host. `/_components`, rendered by the console itself (behind `ui.component_gallery` and the sign-in), shows every design-system component and the eight states from the same `states.js` the screens call, and is axe-audited and photographed like a screen. What Storybook also gives and this does not: an interactive knob per prop, and a per-component test runner (§23.18's Vitest has no equivalent without a build) | `test_browser_visual.py`, `test_browser_accessibility.py` |
+| Storybook covers every component | **not adopted, and replaced**: Storybook is a Node tool, and the console is no-build and air-gapped by decision (§23.3) — there is no Node toolchain and no component library to host. `/_components`, rendered by the console itself (behind `ui.component_gallery` and the sign-in), shows every design-system component and the eight states from the same `states.js` the screens call, and is axe-audited and photographed like a screen. Beside it, `test_browser_states.py` drives the screens themselves into each state a real engine can put them in and audits that — which a Storybook of components could not do at all. What Storybook also gives and this does not: an interactive knob per prop, and a per-component test runner (§23.18's Vitest has no equivalent without a build) | `test_browser_visual.py`, `test_browser_accessibility.py`, `test_browser_states.py` |
+
+### The eight states of §23.12, screen by screen
+
+Every data-bearing component on every product screen, against the eight states. **Implemented**
+means the state is drawn by the shared functions — `static/js/states.js` for the classic scripts,
+`states` in `static/app/lib.js` for the islands (the same markup, with the action wired to a
+callback), and the macros in `templates/_states.html` for a screen the server renders before any
+script runs. **N/A** carries its reason: a state a screen cannot be in is not a gap, and saying
+which is the point of the audit. Each implemented cell is driven in a real browser and audited by
+axe in `tests/test_browser_states.py` — the engine's answers are made to fail, delay, empty out or
+be refused, so no state is faked in the page.
+
+| Screen · component | Loading (first) | Loading (refresh) | Empty (never) | Empty (filtered) | Error | Partial | Stale | Unauthorized |
+|---|---|---|---|---|---|---|---|---|
+| **Workbench** · diagnostics | N/A — nothing is asked until you type; *Nothing to check yet* is the resting state | `checking…` in the status line, the previous diagnostics kept | *Nothing to check yet* | N/A — no filter | shared error state: the engine's message, a retry that revalidates, the correlation id, and what still works | N/A — one call | N/A — every edit revalidates | N/A — the planner does not ask the policy |
+| **Workbench** · Explain | skeleton | the plan stays, `explaining…` beside Explain | *No plan yet* | N/A | shared error state with retry | per-operator rows and state named as not published (`metricsNote`) | *Out of date* when the SQL has changed since the plan, and the plan greys | N/A for a draft; a registered plan the policy refuses is the error state with `PRV-7002` |
+| **Workbench** · Run | skeleton | the rows stay, `running…` | *Nothing run yet* | *No rows* — it ran and matched nothing | shared error state; a refusal (4xx) says a retry will not help instead of offering one | *Showing the first N rows* | *Out of date* when the SQL has changed since the run | N/A — the engine refuses the read, which is the error state |
+| **Workbench** · Register | *Registering…* on the button | N/A — a registration is made once, and answers with its own view | the keys appear when the query validates | N/A | shared error state with retry | the sink list not loading is said; the form still registers | N/A | Register disabled with the policy's reason and a link to Admin · Access |
+| **Workbench** · Compare (§23.7) | skeleton of the whole panel | the comparison stays, `comparing…` | *Nothing compared yet* / *Nothing to compare with* | N/A | shared error state with retry | *Partly compared*, naming the side the engine would not plan | *Out of date* — the SQL has changed since the comparison | *Not permitted*, per side, with the policy's reason |
+| **Workbench** · draft library | N/A — templates come embedded in the page, snippets from `localStorage` | N/A | *None yet. Select some SQL and save it here* | N/A | N/A — nothing is fetched | N/A | N/A | N/A |
+| **Catalog** · streams, queries, sinks | N/A — rendered by the server with the engine's answer | N/A — a reload is the refresh | one per tab, each with the action that makes the first one | N/A — the tabs are links, not a filter | shared error state per tab: the message, a retry link, the correlation id | a tab whose count did not load shows `?`, never `0` | N/A — nothing streams | N/A — read-only |
+| **Catalog** · one stream | N/A | N/A | *no query reads it* | N/A | the stream itself missing is a 404 page | the registry not answering: the readers are named as unknown | N/A | N/A |
+| **Views** · the list | N/A | N/A | *No views yet*, with onboarding and the workbench | filtered in the browser: *Nothing matches this filter*, and Clear | shared error state with retry | N/A | N/A | N/A |
+| **View** · point query | skeleton block | N/A — each lookup is a new question, not a refresh of the last | *Ask for a row* | *No row has that key*, with the way back to a scan | shared error state, retry re-asks | the engine's description missing: keys, retention and sink named as unknown | N/A | N/A — a row-filtered read is the engine's answer, not a refusal |
+| **View** · client code | N/A — composed by the server | N/A | N/A — every view has code | N/A | the snippets' own error state | N/A | N/A | N/A |
+| **Live** (`/views/{name}/live`) | skeleton rows the shape of the view | the stream: freshness says `live`, `quiet Ns`, and the rows stay | *Nothing in the view yet* | the tap filter matching nothing, with Clear | the engine ending the subscription: its reason, and a button that reconnects | *sampled — N dropped*, counted and said | the data greys inside its fence, the banner gives its age and whether it is reconnecting | N/A — a refused subscription arrives as the error state |
+| **Operations** | N/A — the server renders the first snapshot | freshness moves at 1 Hz; the numbers stay | *Nothing registered* / *Nothing needs attention* | N/A — no filter | the engine unreachable is the verdict itself, on the page and in the tiles | the metrics endpoint missing: said, with the registry's numbers still shown | the dashboard greys and the banner gives its age and that it is reconnecting | N/A — read-only |
+| **Queries** · the list | N/A | freshness at 5 s; the rows stay | *No queries yet* | *Nothing matches this filter*, with Clear (server-rendered and again in the browser) | shared error state with retry | N/A | the rows grey and stay, with the age and the failure beside them | N/A |
+| **Query** · one query | N/A | the raw tail streams | the tail says nothing has been committed since the page opened | N/A | a lifecycle action that fails: the error state with a retry | the engine's description missing: keys, retention, sink and lineage named as unknown | the tail greys, with its age and that it is reconnecting | Pause, Resume and Drop disabled with the policy's reason (§23.16) |
+| **Plugins** | N/A | N/A | *No plugin* | N/A | the plugin listing failing is the error state | every other call that failed is named, and the page keeps what answered | N/A | N/A — the engine filters the bindings to what this identity may see |
+| **Admin · Access** | N/A | N/A | *nothing this identity may see* | N/A | shared error state with retry | N/A — one call | N/A | N/A — the page *is* the policy's answers, refusals included |
+| **Admin · Audit trail** | N/A | N/A | *Nothing recorded yet* | *Nothing matches this filter*, with Clear | shared error state with retry | the window the engine keeps, and what it evicted, said on the page | N/A — a page is a point in time, and paging is by cursor | *Not permitted*, with the engine's reason and a 403 |
+| **Help · search** | N/A — the content is local | N/A | *Nothing asked yet* | *Nothing matched*, with Browse and Clear | N/A | N/A | N/A | N/A — the help is public |
+| **Onboarding** (`/start`) | the step's own button says it is working | N/A | it *is* the empty state of the console | N/A | shared error state with retry, per step | the engine down: the steps that need it say so | N/A | Register disabled with the policy's reason |
+| **Component gallery** (`/_components`) | all eight, drawn by the same functions with sample data, in both themes and densities | | | | | | | |
 
 ### The eight journeys, and what each waits on
 
@@ -364,29 +403,64 @@ are gzipped, except the event streams, which a compressing proxy would otherwise
   found by the component gallery, the first place those states were in front of axe.
 - Arrow keys on the draft tabs could not reach the second draft: the editor took focus back on
   every selection.
+- **What the screen-by-screen states audit found**, and this commit fixed: the queries list showed
+  *No queries yet* when a **filter** matched none of them, which says there is no data when there is
+  plenty and the filter is wrong (the same conflation on the audit trail, and the view list had no
+  filtered state at all); a catalog tab whose count failed to load drew **`0`**, which is
+  under-reporting rather than saying so; a stream page listed **no readers** when it was the query
+  list that had failed, and a query page dropped its keys, retention and sink for the same reason,
+  both silently; the live view and the query page's raw tail **dimmed without saying how old** what
+  was on screen was or whether anything was reconnecting, and the operations dashboard the same;
+  Explain and Run **blanked and refilled** on a second press, and went on showing a plan and rows
+  for SQL that had since changed; a server-rendered failure had **no correlation id and no retry**
+  anywhere (the catalog, the views, the queries list, the plugins, both admin screens); the query
+  page's raw tail was a **blank box** before the first change; a lifecycle action that failed said
+  *Retrying will not help* whatever had happened; the workbench's *Validation is unavailable* had
+  neither; the tail's state was shown to a person as the word `live` or `stale` **from the code**,
+  in English whatever the language; and the empty and error states of the queries list and the
+  operations dashboard **skipped from `h1` to `h3`** (axe, found by the audit itself).
+- **A button inside an alert had invisible text.** `.alert a` was repointed at the accent when
+  every plain link was, which made a link styled as a primary button the accent *on* the accent —
+  and the error state's **Try again** was a blue rectangle with nothing on it. axe did not report
+  it (it reads the contrast of text against its own background and reported nothing for this
+  pair); the first photograph of the state did. Only a link that is not a button wears the accent
+  now.
 
 ## Strings, and translating them later
 
 UI strings are looked up by key from `web/i18n/en.json` (`core/i18n.py`): `{{ t('nav.catalog') }}` in a
 template, `t("palette.label")` in an island, and `PravahaApi.t("states.retry")` in a classic script
 under `static/js/` (the `js.*` keys are embedded in every page as JSON, so neither needs a request). Parameters are named — `"{n} columns"` — because word order is the first
-thing a translation changes. `ui.language` picks the file; only `en` exists. A test fails on any key a
-template or island uses that the catalog lacks.
+thing a translation changes. `ui.language` picks the file; only `en` exists. A route that hands a
+page words rather than data — the command palette's entries, a not-found page's "Back to …", the
+role labels — passes **keys** and calls `Routes.t` (`routes/base.py`), so the English is in the
+catalog like everything else. Two tests fail on a key a template, island or route uses that the
+catalog lacks.
 
-**How far it goes:** every template, every island but one, and every classic script — about 910
-strings. The pass was mechanical and held to one rule: the English did not change. Each template was
-rendered with the fake engine before and after and compared (byte-identical, or identical once
-whitespace is collapsed and `&#39;` read as an apostrophe), and the visual baselines of every page
-at the narrow viewport — where the navigation bar, which did change, is collapsed — still matched.
-Three things are not in the catalog yet:
+**How far it goes:** every template, every island, every classic script and every string a route
+composes — about 1,350 keys. Each pass was mechanical and held to one rule: the English did not
+change. Each template was rendered with the fake engine before and after and compared
+(byte-identical, or identical once whitespace is collapsed and `&#39;` read as an apostrophe), and
+the visual baselines still matched.
 
-- **`static/app/workbench.js`**, the workbench island. Another change was in flight on it when this
-  pass was made; its strings are the next file to move, and `workbench.html` already is.
-- **Strings the server composes in Python** and hands to a template as data: the operations
-  verdict and findings (`core/metrics.py`), the plugins screen's "not published" list
-  (`core/services.py`), the palette's entries and hints, the role labels and blurbs (`ROLES`), and
-  a not-found page's "Back to …" label. They are English in code today; moving them means passing
-  keys, not sentences, across the service boundary.
+**A test fails on the next hard-coded string** (`tests/i18n_scan.py`,
+`test_no_user_visible_english_bypasses_the_catalog`): it reads every island and classic script and
+every template and reports any text a person would read that is not looked up by key — the text
+between tags in an `html` template or a Jinja page, and the `title`, `aria-label`, `placeholder` and
+`alt` attributes; and, in the scripts, any other string literal that reads as prose (two or more
+words, at least one of them not a CSS class the stylesheets define) or as a capitalised label. What
+it lets through is a short reviewed allow-list in that file — the product's name, file names, PRV
+codes, SQL, the key names a browser reports, units and glyphs, and the example identifiers an input
+shows as a placeholder — plus anything marked `translate="no"`, HTML's own word for it, which is how
+the component gallery's sample data is spelled. `test_the_english_guard_has_teeth` holds the guard
+itself to what it must catch and what it must leave alone.
+
+What is still English in code:
+
+- **Strings the server composes deeper than the routes**: the operations verdict and findings
+  (`core/metrics.py`) and the plugins screen's "not published" list (`core/services.py`). Moving
+  them means passing keys, not sentences, across the service boundary — the routes now do, and
+  these two do not yet.
 - **Documentation**: help topics, guides, tutorials and the About page's prose are authored English
   — markdown under `content/`, the repository's own documents, and the README sections About quotes
   — and stay English. Everything around them is in the catalog: the help index, search, the guides
@@ -469,7 +543,8 @@ Three kinds, and each skips with its reason when what it needs is missing:
   snippets, the plan graph, diagnostics and fixes, the plugins screen, the string catalog, the
   air-gap rule, compression, and contrast for every token pair in every theme.
 - `tests/test_browser_*.py` run the same application on a loopback port and drive a real headless
-  Chrome through it: the journeys, the axe audit, the screenshots and the performance budget. They
+  Chrome through it: the journeys, the axe audit, the eight states screen by screen
+  (`test_browser_states.py`), the screenshots and the performance budget. They
   need Chrome or Chromium; `PRAVAHA_CHROME=/path/to/chrome` names one, `PRAVAHA_BROWSER_TESTS=0`
   (or `make test-fast`) switches them off. About six minutes.
 

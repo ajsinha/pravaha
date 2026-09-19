@@ -15,15 +15,27 @@
   var view = target.getAttribute("data-view");
 
   var tailState = document.getElementById("tail-state");
+  var banner = document.getElementById("tail-banner");
+  var lastLive = null, stale = false;
+  function renderBanner() {
+    if (!banner) { return; }
+    banner.innerHTML = stale
+      ? States.stale(lastLive ? Math.round((Date.now() - lastLive) / 1000) : null, true) : "";
+  }
+  setInterval(function () { if (stale) { renderBanner(); } }, 1000);
   var tail = new window.PravahaLiveTail(view, target, {
     onState: function (state, detail) {
       tailState.setAttribute("data-state",
         state === "live" ? "fresh" : state === "lagging" ? "refreshing" : "stale");
       tailState.innerHTML = '<span class="dot"></span><span>' +
-        api.escapeHtml(detail || state) + "</span>";
+        api.escapeHtml(detail || api.t("tail.state." + state)) + "</span>";
+      if (state === "live") { lastLive = Date.now(); }
       /* Dimmed when the stream is gone, so nobody reads a frozen tail as a quiet
-         one. On a stream those look identical and only one is a problem. */
+         one. On a stream those look identical and only one is a problem. The banner
+         says how long ago it was live, and that EventSource is retrying. */
       target.classList.toggle("stale", state === "stale");
+      stale = state === "stale";
+      renderBanner();
     }
   });
   tail.start();
@@ -38,7 +50,11 @@
         await api.call("/queries/" + encodeURIComponent(view) + "/" + action, {method: "POST"});
         window.location.reload();
       } catch (err) {
-        document.querySelector("main").insertAdjacentHTML("afterbegin", States.error(err, null));
+        /* Retry is offered when it can help (the engine did not answer), and re-submits. */
+        var host = document.getElementById("controls-error");
+        host.innerHTML = States.error(err, true);
+        var retry = host.querySelector("[data-state-action=retry]");
+        if (retry) { retry.addEventListener("click", function () { form.requestSubmit(); }); }
       }
     });
   });

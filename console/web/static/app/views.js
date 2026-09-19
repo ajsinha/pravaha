@@ -55,14 +55,20 @@ if (form) {
     const key = document.getElementById("lookup-key").value;
     const value = document.getElementById("lookup-value").value;
     const target = document.getElementById("lookup-result");
-    target.innerHTML = '<div class="skeleton" style="height:90px"></div>';
+    target.innerHTML = window.PravahaStates.loadingBlock(90);
     writeUrl();
     try {
       const answer = await call(`/views/${encodeURIComponent(view)}/lookup`,
         { json: { filters: key ? { [key]: value } : {} } });
       document.getElementById("lookup-sql").textContent = answer.sql;
       if (!answer.rows.length) {
-        target.innerHTML = `<div class="state"><h2>${esc(t("views.no_row_title"))}</h2><p>${esc(t("views.no_row_body"))}</p></div>`;
+        /* Filtered to nothing -- a key with no row -- not an empty view: the way out is the scan. */
+        target.innerHTML = window.PravahaStates.emptyFiltered(true, t("views.no_row_title") + ". " + t("views.no_row_body"));
+        target.querySelector("[data-state-action=clear]").addEventListener("click", () => {
+          document.getElementById("lookup-key").value = "";
+          document.getElementById("lookup-value").value = "";
+          form.requestSubmit();
+        });
       } else {
         target.innerHTML = "";
         const host = document.createElement("div");
@@ -75,7 +81,9 @@ if (form) {
       }
       announce(t("views.announce", { n: answer.returned }));
     } catch (err) {
-      target.innerHTML = `<div class="alert alert-danger py-2 small" role="alert">${esc(err.message)}${err.code ? ` <a href="/help/codes/${esc(err.code)}">${esc(err.code)}</a>` : ""}<div class="mono text-muted">${esc(t("views.correlation", { id: err.correlation || t("views.no_correlation") }))}</div></div>`;
+      target.innerHTML = window.PravahaStates.error(err, true);
+      const retry = target.querySelector("[data-state-action=retry]");
+      if (retry) retry.addEventListener("click", () => form.requestSubmit());
     }
     try {
       const code = await call(`/views/${encodeURIComponent(view)}/snippets?` + new URLSearchParams(key ? { key, value } : {}));

@@ -45,6 +45,9 @@
 
   LiveTail.prototype.append = function (row) {
     this.received += 1;
+    /* The "nothing yet" placeholder the page came with: the tail has had data now. */
+    var empty = this.target.querySelector(".tail-empty");
+    if (empty) { empty.remove(); }
     var line = document.createElement("div");
     line.className = "new";
     line.textContent = JSON.stringify(row);

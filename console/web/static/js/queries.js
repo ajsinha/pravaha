@@ -81,7 +81,8 @@
       /* The server-rendered rows stay, dimmed. Blanking them would throw away
          the last thing known to be true because the next poll failed. */
       tbody.classList.add("stale");
-      document.getElementById("banner").innerHTML = States.error(err, "queriesReload()");
+      document.getElementById("banner").innerHTML = States.stale(fresh.age(), true) +
+        States.error(err, "queriesReload()");
     }
   }
 

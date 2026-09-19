@@ -1,0 +1,434 @@
+"""The eight states of design 23.12, screen by screen, in a real browser.
+
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+
+Design 23.12: "every data-bearing component must implement all eight states, and this is
+checked in review and by Storybook coverage". The component gallery shows the eight drawn on
+their own (``test_browser_visual``, ``test_browser_accessibility``); this drives each screen
+into the states it can be in and asserts the screen shows that state -- so a screen cannot
+lose one in a refactor, and the table in the README cannot quietly go out of date.
+
+How a state is produced: the fake engine fails or delays one call (``FakeEngine.fail``,
+``slow``), answers with nothing (``fresh``), refuses through its policy, or the page is driven
+into it (a filter that matches nothing, an edit after an answer, a hidden tab). Nothing is
+faked in the browser: every state here is one a real engine can put the console in.
+
+Each case is also audited by axe, because a state nobody could read is not implemented --
+which is how the stale and unauthorized states were found failing WCAG on the gallery.
+"""
+from __future__ import annotations
+
+import contextlib
+from collections.abc import Iterator
+
+import pytest
+from browser_harness import (
+    DETERMINISM,
+    BrowserEngine,
+    Console,
+    axe,
+    describe,
+    open_page,
+    settled,
+    sign_in,
+    theme_script,
+)
+from cdp import Browser, Page
+
+pytestmark = pytest.mark.browser
+
+#: Dark as well would double a six-minute suite for colours the gallery already audits in both;
+#: these states are audited here for structure, and in both themes where they are photographed.
+THEME = "light"
+
+
+@pytest.fixture(scope="module")
+def states_console() -> Iterator[Console]:
+    """This module's own console: it breaks the engine on purpose, and no other test's screen
+    may see that happen."""
+    server = Console(BrowserEngine())
+    try:
+        yield server
+    finally:
+        server.close()
+
+
+@pytest.fixture(scope="module")
+def empty_console() -> Iterator[Console]:
+    """An engine with nothing registered and no stream: the "never had data" state of every
+    screen that lists something."""
+    server = Console(BrowserEngine(fresh=True))
+    try:
+        yield server
+    finally:
+        server.close()
+
+
+@pytest.fixture(scope="module")
+def tab(chrome: Browser, states_console: Console) -> Iterator[Page]:
+    page = chrome.new_page()
+    page.before_every_document(DETERMINISM)
+    page.before_every_document(theme_script(THEME))
+    sign_in(page, states_console)
+    yield page
+    page.close()
+
+
+@pytest.fixture(scope="module")
+def empty_tab(chrome: Browser, empty_console: Console) -> Iterator[Page]:
+    page = chrome.new_page()
+    page.before_every_document(DETERMINISM)
+    page.before_every_document(theme_script(THEME))
+    sign_in(page, empty_console, next_path="/catalog")
+    yield page
+    page.close()
+
+
+def clean(page: Page, where: str) -> None:
+    violations = axe(page)
+    assert not violations, f"axe found {len(violations)} rule(s) violated in {where}:\n{describe(violations)}"
+
+
+@contextlib.contextmanager
+def failing(console: Console, *calls: str, **kwargs):
+    """The engine refusing or not answering those calls, healed afterwards whatever happens."""
+    console.engine.fail(*calls, **kwargs)
+    try:
+        yield
+    finally:
+        console.engine.heal()
+
+
+def shows(page: Page, console: Console, path: str, selector: str, where: str,
+          ready: str = "true", timeout: float = 20.0) -> None:
+    """Open the page and assert the state's own element is on it, then audit it."""
+    open_page(page, console, path, ready, timeout=timeout)
+    assert page.exists(selector), f"{where}: {selector} is not on {path}\n{page.text('main')[:600]}"
+    clean(page, where)
+
+
+# ============================================================ error: what failed, and a retry
+
+#: (screen and state, the calls that fail, the path, the element that state draws).
+ERRORS = [
+    ("catalog · streams · error", ("streams",), "/catalog", "#streams-error"),
+    ("catalog · queries · error", ("describe_queries", "queries"), "/catalog?tab=queries", "#queries-error"),
+    ("catalog · sinks · error", ("sinks",), "/catalog?tab=sinks", "#sinks-error"),
+    ("views · error", ("describe_queries", "queries"), "/views", "#views-error"),
+    ("view · point query · error", ("query_typed",), "/views/big_txn?key=user_id&value=u1", "#lookup-error"),
+    ("queries · error", ("describe_queries", "queries"), "/queries", "#queries-error"),
+    ("plugins · error", ("plugins",), "/plugins", "#plugins-error"),
+    ("admin access · error", ("permissions",), "/admin/access", "#access-error"),
+    ("admin audit · error", ("audit",), "/admin/audit", "#audit-error"),
+]
+
+
+@pytest.mark.parametrize("where,calls,path,selector", ERRORS, ids=[e[0] for e in ERRORS])
+def test_a_call_that_fails_is_the_error_state(tab, states_console, where, calls, path, selector):
+    """What failed, whether retrying can help, the way to retry, and a correlation id."""
+    with failing(states_console, *calls):
+        shows(tab, states_console, path, selector, where)
+        text = tab.text(selector)
+        assert "correlation" in text, f"{where}: no correlation id to paste into a ticket: {text}"
+        assert tab.exists(f"{selector} .btn, {selector} .chip"), f"{where}: neither a retry nor why not"
+
+
+# ============================================================ partial: what is missing, named
+
+PARTIALS = [
+    ("stream · readers · partial", ("describe_queries", "queries"), "/catalog/streams/txn", "#readers-partial"),
+    ("view · shape · partial", ("describe_view",), "/views/big_txn", "#schema-partial"),
+    ("query · registration · partial", ("describe_query",), "/queries/big_txn", "#registration-partial"),
+    ("operations · metrics · partial", ("prometheus",), "/operations", "#ops-partial"),
+    ("plugins · node · partial", ("status",), "/plugins", "#plugins-partial-status"),
+]
+
+
+@pytest.mark.parametrize("where,calls,path,selector", PARTIALS, ids=[p[0] for p in PARTIALS])
+def test_a_call_that_fails_beside_others_is_the_partial_state(tab, states_console, where, calls, path, selector):
+    """Some of it answered: the screen renders what it has and names what is missing, rather
+    than drawing the gap as a zero."""
+    with failing(states_console, *calls):
+        ready = "document.querySelector('#chart-rate canvas')" if path == "/operations" else "true"
+        shows(tab, states_console, path, selector, where, ready=ready)
+
+
+# ============================================================ empty: never had any / filtered
+
+NEVER = [
+    ("catalog · streams · empty", "/catalog", ".state h2"),
+    ("catalog · queries · empty", "/catalog?tab=queries", ".state h2"),
+    ("views · empty", "/views", ".state h2"),
+    ("queries · empty", "/queries", ".state h2"),
+    ("operations · empty", "/operations", ".state h2"),
+]
+
+
+@pytest.mark.parametrize("where,path,selector", NEVER, ids=[n[0] for n in NEVER])
+def test_an_engine_with_nothing_registered_is_the_never_state(empty_tab, empty_console, where, path, selector):
+    """Explains what this is and offers the action that makes the first one."""
+    ready = "document.querySelector('#chart-rate canvas')" if path == "/operations" else "true"
+    shows(empty_tab, empty_console, path, selector, where, ready=ready)
+    assert empty_tab.exists(f"{selector} ~ * a, {selector} ~ a, .state a"), f"{where}: no way to make the first one"
+
+
+FILTERED = [
+    ("queries · filtered", "/queries?search=no_such_query", ".state"),
+    ("admin audit · filtered", "/admin/audit?principal=nobody", "#audit-empty"),
+    ("help search · filtered", "/help/search?q=zzzznothing", "#search-none"),
+    ("view · point query · filtered", "/views/big_txn?key=user_id&value=nobody", "#lookup-none"),
+]
+
+
+@pytest.mark.parametrize("where,path,selector", FILTERED, ids=[f[0] for f in FILTERED])
+def test_a_filter_that_matches_nothing_is_its_own_state(tab, states_console, where, path, selector):
+    """Distinct from never having had any, and it offers the way out of the filter."""
+    if "views/big_txn" in path:
+        states_console.engine.view_rows["big_txn"] = []
+    try:
+        shows(tab, states_console, path, selector, where)
+        assert tab.exists(f"{selector} a, {selector} button"), f"{where}: no way to clear the filter"
+    finally:
+        states_console.engine.view_rows.clear()
+
+
+def test_the_help_search_with_nothing_asked_says_what_it_searches(tab, states_console):
+    shows(tab, states_console, "/help/search", "#search-never", "help search · never asked")
+
+
+def test_filtering_the_view_list_to_nothing_is_not_an_empty_engine(tab, states_console):
+    """The list is filtered in the browser, so the state is too -- and it clears the filter."""
+    open_page(tab, states_console, "/views", "document.getElementById('view-filter')")
+    tab.focus("#view-filter")
+    tab.type("no_such_view")
+    tab.wait_for("!document.getElementById('views-filtered-host').hidden", timeout=5)
+    clean(tab, "views · filtered")
+    tab.click("#views-filtered a")
+    tab.wait_for("document.getElementById('views-filtered-host').hidden", timeout=5)
+
+
+def test_a_view_with_no_rows_says_so_rather_than_drawing_an_empty_table(tab, states_console):
+    """Never had data, on the live screen: the view has committed nothing to show."""
+    kept = states_console.engine.rows
+    states_console.engine.rows = []
+    try:
+        open_page(tab, states_console, "/views/hot/live",
+                  "document.getElementById('live-state').dataset.state === 'fresh'", timeout=20)
+        tab.wait_for("document.querySelector('#current-rows .state')", timeout=10)
+        clean(tab, "live · never")
+    finally:
+        states_console.engine.rows = kept
+
+
+def test_an_engine_with_no_sink_bound_says_how_one_is_declared(tab, states_console):
+    kept = states_console.engine.sinks_list
+    states_console.engine.sinks_list = []
+    try:
+        shows(tab, states_console, "/catalog?tab=sinks", ".state h2", "catalog · sinks · empty")
+    finally:
+        states_console.engine.sinks_list = kept
+
+
+def test_the_workbench_panels_say_what_they_are_before_anything_is_asked(tab, states_console):
+    """Never had data, in the workbench: each panel explains itself rather than sitting blank."""
+    open_page(tab, states_console, "/workbench?new=1", "document.querySelector('.monaco-editor .view-lines')",
+              timeout=30)
+    assert "Nothing to check yet" in tab.text(".panel-body"), tab.text(".panel-body")[:300]
+    for panel, marker in (("Explain", "No plan yet"), ("Run", "Nothing run yet"), ("Library", "None yet")):
+        tab.eval("[...document.querySelectorAll('.panel-tabs [role=tab]')]"
+                 f".find(b => b.textContent.startsWith('{panel}')).click()")
+        tab.wait_for(f"document.querySelector('.panel-body').textContent.includes({marker!r})", timeout=10)
+    clean(tab, "workbench · panels · never")
+
+
+def test_a_tap_filter_matching_no_row_is_the_filtered_state(tab, states_console):
+    """The filter reaches the engine's own subscription, so "nothing matches" is the engine's
+    answer -- and the screen says it is the filter, with the way back to everything."""
+    open_page(tab, states_console, "/views/big_txn/live?filter=user_id%3Dnobody",
+              "document.getElementById('live-state').dataset.state === 'fresh'", timeout=20)
+    tab.wait_for("document.querySelector('#current-rows .state')", timeout=10)
+    assert tab.exists("#current-rows [data-state-action=clear]"), "no way back to every row"
+    clean(tab, "live · filtered")
+
+
+def test_a_subscription_the_engine_ends_is_the_error_state_with_a_retry(tab, states_console):
+    """The stream ends with the engine's reason: what failed, and a button that reconnects."""
+    with failing(states_console, "mirror", message="the subscription was refused"):
+        tab.goto(states_console.url("/views/big_txn/live"))
+        settled(tab)
+        tab.wait_for("document.querySelector('#live-banner .alert-danger')", timeout=20)
+        assert tab.exists("#live-banner [data-state-action=retry]"), "no way to reconnect"
+        clean(tab, "live · error")
+
+
+def test_validation_the_engine_cannot_answer_is_the_error_state(tab, states_console):
+    """The workbench keeps editing and saving drafts; the diagnostics panel says what is
+    unavailable, offers the retry and names what still works."""
+    with failing(states_console, "validate"):
+        open_page(tab, states_console, "/workbench?query=big_txn",
+                  "document.getElementById('diag-unavailable')", timeout=30)
+        assert tab.exists("#diag-unavailable [data-state-action=retry]"), "no retry"
+        clean(tab, "workbench · diagnostics · error")
+
+
+def test_a_run_the_engine_refuses_keeps_the_editor_and_shows_the_refusal(tab, states_console):
+    open_page(tab, states_console, "/workbench?query=big_txn&panel=run",
+              "document.getElementById('wb-params')", timeout=30)
+    with failing(states_console, "query_typed", status=400, code="PRV-2003",
+                 message="the engine refused this read"):
+        tab.eval("window.__wbRun()")
+        tab.wait_for("document.querySelector('.panel-body .alert-danger')", timeout=20)
+        # A refusal is not retryable, and says so rather than offering a button that fails again.
+        assert tab.exists(".panel-body .alert-danger .chip"), tab.text(".panel-body")[:300]
+        clean(tab, "workbench · run · error")
+
+
+# ============================================================ loading, first time and refresh
+
+def test_the_first_load_of_a_point_query_is_a_skeleton_not_a_spinner(tab, states_console):
+    """Loading (first): the shape of the answer while the engine is answering."""
+    states_console.engine.slow["query_typed"] = 1.5
+    try:
+        open_page(tab, states_console, "/views/big_txn", "document.getElementById('lookup-form')")
+        tab.eval("document.getElementById('lookup-key').value = 'user_id'")
+        tab.focus("#lookup-value")
+        tab.type("u1")
+        tab.eval("document.getElementById('lookup-form').requestSubmit()")
+        tab.wait_for("document.querySelector('#lookup-result .skeleton')", timeout=5)
+        clean(tab, "view · point query · loading")
+        tab.wait_for("document.querySelector('#lookup-result table')", timeout=20)
+    finally:
+        states_console.engine.heal()
+
+
+def test_the_live_screen_loads_into_a_skeleton_and_then_the_rows(tab, states_console):
+    """The rows a subscription starts from take a moment; the table keeps their shape."""
+    states_console.engine.slow["mirror"] = 1.5
+    try:
+        tab.goto(states_console.url("/views/big_txn/live"))
+        tab.wait_for("document.querySelector('#rows-loading .skeleton')", timeout=8)
+        clean(tab, "live · loading")
+        tab.wait_for("document.getElementById('live-state').dataset.state === 'fresh'", timeout=20)
+    finally:
+        states_console.engine.heal()
+
+
+def test_explaining_again_keeps_the_plan_on_screen_and_says_it_is_refreshing(tab, states_console):
+    """Loading (refresh): never blank-then-refill. The plan stays; an indicator moves."""
+    open_page(tab, states_console, "/workbench?query=big_txn&panel=explain",
+              "document.querySelectorAll('svg g.plan-node').length === 3", timeout=30)
+    states_console.engine.slow["explain"] = 1.2
+    states_console.engine.slow["query_plan"] = 1.2
+    try:
+        tab.eval("window.__wbExplain(); true")   # not the promise: awaiting it would miss the state
+        tab.wait_for("document.querySelector('.freshness[data-state=refreshing]')", timeout=5)
+        assert tab.eval("document.querySelectorAll('svg g.plan-node').length") == 3, \
+            "the plan was blanked while the next one was asked for"
+        clean(tab, "workbench · explain · refreshing")
+        tab.wait_for("!document.querySelector('.freshness[data-state=refreshing]')", timeout=20)
+    finally:
+        states_console.engine.heal()
+
+
+# ============================================================ stale: never as if it were live
+
+def test_a_live_view_that_loses_its_stream_dims_and_says_how_old_it_is(tab, states_console):
+    """Stale: the tab is hidden, which closes the subscription (design 23.11). The rows stay,
+    greyed and fenced, and the banner says they are not live."""
+    open_page(tab, states_console, "/views/big_txn/live",
+              "document.getElementById('live-state').dataset.state === 'fresh'", timeout=20)
+    tab.eval("Object.defineProperty(document, 'hidden', {value: true, configurable: true});"
+             "document.dispatchEvent(new Event('visibilitychange'))")
+    tab.wait_for("document.querySelector('#live-banner .alert')", timeout=10)
+    assert tab.eval("document.querySelectorAll('[data-live-data].stale').length") >= 1, \
+        "the numbers are still drawn as live"
+    clean(tab, "live · stale")
+    tab.eval("Object.defineProperty(document, 'hidden', {value: false, configurable: true});"
+             "document.dispatchEvent(new Event('visibilitychange'))")
+
+
+def test_a_query_list_that_cannot_refresh_keeps_its_rows_dimmed(tab, states_console):
+    """Stale: the poll failed, so the rows on screen are the last ones known to be true --
+    dimmed, with the error and the age beside them, never blanked."""
+    open_page(tab, states_console, "/queries", "document.querySelectorAll('#table tbody tr').length > 1")
+    with failing(states_console, "describe_queries", "queries"):
+        tab.eval("window.queriesReload()")
+        tab.wait_for("document.querySelector('#banner .alert-warning') && document.querySelector('#banner .alert-danger')",
+                     timeout=10)
+        assert tab.eval("document.querySelectorAll('#table tbody.stale tr').length") > 1, \
+            "the rows were thrown away when the refresh failed"
+        clean(tab, "queries · stale")
+
+
+def test_a_plan_of_sql_that_has_since_changed_is_marked_out_of_date(tab, states_console):
+    """The workbench's own stale: an answer about the previous text, never shown as current."""
+    open_page(tab, states_console, "/workbench?query=big_txn&panel=explain",
+              "document.querySelectorAll('svg g.plan-node').length === 3", timeout=30)
+    tab.click(".wb-editor .monaco-editor .view-lines")
+    tab.press("End", "Control")
+    tab.type(" ")
+    tab.wait_for("document.getElementById('explain-stale')", timeout=10)
+    clean(tab, "workbench · explain · out of date")
+
+
+# ============================================================ unauthorized: disabled, with why
+
+def test_the_policy_refusing_an_action_disables_it_with_the_reason(tab, states_console):
+    states_console.engine.administer_refused["hot"] = "administering 'hot' needs one of the roles [ops]"
+    try:
+        shows(tab, states_console, "/queries/hot", "#controls-refused", "query · controls · unauthorized")
+        assert tab.eval("document.getElementById('pause').disabled"), "an action that fails on click"
+        assert tab.eval("document.getElementById('pause').getAttribute('aria-describedby')") == "controls-refused"
+    finally:
+        states_console.engine.administer_refused.clear()
+
+
+def test_the_policy_refusing_registration_disables_the_workbench_button(tab, states_console):
+    states_console.engine.register_refusal = "registering needs one of the roles [author]"
+    try:
+        open_page(tab, states_console, "/workbench?query=big_txn&panel=register",
+                  "document.getElementById('reg-name')", timeout=30)
+        assert tab.exists("#register-refused"), tab.text("main")[:400]
+        assert tab.eval("document.querySelector('#workbench-app button[type=submit]').disabled")
+        clean(tab, "workbench · register · unauthorized")
+    finally:
+        states_console.engine.register_refusal = None
+
+
+def test_the_engine_refusing_the_audit_trail_is_a_designed_state(tab, states_console):
+    states_console.engine.audit_allowed = False
+    try:
+        shows(tab, states_console, "/admin/audit", "#audit-not-permitted", "admin audit · unauthorized")
+    finally:
+        states_console.engine.audit_allowed = True
+
+
+def test_an_engine_that_has_recorded_nothing_is_not_an_empty_filter(tab, states_console):
+    """Never had data, on the audit trail: distinct from a filter matching none of it."""
+    kept = states_console.engine.audit_events
+    states_console.engine.audit_events = []
+    try:
+        shows(tab, states_console, "/admin/audit", "#audit-never", "admin audit · never")
+    finally:
+        states_console.engine.audit_events = kept
+
+
+# ============================================================ the query page's raw tail
+
+def test_the_raw_tail_says_it_has_seen_nothing_and_then_that_it_is_disconnected(tab, states_console):
+    """Never had data, then stale: a frozen tail and a quiet one look identical on a stream,
+    and only one of them is a problem."""
+    open_page(tab, states_console, "/queries/big_txn", "document.getElementById('tail')")
+    assert tab.exists("#tail-empty"), "an empty tail with nothing said about it"
+    clean(tab, "query · tail · never")
+    with failing(states_console, "mirror"):
+        # The subscription behind the console's stream fails, so the stream ends and the
+        # browser's EventSource reports it: the tail is disconnected, and says so. A view
+        # nothing else in this module has watched, because one subscription is shared by every
+        # browser on a view and an already-running one would not be asked for again.
+        tab.goto(states_console.url("/queries/hot_alias"))
+        settled(tab)
+        tab.wait_for("document.getElementById('tail-state').dataset.state === 'stale'", timeout=20)
+        tab.wait_for("document.querySelector('#tail-banner .alert')", timeout=10)
+        clean(tab, "query · tail · stale")

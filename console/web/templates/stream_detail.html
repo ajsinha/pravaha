@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
 {% block title %}{{ t('stream.title', name=stream.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/catalog">&larr; {{ t('stream.back') }}</a></p>
@@ -31,7 +32,9 @@
   </div>
   <div class="col-lg-6">
     <div class="card"><div class="card-header">{{ t('stream.readers') }}</div><div class="card-body">
-      {% if readers %}
+      {% if readers_error %}
+      {{ states.partial(body=t('stream.readers_missing', error=readers_error), id='readers-partial') }}
+      {% elif readers %}
       <ul class="list-unstyled mb-0">{% for q in readers %}<li class="d-flex justify-content-between py-1">
         <a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a>
         <span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}">{{ q.state }}</span></li>{% endfor %}</ul>

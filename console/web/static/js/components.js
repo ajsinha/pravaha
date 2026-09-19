@@ -25,8 +25,12 @@
     if (target) target.innerHTML = html;
   }
 
+  /* Both shapes of the first load: rows for a table, and a block for an answer that is not
+     one (the workbench's plan and result, a point query) -- never a spinner on a blank page. */
   fill("loading_first", '<table class="table table-sm mb-0" aria-busy="true">' + head + "<tbody>" +
-    States.loadingFirst(4, 3) + "</tbody></table>");
+    States.loadingFirst(4, 3) + "</tbody></table>" +
+    '<div class="section-label">' + window.PravahaApi.t("components.block") + "</div>" +
+    States.loadingBlock(64));
   fill("loading_refresh", '<span class="freshness mb-2" id="g-freshness"></span>' + sampleTable());
   new window.PravahaFreshness(document.getElementById("g-freshness")).refreshing();
   fill("empty_never", States.emptyNever(samples.what,

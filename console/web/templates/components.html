@@ -13,7 +13,7 @@
 
 <h2 id="g-status">{{ t('components.status') }}</h2>
 <p class="small text-muted">{{ t('components.status_note') }}</p>
-<div class="d-flex flex-wrap gap-2" id="g-chips">
+<div class="d-flex flex-wrap gap-2" id="g-chips" translate="no">
   <span class="chip ok"><span class="dot"></span>RUNNING</span>
   <span class="chip mute"><span class="dot"></span>PAUSED</span>
   <span class="chip bad"><span class="dot"></span>FAILED</span>
@@ -29,10 +29,10 @@
     <div><div class="headline">{{ t('components.verdict_ok') }}</div></div></div>
   <div class="verdict warn"><i class="icon bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
     <div><div class="headline">{{ t('components.verdict_warn') }}</div>
-      <div class="small text-muted">{{ t('operations.where') }} <span class="mono">hot</span></div></div></div>
+      <div class="small text-muted">{{ t('operations.where') }} <span class="mono" translate="no">hot</span></div></div></div>
   <div class="verdict critical"><i class="icon bi bi-x-octagon-fill" aria-hidden="true"></i>
     <div><div class="headline">{{ t('components.verdict_critical') }}</div>
-      <div class="small text-muted">{{ t('operations.where') }} <span class="mono">hot</span></div></div></div>
+      <div class="small text-muted">{{ t('operations.where') }} <span class="mono" translate="no">hot</span></div></div></div>
 </div>
 
 <h2 id="g-tiles">{{ t('components.tiles') }}</h2>
@@ -89,7 +89,7 @@
   'error': t('components.sample.error'),
   'missing': t('components.sample.missing'),
   'action': t('query.drop'),
-  'reason': "administering 'hot' needs one of the roles [ops]",
+  'reason': t('components.sample.reason'),
   'create': t('operations.empty.start')
 }|tojson }}</script>
 {% endblock %}

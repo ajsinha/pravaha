@@ -125,13 +125,17 @@ class BrowserEngine(FakeEngine):
         # Registered before the snapshot is handed over, as the engine registers a snapshot
         # subscriber in the step that takes its snapshot: a change committed after this point
         # reaches it, and one before is in the snapshot.
+        self._check()
         mine: queue.Queue = queue.Queue()
         with self._tails_lock:
             self._tails.append(mine)
             # Recorded like a plain tail's, so a journey can see which filters reached the engine.
             self.tails_opened.append((view, filters))
         try:
-            yield ("snapshot", self.snapshot_rows(), 1)
+            # Filtered by the engine, as the real subscription is: the console never filters.
+            rows = [r for r in self.snapshot_rows()
+                    if all(str(r.get(k)) == v for k, v in (filters or {}).items())]
+            yield ("snapshot", rows, 1)
             frontier = 1
             while not self.closed.is_set():
                 try:
@@ -162,6 +166,7 @@ class BrowserEngine(FakeEngine):
         # One queue per subscription, like the engine's own: a subscription the console has
         # already released (its thread is still parked here) must not swallow a change meant
         # for the one that replaced it.
+        self._check()
         mine: queue.Queue = queue.Queue()
         with self._tails_lock:
             self._tails.append(mine)

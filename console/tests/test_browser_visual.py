@@ -201,6 +201,23 @@ def test_the_audit_trail_when_not_permitted_matches_its_baseline(shooters, compa
         console.engine.audit_allowed = True
 
 
+@pytest.mark.parametrize("density", DENSITIES)
+@pytest.mark.parametrize("viewport", list(VIEWPORTS))
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_screen_whose_engine_call_failed_matches_its_baseline(shooters, comparer, console, baseline_chrome,
+                                                                theme, viewport, density):
+    """The error state of design 23.12 as a screen draws it -- what failed, the retry, the
+    correlation id -- photographed like a page, because it is one an operator sees during the
+    incident the console was opened for."""
+    console.engine.fail("streams")
+    try:
+        test_every_page_matches_its_baseline(
+            shooters, comparer, console, baseline_chrome, "catalog-error", "/catalog",
+            "document.getElementById('streams-error')", theme, viewport, density)
+    finally:
+        console.engine.heal()
+
+
 def test_compact_is_denser_and_keeps_its_targets(shooters, console):
     """Compact is a density, not a zoom: the same queries table is shorter, its text is still
     text-sized, and no control shrinks below WCAG 2.2's 24px target (2.5.8)."""

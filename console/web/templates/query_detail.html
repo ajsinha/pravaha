@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
 {% block title %}{{ query.name }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/queries">&larr; {{ t('query.all') }}</a></p>
@@ -28,6 +29,9 @@
           <span class="chip mute">{{ t('query.rows_in', n="{:,}".format(query.rows_in)) }}</span>
           <span class="chip info" title="{{ t('query.fingerprint_title') }}">{{ t('query.fingerprint', id=query.fingerprint[:12]) }}</span>
         </div>
+        {% if detail_error %}
+        <div class="mt-3">{{ states.partial(body=t('query.detail_missing', error=detail_error), id='registration-partial') }}</div>
+        {% endif %}
         {% if detail %}
         <dl class="row small mt-3 mb-0" id="registration">
           <dt class="col-4">{{ t('query.keyed_by') }}</dt><dd class="col-8">{% for k in detail.keyColumns or [] %}<span class="mono">{{ k.name }}</span> <span class="text-muted">(#{{ k.ordinal }})</span>{{ ', ' if not loop.last }}{% else %}—{% endfor %}</dd>
@@ -100,6 +104,7 @@
                   data-bs-toggle="modal" data-bs-target="#dropConfirmModal">{{ t('query.drop') }}</button>
         </div>
         {% endif %}
+        <div id="controls-error" class="mt-3"></div>
         <p class="small text-muted mt-3 mb-0">{{ t('query.controls_note_before') }} <strong>{{ t('query.controls_note_last') }}</strong> {{ t('query.controls_note_after') }}</p>
         {% if siblings %}
         <div class="alert alert-info mt-3 mb-0 py-2">
@@ -141,8 +146,11 @@
 {% endif %}
 
 <h2>{{ t('query.tail') }} <span class="freshness ms-2" id="tail-state"></span></h2>
+<div id="tail-banner"></div>
+{# Empty until the first change: the placeholder says what will appear (23.12, never had data);
+   tail.js removes it when the first change is appended. #}
 <div class="tail" id="tail" role="log" aria-live="polite" aria-label="{{ t('query.tail_label') }}"
-     data-view="{{ query.name }}"></div>
+     data-view="{{ query.name }}"><p class="tail-empty text-muted small mb-0" id="tail-empty">{{ t('query.tail_empty') }}</p></div>
 <p class="small text-muted mt-2">{{ t('query.tail_note') }}</p>
 {{ screenhelp('query') }}
 {% endblock %}

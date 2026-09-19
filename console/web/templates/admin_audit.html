@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_admin_head.html" import admin_head %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
 {% block title %}{{ t('admin.audit.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 {{ admin_head('audit', t('admin.audit.heading')) }}
@@ -37,8 +38,7 @@
 </div></form>
 
 {% if audit_error %}
-<div class="alert alert-warning small" role="status" id="audit-error"><div class="fw-semibold">{{ t('admin.audit.error') }}</div>
-  {{ audit_error.error }}{% if audit_error.code %} <a class="mono" href="/help/codes/{{ audit_error.code }}">{{ audit_error.code }}</a>{% endif %}</div>
+{{ states.error(audit_error, retry_href=request.url.path ~ ('?' ~ request.url.query if request.url.query else ''), id='audit-error', title=t('admin.audit.error')) }}
 {% elif answer and not answer.permitted %}
 <div class="state" id="audit-not-permitted">
   <h2><i class="bi bi-shield-lock" aria-hidden="true"></i> {{ t('admin.audit.denied.title') }}</h2>
@@ -55,9 +55,10 @@
     <p class="small text-muted mb-0" id="audit-window">{{ t('admin.audit.window', sink=page.sink, retained=page.retained, capacity=page.capacity) }}{% if page.oldestRetained %} {{ t('admin.audit.oldest', at=page.oldestRetained) }}{% endif %}{% if page.evicted %} {{ t('admin.audit.evicted', n=page.evicted) }}{% endif %}</p>
     {% if cursor %}<span class="chip info">{{ t('admin.audit.older_page') }}</span>{% endif %}
   </div>
-  {% if not page.events %}
-  <div class="state" id="audit-empty"><h2>{{ t('admin.audit.empty.title') }}</h2><p>{{ t('admin.audit.empty.body') }}</p>
-    <a class="btn btn-sm btn-outline-secondary" href="/admin/audit">{{ t('admin.audit.clear') }}</a></div>
+  {% if not page.events and filtered %}
+  {{ states.filtered('/admin/audit', body=t('admin.audit.empty.body'), id='audit-empty') }}
+  {% elif not page.events %}
+  <div class="state" id="audit-never"><h2>{{ t('admin.audit.never.title') }}</h2><p>{{ t('admin.audit.never.body') }}</p></div>
   {% else %}
   <div class="card"><div class="table-responsive"><table class="table table-sm mb-0 small" id="audit-events">
     <caption class="visually-hidden">{{ t('admin.audit.caption') }}</caption>

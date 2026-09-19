@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import screenhelp, helplink %}
 {% from "_queries_table.html" import rows %}
+{% import "_states.html" as states %}
 {% block title %}{{ t('queries.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="accent"></div>
@@ -38,14 +39,14 @@
   <div class="col-auto ms-auto"><a class="btn btn-sm btn-primary" href="/workbench">{{ t('queries.register') }}</a></div>
 </form>
 
-<div id="banner"></div>
+<div id="banner">{% if page_error %}{{ states.error(page_error, retry_href=request.url.path ~ ('?' ~ request.url.query if request.url.query else ''), id='queries-error', title=t('queries.down.title')) }}{% endif %}</div>
 <div class="card"><div class="table-responsive"><table class="table mb-0" id="table">
   <thead><tr><th>{{ t('queries.col.name') }}</th><th>{{ t('queries.col.state') }}</th><th class="num">{{ t('queries.col.rows_in') }}</th><th>{{ t('queries.col.shared') }}</th><th>SQL</th><th></th></tr></thead>
   <tbody>
-    {% if page %}{{ rows(page.items) }}
+    {% if page %}{{ rows(page.items, clear_href='/queries' if search or state_filter else none) }}
     {% else %}
     <tr><td colspan="6"><div class="state">
-      <h3>{{ t('queries.down.title') }}</h3>
+      <h2>{{ t('queries.down.title') }}</h2>
       <p>{{ t('queries.down.body_before') }}
          <span class="mono">{{ engine_url }}</span> {{ t('queries.down.body_after') }}</p>
     </div></td></tr>

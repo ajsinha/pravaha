@@ -344,9 +344,7 @@ export function DiffPanel({ sql, title, origin, drafts, active, getMonaco, onNew
   if (result.status === "loading") {
     body = html`<${Skeleton} />`;
   } else if (result.status === "error" && !answer) {
-    body = html`<div id="diff-error">${errorView(result.err)}
-      ${result.err.retryable ? html`<button type="button" class="btn btn-sm btn-primary" onClick=${compare}>${t("wb.diff.retry")}</button>`
-        : html`<span class="chip mute">${t("wb.diff.no_retry")}</span>`}</div>`;
+    body = html`<div id="diff-error">${errorView(result.err, compare)}</div>`;
   } else if (!answer) {
     body = nothingToCompare
       ? html`<div class="state" id="diff-empty"><h2>${t("wb.diff.none_title")}</h2><p>${t("wb.diff.none_body")}</p>
@@ -374,7 +372,7 @@ function Result({ answer, stale, showAll, setShowAll, compare, hasMonaco, sqlHos
   const refused = [answer.left, answer.right].find((s) => s.refused);
 
   return html`<div id="diff-result">
-    ${failed ? html`<div class="mb-2">${errorView(failed)}</div>` : null}
+    ${failed ? html`<div class="mb-2">${errorView(failed, compare)}</div>` : null}
     ${stale ? html`<div class="alert alert-warning py-2 small d-flex flex-wrap gap-2 align-items-center" role="status" id="diff-stale">
       <span><span class="fw-semibold">${t("wb.diff.stale_title")}</span> ${t("wb.diff.stale_body")}</span>
       <button type="button" class="btn btn-sm btn-outline-secondary" onClick=${compare}>${t("wb.diff.compare_again")}</button></div>` : null}

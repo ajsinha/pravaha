@@ -51,11 +51,32 @@ function start(root) {
   /* ------------------------------------------------------------- helpers */
   const identity = (values) => JSON.stringify(values);
   const valuesOf = (row) => columns.map((c) => (c in row ? row[c] : null));
+  const States = window.PravahaStates;
+  let lastGood = null;         /* when the stream last said anything: what "stale" is measured from */
+  let ended = null;            /* the engine's reason, when it ended the stream rather than dropped it */
   function setState(state, text) {
     stateEl.dataset.state = state;
     stateEl.innerHTML = `<span class="dot"></span><span>${esc(text)}</span>`;
-    root.classList.toggle("stale", state === "stale" && counts.changes > 0);
+    if (state === "fresh") lastGood = Date.now();
+    /* Disconnected (23.12): what is on screen dims and a banner says how old it is and whether
+       it is coming back -- never stale rows presented as live. */
+    root.querySelectorAll("[data-live-data]").forEach((el) => el.classList.toggle("stale", state === "stale"));
+    renderBanner();
   }
+  function renderBanner() {
+    if (ended) {
+      banner.innerHTML = States.error({ message: t("live.ended", { error: ended }), retryable: true }, true);
+    } else if (stateEl.dataset.state === "stale" && source !== null) {
+      banner.innerHTML = States.stale(lastGood ? Math.round((Date.now() - lastGood) / 1000) : null, true);
+    } else if (stateEl.dataset.state === "stale") {
+      banner.innerHTML = States.stale(lastGood ? Math.round((Date.now() - lastGood) / 1000) : null, false);
+    } else {
+      banner.innerHTML = "";
+    }
+  }
+  banner.addEventListener("click", (event) => {
+    if (event.target.closest("[data-state-action=retry]")) { ended = null; connect(); }
+  });
 
   function numericColumns() {
     return columns.filter((c, i) => isNumericType(types[i]));
@@ -86,8 +107,10 @@ function start(root) {
     const live = [...current.values()].filter((r) => r.weight > 0);
     document.getElementById("c-rows").textContent = live.length.toLocaleString();
     if (!live.length) {
-      rowsBody.innerHTML = `<tr><td colspan="${Math.max(1, columns.length)}"><div class="state"><h2>${esc(t("live.empty_title"))}</h2>
-        <p>${esc(filter ? t("live.empty_body_filtered") : t("live.empty_body"))}</p></div></td></tr>`;
+      /* Filtered to nothing is not an empty view, and says how to stop filtering (23.12). */
+      rowsBody.innerHTML = `<tr><td colspan="${Math.max(1, columns.length)}">${filter
+        ? States.emptyFiltered(true, t("live.empty_body_filtered"))
+        : `<div class="state"><h2>${esc(t("live.empty_title"))}</h2><p>${esc(t("live.empty_body"))}</p></div>`}</td></tr>`;
       return;
     }
     const shown = live.sort((a, b) => b.at - a.at).slice(0, 500);
@@ -111,7 +134,14 @@ function start(root) {
   }
 
   /* ------------------------------------------------------------- the stream */
+  function loaded() {
+    const skeleton = document.getElementById("rows-loading");
+    if (skeleton) { skeleton.removeAttribute("id"); skeleton.removeAttribute("aria-busy"); }
+    const note = document.getElementById("rows-loading-note");
+    if (note) note.remove();
+  }
   function rebase(snapshot) {
+    loaded();
     /* The view the changes apply to, sent by the stream itself as its first event (SUB-1).
        It used to be read here before the stream opened, and a commit landing between the
        read and the stream reached this page by neither: the table was quietly wrong. */
@@ -153,7 +183,7 @@ function start(root) {
     const query = filter.includes("=") ? "?" + new URLSearchParams([filter.split(/=(.*)/s).slice(0, 2)]) : "";
     setState("refreshing", t("live.state.connecting"));
     source = new EventSource(`/api/v1/views/${encodeURIComponent(view)}/stream${query}`);
-    source.addEventListener("open", () => { setState("fresh", filter ? t("live.state.live_filtered", { filter }) : t("live.state.live")); banner.innerHTML = ""; });
+    source.addEventListener("open", () => { ended = null; setState("fresh", filter ? t("live.state.live_filtered", { filter }) : t("live.state.live")); });
     source.addEventListener("snapshot", (event) => { rebase(JSON.parse(event.data)); });
     source.addEventListener("row", (event) => { if (!paused) apply(JSON.parse(event.data)); });
     source.addEventListener("lag", (event) => {
@@ -166,13 +196,22 @@ function start(root) {
       let message = "";
       try { message = JSON.parse(event.data).message; } catch (e) { message = ""; }
       if (message) {
-        banner.innerHTML = `<div class="alert alert-danger py-2 small" role="alert">${esc(t("live.ended", { error: message }))}</div>`;
+        ended = message;
         source.close();
+        source = null;
       }
       setState("stale", message ? t("live.state.stopped") : t("live.state.reconnecting"));
     });
   }
   function disconnect() { if (source) { source.close(); source = null; } setState("stale", t("live.state.hidden")); }
+  function clearFilter() {
+    document.getElementById("tap-column").value = "";
+    document.getElementById("tap-value").value = "";
+    document.getElementById("tap-form").requestSubmit();
+  }
+  rowsBody.closest("table").addEventListener("click", (event) => {
+    if (event.target.closest("[data-state-action=clear]")) clearFilter();
+  });
 
   /* ------------------------------------------------------------- chart */
   let chart = null;
@@ -261,6 +300,7 @@ function start(root) {
       const data = series();
       chart.chart.setOption({ series: [{ data, showSymbol: chartMode.value === "arrivals" || data.filter((p) => p[1] !== null).length < 3 }] });
     }
+    if (stateEl.dataset.state === "stale" && !ended) renderBanner();   /* the age moves on */
     if (source && stateEl.dataset.state === "fresh" && lastEvent) {
       const quiet = Math.round((Date.now() - lastEvent) / 1000);
       if (quiet >= 5) setState("fresh", t("live.state.quiet", { seconds: quiet }));

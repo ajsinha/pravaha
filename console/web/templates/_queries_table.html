@@ -1,6 +1,9 @@
 {# The rows, rendered by the server and re-rendered by the module. One partial so
    the two screens that show queries cannot drift into showing them differently. #}
-{% macro rows(items, wide=True) -%}
+{% import "_states.html" as states %}
+{#- `clear_href`, when a filter is applied: nothing matching it is "filtered to nothing" (23.12),
+    with the way out, never "no queries yet". -#}
+{% macro rows(items, wide=True, clear_href=none) -%}
 {% if items %}
   {% for q in items %}
   <tr>
@@ -14,10 +17,12 @@
     {% endif %}
   </tr>
   {% endfor %}
+{% elif clear_href %}
+  <tr><td colspan="{{ 6 if wide else 4 }}">{{ states.filtered(clear_href) }}</td></tr>
 {% else %}
   <tr><td colspan="{{ 6 if wide else 4 }}">
     <div class="state">
-      <h3>{{ t('queries.empty.title') }}</h3>
+      <h2>{{ t('queries.empty.title') }}</h2>
       <p>{{ t('queries.empty.body') }}</p>
       <a class="btn btn-sm btn-primary" href="/workbench">{{ t('queries.empty.register') }}</a>
     </div>

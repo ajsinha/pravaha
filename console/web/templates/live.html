@@ -40,7 +40,7 @@
     <div class="col-auto small text-muted">{{ t('live.tap_note') }}</div>
   </form>
 
-  <div class="live-counters mb-3" aria-live="off">
+  <div class="live-counters mb-3" aria-live="off" data-live-data>
     <div><strong id="c-changes">0</strong>{{ t('live.counter.changes') }}</div>
     <div><strong id="c-plus">0</strong>{{ t('live.counter.plus') }}</div>
     <div><strong id="c-minus">0</strong>{{ t('live.counter.minus') }}</div>
@@ -49,15 +49,16 @@
   </div>
   <div id="live-banner"></div>
 
-  <div class="row g-3">
+  <div class="row g-3" data-live-data>
     <div class="col-xl-7">
       <div class="card"><div class="card-header d-flex justify-content-between align-items-center">
         <span>{{ t('live.current_rows') }}</span><span class="small text-muted" id="rows-note">{{ t('live.rows_note') }}</span></div>
         <div class="card-body p-0"><div class="table-responsive" style="max-height:24rem">
           <table class="table table-sm mb-0" id="current-rows"><thead><tr>
             {% for f in schema %}<th>{{ f.name }}</th>{% endfor %}</tr></thead>
-            <tbody><tr><td colspan="{{ schema|length or 1 }}"><div class="state"><h2>{{ t('live.connecting.title') }}</h2>
-              <p>{{ t('live.connecting.body') }}</p></div></td></tr></tbody></table>
+            {# Loading, first time (23.12): the shape of the rows that are coming, never a spinner. #}
+            <tbody id="rows-loading" aria-busy="true">{% for _ in range(3) %}<tr>{% for f in schema or [none] %}<td><div class="skeleton"></div></td>{% endfor %}</tr>{% endfor %}</tbody></table>
+          <p class="visually-hidden" role="status" id="rows-loading-note">{{ t('live.connecting.title') }}</p>
         </div></div></div>
     </div>
     <div class="col-xl-5">
@@ -69,7 +70,7 @@
     </div>
   </div>
 
-  <div class="card mt-3"><div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center">
+  <div class="card mt-3" data-live-data><div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center">
     <span>{{ t('live.over_time') }}</span>
     <div class="d-flex gap-2 align-items-center">
       <label class="small text-muted" for="chart-column">{{ t('live.chart.column') }}</label>

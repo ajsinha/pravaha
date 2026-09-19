@@ -76,7 +76,7 @@ function start() {
       <span class="sev chip ${f.severity === "critical" ? "bad" : f.severity === "warn" ? "warn" : "info"}">${esc(f.severity)}</span>
       <div><div class="fw-semibold">${f.query ? `<a class="mono" href="/queries/${encodeURIComponent(f.query)}">${esc(f.query)}</a> — ` : ""}${esc(f.title)}${f.code ? ` · <a class="mono" href="/help/codes/${encodeURIComponent(f.code)}">${esc(f.code)}</a>` : ""}</div>
       <div class="small text-muted">${esc(f.detail)}</div></div></div>`).join("")
-      : `<div class="state py-4"><h3>${t("ops.nothing")}</h3><p>${t("ops.nothing_body")}</p></div>`;
+      : `<div class="state py-4"><h2>${t("ops.nothing")}</h2><p>${t("ops.nothing_body")}</p></div>`;
 
     const body = document.querySelector("#ops-queries tbody");
     body.innerHTML = s.queries.length ? s.queries.map((q) => {
@@ -113,6 +113,15 @@ function start() {
   themedChart(document.getElementById("chart-rate"), build(history.rate, { yName: t("ops.axis.rate") })).then((c) => { rateChart = c; });
   themedChart(document.getElementById("chart-state"), build(history.state, { yName: t("ops.axis.ceiling"), fixed100: true })).then((c) => { stateChart = c; });
 
+  /* Disconnected (23.12): the numbers dim, and this says how old they are and that the
+     stream is being retried -- EventSource reconnects by itself. */
+  const banner = document.getElementById("ops-banner");
+  function stale() {
+    if (!root.classList.contains("stale")) return;
+    banner.innerHTML = window.PravahaStates.stale(fresh.age(), source !== null);
+  }
+  setInterval(stale, 1000);
+
   function connect() {
     if (source) source.close();
     source = new EventSource("/api/v1/ops/stream");
@@ -122,10 +131,11 @@ function start() {
       render(latest);
       root.classList.remove("stale");
       fresh.updated();
+      banner.innerHTML = "";
       if (rateChart) rateChart.redraw();
       if (stateChart) stateChart.redraw();
     });
-    source.onerror = () => { fresh.stale(); root.classList.add("stale"); };
+    source.onerror = () => { fresh.stale(); root.classList.add("stale"); stale(); };
   }
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) { if (source) { source.close(); source = null; } }

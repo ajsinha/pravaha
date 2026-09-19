@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
 {% block title %}{{ t('views.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -18,9 +19,8 @@
 <p class="lede">{{ t('views.lede') }}</p>
 
 {% if queries is none %}
-<div class="state"><h2>{{ t('views.down.title') }}</h2>
-  <p>{{ t('views.down.before') }} <span class="mono">{{ engine_url }}</span>{{ t('views.down.after') }}</p>
-  <button type="button" class="btn btn-sm btn-primary" onclick="location.reload()">{{ t('views.down.retry') }}</button></div>
+{{ states.error(queries_error or t('views.down.title'), retry_href='/views', id='views-error', title=t('views.down.title'),
+                hint=t('views.down.before') ~ ' ' ~ engine_url ~ t('views.down.after')) }}
 {% elif not queries %}
 <div class="state"><h2>{{ t('views.empty.title') }}</h2>
   <p>{{ t('views.empty.body') }}</p>
@@ -44,6 +44,8 @@
   {% endfor %}
   </tbody>
 </table></div></div>
+{# Filtered to nothing is not "no views": the filter says so and offers its way out (23.12). #}
+<div id="views-filtered-host" hidden>{{ states.filtered('/views', body=t('views.filtered_body'), id='views-filtered') }}</div>
 {# The filter's counts are written by the script below; their wording comes from here, with the
    placeholders left for it to fill, so the island needs no catalog of its own. #}
 <p class="small text-muted mt-2" id="views-count" data-all="{{ t('views.count_other', n='{n}') }}"
@@ -58,11 +60,21 @@ const rows = document.querySelectorAll("#views-table tbody tr");
 if (input && rows.length) {
   input.hidden = false;
   const count = document.getElementById("views-count");
+  const table = document.getElementById("views-table").closest(".card");
+  const filtered = document.getElementById("views-filtered-host");
+  filtered.querySelector("a").addEventListener("click", (event) => {
+    event.preventDefault();
+    input.value = "";
+    input.dispatchEvent(new Event("input"));
+    input.focus();
+  });
   const fill = (text, values) => text.replace(/\{(\w+)\}/g, (whole, name) => (name in values ? String(values[name]) : whole));
   input.addEventListener("input", () => {
     const needle = input.value.trim().toLowerCase();
     let shown = 0;
     rows.forEach((row) => { const hit = row.dataset.name.includes(needle); row.hidden = !hit; if (hit) shown++; });
+    table.hidden = shown === 0;
+    filtered.hidden = shown !== 0;
     count.textContent = needle ? fill(count.dataset.match, { shown, n: rows.length, needle: input.value })
                                : fill(count.dataset.all, { n: rows.length });
   });

@@ -26,11 +26,16 @@
   {% endfor %}
 </ol>
 {% else %}
-<div class="state"><h2>{{ t('help.search.none_title') }}</h2>
+{# Searched to nothing (23.12's "filtered to nothing"): not "there is no help", and two ways on. #}
+<div class="state" id="search-none"><h2>{{ t('help.search.none_title') }}</h2>
   <p>{{ t('help.search.none_body') }}</p>
-  <a class="btn btn-sm btn-primary" href="/help">{{ t('help.search.browse') }}</a></div>
+  <a class="btn btn-sm btn-primary" href="/help">{{ t('help.search.browse') }}</a>
+  <a class="btn btn-sm btn-outline-secondary ms-1" href="/help/search">{{ t('help.search.clear') }}</a></div>
 {% endif %}
 {% else %}
-<p class="text-muted">{{ t('help.search.empty') }}</p>
+{# Nothing asked yet: what this searches, and the index to browse instead. #}
+<div class="state" id="search-never"><h2>{{ t('help.search.never_title') }}</h2>
+  <p>{{ t('help.search.empty') }}</p>
+  <a class="btn btn-sm btn-outline-secondary" href="/help">{{ t('help.search.browse') }}</a></div>
 {% endif %}
 {% endblock %}

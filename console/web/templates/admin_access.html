@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% from "_admin_head.html" import admin_head %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
 {% block title %}{{ t('admin.access.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 {{ admin_head('access', t('admin.access.heading')) }}
 <p class="lede">{{ t('admin.access.lede') }}</p>
 
 {% if permissions_error %}
-<div class="alert alert-warning small" role="status"><div class="fw-semibold">{{ t('admin.access.error') }}</div>{{ permissions_error }}</div>
+{{ states.error(permissions_error, retry_href='/admin/access', id='access-error', title=t('admin.access.error')) }}
 {% elif permissions %}
 {% set p = permissions %}
 <div class="row g-3 mb-3" id="access-summary">

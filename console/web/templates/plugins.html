@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
 {% block title %}{{ t('plugins.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -15,8 +16,13 @@
 <div class="rule"></div>
 <p class="lede">{{ t('plugins.lede') }}</p>
 
-{% for call, error in inventory.errors.items() %}
-<div class="alert alert-warning small" role="status"><div class="fw-semibold">{{ t('plugins.error.' ~ call) }}</div>{{ error }}</div>
+{# The listing itself failing is the error state; any other call failing leaves a page that is
+   partly there, and says which part is not (23.12). #}
+{% if inventory.errors.plugins %}
+{{ states.error(inventory.errors.plugins, retry_href='/plugins', id='plugins-error', title=t('plugins.error.plugins')) }}
+{% endif %}
+{% for call, error in inventory.errors.items() if call != 'plugins' %}
+{{ states.partial(body=t('plugins.error.' ~ call) ~ ' (' ~ error ~ ').', id='plugins-partial-' ~ call) }}
 {% endfor %}
 
 {% if not inventory.plugins %}

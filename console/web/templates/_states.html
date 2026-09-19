@@ -1,0 +1,35 @@
+{#- The eight states of design 23.12, for a screen the server renders: the same markup, classes
+    and strings as static/js/states.js, so a state looks the same whether the page drew it or an
+    island redrew it a second later. An action is a link, not a script: retry is the same URL
+    again, and clearing a filter is the URL without it -- both work with scripting off. -#}
+
+{# What failed, whether retrying can help (and the way to when it can), and the correlation id
+   that is also in the console's log line (routes.base.failure). `err` is a Failure, or any
+   string -- a plain one has no code and no id, and says so. #}
+{% macro error(err, retry_href=none, id=none, title=none, hint=none) -%}
+<div class="alert alert-danger" role="alert"{% if id %} id="{{ id }}"{% endif %}>
+  {% if title %}<div class="fw-semibold">{{ title }}</div><div>{{ err }}{% if err.code %} <a href="/help/codes/{{ err.code }}">{{ err.code }}</a>{% endif %}</div>
+  {% else %}<div class="fw-semibold">{{ err }}{% if err.code %} <a href="/help/codes/{{ err.code }}">{{ err.code }}</a>{% endif %}</div>{% endif %}
+  {% if hint %}<div class="small">{{ hint }}</div>{% endif %}
+  {# The id changes on every render, so a screenshot of this state masks it (browser_harness.MASK). #}
+  <div class="small mono text-muted" data-volatile>{{ t('js.states.correlation') }} {{ err.correlation or t('js.states.not_available') }}</div>
+  <div class="mt-2">{% if retry_href and (err.retryable is not defined or err.retryable) %}<a class="btn btn-sm btn-primary" href="{{ retry_href }}">{{ t('js.states.retry') }}</a>{% else %}<span class="chip mute">{{ t('js.states.no_retry') }}</span>{% endif %}</div>
+</div>
+{%- endmacro %}
+
+{# Some of it answered: what did not, rather than a smaller picture that reads as complete. #}
+{# `body`, when the screen can say it better than "<missing> did not answer": which part is
+   missing and what that leaves out, in one sentence. #}
+{% macro partial(missing=none, id=none, body=none) -%}
+<div class="alert alert-warning py-2" role="status"{% if id %} id="{{ id }}"{% endif %}>
+  <div class="fw-semibold small">{{ t('js.states.partial_title') }}</div>
+  <div class="small">{{ body or t('js.states.partial_body', missing=missing) }}</div>
+</div>
+{%- endmacro %}
+
+{# Filtered to nothing: distinct from never having had any, and the way out of the filter. #}
+{% macro filtered(clear_href, body=none, id=none, heading='h2') -%}
+<div class="state"{% if id %} id="{{ id }}"{% endif %}><{{ heading }}>{{ t('js.states.filtered_title') }}</{{ heading }}>
+  <p>{{ body or t('js.states.filtered_body') }}</p>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ clear_href }}">{{ t('js.states.filtered_clear') }}</a></div>
+{%- endmacro %}
