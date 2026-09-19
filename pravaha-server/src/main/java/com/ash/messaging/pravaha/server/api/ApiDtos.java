@@ -235,14 +235,21 @@ public final class ApiDtos {
             List<String> writers,
             Problem problem) {}
 
-    /** What the node is and how it is doing. Served even when the console process is down. */
+    /**
+     * What the node is and how it is doing. Served even when the console process is down.
+     *
+     * @param registeredQueries how many registrations the node holds, by name -- two names for one
+     *     computation are two. It was the stream count until HLP-8
+     * @param streams how many streams the node has declared
+     */
     public record NodeStatus(
             String instanceId,
             String version,
             String engineState,
             long uptimeSeconds,
             int registeredQueries,
-            List<PluginStatus> plugins) {}
+            List<PluginStatus> plugins,
+            int streams) {}
 
     public record PluginStatus(String name, String version, String health, String detail) {}
 

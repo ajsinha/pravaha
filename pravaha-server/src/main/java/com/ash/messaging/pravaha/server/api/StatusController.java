@@ -47,11 +47,13 @@ public class StatusController {
 
     private final PravahaEngine engine;
     private final StreamCatalog catalog;
+    private final RegistryAccess registry;
     private final Instant startedAt = Instant.now();
 
-    public StatusController(PravahaEngine engine, StreamCatalog catalog) {
+    public StatusController(PravahaEngine engine, StreamCatalog catalog, RegistryAccess registry) {
         this.engine = engine;
         this.catalog = catalog;
+        this.registry = registry;
     }
 
     @GetMapping("/api/v1/status")
@@ -72,8 +74,10 @@ public class StatusController {
                 version(),
                 engine.state().name(),
                 Duration.between(startedAt, Instant.now()).toSeconds(),
-                catalog.size(),
-                plugins);
+                // HLP-8: this was catalog.size(), the stream count, under a name that says queries.
+                registry.registry().map(r -> r.names().size()).orElse(0),
+                plugins,
+                catalog.size());
     }
 
     /**
@@ -113,7 +117,8 @@ public class StatusController {
         row(html, "State", status.engineState(), stateClass(status.engineState()));
         row(html, "Version", status.version(), "");
         row(html, "Uptime", status.uptimeSeconds() + "s", "");
-        row(html, "Streams", String.valueOf(status.registeredQueries()), "");
+        row(html, "Registered queries", String.valueOf(status.registeredQueries()), "");
+        row(html, "Streams", String.valueOf(status.streams()), "");
 
         html.append("</table>");
         if (status.plugins().isEmpty()) {

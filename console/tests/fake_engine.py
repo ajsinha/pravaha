@@ -227,7 +227,7 @@ class FakeEngine:
     def status(self):
         self._check()
         return {"instanceId": "n1", "version": "0.1.0", "engineState": "RUNNING", "uptimeSeconds": 5,
-                "registeredQueries": 3, "plugins": [{"name": "filesystem", "version": "1", "health": "UP",
+                "registeredQueries": 3, "streams": 2, "plugins": [{"name": "filesystem", "version": "1", "health": "UP",
                                                      "detail": ""}]}
 
     def prometheus(self):
