@@ -160,14 +160,13 @@ class ErrcClientTest extends ErrcTestSupport {
         // The case's own Setup: "node down; pravaha queries --url grpc://127.0.0.1:19900". Port
         // 19900 chosen closed deliberately (nothing bound there in this test).
         //
-        // Run as a real subprocess of the CLI's own shaded jar (ErrcTestSupport.cliSubprocess), not
-        // the in-process cli() helper: pravaha-it's own test classpath mixes netty 4.1.135 (pulled in
-        // transitively via pravaha-server, test scope) with the 4.2.9 line Arrow Flight needs, and the
-        // in-process call throws a bare AbstractMethodError the moment a FlightClient is actually
-        // constructed -- a classpath defect in this test module, not in the product (confirmed
-        // separately: pravaha-cli's own dependency tree is netty 4.2.9 throughout). Recorded as a
-        // BLOCKED-then-worked-around note, not a silent switch: every other case in this package that
-        // touches Flight uses the same subprocess route for the same reason.
+        // Run as a real subprocess of the CLI's own shaded jar (ErrcTestSupport.cliSubprocess),
+        // not the in-process cli() helper. It began as a workaround for E-9 -- pravaha-it's test
+        // classpath mixed netty 4.1.135 with the 4.2.9 line Arrow Flight needs, and constructing a
+        // FlightClient in-process threw AbstractMethodError. That conflict is gone (the netty line
+        // here is 4.2.9 throughout, and two end-to-end tests in this module now build a client
+        // in-process and pass), so the subprocess is kept on its own merits: it is the process, the
+        // jar and the classpath an operator actually runs.
         ErrcTestSupport.CliResult result =
                 cliSubprocess(Duration.ofSeconds(30), "queries", "--url", "grpc://127.0.0.1:19900");
         assertThat(result.exitCode()).isEqualTo(1);
@@ -186,7 +185,7 @@ class ErrcClientTest extends ErrcTestSupport {
         // The narrower claim, isolated from the CLI's own RPC retry/timeout behaviour: connect()
         // alone, against a definitely-closed loopback port, returns a client rather than throwing.
         // Exercised through a tiny inline Java program run as a subprocess against the CLI's own
-        // shaded jar's classpath, for the same netty-conflict reason as the test above.
+        // shaded jar's classpath, for the same reason as the test above.
         ErrcTestSupport.CliResult probe = connectProbeSubprocess("127.0.0.1", 19900);
         assertThat(probe.exitCode())
                 .as("connect() must return, not throw: " + probe.combined())

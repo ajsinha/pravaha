@@ -68,16 +68,18 @@ abstract class ErrcTestSupport {
      * Runs the CLI's own shaded, executable jar as a genuinely separate OS process -- {@code java
      * -jar pravaha-cli-*-cli.jar args...}, exactly how {@code bin/pravaha} would.
      *
-     * <p>Needed rather than {@link #cli}'s in-process call whenever a case actually constructs an
-     * Arrow {@code FlightClient} (i.e. any {@code --url} call that gets as far as {@code connect()}):
-     * {@code pravaha-it}'s own reactor dependency graph pulls in {@code io.netty:netty-buffer:4.1.135}
-     * transitively through {@code pravaha-server} (test scope) alongside the {@code 4.2.9} line Arrow
-     * Flight needs, and mixing them throws {@code AbstractMethodError} the moment
-     * {@code org.apache.arrow.flight.ArrowMessage}'s static initialiser runs -- a real, pre-existing
-     * classpath defect in this test module's dependency graph, not in the product. The CLI's own
-     * shaded jar has no such conflict (confirmed: {@code pravaha-cli}'s dependency tree is netty 4.2.9
-     * throughout), and running it as a subprocess is arguably the more faithful product surface
-     * anyway -- a real process, a real classpath, the one an operator actually runs.
+     * <p>Introduced because {@code pravaha-it}'s test classpath pulled {@code
+     * io.netty:netty-buffer:4.1.135} through {@code pravaha-server} alongside the {@code 4.2.9}
+     * line Arrow Flight needs, and mixing them threw {@code AbstractMethodError} the moment {@code
+     * org.apache.arrow.flight.ArrowMessage}'s static initialiser ran -- E-9, a defect in this
+     * module's dependency graph rather than in the product.
+     *
+     * <p><strong>That conflict is gone.</strong> {@code netty-buffer}, {@code netty-common},
+     * {@code netty-handler}, {@code netty-transport} and {@code netty-resolver} are all {@code
+     * 4.2.9.Final} on this classpath now, and {@code SinkDeliveryEndToEndTest} and {@code
+     * ContinuousStatementEndToEndTest} construct a {@code PravahaFlightClient} in-process here and
+     * pass. So this is no longer a workaround -- it is kept because it is the more faithful product
+     * surface: a real process, a real classpath, the one an operator actually runs.
      */
     static CliResult cliSubprocess(Duration timeout, String... args) throws IOException, InterruptedException {
         Path jar = cliJar();
