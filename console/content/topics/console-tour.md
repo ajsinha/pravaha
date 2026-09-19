@@ -73,6 +73,9 @@ The engine decides what the console may see: the console reaches it as **one ide
 - **Register** names the query, picks the key columns by name, and optionally a sink and a
   retention. It is the same registration as `CREATE CONTINUOUS QUERY`.
 - **Drafts** are kept per browser tab in local storage; a snippet library holds common shapes.
+- **Compare** puts the draft beside a registered query (v1, picked by name) or another draft: the
+  SQL in a diff editor, both plans with each operator marked added, removed or changed, and what the
+  engine will do with the new version — [Comparing two versions](/help/topics/compare-versions).
 
 Deep links, so a colleague can be sent straight to the thing:
 
@@ -82,6 +85,7 @@ Deep links, so a colleague can be sent straight to the thing:
 | `/workbench?sql=SELECT+...` | a piece of SQL |
 | `/workbench?template=<id>&stream=txn` | a library template written against that stream |
 | `/workbench?panel=explain` | with the plan panel open |
+| `/workbench?query=v1&panel=diff&against=v1` | a query compared with its registered self, ready to edit |
 
 It also works as a plain form with JavaScript off: run and register still submit.
 

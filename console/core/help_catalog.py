@@ -174,7 +174,7 @@ SCREEN_HELP: dict[str, list[str]] = {
     "home": ["start-here", "first-view", "console-tour"],
     "start": ["first-view", "streams", "views-and-keys"],
     "overview": ["console-tour", "query-lifecycle", "metrics-alerts"],
-    "workbench": ["sql-reference", "create-continuous-query", "sql-refusals"],
+    "workbench": ["sql-reference", "create-continuous-query", "sql-refusals", "compare-versions"],
     "catalog": ["streams", "sources-overview", "sinks-overview"],
     "stream": ["streams", "event-time-watermarks", "sources-overview"],
     "views": ["views-and-keys", "point-reads", "client-snippets"],

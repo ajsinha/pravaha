@@ -90,6 +90,7 @@ NEW_JSON_GETS = ["/api/v1/me", "/api/v1/catalog/streams", "/api/v1/catalog/strea
 
 NEW_JSON_POSTS = [("/api/v1/sql/validate", {"sql": "SELECT * FROM txn"}),
                   ("/api/v1/sql/explain", {"sql": "SELECT * FROM txn"}),
+                  ("/api/v1/sql/diff", {"left": {"query": "big_txn"}, "right": {"sql": "SELECT * FROM txn"}}),
                   ("/api/v1/views/big_txn/lookup", {"filters": {"user_id": "u1"}}),
                   ("/api/v1/catalog/streams", {"name": "orders", "schema": "id:INT64"})]
 
@@ -548,6 +549,7 @@ VENDORED = [
     "/static/vendor/preact/hooks.module.js",
     "/static/vendor/htm/htm.module.js",
     "/static/app/workbench.js",
+    "/static/app/diff.js",
     "/static/app/product.css",
 ]
 
@@ -1020,6 +1022,193 @@ def test_the_plugins_screen_is_reachable_from_the_account_menu_and_the_palette(s
     assert 'href="/plugins"' in signed_in.get("/catalog").text
     items = signed_in.get("/api/v1/palette").json()["items"]
     assert any(i.get("href") == "/plugins" for i in items)
+
+
+# ============================================================ comparing two versions (23.7)
+
+def _graph(*spec):
+    """A plan as the engine sends it, from (operator, label, stateful, fields, consumer index)."""
+    nodes, edges = [], []
+    for i, (op, label, stateful, fields, consumer) in enumerate(spec):
+        nodes.append({"id": f"n{i}", "operator": op, "detail": label, "stateful": stateful, "fields": fields})
+        if consumer is not None:
+            edges.append({"from": f"n{i}", "to": f"n{consumer}"})
+    return authoring.plan_graph({"nodes": nodes, "edges": edges})
+
+
+_COLS = ["txn_id", "user_id", "merchant", "amount", "event_time"]
+#: The real engine's plans for a per-user tumbling count, and the same per user and merchant over
+#: transactions above 100 (``pravaha explain``, physical).
+_V1 = _graph(
+    ("WindowedAggregate", "WindowedAggregate(TUMBLING 60000ms, keys=[0, 1, 2], 1 aggregate(s))", True,
+     ["window_start", "window_end", "user_id", "txns"], None),
+    ("Project", "Project[window_start, window_end, user_id]", False, ["window_start", "window_end", "user_id"], 0),
+    ("WindowAssign", "WindowAssign(TUMBLING size=60000ms slide=60000ms on event_time)", False,
+     _COLS + ["window_start", "window_end"], 1),
+    ("Scan", "Scan(txn)", False, _COLS, 2))
+_V2 = _graph(
+    ("WindowedAggregate", "WindowedAggregate(TUMBLING 60000ms, keys=[0, 1, 2, 3], 1 aggregate(s))", True,
+     ["window_start", "window_end", "user_id", "merchant", "txns"], None),
+    ("Project", "Project[window_start, window_end, user_id, merchant]", False,
+     ["window_start", "window_end", "user_id", "merchant"], 0),
+    ("Filter", "Filter(amount > 100)", False, _COLS + ["window_start", "window_end"], 1),
+    ("WindowAssign", "WindowAssign(TUMBLING size=60000ms slide=60000ms on event_time)", False,
+     _COLS + ["window_start", "window_end"], 2),
+    ("Scan", "Scan(txn)", False, _COLS, 3))
+
+
+def test_an_inserted_operator_is_one_addition_and_disturbs_nothing_beneath_it():
+    diff = authoring.plan_diff(_V1, _V2)
+    # Matched by place and kind, not by id: v1's WindowAssign is n2, v2's is n3.
+    assert ["n2", "n3"] in diff["pairs"] and ["n3", "n4"] in diff["pairs"]
+    assert diff["right"] == {"n0": "changed", "n1": "changed", "n2": "added", "n3": "same", "n4": "same"}
+    assert diff["left"] == {"n0": "changed", "n1": "changed", "n2": "same", "n3": "same"}
+    assert diff["counts"] == {"added": 1, "removed": 0, "changed": 2, "same": 2}
+    assert diff["identical"] is False
+    added = [c for c in diff["operators"] if c["change"] == "added"]
+    assert [(c["op"], c["label"]) for c in added] == [("Filter", "Filter(amount > 100)")]
+
+
+def test_a_changed_aggregate_names_its_keys_through_its_inputs_columns():
+    diff = authoring.plan_diff(_V1, _V2)
+    agg = diff["operators"][0]
+    assert agg["change"] == "changed" and agg["op"] == "WindowedAggregate"
+    assert agg["what"] == ["label", "fields"]
+    assert agg["keys"] == {"before": ["window_start", "window_end", "user_id"],
+                           "after": ["window_start", "window_end", "user_id", "merchant"]}
+    assert agg["fields"]["added"] == ["merchant"] and agg["fields"]["removed"] == []
+    # A label without key ordinals, or ordinals past the input's columns, gives no names at all.
+    assert authoring._keys_by_name({"label": "Filter(x > 1)"}, {"fields": ["x"]}) is None
+    assert authoring._keys_by_name({"label": "Aggregate(group=[3], [COUNT(c)])"}, {"fields": ["a"]}) is None
+
+
+def test_an_edited_predicate_is_one_changed_operator():
+    before = _graph(("Project", "Project(a)", False, ["a"], None), ("Filter", "Filter(a > 100)", False, ["a"], 0),
+                    ("Scan", "Scan(t)", False, ["a"], 1))
+    after = _graph(("Project", "Project(a)", False, ["a"], None), ("Filter", "Filter(a > 500)", False, ["a"], 0),
+                   ("Scan", "Scan(t)", False, ["a"], 1))
+    diff = authoring.plan_diff(before, after)
+    assert diff["counts"] == {"added": 0, "removed": 0, "changed": 1, "same": 2}
+    changed = next(c for c in diff["operators"] if c["change"] == "changed")
+    assert (changed["before"], changed["after"], changed["what"]) == ("Filter(a > 100)", "Filter(a > 500)", ["label"])
+
+
+def test_an_operator_never_changes_into_another_kind():
+    before = _graph(("Project", "Project(a)", False, ["a"], None), ("Scan", "Scan(t)", False, ["a"], 0))
+    after = _graph(("Aggregate", "Aggregate(group=[0], [COUNT(c)])", True, ["a", "c"], None),
+                   ("Scan", "Scan(t)", False, ["a"], 0))
+    diff = authoring.plan_diff(before, after)
+    assert diff["left"] == {"n0": "removed", "n1": "same"}
+    assert diff["right"] == {"n0": "added", "n1": "same"}
+    assert diff["counts"]["changed"] == 0
+
+
+def test_a_joins_inputs_are_paired_left_with_left_and_right_with_right():
+    before = _graph(("Join", "Join[a.k = b.k]", True, ["k"], None), ("Scan", "Scan(a)", False, ["k"], 0),
+                    ("Scan", "Scan(b)", False, ["k"], 0))
+    after = _graph(("Join", "Join[a.k = b.k]", True, ["k"], None), ("Scan", "Scan(a)", False, ["k"], 0),
+                   ("Filter", "Filter(k > 1)", False, ["k"], 0), ("Scan", "Scan(b)", False, ["k"], 2))
+    diff = authoring.plan_diff(before, after)
+    assert diff["pairs"] == [["n0", "n0"], ["n1", "n1"], ["n2", "n3"]]
+    assert diff["right"]["n2"] == "added" and diff["counts"] == {"added": 1, "removed": 0, "changed": 0, "same": 3}
+    # A whole input that exists on one side only goes with everything beneath it.
+    lone = _graph(("Join", "Join[a.k = b.k]", True, ["k"], None), ("Scan", "Scan(a)", False, ["k"], 0))
+    assert authoring.plan_diff(before, lone)["left"]["n2"] == "removed"
+
+
+def test_identical_plans_are_identical_and_an_empty_side_is_all_added():
+    assert authoring.plan_diff(_V1, _V1)["identical"] is True
+    assert authoring.plan_diff(_V1, _V1)["counts"]["same"] == 4
+    empty = authoring.plan_diff(None, _V1)
+    assert empty["identical"] is False and set(empty["right"].values()) == {"added"}
+
+
+def test_the_consequences_say_what_is_known_and_what_is_not():
+    differ = authoring.plan_diff(_V1, _V2)
+    left = {"query": "v1", "keys": ["user_id", "window_end"], "retention": "PT24H", "fingerprint": "aaa",
+            "output_fields": [{"name": "user_id", "type": "VARCHAR"}, {"name": "window_end", "type": "TIMESTAMP"}]}
+    right = {"output_fields": [{"name": "user_id", "type": "VARCHAR"}, {"name": "merchant", "type": "VARCHAR"}]}
+    kinds = {f["kind"]: f for f in authoring.diff_consequences(differ, left, right)}
+    assert "separate_computation" in kinds and "not_determinable" in kinds
+    assert kinds["schema_changes"]["added"] == ["merchant"] and kinds["schema_changes"]["removed"] == ["window_end"]
+    assert kinds["keys_missing"]["missing"] == ["window_end"]
+    assert kinds["state_changes"]["changed"] == [_V2["nodes"][0]["label"]]
+    # Identical plans may share -- never "will": keys, retention and row filters decide it.
+    same = {f["kind"]: f for f in authoring.diff_consequences(authoring.plan_diff(_V1, _V1), left,
+                                                                  dict(left, query=None, fingerprint=None))}
+    assert same["may_share"]["keys"] == ["user_id", "window_end"] and same["may_share"]["retention"] == "PT24H"
+    assert "state_same" in same and "schema_same" in same
+    # Both registered: the fingerprints answer it outright.
+    known = authoring.diff_consequences(differ, left, dict(right, fingerprint="aaa", registered_as="v2"))
+    assert known[0] == {"kind": "fingerprint_same", "left": "aaa", "right": "aaa", "left_name": "v1", "right_name": "v2"}
+    # No plan on a side: the computation is not guessed at.
+    assert authoring.diff_consequences(None, left, {"output_fields": None})[0]["kind"] == "computation_unknown"
+
+
+def test_a_draft_compared_with_a_registered_query(signed_in):
+    body = signed_in.post("/api/v1/sql/diff", json={
+        "left": {"query": "big_txn"},
+        "right": {"sql": "SELECT txn_id, user_id, amount FROM txn WHERE amount > 500", "label": "draft"}}).json()
+    assert body["left"]["query"] == "big_txn" and body["left"]["sql"].endswith("amount > 100")
+    assert body["left"]["keys"] == ["txn_id"] and body["left"]["fingerprint"] == "abc123def456"
+    # Measured totals are the registered query's, and only on its side.
+    assert body["left"]["query_metrics"]["rowsIn"] == 1200
+    assert body["right"]["query_metrics"] is None and body["right"]["registered_as"] is None
+    changed = [c for c in body["plan"]["operators"] if c["change"] == "changed"]
+    assert [(c["before"], c["after"]) for c in changed] == [("Filter(amount > 100)", "Filter(amount > 500)")]
+    assert body["consequences"][0]["kind"] == "separate_computation"
+    assert body["same_sql"] is False
+
+
+def test_a_draft_that_is_a_registered_querys_text_carries_its_fingerprint(signed_in):
+    body = signed_in.post("/api/v1/sql/diff", json={
+        "left": {"query": "hot"}, "right": {"sql": "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id"}}).json()
+    assert body["same_sql"] is True and body["plan"]["identical"] is True
+    assert body["right"]["registered_as"] == "hot, hot_alias" and body["right"]["fingerprint"] == "fff000"
+    assert body["consequences"][0]["kind"] == "fingerprint_same"
+
+
+def test_two_drafts_compare_without_registry_findings(signed_in):
+    body = signed_in.post("/api/v1/sql/diff", json={
+        "left": {"sql": "SELECT a FROM txn WHERE amount > 1", "label": "one"},
+        "right": {"sql": "SELECT a FROM txn WHERE amount > 1", "label": "two"}}).json()
+    assert body["left"]["query_metrics"] is None and body["left"]["keys"] == []
+    assert body["consequences"][0]["kind"] == "may_share_drafts"
+    assert not any(f["kind"].startswith("keys_") for f in body["consequences"])
+
+
+def test_a_side_the_engine_will_not_plan_is_partial_and_the_rest_still_answers(signed_in):
+    body = signed_in.post("/api/v1/sql/diff", json={
+        "left": {"query": "big_txn"}, "right": {"sql": "SELECT PLANONLY FROM txn"}}).json()
+    assert body["right"]["graph"] is None and body["right"]["plan_error"]["code"] == "PRV-2050"
+    assert body["right"]["output_fields"] is None
+    assert body["plan"] is None and body["left"]["graph"] is not None
+    kinds = [f["kind"] for f in body["consequences"]]
+    assert kinds[0] == "computation_unknown" and "schema_unknown" in kinds
+
+
+def test_a_plan_the_policy_withholds_is_not_permitted_not_an_error(signed_in, engine):
+    engine.plan_refused["big_txn"] = "reading plans needs one of the roles [ops]"
+    answer = signed_in.post("/api/v1/sql/diff", json={
+        "left": {"query": "big_txn"}, "right": {"sql": "SELECT * FROM txn"}})
+    assert answer.status_code == 200
+    left = answer.json()["left"]
+    assert left["refused"]["status"] == 403 and "roles [ops]" in left["refused"]["message"]
+    assert left["graph"] is None and left["query_metrics"] is None
+
+
+def test_comparing_needs_something_on_each_side(signed_in, engine_down):
+    assert signed_in.post("/api/v1/sql/diff", json={"left": {"query": "big_txn"}, "right": {}}).status_code == 400
+    assert signed_in.post("/api/v1/sql/diff", json={"left": {"query": "nope"},
+                                                    "right": {"sql": "SELECT 1"}}).status_code == 404
+    assert engine_down.post("/api/v1/sql/diff", json={"left": {"query": "big_txn"},
+                                                      "right": {"sql": "SELECT 1"}}).status_code == 503
+
+
+def test_the_workbench_offers_the_compare_topic(signed_in):
+    page = signed_in.get("/workbench?query=big_txn").text
+    assert 'href="/help/topics/compare-versions"' in page
+    assert signed_in.get("/help/topics/compare-versions").status_code == 200
 
 
 # ============================================================ the UI string catalog
