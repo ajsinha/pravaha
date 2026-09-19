@@ -3337,6 +3337,21 @@ class QueryController {
 
 **The eight critical journeys**, run on every PR: first-run onboarding → first query; author-validate-explain-deploy; diagnose a backpressured query from the dashboard; inspect and act on a DLQ record; start and throttle a backfill; blue/green update with rollback; debug a wrong result and export the fixture; grant a role and verify the affordance appears.
 
+> **Status (2026-09).** The tools in the table are replaced by what runs without a Node toolchain
+> (§23.3): the console's tests drive a real headless Chrome over the DevTools protocol from
+> Python (`console/tests/cdp.py`), against the real console with the engine adapter faked, and
+> skip with their reason where no Chrome is installed. **Visual regression**: 20 pages, light and
+> dark, 1280×800 and 390×844, against committed baselines with a pixel tolerance and a diff image
+> on failure — compact density not yet photographed. **Accessibility**: vendored axe-core, zero
+> violations blocking, on every page in both themes and in seven interaction states, plus a
+> token-level contrast test in all three themes. **E2E**: two of the eight journeys
+> (first run to a live view that changes; author-validate-fix-explain-run-register) and the
+> keyboard paths; the other six need engine features that do not exist yet. **Performance**:
+> initial JavaScript, time to interactive, route transitions, main-thread blocking and lazy
+> loading of Monaco and ECharts, asserted per page. **Unit / component** (Vitest) and
+> **contract** (generated types) have no equivalent: there is no build step to generate into.
+> Status per item in `console/README.md`.
+
 ### 23.19 Build and packaging
 
 > **Superseded by ADR-024 (§23.2a).** This section described a `pravaha-ui` Maven module — a Spring
@@ -3372,6 +3387,16 @@ console/
 
 Not a feeling. A release gate.
 
+> **Status (2026-09): not met.** Passing, and gated in the console's `make test` wherever Chrome is
+> installed: zero axe violations in light and dark (the manual WCAG 2.2 AA audit is not done);
+> light and dark visual regression (not density); the §23.15 budgets that can be measured on the
+> build machine; two of the eight journeys; keyboard paths for the palette, dialogs, draft tabs and
+> a point query; no secret serialised. Not met for want of engine support: percentiles (the engine
+> publishes a latency count and sum), a correlation id that crosses the engine's surfaces, an audit
+> read API, and the six journeys that need a DLQ, backfill, blue/green, backpressure sampling, the
+> debugger and role grants. Not attempted: the eight-states audit, onboarding timed with real
+> people, Storybook. Item by item, with the test that proves each: `console/README.md`.
+
 - [ ] Every screen implements all eight states of §23.12
 - [ ] Light and dark both designed and visually regression-tested; both densities likewise
 - [ ] Zero axe violations; WCAG 2.2 AA verified by manual audit
@@ -3384,7 +3409,7 @@ Not a feeling. A release gate.
 - [ ] §23.15 performance budgets met and gated in CI
 - [ ] Onboarding: a new user reaches a running query in **under five minutes**, measured with real people
 - [ ] The eight critical journeys pass on every PR
-- [ ] No secret is ever serialised to the browser, verified by a test
+- [x] No secret is ever serialised to the browser, verified by a test
 - [ ] Storybook covers every design-system component with all its states
 
 ---

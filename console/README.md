@@ -50,6 +50,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 | `ui.query_row_limit` | — | `500` | Rows a one-off query or a point query returns to a browser. |
 | `ui.lag_warn_seconds` | — | `300` | A watermark further behind than this is a finding on the operations dashboard. |
 | `ui.page_size` | — | `25` | Rows per page in the query list. |
+| `ui.language` | `CONSOLE_LANGUAGE` | `en` | The UI string catalog, `web/i18n/<language>.json`. Only `en` exists; an unknown language falls back to it. |
 | `logging.level` | `LOG_LEVEL` | `INFO` | |
 
 **The engine does not have to be up.** The console starts anyway and says the engine is
@@ -71,6 +72,7 @@ needs it to load and tell them what is wrong.
 | `/views/{name}/live` | everyone | Committed changes as they arrive, each with its `+1`/`−1` weight; the current rows as the running Z-set sum of the view read on connect plus every change since; an ECharts series of a numeric column over time; a tap filter; honest "sampled — N dropped". |
 | `/operations` | operator | A verdict ("is everything healthy, and if not, where?"), findings per query with what to do, node status and plugin health, per-query rows in, rate, state against ceiling, view size and watermark lag, and charts of throughput and state. Live at 1 Hz over one SSE stream. |
 | `/queries`, `/queries/{name}` | operator | The filterable list, and one query's SQL, siblings, lifecycle controls (drop needs the name typed) and raw tail — now with links into the workbench, the plan, the view and its live page. |
+| `/plugins` | operator | Every plugin the node registered, with its version and the health it reports, joined with what binds it: the streams it feeds (from each stream's `source`) and the sinks it writes (with what each accepts and who writes to it). A binding that names a plugin the engine never loaded is shown as *not loaded*, not dropped. What the engine does not publish about plugins is listed on the page. From the account menu and the palette. |
 | `/help/codes/{code}` | everyone, unauthenticated | Everything the shipped documentation says about one `PRV` code. The engine's own help URLs name a host that does not exist. |
 
 **Ctrl-K / ⌘K** opens a command palette on every page: jump to any query, view, stream or page,
@@ -104,13 +106,15 @@ core/
   metrics.py             Prometheus text parser, per-query summary, health findings and verdict,
                          a scrape cache so N viewers cost one scrape a second
   snippets.py            client code per view and key, with each language's quoting
+  i18n.py                the UI string catalog: t('key', name=value) in templates and islands
   content/               markdown topics, and codes.py for /help/codes/*
 routes/
   base.py                Routes, the brand context, roles, the refusal mapping, the page renderer
   public_routes.py       landing, about, help, tutorials, error codes, health probes
   auth_routes.py         sign-in (with a role choice), sign-out
   api_routes.py          /api/v1 — queries, lifecycle, one-off query, stats, the live tail
-  product_routes.py      the persona screens and their JSON: catalog, sql, views, ops, palette
+  product_routes.py      the persona screens and their JSON: catalog, sql, views, ops, plugins,
+                         palette
   ui_routes.py           overview, queries, detail, workbench
 web/
   templates/             Jinja2; base.html holds the tokens, the chrome and the import map
@@ -118,8 +122,15 @@ web/
   static/app/            the islands: lib, palette, workbench, plan-graph, grid, charts, live,
                          ops, views, start, and product.css
   static/vendor/         Bootstrap, Bootstrap Icons, fonts, Monaco, ECharts, elkjs, Preact, htm
+  i18n/en.json           the strings the shell, the plugins screen and the palette show
 content/
   help/ tutorials/ about/   front matter plus, usually, an `include:` of a repository document
+tests/
+  cdp.py                 a Chrome DevTools Protocol driver over --remote-debugging-pipe, stdlib only
+  browser_harness.py     the console on a real port with the fake engine; pages, axe, PNG compare
+  fake_engine.py         the one adapter replaced, shared by the product and browser tests
+  vendor/axe-core/       axe.min.js, for the accessibility audit
+  visual/baselines/      the screenshots the visual-regression test compares against
 ```
 
 Reading order, because the layering is the point: `engine.py` → `services.py` → `routes/` →
@@ -131,11 +142,14 @@ exists; a service does not know a browser does; an island knows only the console
 | Library | Version | Where | Used for |
 |---|---|---|---|
 | Monaco Editor | 0.56.0 | `vendor/monaco/vs/` — the editor core, its contributions chunk (suggest, hover, quick fix), the AMD loader and the editor worker from the prebuilt `min/` tree; language workers left out | the workbench editor, with Pravaha's own SQL language |
-| Apache ECharts | 6.1.0 | `vendor/echarts/echarts.min.js` | canvas charts on the live and operations screens |
+| Apache ECharts | 6.1.0 | `vendor/echarts/echarts.common.min.js` — the upstream "common" build (line, bar, scatter, pie; grid, legend, tooltip, dataZoom, graphic), 234 kB gzipped against the full build's 370 | canvas charts on the live and operations screens, fetched after the page's load event |
 | elkjs | 0.12.0 | `vendor/elkjs/elk.bundled.js` | deterministic layered layout of the plan graph |
 | Preact (+ hooks) | 10.29.8 | `vendor/preact/*.module.js` | the islands' components |
 | htm | 3.1.1 | `vendor/htm/htm.module.js` | JSX-like templates with no compiler |
 | Bootstrap, Bootstrap Icons | 5.3.8, 1.x | `vendor/bootstrap*/` | layout, dropdowns, modals, icons |
+
+One more is vendored for the tests only, never served: axe-core 4.13.0 (`tests/vendor/axe-core/`,
+MPL-2.0), which the accessibility audit injects into each page it checks.
 
 Each directory carries its upstream licence; `THIRD-PARTY-NOTICES.md` at the repository root lists
 them. To update one, fetch its tarball from `registry.npmjs.org` with `curl`, copy the same files,
@@ -203,16 +217,81 @@ Still open, and said so on the screens rather than drawn as zeroes:
 | Lane backpressure | the engine does not sample it |
 | Commit-latency percentiles | the engine publishes a count and a total, so the mean is exact and a p99 would be invented |
 | Time-travel debugger (§23.9) | not started: needs a checkpoint-fork and step protocol |
+| A plugin's declared kinds, required API version and settings | `GET /api/v1/status` names each plugin with version and health only; the manifest (`requiredApiVersion`, `configSchema`) and which roles a plugin can play are not published, so the plugins screen says "bound as", never "able to be" |
+| Per-plugin throughput and errors | no `pravaha_plugin_*` meters |
+| An audit screen | the engine writes its audit trail to a file (`FileAuditSink`, `rw-------`) and deliberately has no read endpoint, because none of the policy's three questions means "may read the audit trail". An admin/audit page needs `GET /api/v1/audit?since=&principal=&view=&decision=` behind a new permission the policy can answer — until then there is no page, rather than one that reads a file the console has no business reading |
 
-## What is still open
+## The §23.20 release gate: where it stands
 
-The §23.20 release gate is not met and this does not claim it is: there is no Storybook, no visual
-regression baseline, no axe run in CI, no Lighthouse budget, and the eight critical journeys are not
-automated in a browser. Light and dark, density, keyboard paths, focus handling in the palette,
-deep links and the eight states are *implemented* across the new screens; they are not yet
-*audited*. The time-travel debugger (§23.9), backfill and cutover control (§23.10), cluster,
-plugins and administration screens are not built. "Every error message names a correlation id"
-still needs the engine to mint one that travels across pgwire, Flight and the SDKs.
+**Not met, and this does not claim it is.** What is now automated runs in `make test` whenever the
+machine has Chrome or Chromium (found on the `PATH`, or named by `PRAVAHA_CHROME`), and skips with
+that reason when it does not. There is no Node toolchain anywhere in this: Chrome is driven over its
+DevTools protocol by `tests/cdp.py`, about 350 lines of standard-library Python.
+
+| §23.20 item | Status | Proven by |
+|---|---|---|
+| Every screen implements the eight states of §23.12 | implemented, **not audited** screen by screen | — |
+| Light and dark designed and visually regression-tested; both densities | **light and dark pass**: 20 pages × 2 themes × 2 viewports (1280×800, 390×844), 80 baselines. **Compact density is not photographed.** | `test_browser_visual.py`, `tests/visual/baselines/` |
+| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 24 pages × 2 themes and 7 interaction states (open palette, workbench refusal / plan / register / library / result, live view with changes, drop dialog, each onboarding step); every token pair checked for contrast in all three themes. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would | `test_browser_accessibility.py`, `test_contrast.py` |
+| Every workflow completable by keyboard alone | **partly proven**: skip link, tab order and a visible focus ring on every stop, the palette (open, filter, act, Escape returns focus), a point query from sign-in to answer with keys only, the drop dialog (Escape returns focus), the draft tabs (arrows, Home, End, Delete). Not proven for every workflow: plan-graph node inspection, the register form, onboarding | `test_browser_journeys.py` |
+| Every view deep-linkable; every filter in the URL | implemented (catalog tabs, the queries filter, a view's key and value, workbench `?query=` `?sql=` `?template=` `?panel=`); exercised by the journeys and product tests, **not audited as a whole** | `test_product.py`, `test_browser_journeys.py` |
+| Every destructive action confirmed, audited and reversible where possible | drop is confirmed by the typed name. **Audited is not verifiable here**: the engine has no audit read API (see above) | `test_console.py` |
+| Every error message names the cause, the fix and a correlation id | cause and code everywhere, fix where one is certain; the correlation id is the console's own — **the engine does not mint one** that travels across its surfaces | — |
+| Every latency chart shows percentiles; no averages | **not met**: the engine publishes a commit-latency count and sum, so the mean is shown and labelled as a mean | — |
+| Stale data visibly stale; partial data visibly partial | implemented (freshness indicator, dimmed stale tail, "sampled — N dropped"); not audited | — |
+| §23.15 budgets met and gated | **met and gated for what can be measured here** (numbers below). Not measured: a mid-range laptop over a real network, frame times while streaming, memory over hours | `test_browser_performance.py` |
+| Onboarding in under five minutes, with real people | **not measured** — it needs people. The journey itself is automated and passes | `test_browser_journeys.py` |
+| The eight critical journeys on every PR | **2 of 8 automated**: first run to a live view that changes; author, validate, fix, explain, run, register. The other six need engine features that do not exist yet (backpressure sampling, a DLQ, backfill control, blue/green, the time-travel debugger, and a role grant: the console's roles pick a landing, and granting one is not an engine API) | `test_browser_journeys.py` |
+| No secret serialised to the browser | met | `test_console.py`, `test_product.py` |
+| Storybook covers every component | **not built**, and not planned in that form: there is no component library to host, and no Node toolchain to run it | — |
+
+### Performance, as measured here (loopback, cold cache, Chrome 153)
+
+| | Budget | Measured |
+|---|---|---|
+| Initial JavaScript, gzipped | ≤ 250 kB | 41–60 kB on every page (workbench 60, live 51, operations 49, the rest 41–46) |
+| Lazy JavaScript | Monaco and ECharts lazy | Monaco + ELK 1.46 MB gz on the workbench only; ECharts 235 kB gz on live and operations only, after the load event; neither on any other page (asserted) |
+| Time to interactive (to the island's own "ready") | ≤ 2.0 s | 65–260 ms; the workbench, with Monaco up and the query validated, under 1 s |
+| Route transition (warm) | ≤ 200 ms | 25–45 ms |
+| Main-thread blocking while loading | not in §23.15; held at ≤ 200 ms (workbench ≤ 600) | 0 ms everywhere but the workbench (≈ 50–90 ms, one long task) |
+
+Two things the budget found and this commit fixed: ECharts was fetched before the load event on the
+operations and live screens (411 kB gzipped of initial JavaScript, over budget on its own), and the
+console sent everything uncompressed (122 kB of script per page where 43 kB would do). The full
+build is replaced by the upstream "common" build and loaded after the page is interactive; responses
+are gzipped, except the event streams, which a compressing proxy would otherwise hold back.
+
+### What the audits found and fixed
+
+- **Every plain link failed contrast in both themes** — Bootstrap's `#0d6efd` (4.3:1 on the light
+  canvas, 3.5:1 on a dark card) was never repointed at the accent token. Links, alerts, `text-danger`
+  and the outline-danger button now wear theme tokens.
+- **The help pages' "On this page" links were empty** — the template read a key the renderer never
+  set; every entry was a zero-size link with no name.
+- **The query page's script threw on load** — `tail.js` was never included, so the live tail and the
+  typed-name drop dialog never ran in a browser; the plain form still worked, which is why nothing
+  noticed. Found by the first journey that pressed Drop.
+- The catalog's tab links carried `aria-selected` (not allowed on a link); the workbench's draft
+  tabs nested a close button inside a tab and put a non-tab in the tablist; empty-state headings
+  skipped from h1 to h3; scrollable code blocks and snippets could not be reached by keyboard;
+  the editor's syntax colours came from the data palette (2.7:1 as text); the landing hero put white
+  text on the dark theme's light blue; disabled pager links were exposed as enabled.
+- Arrow keys on the draft tabs could not reach the second draft: the editor took focus back on
+  every selection.
+
+## Strings, and translating them later
+
+UI strings are looked up by key from `web/i18n/en.json` (`core/i18n.py`): `{{ t('nav.catalog') }}` in a
+template, `t("palette.label")` in an island (the `js.*` keys are embedded in every page as JSON, so an
+island needs no request). Parameters are named — `"{n} columns"` — because word order is the first
+thing a translation changes. `ui.language` picks the file; only `en` exists. A test fails on any key a
+template or island uses that the catalog lacks.
+
+**How far it goes:** the shell (navigation, account menu, engine status, skip link, footer), the
+plugins screen and the command palette. The other screens' prose is still in their templates. The
+approach for them is the same mechanical pass, one template at a time — the catalog, the test and
+the island helper are in place — and it was not done here because it touches every line of every
+page, and the value of the tests above is that they hold still while a change like that is made.
 
 ## What ADR-039 item 7 changed (2026-09)
 
@@ -228,11 +307,24 @@ line. "No secret is ever serialised to the browser" is a test. See `tests/test_c
 JAVA_HOME=/path/to/jdk21 make test
 ```
 
-Two files. `tests/test_console.py` starts a real Pravaha server from the Maven build and drives the
-console against it — a console tested only against a fake engine would prove the fake works. If the
-engine's test classes are not built (`./mvnw -o -pl pravaha-flight -am test-compile`) or `JAVA_HOME`
-is unset, those tests skip and say so. `tests/test_product.py` needs no Java: it builds the real
-application with the one engine adapter replaced, and covers every persona screen and JSON endpoint,
-the sign-in gate on each, every page with the engine down, the Prometheus parser and health verdict,
-the snippets' quoting, the plan graph, diagnostics and fixes, the error-code pages, the air-gap rule
-and the vendored assets.
+Three kinds, and each skips with its reason when what it needs is missing:
+
+- `tests/test_console.py` starts a real Pravaha server from the Maven build and drives the console
+  against it — a console tested only against a fake engine would prove the fake works. It skips when
+  the engine's test classes are not built (`./mvnw -o -pl pravaha-flight -am test-compile`) or
+  `JAVA_HOME` is unset.
+- `tests/test_product.py` and `tests/test_contrast.py` need nothing: the real application with the
+  one engine adapter replaced (`tests/fake_engine.py`), covering every persona screen and JSON
+  endpoint, the sign-in gate on each, every page with the engine down, the parser and verdict, the
+  snippets, the plan graph, diagnostics and fixes, the plugins screen, the string catalog, the
+  air-gap rule, compression, and contrast for every token pair in every theme.
+- `tests/test_browser_*.py` run the same application on a loopback port and drive a real headless
+  Chrome through it: the journeys, the axe audit, the screenshots and the performance budget. They
+  need Chrome or Chromium; `PRAVAHA_CHROME=/path/to/chrome` names one, `PRAVAHA_BROWSER_TESTS=0`
+  (or `make test-fast`) switches them off. About three minutes.
+
+A screenshot that no longer matches fails with the actual image and a diff (changed pixels in red)
+in `tests/visual/failures/`. If the change is intended, look at the diff, then `make baselines` and
+commit the new images: that look is the review design §23.18 asks for. Baselines record the Chrome
+major version that took them; on another version the comparison skips and says so, because text
+rasterises differently across versions and that is not a regression in the console.

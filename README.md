@@ -132,9 +132,11 @@ corrected by late data arrives as a retraction of the old answer followed by the
 - **Blue/green query updates and backfill splicing** are built in `pravaha-backfill` and reachable
   from no running path.
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
-  views, live results and operations are built; the time-travel debugger, backfill and cutover
-  control, cluster, plugin and admin screens are not, and nothing is yet audited (Storybook, visual
-  regression, WCAG 2.2 AA).
+  views, live results, operations and a plugins screen are built, and a headless-Chrome suite now
+  holds zero axe violations, light/dark visual baselines, the measurable §23.15 budgets and two of
+  the eight journeys. Not done: the manual WCAG 2.2 AA audit, density baselines, the other six
+  journeys and Storybook; the time-travel debugger, backfill and cutover control, cluster and admin
+  screens (an audit screen waits on an engine audit read API).
 
 ## Performance: what is measured, and what cannot be here
 
