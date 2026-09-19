@@ -740,6 +740,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         source.where(),
                         source.stop().at() == null ? "" : source.stop().at().toString()))
                 .orElseGet(() -> List.of(status.state().name(), "", "", "", ""));
+    }
 
     /** A replacement's status as {@link ControlWire#REPLACEMENT_FIELDS} names its fields. */
     private static List<String> replacement(QueryReplacement.Status status) {

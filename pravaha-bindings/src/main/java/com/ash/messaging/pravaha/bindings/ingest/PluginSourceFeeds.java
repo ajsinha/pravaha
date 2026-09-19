@@ -355,6 +355,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                             + "and no live stream to splice onto.");
         }
         List<IngestPump> pumps = new ArrayList<>();
+        List<FeedInput> inputs = new ArrayList<>();
         List<AutoCloseable> resources = new ArrayList<>();
         Map<String, Integer> partitionCounts = new LinkedHashMap<>();
         Map<String, String> pushed = new LinkedHashMap<>();
@@ -375,6 +376,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 pushed.put(stream, summarise(request) + ", backfilling");
                 for (int index = 0; index < partitions.size(); index++) {
                     SourcePartition partition = partitions.get(index);
+                    inputs.add(new FeedInput(stream, index));
                     String token = resumeFrom.get("partition-" + ordinal++);
                     SourceOffset splice = plan.spliceFor(stream, index).orElse(null);
                     SourceOffset from = SourceOffset.BEGINNING;
@@ -401,7 +403,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             closeQuietly(resources);
             throw e;
         }
-        PumpingFeed feed = new PumpingFeed(queryName, pumps, resources, describe(partitionCounts, pushed), publish);
+        PumpingFeed feed =
+                new PumpingFeed(queryName, pumps, inputs, resources, describe(partitionCounts, pushed), publish);
         feed.start();
         return feed;
     }
