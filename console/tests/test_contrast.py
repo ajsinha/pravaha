@@ -83,6 +83,29 @@ def test_every_allowed_token_pair_meets_wcag_aa(theme):
     assert not failures, f"{theme} theme:\n  " + "\n  ".join(failures)
 
 
+def _grayscale(hex_colour: str) -> str:
+    """CSS ``filter: grayscale(1)``: the luminance matrix applied to the sRGB-encoded channels."""
+    if len(hex_colour) == 4:
+        hex_colour = "#" + "".join(c * 2 for c in hex_colour[1:])
+    r, g, b = (int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    y = min(1.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
+    return "#" + f"{round(y * 255):02x}" * 3
+
+
+@pytest.mark.parametrize("theme", ["light", "dark", "terminal"])
+def test_stale_data_keeps_its_contrast(theme):
+    """Design 23.12's stale state greys out what it shows (``.stale``). It used to fade it to
+    55% opacity instead, below 4.5:1 for every word; greyed, every allowed pair still passes."""
+    css = BASE.read_text(encoding="utf-8")
+    rule = re.search(r"\n\.stale\{([^}]*)\}", css)
+    assert rule and "opacity" not in rule.group(1) and "grayscale(1)" in rule.group(1), rule
+    tokens = _themes()[theme]
+    failures = [f"--{fg} on --{bg}: {contrast(_grayscale(tokens[fg]), _grayscale(tokens[bg])):.2f}"
+                for fg, bg, minimum in PAIRS
+                if contrast(_grayscale(tokens[fg]), _grayscale(tokens[bg])) < minimum]
+    assert not failures, f"{theme}, stale:\n  " + "\n  ".join(failures)
+
+
 def test_the_dark_theme_the_os_selects_is_the_dark_theme_the_picker_selects():
     """Two copies of the dark tokens exist (the picker's, and prefers-color-scheme's); a fix
     to one that misses the other would pass every test run with the picker and fail every

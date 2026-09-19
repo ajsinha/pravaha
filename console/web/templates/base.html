@@ -299,8 +299,12 @@ pre{background:var(--stripe);border:1px solid var(--rule);border-radius:4px;
 .freshness .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);}
 .freshness[data-state="refreshing"] .dot{background:var(--warn);}
 .freshness[data-state="stale"] .dot{background:var(--bad);}
-/* Stale data dims and says how old it is. It is never shown as if it were live. */
-.stale{opacity:.55;filter:saturate(.5);}
+/* Stale data loses its colour, is fenced off, and says how old it is (the banner and the
+   freshness dot). It is never shown as if it were live. It used to dim to 55% opacity, which
+   took every word in it below 4.5:1 -- found when the component gallery put a stale table in
+   front of axe. A grayscale keeps each pair's luminance, so the contrast holds in every theme
+   (test_contrast checks it), while the chips' greens and reds, which say "live", go grey. */
+.stale{filter:grayscale(1);outline:1px dashed var(--edge);outline-offset:3px;border-radius:2px;}
 .state{padding:var(--state-pad) 1rem;text-align:center;color:var(--muted);}
 /* An empty state's title is an h2 wherever it sits, so the outline never skips a level
    (h1 -> h3 was the commonest axe finding before this); it only looks like a small one. */

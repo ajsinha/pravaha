@@ -74,11 +74,16 @@
         esc(reconnecting ? t("states.reconnecting") : t("states.not_reconnecting")) + "</div></div>";
     },
 
-    /* No permission. The affordance is disabled with the reason in its title,
-       never a button that fails on click. */
-    unauthorized: function (action) {
-      return '<button type="button" class="btn btn-sm" disabled title="' +
-        esc(t("states.unauthorized", {action: action})) + '">' + esc(action) + "</button>";
+    /* No permission. The affordance is disabled with the reason beside it, never a
+       button that fails on click. The reason is on the page, not only in a title: a
+       disabled button takes no focus and shows no tooltip, so a title alone was a
+       reason nobody could read (found by the component gallery). */
+    unauthorized: function (action, reason) {
+      var id = "unauth-" + Math.random().toString(36).slice(2, 8);
+      var why = t("states.unauthorized", {action: action}) + (reason ? ": " + reason : "");
+      return '<button type="button" class="btn btn-sm btn-outline-secondary" disabled aria-describedby="' +
+        id + '">' + esc(action) + '</button> <span class="small text-muted" id="' + id + '">' +
+        esc(why) + "</span>";
     }
   };
 
