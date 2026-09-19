@@ -35,9 +35,9 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  * so a small {@code BIGINT} costs three bytes rather than the eleven a boxed value would. Nothing
  * outside this class reads it; the files that persist it treat it as an opaque byte string.
  *
- * <p>This class is copied, byte for byte apart from its package, into the Cassandra plugin. The two
- * plugins share no module but the API and the common library, and a scan-comparison helper is
- * neither.
+ * <p>This class exists, byte for byte apart from its package, in both the Aerospike and the
+ * Cassandra plugin. The two plugins share no module but the API and the common library, and a
+ * scan-comparison helper is neither.
  */
 final class RowRecorder implements RowWriter {
 

@@ -72,7 +72,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * never writes into its parent's directory; the parent's is deleted once a checkpoint naming the new
  * reader is durable, since nothing will resume from the older one again.
  *
- * <p>Copied, apart from its package, into the Cassandra plugin; see {@link RowRecorder}.
+ * <p>Identical, apart from its package, in the Aerospike and the Cassandra plugin; see {@link RowRecorder}.
  *
  * @param <K> the store's identity for a row: Aerospike's record digest, Cassandra's partition token
  */
