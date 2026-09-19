@@ -770,6 +770,12 @@ public class PravahaNode implements SmartLifecycle {
                 security.getPolicy(),
                 security.getAudit(),
                 tlsCertificate == null ? "PLAINTEXT" : "TLS");
+        // CFG-10(b). SecurityProperties.verifier() returns TokenVerifier.rejectAll() for an empty
+        // token table and its own comment says why the operator should learn this at startup
+        // "rather than in a support ticket about 401s" -- and then said it nowhere until the first
+        // call. A node that refuses every caller looked identical, in the log, to one that accepts
+        // the right ones.
+        security.unusableTokenTable().ifPresent(log::warn);
 
         // Before recovery, and that ordering is the point: a recovered query is registered the same
         // way a fresh one is, so a factory attached afterwards would feed everything registered

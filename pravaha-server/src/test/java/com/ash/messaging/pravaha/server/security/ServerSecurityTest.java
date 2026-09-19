@@ -241,6 +241,38 @@ class ServerSecurityTest {
     }
 
     @Test
+    void aNodeThatCanVerifyNoCredentialSaysSoAtStartup() {
+        // CFG-10(b). authentication=token with an empty tokens map makes verifier() return
+        // rejectAll, which is correct, and the node said nothing: the log line read
+        // "authentication=token" exactly as it does on a node that works, and the one good
+        // sentence about it arrived at the first 401 -- the support ticket the code's own comment
+        // says it wants to avoid.
+        SecurityProperties empty = new SecurityProperties();
+        empty.setAuthentication("token");
+        assertThat(empty.unusableTokenTable())
+                .as("a node that refuses every caller must not look like one that does not")
+                .hasValueSatisfying(warning -> assertThat(warning)
+                        .contains("pravaha.security.tokens")
+                        .contains("PRV-7001")
+                        .contains("authentication=none"));
+
+        SecurityProperties.TokenSpec ann = new SecurityProperties.TokenSpec();
+        ann.setId("ann");
+        SecurityProperties configured = new SecurityProperties();
+        configured.setAuthentication("token");
+        configured.setTokens(Map.of("ann-token", ann));
+        assertThat(configured.unusableTokenTable())
+                .as("V-control: a node with a token table has nothing to warn about")
+                .isEmpty();
+
+        SecurityProperties open = new SecurityProperties();
+        open.setAuthentication("none");
+        assertThat(open.unusableTokenTable())
+                .as("a node that does not authenticate is not missing a token table")
+                .isEmpty();
+    }
+
+    @Test
     void theDocsUiIsOpenAtTheAddressTheServerRedirectsTo() {
         // API-F11. /api/docs answered 302 without a credential, as the design intends, and its own
         // redirect target answered 401: OPEN_PREFIXES carried /swagger-ui and springdoc serves the

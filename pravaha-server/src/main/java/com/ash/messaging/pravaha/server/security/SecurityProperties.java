@@ -225,6 +225,30 @@ public class SecurityProperties {
      * deployment that needs real identity implements {@link TokenVerifier} against whatever issues
      * its credentials; this is the rung that makes the authenticated path reachable without one.
      */
+    /**
+     * The warning a node prints at startup when it can verify no credential, or empty.
+     *
+     * <p>CFG-10(b). {@link #verifier()} answers {@link TokenVerifier#rejectAll()} for {@code
+     * authentication: token} with an empty {@code tokens} map, which is the right behaviour, and
+     * the comment beside it has always said the reason should be visible "at startup rather than in
+     * a support ticket about 401s". It was not: the node logged {@code authentication=token} and
+     * nothing else, and the excellent sentence {@code rejectAll} carries arrived at the first call
+     * -- which is the support ticket that comment wants to avoid.
+     *
+     * <p>A node refusing every caller and a node accepting the right ones are the same line of log
+     * without this.
+     */
+    public java.util.Optional<String> unusableTokenTable() {
+        if (!authenticates() || !tokens.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of("pravaha.security.authentication=token with no entries under "
+                + "pravaha.security.tokens: this node can verify no credential and refuses every "
+                + "call with PRV-7001. Configure a token table, supply a TokenVerifier bean, or run "
+                + "with authentication=none if something in front of this node already "
+                + "authenticates.");
+    }
+
     public TokenVerifier verifier() {
         if (!authenticates()) {
             return null;
