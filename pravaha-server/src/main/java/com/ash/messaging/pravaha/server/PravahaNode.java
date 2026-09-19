@@ -1069,6 +1069,14 @@ public class PravahaNode implements SmartLifecycle {
         return Optional.ofNullable(pluginSinks);
     }
 
+    /**
+     * The source bindings this node reads, for striking their option values out of a stopped feed's
+     * message before it leaves the node (FEED-1); empty before it starts.
+     */
+    public Optional<PluginSourceFeeds> sources() {
+        return Optional.ofNullable(feeds);
+    }
+
     public Optional<ClusterCoordinator> coordinator() {
         return Optional.ofNullable(coordinator);
     }

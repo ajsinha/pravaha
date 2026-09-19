@@ -171,6 +171,18 @@ public class PravahaMetrics implements AutoCloseable {
         // this measures the data rather than the engine.
         ids.add(gauge("pravaha.query.watermark.lag.seconds", tags, query, PravahaMetrics::lagSeconds));
         ids.add(gauge("pravaha.query.running", tags, query, q -> q.state().isTerminal() ? 0 : 1));
+        // FEED-1. A query whose source failed mid-read stays RUNNING -- so `running` above says 1 --
+        // and its view stops moving. This is the number to alert on: 1 while any of its sources has
+        // stopped, which is not retried, so it stays 1 until the query is re-registered.
+        ids.add(gauge(
+                "pravaha.query.feed.stopped", tags, query, q -> q.feedStatus().stopped() ? 1 : 0));
+        // Distinct failures that stopped it, not stopped partitions: one failure on a thread reading
+        // four partitions stops four and is counted once. A counter, because a stop is never undone.
+        ids.add(FunctionCounter.builder("pravaha.query.feed.failures", query, q ->
+                        (double) q.feedStatus().failures())
+                .tags(tags)
+                .register(meters)
+                .getId());
         // Subscribers attached to the computation this name answers to. A sink writing its changelog
         // listens on the same commit and is not counted: a query writing to a table has nobody
         // watching it. Two names on one computation report the same number, because they are one.

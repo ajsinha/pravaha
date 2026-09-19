@@ -77,7 +77,24 @@ public class StatusController {
                 // HLP-8: this was catalog.size(), the stream count, under a name that says queries.
                 registry.registry().map(r -> r.names().size()).orElse(0),
                 plugins,
-                catalog.size());
+                catalog.size(),
+                registry.registry().map(StatusController::stoppedFeeds).orElse(0));
+    }
+
+    /**
+     * Registered names whose feed has a stopped source (FEED-1).
+     *
+     * <p>Counted by name, as {@code registeredQueries} is, so the two can be read against each other:
+     * two names on one computation whose source stopped are two queries that stopped moving.
+     */
+    private static int stoppedFeeds(com.ash.messaging.pravaha.registry.QueryRegistry registry) {
+        int stopped = 0;
+        for (String name : registry.names()) {
+            if (registry.find(name).map(query -> query.feedStatus().stopped()).orElse(false)) {
+                stopped++;
+            }
+        }
+        return stopped;
     }
 
     /**
@@ -118,6 +135,17 @@ public class StatusController {
         row(html, "Version", status.version(), "");
         row(html, "Uptime", status.uptimeSeconds() + "s", "");
         row(html, "Registered queries", String.valueOf(status.registeredQueries()), "");
+        // FEED-1: a query whose source stopped reports RUNNING, so the state row above cannot show
+        // it. The names are the listing's to disclose; GET /api/v1/queries says which, and why.
+        row(
+                html,
+                "Stopped sources",
+                status.stoppedFeeds() == 0
+                        ? "0"
+                        : status.stoppedFeeds() + (status.stoppedFeeds() == 1 ? " query" : " queries")
+                                + " not receiving rows: a source failed mid-read and is not retried. "
+                                + "GET /api/v1/queries names them, with the code.",
+                status.stoppedFeeds() == 0 ? "ok" : "bad");
         row(html, "Streams", String.valueOf(status.streams()), "");
 
         html.append("</table>");

@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.codegen.FilterProjectGenerator;
+import com.ash.messaging.pravaha.registry.FeedStatus;
 import com.ash.messaging.pravaha.registry.QueryListing;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.registry.RegistryErrors;
@@ -348,7 +349,42 @@ public class QueryController {
                 query.failure()
                         .map(failure -> mapper.toProblem(failure, withheldOr(entry, failure)))
                         .orElse(null),
-                view.derivedFrom().stream().sorted().toList());
+                view.derivedFrom().stream().sorted().toList(),
+                feed(entry));
+    }
+
+    /**
+     * Whether rows still reach this query, source by source (FEED-1).
+     *
+     * <p>Each failure's message goes through {@link #withheldOr} like a sink's: it is a plugin's own
+     * text, it can quote the row it could not read, and it can echo a binding's connection string.
+     */
+    private ApiDtos.QueryFeed feed(QueryListing.Entry entry) {
+        FeedStatus status = entry.query().feedStatus();
+        List<ApiDtos.FeedSource> sources = status.sources().stream()
+                .map(source -> new ApiDtos.FeedSource(
+                        source.stream(),
+                        source.partition(),
+                        source.state().name(),
+                        source.shared(),
+                        source.stop() != null && source.stop().origin(),
+                        source.stop() == null
+                                ? null
+                                : mapper.toProblem(
+                                        source.stop().failure(),
+                                        withheldOr(entry, source.stop().failure())),
+                        source.stop() == null ? null : source.stop().at()))
+                .toList();
+        ApiDtos.Problem first = status.firstStopped()
+                .map(source -> mapper.toProblem(
+                        source.stop().failure(), withheldOr(entry, source.stop().failure())))
+                .orElse(null);
+        return new ApiDtos.QueryFeed(
+                status.state().name(),
+                status.description(),
+                sources,
+                status.stoppedSources().size(),
+                first);
     }
 
     /**

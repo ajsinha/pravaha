@@ -36,6 +36,11 @@ management:
       # polls is not the one that knows whether this node can serve a client. A node with Flight
       # disabled reported UP on all three until the indicator existed, and would have gone on
       # reporting ready without this line.
+      # DEGRADED is the engine indicator's answer when a query's source has stopped and every view is
+      # still served (FEED-1). Boot ignores a status it has no order for; placed here, the aggregate
+      # says DEGRADED and, not being DOWN or OUT_OF_SERVICE, still answers 200.
+      status:
+        order: DOWN,OUT_OF_SERVICE,DEGRADED,UP,UNKNOWN
       group:
         readiness:
           include: readinessState,engine

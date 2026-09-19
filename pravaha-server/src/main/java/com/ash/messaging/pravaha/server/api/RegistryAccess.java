@@ -25,7 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.ash.messaging.pravaha.bindings.egress.PluginSinks;
-import com.ash.messaging.pravaha.bindings.egress.SinkBinding;
+import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.registry.QueryListing;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.security.AuditSink;
@@ -47,22 +47,36 @@ public class RegistryAccess {
 
     private final Supplier<Optional<QueryRegistry>> registry;
     private final Supplier<Optional<PluginSinks>> sinks;
+    private final Supplier<Optional<PluginSourceFeeds>> sources;
     private final AuditSink audit;
 
     @Autowired
     public RegistryAccess(PravahaNode node, AuditSink audit) {
-        this(node::registry, node::sinks, audit);
+        this(node::registry, node::sinks, node::sources, audit);
     }
 
     /** For a test, or anything else holding a registry directly. */
     public RegistryAccess(QueryRegistry registry, PluginSinks sinks, AuditSink audit) {
-        this(() -> Optional.ofNullable(registry), () -> Optional.ofNullable(sinks), audit);
+        this(registry, sinks, null, audit);
+    }
+
+    /** As {@link #RegistryAccess(QueryRegistry, PluginSinks, AuditSink)}, with the source bindings too. */
+    public RegistryAccess(QueryRegistry registry, PluginSinks sinks, PluginSourceFeeds sources, AuditSink audit) {
+        this(
+                () -> Optional.ofNullable(registry),
+                () -> Optional.ofNullable(sinks),
+                () -> Optional.ofNullable(sources),
+                audit);
     }
 
     private RegistryAccess(
-            Supplier<Optional<QueryRegistry>> registry, Supplier<Optional<PluginSinks>> sinks, AuditSink audit) {
+            Supplier<Optional<QueryRegistry>> registry,
+            Supplier<Optional<PluginSinks>> sinks,
+            Supplier<Optional<PluginSourceFeeds>> sources,
+            AuditSink audit) {
         this.registry = registry;
         this.sinks = sinks;
+        this.sources = sources;
         this.audit = audit == null ? AuditSink.NONE : audit;
     }
 
@@ -84,22 +98,26 @@ public class RegistryAccess {
             Pattern.compile("(?i).*(pass|secret|token|key|credential|auth|url|uri|dsn|connection|user).*");
 
     /**
-     * {@code text} with every configured sink option value that could be a credential removed.
+     * {@code text} with every configured sink or source option value that could be a credential
+     * removed.
      *
      * <p>A sink failure's message is the plugin's own exception text, and a plugin that echoes its
      * connection string into an exception is common enough that the message cannot be trusted not to.
-     * Every value of a key that names a credential is removed, and every value long enough to be one
-     * whatever its key: over-redacting a diagnostic costs a word, and under-redacting costs a password.
+     * A stopped source feed's message is the same kind of text from the other end (FEED-1), so the
+     * source bindings' options are struck out too. Every value of a key that names a credential is
+     * removed, and every value long enough to be one whatever its key: over-redacting a diagnostic
+     * costs a word, and under-redacting costs a password.
      */
     public String redact(String text) {
         if (text == null || text.isEmpty()) {
             return text;
         }
+        List<Map<String, String>> options = new java.util.ArrayList<>();
+        sinks().ifPresent(found -> found.bindings().values().forEach(binding -> options.add(binding.options())));
+        sources.get().ifPresent(found -> found.bindings().values().forEach(binding -> options.add(binding.options())));
         String out = text;
-        List<SinkBinding> bindings =
-                sinks().map(found -> List.copyOf(found.bindings().values())).orElse(List.of());
-        for (SinkBinding binding : bindings) {
-            for (Map.Entry<String, String> option : binding.options().entrySet()) {
+        for (Map<String, String> binding : options) {
+            for (Map.Entry<String, String> option : binding.entrySet()) {
                 String value = option.getValue();
                 if (value == null || value.isBlank()) {
                     continue;

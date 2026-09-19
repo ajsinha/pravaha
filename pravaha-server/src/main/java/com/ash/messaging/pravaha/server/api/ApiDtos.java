@@ -162,6 +162,42 @@ public final class ApiDtos {
     public record Problem(String code, String message, String helpUrl) {}
 
     /**
+     * Whether rows are still reaching a registered query (FEED-1).
+     *
+     * <p>A source that fails mid-read stops its feed and leaves the query {@code RUNNING}, its view
+     * answering at the frontier it reached. This is where that shows, beside the state rather than
+     * in it: the query is still running, and its input is not.
+     *
+     * @param state {@code RUNNING}, {@code PAUSED}, {@code STOPPED} (at least one source has stopped)
+     *     or {@code NONE} (nothing is bound; rows arrive only if something pushes them)
+     * @param description what the feed reads, in words
+     * @param stoppedSources how many of {@code sources} have stopped
+     * @param failure why the first stopped source stopped -- the source's own code, or {@code
+     *     PRV-5092} -- or null while every source is reading
+     */
+    public record QueryFeed(
+            String state, String description, List<FeedSource> sources, int stoppedSources, Problem failure) {}
+
+    /**
+     * One partition of one bound stream.
+     *
+     * @param state {@code RUNNING}, {@code PAUSED} or {@code STOPPED}
+     * @param shared the reader is shared with other queries, so its stop stops them too
+     * @param origin true when this partition's own read raised the failure; false when it stopped
+     *     alongside one that did
+     * @param failure why it stopped, or null
+     * @param stoppedAt when it stopped, or null
+     */
+    public record FeedSource(
+            String stream,
+            int partition,
+            String state,
+            boolean shared,
+            boolean origin,
+            Problem failure,
+            Instant stoppedAt) {}
+
+    /**
      * One registered query, as the caller may see it.
      *
      * <p>Visibility is decided exactly as the Flight {@code pravaha.list} action decides it -- by name,
@@ -176,6 +212,8 @@ public final class ApiDtos {
      * @param reads the streams the query reads, from its plan's provenance rather than from matching
      *     names in its text. Every one of them is a stream this caller may read, or the query would
      *     not be visible to them at all (SX-11)
+     * @param feed whether rows are still reaching it, source by source, and why not when a source has
+     *     stopped (FEED-1)
      */
     public record QueryDetail(
             String name,
@@ -190,7 +228,8 @@ public final class ApiDtos {
             boolean countsWithheld,
             Instant registeredAt,
             Problem failure,
-            List<String> reads) {}
+            List<String> reads,
+            QueryFeed feed) {}
 
     /**
      * A registered query's view, described without reading it.
@@ -241,6 +280,9 @@ public final class ApiDtos {
      * @param registeredQueries how many registrations the node holds, by name -- two names for one
      *     computation are two. It was the stream count until HLP-8
      * @param streams how many streams the node has declared
+     * @param stoppedFeeds how many registered names have a source that stopped mid-read and is not
+     *     retried (FEED-1). A count and not names: this endpoint answers anyone who can reach the
+     *     port, and which queries exist is the listing's to decide
      */
     public record NodeStatus(
             String instanceId,
@@ -249,7 +291,8 @@ public final class ApiDtos {
             long uptimeSeconds,
             int registeredQueries,
             List<PluginStatus> plugins,
-            int streams) {}
+            int streams,
+            int stoppedFeeds) {}
 
     public record PluginStatus(String name, String version, String health, String detail) {}
 
