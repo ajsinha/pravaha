@@ -258,7 +258,9 @@ statement once however many users you ask about.
 pravaha subscribe --view user_volume
 ```
 
-Changes print as they are committed — one group per commit, never a partial window. Filter at the tap
+Changes print as they are committed — one group per commit, never a partial window, closed by a
+`-- commit` line. Each change leads with its **weight**: `+1` is a row arriving, `-1` a row withdrawn,
+so a window corrected by late data prints its old row at `-1` and its new one at `+1`. Filter at the tap
 so rows you did not ask for never cross the network:
 
 ```bash

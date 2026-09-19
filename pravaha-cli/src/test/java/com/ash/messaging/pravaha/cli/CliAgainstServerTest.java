@@ -107,6 +107,10 @@ class CliAgainstServerTest {
     }
 
     private void feed(String tradeId, String product) {
+        feed(tradeId, product, 1L);
+    }
+
+    private void feed(String tradeId, String product, long weight) {
         var query = registry.require("trade_feed");
         RowLayout layout = RowLayout.of(TRADE);
         BinaryRowWriter writer = new BinaryRowWriter(layout);
@@ -116,7 +120,7 @@ class CliAgainstServerTest {
         writer.setString(0, tradeId);
         writer.setString(1, product);
         writer.setString(2, "{}");
-        writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
+        writer.weight(weight).eventTimestampNanos(0).sequence(0).commit();
         arena.trimTo(handle, writer.sizeSoFar());
         query.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
         // Rows are applied on the lane's thread, so the commit waits for this one to land.
@@ -182,11 +186,18 @@ class CliAgainstServerTest {
     void lifecycleCommandsWork() {
         cli("register", "--url", url, "--name", "trade_feed", "--sql", SQL, "--keys", "0");
 
-        assertThat(cli("pause", "--url", url, "--name", "trade_feed").code()).isZero();
+        CliResult paused = cli("pause", "--url", url, "--name", "trade_feed");
+        assertThat(paused.code()).isZero();
+        // HLP-10: these printed "pauseped" and "resumeped".
+        assertThat(paused.out()).contains("paused trade_feed").doesNotContain("pauseped");
         assertThat(cli("queries", "--url", url).out()).contains("PAUSED");
-        assertThat(cli("resume", "--url", url, "--name", "trade_feed").code()).isZero();
+        CliResult resumed = cli("resume", "--url", url, "--name", "trade_feed");
+        assertThat(resumed.code()).isZero();
+        assertThat(resumed.out()).contains("resumed trade_feed").doesNotContain("resumeped");
         assertThat(cli("queries", "--url", url).out()).contains("RUNNING");
-        assertThat(cli("drop", "--url", url, "--name", "trade_feed").code()).isZero();
+        CliResult dropped = cli("drop", "--url", url, "--name", "trade_feed");
+        assertThat(dropped.code()).isZero();
+        assertThat(dropped.out()).contains("dropped trade_feed");
         assertThat(cli("queries", "--url", url).out()).contains("no continuous queries");
     }
 
@@ -230,6 +241,37 @@ class CliAgainstServerTest {
         assertThat(streamed.out()).contains("T-1", "T-2");
         // A batch is a commit, and the output says so rather than leaving it to be inferred.
         assertThat(streamed.out()).contains("commit");
+    }
+
+    @Test
+    void subscribePrintsEachChangesWeight() throws Exception {
+        // HLP-11. A retraction and the insert it withdraws carry identical columns; printed without
+        // the weight they are the same line, and whoever reads the stream sees a row arrive twice.
+        cli("register", "--url", url, "--name", "trade_feed", "--sql", SQL, "--keys", "0");
+
+        Thread feeder = Thread.ofVirtual().start(() -> {
+            try {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+                while (System.nanoTime() < deadline
+                        && registry.require("trade_feed").subscriberCount() == 0) {
+                    Thread.sleep(20);
+                }
+                feed("T-1", "SWAP");
+                feed("T-1", "SWAP", -1L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        CliResult streamed = cli("subscribe", "--url", url, "--view", "trade_feed", "--limit", "2");
+        feeder.join(5_000);
+
+        assertThat(streamed.code()).as(streamed.err()).isZero();
+        String plain = streamed.out().replaceAll("\u001B\\[[0-9;]*m", "");
+        assertThat(plain).contains("WEIGHT\ttrade_id\tproduct_type\ttrade_json");
+        assertThat(plain).contains("+1\tT-1\tSWAP\t{}");
+        assertThat(plain).contains("-1\tT-1\tSWAP\t{}");
+        assertThat(plain.indexOf("+1\tT-1")).isLessThan(plain.indexOf("-1\tT-1"));
     }
 
     @Test

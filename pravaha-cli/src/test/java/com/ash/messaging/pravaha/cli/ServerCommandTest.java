@@ -138,6 +138,30 @@ class ServerCommandTest {
     }
 
     @Test
+    void eachLifecycleCommandSaysWhatItDidInEnglish() {
+        // HLP-10: the past tense was built as action + "ped", so pause and resume printed
+        // "pauseped" and "resumeped".
+        assertThat(ServerCommand.pastTense("drop")).isEqualTo("dropped");
+        assertThat(ServerCommand.pastTense("pause")).isEqualTo("paused");
+        assertThat(ServerCommand.pastTense("resume")).isEqualTo("resumed");
+    }
+
+    @Test
+    void aWeightIsAlwaysSigned() {
+        // HLP-11: an insert and the retraction that withdraws it are the same columns; the sign is
+        // all that tells them apart, so neither may be left to be inferred.
+        assertThat(ServerCommand.weightText(1)).isEqualTo("+1");
+        assertThat(ServerCommand.weightText(-1)).isEqualTo("-1");
+        assertThat(ServerCommand.weightText(3)).isEqualTo("+3");
+        assertThat(ServerCommand.weightText(-2)).isEqualTo("-2");
+    }
+
+    @Test
+    void theUsageTextSaysASubscriptionPrintsWeights() {
+        assertThat(run("--help").out()).contains("+1 a row arriving, -1 a row withdrawn");
+    }
+
+    @Test
     void anUnknownCommandIsAUsageError() {
         Result result = run("subcsribe", "--view", "v");
 

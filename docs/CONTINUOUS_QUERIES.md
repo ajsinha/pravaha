@@ -696,6 +696,8 @@ pravaha subscribe --view hourly_spend
 subscriber attaching midway through a commit receives the *next* one entire rather than the tail of
 that one (STRM-11). A commit itself ends only where the engine finished a batch, so an update's
 retraction and its insert arrive in the same commit, never the retraction alone (VIEW-1).
+`pravaha subscribe` prints each change with its weight first — `+1` a row arriving, `-1` a row
+withdrawn — and a `-- commit` line after each commit.
 
 Or have the node write every commit to a sink it binds under `pravaha.sinks.<name>`
 ([`OPERATIONS.md`](OPERATIONS.md) has the binding), by naming it at registration:

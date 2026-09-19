@@ -164,11 +164,24 @@ final class ServerCommand {
                 case "pause" -> client.pause(name);
                 default -> client.resume(name);
             }
-            out.println(Ansi.good(action + "ped ") + name);
+            out.println(Ansi.good(pastTense(action) + " ") + name);
             return PravahaCli.EXIT_OK;
         } catch (RuntimeException e) {
             return fail(e);
         }
+    }
+
+    /**
+     * What the lifecycle command did, in words. HLP-10: this was {@code action + "ped"}, which is
+     * right for "drop" and printed "pauseped" and "resumeped" for the other two.
+     */
+    static String pastTense(String action) {
+        return switch (action) {
+            case "drop" -> "dropped";
+            case "pause" -> "paused";
+            case "resume" -> "resumed";
+            default -> action;
+        };
     }
 
     int subscribe(List<String> arguments) {
@@ -191,11 +204,14 @@ final class ServerCommand {
         try (PravahaFlightClient client = connect(args)) {
             out.println(Ansi.dim("subscribed to " + view + (filters.isEmpty() ? "" : " " + filters)
                     + "; changes print as they are committed. Ctrl-C to stop."));
-            long[] seen = {0};
+            boolean[] header = {false};
             Subscription subscription = client.subscribe(view, filters, batch -> {
                 for (Row row : batch) {
-                    out.println(render(row));
-                    seen[0]++;
+                    if (!header[0]) {
+                        out.println(Ansi.bold("WEIGHT\t" + String.join("\t", row.columns())));
+                        header[0] = true;
+                    }
+                    out.println(renderChange(row));
                 }
                 // One batch is one commit, and saying so makes the boundary visible to whoever is
                 // watching the output rather than something they have to know.
@@ -259,6 +275,23 @@ final class ServerCommand {
                 return value;
             }
         }
+    }
+
+    /**
+     * One change of a subscribed view: its Z-set weight, then its columns.
+     *
+     * <p>HLP-11. The weight was not printed, so a retraction and the insert it withdraws printed as
+     * the same line and a reader of the stream could not tell a row leaving from a row arriving. The
+     * weight is the model -- a view is a set of rows with weights, and a change is a row with a
+     * weight -- so it leads the line, signed: {@code +1} arriving, {@code -1} withdrawn.
+     */
+    static String renderChange(Row row) {
+        return weightText(row.weight()) + "\t" + render(row);
+    }
+
+    /** A weight, always signed, so {@code +1} and {@code -1} line up and neither reads as a count. */
+    static String weightText(long weight) {
+        return weight > 0 ? "+" + weight : Long.toString(weight);
     }
 
     private static String render(Row row) {
