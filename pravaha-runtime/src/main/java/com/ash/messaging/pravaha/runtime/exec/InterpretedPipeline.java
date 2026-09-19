@@ -156,10 +156,32 @@ public final class InterpretedPipeline implements AutoCloseable {
 
     private final List<ScanOperator> scans;
 
-    private InterpretedPipeline(RowArena arena, RowProcessor head, List<ScanOperator> scans) {
+    /** Where the terminal stage writes; told where each unit of work ends. */
+    private final RowOutput output;
+
+    private InterpretedPipeline(RowArena arena, RowProcessor head, List<ScanOperator> scans, RowOutput output) {
         this.arena = arena;
         this.head = head;
         this.scans = List.copyOf(scans);
+        this.output = output;
+    }
+
+    /**
+     * Ends one unit of this pipeline's work: everything written since the last call is whole.
+     *
+     * <p>Called by whatever drives the pipeline row by row -- the lane adapter, after each input
+     * batch -- and by this class itself at the end of every other unit it runs on the lane: a
+     * watermark advance, a continuous aggregate's emission, draining lookups, end of input. An update
+     * is a retraction and an insert written one after the other, and an output read from another
+     * thread must never be able to see the first without the second (VIEW-1).
+     *
+     * <p>Nothing is ended once the pipeline is abandoned: rows written by a pipeline that failed
+     * part of the way through a unit are not an answer.
+     */
+    public void endOfBatch() {
+        if (!abandoned) {
+            output.endOfBatch();
+        }
     }
 
     /**
@@ -215,7 +237,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         Builder builder = new Builder(arena, sink, lookups);
         RowProcessor built = builder.build(plan);
         RowProcessor head = builder.joins.isEmpty() ? built : null;
-        InterpretedPipeline pipeline = new InterpretedPipeline(arena, head, builder.scans);
+        InterpretedPipeline pipeline = new InterpretedPipeline(arena, head, builder.scans, sink);
         pipeline.finishers.addAll(builder.finishers);
         pipeline.continuousEmitters.addAll(builder.continuousEmitters);
         pipeline.windowed.addAll(builder.windowed);
@@ -343,6 +365,7 @@ public final class InterpretedPipeline implements AutoCloseable {
             return;
         }
         finishers.forEach(Runnable::run);
+        endOfBatch();
     }
 
     /**
@@ -356,6 +379,9 @@ public final class InterpretedPipeline implements AutoCloseable {
             return;
         }
         continuousEmitters.forEach(Runnable::run);
+        // One unit: each emitter's retraction of its last answer and insert of the new one reach
+        // the output together or not at all (VIEW-1).
+        endOfBatch();
     }
 
     /** Whether this pipeline has anything to publish on a tick. */
@@ -451,6 +477,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         for (LookupJoin join : lookupJoins) {
             join.drain();
         }
+        endOfBatch();
     }
 
     /** Lookups served from cache rather than from the store. */
@@ -522,6 +549,8 @@ public final class InterpretedPipeline implements AutoCloseable {
         // survivable. Without this the join held every unmatched row until a size ceiling failed
         // the query.
         joins.forEach(join -> join.advanceWatermark(watermarkNanos));
+        // Every window this advance closed, with any correction it retracted, as one unit.
+        endOfBatch();
     }
 
     /**

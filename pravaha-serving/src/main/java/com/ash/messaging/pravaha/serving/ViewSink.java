@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.ash.messaging.pravaha.api.data.RowKind;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 
 /**
  * Where a query writes when its answer is meant to be read rather than shipped.
@@ -39,6 +40,15 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  * readable when the frontier commits, which the engine does at a checkpoint boundary. Committing per
  * row would make every intermediate state of a batch readable, and a consistent read would then be
  * consistent with nothing.
+ *
+ * <p><strong>And a commit takes whole batches.</strong> A lane writes through {@link #laneOutput},
+ * which stages a batch's rows on the lane's own thread and applies them to the view in one step when
+ * the lane reaches the end of the batch. A commit arrives from another thread -- the feed's timer, a
+ * checkpoint, a caller -- and takes the view and the change log under the same lock that step
+ * holds, so it publishes every batch applied before it and nothing of the one in progress (VIEW-1).
+ * It used to apply each row as it was written, and a commit landing between an update's retraction
+ * and its insert published the retraction alone: a reader saw the answer vanish, and a subscriber was
+ * handed a batch that withdrew it.
  */
 public final class ViewSink {
 
@@ -49,14 +59,23 @@ public final class ViewSink {
     private final AtomicLong frontier = new AtomicLong(Long.MIN_VALUE);
     private final AtomicLong rowsApplied = new AtomicLong();
 
-    // Changes staged since the last commit, and whoever wants to hear about them. Gathered rather
+    /**
+     * Held while a whole batch is applied, and while a commit publishes the view and takes the
+     * change log, so the two never interleave (VIEW-1).
+     *
+     * <p>Once per batch and once per commit; never per row. The rows of a batch are staged without it
+     * on the lane thread that owns them. Guards {@link #pending} and {@link #batchAudience}.
+     */
+    private final Object publishLock = new Object();
+
+    // Changes applied since the last commit, and whoever wants to hear about them. Gathered rather
     // than delivered per row because a subscriber must see whole batches: between commits the view
     // holds a partly applied window, and a total read from it would be one nobody should act on.
     private final List<ViewChange> pending = new ArrayList<>();
     private final List<ViewChangeListener> listeners = new CopyOnWriteArrayList<>();
 
     /**
-     * Who this commit is for, decided once when its first row is staged.
+     * Who this commit is for, decided once when its first batch is applied.
      *
      * <p>STRM-11. The staging decision used to be {@code !listeners.isEmpty()} evaluated <em>per
      * row</em>, so a subscriber attaching between two rows of one commit was delivered the rows
@@ -70,20 +89,39 @@ public final class ViewSink {
      * and receives the next one entire — which is the correct boundary: a subscription starts at a
      * commit, never inside one.
      *
-     * <p>Null between commits. Written on the lane thread that stages rows and read by the same
-     * thread at drain, so the field itself needs no lock; the list it holds is a snapshot precisely
-     * so a concurrent {@code subscribe} cannot widen the audience of a commit already in flight.
+     * <p>Null between commits. Guarded by {@link #publishLock}; the list it holds is a snapshot
+     * precisely so a concurrent {@code subscribe} cannot widen the audience of a commit already in
+     * flight.
      */
-    private volatile List<ViewChangeListener> batchAudience;
+    private List<ViewChangeListener> batchAudience;
 
     public ViewSink(ServedView view, StreamSchema schema) {
         this.view = view;
         this.schema = schema;
     }
 
-    /** A writer the engine can fill and commit, like any other sink's. */
+    /**
+     * A writer the engine can fill and commit, like any other sink's.
+     *
+     * <p>Each row is its own batch: applied to the view when the writer commits. For a caller that
+     * writes rows one at a time and commits between them -- a test, an embedder. A lane writes
+     * through {@link #laneOutput} instead, so that a commit never lands inside one of its batches.
+     */
     public RowWriter begin() {
-        return new StagedRow();
+        return new StagedRow(null);
+    }
+
+    /**
+     * An output for one lane: rows staged on the lane's thread, applied a whole batch at a time.
+     *
+     * <p>One per lane, like every lane's output, because the staging buffer belongs to the thread
+     * filling it. The pipeline calls {@link RowOutput#endOfBatch()} at the end of each unit of the
+     * lane's work -- an input batch, a watermark advance, a continuous aggregate's emission, end of
+     * input -- and only then do the unit's rows reach the view, together. Rows staged by a lane that
+     * dies mid-batch never do, which is right: half a batch is not an answer.
+     */
+    public RowOutput laneOutput() {
+        return new LaneBatch();
     }
 
     /**
@@ -94,6 +132,24 @@ public final class ViewSink {
      * engine knows what a complete prefix of the input is.
      */
     public void commit(long committedFrontier) {
+        commit(committedFrontier, false);
+    }
+
+    /**
+     * Publishes everything applied so far, as of the furthest position any of it reflects.
+     *
+     * <p>The frontier is read under the same lock the commit takes, so it is the frontier of exactly
+     * the batches this commit publishes. Reading it first and committing afterwards let a batch
+     * applied in between be published under the frontier before it.
+     */
+    public void commitApplied() {
+        commit(Long.MIN_VALUE, true);
+    }
+
+    private void commit(long requestedFrontier, boolean atApplied) {
+        List<ViewChange> batch = List.of();
+        List<ViewChangeListener> audience = null;
+        long committedFrontier = requestedFrontier;
         // In a finally, because view.commit can throw. ServedView.commit applies and evicts and
         // *then* refuses with VIEW_TOO_LARGE, so the rows are in the view by the time it throws --
         // and the throw used to leave this method before pending was ever touched. StagedRow.commit
@@ -105,9 +161,29 @@ public final class ViewSink {
         // that cleared, and the leak needed a subscriber attached. Measured both ways on identical
         // input: 100 001 pending with a subscriber, 0 without (STRM-5).
         try {
-            view.commit(committedFrontier);
+            synchronized (publishLock) {
+                if (atApplied) {
+                    committedFrontier = frontier.get();
+                }
+                try {
+                    view.commit(committedFrontier);
+                } finally {
+                    // The end of the commit either way, and the audience it was staged for.
+                    audience = batchAudience;
+                    batchAudience = null;
+                    if (!pending.isEmpty()) {
+                        // Still cleared when nobody is listening: a sink with no subscribers must
+                        // not accumulate a change log nobody will ever read.
+                        batch = audience == null || audience.isEmpty() ? List.of() : List.copyOf(pending);
+                        pending.clear();
+                    }
+                }
+            }
         } finally {
-            drainPending(committedFrontier);
+            // Delivered outside the lock, so a slow listener holds up the next commit's callers
+            // rather than the lane's next batch; to the audience the commit began with, not to
+            // whoever is attached now (STRM-11).
+            deliver(batch, audience, committedFrontier);
         }
     }
 
@@ -119,34 +195,42 @@ public final class ViewSink {
      * invisibly, because nothing exposed it (STRM-5).
      */
     public int pendingChanges() {
-        synchronized (pending) {
+        synchronized (publishLock) {
             return pending.size();
         }
     }
 
-    private void drainPending(long committedFrontier) {
-        // The audience this commit was staged for, and the end of the commit either way.
-        List<ViewChangeListener> audience = batchAudience;
-        batchAudience = null;
-        if (audience == null || audience.isEmpty()) {
-            // Still cleared: a sink with no subscribers must not accumulate a change log nobody
-            // will ever read.
-            synchronized (pending) {
-                pending.clear();
-            }
+    /** Applies one whole batch: to the view, to the change log, and to the counters, in one step. */
+    private void apply(List<Object[]> values, long[] weights, long[] positions, int count) {
+        if (count == 0) {
             return;
         }
-        List<ViewChange> batch;
-        synchronized (pending) {
-            if (pending.isEmpty()) {
-                return;
-            }
-            batch = List.copyOf(pending);
-            pending.clear();
+        long furthest = Long.MIN_VALUE;
+        for (int i = 0; i < count; i++) {
+            furthest = Math.max(furthest, positions[i]);
         }
-        // Delivered to the audience the commit began with, not to whoever is attached now: a
-        // subscriber that arrived midway through this commit must receive the next one entire
-        // rather than the tail of this one (STRM-11).
+        synchronized (publishLock) {
+            view.applyBatch(values, weights, positions, count);
+            // STRM-11: decided once for the commit, not once per row. See batchAudience.
+            List<ViewChangeListener> audience = batchAudience;
+            if (audience == null) {
+                audience = listeners.isEmpty() ? List.of() : List.copyOf(listeners);
+                batchAudience = audience;
+            }
+            if (!audience.isEmpty()) {
+                for (int i = 0; i < count; i++) {
+                    pending.add(new ViewChange(values.get(i), weights[i]));
+                }
+            }
+            frontier.accumulateAndGet(furthest, Math::max);
+            rowsApplied.addAndGet(count);
+        }
+    }
+
+    private void deliver(List<ViewChange> batch, List<ViewChangeListener> audience, long committedFrontier) {
+        if (batch.isEmpty() || audience == null) {
+            return;
+        }
         for (ViewChangeListener listener : audience) {
             try {
                 listener.onCommit(batch, committedFrontier);
@@ -197,13 +281,67 @@ public final class ViewSink {
         return view;
     }
 
-    /** Collects values, then applies the finished row. */
+    /**
+     * One lane's batch in progress: rows staged on the lane's thread, applied at its end.
+     *
+     * <p>Confined to the lane thread, so it takes no lock of its own; the one lock is taken once, by
+     * {@link #endOfBatch}, to apply the batch whole.
+     */
+    private final class LaneBatch implements RowOutput {
+
+        private final List<Object[]> values = new ArrayList<>();
+        private long[] weights = new long[64];
+        private long[] positions = new long[64];
+
+        @Override
+        public RowWriter begin() {
+            return new StagedRow(this);
+        }
+
+        void stage(Object[] row, long weight, long position) {
+            int at = values.size();
+            if (at == weights.length) {
+                weights = java.util.Arrays.copyOf(weights, at * 2);
+                positions = java.util.Arrays.copyOf(positions, at * 2);
+            }
+            values.add(row);
+            weights[at] = weight;
+            positions[at] = position;
+        }
+
+        @Override
+        public void endOfBatch() {
+            int count = values.size();
+            if (count == 0) {
+                // Called on every idle cycle of the lane, so nothing staged has to cost nothing.
+                return;
+            }
+            try {
+                apply(values, weights, positions, count);
+            } finally {
+                values.clear();
+                if (weights.length > 4096) {
+                    // A watermark that fired a great many windows at once is not the size of the
+                    // next batch; do not hold its buffers for ever.
+                    weights = new long[64];
+                    positions = new long[64];
+                }
+            }
+        }
+    }
+
+    /** Collects values, then stages the finished row -- into a lane's batch, or as a batch of one. */
     private final class StagedRow implements RowWriter {
 
+        private final LaneBatch batch;
         private Object[] values = new Object[schema.fields().size()];
         private long weight = 1;
         private long eventTime;
         private long sequence;
+
+        StagedRow(LaneBatch batch) {
+            this.batch = batch;
+        }
 
         @Override
         public StreamSchema schema() {
@@ -312,20 +450,12 @@ public final class ViewSink {
 
         @Override
         public int commit() {
-            view.applyValues(values, weight, Math.max(eventTime, sequence));
-            // STRM-11: decided once for the commit, not once per row. See batchAudience.
-            List<ViewChangeListener> audience = batchAudience;
-            if (audience == null) {
-                audience = listeners.isEmpty() ? List.of() : List.copyOf(listeners);
-                batchAudience = audience;
+            long position = Math.max(eventTime, sequence);
+            if (batch != null) {
+                batch.stage(values, weight, position);
+            } else {
+                apply(List.<Object[]>of(values), new long[] {weight}, new long[] {position}, 1);
             }
-            if (!audience.isEmpty()) {
-                synchronized (pending) {
-                    pending.add(new ViewChange(values, weight));
-                }
-            }
-            frontier.accumulateAndGet(Math.max(eventTime, sequence), Math::max);
-            rowsApplied.incrementAndGet();
             values = new Object[schema.fields().size()];
             weight = 1;
             return 0;

@@ -440,7 +440,7 @@ public final class RegisteredQuery implements AutoCloseable {
 
     private void commitView() {
         synchronized (commitLock) {
-            sink.commit(sink.appliedFrontier());
+            sink.commitApplied();
         }
     }
 
@@ -480,7 +480,7 @@ public final class RegisteredQuery implements AutoCloseable {
      */
     java.util.Map<String, byte[]> cutOutput(long checkpointId) {
         synchronized (commitLock) {
-            sink.commit(sink.appliedFrontier());
+            sink.commitApplied();
             java.util.Map<String, byte[]> entries = new java.util.HashMap<>();
             byte[] contents = view.snapshot();
             entries.put(QueryExecution.SERVED_VIEW_STATE, contents);

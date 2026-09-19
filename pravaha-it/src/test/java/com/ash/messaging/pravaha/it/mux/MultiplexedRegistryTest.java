@@ -73,24 +73,51 @@ final class MultiplexedRegistryTest {
                 Principal.ANONYMOUS);
     }
 
-    /** Waits for a count's view to reach {@code n}, then gives the row it settled on. */
+    /**
+     * Waits for a count's view to reach {@code n}, then gives the row it settled on.
+     *
+     * <p>Once the count has an answer, every read of it must find exactly one row. The feed's timer
+     * commits this view on its own thread while this one commits it too, and each commit re-emits
+     * the count on the lane as a retraction and an insert; a commit landing between the two used to
+     * publish the retraction alone, and a read then found no row at all (VIEW-1). This used to read
+     * past that -- an empty read just meant "poll again" -- and the one place it could not, the final
+     * read, failed once under full-reactor load with {@code []}. It is asserted at every read now,
+     * because an answer that disappears for one commit is the defect, not noise around it.
+     */
     private static List<Object> settled(RegisteredQuery query, long n) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-        List<Object> row = List.of();
+        boolean answered = false;
         while (System.nanoTime() < deadline) {
             query.commit();
-            List<Object[]> rows = query.view().scan();
-            row = rows.size() == 1 ? List.of(rows.get(0)) : List.of();
+            List<Object> row = onlyRow(query, answered);
+            answered |= !row.isEmpty();
             if (!row.isEmpty() && ((Long) row.get(0)) >= n) {
                 break;
             }
             Thread.sleep(20);
         }
         // Give a duplicate the time to arrive before the answer is judged: a count that reached n
-        // and is about to pass it is the failure this test is for.
-        Thread.sleep(300);
+        // and is about to pass it is the failure this test is for. Read throughout, not just at the
+        // end, so a commit that publishes half an emission is caught whenever it lands.
+        long judge = System.nanoTime() + Duration.ofMillis(300).toNanos();
+        while (System.nanoTime() < judge) {
+            query.commit();
+            onlyRow(query, answered);
+            Thread.sleep(5);
+        }
         query.commit();
+        return onlyRow(query, answered);
+    }
+
+    /** The view's single row; once the count has answered, anything but exactly one row fails. */
+    private static List<Object> onlyRow(RegisteredQuery query, boolean answered) {
         List<Object[]> rows = query.view().scan();
+        if (answered) {
+            assertThat(rows)
+                    .as("a count that has answered must go on answering: a commit published part of a lane's "
+                            + "batch, the retraction of the old count without the insert of the new one")
+                    .hasSize(1);
+        }
         return rows.size() == 1 ? List.of(rows.get(0)) : List.of();
     }
 

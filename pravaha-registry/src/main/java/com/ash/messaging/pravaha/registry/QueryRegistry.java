@@ -31,7 +31,6 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
-import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
@@ -1078,13 +1077,16 @@ public final class QueryRegistry implements AutoCloseable {
         //
         // W9-8: when multiplexing, admission control picks the shared lane, and a query it cannot
         // place runs on a lane of its own exactly as it would with multiplexing off.
+        //
+        // Each lane writes through its own laneOutput, which applies a batch to the view only when
+        // the lane has finished it. The view is committed from other threads -- the feed's timer, a
+        // caller -- and taking rows one at a time let a commit land between an update's retraction
+        // and its insert and publish the answer as gone (VIEW-1).
         Optional<SharedLanes.Placement> placement =
                 sharedLaneCount == 0 ? Optional.empty() : sharedLanes().place(streamIdsOf(plan));
         QueryExecution execution = (placement.isPresent()
-                        ? QueryExecution.startOn(
-                                placement.get().group(), name, plan, () -> (RowOutput) sink::begin, lookups, access)
-                        : QueryExecution.start(
-                                plan, 1, laneConfig, access, () -> (RowOutput) sink::begin, lookups, laneRunner()))
+                        ? QueryExecution.startOn(placement.get().group(), name, plan, sink::laneOutput, lookups, access)
+                        : QueryExecution.start(plan, 1, laneConfig, access, sink::laneOutput, lookups, laneRunner()))
                 // The view goes in the checkpoint too. A filter or a projection has no operator
                 // accumulators, so the view is the entire answer -- and a restart that restored
                 // offsets without it resumed the source past every row it had read and served an

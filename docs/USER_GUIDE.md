@@ -184,8 +184,11 @@ for row in batch:
 The weight is not one of the view's columns: `row.columns()` lists what the query selected, and a
 positional read gets the column it always got.
 
-**A batch is a commit.** Never a partial window. Between commits the view holds a half-applied batch,
-so a consumer woken per row could act on a total still being assembled.
+**A batch is a commit.** Never a partial window. Between commits the view is still taking changes,
+so a consumer woken per row could act on a total still being assembled. And a commit ends at the
+edge of a batch the engine has finished, never inside one: an update — the old row withdrawn, the new
+one inserted — is published whole or not yet, so an answer never vanishes for one commit between the
+two (VIEW-1).
 
 **Filters are applied at the tap**, so rows you did not ask for never cross the network — and every
 other subscriber is reading the *same computation* with its own filter. Ten desks, ten filters, one

@@ -28,4 +28,15 @@ public interface RowOutput {
 
     /** Begins a row; the caller must {@code commit()} or {@code abort()} it. */
     RowWriter begin();
+
+    /**
+     * Says that every row begun since the last call is one whole unit of the lane's work: an input
+     * batch, a watermark advance, a continuous aggregate's emission, end of input.
+     *
+     * <p>Called on the lane's thread, by the pipeline, at the only points where what it has written
+     * is complete. An output that is read from another thread -- a served view, committed on the
+     * feed's timer -- makes rows visible here and nowhere else, so that an update's retraction is
+     * never seen without its insert (VIEW-1). An output nobody reads concurrently ignores it.
+     */
+    default void endOfBatch() {}
 }

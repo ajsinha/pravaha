@@ -276,6 +276,21 @@ public final class ServedView {
     }
 
     /**
+     * Applies a whole batch of changes already decoded into values, in one step.
+     *
+     * <p>For a lane's batch, which must reach the overlay whole: a reader of the latest state, or a
+     * commit, that took this view's monitor between two of its rows would see an update's retraction
+     * without its insert (VIEW-1). Same semantics per row as {@link #applyValues}.
+     *
+     * @param frontiers the input position each change reflects
+     */
+    public synchronized void applyBatch(List<Object[]> values, long[] weights, long[] frontiers, int count) {
+        for (int i = 0; i < count; i++) {
+            applyValues(values.get(i), weights[i], frontiers[i]);
+        }
+    }
+
+    /**
      * Publishes everything applied so far, as of {@code frontier}.
      *
      * <p>Called when the engine's frontier commits. Until then, a consistent read is answered from
