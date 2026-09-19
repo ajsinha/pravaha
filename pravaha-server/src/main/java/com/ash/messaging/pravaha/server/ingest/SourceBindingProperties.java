@@ -23,6 +23,8 @@ import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
+
 /**
  * {@code pravaha.sources.*}: what each stream reads from.
  *

@@ -140,6 +140,14 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <!-- PluginSourceFeeds, SourceBinding, PluginSinks and friends: the Spring-free plugin
+           bindings the server and the embedded engine share. -->
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-bindings</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <!-- The QA conversions in WindowAnswerTest, EventTimeTest, IncrementalTest and
            SubscriptionAnswerTest drive the configured server ingestion path (PluginSourceFeeds
            and SourceBinding), because that is the path a deployment actually has. Test scope:

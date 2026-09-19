@@ -399,9 +399,10 @@ class StateRestoreTest extends StateTestSupport {
         assertThat(offsetReaders)
                 .as("offsets() now has a real, non-pravaha-state reader")
                 .anyMatch(l -> l.contains("QueryRegistry.java"));
-        String pluginSourceFeeds = Files.readString(repoRoot()
-                .resolve(
-                        "pravaha-server/src/main/java/com/ash/messaging/pravaha/server/ingest/PluginSourceFeeds.java"));
+        String pluginSourceFeeds = Files.readString(
+                repoRoot()
+                        .resolve(
+                                "pravaha-bindings/src/main/java/com/ash/messaging/pravaha/bindings/ingest/PluginSourceFeeds.java"));
         assertThat(pluginSourceFeeds).contains("resumeFrom.get(");
         assertThat(pluginSourceFeeds).contains("SourceOffset.BEGINNING");
     }

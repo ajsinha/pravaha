@@ -40,10 +40,10 @@ import org.testcontainers.utility.DockerImageName;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
+import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.security.Principal;
-import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
-import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -20,6 +20,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import com.ash.messaging.pravaha.bindings.egress.SinkBinding;
 import com.ash.messaging.pravaha.server.egress.SinkBindingProperties.Spec;
 
 import static org.assertj.core.api.Assertions.assertThat;

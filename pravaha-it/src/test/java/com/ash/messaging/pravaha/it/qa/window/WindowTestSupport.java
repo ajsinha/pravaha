@@ -24,12 +24,12 @@ import java.util.Map;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
+import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.security.Principal;
-import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
-import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 import com.ash.messaging.pravaha.sql.SqlPlanner;

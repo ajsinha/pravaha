@@ -29,6 +29,8 @@ import org.junit.jupiter.api.io.TempDir;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
+import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.runtime.window.SessionWindows;
@@ -36,8 +38,6 @@ import com.ash.messaging.pravaha.runtime.window.SlicedAggregateState;
 import com.ash.messaging.pravaha.runtime.window.SlicedWindows;
 import com.ash.messaging.pravaha.runtime.window.WindowSpec;
 import com.ash.messaging.pravaha.security.Principal;
-import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
-import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 

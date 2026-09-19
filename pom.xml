@@ -47,13 +47,14 @@
     <module>plugins/pravaha-plugin-aerospike</module>
     <module>plugins/pravaha-plugin-cassandra</module>
     <module>plugins/pravaha-cluster-zookeeper</module>
+    <module>pravaha-bindings</module>
     <module>pravaha-embedded</module>
     <module>pravaha-cli</module>
     <module>pravaha-server</module>
     <module>sdk/pravaha-sdk-java</module>
     <module>sdk/pravaha-sdk-java-flight</module>
     <!-- Added by the story that needs them (implementation plan 10.1):
-         pravaha-embedded (Sprint 5), pravaha-server + pravaha-spring-boot-starter (E6),
+         pravaha-embedded (Sprint 5), pravaha-server (E6), pravaha-spring-boot-starter (ADR-020),
          pravaha-serving / backfill / adaptive (E3-E5), plugins/* (E1, E4, E9),
          pravaha-ui (EU, sprint 9). Empty modules are noise. -->
   </modules>

@@ -232,9 +232,9 @@ class AerospikeContinuousQueryIT {
         // This one uses only the deployment path, and writes to Aerospike after the query is
         // running. Every one of those pieces was broken at some point in this QA cycle, and each
         // was invisible from the test below.
-        com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds feeds =
-                new com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds()
-                        .bind(new com.ash.messaging.pravaha.server.ingest.SourceBinding(
+        com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds feeds =
+                new com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds()
+                        .bind(new com.ash.messaging.pravaha.bindings.ingest.SourceBinding(
                                 "txn_stream",
                                 "aerospike",
                                 Map.of(

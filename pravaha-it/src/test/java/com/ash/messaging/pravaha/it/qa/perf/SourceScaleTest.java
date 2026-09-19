@@ -31,10 +31,10 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
+import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
+import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.security.Principal;
-import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
-import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -89,7 +89,7 @@ final class SourceScaleTest {
      *
      * <p>A ratchet, and it may only fall. <strong>Measured at 1.00</strong>: {@code
      * FilesystemSourcePlugin.partitions} returns exactly one partition per binding and {@link
-     * com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds} opens one reader per partition,
+     * com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds} opens one reader per partition,
      * which holds one {@code BufferedReader} for the life of the query.
      *
      * <p>One is small and it is the number that decides how many followed files a node holds,

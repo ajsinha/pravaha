@@ -158,9 +158,9 @@ class LookupJoinTest {
         users.rows.put(7L, "gold");
         users.rows.put(9L, "silver");
 
-        com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds feeds =
-                new com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds()
-                        .bind(new com.ash.messaging.pravaha.server.ingest.SourceBinding(
+        com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds feeds =
+                new com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds()
+                        .bind(new com.ash.messaging.pravaha.bindings.ingest.SourceBinding(
                                 "orders",
                                 "filesystem",
                                 Map.of(

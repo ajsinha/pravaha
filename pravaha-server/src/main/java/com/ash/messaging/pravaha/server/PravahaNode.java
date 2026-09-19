@@ -30,6 +30,9 @@ import org.springframework.stereotype.Component;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.bindings.ingest.PluginLookupSources;
+import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
+import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 import com.ash.messaging.pravaha.cluster.ClusterCoordinator;
 import com.ash.messaging.pravaha.cluster.CoordinatorFactory;
 import com.ash.messaging.pravaha.common.config.Configuration;
@@ -45,9 +48,6 @@ import com.ash.messaging.pravaha.security.TokenVerifier;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
 import com.ash.messaging.pravaha.server.egress.SinkBindingProperties;
-import com.ash.messaging.pravaha.server.ingest.PluginLookupSources;
-import com.ash.messaging.pravaha.server.ingest.PluginSourceFeeds;
-import com.ash.messaging.pravaha.server.ingest.SourceBinding;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 import com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
@@ -125,7 +125,7 @@ public class PravahaNode implements SmartLifecycle {
     private final SinkBindingProperties sinks;
 
     private final com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill;
-    private volatile com.ash.messaging.pravaha.server.egress.PluginSinks pluginSinks;
+    private volatile com.ash.messaging.pravaha.bindings.egress.PluginSinks pluginSinks;
 
     private PluginLookupSources lookupSources;
 
@@ -814,7 +814,7 @@ public class PravahaNode implements SmartLifecycle {
                     stateSpill.getDirectory(),
                     stateSpill.getMaxOverflowSlabs());
         }
-        pluginSinks = new com.ash.messaging.pravaha.server.egress.PluginSinks();
+        pluginSinks = new com.ash.messaging.pravaha.bindings.egress.PluginSinks();
         sinks.toBindings().forEach(pluginSinks::bind);
         if (pluginSinks.bindings().isEmpty()) {
             log.info("no sinks are bound; bind one under pravaha.sinks.<name> once a query needs to write "
