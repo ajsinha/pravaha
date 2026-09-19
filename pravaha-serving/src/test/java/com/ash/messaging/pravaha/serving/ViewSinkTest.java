@@ -103,6 +103,34 @@ class ViewSinkTest {
     }
 
     @Test
+    void aCommitThatChangedTheViewIsTimedThroughItsSlowestListenerAndAnEmptyOneIsNot() throws Exception {
+        ServedView view = view();
+        ViewSink sink = sink(view);
+        // A listener that takes a known time: the commit is not over until every listener has its
+        // batch, so the timing has to include this, or a slow sink would be invisible in it.
+        try (AutoCloseable ignored = sink.onCommit((changes, frontier) -> {
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        })) {
+            sink.begin()
+                    .setString(0, "u1")
+                    .setLong(1, 42)
+                    .weight(1)
+                    .sequence(10)
+                    .commit();
+            sink.commit(10);
+            // An idle tick: nothing staged, nothing to time.
+            sink.commit(11);
+        }
+
+        assertThat(view.timedCommits()).isEqualTo(1);
+        assertThat(view.commitNanosTotal()).isGreaterThanOrEqualTo(20_000_000L);
+    }
+
+    @Test
     void aRetractionThatIsTheLastWordRemovesTheKey() {
         // The case a correction hides: with a retraction and an insert in one batch the insert
         // overwrites whatever the retraction did, so a sink that ignores weights passes. A delete

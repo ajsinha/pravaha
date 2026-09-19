@@ -19,6 +19,7 @@ import java.util.List;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,8 +29,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
+import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 
 /** Streams the engine can read from. */
 @RestController
@@ -40,14 +43,31 @@ public class StreamController {
     private final StreamCatalog catalog;
     private final DtoMapper mapper;
     private final com.ash.messaging.pravaha.server.security.HttpAuthorizer authorizer;
+    private final SourceBindingProperties sources;
 
     public StreamController(
             StreamCatalog catalog,
             DtoMapper mapper,
             com.ash.messaging.pravaha.server.security.HttpAuthorizer authorizer) {
+        this(catalog, mapper, authorizer, new SourceBindingProperties());
+    }
+
+    @Autowired
+    public StreamController(
+            StreamCatalog catalog,
+            DtoMapper mapper,
+            com.ash.messaging.pravaha.server.security.HttpAuthorizer authorizer,
+            SourceBindingProperties sources) {
         this.catalog = catalog;
         this.mapper = mapper;
         this.authorizer = authorizer;
+        this.sources = sources;
+    }
+
+    /** A stream as the API shows it, with the plugin that feeds it -- the plugin's name, never its options. */
+    private ApiDtos.StreamSummary summaryOf(StreamSchema schema) {
+        var binding = sources.getSources().get(schema.name());
+        return mapper.toSummary(schema, binding == null ? null : binding.getPlugin());
     }
 
     /**
@@ -63,7 +83,7 @@ public class StreamController {
     public List<ApiDtos.StreamSummary> list(jakarta.servlet.http.HttpServletRequest request) {
         return catalog.all().stream()
                 .filter(schema -> authorizer.mayRead(request, schema.name()))
-                .map(mapper::toSummary)
+                .map(this::summaryOf)
                 .toList();
     }
 
@@ -74,7 +94,7 @@ public class StreamController {
         // same as one for a stream that does not. Checking existence first would answer "does
         // payroll exist" for anyone who can reach this endpoint.
         authorizer.requireRead(request, name);
-        return mapper.toSummary(catalog.require(name));
+        return summaryOf(catalog.require(name));
     }
 
     /**
@@ -107,10 +127,36 @@ public class StreamController {
         // token verified", so any authenticated caller -- including one denied every existing view
         // -- could publish an arbitrary stream schema.
         authorizer.requireAdminister(http, request.name());
-        var schema = FilesystemSourcePlugin.parseSchema(request.name(), request.schema());
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapper.toSummary(catalog.register(schema)));
+        var schema = StreamCatalog.withEventTime(
+                FilesystemSourcePlugin.parseSchema(request.name(), request.schema()),
+                request.eventTime(),
+                outOfOrdernessOf(request.outOfOrderness()));
+        return ResponseEntity.status(HttpStatus.CREATED).body(summaryOf(catalog.register(schema)));
     }
 
-    /** @param schema a specification such as {@code id:INT64,user:STRING,amount:INT64} */
-    public record RegisterStreamRequest(String name, String schema) {}
+    private static java.time.Duration outOfOrdernessOf(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        try {
+            return java.time.Duration.parse(text.strip().toUpperCase(java.util.Locale.ROOT));
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new IllegalArgumentException(
+                    "outOfOrderness must be an ISO-8601 duration such as PT10S, got '" + text + "'");
+        }
+    }
+
+    /**
+     * @param schema a specification such as {@code id:INT64,user:STRING,amount:INT64}
+     * @param eventTime the column event time is read from, optional; without one no window over the
+     *     stream can ever close
+     * @param outOfOrderness how late a row may be, as ISO-8601 such as {@code PT10S}; optional, and
+     *     refused without an event time for it to be about
+     */
+    public record RegisterStreamRequest(String name, String schema, String eventTime, String outOfOrderness) {
+
+        public RegisterStreamRequest(String name, String schema) {
+            this(name, schema, null, null);
+        }
+    }
 }

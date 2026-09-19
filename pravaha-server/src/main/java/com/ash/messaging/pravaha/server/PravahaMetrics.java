@@ -25,6 +25,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.FunctionTimer;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -142,6 +144,41 @@ public class PravahaMetrics implements AutoCloseable {
         // this measures the data rather than the engine.
         ids.add(gauge("pravaha.query.watermark.lag.seconds", tags, query, PravahaMetrics::lagSeconds));
         ids.add(gauge("pravaha.query.running", tags, query, q -> q.state().isTerminal() ? 0 : 1));
+        // Subscribers attached to the computation this name answers to. A sink writing its changelog
+        // listens on the same commit and is not counted: a query writing to a table has nobody
+        // watching it. Two names on one computation report the same number, because they are one.
+        ids.add(gauge("pravaha.query.subscribers", tags, query, RegisteredQuery::subscriberCount));
+        // Checkpoint health. NaN, not zero, while the query is not checkpointing or has not yet stored
+        // one: a last-success timestamp of zero reads as "1970", which an age alert would page on.
+        ids.add(gauge(
+                "pravaha.query.checkpoint.last.success.timestamp.seconds",
+                tags,
+                query,
+                q -> q.lastCheckpoint().map(at -> at.toEpochMilli() / 1000d).orElse(Double.NaN)));
+        ids.add(gauge(
+                "pravaha.query.checkpoint.duration.seconds",
+                tags,
+                query,
+                q -> q.lastCheckpointDuration()
+                        .map(took -> took.toNanos() / 1e9)
+                        .orElse(Double.NaN)));
+        ids.add(FunctionCounter.builder(
+                        "pravaha.query.checkpoint.failures", query, q -> (double) q.checkpointFailures())
+                .tags(tags)
+                .register(meters)
+                .getId());
+        // Commit latency: the time from a commit starting to apply its changes to the last subscriber
+        // and sink having them. A count and a total, so the mean over any window is exact; the engine
+        // does not keep each commit's duration, so it publishes no percentiles rather than invented ones.
+        ids.add(FunctionTimer.builder(
+                        "pravaha.query.commit.latency",
+                        query,
+                        q -> q.view().timedCommits(),
+                        q -> (double) q.view().commitNanosTotal(),
+                        TimeUnit.NANOSECONDS)
+                .tags(tags)
+                .register(meters)
+                .getId());
 
         published.put(name, ids);
     }

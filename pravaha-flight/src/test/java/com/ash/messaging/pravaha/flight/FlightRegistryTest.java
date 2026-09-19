@@ -164,6 +164,48 @@ class FlightRegistryTest {
         assertThat(registry.names()).isEmpty();
     }
 
+    @Test
+    void theListingCarriesKeysSinkAndRetentionAsTrailingFieldsAfterTheOriginalFive() {
+        act(ControlWire.REGISTER, "trade_feed", "SELECT trade_id, product_type FROM trade", "0,1", "", "PT24H");
+
+        assertThat(act(ControlWire.LIST)).singleElement().satisfies(row -> {
+            // The first five are exactly what a client built before these existed reads.
+            assertThat(row.subList(0, 2)).containsExactly("trade_feed", "RUNNING");
+            assertThat(row.get(4)).isEqualTo("0");
+            assertThat(row).hasSize(8);
+            assertThat(row.get(5)).as("key ordinals, as REGISTER takes them").isEqualTo("0,1");
+            assertThat(row.get(6))
+                    .as("no sink is an empty field, not a missing one")
+                    .isEmpty();
+            assertThat(row.get(7)).isEqualTo("PT24H");
+        });
+    }
+
+    @Test
+    void aRetentionOnTheWireIsTheOneTheViewKeeps() {
+        act(ControlWire.REGISTER, "day_view", "SELECT trade_id, product_type FROM trade", "0", "", "pt2h");
+        act(ControlWire.REGISTER, "all_view", "SELECT product_type, trade_id FROM trade", "0", "", "forever");
+        act(ControlWire.REGISTER, "default_view", "SELECT trade_id FROM trade", "0");
+
+        assertThat(registry.require("day_view").view().retention())
+                .isEqualTo(com.ash.messaging.pravaha.serving.Retention.ofAge(java.time.Duration.ofHours(2)));
+        assertThat(registry.require("all_view").view().retention().isForever()).isTrue();
+        assertThat(registry.require("default_view").view().retention())
+                .as("no fifth field is this registry's default, as before the field existed")
+                .isEqualTo(registry.defaultRetention());
+    }
+
+    @Test
+    void aRetentionThatCannotBeReadIsRefusedRatherThanDefaulted() {
+        assertThatThrownBy(() -> act(ControlWire.REGISTER, "v", "SELECT trade_id FROM trade", "0", "", "a day"))
+                .isInstanceOf(FlightRuntimeException.class)
+                .hasMessageContaining("is not a retention");
+        assertThatThrownBy(() -> act(ControlWire.REGISTER, "v", "SELECT trade_id FROM trade", "0", "", "-PT1H"))
+                .isInstanceOf(FlightRuntimeException.class)
+                .hasMessageContaining("is not a retention");
+        assertThat(registry.names()).doesNotContain("v");
+    }
+
     /** A subscriber running on its own thread, collecting trade ids until cancelled. */
     private final class Reader implements AutoCloseable {
         private final List<String> received = new ArrayList<>();

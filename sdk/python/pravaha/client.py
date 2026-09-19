@@ -25,12 +25,14 @@ bare ImportError from three frames down.
 
 from __future__ import annotations
 
+import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional, Sequence
 
 from pravaha.endpoint import Endpoint
 from pravaha.errors import PravahaError
 from pravaha.options import ClientOptions
+from pravaha.rest import ApiError, RestClient
 from pravaha.tls import TlsOptions
 
 try:  # pragma: no cover - exercised by the import-error path, not by the happy one
@@ -309,6 +311,7 @@ class Client:
             if options.token
             else _flight.FlightCallOptions()
         )
+        self._rest: Optional[RestClient] = None
         kwargs = _flight_client_tls_kwargs(options.tls) if options.endpoint.tls else {}
         try:
             self._client = _flight.FlightClient(self._uri, **kwargs)
@@ -409,7 +412,12 @@ class Client:
     # ---------------------------------------------------------------------------------
 
     def register(
-        self, name: str, sql: str, key_columns: Sequence[int], sink: str | None = None
+        self,
+        name: str,
+        sql: str,
+        key_columns: Sequence[int],
+        sink: str | None = None,
+        retention: str | None = None,
     ) -> "RegisteredQuery":
         """Registers a continuous query and returns what the server made of it.
 
@@ -426,15 +434,33 @@ class Client:
         changes are then written there as well as to its view, retractions included,
         at least once. The server refuses the pair before anything runs when the query
         revises its answer and the sink can only append (``PRV-2041``).
+
+        ``retention`` is how much event time the view keeps: an ISO-8601 duration such as
+        ``"PT24H"`` or ``"P7D"``, or ``"forever"``; ``None`` takes the server's default. A
+        server that cannot read it refuses the registration rather than keeping a
+        different amount than was asked for.
         """
         ordinals = ",".join(str(int(c)) for c in key_columns)
-        fields = [name, sql, ordinals] + ([sink] if sink else [])
+        # Trailing fields are optional on the wire, so only what is set is sent: a server
+        # that predates retention answers a four-field registration exactly as before.
+        fields = [name, sql, ordinals]
+        if retention:
+            fields += [sink or "", retention.strip()]
+        elif sink:
+            fields += [sink]
         rows = self._act(_ACTION_REGISTER, fields)
         if not rows:
             raise QueryError("the server accepted the registration but said nothing about it")
         row = rows[0]
         return RegisteredQuery(
-            name=_at(row, 0), state=_at(row, 1), sql=sql, fingerprint=_at(row, 2), rows_in=0
+            name=_at(row, 0),
+            state=_at(row, 1),
+            sql=sql,
+            fingerprint=_at(row, 2),
+            rows_in=0,
+            key_columns=tuple(int(c) for c in key_columns),
+            sink=sink or None,
+            retention=retention.strip() if retention else None,
         )
 
     def queries(self) -> "list[RegisteredQuery]":
@@ -445,6 +471,9 @@ class Client:
                 rows_in = int(_at(row, 4) or 0)
             except ValueError:
                 rows_in = 0
+            # Fields 5-7 were added after the first five and trail them, so a server that
+            # predates them sends five and these read as "unknown": an empty key, no sink,
+            # no retention.
             out.append(
                 RegisteredQuery(
                     name=_at(row, 0),
@@ -452,6 +481,9 @@ class Client:
                     sql=_at(row, 2),
                     fingerprint=_at(row, 3),
                     rows_in=rows_in,
+                    key_columns=_ordinals(_at(row, 5)),
+                    sink=_at(row, 6) or None,
+                    retention=_at(row, 7) or None,
                 )
             )
         return out
@@ -541,6 +573,106 @@ class Client:
             # sees should not depend on which status the server happened to choose.
             raise QueryError(_message_of(exc)) from exc
 
+    # ---------------------------------------------------------------------------------
+    # The engine's published HTTP API: the calls that have no Flight form.
+    # ---------------------------------------------------------------------------------
+
+    def _http(self) -> "RestClient":
+        if self._rest is None:
+            if not self._options.http_url:
+                raise ApiError(
+                    0,
+                    "this client has no HTTP URL for the engine; set ClientOptions.http_url "
+                    "(the engine's HTTP port, 8080 by default, not the Flight port)",
+                )
+            self._rest = RestClient(
+                self._options.http_url,
+                token=self._options.token,
+                timeout_seconds=self._options.request_timeout_seconds,
+                tls=self._options.tls if self._options.http_url.startswith("https://") else None,
+                allow_insecure_token=self._options.allow_insecure_token,
+            )
+        return self._rest
+
+    def streams(self) -> "list[dict]":
+        """Every stream this principal may read: ``name``, ``version``, ``fields``,
+        ``eventTime``, ``outOfOrderness`` (ISO-8601) and ``source`` (the plugin that feeds
+        it, if bound). ``GET /api/v1/streams``."""
+        return list(self._http().get("/api/v1/streams") or [])
+
+    def stream(self, name: str) -> dict:
+        """One stream. ``GET /api/v1/streams/{name}``."""
+        return dict(self._http().get("/api/v1/streams/" + _segment(name)) or {})
+
+    def declare_stream(
+        self,
+        name: str,
+        schema: str,
+        *,
+        event_time: str | None = None,
+        out_of_orderness: str | None = None,
+    ) -> dict:
+        """Declares a stream from ``name:TYPE,...``, with its event-time column and how late
+        its rows may be (ISO-8601, such as ``"PT10S"``). An administrative act; the server
+        refuses it to a principal who may not change what it serves. ``POST /api/v1/streams``."""
+        body: dict = {"name": name, "schema": schema}
+        if event_time:
+            body["eventTime"] = event_time
+        if out_of_orderness:
+            body["outOfOrderness"] = out_of_orderness
+        return dict(self._http().post("/api/v1/streams", body) or {})
+
+    def validate(self, sql: str) -> dict:
+        """Plans ``sql`` without running it: ``valid``, ``diagnostics`` (each with ``code``,
+        ``message``, ``helpUrl`` and, when the parser knew it, ``range`` -- 1-based lines and
+        columns, end column inclusive), ``outputFields`` and ``elapsedMicros``. An invalid
+        query is an answer, not an error. ``POST /api/v1/queries/validate``."""
+        return dict(self._http().post("/api/v1/queries/validate", {"sql": sql}) or {})
+
+    def explain(self, sql: str, level: str = "physical", *, graph: bool = False) -> dict:
+        """The plan, as ``plan`` text at ``level`` (``physical``, ``logical`` or ``codegen``),
+        and with ``graph=True`` also as ``graph``: ``nodes`` and ``edges``.
+        ``POST /api/v1/queries/explain``."""
+        query = {"level": level, "format": "graph" if graph else "text"}
+        return dict(self._http().post("/api/v1/queries/explain", {"sql": sql}, query) or {})
+
+    def describe_queries(self) -> "list[dict]":
+        """Every registered query this principal may see, described in full: keys by name and
+        ordinal, retention, sink and whether it is still attached, rows in, the other names
+        sharing the computation. Visibility is exactly :meth:`queries`'s. ``GET /api/v1/queries``."""
+        return list(self._http().get("/api/v1/queries") or [])
+
+    def describe_query(self, name: str) -> dict:
+        """One registered query, as :meth:`describe_queries` describes it.
+        ``GET /api/v1/queries/{name}``."""
+        return dict(self._http().get("/api/v1/queries/" + _segment(name)) or {})
+
+    def query_plan(self, name: str) -> dict:
+        """The plan a registered query is running, as ``nodes`` and ``edges``, with the
+        query-level numbers the engine measures under ``query``. Per-operator numbers are
+        not published (``operatorMetrics`` is null and ``metricsNote`` says why).
+        ``GET /api/v1/queries/{name}/plan``."""
+        return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/plan") or {})
+
+    def describe_view(self, name: str) -> dict:
+        """A view's ``schema``, ``keyColumns``, ``retention``, ``sink`` and ``fingerprint``,
+        without reading it. ``GET /api/v1/views/{name}``."""
+        return dict(self._http().get("/api/v1/views/" + _segment(name)) or {})
+
+    def sinks(self) -> "list[dict]":
+        """The sinks this node binds that this principal may see: ``plugin``, ``fields``,
+        ``keyColumns``, ``emitModes``, ``acceptsRetractions`` and the visible ``writers``.
+        Never a binding's options. ``GET /api/v1/sinks``."""
+        return list(self._http().get("/api/v1/sinks") or [])
+
+    def status(self) -> dict:
+        """The node: identity, version, engine state, plugin health. ``GET /api/v1/status``."""
+        return dict(self._http().get("/api/v1/status") or {})
+
+    def metrics_text(self) -> str:
+        """The node's Prometheus exposition, unparsed. ``GET /actuator/prometheus``."""
+        return self._http().text("/actuator/prometheus")
+
     def close(self) -> None:
         self._client.close()
 
@@ -555,16 +687,22 @@ def connect(
     connection_string: Optional[str] = None,
     *,
     options: Optional[ClientOptions] = None,
+    http_url: Optional[str] = None,
 ) -> Client:
     """Connects to a Pravaha server.
 
     ``connect("grpc://host:9090")`` for plaintext; omitting the scheme means TLS, which
     is the right default for a client and the reason it is not the terse one.
+
+    ``http_url`` is the engine's HTTP port (``http://host:8080``), needed only for the
+    catalogue, validation, plans, sinks and status calls; pass it here or in ``options``.
     """
     if options is None:
         if connection_string is None:
             raise ValueError("connect() needs a connection string or options")
-        options = ClientOptions(endpoint=Endpoint.parse(connection_string))
+        options = ClientOptions(endpoint=Endpoint.parse(connection_string), http_url=http_url)
+    elif http_url is not None:
+        raise ValueError("give http_url in options or as an argument, not both")
     return Client(options)
 
 
@@ -637,6 +775,19 @@ def _at(row: Sequence[str], index: int) -> str:
     return row[index] if index < len(row) else ""
 
 
+def _ordinals(text: str) -> "tuple[int, ...]":
+    try:
+        return tuple(int(part) for part in text.split(",") if part.strip())
+    except ValueError:
+        # Not a field this client understands; an empty key reads as "unknown", not wrong.
+        return ()
+
+
+def _segment(name: str) -> str:
+    """A name as one URL path segment, so a name cannot address a different endpoint."""
+    return urllib.parse.quote(str(name), safe="")
+
+
 @dataclass(frozen=True)
 class RegisteredQuery:
     """What a server says about one registered continuous query."""
@@ -645,7 +796,14 @@ class RegisteredQuery:
     state: str
     sql: str
     fingerprint: str
+    #: ``-1`` when the server withholds the count: your access to the view is row-filtered.
     rows_in: int
+    #: The view's key as output ordinals; empty from a server that predates the field.
+    key_columns: "tuple[int, ...]" = ()
+    #: The sink binding its changes are also written to, or ``None``.
+    sink: Optional[str] = None
+    #: How much event time the view keeps (ISO-8601, or ``"forever"``); ``None`` if unknown.
+    retention: Optional[str] = None
 
     @property
     def is_running(self) -> bool:

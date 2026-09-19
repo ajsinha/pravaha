@@ -688,6 +688,15 @@ Prometheus metrics are at `/actuator/prometheus`. Per continuous query:
 | `pravaha_query_view_updates` | Corrections applied |
 | `pravaha_query_view_removals` | Retractions applied |
 | `pravaha_query_watermark_lag_seconds{query=}` | How far behind **event time** it is |
+| `pravaha_query_subscribers{query=}` | How many subscribers are attached to the computation. A sink writing the query's changelog is **not** counted — it listens on the same commit and nobody is watching it. Two names on one computation report the same number, because they are one |
+| `pravaha_query_checkpoint_last_success_timestamp_seconds{query=}` | When the query last **stored** a checkpoint, as Unix seconds. Alert on its age (`time() - ...`): that is how much recovery would now replay. `NaN` while the query is not checkpointing or has not stored one yet — never zero, which would read as 1970 |
+| `pravaha_query_checkpoint_duration_seconds{query=}` | How long that last stored checkpoint took, snapshot to stored. `NaN` as above |
+| `pravaha_query_checkpoint_failures_total{query=}` | Checkpoints that did not happen. Rising while the last-success age rises is a query whose recovery story is getting older by the minute |
+| `pravaha_query_commit_latency_seconds_count{query=}`, `..._sum` | Commits that changed the view, and the total time they took: from applying the changes to the last subscriber **and sink** having them (a slow sink is on this thread, so it is in this number). The mean over a window is `rate(_sum) / rate(_count)`, exactly. **No percentiles are published**: the engine keeps a count and a total, not each commit's duration, and a p99 it did not measure would be invented. Idle commits — a watermark tick with nothing in it — are not timed |
+
+Not published, because the engine does not measure them: per-operator rows, state or watermarks
+(the runtime counts per query; `GET /api/v1/queries/{name}/plan` says so rather than splitting a
+query's totals across its operators), and lane backpressure.
 
 And per node, for lane sharing (`pravaha.lane.multiplex.*`):
 

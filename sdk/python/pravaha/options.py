@@ -45,6 +45,11 @@ class ClientOptions:
     #: setting that looks like it did something and silently did not is exactly what
     #: this class exists to refuse.
     tls: TlsOptions = field(default_factory=TlsOptions)
+    #: The engine's HTTP surface (``http://host:8080``), for the calls that have no Flight form:
+    #: the stream catalogue, validation, plans, sinks, per-query descriptions and node status.
+    #: A separate port from Flight, which is why it is a separate setting. Optional: a client
+    #: that only queries and subscribes never needs it.
+    http_url: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.connect_timeout_seconds <= 0:
@@ -67,6 +72,22 @@ class ClientOptions:
             raise InvalidOptionsError(
                 f"TLS options were configured ({self.tls}) but the endpoint {self.endpoint} is "
                 "plaintext; use grpc+tls:// or remove the TLS options"
+            )
+        if self.http_url is not None and not (
+            self.http_url.startswith("http://") or self.http_url.startswith("https://")
+        ):
+            raise InvalidOptionsError(
+                f"http_url must be an http:// or https:// URL, got {self.http_url!r}"
+            )
+        if (
+            self.token is not None
+            and self.http_url is not None
+            and self.http_url.startswith("http://")
+            and not self.allow_insecure_token
+        ):
+            raise InvalidOptionsError(
+                f"refusing to send a token over plaintext HTTP to {self.http_url}; use https://, "
+                "remove the token, or pass allow_insecure_token=True if the engine is loopback"
             )
         if self.token is not None and not self.endpoint.tls and not self.allow_insecure_token:
             # Sending a bearer token over plaintext hands it to anyone on the path.
@@ -104,6 +125,8 @@ class ClientOptions:
             kwargs["allow_insecure_token"] = allow_insecure.strip().lower() in ("true", "1", "yes")
         if config.get("application-name"):
             kwargs["application_name"] = config["application-name"]
+        if config.get("http-url"):
+            kwargs["http_url"] = config["http-url"]
         return ClientOptions(endpoint=endpoint, **kwargs)  # type: ignore[arg-type]
 
     def __str__(self) -> str:

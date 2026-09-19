@@ -145,6 +145,92 @@ class PravahaMetricsTest {
     }
 
     @Test
+    void subscribersAreCountedAndAQueryNotCheckpointingSaysNothingRatherThanZero() throws Exception {
+        var registry = node.registry().orElseThrow();
+        registry.register("watched", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        metrics.sync();
+
+        assertThat(meters.find("pravaha.query.subscribers")
+                        .tag("query", "watched")
+                        .gauge()
+                        .value())
+                .isZero();
+        try (var subscription = registry.require("watched").subscribe(batch -> {})) {
+            assertThat(meters.find("pravaha.query.subscribers")
+                            .tag("query", "watched")
+                            .gauge()
+                            .value())
+                    .isEqualTo(1);
+        }
+
+        // No checkpoint directory on this node: a timestamp of zero would read as 1970 to an age alert.
+        assertThat(meters.find("pravaha.query.checkpoint.last.success.timestamp.seconds")
+                        .tag("query", "watched")
+                        .gauge()
+                        .value())
+                .isNaN();
+        assertThat(meters.find("pravaha.query.checkpoint.duration.seconds")
+                        .tag("query", "watched")
+                        .gauge()
+                        .value())
+                .isNaN();
+        assertThat(meters.find("pravaha.query.checkpoint.failures")
+                        .tag("query", "watched")
+                        .functionCounter()
+                        .count())
+                .isZero();
+        assertThat(meters.find("pravaha.query.commit.latency")
+                        .tag("query", "watched")
+                        .functionTimer())
+                .isNotNull();
+    }
+
+    @Test
+    void aCheckpointingQueryReportsWhenItLastStoredOneAndHowLongItTook(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        metrics.close();
+        node.stop();
+        PersistenceProperties persistence = persistence("");
+        persistence.getCheckpoint().setDirectory(dir.toString());
+        persistence.getCheckpoint().setInterval(java.time.Duration.ofMillis(100));
+        StreamCatalog catalog = new StreamCatalog();
+        catalog.register(StreamSchema.builder("txn")
+                .field("user_id", Types.string())
+                .field("amount", Types.int64())
+                .build());
+        node = PravahaNode.builder()
+                .withCatalog(catalog)
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(false, "127.0.0.1", 0)
+                .withPersistence(persistence)
+                .withNodeId("metrics-node")
+                .build();
+        node.start();
+        metrics = new PravahaMetrics(meters, node);
+        node.registry().orElseThrow().register("saved", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        metrics.sync();
+
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(20).toNanos();
+        double stored = Double.NaN;
+        while (Double.isNaN(stored) && System.nanoTime() < deadline) {
+            stored = meters.find("pravaha.query.checkpoint.last.success.timestamp.seconds")
+                    .tag("query", "saved")
+                    .gauge()
+                    .value();
+            Thread.sleep(50);
+        }
+        assertThat(stored).as("a checkpoint was stored and its time published").isNotNaN();
+        assertThat(stored).isCloseTo(System.currentTimeMillis() / 1000d, org.assertj.core.data.Offset.offset(60d));
+        assertThat(meters.find("pravaha.query.checkpoint.duration.seconds")
+                        .tag("query", "saved")
+                        .gauge()
+                        .value())
+                .isNotNaN()
+                .isPositive();
+    }
+
+    @Test
     void closingRemovesEverythingItPublished() {
         node.registry().orElseThrow().register("one_view", "SELECT user_id, amount FROM txn", List.of(0), DANA);
         node.registry().orElseThrow().register("two", "SELECT user_id, amount, user_id FROM txn", List.of(0), DANA);

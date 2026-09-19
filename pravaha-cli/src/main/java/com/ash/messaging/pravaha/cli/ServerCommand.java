@@ -91,13 +91,18 @@ final class ServerCommand {
         // Optional: a binding name under the server's pravaha.sinks, which the query's changelog is
         // written to as well as its view (ADR-043).
         String sink = args.get("sink", "").strip();
+        // Optional: how much event time the view keeps, ISO-8601 (PT24H, P7D) or "forever". Checked by
+        // the server, which refuses what it cannot read rather than keeping a different amount.
+        String retain = args.get("retain", "").strip();
 
         try (PravahaFlightClient client = connect(args)) {
-            RegisteredQueryInfo registered = client.register(name, sql, keys, sink.isEmpty() ? null : sink);
+            RegisteredQueryInfo registered =
+                    client.register(name, sql, keys, sink.isEmpty() ? null : sink, retain.isEmpty() ? null : retain);
             out.println(Ansi.good("registered ")
                     + registered.name()
                     + Ansi.dim("  state=" + registered.state() + "  fingerprint=" + registered.fingerprint())
-                    + (sink.isEmpty() ? "" : Ansi.dim("  sink=" + sink)));
+                    + (sink.isEmpty() ? "" : Ansi.dim("  sink=" + sink))
+                    + (retain.isEmpty() ? "" : Ansi.dim("  retain=" + retain)));
             // Worth saying out loud: two names on one fingerprint are one computation and one copy
             // of the state, and somebody reading this should know which happened.
             out.println(Ansi.dim("a query with the same fingerprint is the same computation, shared"));

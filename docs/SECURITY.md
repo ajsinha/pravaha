@@ -45,18 +45,21 @@ tighten its rules without touching authentication.
 the one you already have. `StaticTokenVerifier` exists for tests and single-tenant installs and says
 so in its name.
 
-**These three seams apply to the Flight surface only.** `pravaha-server`'s HTTP REST controllers
-(`GET`/`POST /api/v1/streams`, `/api/v1/queries/validate`, `/explain`, `/api/v1/status`) authenticate
-a bearer token through the same `BearerTokenFilter` — a request with no token, or an invalid one, is
-correctly rejected — but once authenticated, **no controller behind that filter consults
-`SecurityPolicy` or `AuditSink` at all.** Confirmed live: a principal denied every payroll-named view
-on Flight receives the identical, unfiltered `payroll` schema and unfiltered query plans over HTTP,
-and `POST /api/v1/streams` accepts a new stream declaration from *any* authenticated caller with no
-policy check whatsoever — the write does not reach the query engine (see "What is not built" isn't
-the reason; this is a distinct gap), but the schema itself is published and visible to every other
-caller regardless of what that caller may register or read on Flight. Do not rely on `SecurityPolicy`
-rules to govern the HTTP surface: today, "has a valid token" is the entire HTTP authorization model.
-See `docs/qa/FINDINGS.md`'s SX-3.
+**The HTTP API decides with the same policy.** `pravaha-server`'s REST controllers authenticate a
+bearer token through `BearerTokenFilter`, and since SX-3 authorize through `HttpAuthorizer`, which asks
+the same `SecurityPolicy` and records into the same `AuditSink` as Flight: `GET /api/v1/streams` lists
+only the streams the caller may read, `GET /api/v1/streams/{name}`, `/validate` and `/explain` refuse a
+stream the caller may not read, and `POST /api/v1/streams` is an administrative act. The endpoints that
+describe what is registered go further and call the **same code** as Flight's `pravaha.list`
+(`QueryListing`, in `pravaha-registry`), so the two surfaces cannot disagree:
+
+| Endpoint | Who sees what |
+|---|---|
+| `GET /api/v1/queries` | The Flight listing, exactly: hidden by name, hidden by what the query reads (SX-11), counts `-1` for a row-filtered principal (SX-18), every refusal audited (SX-8, verb `http.list`) |
+| `GET /api/v1/queries/{name}`, `/{name}/plan`, `GET /api/v1/views/{name}` | A name the policy denies: `403` whether or not it exists. An allowed name that is not registered, **or whose query reads a stream the caller may not read**: `404`, identically — so neither answer is an existence oracle. Other names sharing the computation are listed only if the caller may know them. A row-filtered caller gets counts and failure text withheld |
+| `GET /api/v1/sinks` | A sink appears to a caller the policy lets read its name; its writers are the queries the caller's own listing shows. **A binding's options are never read to build the answer** — they are where credentials live — and a sink failure's text (`PRV-8009`) has every configured option value that could be a credential struck out before it leaves |
+
+Proven in `pravaha-server`'s `RegistryEndpointsTest` and `HttpAuthorizationTest`.
 
 ## Setting it up
 

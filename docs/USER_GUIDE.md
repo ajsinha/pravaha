@@ -99,8 +99,24 @@ carries on.
 
 ### Retention
 
-A view keeps a day of event time by default. Override it when registering, or change the default for
-a node:
+A view keeps everything by default (TY-21), unless the node sets a default of its own. Choose how much
+event time it keeps when registering — an ISO-8601 duration, or `forever`:
+
+```java
+client.register("card_velocity", sql, List.of(1), null, "PT8H");   // no sink, eight hours
+```
+```python
+client.register("card_velocity", sql, [1], retention="PT8H")
+```
+```bash
+pravaha register --name card_velocity --sql-file velocity.sql --keys 1 --retain PT8H
+```
+
+A retention the server cannot read — `"eight hours"`, a negative duration — is refused, not
+defaulted: keeping a day of a view somebody asked to keep for an hour changes what the view means.
+The retention is journalled with the registration, so it survives a restart, and it is part of the
+fingerprint: the same SQL kept for different lengths of time is two computations. Embedded, the
+registry takes a `Retention` directly:
 
 ```java
 registry.register(name, sql, keys, principal, Retention.ofAge(Duration.ofHours(8)));
@@ -245,6 +261,27 @@ doing work.
 
 **A drop removes a name.** The computation goes when its *last* name goes. If somebody else registered
 the same question, dropping yours leaves theirs running — neither of you knows the other exists.
+
+`queries()` in both SDKs also reports each query's key ordinals, its sink binding and its retention.
+The engine's HTTP API describes a query in full — keys by name, retention, sink and whether it is still
+attached (`PRV-8009` if it was detached), rows in, the other names sharing its computation that you
+may see, the streams it reads — and its running plan as a graph:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://engine:8080/api/v1/queries/card_velocity
+curl -H "Authorization: Bearer $TOKEN" http://engine:8080/api/v1/queries/card_velocity/plan
+curl -H "Authorization: Bearer $TOKEN" http://engine:8080/api/v1/views/card_velocity   # schema, key, retention
+curl -H "Authorization: Bearer $TOKEN" http://engine:8080/api/v1/sinks                 # what each sink accepts
+```
+```python
+client = connect(options=ClientOptions.create(
+    "grpc+tls://engine:9090", token=token, http_url="https://engine:8080"))
+client.describe_query("card_velocity")
+client.query_plan("card_velocity"); client.describe_view("card_velocity"); client.sinks()
+```
+
+They answer by the listing's rules: a name your policy denies is refused whether or not it exists, and
+a query reading a stream you may not read answers exactly as a name that was never registered.
 
 The [console](../console/) shows all of this in a browser, including which computations are shared.
 

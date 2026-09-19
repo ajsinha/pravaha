@@ -475,24 +475,10 @@ public class PravahaNode implements SmartLifecycle {
         if (declaration.getEventTime() == null || declaration.getEventTime().isBlank()) {
             return parsed;
         }
-        StreamSchema.Builder builder = StreamSchema.builder(name);
-        parsed.fields().forEach(field -> builder.field(field.name(), field.type()));
-        String column = declaration.getEventTime().strip();
-        if (!parsed.hasField(column)) {
-            throw new PravahaException(
-                    SqlErrors.VALIDATION_FAILED,
-                    "stream '" + name + "' declares '" + column + "' as its event time and has no such column. "
-                            + "Its columns are "
-                            + parsed.fields().stream()
-                                    .map(com.ash.messaging.pravaha.api.data.Field::name)
-                                    .toList()
-                            + ".");
-        }
-        builder.eventTime(column);
-        if (declaration.getOutOfOrderness() != null) {
-            builder.outOfOrderness(declaration.getOutOfOrderness());
-        }
-        return builder.build();
+        // One implementation, shared with POST /api/v1/streams, so a stream declared by file and one
+        // declared over HTTP cannot disagree about what an event-time declaration means.
+        return com.ash.messaging.pravaha.server.catalog.StreamCatalog.withEventTime(
+                parsed, declaration.getEventTime(), declaration.getOutOfOrderness());
     }
 
     /**
@@ -1005,6 +991,11 @@ public class PravahaNode implements SmartLifecycle {
 
     public Optional<QueryRegistry> registry() {
         return Optional.ofNullable(registry);
+    }
+
+    /** The sink bindings this node resolved at start, for describing them; empty before it starts. */
+    public Optional<com.ash.messaging.pravaha.server.egress.PluginSinks> sinks() {
+        return Optional.ofNullable(pluginSinks);
     }
 
     public Optional<ClusterCoordinator> coordinator() {

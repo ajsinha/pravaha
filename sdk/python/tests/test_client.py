@@ -291,6 +291,27 @@ def test_a_continuous_query_can_be_registered_and_listed(client):
         client.drop("py_feed")
 
 
+def test_a_retention_chosen_at_registration_is_listed_with_the_key(client):
+    client.register("py_hourly", TRADE_SQL, [0, 1], retention="PT1H")
+    try:
+        listed = [q for q in client.queries() if q.name == "py_hourly"]
+        assert len(listed) == 1
+        assert listed[0].key_columns == (0, 1)
+        assert listed[0].retention == "PT1H"
+        # No sink is None, not an empty binding name.
+        assert listed[0].sink is None
+    finally:
+        client.drop("py_hourly")
+
+
+def test_a_retention_the_server_cannot_read_is_refused_rather_than_defaulted(client):
+    with pytest.raises(QueryError) as refused:
+        client.register("py_badly_kept", TRADE_SQL, [0], retention="a while")
+
+    assert "is not a retention" in str(refused.value)
+    assert "py_badly_kept" not in [q.name for q in client.queries()]
+
+
 def test_the_same_question_registered_twice_is_one_computation(client):
     first = client.register("py_a", TRADE_SQL, [0])
     # Different text, same normalised plan.

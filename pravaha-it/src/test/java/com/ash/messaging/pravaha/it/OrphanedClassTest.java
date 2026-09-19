@@ -78,6 +78,8 @@ class OrphanedClassTest {
             Map.entry("PravahaServerApplication", "Spring @SpringBootApplication, main() entry point"),
             Map.entry("QueryController", "Spring @RestController"),
             Map.entry("StreamController", "Spring @RestController"),
+            Map.entry("SinkController", "Spring @RestController"),
+            Map.entry("ViewController", "Spring @RestController"),
             Map.entry("PravahaMetrics", "Spring @Component"),
             Map.entry("EngineHealthIndicator", "Spring @Component, contributed to /actuator/health"),
             Map.entry("ApiExceptionHandler", "Spring @RestControllerAdvice"),

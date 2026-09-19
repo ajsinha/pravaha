@@ -573,6 +573,21 @@ public final class QueryRegistry implements AutoCloseable {
         return register(name, sql, keyColumns, principal, Retention.forever(), sinkName);
     }
 
+    /** {@link #registerWritingTo(String, String, List, Principal, String)}, with the view's retention chosen. */
+    public synchronized RegisteredQuery registerWritingTo(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            String sinkName,
+            Retention retention) {
+        if (sinkName == null || sinkName.isBlank()) {
+            throw new IllegalArgumentException("a sink name is required; use register(...) to write only a view");
+        }
+        return register(
+                name, sql, keyColumns, principal, retention == null ? Retention.forever() : retention, sinkName);
+    }
+
     /** Registers with both an explicit retention and bound parameters. */
     public synchronized RegisteredQuery register(
             String name,

@@ -336,10 +336,31 @@ public final class PravahaFlightClient implements AutoCloseable {
      * @param sink the sink's binding name on the server, or null to write only the view
      */
     public RegisteredQueryInfo register(String name, String sql, List<Integer> keyColumns, String sink) {
+        return register(name, sql, keyColumns, sink, null);
+    }
+
+    /**
+     * Registers with the view's retention chosen, as well as an optional sink.
+     *
+     * @param retention how much event time the view keeps, as ISO-8601 ({@code PT24H}, {@code P7D}) or
+     *     {@code forever}; null for the server's default. A server that cannot read it refuses the
+     *     registration rather than keeping a different amount than you asked for
+     */
+    public RegisteredQueryInfo register(
+            String name, String sql, List<Integer> keyColumns, String sink, String retention) {
         String ordinals = keyColumns.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
-        List<List<String>> results = sink == null || sink.isBlank()
-                ? act(ControlWire.REGISTER, name, sql, ordinals)
-                : act(ControlWire.REGISTER, name, sql, ordinals, sink);
+        boolean hasSink = sink != null && !sink.isBlank();
+        boolean hasRetention = retention != null && !retention.isBlank();
+        // Trailing fields are optional on the wire, so only what is set is sent: a server that
+        // predates retention answers a four-field registration exactly as it always did.
+        List<List<String>> results;
+        if (hasRetention) {
+            results = act(ControlWire.REGISTER, name, sql, ordinals, hasSink ? sink : "", retention.strip());
+        } else if (hasSink) {
+            results = act(ControlWire.REGISTER, name, sql, ordinals, sink);
+        } else {
+            results = act(ControlWire.REGISTER, name, sql, ordinals);
+        }
         if (results.isEmpty()) {
             throw new PravahaClientException(
                     ClientErrors.QUERY_REFUSED,
@@ -360,7 +381,19 @@ public final class PravahaFlightClient implements AutoCloseable {
             } catch (NumberFormatException e) {
                 // An older server that does not report it. Not worth failing a listing over.
             }
-            queries.add(new RegisteredQueryInfo(field(row, 0), field(row, 1), field(row, 2), field(row, 3), rowsIn));
+            // Fields 5-7 are trailing additions; a server that predates them sends five and these read
+            // as empty, which is what "unknown" means here.
+            String sink = field(row, 6);
+            String retention = field(row, 7);
+            queries.add(new RegisteredQueryInfo(
+                    field(row, 0),
+                    field(row, 1),
+                    field(row, 2),
+                    field(row, 3),
+                    rowsIn,
+                    ordinalsOf(field(row, 5)),
+                    sink.isEmpty() ? null : sink,
+                    retention.isEmpty() ? null : retention));
         }
         return queries;
     }
@@ -475,6 +508,21 @@ public final class PravahaFlightClient implements AutoCloseable {
                     "this client was closed; open another with PravahaFlightClient.connect(...)",
                     false);
         }
+    }
+
+    private static List<Integer> ordinalsOf(String text) {
+        List<Integer> ordinals = new java.util.ArrayList<>();
+        for (String part : text.split(",")) {
+            if (!part.isBlank()) {
+                try {
+                    ordinals.add(Integer.parseInt(part.strip()));
+                } catch (NumberFormatException e) {
+                    // Not a field this client understands; an empty key is "unknown", not wrong.
+                    return List.of();
+                }
+            }
+        }
+        return ordinals;
     }
 
     private static String field(List<String> row, int index) {

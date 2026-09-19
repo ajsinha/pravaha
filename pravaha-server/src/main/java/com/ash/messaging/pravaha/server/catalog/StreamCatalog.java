@@ -80,7 +80,54 @@ public class StreamCatalog {
     public synchronized StreamSchema require(String name) {
         return find(name)
                 .orElseThrow(() -> new PravahaException(
-                        SqlErrors.UNKNOWN_STREAM, "no stream named '" + name + "'. Registered: " + streams.keySet()));
+                        SqlErrors.UNKNOWN_STREAM,
+                        // SX-5. This appended every declared stream's name, and GET /api/v1/streams/{name}
+                        // reaches it for any name the caller's policy allows -- so a principal allowed an
+                        // invented name was handed the node's whole inventory, including the streams the
+                        // listing hides from them. The listing is the filtered way to find names.
+                        "no stream named '" + name + "' is declared on this node. The declared streams are "
+                                + "not listed here, because that would tell a caller who may not read them "
+                                + "that they exist; GET /api/v1/streams lists the ones you may read."));
+    }
+
+    /**
+     * A schema with its event-time column marked, and the stream's own out-of-orderness.
+     *
+     * <p>Rebuilt rather than mutated, because a schema is immutable: a running query keeps the version
+     * it was planned against. Shared by the configuration path ({@code pravaha.streams.<n>}) and
+     * {@code POST /api/v1/streams}, so the two declare event time the same way.
+     *
+     * @param column the event-time column, or null/blank for a stream with none
+     * @param outOfOrderness how late rows may be, or null for the engine default; meaningless, and
+     *     refused, without an event-time column
+     */
+    public static StreamSchema withEventTime(StreamSchema parsed, String column, java.time.Duration outOfOrderness) {
+        if (column == null || column.isBlank()) {
+            if (outOfOrderness != null) {
+                throw new IllegalArgumentException("stream '" + parsed.name() + "' gives an out-of-orderness and no "
+                        + "event-time column. Out-of-orderness is how late a row's event time may be, so it "
+                        + "needs an event time to be about.");
+            }
+            return parsed;
+        }
+        String eventTime = column.strip();
+        if (!parsed.hasField(eventTime)) {
+            throw new PravahaException(
+                    SqlErrors.VALIDATION_FAILED,
+                    "stream '" + parsed.name() + "' declares '" + eventTime + "' as its event time and has no such "
+                            + "column. Its columns are "
+                            + parsed.fields().stream()
+                                    .map(com.ash.messaging.pravaha.api.data.Field::name)
+                                    .toList()
+                            + ".");
+        }
+        StreamSchema.Builder builder = StreamSchema.builder(parsed.name());
+        parsed.fields().forEach(field -> builder.field(field.name(), field.type()));
+        builder.eventTime(eventTime);
+        if (outOfOrderness != null) {
+            builder.outOfOrderness(outOfOrderness);
+        }
+        return builder.build();
     }
 
     public synchronized Collection<StreamSchema> all() {

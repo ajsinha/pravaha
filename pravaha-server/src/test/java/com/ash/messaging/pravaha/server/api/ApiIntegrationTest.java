@@ -106,6 +106,61 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void theRegistryAndSinkEndpointsAnswerOverHttpAndAnUnknownNameIsA404() throws Exception {
+        // Nothing is registered and nothing bound in this context: empty lists, not errors.
+        mvc.perform(get("/api/v1/queries"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+        mvc.perform(get("/api/v1/sinks"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+
+        mvc.perform(get("/api/v1/queries/ghost"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PRV-8002"));
+        mvc.perform(get("/api/v1/queries/ghost/plan")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/views/ghost"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PRV-4023"));
+    }
+
+    @Test
+    void aDiagnosticSerialisesItsRangeAndExplainCanAnswerWithAGraph() throws Exception {
+        mvc.perform(post("/api/v1/queries/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(new QueryController.ValidateRequest("SELECT nope FROM txn"))))
+                .andExpect(jsonPath("$.diagnostics[0].range.startLine").value(1))
+                .andExpect(jsonPath("$.diagnostics[0].range.startColumn").value(8))
+                .andExpect(jsonPath("$.diagnostics[0].range.endColumn").value(11));
+
+        mvc.perform(post("/api/v1/queries/explain?format=graph")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(
+                                new QueryController.ValidateRequest("SELECT user_id FROM txn WHERE amount > 1"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.graph.nodes[0].id").value("n0"))
+                .andExpect(jsonPath("$.graph.edges").isArray())
+                .andExpect(jsonPath("$.graph.operatorMetrics").doesNotExist());
+
+        mvc.perform(post("/api/v1/queries/explain?format=nonsense")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(
+                                new QueryController.ValidateRequest("SELECT user_id FROM txn"))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aStreamPostedWithAnEventTimeReportsIt() throws Exception {
+        mvc.perform(post("/api/v1/streams")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"clicks_http\",\"schema\":\"user:STRING,at:TIMESTAMP\","
+                                + "\"eventTime\":\"at\",\"outOfOrderness\":\"PT15S\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.eventTime").value("at"))
+                .andExpect(jsonPath("$.outOfOrderness").value("PT15S"));
+    }
+
+    @Test
     void aValidQueryValidates() throws Exception {
         mvc.perform(post("/api/v1/queries/validate")
                         .contentType(MediaType.APPLICATION_JSON)

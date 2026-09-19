@@ -62,6 +62,14 @@ public class ApiExceptionHandler {
      * from the category means a newly-added code is classified correctly by construction.
      */
     static HttpStatus statusFor(ErrorCode code) {
+        // A named thing that is not there, or that the listing rules hide from this caller -- the two
+        // answer identically, by design. 404 rather than the registry category's 400: the request was
+        // well-formed, and a client retrying a 400 by fixing its body would be looking for a mistake it
+        // did not make.
+        if (code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.NO_SUCH_QUERY.code())
+                || code.code().equals(com.ash.messaging.pravaha.serving.ServingErrors.NO_SUCH_VIEW.code())) {
+            return HttpStatus.NOT_FOUND;
+        }
         return switch (code.category()) {
             case CONFIGURATION, PLANNING -> HttpStatus.BAD_REQUEST;
             case SECURITY -> HttpStatus.FORBIDDEN;

@@ -82,6 +82,13 @@ watermark advances, so no window ever closes: a windowed query plans, registers,
 ingests every row and emits nothing, for ever. The `name:TYPE` grammar has no syntax for marking a
 column, so this key is the only way to say it.
 
+A stream declared over HTTP says the same two things in its body —
+`{"name": "txn", "schema": "...", "eventTime": "event_time", "outOfOrderness": "PT10S"}` to
+`POST /api/v1/streams` — and `GET /api/v1/streams` reports each stream's `eventTime`,
+`outOfOrderness` and the `source` plugin feeding it (the plugin's name only, never its options). An
+out-of-orderness without an event time is refused: it is how late an event time may be, and there is
+none for it to be about.
+
 **`out-of-orderness` belongs to the stream, not to the node.** It says how late *this* source's rows
 may arrive. A join across two streams takes the minimum of their watermarks — so a query is only as
 current as its laggiest input, which is correct and surprises people.
@@ -491,6 +498,24 @@ should be distinct, or keeps rows that should have replaced each other.
 
 Two registrations differing only in `--keys` are **two different computations** — the key is part of
 the query's identity, because it changes the answer (I-3).
+
+**`--retain` is how much event time the view keeps**, as an ISO-8601 duration (`PT24H`, `P7D`) or
+`forever`; left out, the node's default applies, which is forever unless the node sets one. Rows whose
+event time falls further behind the committed frontier than that are evicted. Both SDKs take it as
+the `retention` argument of `register`, and the Flight `pravaha.register` action as an optional fifth
+field (the fourth, the sink, may be empty). A value the server cannot read is refused rather than
+defaulted. Like the key, retention is part of the fingerprint, and it is journalled with the
+registration so a restart keeps it.
+
+**What was registered can be read back.** `pravaha queries` and both SDKs' `queries()` report each
+query's key ordinals, sink and retention (trailing fields 5–7 of the `pravaha.list` action, after the
+original five, so an older client reads what it always did). The HTTP API describes a query in full
+(`GET /api/v1/queries/{name}`: keys by name, retention, sink and whether it is still attached, rows in,
+the other names sharing it, the streams it reads), its running plan as a graph
+(`GET /api/v1/queries/{name}/plan`), its view without reading it (`GET /api/v1/views/{name}`), and the
+node's sinks with what each accepts (`GET /api/v1/sinks`). Each decides what you may see exactly as the
+listing does — a denied name is refused whether or not it exists, and a query reading a stream you may
+not read answers as a name that was never registered.
 
 ### What happens at registration
 

@@ -671,6 +671,36 @@ public final class RegisteredQuery implements AutoCloseable {
         return checkpointFailures.get();
     }
 
+    /** Whether this computation is checkpointing at all; the two answers below are empty when not. */
+    public boolean isCheckpointing() {
+        return checkpointer instanceof com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer;
+    }
+
+    /** When this computation last stored a checkpoint, or empty if it never has or is not checkpointing. */
+    public Optional<Instant> lastCheckpoint() {
+        return checkpointer instanceof com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer periodic
+                ? periodic.lastSuccess()
+                : Optional.empty();
+    }
+
+    /** How long the last stored checkpoint took, or empty if there has been none. */
+    public Optional<java.time.Duration> lastCheckpointDuration() {
+        return checkpointer instanceof com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer periodic
+                ? periodic.lastSuccessDuration()
+                : Optional.empty();
+    }
+
+    /**
+     * The physical plan this computation is running.
+     *
+     * <p>Read-only, for describing the query: the plan is the execution's and nothing here may change
+     * it. Taken from the execution rather than re-planned from {@link #sql()}, because a query with
+     * bound parameters has values in its plan that its text does not carry.
+     */
+    public com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan() {
+        return execution.plan();
+    }
+
     /**
      * Records that a checkpoint did not happen.
      *

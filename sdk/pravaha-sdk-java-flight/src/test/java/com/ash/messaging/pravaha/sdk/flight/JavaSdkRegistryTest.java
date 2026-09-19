@@ -123,6 +123,29 @@ class JavaSdkRegistryTest {
     }
 
     @Test
+    void aRetentionChosenAtRegistrationIsTheOneTheListingReportsWithTheKey() {
+        client.register("hourly", SQL, List.of(0, 1), null, "PT1H");
+        client.register("plain", "SELECT product_type, trade_id FROM trade", List.of(1));
+
+        assertThat(client.queries())
+                .filteredOn(query -> query.name().equals("hourly"))
+                .singleElement()
+                .satisfies(query -> {
+                    assertThat(query.keyColumns()).containsExactly(0, 1);
+                    assertThat(query.retention()).isEqualTo("PT1H");
+                    assertThat(query.sink())
+                            .as("no sink is null, not an empty name")
+                            .isNull();
+                });
+        assertThat(client.queries())
+                .filteredOn(query -> query.name().equals("plain"))
+                .singleElement()
+                .satisfies(query -> assertThat(query.keyColumns()).containsExactly(1));
+        assertThatThrownBy(() -> client.register("bad", SQL, List.of(0), null, "a while"))
+                .hasMessageContaining("is not a retention");
+    }
+
+    @Test
     void theSameQuestionRegisteredTwiceIsOneComputation() {
         RegisteredQueryInfo first = client.register("a", SQL, List.of(0));
         // Different text, same normalised plan.

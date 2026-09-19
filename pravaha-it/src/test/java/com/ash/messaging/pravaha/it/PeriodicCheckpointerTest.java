@@ -200,6 +200,33 @@ class PeriodicCheckpointerTest {
 
     @Test
     @Timeout(60)
+    void theLastSuccessIsWhenOneWasStoredAndAFailureDoesNotMoveIt(@TempDir Path directory) {
+        RecordingStore store = new RecordingStore(new FileCheckpointStore(directory));
+
+        try (QueryExecution execution = execution();
+                PeriodicCheckpointer checkpointer = new PeriodicCheckpointer(
+                        execution, store, Duration.ofHours(1), 3, Duration.ofSeconds(10), null)) {
+            // Nothing stored is not "stored at the epoch": a gauge reading zero would say the last
+            // checkpoint was in 1970, which an age alert reads as the worst possible answer.
+            assertThat(checkpointer.lastSuccess()).isEmpty();
+            assertThat(checkpointer.lastSuccessDuration()).isEmpty();
+
+            java.time.Instant before = java.time.Instant.now().minusMillis(1);
+            checkpointer.checkpointNow();
+            java.time.Instant stored = checkpointer.lastSuccess().orElseThrow();
+            assertThat(stored).isAfterOrEqualTo(before.truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
+            assertThat(checkpointer.lastSuccessDuration().orElseThrow()).isPositive();
+
+            // A checkpoint that could not be written is not a success, however far it got.
+            store.failNextStore = new IllegalStateException("disk full");
+            org.assertj.core.api.Assertions.assertThatThrownBy(checkpointer::checkpointNow)
+                    .hasMessageContaining("disk full");
+            assertThat(checkpointer.lastSuccess()).contains(stored);
+        }
+    }
+
+    @Test
+    @Timeout(60)
     void aFailedCheckpointDoesNotStopTheSchedule(@TempDir Path directory) {
         RecordingStore store = new RecordingStore(new FileCheckpointStore(directory));
         List<String> logged = Collections.synchronizedList(new ArrayList<>());

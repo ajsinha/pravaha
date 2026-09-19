@@ -49,6 +49,35 @@ Python imitation of it — so what passes here is what an application sees.
 The surface deliberately mirrors the Java SDK: same concepts, same names, same defaults, so a
 team running both does not have to hold two mental models.
 
+`register(name, sql, keys, sink=None, retention=None)` takes an ISO-8601 event-time retention
+(`"PT24H"`, `"P7D"`, `"forever"`), and `queries()` reports each query's `key_columns`, `sink` and
+`retention` as well as its state and fingerprint.
+
+### The engine's HTTP API
+
+Some questions have no Flight form: the stream catalogue, validation with positions, plans as
+graphs, what a registered query or view is, which sinks exist, and the node's status. The engine
+answers them on its HTTP port, and the SDK calls that published, OpenAPI-locked surface rather than
+growing a second implementation of each on Flight — two places deciding what a principal may learn
+about the catalogue would drift apart. Give the client the HTTP URL as well:
+
+```python
+options = ClientOptions.create("grpc+tls://pravaha:9090", token=token,
+                               http_url="https://pravaha:8080")
+with connect(options=options) as client:
+    client.streams()                      # with eventTime, outOfOrderness, source
+    client.validate("SELECT amont FROM txn")["diagnostics"][0]["range"]
+    client.explain(sql, graph=True)["graph"]
+    client.describe_query("hourly_spend") # keys, retention, sink and its failure, rows in
+    client.query_plan("hourly_spend"); client.describe_view("hourly_spend")
+    client.sinks(); client.status(); client.metrics_text()
+```
+
+These return the JSON the API documents, as dicts. A refusal raises `ApiError` with the HTTP
+`status`, the engine's `engine_code` (`"PRV-7002"`) and its number as `code`; an engine that does not
+answer is status `0` and retryable. The token rule is the Flight one: never over plain `http://`
+unless `allow_insecure_token=True` is asked for.
+
 ## Install
 
 ```bash

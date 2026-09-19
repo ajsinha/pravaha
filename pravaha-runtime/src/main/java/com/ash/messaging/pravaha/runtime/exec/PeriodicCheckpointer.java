@@ -179,8 +179,13 @@ public final class PeriodicCheckpointer implements AutoCloseable {
      */
     public Checkpoint checkpointNow() {
         long id = nextId.getAndIncrement();
+        long started = System.nanoTime();
         Checkpoint checkpoint = execution.checkpoint(id, timeout);
         store.store(checkpoint);
+        // Recorded once it is stored, and not before: a checkpoint that was taken and could not be
+        // written is not one recovery can use, so it is not a success an operator should be shown.
+        lastSuccessDurationNanos = System.nanoTime() - started;
+        lastSuccessEpochMillis = System.currentTimeMillis();
         taken.incrementAndGet();
         try {
             // After store() has returned and not before: store returns only once the checkpoint is
@@ -238,6 +243,28 @@ public final class PeriodicCheckpointer implements AutoCloseable {
 
     public Stats stats() {
         return new Stats(taken.get(), failed.get(), pruned.get());
+    }
+
+    private volatile long lastSuccessEpochMillis = Long.MIN_VALUE;
+    private volatile long lastSuccessDurationNanos = -1;
+
+    /**
+     * When the newest checkpoint was stored, by the wall clock, or empty if none has been.
+     *
+     * <p>The age of this is what an operator alerts on: a failure count says something went wrong,
+     * and only the time since the last success says how much recovery would now have to replay.
+     */
+    public java.util.Optional<java.time.Instant> lastSuccess() {
+        long at = lastSuccessEpochMillis;
+        return at == Long.MIN_VALUE
+                ? java.util.Optional.empty()
+                : java.util.Optional.of(java.time.Instant.ofEpochMilli(at));
+    }
+
+    /** How long the newest stored checkpoint took, from snapshot to stored, or empty if none has been. */
+    public java.util.Optional<Duration> lastSuccessDuration() {
+        long nanos = lastSuccessDurationNanos;
+        return nanos < 0 ? java.util.Optional.empty() : java.util.Optional.of(Duration.ofNanos(nanos));
     }
 
     @Override

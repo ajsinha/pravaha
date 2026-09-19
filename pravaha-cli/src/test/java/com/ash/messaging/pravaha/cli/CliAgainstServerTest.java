@@ -145,6 +145,21 @@ class CliAgainstServerTest {
     }
 
     @Test
+    void retainSetsTheViewsRetentionAndAnUnreadableOneIsRefused() {
+        CliResult registered =
+                cli("register", "--url", url, "--name", "trade_feed", "--sql", SQL, "--keys", "0", "--retain", "PT6H");
+        assertThat(registered.code()).as(registered.err()).isZero();
+        assertThat(registered.out()).contains("retain=PT6H");
+        assertThat(registry.require("trade_feed").view().retention().maxAge()).isEqualTo(java.time.Duration.ofHours(6));
+
+        CliResult refused =
+                cli("register", "--url", url, "--name", "other", "--sql", SQL, "--keys", "0", "--retain", "six hours");
+        assertThat(refused.code()).isNotZero();
+        assertThat(refused.err()).contains("is not a retention");
+        assertThat(registry.names()).doesNotContain("other");
+    }
+
+    @Test
     void aParameterisedQueryBindsFromTheCommandLine() {
         cli("register", "--url", url, "--name", "trade_feed", "--sql", SQL, "--keys", "0");
         feed("T-1", "SWAP");

@@ -48,6 +48,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
+import com.ash.messaging.pravaha.registry.QueryListing;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
 import com.ash.messaging.pravaha.registry.Subscription;
@@ -60,6 +61,7 @@ import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ReadAdmission;
+import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
@@ -401,9 +403,21 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     String sink = fields.size() > 3 && !fields.get(3).isBlank()
                             ? fields.get(3).strip()
                             : null;
-                    RegisteredQuery query = sink == null
-                            ? required.register(fields.get(0), fields.get(1), keys, principal)
-                            : required.registerWritingTo(fields.get(0), fields.get(1), keys, principal, sink);
+                    // An optional fifth field is the view's retention, in event time (ISO-8601, such as
+                    // PT24H, or "forever"). Optional for the same reason the sink is; a client with a
+                    // retention and no sink sends an empty fourth field.
+                    Retention retention = fields.size() > 4 ? retentionOf(fields.get(4)) : null;
+                    RegisteredQuery query;
+                    if (sink != null) {
+                        query = retention == null
+                                ? required.registerWritingTo(fields.get(0), fields.get(1), keys, principal, sink)
+                                : required.registerWritingTo(
+                                        fields.get(0), fields.get(1), keys, principal, sink, retention);
+                    } else {
+                        query = retention == null
+                                ? required.register(fields.get(0), fields.get(1), keys, principal)
+                                : required.register(fields.get(0), fields.get(1), keys, principal, retention);
+                    }
                     listener.onNext(new Result(ControlWire.encode(
                             query.name(),
                             query.state().name(),
@@ -428,42 +442,28 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     listener.onNext(new Result(ControlWire.encode(fields.get(0), "RUNNING")));
                 }
                 case ControlWire.LIST -> {
-                    for (String name : required.names()) {
-                        // Filtered, not refused. A listing is how a client finds what it may use, so
-                        // showing nothing would be unhelpful and showing everything is a disclosure:
-                        // the SQL text carries account numbers and customer ids, which this
-                        // repository's own configuration says to permission like data. A principal
-                        // sees the queries they could read, and does not learn that the others
-                        // exist.
-                        AccessDecision decision = policy.mayRead(principal, name);
-                        if (!decision.allowed()) {
-                            // SX-8. Every one of these is an authorization decision about who may
-                            // learn that a view exists, and this verb was the one hole in the
-                            // audit-completeness matrix: a principal probing a node's catalogue
-                            // could be refused a hundred times in a single call and leave no trace
-                            // at all. Recorded per view, because that is the granularity the
-                            // decision is made at -- one summary line per call would answer "who
-                            // listed" and not "who was refused payroll", which is the question.
-                            audit.record(AuditEvent.of(principal, "list", name, decision, ""));
-                            continue;
-                        }
-                        RegisteredQuery query = required.require(name);
-                        // SX-11. The name a query was registered under is chosen by whoever
-                        // registered it, so deciding on the name alone listed 6 of 8 payroll-reading
-                        // views to a principal denied "payroll" -- with their full SQL text, which
-                        // carries the account numbers that made this a disclosure rather than an
-                        // inconvenience. What the query actually reads decides too.
-                        Listing listing = listingFor(principal, query, decision);
-                        if (!listing.allowed()) {
-                            continue;
-                        }
-                        audit.record(AuditEvent.of(principal, "list", name, decision, ""));
+                    // Filtered, not refused. A listing is how a client finds what it may use, so
+                    // showing nothing would be unhelpful and showing everything is a disclosure: the
+                    // SQL text carries account numbers and customer ids, which this repository's own
+                    // configuration says to permission like data. Which names appear, which are
+                    // hidden by what they read (SX-11), which refusals are recorded (SX-8) and which
+                    // counts are withheld (SX-18) are decided by QueryListing -- the same rules the
+                    // HTTP API's listing applies, written once so the two cannot drift.
+                    for (QueryListing.Entry entry : new QueryListing(required, policy, audit).list(principal, "list")) {
+                        RegisteredQuery query = entry.query();
+                        // Fields 0-4 are the original contract; 5-7 were added after it and are
+                        // trailing, so a client that reads five fields reads exactly what it always
+                        // did. Key ordinals comma-separated as REGISTER takes them, the sink's binding
+                        // name or empty, and the retention as ISO-8601 or "forever".
                         listener.onNext(new Result(ControlWire.encode(
-                                name,
+                                entry.name(),
                                 query.state().name(),
                                 query.sql(),
                                 query.fingerprint().shortForm(),
-                                listing.rowsInText(query.rowsIn()))));
+                                Long.toString(entry.rowsIn()),
+                                ordinals(query.view().keyOrdinals()),
+                                entry.sink().orElse(""),
+                                query.view().retention().toString())));
                     }
                 }
                 default ->
@@ -481,85 +481,6 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     }
 
     /**
-     * What a listing may say about one view: whether it appears at all, and whether its row count
-     * is this principal's to know.
-     *
-     * @param allowed the principal may read every base stream behind the view
-     * @param restricted their access to it is conditional on a row filter, so the view's totals
-     *     describe rows they may not see
-     */
-    private record Listing(boolean allowed, boolean restricted) {
-
-        /**
-         * The {@code ROWS IN} field, withheld when the principal is entitled to a slice.
-         *
-         * <p><strong>SX-18, and this is a wire-contract decision, stated deliberately.</strong> The
-         * field stays what it has always been -- a decimal {@code long} in text -- and {@code -1}
-         * means "not disclosed". Three things decide it:
-         *
-         * <ul>
-         *   <li>{@code rowsIn} is a monotonic counter that is never negative, so a negative value
-         *       cannot collide with a true count. There is no value it could be mistaken for.
-         *   <li>Both shipped clients already parse it without a change: the Java SDK's {@code
-         *       Long.parseLong} and the Python SDK's {@code int()} both accept {@code -1}. An
-         *       <em>empty</em> field would have been the other candidate and is the trap -- both
-         *       clients turn an unparseable field into {@code 0}, which is a lie about a view that
-         *       has rows, and exactly the lie this finding says not to tell.
-         *   <li>An old client that has not been taught the convention prints {@code -1}, which
-         *       nobody reads as a row count. It degrades to visibly-odd rather than to plausibly-wrong.
-         * </ul>
-         *
-         * <p>The CLI renders it as {@code -} with a line saying why (see {@code ServerCommand}).
-         * bob, entitled to {@code region = 'EU'}, was being told {@code sales_view} holds 4 rows
-         * while his own read of it returns 2 -- true cardinality beyond his entitlement, which is
-         * data he was not authorized for however few bytes it takes to say.
-         */
-        String rowsInText(long rowsIn) {
-            return restricted ? "-1" : Long.toString(rowsIn);
-        }
-    }
-
-    /**
-     * Decides whether a view appears in a listing, and audits the decision that hid it.
-     *
-     * <p>SX-11, on the listing path. {@code ViewQuery} enforces the same rule on the read itself;
-     * this is what stops a denied principal learning that the view exists and reading its SQL text,
-     * which is the disclosure half of the same finding. Both are needed: closing only the read
-     * leaves the account numbers in the listing.
-     *
-     * <p>A view with no recorded provenance is its own source and is decided by its name alone,
-     * exactly as before.
-     *
-     * <p>SX-8: a refusal here is recorded against the <em>stream</em> that caused it, with the view
-     * that would have disclosed it as the detail. That is the same noun {@code ViewQuery} audits
-     * provenance under, so "who tried to reach payroll" is one grep over one field rather than two
-     * queries that have to be joined by a reader.
-     */
-    private Listing listingFor(Principal principal, RegisteredQuery query, AccessDecision byName) {
-        boolean restricted = byName.rowFilter().isPresent();
-        for (String stream : query.view().derivedFrom()) {
-            if (stream.equals(query.view().name())) {
-                continue;
-            }
-            AccessDecision behind = policy.mayRead(principal, stream);
-            if (!behind.allowed()) {
-                audit.record(AuditEvent.of(
-                        principal,
-                        "list",
-                        stream,
-                        behind,
-                        "hidden from the listing: " + query.view().name()));
-                return new Listing(false, restricted);
-            }
-            // A filter anywhere behind the view restricts what this principal may read through it,
-            // so the view's totals are not theirs either -- the row count has to be withheld on the
-            // same evidence the rows are.
-            restricted = restricted || behind.rowFilter().isPresent();
-        }
-        return new Listing(true, restricted);
-    }
-
-    /**
      * Refuses a control verb the principal may not use on this view.
      *
      * <p>These three verbs authorized nothing whatsoever. An unauthenticated caller dropped every
@@ -574,6 +495,44 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      * checking there is one, so an empty body reached the client as an {@code INTERNAL} carrying a
      * Java array index -- a stack detail in place of "you did not say which query".
      */
+    /**
+     * A registration's retention, from the control wire's fifth field.
+     *
+     * <p>Blank means "this node's default", which is what a client that sends no fifth field gets.
+     * Anything else must be an ISO-8601 duration or {@code forever}: a retention that could not be read
+     * is refused rather than defaulted, because silently keeping a day of a view somebody asked to keep
+     * for an hour changes what the view means.
+     */
+    static Retention retentionOf(String field) {
+        String text = field == null ? "" : field.strip();
+        if (text.isEmpty()) {
+            return null;
+        }
+        if (text.equalsIgnoreCase("forever")) {
+            return Retention.forever();
+        }
+        try {
+            java.time.Duration age = java.time.Duration.parse(text.toUpperCase(java.util.Locale.ROOT));
+            return Retention.ofAge(age);
+        } catch (java.time.format.DateTimeParseException | IllegalArgumentException e) {
+            throw new PravahaException(
+                    FlightErrors.BAD_HANDLE,
+                    "'" + text + "' is not a retention. Give an ISO-8601 duration of event time, such as PT24H "
+                            + "or P7D, or 'forever'; the age must be positive.");
+        }
+    }
+
+    private static String ordinals(List<Integer> keys) {
+        StringBuilder text = new StringBuilder();
+        for (int key : keys) {
+            if (!text.isEmpty()) {
+                text.append(',');
+            }
+            text.append(key);
+        }
+        return text.toString();
+    }
+
     private static void requireName(List<String> fields, String verb) {
         if (fields.isEmpty() || fields.get(0).isBlank()) {
             throw new PravahaException(

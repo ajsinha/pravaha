@@ -19,6 +19,7 @@ from pravaha.errors import (
     InvalidTlsOptionsError,
 )
 from pravaha.options import ClientOptions
+from pravaha.rest import ApiError
 from pravaha.tls import TlsOptions
 
 
@@ -36,6 +37,7 @@ def connect(*args, **kwargs):
 
 
 __all__ = [
+    "ApiError",
     "ClientOptions",
     "connect",
     "Consistency",

@@ -829,6 +829,31 @@ public final class ServedView {
         return commits;
     }
 
+    private final java.util.concurrent.atomic.AtomicLong timedCommits = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong commitNanos = new java.util.concurrent.atomic.AtomicLong();
+
+    /** Recorded by the {@link ViewSink} that commits this view, for each commit that changed it. */
+    void recordCommitNanos(long nanos) {
+        commitNanos.addAndGet(Math.max(0, nanos));
+        timedCommits.incrementAndGet();
+    }
+
+    /**
+     * Commits that changed this view and were timed, from apply to the last listener delivered.
+     *
+     * <p>A count and a total rather than a distribution: the mean over any window is the difference
+     * of two totals divided by the difference of two counts, which is exact. Percentiles would need
+     * every commit's duration kept, and this does not keep them, so it does not claim them.
+     */
+    public long timedCommits() {
+        return timedCommits.get();
+    }
+
+    /** The total time {@link #timedCommits} took, in nanoseconds. */
+    public long commitNanosTotal() {
+        return commitNanos.get();
+    }
+
     /** The key of a row already read out as values, which is the shape a snapshot holds. */
     private Key keyOf(Object[] values) {
         Object[] key = new Object[keyOrdinals.length];

@@ -160,6 +160,14 @@ public final class ViewSink {
         // only appears in the deployments that never subscribe"; the no-listener path was the one
         // that cleared, and the leak needed a subscriber attached. Measured both ways on identical
         // input: 100 001 pending with a subscriber, 0 without (STRM-5).
+        // Timed from here to the last listener having its batch: applying the changes to the view and
+        // delivering them to every subscriber and sink is what a commit costs, and a slow sink is part
+        // of that cost because it runs on this thread. A commit with nothing in it is not timed -- an
+        // idle query commits on every watermark tick, and averaging those in would report a latency
+        // nobody waiting for a change ever experiences.
+        long started = System.nanoTime();
+        boolean changed = view.pendingChanges() > 0;
+        boolean applied = false;
         try {
             synchronized (publishLock) {
                 if (atApplied) {
@@ -167,6 +175,7 @@ public final class ViewSink {
                 }
                 try {
                     view.commit(committedFrontier);
+                    applied = true;
                 } finally {
                     // The end of the commit either way, and the audience it was staged for.
                     audience = batchAudience;
@@ -184,6 +193,9 @@ public final class ViewSink {
             // rather than the lane's next batch; to the audience the commit began with, not to
             // whoever is attached now (STRM-11).
             deliver(batch, audience, committedFrontier);
+            if (applied && changed) {
+                view.recordCommitNanos(System.nanoTime() - started);
+            }
         }
     }
 
