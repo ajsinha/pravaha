@@ -402,6 +402,15 @@ public final class PhysicalPlanBuilder {
             right = filter.getInput();
         }
         if (!(right instanceof org.apache.calcite.rel.core.Snapshot snapshot)) {
+            if (readsASnapshot(right)) {
+                // HLP-14(b). A WHERE on a looked-up column is pushed below the join, onto the lookup
+                // side, and landed on the correlated-subquery refusal -- a reason about a construct
+                // the query never used.
+                throw unsupported("a filter on a column of the lookup table is refused: a lookup is asked "
+                        + "one key at a time and returns that key's row, so there is nothing on its side to "
+                        + "filter before the join. Write the join as a LEFT JOIN ... FOR SYSTEM_TIME AS OF "
+                        + "and keep the condition in WHERE, which filters the joined rows and plans");
+            }
             throw unsupported(
                     "correlated subqueries are not supported; the only correlated form Pravaha runs is a join "
                             + "against a lookup table, written as 'JOIN dim FOR SYSTEM_TIME AS OF <time>'");
@@ -837,11 +846,18 @@ public final class PhysicalPlanBuilder {
         if (window != null) {
             int[] boundaries = windowBoundaryOrdinals(input.outputSchema(), groupKeys);
             if (boundaries == null) {
+                // HLP-14(c). The window is found by its columns' names among the grouped columns, so
+                // a SELECT that renames one (window_end AS closes) hides it -- and the message said
+                // the GROUP BY lacked a window it had.
                 throw new PravahaException(
                         SqlErrors.UNBOUNDED_STATE,
-                        "this GROUP BY is over a windowed stream but does not group by the window: add "
-                                + "window_start and window_end to the GROUP BY. Without them the aggregate spans "
-                                + "every window at once, which is the unbounded case wearing a window's clothes.");
+                        "this GROUP BY is over a windowed stream, and the window is found by its columns' names, "
+                                + "window_start and window_end, among the grouped columns: here they are "
+                                + namesOf(groupKeys, input.outputSchema()) + ". Group by both, and keep their "
+                                + "names -- a SELECT that renames one (window_end AS closes) hides it; rename it "
+                                + "in an outer query or in the client instead. Without the window the aggregate "
+                                + "spans every window at once, which is the unbounded case wearing a window's "
+                                + "clothes.");
             }
             return new WindowedAggregateOperator(
                     input,
@@ -1014,6 +1030,19 @@ public final class PhysicalPlanBuilder {
             }
             return null;
         }
+    }
+
+    /** Whether a lookup's snapshot sits somewhere under this relation. */
+    private static boolean readsASnapshot(RelNode rel) {
+        if (rel instanceof org.apache.calcite.rel.core.Snapshot) {
+            return true;
+        }
+        for (RelNode input : rel.getInputs()) {
+            if (readsASnapshot(input)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

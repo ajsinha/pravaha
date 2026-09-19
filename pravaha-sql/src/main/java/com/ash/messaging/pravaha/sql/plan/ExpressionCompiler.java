@@ -260,12 +260,16 @@ final class ExpressionCompiler {
             return null;
         }
         if (call.getType().isNullable()) {
+            // HLP-14(a). This advised adding IS NOT NULL to the operand, and a query that did so was
+            // refused the same way: the comparison stays nullable in Calcite's typing. IS TRUE and
+            // IS NOT FALSE are NOT NULL by definition.
             throw new PravahaException(
                     SqlErrors.UNSUPPORTED_EXPRESSION,
                     "'" + call + "' is a boolean that can be UNKNOWN, and a projected column holds TRUE or "
                             + "FALSE. Projecting it would report UNKNOWN as FALSE, which is a wrong answer "
-                            + "rather than a missing one. Write it as CASE WHEN " + call + " THEN TRUE ELSE "
-                            + "FALSE END if that collapse is what you mean, or add IS NOT NULL to the operand.");
+                            + "rather than a missing one. Say which answer UNKNOWN should be: (<condition>) IS TRUE "
+                            + "reads it as FALSE, and (<condition>) IS NOT FALSE as TRUE -- for example "
+                            + "(status = 'ok') IS TRUE. Both are never UNKNOWN, so both plan.");
         }
         return new Expression.Case(predicate, Expression.Literal.ofBoolean(true), Expression.Literal.ofBoolean(false));
     }

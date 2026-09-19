@@ -132,7 +132,7 @@ class WindowedPlanTest {
                         + "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
                         + "GROUP BY user_id"))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("does not group by the window")
+                .hasMessageContaining("Group by both")
                 .hasMessageContaining("window_start");
     }
 
