@@ -202,7 +202,7 @@ public final class QueryExecution implements AutoCloseable {
             com.ash.messaging.pravaha.runtime.lane.LaneRunner runner) {
 
         List<InterpretedPipeline> pipelines = new ArrayList<>(laneCount);
-        List<String> streams = streamsOf(plan);
+        List<String> streams = PlanShape.streamsOf(plan);
         StreamSchema[] inputSchema = new StreamSchema[1];
 
         LaneGroup group = new LaneGroup(
@@ -268,7 +268,7 @@ public final class QueryExecution implements AutoCloseable {
             Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups,
             MemoryAccess access) {
         java.util.Objects.requireNonNull(queryId, "queryId");
-        List<String> streams = streamsOf(plan);
+        List<String> streams = PlanShape.streamsOf(plan);
         List<InterpretedPipeline> pipelines = new ArrayList<>(group.laneCount());
         StreamSchema inputSchema = null;
 
@@ -636,7 +636,7 @@ public final class QueryExecution implements AutoCloseable {
      * wrong pump a message rather than quietly missing output.
      */
     private void refuseUnpartitionedJoin() {
-        if (laneCount() > 1 && containsJoin(plan)) {
+        if (laneCount() > 1 && PlanShape.containsJoin(plan)) {
             throw new PravahaException(
                     RuntimeErrors.UNSUPPORTED_JOIN,
                     "this query contains a join and runs on " + laneCount() + " lanes, so a row and the rows it "
@@ -662,7 +662,7 @@ public final class QueryExecution implements AutoCloseable {
      * until it is.
      */
     private void refuseUnpartitionedAggregate() {
-        if (laneCount() > 1 && containsKeyedAggregate(plan)) {
+        if (laneCount() > 1 && PlanShape.containsKeyedAggregate(plan)) {
             throw new PravahaException(
                     RuntimeErrors.UNSUPPORTED_AGGREGATE,
                     "this query groups by a key and runs on " + laneCount() + " lanes, and nothing routes a "
@@ -672,27 +672,6 @@ public final class QueryExecution implements AutoCloseable {
                             + "grouping key is not built (pumpPartitionedInto routes by join keys and needs a "
                             + "join), so run this query on one lane.");
         }
-    }
-
-    private static boolean containsKeyedAggregate(PhysicalOperator operator) {
-        // Both shapes. A windowed aggregate keyed only by the window boundaries is still safe on
-        // one lane and unsafe on several, because two lanes both holding the same window each keep
-        // their own running total for it.
-        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.WindowedAggregateOperator) {
-            return true;
-        }
-        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.AggregateOperator aggregate
-                && !aggregate.groupKeyOrdinals().isEmpty()) {
-            return true;
-        }
-        return operator.inputs().stream().anyMatch(QueryExecution::containsKeyedAggregate);
-    }
-
-    private static boolean containsJoin(PhysicalOperator operator) {
-        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.JoinOperator) {
-            return true;
-        }
-        return operator.inputs().stream().anyMatch(QueryExecution::containsJoin);
     }
 
     /**
@@ -744,7 +723,7 @@ public final class QueryExecution implements AutoCloseable {
      * whatever column happens to sit at that position -- correct-looking, and wrong.
      */
     private int[] joinKeyOrdinalsFor(int input) {
-        com.ash.messaging.pravaha.runtime.plan.JoinOperator join = findJoin(plan);
+        com.ash.messaging.pravaha.runtime.plan.JoinOperator join = PlanShape.findJoin(plan);
         if (join == null) {
             throw new IllegalStateException("this query has no join, so there is no key to partition by; use pumpInto");
         }
@@ -753,59 +732,14 @@ public final class QueryExecution implements AutoCloseable {
         PhysicalOperator side = left ? join.left() : join.right();
         int[] mapped = new int[keys.size()];
         for (int i = 0; i < mapped.length; i++) {
-            mapped[i] = mapDownToScan(side, keys.get(i));
+            mapped[i] = PlanShape.mapDownToScan(side, keys.get(i));
         }
         return mapped;
-    }
-
-    private int mapDownToScan(PhysicalOperator operator, int ordinal) {
-        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.ScanOperator) {
-            return ordinal;
-        }
-        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.ProjectOperator project) {
-            return mapDownToScan(project.input(), project.sourceOrdinals().get(ordinal));
-        }
-        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.FilterOperator filter) {
-            return mapDownToScan(filter.input(), ordinal);
-        }
-        throw new PravahaException(
-                RuntimeErrors.UNSUPPORTED_JOIN,
-                "cannot work out which source column feeds this join key: it passes through "
-                        + operator.label() + ", which changes what a column means. Run this query on one lane, "
-                        + "where no partitioning is needed.");
-    }
-
-    private static com.ash.messaging.pravaha.runtime.plan.JoinOperator findJoin(PhysicalOperator operator) {
-        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.JoinOperator join) {
-            return join;
-        }
-        for (PhysicalOperator input : operator.inputs()) {
-            com.ash.messaging.pravaha.runtime.plan.JoinOperator found = findJoin(input);
-            if (found != null) {
-                return found;
-            }
-        }
-        return null;
     }
 
     /** The streams this query reads, in plan order: a join's left side first. */
     public List<String> streams() {
         return streams;
-    }
-
-    /** Walks a plan for its scans, in the order the pipeline will register them. */
-    private static List<String> streamsOf(PhysicalOperator plan) {
-        List<String> found = new ArrayList<>();
-        collectStreams(plan, found);
-        return found;
-    }
-
-    private static void collectStreams(PhysicalOperator operator, List<String> into) {
-        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.ScanOperator scan) {
-            into.add(scan.streamName());
-            return;
-        }
-        operator.inputs().forEach(input -> collectStreams(input, into));
     }
 
     /** Which lane a key belongs to, by the group's virtual-partition assignment. */
