@@ -31,6 +31,7 @@ as "gateway".)
 | PRV-6102 | FLIGHT_BAD_HANDLE | Flight | — |
 | PRV-6103 | FLIGHT_PARAMETERS_TOO_LARGE | Flight | — |
 | PRV-6104 | FLIGHT_TLS_UNREADABLE | Flight | (startup) |
+| PRV-6105 | FLIGHT_SUBSCRIBER_BEHIND | Flight | — |
 | PRV-6200 | PGWIRE_UNSUPPORTED_TYPE | PostgreSQL | `0A000` |
 | PRV-6201 | PGWIRE_UNSUPPORTED_REQUEST | PostgreSQL | `0A000` |
 | PRV-6202 | PGWIRE_PROTOCOL_VIOLATION | PostgreSQL | `08P01` |
@@ -87,6 +88,18 @@ pravaha:
       certificate: /etc/pravaha/tls/server.crt
       key: /etc/pravaha/tls/server.key
 ```
+
+### PRV-6105 — Flight subscriber behind
+
+A **snapshot subscription** — `subscribeFromSnapshot` in Java, `subscribe(..., snapshot=True)` in
+Python, `pravaha subscribe --snapshot` — fell more than 64 commits behind the view, and the server
+ended its stream. A plain subscription drops batches in that position and carries on; a snapshot
+subscription promises the view and then *every* commit after it, so writing past one it would never
+receive would leave the client's copy silently wrong. Nothing is lost for good: **subscribe again**,
+and the new stream starts from a fresh snapshot. If it keeps happening, the consumer is doing too much
+in its callback — hand each batch to a queue of your own and return. Sent as `RESOURCE_EXHAUSTED`,
+which retrying clients already treat as retryable. See
+[Subscriptions](/help/topics/subscriptions) for the two kinds of subscription.
 
 ## The PostgreSQL gateway
 

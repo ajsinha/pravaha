@@ -176,7 +176,6 @@
       "duplicate_title": "This exact row is present {n} times",
       "rows_note": "the view now, plus every change since",
       "rows_note_truncated": "the first {n} rows of the view, plus every change since",
-      "rebase_failed": "The view could not be read to start from ({error}); showing only the changes that arrive from now on.",
       "ended": "The engine ended the subscription: {error}",
       "state": {
         "connecting": "connecting…",

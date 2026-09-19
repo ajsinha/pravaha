@@ -121,6 +121,27 @@ class BrowserEngine(FakeEngine):
         rows = self.view_rows.get(named.group(1), self.rows) if named else self.rows
         return ["txn_id", "user_id", "amount"], [list(r) for r in rows], ["int64", "string", "int64"]
 
+    def mirror(self, view, filters=None):
+        # Registered before the snapshot is handed over, as the engine registers a snapshot
+        # subscriber in the step that takes its snapshot: a change committed after this point
+        # reaches it, and one before is in the snapshot.
+        mine: queue.Queue = queue.Queue()
+        with self._tails_lock:
+            self._tails.append(mine)
+        try:
+            yield ("snapshot", self.snapshot_rows(), 1)
+            frontier = 1
+            while not self.closed.is_set():
+                try:
+                    change = mine.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+                frontier += 1
+                yield ("commit", [change], frontier)
+        finally:
+            with self._tails_lock:
+                self._tails.remove(mine)
+
     def commit(self, change: dict) -> None:
         """What the engine would publish when a view changes: to every open subscription.
 

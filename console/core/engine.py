@@ -227,6 +227,23 @@ class Engine:
                     values["_weight"] = row.weight
                     yield values
 
+    def mirror(self, view: str, filters: dict | None = None) -> Iterator[tuple[str, list, int | None]]:
+        """The view as it stands, then every commit after it: ``(kind, rows, frontier)``.
+
+        ``kind`` is ``"snapshot"`` once, first -- every row of the view at a commit, sent even
+        when there are none -- and ``"commit"`` after. Rows are dicts carrying ``_weight`` as
+        :meth:`tail`'s do. A snapshot subscription (SUB-1): unlike reading the view and then
+        tailing it, nothing that commits in between is lost.
+        """
+        with self._client() as client:
+            for batch in client.subscribe(view, filters or {}, snapshot=True):
+                rows = []
+                for row in batch:
+                    values = {name: row[name] for name in row.columns}
+                    values["_weight"] = row.weight
+                    rows.append(values)
+                yield ("snapshot" if batch.snapshot else "commit", rows, batch.frontier)
+
     # ------------------------------------------------------------------ the SDK's REST calls
 
     def streams(self) -> list[dict]:

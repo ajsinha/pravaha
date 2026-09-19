@@ -7,16 +7,18 @@ icon: broadcast
 summary: "Being told instead of asking: every committed change to a view, whole commits only, each row with its +1/-1 weight, filtered at the tap — from the CLI, both SDKs and the embedded engine."
 badge: STREAM
 audience: Developers
-keywords: [subscribe, tail, changes, changelog, weight, retraction, filter, tap, commit, conflate, slow subscriber, "--filter", "--limit"]
+keywords: [subscribe, tail, changes, changelog, weight, retraction, filter, tap, commit, conflate, slow subscriber, snapshot, mirror, "--filter", "--limit", "--snapshot", PRV-6105]
 guide: user-guide#4-subscribe
 related: [zset-weights, late-data, point-reads, consistency, client-snippets]
 ---
 
 A point read asks a view for its rows now. A **subscription** is told about every change to the view
 from the moment it attaches: each commit the engine makes arrives as one batch of rows, and each row
-carries a **weight** — `+1` for a row appearing, `-1` for a row being withdrawn. Reading the current
-rows and then applying every change since is how a live dashboard, a cache, or a downstream service
-stays exactly in step with the engine without ever re-reading the view.
+carries a **weight** — `+1` for a row appearing, `-1` for a row being withdrawn. Starting from the
+view's rows and then applying every change since is how a live dashboard, a cache, or a downstream
+service stays exactly in step with the engine without ever re-reading the view — and a subscription
+**from a snapshot** hands you both, with nothing between them (see
+[Keeping a full copy](#keeping-a-full-copy-subscribe-from-a-snapshot)).
 
 ## At a glance
 
@@ -25,7 +27,7 @@ stays exactly in step with the engine without ever re-reading the view.
 | What you name | A view (a registered continuous query's name), and optionally equality filters |
 | What you receive | One batch per **commit**, never a partial one, in commit order |
 | Each row | The view's columns, plus a weight: `+1` inserted, `-1` retracted |
-| Starts | At the next commit after you attach — not with the view's current contents |
+| Starts | At the next commit after you attach — or, subscribing **from a snapshot**, with the view's rows at a commit and then every commit after it |
 | Filters | `column = value` pairs, applied on the server at the tap; an unknown column is refused |
 | Carriers | Flight (`pravaha subscribe`, `client.subscribe` in both SDKs, the console's live page), the embedded engine's `subscribe`, a Spring `@PravahaListener` |
 | Slow subscriber | Loses whole commits on the server side rather than slowing the query; the loss is recorded in the audit trail |
@@ -182,19 +184,52 @@ client.subscribe("large_payments", Map.of("merchant", "TRAVELCO"), batch -> { /*
 This is why a consumer can act on each batch as a consistent step of the view: after applying batch
 *n*, its copy equals the view as of commit *n*.
 
-## Keeping a full copy: read, then subscribe
+## Keeping a full copy: subscribe from a snapshot
 
-A subscription starts from now, so a consumer that needs the whole view does two things, in this
-order:
+A plain subscription starts from now, and **reading the view beside it does not close the gap**.
+Subscribe then read, or read then subscribe: either way the commit in flight at that moment can
+reach you by neither path — it is not in the rows you read, and your subscription was not in its
+audience — and nothing says so (SUB-1).
 
-1. **Subscribe**, and buffer what arrives.
-2. **Read** the view (`SELECT * FROM large_payments`) and load it.
-3. Apply the buffered changes whose rows are not already reflected, then keep applying.
+Subscribe **from a snapshot** instead. The first batch is the view as a commit left it — every row,
+filtered, each with its multiplicity as its weight, sent even when there are none — and every batch
+after it is a commit after that one. Load the first, apply the rest by weight: nothing is missed and
+nothing counted twice.
 
-The console's live page does exactly this: the current rows are the running Z-set sum of the view
-read on connect plus every change since. Because changes are keyed and weighted, applying one that the
-read already reflected and then its retraction nets out correctly for an aggregate view; for an exact
-replica, compare by key.
+```bash
+pravaha subscribe --view large_payments --snapshot
+```
+
+```text
+WEIGHT	txn_id	user_id	merchant	amount
++1	9001	u1	ACME-GROCERY	1250
+-- snapshot at frontier 41, 1 row
++1	9012	u3	ACME-GROCERY	1100
+-- commit, 1 row
+```
+
+```python
+for batch in client.subscribe("large_payments", snapshot=True):
+    if batch.snapshot:
+        copy = {row["txn_id"]: row.to_dict() for row in batch}
+    else:
+        for row in batch:
+            ...   # apply by weight
+```
+
+```java
+client.subscribeFromSnapshot("large_payments", batch -> {
+    if (batch.isSnapshot()) { /* load: its rows are copies and may be kept */ }
+    else { /* apply by weight */ }
+});
+```
+
+In the embedded engine, `engine.subscribeFromSnapshot(name, listener)` calls `onSnapshot` once and
+then `onCommit` per commit. The console's live page starts from the same kind of snapshot: the stream
+it opens sends the view first and then the changes.
+
+A server older than the client refuses a snapshot subscription with `PRV-6102`; a plain subscription
+still works there, with the gap above.
 
 ## When you cannot keep up
 
@@ -205,6 +240,7 @@ commits:
 | Where | Bound | What happens past it |
 |---|---|---|
 | Server, per Flight subscription | 64 commits waiting to be written to your connection | Further commits are **dropped whole** for this subscriber; when the subscription ends the number dropped is recorded in the audit trail (`N batches dropped for a slow subscriber`) |
+| Server, per Flight **snapshot** subscription | the same 64 commits | Nothing is dropped: the stream **ends with `PRV-6105`**, because a copy missing a commit is silently wrong. Subscribe again to start from a fresh snapshot |
 | Server, between the view and the tap | 10,000 rows, conflated by key | The latest value per key wins |
 | Embedded engine | `SubscriptionOptions.of(bufferRows, Overflow)` — `CONFLATE`, `DROP_OLDEST` or `FAIL` | `FAIL` ends *your* subscription, never the query |
 
@@ -212,9 +248,11 @@ The SDKs' `subscriberBufferRows` / `subscriber_buffer_rows` and `conflateOnOverf
 declared but not yet sent to the server; the server's own bounds above are what apply over Flight.
 
 !!! warning "Pitfall: a lost commit is silent to the client"
-    Over Flight, a subscriber that falls more than 64 commits behind loses commits and is not told on
-    the stream; the audit trail records it. For a ledger or anything that must not miss a change,
-    keep up (hand the work to your own queue), or periodically re-read the view and reconcile.
+    Over Flight, a plain subscriber that falls more than 64 commits behind loses commits and is not
+    told on the stream; the audit trail records it. For a ledger or anything that must not miss a
+    change, subscribe from a snapshot: it is ended with `PRV-6105` instead of skipped past a commit,
+    and subscribing again starts from a fresh snapshot. Either way, keep up by handing the work to
+    your own queue.
 
 ## Rows are flyweights (Java)
 

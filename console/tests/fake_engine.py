@@ -149,6 +149,14 @@ class FakeEngine:
         yield {"txn_id": 1, "user_id": "u1", "amount": 150, "_weight": 1}
         yield {"txn_id": 1, "user_id": "u1", "amount": 150, "_weight": -1}
 
+    def snapshot_rows(self):
+        """The view as a snapshot subscription starts from it: the rows a read would give."""
+        return [{"txn_id": r[0], "user_id": r[1], "amount": r[2], "_weight": 1} for r in self.rows]
+
+    def mirror(self, view, filters=None):
+        yield ("snapshot", self.snapshot_rows(), 1)
+        yield ("commit", list(self.tail(view, filters)), 2)
+
     # REST half
     def streams(self):
         self._check()

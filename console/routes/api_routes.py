@@ -168,6 +168,12 @@ class ApiRoutes(Routes):
             watching the same view, so the engine sees one subscriber however
             many people have the page open.
 
+            The first event after ``open`` is ``snapshot``: the view's rows (at most
+            the view row limit, with ``truncated`` and ``returned`` saying so) and the
+            frontier they are true at; every ``row`` after it is a change after that
+            view. A page that read the view separately and then opened this stream
+            could lose the commit landing between the two (SUB-1).
+
             Gated -- this is not metadata about a query, it is the query's own row-level
             output crossing the wire to a browser. An anonymous caller reaching this
             directly (the browser's EventSource sends the session cookie automatically for
@@ -191,9 +197,27 @@ class ApiRoutes(Routes):
                 try:
                     yield _sse("open", {"view": view, "filters": filters})
                     reported_lag = 0
+                    started = False
                     while True:
                         if await request.is_disconnected():
                             return
+                        if not started:
+                            # The view first, then only the changes after it (SUB-1): nothing
+                            # is drained until the starting view has been sent.
+                            taken = subscriber.take_snapshot()
+                            if taken is None:
+                                if subscriber.failure():
+                                    yield _sse("error", {"message": subscriber.failure()})
+                                    return
+                                yield ": keep-alive\n\n"
+                                await anyio.sleep(0.1)
+                                continue
+                            rows, frontier = taken
+                            limit = services.feeds.snapshot_rows
+                            yield _sse("snapshot", {"rows": rows[:limit], "frontier": frontier,
+                                                    "truncated": len(rows) > limit,
+                                                    "returned": min(len(rows), limit)})
+                            started = True
                         rows = subscriber.drain()
                         for row in rows:
                             if "_error" in row:

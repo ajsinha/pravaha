@@ -7,15 +7,17 @@
  * The stream is the console's own SSE endpoint, behind which one engine subscription is
  * shared by every browser watching the view (services.Broadcaster) -- so this tab costs
  * the engine nothing extra. Rows arrive with their weight. The "current rows" table is the
- * running Z-set sum of the view as read on connect plus every change since: a row is
- * present while its weight is positive, which is exactly how a correction (-1 old, +1 new)
- * should look. No key is assumed -- the engine does not publish a view's key yet -- so a
- * row's identity is its whole value, which is also what a weight is attached to.
+ * running Z-set sum of the view as the stream's first event gives it plus every change
+ * since: a row is present while its weight is positive, which is exactly how a correction
+ * (-1 old, +1 new) should look. No key is assumed -- the engine does not publish a view's
+ * key yet -- so a row's identity is its whole value, which is also what a weight is
+ * attached to. The starting view comes down the same stream as the changes, so none falls
+ * between the two (SUB-1).
  *
- * Hidden tab: the stream is closed and reopened on return, rebased on a fresh read of the
- * view (design 23.11: document.hidden suspends every subscription).
+ * Hidden tab: the stream is closed and reopened on return, and the new stream starts from
+ * the view again (design 23.11: document.hidden suspends every subscription).
  */
-import { call, esc, announce, formatValue, isNumericType, t } from "pravaha/lib.js";
+import { esc, announce, formatValue, isNumericType, t } from "pravaha/lib.js";
 import { themedChart, timeSeriesBase, lineSeries } from "pravaha/charts.js";
 
 const app = document.getElementById("live-app");
@@ -109,25 +111,22 @@ function start(root) {
   }
 
   /* ------------------------------------------------------------- the stream */
-  async function rebase() {
-    /* The view as it is now: the base the changes apply to. */
-    const filters = {};
-    if (filter.includes("=")) { const [k, ...v] = filter.split("="); filters[k] = v.join("="); }
-    try {
-      const answer = await call(`/views/${encodeURIComponent(view)}/lookup`, { json: { filters } });
-      if (answer.columns && answer.columns.length) { columns = answer.columns; types = answer.types || types; }
-      current = new Map();
-      answer.rows.forEach((values) => {
-        const id = identity(values);
-        const existing = current.get(id);
-        current.set(id, { values, weight: (existing ? existing.weight : 0) + 1, at: 0 });
-      });
-      document.getElementById("rows-note").textContent = answer.truncated
-        ? t("live.rows_note_truncated", { n: answer.returned }) : t("live.rows_note");
-      renderRows();
-    } catch (err) {
-      banner.innerHTML = `<div class="alert alert-warning py-2 small">${esc(t("live.rebase_failed", { error: err.message }))}</div>`;
-    }
+  function rebase(snapshot) {
+    /* The view the changes apply to, sent by the stream itself as its first event (SUB-1).
+       It used to be read here before the stream opened, and a commit landing between the
+       read and the stream reached this page by neither: the table was quietly wrong. */
+    const rows = snapshot.rows || [];
+    if (!columns.length && rows.length) columns = Object.keys(rows[0]).filter((k) => k !== "_weight");
+    current = new Map();
+    rows.forEach((row) => {
+      const values = valuesOf(row);
+      const id = identity(values);
+      const existing = current.get(id);
+      current.set(id, { values, weight: (existing ? existing.weight : 0) + (Number(row._weight ?? 1) || 1), at: 0 });
+    });
+    document.getElementById("rows-note").textContent = snapshot.truncated
+      ? t("live.rows_note_truncated", { n: snapshot.returned }) : t("live.rows_note");
+    renderRows();
   }
 
   function apply(row) {
@@ -155,6 +154,7 @@ function start(root) {
     setState("refreshing", t("live.state.connecting"));
     source = new EventSource(`/api/v1/views/${encodeURIComponent(view)}/stream${query}`);
     source.addEventListener("open", () => { setState("fresh", filter ? t("live.state.live_filtered", { filter }) : t("live.state.live")); banner.innerHTML = ""; });
+    source.addEventListener("snapshot", (event) => { rebase(JSON.parse(event.data)); });
     source.addEventListener("row", (event) => { if (!paused) apply(JSON.parse(event.data)); });
     source.addEventListener("lag", (event) => {
       counts.dropped = JSON.parse(event.data).dropped;
@@ -217,7 +217,7 @@ function start(root) {
     history.replaceState(null, "", location.pathname + (next.toString() ? "?" + next : ""));
     log = []; counts = { changes: 0, plus: 0, minus: 0, dropped: 0 }; samples = []; arrivals = [];
     renderCounters();
-    rebase().then(connect);
+    connect();
     announce(filter ? t("live.announce_filter", { filter }) : t("live.announce_all"));
   });
   if (filter.includes("=")) {
@@ -231,13 +231,13 @@ function start(root) {
     pauseBtn.textContent = paused ? t("live.resume") : t("live.pause");
     pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
     if (paused) setState("refreshing", t("live.state.paused"));
-    else rebase().then(connect);
+    else connect();
   });
   chartColumn.addEventListener("change", () => { samples = []; arrivals = []; if (chart) chart.redraw(); });
   chartMode.addEventListener("change", () => { samples = []; if (chart) chart.redraw(); });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) disconnect();
-    else if (!paused) rebase().then(connect);
+    else if (!paused) connect();
   });
   window.addEventListener("beforeunload", () => { if (source) source.close(); });
 
@@ -267,5 +267,5 @@ function start(root) {
     }
   }, 1000);
 
-  rebase().then(connect);
+  connect();
 }

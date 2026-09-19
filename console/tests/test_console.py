@@ -666,6 +666,55 @@ def test_a_browser_watching_a_view_receives_what_the_engine_publishes(engine, fe
             pass
 
 
+def test_a_browser_starts_from_rows_committed_before_it_opened_the_view(engine, feed):
+    """SUB-1 through the console against the real engine: the starting view comes with the stream.
+
+    A row committed before anyone watched is in the view; the live page used to learn it from a
+    separate read, and a commit between that read and the stream was lost. Now the stream's own
+    first event carries it, and the change after it follows.
+    """
+    from core.services import Services
+
+    engine_url, _ = engine
+    services = Services(Engine(engine_url))
+    # Its own SQL, so it is its own computation: the same question as another test's would be
+    # shared with it (one question, one computation) and start from that test's rows.
+    services.engine.register("ui_snap", "SELECT trade_id, product_type FROM trade", [0])
+    subscriber = None
+    try:
+        feed("UI-40", "SWAP")
+        deadline = time.time() + 30
+        while time.time() < deadline and not services.engine.query_typed("SELECT trade_id FROM ui_snap")[1]:
+            time.sleep(0.1)
+
+        subscriber = services.feeds.subscribe("ui_snap")
+        taken = None
+        deadline = time.time() + 30
+        while time.time() < deadline and taken is None:
+            taken = subscriber.take_snapshot()
+            time.sleep(0.05)
+        assert taken is not None, "the stream never gave a starting view"
+        rows, frontier = taken
+        assert "UI-40" in [row["trade_id"] for row in rows]
+        assert frontier is not None
+
+        feed("UI-41", "EQUITY")
+        seen = []
+        deadline = time.time() + 30
+        while time.time() < deadline and not seen:
+            seen = subscriber.drain(limit=50)
+            time.sleep(0.1)
+        assert ("UI-41", 1) in [(row["trade_id"], row["_weight"]) for row in seen]
+        assert "UI-40" not in [row["trade_id"] for row in seen], "a row in the starting view is not sent again"
+    finally:
+        if subscriber is not None:
+            subscriber.close()
+        try:
+            services.engine.drop("ui_snap")
+        except Exception:  # noqa: BLE001,S110 -- the drop is cleanup, not the assertion
+            pass
+
+
 def test_every_screen_renders_before_its_javascript_does(client):
     client.post("/queries", data={"name": "norender", "sql": TRADE_SQL, "keys": "0"})
     try:

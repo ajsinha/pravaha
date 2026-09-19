@@ -432,6 +432,80 @@ def test_declaring_a_stream_validates_the_name(signed_in):
     assert made.status_code == 200 and made.json()["name"] == "orders"
 
 
+class _ScriptedMirror(FakeEngine):
+    """An engine whose snapshot subscription delivers exactly what the test hands it, when it does."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        import queue as _queue
+
+        self.script: _queue.Queue = _queue.Queue()
+
+    def mirror(self, view, filters=None):
+        while True:
+            event = self.script.get()
+            if event is None:
+                return
+            yield event
+
+
+def _zset(rows):
+    sums: dict = {}
+    for row in rows:
+        key = tuple(sorted((k, v) for k, v in row.items() if k != "_weight"))
+        sums[key] = sums.get(key, 0) + row.get("_weight", 1)
+    return {k: w for k, w in sums.items() if w}
+
+
+def _await(condition, what):
+    import time
+
+    deadline = time.time() + 5
+    while not condition():
+        if time.time() > deadline:
+            raise AssertionError(f"timed out waiting for {what}")
+        time.sleep(0.01)
+
+
+def test_a_browser_attaching_between_commits_starts_from_the_view_and_misses_nothing():
+    """SUB-1, one level up: the live page's starting view and its changes, with nothing between.
+
+    The page read the view and then opened its stream; a commit landing between the two reached it
+    by neither. Now the feed keeps the view its snapshot subscription describes and hands each
+    browser that view and then every change after it, in one step. A browser attaching late gets
+    the commits it missed in its starting view, not as changes and not twice.
+    """
+    from core.services import Services
+
+    engine = _ScriptedMirror()
+    services = Services(engine)
+    u1 = {"user_id": "u1", "amount": 10, "_weight": 1}
+    u2 = {"user_id": "u2", "amount": 20, "_weight": 1}
+    early = services.feeds.subscribe("big_txn")
+    try:
+        engine.script.put(("snapshot", [u1], 1))
+        _await(lambda: early._snapshot is not None, "the first browser's starting view")
+        engine.script.put(("commit", [u2], 2))
+        _await(lambda: early._queue.qsize() == 1, "the commit to reach the first browser")
+
+        late = services.feeds.subscribe("big_txn")
+        try:
+            retract = dict(u1, _weight=-1)
+            engine.script.put(("commit", [retract], 3))
+            _await(lambda: late._queue.qsize() == 1, "the next commit to reach the late browser")
+
+            for browser in (early, late):
+                rows, _frontier = browser.take_snapshot()
+                copy = _zset(rows + browser.drain())
+                assert copy == _zset([u2]), "snapshot plus changes is the view, for every browser"
+            assert services.feeds.live_feeds() == 1, "still one engine subscription"
+        finally:
+            late.close()
+    finally:
+        early.close()
+        engine.script.put(None)
+
+
 def test_a_subscribed_row_carries_its_weight(engine):
     from core.services import Services
 

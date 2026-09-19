@@ -340,12 +340,23 @@ class Broadcaster:
     the first subscriber and stops when the last one leaves. Stopping on the first
     departure would take the feed away from everyone else, who have no idea the first
     subscriber existed.
+
+    **Every browser starts from the view, not from a read beside the stream (SUB-1).** The
+    live page used to read the view and then open the stream, and a commit landing between
+    the two reached it by neither path. The engine subscription is now a snapshot one, the
+    feed keeps the view it describes (the snapshot plus every commit, as a Z-set), and a
+    browser attaching is handed that state and then every change after it, in one step
+    under the feed's lock -- the same handoff the engine makes, one level up. The cost is
+    one copy of each watched view in this process, bounded by the view's own ceiling.
     """
 
     #: Rows buffered per browser before the oldest are dropped.
     BUFFER = 256
 
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, snapshot_rows: int = 500) -> None:
+        #: At most this many of the view's rows are sent to a browser as its starting point;
+        #: the page says when it was shown the first N rather than all of them.
+        self.snapshot_rows = snapshot_rows
         self._engine = engine
         self._lock = threading.Lock()
         self._feeds: dict[str, _Feed] = {}
@@ -377,6 +388,24 @@ class Subscriber:
         self._queue: queue.Queue = queue.Queue(maxsize=Broadcaster.BUFFER)
         self.dropped = 0
         self.closed = False
+        self._snapshot: tuple[list, int | None] | None = None
+
+    def start_from(self, rows: list, frontier: int | None) -> None:
+        """The view this browser starts from. Set under the feed's lock, before any row after it."""
+        self._snapshot = (rows, frontier)
+
+    def take_snapshot(self) -> tuple[list, int | None] | None:
+        """The starting view once it is known, handed over once; None until then.
+
+        A caller sends it before it drains a single row: the rows in the queue are the
+        changes after it, and only after it.
+        """
+        taken, self._snapshot = self._snapshot, None
+        return taken
+
+    def failure(self) -> str | None:
+        """Why the feed behind this subscriber stopped, if it did -- before or after its snapshot."""
+        return self._feed.error
 
     def offer(self, row: dict) -> None:
         try:
@@ -423,7 +452,13 @@ class Subscriber:
 
 
 class _Feed:
-    """The engine-side half: one subscription, many subscribers."""
+    """The engine-side half: one snapshot subscription, the view it describes, many subscribers.
+
+    ``_state`` is the view as the engine's snapshot and every commit since leave it, a
+    Z-set of rows. Applying a commit to it and offering that commit to the subscribers is
+    one step under ``_lock``, and so is a subscriber attaching and being handed a copy of
+    it: whatever the copy lacks, the subscriber is offered, and nothing twice.
+    """
 
     def __init__(self, engine: Engine, view: str, filters: dict, on_empty: Callable[[], None]) -> None:
         self._engine = engine
@@ -435,12 +470,17 @@ class _Feed:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.error: str | None = None
+        self._state: dict = {}                   # identity -> [row without _weight, weight]
+        self._frontier: int | None = None
+        self._ready = False                      # the engine's snapshot has arrived
 
     def attach(self) -> Subscriber:
         subscriber = Subscriber(self)
         with self._lock:
             self._subscribers.append(subscriber)
             first = len(self._subscribers) == 1
+            if self._ready:
+                subscriber.start_from(self._rows(), self._frontier)
         if first:
             self._thread = threading.Thread(target=self._pump, name=f"feed-{self._view}", daemon=True)
             self._thread.start()
@@ -457,15 +497,49 @@ class _Feed:
             self._stop.set()
             self._on_empty()
 
+    @staticmethod
+    def _identity(row: dict) -> tuple:
+        return tuple((name, repr(value)) for name, value in row.items() if name != "_weight")
+
+    def _apply(self, rows: list) -> None:
+        """Adds rows to the state by weight. Under the lock."""
+        for row in rows:
+            key = self._identity(row)
+            entry = self._state.get(key)
+            weight = int(row.get("_weight", 1))
+            if entry is None:
+                entry = self._state[key] = [{k: v for k, v in row.items() if k != "_weight"}, 0]
+            entry[1] += weight
+            if entry[1] == 0:
+                del self._state[key]
+
+    def _rows(self) -> list:
+        """The state as rows, each with its weight. Under the lock."""
+        return [dict(row, _weight=weight) for row, weight in self._state.values()]
+
     def _pump(self) -> None:
         try:
-            for row in self._engine.tail(self._view, self._filters):
+            for kind, rows, frontier in self._engine.mirror(self._view, self._filters):
                 if self._stop.is_set():
                     return
                 with self._lock:
-                    targets = list(self._subscribers)
-                for subscriber in targets:
-                    subscriber.offer(row)
+                    if kind == "snapshot":
+                        self._state = {}
+                        self._apply(rows)
+                        self._frontier = frontier
+                        self._ready = True
+                        starting = self._rows()
+                        for subscriber in self._subscribers:
+                            subscriber.start_from(list(starting), frontier)
+                        continue
+                    self._apply(rows)
+                    self._frontier = frontier
+                    # Offered under the lock that attach() takes, so a browser attaching now
+                    # either has this commit in its starting view or is offered it -- never
+                    # both, never neither. offer() does not block.
+                    for subscriber in self._subscribers:
+                        for row in rows:
+                            subscriber.offer(row)
         except Exception as exc:  # noqa: BLE001
             # Recorded and delivered to the browsers rather than dying silently: a live
             # tail that simply stops looks exactly like a stream with nothing in it.
@@ -949,7 +1023,7 @@ class Services:
         self.health = HealthService(engine)
         self.queries = QueryService(engine)
         self.adhoc = AdHocService(engine)
-        self.feeds = Broadcaster(engine)
+        self.feeds = Broadcaster(engine, snapshot_rows=row_limit)
         self.catalog = CatalogService(engine)
         self.authoring = AuthoringService(engine, self.catalog)
         self.views = ViewService(engine, self.queries, self.authoring, row_limit)
