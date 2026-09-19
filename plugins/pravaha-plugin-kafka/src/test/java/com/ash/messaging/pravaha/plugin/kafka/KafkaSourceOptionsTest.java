@@ -93,7 +93,9 @@ class KafkaSourceOptionsTest {
 
     @Test
     void settingsThatCannotBeHonouredAreRefusedAtConfigure() {
-        assertRefused(Map.of("format", "avro"), "is not json or changelog");
+        // The formats themselves, and every combination of format and schema option, are in
+        // KafkaSourceFormatOptionsTest; here only that a name that is no format at all is refused.
+        assertRefused(Map.of("format", "csv"), "is not json, changelog, avro or protobuf");
         assertRefused(Map.of("tombstone", "retract"), "tombstone must be reject or skip");
         assertRefused(Map.of("start.from", "committed"), "start.from must be earliest or latest");
         assertRefused(Map.of("isolation.level", "dirty"), "isolation.level must be");

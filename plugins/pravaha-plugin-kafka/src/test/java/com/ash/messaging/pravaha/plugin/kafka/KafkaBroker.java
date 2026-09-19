@@ -156,6 +156,18 @@ final class KafkaBroker {
         }
     }
 
+    /** The same, for a value that is not text: Avro's binary encoding, or a protobuf message. */
+    static void sendBytes(String topic, int partition, String key, byte[] value) {
+        try (KafkaProducer<byte[], byte[]> producer = producer(null)) {
+            try {
+                producer.send(new ProducerRecord<>(topic, partition, bytes(key), value))
+                        .get(30, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                throw new IllegalStateException("cannot write to " + topic + "/" + partition, e);
+            }
+        }
+    }
+
     static void send(KafkaProducer<byte[], byte[]> producer, String topic, int partition, String key, String value) {
         try {
             producer.send(new ProducerRecord<>(topic, partition, bytes(key), bytes(value)))
