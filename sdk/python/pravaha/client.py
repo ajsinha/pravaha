@@ -234,6 +234,57 @@ def _weighted_rows_of(table: Any) -> list[Row]:
         for r in range(table.num_rows)
     ]
 
+class ChangeBatch(list):
+    """One commit's rows -- or, first on a snapshot subscription, the view it starts from.
+
+    A ``list`` of :class:`Row`, so code written for plain subscriptions, which iterates or
+    indexes each batch, reads it unchanged. Two attributes say what it is:
+
+    ``snapshot``
+        True for the first batch of ``subscribe(..., snapshot=True)``: every row of the view
+        at a commit, each with its multiplicity as its weight, delivered even when empty.
+    ``frontier``
+        The committed frontier the batch brings the view to, or ``None`` on a plain
+        subscription, whose server does not say.
+    """
+
+    def __init__(self, rows: "Sequence[Row]", *, snapshot: bool = False,
+                 frontier: Optional[int] = None) -> None:
+        super().__init__(rows)
+        self.snapshot = snapshot
+        self.frontier = frontier
+
+    def __repr__(self) -> str:
+        kind = "snapshot" if self.snapshot else "commit"
+        return f"ChangeBatch({kind}, frontier={self.frontier}, rows={list.__repr__(self)})"
+
+
+_MARK_PREFIX = "pravaha:"
+_MARK_SNAPSHOT = "snapshot"
+_MARK_SNAPSHOT_END = "snapshot-end"
+
+
+def _mark_of(metadata: Any) -> "Optional[tuple[str, int]]":
+    """A snapshot stream's batch mark, ``pravaha:<kind>:<frontier>``; None when absent.
+
+    Only a snapshot subscription's batches carry one. Anything else in the metadata is not
+    ours and reads as no mark, rather than as a failure.
+    """
+    if metadata is None:
+        return None
+    raw = metadata.to_pybytes() if hasattr(metadata, "to_pybytes") else bytes(metadata)
+    if not raw:
+        return None
+    text = raw.decode("utf-8", errors="replace")
+    kind, _, frontier = text[len(_MARK_PREFIX):].rpartition(":")
+    if not text.startswith(_MARK_PREFIX) or not kind:
+        return None
+    try:
+        return kind, int(frontier)
+    except ValueError:
+        return None
+
+
 class QueryResult:
     """An answer, iterated as it arrives.
 
@@ -510,7 +561,8 @@ class Client:
         filters: Optional[dict] = None,
         *,
         batch_size_hint: Optional[int] = None,
-    ) -> Iterator["list[Row]"]:
+        snapshot: bool = False,
+    ) -> Iterator[ChangeBatch]:
         """Yields one list of rows per commit, for as long as you keep iterating.
 
             for batch in client.subscribe("trade_feed", {"product_type": "SWAP"}):
@@ -533,12 +585,24 @@ class Client:
 
         This is a generator and it does not end on its own: stop iterating, or close the
         client, when you have had enough.
+
+        **Keeping a copy of a view? Pass** ``snapshot=True``. A plain subscription starts at
+        the next commit and says nothing of what the view already holds, and reading the view
+        beside it does not close the gap: subscribe-then-read and read-then-subscribe can
+        both lose the commit in flight at that moment, silently (SUB-1). With
+        ``snapshot=True`` the first batch has ``batch.snapshot`` set and holds every row of
+        the view at a commit, each with its multiplicity as its weight -- sent even when
+        there are none -- and every batch after it is a commit after that one, so adding
+        weights gives the view with nothing missed and nothing counted twice. A subscriber
+        that falls too far behind has its stream ended with ``PRV-6105`` rather than skipped
+        past a commit; subscribe again to start from a fresh snapshot. A server older than
+        this SDK refuses ``snapshot=True`` with ``PRV-6102``.
         """
         pairs: list = []
         for column, value in (filters or {}).items():
             pairs.append(str(column))
             pairs.append(str(value))
-        ticket = _flight.Ticket(_subscribe_ticket(view, pairs))
+        ticket = _flight.Ticket(_subscribe_ticket(view, pairs, snapshot=snapshot))
         try:
             reader = self._client.do_get(ticket, self._call_options)
         except Exception as exc:
@@ -547,10 +611,19 @@ class Client:
             # failure so callers catch one exception type rather than pyarrow's several.
             raise QueryError(_message_of(exc)) from exc
         try:
+            parts: list = []
             for chunk in reader:
                 rows = _weighted_rows_of(chunk.data)
+                mark = _mark_of(getattr(chunk, "app_metadata", None))
+                if mark is not None and mark[0] in (_MARK_SNAPSHOT, _MARK_SNAPSHOT_END):
+                    # A snapshot may span several Arrow batches; it is handed over as one.
+                    parts.extend(rows)
+                    if mark[0] == _MARK_SNAPSHOT_END:
+                        whole, parts = parts, []
+                        yield ChangeBatch(whole, snapshot=True, frontier=mark[1])
+                    continue
                 if rows:
-                    yield rows
+                    yield ChangeBatch(rows, frontier=None if mark is None else mark[1])
         except (KeyboardInterrupt, GeneratorExit):
             raise
         except QueryError:
@@ -820,8 +893,11 @@ def _wire_decode(payload: bytes) -> "list[str]":
     return fields
 
 
-def _subscribe_ticket(view: str, filter_pairs: Sequence[str]) -> bytes:
-    return _wire_encode(["subscribe", view, *filter_pairs])
+def _subscribe_ticket(view: str, filter_pairs: Sequence[str], *, snapshot: bool = False) -> bytes:
+    # A verb of its own for the snapshot form, so an older server refuses it as a ticket it
+    # does not know rather than reading a flag as a filter column.
+    verb = "subscribe.snapshot" if snapshot else "subscribe"
+    return _wire_encode([verb, view, *filter_pairs])
 
 
 def _at(row: Sequence[str], index: int) -> str:

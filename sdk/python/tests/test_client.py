@@ -567,3 +567,115 @@ def test_a_filter_naming_an_unknown_column_is_refused(client):
         assert "has no column" in str(refused.value)
     finally:
         client.drop("py_filter")
+
+
+# --- Snapshot subscriptions (SUB-1): the view, then every commit after it -------------------
+
+
+def test_a_snapshot_ticket_has_its_own_verb_and_a_plain_one_is_unchanged():
+    from pravaha.client import _subscribe_ticket, _wire_decode
+
+    assert _wire_decode(_subscribe_ticket("v", ["c", "x"])) == ["subscribe", "v", "c", "x"]
+    assert _wire_decode(_subscribe_ticket("v", [], snapshot=True)) == ["subscribe.snapshot", "v"]
+
+
+def test_a_batch_mark_is_read_and_anything_else_is_no_mark():
+    from pravaha.client import _mark_of
+
+    assert _mark_of(pyarrow.py_buffer(b"pravaha:snapshot-end:42")) == ("snapshot-end", 42)
+    assert _mark_of(pyarrow.py_buffer(b"pravaha:commit:-7")) == ("commit", -7)
+    assert _mark_of(None) is None
+    assert _mark_of(pyarrow.py_buffer(b"")) is None
+    assert _mark_of(pyarrow.py_buffer(b"somebody else's")) is None
+    assert _mark_of(pyarrow.py_buffer(b"pravaha:commit:soon")) is None
+
+
+def test_a_change_batch_is_still_a_list():
+    from pravaha.client import ChangeBatch
+
+    batch = ChangeBatch([1, 2], snapshot=True, frontier=9)
+    assert batch == [1, 2] and len(batch) == 2
+    assert batch.snapshot and batch.frontier == 9
+    assert "snapshot" in repr(batch)
+
+
+def test_a_snapshot_subscription_starts_from_the_view_and_misses_nothing_after_it(client, feed):
+    """What a plain subscription cannot do: rows committed before it attached arrive first.
+
+    The first batch is the view as a commit left it, marked as the snapshot, and the next is the
+    commit after it -- so a copy built from the two is the view, with no read beside the
+    subscription to race.
+    """
+    client.register("py_snap", TRADE_SQL, [0])
+    stream = None
+    try:
+        feed("T-40", "SWAP")
+        deadline = time.time() + 30
+        while time.time() < deadline and not list(client.query("SELECT trade_id FROM py_snap")):
+            time.sleep(0.1)
+
+        stream = client.subscribe("py_snap", snapshot=True)
+        batches: list = []
+        done = threading.Event()
+
+        def run():
+            for batch in stream:
+                batches.append(batch)
+                if len(batches) >= 2:
+                    done.set()
+                    return
+
+        threading.Thread(target=run, daemon=True).start()
+        deadline = time.time() + 30
+        while time.time() < deadline and not batches:
+            time.sleep(0.05)
+        feed("T-41", "EQUITY")
+        assert done.wait(30)
+
+        first, second = batches[0], batches[1]
+        assert first.snapshot and first.frontier is not None
+        assert [row["trade_id"] for row in first] == ["T-40"]
+        assert [row.weight for row in first] == [1]
+        assert not second.snapshot
+        assert [(row["trade_id"], row.weight) for row in second] == [("T-41", 1)]
+        assert second.frontier >= first.frontier
+    finally:
+        if stream is not None:
+            stream.close()
+        client.drop("py_snap")
+
+
+def test_a_filtered_snapshot_of_nothing_still_arrives(client):
+    client.register("py_snap_empty", TRADE_SQL, [0])
+    stream = client.subscribe("py_snap_empty", {"product_type": "NONE"}, snapshot=True)
+    try:
+        first = next(iter(stream))
+        assert first.snapshot
+        assert list(first) == []
+    finally:
+        stream.close()
+        client.drop("py_snap_empty")
+
+
+def test_a_plain_subscriptions_batches_carry_no_snapshot_and_no_frontier(client, feed):
+    client.register("py_plain", TRADE_SQL, [0])
+    stream = client.subscribe("py_plain")
+    try:
+        batches: list = []
+
+        def run():
+            for batch in stream:
+                batches.append(batch)
+                return
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        time.sleep(1.0)
+        feed("T-50", "SWAP")
+        worker.join(30)
+
+        assert len(batches) == 1
+        assert not batches[0].snapshot and batches[0].frontier is None
+    finally:
+        stream.close()
+        client.drop("py_plain")
