@@ -87,19 +87,15 @@ class ErrcSqlTest extends ErrcTestSupport {
                 .as("CLI validate's actual code for this SQL")
                 .contains("PRV-2002")
                 .doesNotContain("PRV-2003");
-        // SX-5 removed the list of declared names from this message, and this assertion is the
-        // cost of that, written down rather than quietly dropped. On the CLI the schema came from
-        // the caller's own --schema flag a moment earlier, so naming it back discloses nothing --
-        // but SqlPlanner cannot tell a local `pravaha validate` from a remote reader, and the
-        // remote case is where the list becomes a catalogue dump to someone authorized for nothing.
-        //
-        // So the suppression is blanket and the CLI pays for it. Recorded as SX-19: the CLI owns
-        // the schema it passed in and could append those names itself when it catches PRV-2002,
-        // which restores the help exactly where it is safe.
+        // SX-5 removed the list of declared names from this message, because `SqlPlanner` cannot
+        // tell a local `pravaha validate` from a remote reader and the remote case is where the
+        // list becomes a catalogue dump to someone authorized for nothing. SX-19 restored it where
+        // it is safe, by the route this assertion used to ask for: the CLI owns the schema it was
+        // given on --schema a moment earlier, so it names that stream back itself when it catches
+        // PRV-2002. The planner still says nothing.
         assertThat(r.stderr())
-                .as("the count is kept; the names are not, and on this surface that is a loss (SX-19)")
-                .contains("stream(s) declared")
-                .doesNotContain("txn:");
+                .as("the CLI names back the stream the caller gave it (SX-19)")
+                .contains("the one you named: 'txn'");
     }
 
     // PRV-2003's real surface (confirmed, not re-tested here to avoid duplicating existing, passing
