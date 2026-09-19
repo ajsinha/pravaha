@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **310 findings carrying a
-status — 194 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
+only part that is kept current. Counting the register as it stands: **311 findings carrying a
+status — 195 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6642,4 +6642,10 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** OPEN — `RegisteredQuery.close()` runs the lanes' finishers and commits what they emit (W-2), and `GlobalAggregate.emit()` inserts the current answer with weight +1 without retracting the identical answer it already published. Subscribers receive a spurious +1 at a drop, and the view's per-key weight is doubled just before it is discarded.
 > **Disposition:** POST-GA — contained: a revising query cannot be attached to an append-only sink (PRV-2041), an upsert sink absorbs a repeat of the same value, and a transactional sink's post-checkpoint tail is aborted at the next start; the fix is for a continuous global aggregate's finisher to emit nothing it has not already emitted incrementally
+
+### TEST-1 (HIGH) — every container-backed integration test skipped silently on a machine with Docker
+
+> **Status:** FIXED — the root POM passes `api.version` (`docker.api.version`, 1.44) to the surefire and failsafe JVMs. Before: all 51 tests in `AerospikePluginIT`, `AerospikeSourceTckIT`, `AerospikeContinuousQueryIT`, `AerospikeSourceScaleIT`, `PostgresJdbcIT`, `PostgresJdbcSinkIT`, `CassandraPluginIT` and `CassandraSourceTckIT` reported skipped. After: 51 run, 0 failures, 0 skipped, against real Aerospike, PostgreSQL and Cassandra containers.
+> **Cause.** Testcontainers 1.21.3's docker-java client asks for Docker API 1.32 unless told otherwise, and Docker Engine 29 refuses anything below 1.40 (`client version 1.32 is too old`). Testcontainers reports that as "Docker is not available", and each test's `assumeThat(isDockerAvailable())` turned it into a skip -- so a green build said nothing about any connector against a real store, and every "needs Docker" note in the documentation was describing this machine's client, not its Docker.
+> **Why it mattered:** the real-server proof of four connectors and both database sinks was not running, while the build reported success.
 
