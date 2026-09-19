@@ -220,7 +220,7 @@ is sized by cores — roughly 30 of them on this class of box, whatever the quer
 > That combination is refused (`PRV-3020`) rather than left to be discovered in the numbers. Run a
 > keyed aggregate on one lane until key-partitioned ingestion exists.
 
-| Inbox, arena, timer wheel, thread | **0** *designed* | ~150 MB total | Per lane, ~30 of them. **As built on a node: the thread is shared and the inbox and arena are not.** `LaneRunner` gives the node one thread per core whatever the query count (W9-5), but by default a node's lane still runs one query — `pravaha.lane.multiplex.enabled` shares lanes, one query per stream per lane (W9-8) — so its inbox is per query — 1,024 KiB by default, and the arena's first slab is allocated on the first row rather than at registration (W9-6). Measured: **1,024 KiB per idle query, 1,328 KiB active**, down from ~5 MiB — and the lane's arena is **zero** for both a projection and a windowed aggregate, because operator output goes to the view rather than through the lane's scratch. The inbox is the whole of the idle cost; sized down (`inbox.cells: 256`, `cell-bytes: 256`) a thousand idle queries is about 64 MB |
+| Inbox, arena, timer wheel, thread | **0** *designed* | ~150 MB total | Per lane, ~30 of them. **As built on a node: the thread is shared and the inbox and arena are not.** `LaneRunner` gives the node one thread per core whatever the query count (W9-5), but by default a node's lane still runs one query — `pravaha.lane.multiplex.enabled` shares lanes between any queries (W9-8, LANE-2) — so its inbox is per query — 1,024 KiB by default, and the arena's first slab is allocated on the first row rather than at registration (W9-6). Measured: **1,024 KiB per idle query, 1,328 KiB active**, down from ~5 MiB — and the lane's arena is **zero** for both a projection and a windowed aggregate, because operator output goes to the view rather than through the lane's scratch. The inbox is the whole of the idle cost; sized down (`inbox.cells: 256`, `cell-bytes: 256`) a thousand idle queries is about 64 MB |
 | Aerospike connections | **0** | one pool | Node-wide, shared |
 
 The 64 GB heap is therefore *not* where the money goes, and that is deliberate: the heap holds
@@ -282,12 +282,17 @@ nowhere gets a lane of its own — never a refusal, because turning on a memory 
 a node accept fewer queries. Off by default because a shared lane shares its fate: one pipeline
 that throws stops every query on the lane.
 
-**A shared lane carries one query per stream.** The multiplexer dispatches by stream and assumes one
-ingest per stream per lane fanned out to every pipeline; the feed layer gives each registration its
-own feed, so two queries over one stream on one lane each received the other's copy of every row
-(a count of 4 read 8). Placement keeps them apart, and joins — two streams, where a shared lane has
-one inbox — are never hosted. Sharing the ingest is what would let a thousand queries over one
-stream share lanes, and it is not built.
+**A shared lane takes any query, and one copy of a shared source (LANE-2).** The multiplexer
+dispatched by stream, which assumed one ingest per stream per lane, while the feed layer gave each
+registration its own feed — so two queries over one stream on one lane each received the other's
+copy of every row (a count of 4 read 8), and placement had to keep them apart and never host a join
+(LANE-1). Rows now carry a *route*: each hosted input has a private one, stamped on whatever that
+query is fed alone, and a reader shared by several queries (SRC-3) writes each row into a shared
+lane once under a route of its own that every query on the lane reading it listens to. Listening
+starts and stops by control task, so at an exact row: a joiner is handed nothing from before it
+joined, a paused query nothing after it paused. A thousand queries over one source on eight lanes
+are eight inboxes and eight copies of each row. A source promising exactly-once or order keeps a
+reader per query, each writing its own copy into the shared inbox.
 
 Two things had to be true first, and both are. A row carries a `streamId` the registry assigns, and
 the multiplexer refuses an unassigned one rather than guessing (W9-9) — before that every row of

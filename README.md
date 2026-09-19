@@ -93,7 +93,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 | **State** | Off-heap: join indexes and windowed-aggregate accumulators live in `RowStore` blocks behind open-addressed tables, `COUNT(DISTINCT)`'s values included. With `pravaha.state.spill.*` set, state past its memory ceiling spills to memory-mapped files and the query slows instead of stopping. Per-query gauges show state approaching its ceiling |
 | **Recovery** | Checkpoints hold operator state, source offsets and the served view, cut at one point across every input (ADR-008), so a restart resumes rather than replaying from scratch or starting empty. The registry journal brings back every registration, and its sink |
 | **Survival** | A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query |
-| **Many queries on one node** | A fixed pool of one thread per core drives every lane, and the watermark and checkpoint clocks are one timer for the process: **200 queries add 24 platform threads** on 24 cores, where they once added 400. About **1 MiB off-heap per idle query**, and every component reports its own bytes |
+| **Many queries on one node** | A fixed pool of one thread per core drives every lane, and the watermark and checkpoint clocks are one timer for the process: **200 queries add 24 platform threads** on 24 cores, where they once added 400. About **1 MiB off-heap per idle query** on a lane of its own, and every component reports its own bytes. With lane sharing on, **1,000 queries over one source run on 8 lanes, and each row is written into them 8 times instead of 1,000** |
 | **Security** | Authentication, authorization on what a query reads rather than what it is called, row filters, prepared statements, audit. The node refuses to start open unless told to |
 | **Embedding** | `PravahaEngine` runs the whole loop inside an application — streams, plugin bindings, continuous queries, pushed rows, SQL reads, change subscriptions, journal and checkpoints — with no Spring and no network. `pravaha-spring-boot-starter` makes it a bean, with `PravahaTemplate` and `@PravahaListener` delivering committed changes, retractions included, to a method, a `@PravahaTest` slice for testing it, and an actuator endpoint and health contribution when Actuator is present. See [the user guide](docs/USER_GUIDE.md) |
 
@@ -104,11 +104,14 @@ corrected by late data arrives as a retraction of the old answer followed by the
   execution is single-node and a node refuses `PARTITIONED` mode (`PRV-9002`) rather than serve every
   partition while claiming to own some. Rebalance and handoff are built as a library and wired to
   nothing ([ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 8).
-- **Lane sharing by stream, not by query.** `pravaha.lane.multiplex.enabled` (off by default) puts
-  registered queries on shared lanes, sharing inbox and arena as well as thread — but a shared lane
-  carries only one query per stream, because each query is fed separately and two over one stream
-  on one lane would count each other's rows. One ingest per stream per lane is not built, so a
-  thousand queries over one source still hold most of their inboxes each (LANE-2).
+- **One read of a source per query, for sources that promise exactly-once or order.** With
+  `pravaha.lane.multiplex.enabled` (off by default) any registered query shares a lane — inbox,
+  arena and thread — whatever it reads, joins included, and a reader shared by several queries
+  writes each row into a shared lane once for all of them (LANE-2). But only a source that
+  declares at-least-once and no order gets a shared reader (SRC-3; Aerospike and Cassandra today):
+  a file, Kafka, JDBC, CDC or Delta source keeps a reader per query, each writing its own copy into
+  the shared inbox, so a thousand queries over one topic share eight inboxes and still read the topic
+  a thousand times.
 - **Pushdown past what the stores can say exactly.** Projection is pushed into JDBC, Aerospike and
   Cassandra, and a continuous `COUNT`/`SUM` into JDBC as one partial per polled page — but only
   there: Aerospike would need Lua UDFs on the cluster and Cassandra re-reads its whole table each

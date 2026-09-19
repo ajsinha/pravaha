@@ -106,9 +106,10 @@ that guessed would have to *move* a lane to correct itself — the one thing con
 
 One lane runs one query unless `pravaha.lane.multiplex.enabled` is set. Then `LaneMultiplexer` puts
 up to `max-queries-per-lane` pipelines on each of a fixed set of shared lanes, dispatching by the
-stream id in each row's header so idle queries are never consulted (W9-8). A shared lane carries one
-query per stream: each registration is fed separately, so two over one stream on one lane would
-each be handed the other's rows. See §7 and `OPERATIONS.md`, *Sharing lanes between queries*.
+route in each row's header so idle queries are never consulted (W9-8). Each hosted input has a route
+of its own, so what a query is fed alone reaches it alone, and a reader shared by several queries
+writes each row into a lane once for every query on it that reads it (LANE-2). Any query may share
+a lane, joins included. See §7 and `OPERATIONS.md`, *Sharing lanes between queries*.
 
 ### Lane vs *partition* — one query, several lanes
 

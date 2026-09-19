@@ -226,17 +226,9 @@ fate: a query whose pipeline throws — including one refused with `PRV-4001` fo
 the lane, and every query on it with it, where a lane per query loses one. A node already reaches
 its query target without sharing (W9-11), so this is a memory trade a deployment chooses.
 
-A registration is placed by three rules, in order:
-
-1. **A query that reads more than one stream (a join) gets a lane of its own.** A shared lane has
-   one inbox.
-2. **A shared lane carries at most one query per stream.** Rows are dispatched on a lane by the
-   stream they came from, and each registered query is fed separately — so two queries over `txn`
-   on one lane would each be handed the other's copy of every row, and each count would read double
-   (measured: 8 where 4 was right). A second query over a stream goes to another shared lane, or to
-   a lane of its own.
-3. **Of the lanes left, the least loaded below `max-queries-per-lane` wins**, by query count, lowest
-   number on a tie.
+A registration is placed by one rule: **the least loaded shared lane below
+`max-queries-per-lane` wins**, by query count, lowest number on a tie. What the query reads does not
+matter — two queries over `txn` share a lane, and so does a join (LANE-2).
 
 **A registration that fits on no shared lane is not refused — it gets a lane of its own**, exactly
 as with sharing off. Turning a memory setting on must never make a node accept fewer queries than
@@ -244,15 +236,36 @@ it does with it off. What that costs is the inbox sharing exists to save, and it
 
 - `pravaha_lane_shared_queries{lane=}` — queries on each shared lane, against the ceiling
 - `pravaha_lane_own_queries` — queries holding a lane of their own. **Rising on a node with sharing
-  on** means the shared lanes are full or the queries all read the same few streams: raise `lanes`
-  or `max-queries-per-lane`, or accept the inbox each costs
+  on** means the shared lanes are full: raise `lanes` or `max-queries-per-lane`, or accept the inbox
+  each costs
+- `pravaha_lane_shared_bytes` — the off-heap the shared lanes hold between them, once
 - the node's status and its startup log carry one line: `lanes: shared, queries per lane [..] of at
   most 300; N on lanes of their own`
 
-Rule 2 is why sharing does less than its name suggests for the workload ADR-036 was written about —
-a thousand queries over one Aerospike set share a lane with at most one another per lane. Lifting it
-means one ingest per stream per lane fanned out to every pipeline on it, which the multiplexer was
-built for and the feed layer does not yet do.
+**What is shared, and what is not.** Each row on a shared lane carries a *route*: every hosted query
+has its own, and what it is fed alone — a reader of its own, rows pushed by an embedder, a catch-up
+read — reaches that query and no other on the lane. A reader shared by several queries (SRC-3, a
+source that declares at-least-once and no order: Aerospike and Cassandra today) writes each row into
+a shared lane **once**, and every query on that lane reading it is handed the one copy. Measured with
+1,000 queries over one source on 8 shared lanes: 8 lanes and 8 copies of each row, where lanes of
+their own are 1,000 lanes and 1,000 copies — 8 MiB of inboxes at the defaults against about 1 GB
+(`SharedLaneDensityTest`). A source promising exactly-once or order (a file, Kafka, JDBC, CDC,
+Delta) still gets a reader per query, so its queries share the lane and its inbox but each writes its
+own copy into it.
+
+**What a slow neighbour costs.** Nothing is dropped for anybody. A query that is slow for its share
+of a lane slows the lane's drain for every query on it, and when the lane's inbox fills, everything
+feeding the lane is held: a reader of its own is paused at the high watermark as usual, and a shared
+reader stalls — for every query it feeds, on any lane — because it writes a row to all of them or
+none. A lane that frees no cell for 30 seconds fails the feed writing into it with `PRV-3002`, naming
+the lane as not draining, rather than hanging it.
+
+**Pause, drop and checkpoints on a shared reader.** A query paused off a shared reader stops at an
+exact row and records that row as its position, so a checkpoint taken while it is paused resumes it
+where it stopped — not where the others have got to. Resuming catches it up through its own route. A
+drop takes the query off the lane at the row it left and leaves the rest reading. A checkpoint of
+any query holds the shared reader between rows, so its state and its offset name one point, exactly
+as on a lane of its own; each query restores from its own checkpoint.
 
 **Threads do not enter this arithmetic.** A query costs no platform thread of its own: lanes share a
 fixed runner pool of one thread per core, the periodic work shares one process-wide clock, and the
@@ -1042,6 +1055,7 @@ And per node, for lane sharing (`pravaha.lane.multiplex.*`) and the spill tier:
 |---|---|
 | `pravaha_lane_shared_queries{lane=}` | How many queries each shared lane carries, against `max-queries-per-lane`. Absent with sharing off |
 | `pravaha_lane_own_queries` | How many queries hold a lane — and an inbox — of their own. All of them with sharing off; with it on, the ones no shared lane would take |
+| `pravaha_lane_shared_bytes` | Off-heap the shared lanes hold between them — inboxes and arenas, counted once however many queries they carry. Zero with sharing off |
 | `pravaha_state_spill_bytes_mapped` | Overflow slab mapped on the node, across every query — what `pravaha.state.spill.max-bytes` counts. Alert well before it reaches the quota: at the quota the next query to need a slab stops with `PRV-4005` |
 
 `state_held` and `state_ceiling` are counted in the units the ceiling is expressed in —
@@ -1271,9 +1285,9 @@ Listed because you will meet them, not to be thorough:
   `COUNT(DISTINCT)` included (ADR-044). The ceiling is visible before it arrives either way (B1)
 - **By default a lane runs one query on a node.** The thread is shared (`LaneRunner`); the inbox
   and the arena are not, so per-query off-heap is ~1 MiB idle. `pravaha.lane.multiplex.enabled`
-  shares them (off by default, because a shared lane shares its fate), and even then a shared lane
-  carries **one query per stream**: each query is fed separately, and two over one stream on one
-  lane would each count the other's rows. Sharing one ingest between them is not built (W9-8)
+  shares them (off by default, because a shared lane shares its fate), for any query, joins included.
+  A shared reader writes each row into a shared lane once for every query on it (LANE-2); a source
+  promising exactly-once or order still reads once per query
 - **N Aerospike-backed queries over one set are one scan**, throttled to `scan.interval.ms` and
   shared: one reader per *source binding* fans each record into every lane bound to it (SRC-3). The
   shared reader pushes the **OR** of its queries' filters and the union of their columns, and is

@@ -6,7 +6,7 @@ order: 30
 icon: diagram-2
 summary: "pravaha.lane.multiplex.* puts many queries on a fixed set of shared lanes, so they share an inbox and an arena. What it saves, how a registration is placed, and why it is off by default."
 audience: Operators
-keywords: [multiplex, shared lane, max-queries-per-lane, LaneMultiplexer, ADR-027, ADR-036, pravaha_lane_shared_queries, pravaha_lane_own_queries]
+keywords: [multiplex, shared lane, max-queries-per-lane, LaneMultiplexer, ADR-027, ADR-036, LANE-2, pravaha_lane_shared_queries, pravaha_lane_own_queries, pravaha_lane_shared_bytes]
 guide: operations#sharing-lanes-between-queries
 related: [sizing-lanes, state-spill, metrics-alerts]
 ---
@@ -43,21 +43,31 @@ The shared lanes use the same `pravaha.lane.inbox.*`, `pravaha.lane.arena.*`, `b
 
 ## How a registration is placed
 
-Three rules, in order:
-
-1. **A query that reads more than one stream — a join — gets a lane of its own.** A shared lane
-   has one inbox.
-2. **A shared lane carries at most one query per stream.** Rows are dispatched on a lane by the
-   stream they came from, and each registered query is fed separately, so two queries over `txn`
-   on one lane would each be handed the other's copy of every row and each count would read double
-   (measured: 8 where 4 was right). A second query over a stream goes to another shared lane.
-3. **Of the lanes left, the least loaded below `max-queries-per-lane` wins** — by query count,
-   lowest lane number on a tie.
+One rule: **the least loaded shared lane below `max-queries-per-lane` wins** — by query count,
+lowest lane number on a tie. What a query reads does not matter: two queries over `txn` share a
+lane, and so does a join.
 
 **A registration that fits on no shared lane is not refused — it gets a lane of its own**, exactly as
 with sharing off. Turning a memory setting on never makes a node accept fewer queries.
 
-### Worked: what rule 2 does to a real workload
+### What the queries on a lane share
+
+Every row on a shared lane carries a *route*. Each query has its own, and what it is fed alone — a
+reader of its own, rows an embedder pushes, a catch-up read — reaches that query and no other on the
+lane. A reader shared by several queries writes each row into a shared lane **once**, and every
+query on the lane that reads it is handed that one copy. Readers are shared for sources that declare
+at-least-once and no order (Aerospike and Cassandra); a file, Kafka, JDBC, CDC or Delta source keeps a
+reader per query, so its queries share the lane and its inbox but each writes its own copy into it.
+
+Measured, 1,000 queries over one source on 8 shared lanes: **8 lanes and 8 copies of each row**,
+where lanes of their own are 1,000 lanes and 1,000 copies — 8 MiB of inboxes at the defaults
+against about 1 GB.
+
+Before LANE-2 a shared lane carried one query per stream and never a join: rows were dispatched by
+stream while each query was fed separately, so two queries over `txn` on one lane each counted the
+other's rows (8 where 4 was right).
+
+### Worked: where five queries land
 
 A node with sharing on, `lanes: 4`, registers these five queries in order:
 
@@ -93,21 +103,19 @@ JOIN shipments s ON s.order_id = o.order_id
   AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '1' DAY;
 ```
 
-Where each one lands, and why:
+Where each one lands:
 
 ```text
 big_card_txn    shared lane 0   least loaded (all empty; lowest number)
-eur_txn         shared lane 1   lane 0 already carries a query over txn (rule 2)
-region_orders   shared lane 2   least loaded of the lanes with no orders query
+eur_txn         shared lane 1   least loaded
+region_orders   shared lane 2   least loaded
 minute_fills    shared lane 3   least loaded
-shipped_orders  own lane        reads two streams (rule 1)
+shipped_orders  shared lane 0   all four tied at one; lowest number. A join shares like anything else
 ```
 
-Four inboxes for five queries rather than five — and the saving grows with the number of
-*distinct streams*, not the number of queries. A thousand queries over one Aerospike set still need
-a thousand lanes' worth of placement, because at most one of them fits on each shared lane. Lifting
-rule 2 means one ingest per stream per lane fanned out to every pipeline on it: the multiplexer was
-built for that, and the feed layer does not yet do it.
+Four inboxes for five queries rather than five — and the saving grows with the number of queries,
+whatever they read. A thousand queries over one Aerospike set fill the shared lanes up to the
+ceiling, and the set's one reader writes each record into each lane once.
 
 ## Watching it
 
@@ -115,19 +123,20 @@ built for that, and the feed layer does not yet do it.
 |---|---|
 | `pravaha_lane_shared_queries{lane="0"}` | Queries on each shared lane, against `max-queries-per-lane`. Absent with sharing off |
 | `pravaha_lane_own_queries` | Queries holding a lane — and an inbox — of their own. All of them with sharing off |
+| `pravaha_lane_shared_bytes` | Off-heap the shared lanes hold between them — counted once, however many queries they carry |
 | startup log / `GET /api/v1/status` | `lanes: shared, queries per lane [..] of at most 300; N on lanes of their own` |
 
-**`pravaha_lane_own_queries` rising on a node with sharing on** means the shared lanes are full, or
-the queries all read the same few streams: raise `lanes` or `max-queries-per-lane`, or accept the
-inbox each own-lane query costs.
+**`pravaha_lane_own_queries` rising on a node with sharing on** means the shared lanes are full:
+raise `lanes` or `max-queries-per-lane`, or accept the inbox each own-lane query costs.
 
 ```bash
 curl -s http://localhost:8080/actuator/prometheus | grep '^pravaha_lane_'
 ```
 
 ```text
-pravaha_lane_own_queries 1.0
-pravaha_lane_shared_queries{lane="0"} 1.0
+pravaha_lane_own_queries 0.0
+pravaha_lane_shared_bytes 4194304.0
+pravaha_lane_shared_queries{lane="0"} 2.0
 pravaha_lane_shared_queries{lane="1"} 1.0
 pravaha_lane_shared_queries{lane="2"} 1.0
 pravaha_lane_shared_queries{lane="3"} 1.0
@@ -144,34 +153,31 @@ pravaha_lane_shared_queries{lane="3"} 1.0
 - **Checkpoint pauses.** A checkpoint commits each query's view on its lane; on a shared lane one
   query's slow sink or large state lengthens the pause for its neighbours. `pravaha.checkpoint.timeout`
   bounds it.
+- **A slow neighbour.** Nothing is dropped, for anybody. A query slow for its share of a lane slows
+  the lane's drain for every query on it; when the lane's inbox fills, everything feeding it is held,
+  and a shared reader stalls for every query it feeds, because it writes a row to all of them or
+  none. A lane that frees no cell for 30 seconds fails the feed writing into it with `PRV-3002`
+  rather than hanging it.
 - **Keyed aggregates stay single-lane** whatever this says (ADR-034).
 
 ## When to turn it on
 
 | Situation | Sharing? |
 |---|---|
-| Hundreds or thousands of low-rate queries over **many different streams**, memory the constraint | Yes |
-| Many queries over **one or a few streams** | Little gain (rule 2); size the inbox down instead |
-| Mostly joins | No gain (rule 1) |
+| Hundreds or thousands of low-rate queries, memory the constraint | Yes |
+| Many queries over **one Aerospike set or Cassandra table** | Yes: one reader, one copy per lane |
+| Many queries over one Kafka topic or file | Yes for the inboxes; each still reads the source once |
 | A few high-rate queries whose isolation matters | No |
 
 ## Pitfalls
 
-!!! warning "Pitfall: expecting sharing to fix a thousand queries over one set"
-    Rule 2 places at most one query per stream on a shared lane, so queries over the same stream
-    spread one per lane and then fall back to lanes of their own. For that workload the inbox sizing
-    in [Sizing lanes](/help/topics/sizing-lanes) is the lever that works.
+!!! warning "Pitfall: expecting sharing to cut reads of an exactly-once source"
+    Sharing a lane shares its inbox, arena and thread. It shares the *read* only where the source
+    lets one reader feed several queries — at-least-once, unordered, replayable. A thousand queries
+    over one Kafka topic on eight shared lanes hold eight inboxes and still read the topic a thousand
+    times, because handing a late joiner over between two readers would duplicate the overlap.
 
 !!! note "The status of ADR-027 and ADR-036"
     Threads were decoupled from lanes in Wave 9 (a fixed runner pool, one thread per core). The
     memory half — `pravaha.lane.multiplex.*` — is built and reachable from a node's configuration,
-    and off by default. Sharing one ingest between queries over the same stream is what remains.
-    The status line of ADR-036 still describes the multiplexer as unreachable from a node; the
-    shipped `application.yaml` and this page describe the current state.
-
-## Where next
-
-- [Sizing lanes](/help/topics/sizing-lanes)
-- [State and spill](/help/topics/state-spill) — make a ceiling survivable before a lane is shared
-- [ADR-027: the lane multiplexes queries](/help/decisions/027-lane-multiplexes-queries)
-- [ADR-036: one node, thousands of queries](/help/decisions/036-one-node-thousands-of-queries)
+    off by default, and since LANE-2 takes any query and one copy of a shared source per lane.

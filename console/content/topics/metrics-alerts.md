@@ -53,6 +53,7 @@ it did not measure would be invented.
 |---|---|
 | `pravaha_lane_shared_queries{lane=}` | Queries on each shared lane. Absent with [lane sharing](/help/topics/lane-sharing) off |
 | `pravaha_lane_own_queries` | Queries holding a lane of their own |
+| `pravaha_lane_shared_bytes` | Off-heap the shared lanes hold between them, counted once |
 | `pravaha_state_spill_bytes_mapped` | Overflow mapped across every query — what `pravaha.state.spill.max-bytes` counts |
 
 Plus the JVM and process meters Spring Boot publishes (`jvm_memory_used_bytes`,
