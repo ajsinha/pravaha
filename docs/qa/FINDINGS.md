@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **339 findings carrying a
-status — 224 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **341 findings carrying a
+status — 225 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 96 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The blockers, by what they break — none open.** `SUB-1` (a subscribe-and-read gap) and `SCAN-1`
@@ -6778,3 +6778,12 @@ runs is how a default becomes folklore, and this project has already found two o
 ### SCAN-1 (HIGH) — an aggregate over a default Aerospike or Cassandra scan counts rows again on every pass or update
 
 > **Status:** FIXED — `efd397d`..`3f16aa8`: a source now says whether it repeats rows (`SourceCapabilities.repeatsRows`: in normal running it can deliver a row it already delivered without retracting the earlier copy), per configuration — `cassandra` and `aerospike` with `deletes: ignore`, and `jdbc` unless it has `key.column` and `watermark.moves.on.update: false`; every other shipped source answers no. Registration refuses, with `PRV-2042`, any aggregate (windowed or not, `DISTINCT` included), any join, and any sink that cannot upsert by key over such a source, naming `deletes: detect` (or the jdbc option) as the fix; a projection or filter served as a keyed view stays admitted, because a keyed read returns a row once with its current values however many copies arrived. `deletes: ignore` stays the default: `detect` needs a durable state directory and holds every emitted row, and with the refusal neither default can give a silently wrong answer. The Aerospike lut-scan was found to repeat even on insert-only data (its filter is `>=` the previous scan's start). `RepeatedRowsAnalysisTest` (15), `RepeatingSourceRegistrationTest` (6), per-plugin declaration tests, and against real servers a refused aggregate and a keyed view equal to the store over `ignore`, plus detect-mode views and aggregates equal to the store across a restart through the registry; seed-proven — the check removed fails 4 of 6 registry tests. The README's headline Aerospike query now binds `deletes: detect`.
+
+### SPILL-2 (MEDIUM) — a spilled map's slot table could not grow past ~47 million keys, and the next doubling computed a negative size
+
+> **Status:** FIXED — `9007078`: `VariableKeyStateMap`'s table lived in one `int`-addressed region, so it stopped at 2^26 slots and the doubling after that overflowed. The table is now `SlotTable`, 2^20-slot segments with those past the store's RAM ceiling mapped from the spill files, and its ceiling is 2^30 slots (about 750 M keys), refused by name (`PRV-4001`) rather than overflowed. Found while making a join's key index spill. `SlotTableSpillPropertyTest` (7) and `JoinIndexSpillPropertyTest` (4); seed-proven four ways.
+
+### SPILL-3 (MEDIUM) — firing a large window builds it on the heap, and dies there whether or not state spills
+
+> **Status:** OPEN — `SlicedAggregateState.fire` materialises the window on the heap, one boxed handle per accumulator plus an entry per group, so 1.6 M accumulators throw `OutOfMemoryError` against a 160 MiB heap with the spill tier on and off alike; at 1 GiB the same window fires at about 375,000 groups a second. Found by the beyond-RAM measurement (`496314e`), which the spill tier itself survived.
+> **Disposition:** POST-GA — the spill tier's promise is that state past its ceiling goes to disk, and it keeps it; this is the heap cost of emitting a window, bounded by the operator's own sizing, and it is documented in [ADR-044](../adr/044-no-rocksdb-the-mapped-tier-is-l1.md) and OPERATIONS with the heap a large window needs. The fix is to fire in bounded batches straight into the output rather than building the whole window first

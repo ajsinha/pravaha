@@ -140,11 +140,15 @@ ceiling, on an **NVMe development laptop** (`SpillTierMeasurementIT`, 2026-09-19
 
 - Spilled state ran at **0.44x to 1.15x** the throughput of the same load held in RAM. Windowed-
   aggregate inserts were the worst case; probes and window firing were nearly unaffected.
-- That held **while the files stayed in the page cache**. State larger than free RAM was not
-  measured, and will be slower.
+- That held **while the files stayed in the page cache**. Past it, measured since under a kernel
+  memory cap on the development machine, the cost is much larger: a join at twice the cap probed at
+  about 2,500 rows a second against 160,000 cached, and at four times the cap an insert-heavy load
+  fell from over a million rows a second to about 20,000. The cliff is the **index** leaving the
+  cache rather than the rows, and a random probe costs about 2.4 major faults, each reading 124 KiB
+  from the device to use 4 KiB of it.
 - Compaction brought the files back to the live state in about **a second per gigabyte freed**.
-- A join's key index spills with its rows except its slot table: 16 bytes a slot, at most 0.7 full,
-  always in RAM.
+- A join's key index spills whole, its slot table included: the table is held in 16 MiB segments,
+  those past the store's RAM ceiling mapped from the same files and counted against `max-bytes`.
 
 The recommendation that came with it: the tier **stays off by default** — there is no directory it
 could safely assume — and should be turned on for a node with a local disk whose queries could
