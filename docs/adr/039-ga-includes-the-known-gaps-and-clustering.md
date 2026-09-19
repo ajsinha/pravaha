@@ -62,7 +62,7 @@ rounding anything up.
 **Progress against that rule, recorded 2026-09-19.** No GA-BLOCKER is open: `SUB-1` (a
 subscribe-and-read gap) and `SCAN-1` (aggregates over scans that repeat rows) were found and fixed
 the same afternoon;
-one GA-REQUIRED, `FEED-1` (a stopped source feed reported by nothing an operator uses) — `S-3` was reopened and closed again the same day (above). `SX-1` was already fixed in code and gained the test it lacked; `SX-5` lost its code channel to
+and no GA-REQUIRED is open (`FEED-1`, a stopped source feed shown nowhere, was fixed the same day) — `S-3` was reopened and closed again the same day (above). `SX-1` was already fixed in code and gained the test it lacked; `SX-5` lost its code channel to
 authorizing the parsed name before planning, and its latency channel was then re-measured rather than
 assumed — denied and absent reads cost 0.033 and 0.036 ms — and closed on the number. Item by item:
 

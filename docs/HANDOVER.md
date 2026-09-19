@@ -23,8 +23,8 @@ otherwise have to rediscover the hard way.
 | ADRs | **45** |
 
 **Where it stands, 2026-09-19.** **No GA-BLOCKER is open.** `SUB-1` (a subscribe-and-read gap) and
-`SCAN-1` (aggregates over scans that repeat rows), both found this day, are fixed. One GA-REQUIRED is open, `FEED-1`: a query
-whose source feed stopped reports RUNNING and nothing shows why. `S-3` was
+`SCAN-1` (aggregates over scans that repeat rows), both found this day, are fixed. No GA-REQUIRED finding is open: `FEED-1`
+(a stopped source feed shown nowhere) is fixed. `S-3` was
 reopened and closed again the same day: ADR-039 item 8's first slice had removed the refusal of
 `PARTITIONED` while nothing in a running node consumed partition ownership, and a node now refuses
 to serve in that mode (`PRV-9002`) until something does — the coordinator is still built, because as

@@ -16,8 +16,7 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
            main", so between drills it is BEHIND develop. That is intended.
 
   Findings register: 0 GA-BLOCKER (SUB-1 and SCAN-1 fixed 2026-09-19),
-  1 GA-REQUIRED (FEED-1, a stopped feed shown
-  nowhere; next after SUB-1). The header of
+  0 GA-REQUIRED (FEED-1 fixed the same day). The header of
   docs/qa/FINDINGS.md has the exact counts and FindingsRegisterTest holds it
   to them.
 
@@ -85,8 +84,6 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
 
   Queue, in order (owner: build every "not built" item except multi-node):
   - E4: LANE-2, one ingest per stream per shared lane, fanned out.
-  - FEED-1 (GA-REQUIRED): a stopped feed's reason in the query detail, CLI,
-    metrics and console.
   - E5: blue/green query replacement with backfill splicing wired.
   - E6: the time-travel debugger engine (checkpoint fork, step protocol,
     sinks disabled). Console C3/C4 screens follow E5/E6.

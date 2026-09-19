@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **339 findings carrying a
-status — 223 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
-GA-BLOCKER, 1 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 224 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -6761,8 +6761,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### FEED-1 (MEDIUM) — a query whose source feed stopped reports RUNNING, and nothing shows why
 
-> **Status:** OPEN — when a source fails mid-read `PumpingFeed` records the failure (`PRV-5092`, or the source's own code) and stops, deliberately, rather than spinning; the query stays `RUNNING` and its view answers at the frontier it reached. The record is reachable through `SourceFeed.describe()`, and nothing an operator uses calls it: not `GET /api/v1/queries/{name}` (`QueryDetail` has no feed field), not `pravaha queries`, not `/status`, not the console. Only the Spring starter's `PravahaTester` reads it. Found by the console's journeys agent checking a help page that claimed the description says why.
-> **Disposition:** GA-REQUIRED — the product is not diagnosable without it on a path an operator will certainly hit (a deleted file, a revoked credential, a schema change); the fix is the feed's state and failure in the query's detail, the CLI listing, the metrics and the console's query page
+> **Status:** FIXED — `f079312`..`b42a74d` on the agent branch (merged as FEED-1's eight commits): a query's feed now reports a structured `FeedStatus` — `NONE`, `RUNNING`, `PAUSED` or `STOPPED` (any source stopped), with each source partition's stream, partition, sharing, state and, for a stopped one, its failure, time and origin — and binding option values are redacted from the message. The query stays `RUNNING`, deliberately: its view is correct up to its frontier, and `FAILED` would refuse reads. It is shown on `GET /api/v1/queries` and `/{name}` (a row-filtered caller gets the code, not the text), `/status` (`stoppedFeeds`), the metrics (`pravaha_query_feed_stopped`, `pravaha_query_feed_failures_total`), the engine health indicator (`DEGRADED`, probe still 200), Flight `pravaha.list` (five trailing fields; an eight-field reader is unaffected), both SDKs, `pravaha queries` (`RUNNING (source stopped)` and the failure beneath the table), the Spring starter's actuator endpoint and health, and the console's query page, lists and operations verdict (a critical finding with the code linked). Each stop is logged once at ERROR, answering TIME-4's missing log line. `FeedStatusTest` (5), `FeedStatusSurfacesTest` (2, a real node through every server surface), SDK, CLI, actuator, Python and console tests; seed-proven three ways, including redaction turned off.
 
 ### CON-5 (MEDIUM) — the console offered Pause, Resume, Drop and Register whatever the engine's policy said
 
