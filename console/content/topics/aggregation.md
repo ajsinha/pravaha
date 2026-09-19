@@ -29,9 +29,11 @@ change carrying a weight so a retraction subtracts exactly what an insertion add
 | `MIN(col)`, `MAX(col)` | yes | **refused**, PRV-2020 | — | |
 | Over an expression — `SUM(qty * price_cents)` | yes | | | |
 
-Floating-point addition is not associative, so an incremental float `SUM` — and its retraction --
-would depend on the order rows arrived in. The engine refuses rather than answer approximately, and
-the refusal suggests the cast that works: `SUM(CAST(price AS BIGINT))`. Better still, carry money and
+`SUM`, `AVG`, `MIN` and `MAX` over a float column are all refused because every accumulator reads and
+writes a 64-bit integer, whatever the column's type — before the refusal existed, a float aggregate
+produced no rows under a success status. Only `COUNT` of a float column plans, because it never reads
+the value. The refusal suggests the cast that works: `SUM(CAST(price AS BIGINT))`, if the rounding is
+acceptable. Better still, carry money and
 measurements in integer minor units (cents, hundredths of a degree) from the source.
 
 ## Three places an aggregate can run

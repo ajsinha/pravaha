@@ -223,8 +223,11 @@ WHERE t.amount > 100
 
 ## What a lookup cannot do
 
-A lookup is a key-value read. A condition on a **looked-up column** — in the `ON` or in the
-`WHERE` — is not a key, and is refused:
+A lookup is a key-value read. A condition on a **looked-up column** — in the `ON`, or in the
+`WHERE` of an inner lookup join — is not a key, and is refused (the message talks about correlated
+subqueries; that is the planner's word for it). The same `WHERE` over a **`LEFT`** lookup plans, and
+returns exactly the inner answer, because a NULL from a missing key fails the comparison — see
+[lookups](/help/topics/lookups):
 
 <!-- sql: refused PRV-2020 -->
 ```sql

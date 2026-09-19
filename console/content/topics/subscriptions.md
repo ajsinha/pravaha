@@ -52,14 +52,17 @@ pravaha subscribe --view large_payments
 
 ```text
 subscribed to large_payments; changes print as they are committed. Ctrl-C to stop.
-9001	u1	ACME-GROCERY	1250
-9004	u7	TRAVELCO	4800
+WEIGHT	txn_id	user_id	merchant	amount
++1	9001	u1	ACME-GROCERY	1250
++1	9004	u7	TRAVELCO	4800
 -- commit, 2 rows
-9012	u3	ACME-GROCERY	1100
++1	9012	u3	ACME-GROCERY	1100
 -- commit, 1 row
 ```
 
-(Sample rows.) Each group ending in `-- commit, N rows` is one commit. Nothing prints until the next
+(Sample rows.) Each change leads with its weight, always signed — `+1` a row arriving, `-1` a row
+withdrawn — under a `WEIGHT` header printed with the first change. Each group ending in
+`-- commit, N rows` is one commit. Nothing prints until the next
 commit after you attach: a subscription is the changes from *now*, not a replay of the view.
 
 Stop after a number of rows, which is what a script wants:
@@ -68,12 +71,10 @@ Stop after a number of rows, which is what a script wants:
 pravaha subscribe --view large_payments --limit 100
 ```
 
-!!! note "The CLI prints values, not weights"
-    `pravaha subscribe` prints each row's columns and leaves the weight out, so a retraction and an
-    insert of the same row look identical there. That is harmless for an append-only view like
-    `large_payments`, whose rows are never withdrawn, and misleading for one that corrects itself.
-    Use an SDK, or the console's live page (`/views/<name>/live`), where every change shows its
-    `+1`/`−1`.
+!!! note "Read the weight column"
+    For an append-only view like `large_payments` every line is `+1`. For a view that corrects
+    itself, a withdrawn row prints at `-1` and its replacement at `+1` in the same commit — the same
+    thing the SDKs and the console's live page (`/views/<name>/live`) show.
 
 ## Weights, and why a consumer must apply them
 

@@ -160,7 +160,7 @@ kind is refused before the call leaves the process ("?2 needs a number, but a St
 |---|---|---|
 | `register(name, sql, List<Integer> keys)` | `register(name, sql, [keys])` | Key = output-column **ordinals** |
 | `register(name, sql, keys, sink)` | `register(…, sink="audit_sink")` | Also write every commit to a bound sink |
-| `register(name, sql, keys, sink, retention)` | `register(…, retention="P7D")` | ISO-8601 or `forever`; `null`/`None` for the node's default |
+| `register(name, sql, keys, sink, retention)` | `register(…, retention="P7D")` | ISO-8601 or `forever`; `null`/`None` keeps for ever |
 | `queries()` | `queries()` | Every query you may see: `RegisteredQueryInfo` / `RegisteredQuery` |
 | `pause(name)`, `resume(name)`, `drop(name)` | the same | Idempotent where the end state is reachable |
 

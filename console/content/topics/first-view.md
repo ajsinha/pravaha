@@ -308,12 +308,13 @@ The watermark moves to 09:03:10, which passes the end of `[09:02, 09:03)`, and t
 row 7 is published as one commit:
 
 ```text
-u3	1789808520000000000	1789808580000000000	1	60
+WEIGHT	user_id	window_start	window_end	payments	spend
++1	u3	1789808520000000000	1789808580000000000	1	60
 -- commit, 1 row
 ```
 
-The CLI prints the view's columns in order — `user_id`, `window_start`, `window_end`, `payments`,
-`spend` — and marks the end of each commit. A subscriber never sees half a commit.
+The CLI prints each change's weight — `+1`, a window's answer arriving — then the view's columns in
+order, under a header printed with the first change, and marks the end of each commit. A subscriber never sees half a commit.
 
 ## 10. Watch a retraction
 

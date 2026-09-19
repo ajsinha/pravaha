@@ -117,7 +117,7 @@ engine says "that was the answer, this is the answer now" without inventing a se
 
 A view keeps rows until they fall further behind the committed frontier, **in event time**, than its
 retention. Retention is chosen at registration (`RETAIN FOR P7D`, `--retain PT24H`, `retention=` in the
-SDKs) or left to the node's default, which is to keep rows for ever unless the node sets one.
+SDKs) or left out, which keeps rows for ever: a server has no setting that changes that default.
 
 ```sql
 CREATE CONTINUOUS QUERY recent_spend

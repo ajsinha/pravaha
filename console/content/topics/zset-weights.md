@@ -6,7 +6,7 @@ order: 40
 icon: plus-slash-minus
 summary: "Every row carries a weight — +1 appearing, −1 withdrawn — and every operator does the same arithmetic on both. Why that makes incremental maintenance correct, what a subscriber sees, and how to consume it without drifting."
 audience: Developers
-keywords: [z-set, zset, weight, retraction, "-1", "+1", insert, delete, update, correction, dbsp, changelog, incremental, subscriber, op.column]
+keywords: [z-set, zset, weight, retraction, "-1", "+1", insert, delete, update, correction, dbsp, changelog, incremental, subscriber, op.column, cdc, tombstone]
 guide: concepts#4-changes-carry-weights-and-a-correction-is-a-retraction-plus-an-insert
 related: [late-data, subscriptions, views-and-keys, consistency, sinks-overview]
 ---
@@ -179,7 +179,7 @@ double-counts, and from then on your total drifts from the view's for ever.
 | The console's live page | yes, shown as `+1` / `−1` beside each change |
 | A sink | yes — retractions are written as rows with a negative weight, or applied as deletes by an upserting sink |
 | A read of a view (`SELECT … FROM view`) | no — a read sees the current rows, every one of which is simply there |
-| The CLI's `pravaha subscribe` | the rows are printed without their weights; use an SDK to see them |
+| The CLI's `pravaha subscribe` | yes — each line leads with its weight, `+1` or `-1`, under a `WEIGHT` header |
 
 The weight is **not one of the view's columns**: `row.columns()` lists what the query selected, and
 a positional read gets the column it always got. It travels as a separate, metadata-marked column on
@@ -203,7 +203,9 @@ is not confused with it.
 !!! note "A polled table never retracts"
     The `jdbc` source writes weight `+1` on every row: a deleted database row is simply never seen
     again. The same holds for scans of Aerospike and Cassandra. Where deletes must reduce a total,
-    a source with an operation column (or change data capture) is the shape.
+    a source that sees them is the shape: [postgres-cdc](/help/topics/source-postgres-cdc), which
+    turns a PostgreSQL `DELETE` into a `−1` and an `UPDATE` into a `−1` and a `+1`; Delta; or a file
+    with an operation column.
 
 ## Where next
 

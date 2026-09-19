@@ -56,7 +56,9 @@ SELEC txn_id FROM txn
 ```
 
 A reserved word used as an alias is a parse error too, and a common one: `hour`, `year`, `value`,
-`timestamp` cannot name a column without quoting. Write `hour_end` or `window_end` instead.
+`timestamp` cannot name a column without quoting. Over `TABLE(TUMBLE(...))`, keep `window_end`
+under its own name — renaming a window column (`window_end AS hour_end`) is refused with PRV-2050 —
+and rename it downstream; in the group-window form, `TUMBLE_END(...) AS hour_end` is fine.
 
 <!-- sql: refused PRV-2001 -->
 ```sql
@@ -119,9 +121,11 @@ table of values instead of listing them.
 
 A relational operator Pravaha does not execute: `ORDER BY`, `LIMIT`/`OFFSET`, `UNION`/`INTERSECT`/
 `EXCEPT`, `VALUES`, `RIGHT`/`FULL OUTER`/`CROSS JOIN`, a `LEFT JOIN` between streams with no time
-bound, a non-equi join, `SESSION` windows, `ROLLUP`, `INSERT`/`UPDATE`/`DELETE` — and `SUM`/`AVG`
-over a floating-point column, because floating-point addition is not associative and an incremental
-sum would depend on arrival order.
+bound, a non-equi join, `SESSION` windows, `ROLLUP`, `INSERT`/`UPDATE`/`DELETE` — and `SUM`, `AVG`,
+`MIN` or `MAX` over a floating-point column, because every aggregate accumulator reads and writes a
+64-bit integer (only `COUNT` of a float plans). A `WHERE` on a looked-up column over an inner lookup
+join is refused with this code too, under a message about correlated subqueries — write the join
+`LEFT` ([lookups](/help/topics/lookups)).
 
 <!-- sql: refused PRV-2020 -->
 ```sql
@@ -253,25 +257,28 @@ The four codes tell apart the four ways binding goes wrong. See
 
 ### PRV-2060 — parameter not bound
 
-The statement was executed with fewer values than it has placeholders — including a continuous query
-registered with a `?` and no `--param` for it.
+The statement was executed with fewer values than it has placeholders — including **any continuous
+query registered over the wire with a `?` in it**. The register action (`pravaha register`, either
+SDK's `register`, `CREATE CONTINUOUS QUERY`) carries a name, SQL, keys, a sink and a retention, and no
+values, so a placeholder there always meets this refusal. `pravaha register --param` does not exist:
+the CLI refuses `--param` and `--params` on `register` with a usage error rather than dropping them.
 
 <!-- sql: refused PRV-2060 -->
 ```sql
 SELECT txn_id, amount FROM txn WHERE merchant = ?
 ```
 
-The same query, registered with its value, plans:
+Only an application embedding the engine binds values into a registration, through
+`QueryRegistry.register(..., BoundParameters.of("acme"))`; with its value the same query plans:
 
 <!-- sql: parameterised -->
 ```sql
 SELECT txn_id, amount FROM txn WHERE merchant = ?
 ```
 
-```bash
-pravaha register --name acme_txn --keys 0 \
-  --sql "SELECT txn_id, amount FROM txn WHERE merchant = ?" --param acme
-```
+Over the wire, write the value into the SQL, or register once without the filter and select by that
+column at read time — `pravaha query ... --params acme`, or `pravaha subscribe --filter merchant=acme`
+— which is one computation for every value. See [Parameters](/help/topics/sql-parameters).
 
 ### PRV-2061 — parameter arity
 
@@ -307,7 +314,7 @@ file holding rows that are each correct and a total that is wrong for ever: a re
 to go (design §15.5).
 
 A filter, a projection, or a tumbling window without lateness never revises and goes to any sink.
-**Do:** point a revising query at a sink that accepts updates (`jdbc-sink`, `aerospike-sink`), or
+**Do:** point a revising query at a sink that accepts updates (`jdbc-sink`, `aerospike-sink`, `kafka-sink`), or
 change the query so it does not revise. The catalog's *Sinks* tab says what each binding accepts. See
 [How a query writes to a sink](/help/topics/sinks-overview).
 

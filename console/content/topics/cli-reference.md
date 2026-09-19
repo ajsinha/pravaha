@@ -221,7 +221,11 @@ pravaha register --name <view> (--sql <query> | --sql-file <path>)
 | `--name` | required | The view's name — what reads will say after `FROM` |
 | `--keys` | `0` | The view's key as **output-column ordinals**, comma-separated |
 | `--sink` | none | A sink bound under `pravaha.sinks.<name>` on the node |
-| `--retain` | the node's | ISO-8601 (`PT24H`, `P7D`) or `forever` |
+| `--retain` | forever | ISO-8601 (`PT24H`, `P7D`) or `forever` |
+
+`register` takes no parameters: `--param` and `--params` are refused with a usage error (exit 2),
+because the server's register action cannot carry bound values and a dropped value would register a
+different query. Write the value into the SQL, or register without it and filter at read time.
 
 ```bash
 cat > spend.sql <<'SQL'
@@ -295,12 +299,14 @@ pravaha subscribe --view big_txn --filter merchant=TRAVELCO --limit 10
 
 ```text
 subscribed to big_txn {merchant=TRAVELCO}; changes print as they are committed. Ctrl-C to stop.
-9004	u7	TRAVELCO	4800
+WEIGHT	txn_id	user_id	merchant	amount
++1	9004	u7	TRAVELCO	4800
 -- commit, 1 row
 ```
 
-Each commit ends with a `-- commit, N rows` line. The CLI prints column values only — **not** the
-`+1`/`−1` weight — so use an SDK or the console's live page for a view that corrects itself. See
+Each change leads with its Z-set weight, always signed — `+1` a row arriving, `-1` a row withdrawn —
+under a `WEIGHT` header printed with the first change, so a retraction never looks like the insert it
+withdraws. Each commit ends with a `-- commit, N rows` line. See
 [Subscriptions](/help/topics/subscriptions).
 
 ### `pause`, `resume`, `drop`

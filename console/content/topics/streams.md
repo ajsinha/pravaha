@@ -68,7 +68,7 @@ option, `POST /api/v1/streams`, and the CLI's `--schema`:
 |---|---|---|
 | `BOOLEAN` | `BOOL` | |
 | `INT8`, `INT16`, `INT32`, `INT64` | `BYTE`, `SHORT`, `INT`, `LONG` | `INT64` is SQL `BIGINT` |
-| `FLOAT32`, `FLOAT64` | `FLOAT`, `DOUBLE` | `SUM`/`AVG` over a float column is refused (PRV-2020): floating-point addition is not associative, so an incremental sum would depend on arrival order |
+| `FLOAT32`, `FLOAT64` | `FLOAT`, `DOUBLE` | `SUM`, `AVG`, `MIN` and `MAX` over a float column are refused (PRV-2020): every aggregate accumulates in a 64-bit integer. `COUNT` works |
 | `STRING` | `VARCHAR`, `TEXT` | UTF-8 |
 | `BYTES` | `BINARY` | carried over Flight; the PostgreSQL gateway refuses it by name |
 | `DATE`, `TIME`, `TIMESTAMP` | | ISO-8601 in files (`2026-09-19`, `09:30:00`, `2026-09-19T09:30:00Z`); a bare number is days for a date, nanoseconds for the other two |
@@ -102,8 +102,8 @@ pravaha:
     different components and must agree. (Some plugins — Delta — take the schema from the table
     instead and have no `schema` option.)
 
-Only `filesystem` is inside the server jar; `feedfile`, `jdbc`, `delta`, `aerospike` and `cassandra`
-are separate modules dropped on the classpath. A plugin is found when a query is first registered
+Only `filesystem` is inside the server jar; `feedfile`, `jdbc`, `delta`, `aerospike`, `cassandra` and
+`postgres-cdc` are separate modules dropped on the classpath. A plugin is found when a query is first registered
 against the stream, **not at startup** — so a binding naming a missing plugin starts cleanly and
 fails at the registration that needs it, listing the plugins that are available. A stream with no
 binding at all registers and runs, and the node logs that nothing is attached. See

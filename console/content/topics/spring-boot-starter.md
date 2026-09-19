@@ -101,7 +101,7 @@ GROUP BY region, window_start, window_end;
 | `queries.<name>.sql` | — | A continuous query registered at start |
 | `queries.<name>.keys` | — | Its key, by output column name |
 | `queries.<name>.sink` | none | A bound sink its changes are also written to |
-| `queries.<name>.retention` | the engine's | How long the view remembers, in event time |
+| `queries.<name>.retention` | forever | How long the view remembers, in event time |
 | `registry.journal` | none (memory only) | A file: registrations come back after a restart |
 | `checkpoint.directory` | none | A directory: each query's state is checkpointed under it |
 | `checkpoint.interval` / `.keep` / `.timeout` | `1m` / `3` / `30s` | How often, how many to keep, how long one may take |

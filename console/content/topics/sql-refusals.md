@@ -276,10 +276,10 @@ GROUP BY merchant, window_start, window_end
 
 ### Floating-point aggregates
 
-Floating-point addition is not associative, so an incremental `SUM` over a `DOUBLE` would depend on
-the order rows arrived in — and so would a retraction. The engine's aggregates accumulate in 64-bit
-integers and refuse a float column rather than answer approximately. This covers `SUM`, `AVG`,
-`MIN` and `MAX`:
+Every aggregate accumulator reads and writes a 64-bit integer, whatever the column's type, so a
+float column is refused rather than aggregated into nonsense — before the refusal, a float aggregate
+produced no rows under a success status. This covers `SUM`, `AVG`, `MIN` and `MAX`; only `COUNT` of a
+float column plans, because it never reads the value:
 
 <!-- sql: refused PRV-2020 -->
 ```sql

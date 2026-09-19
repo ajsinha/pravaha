@@ -299,7 +299,7 @@ each of these apart with expected output.
 | Equality plus a time bound, both-sided or one-sided | yes | The bound also decides how long state is kept |
 | `LEFT JOIN` with a time bound | yes | The null-padded row is emitted once, when the window passes |
 | Three streams or more, all distinct | yes | |
-| Temporal lookup, `FOR SYSTEM_TIME AS OF` | yes | A key-value read per row; no state |
+| Temporal lookup, `FOR SYSTEM_TIME AS OF` | yes | A key-value read per row; no state. A condition on a looked-up column is refused (PRV-2020) in `ON`, and in `WHERE` over an inner lookup — write the join `LEFT` and filter in `WHERE`: see [temporal joins](/help/topics/temporal-joins) |
 | Self join, `RIGHT`, `FULL`, `CROSS`, non-equi | no | See [joins](/help/topics/joins) |
 
 ```sql

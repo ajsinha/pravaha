@@ -41,7 +41,7 @@ SHOW   CONTINUOUS QUERIES
 | `name` | yes | The name clients read: `SELECT ... FROM name`. Plain, or double-quoted (`"audit-log"`, with `""` for a quote). Keeps its case |
 | `KEYED BY (...)` | **yes** | The view's key, by **output column name**. A second row with the same key replaces the first. A view with no key is a log |
 | `WRITING TO sink` | no | Also write every commit to a sink bound under `pravaha.sinks.<sink>` |
-| `RETAIN FOR d` / `RETAIN FOREVER` | no | How much event time the view keeps. Omitted: the node's default (forever unless the node sets one) |
+| `RETAIN FOR d` / `RETAIN FOREVER` | no | How much event time the view keeps. Omitted: **forever** — a server has no setting that changes that |
 | `AS select` | yes | The query itself, kept exactly as you wrote it for listings |
 
 Rules that apply to every statement:

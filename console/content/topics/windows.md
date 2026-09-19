@@ -115,8 +115,10 @@ Do not mix the two: `TUMBLE_END(...)` over a `TABLE(TUMBLE(...))` input is refus
 have matching call to group function"); in that form, select `window_end` itself.
 
 !!! warning "hour is a reserved word"
-    `AS hour` fails to parse (PRV-2001) — so do `year`, `value` and the other SQL keywords. Name
-    the column `hour_end` or `window_end`.
+    `AS hour` fails to parse (PRV-2001) — so do `year`, `value` and the other SQL keywords. In the
+    group-window form, name the column `hour_end`. In the `TABLE(TUMBLE(...))` form, select
+    `window_end` under its own name: renaming it (`window_end AS hour_end`) is refused with PRV-2050,
+    under a message saying the `GROUP BY` lacks the window.
 
 ## When a window emits
 
@@ -189,9 +191,9 @@ reopens the window as a correction: the old result at `−1`, the new one at `+1
 !!! warning "A month window"
     `INTERVAL '1' MONTH` is refused: a month is not a fixed length of event time.
 
-!!! tip "SUM over a float column"
-    Refused (PRV-2020). Keep money in integer minor units (`price_cents`), or cast:
-    `SUM(CAST(temperature AS BIGINT))`.
+!!! tip "SUM, AVG, MIN or MAX over a float column"
+    Refused (PRV-2020); only `COUNT` of a float plans. Keep money in integer minor units
+    (`price_cents`), or cast: `SUM(CAST(temperature AS BIGINT))`.
 
 ## Where next
 

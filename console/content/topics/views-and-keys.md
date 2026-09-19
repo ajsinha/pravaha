@@ -143,7 +143,7 @@ frontier. Rows whose event time falls further behind are evicted.
 | `RETAIN FOR P7D`, `RETAIN FOR 'PT24H'` | an ISO-8601 age |
 | `RETAIN FOR INTERVAL '8' HOUR` | an interval in one unit: `SECOND`, `MINUTE`, `HOUR`, `DAY` or `WEEK` |
 | `RETAIN FOREVER` | keep everything |
-| left out | the node's default — forever, unless the node sets one |
+| left out | **forever**. A server has no setting that changes this; only an application embedding a `QueryRegistry` can, with `retaining(...)` |
 
 A month is not a fixed length of event time and is refused. A retention the server cannot read is
 refused rather than defaulted, because keeping a day of a view somebody asked to keep for an hour
